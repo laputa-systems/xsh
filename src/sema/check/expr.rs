@@ -111,7 +111,7 @@ impl Checker {
                         .clone(),
                 };
                 let mut result = SchemaExpectation::default();
-                result.children.insert(SchemaComponent::Success, context);
+                result.insert_child(SchemaComponent::Success, context);
                 Some(result)
             }
             ArenaExprKind::Call { callee, .. } => match arena.arena.expr(callee).kind {
@@ -1096,9 +1096,7 @@ impl Checker {
                     .map(|ty| Type::Result(Box::new(ty), Box::new(Type::Error)));
                 let schema = self.boundary.expected_schema.clone().map(|schema| {
                     let mut wrapped = crate::sema::constants::SchemaExpectation::default();
-                    wrapped
-                        .children
-                        .insert(crate::sema::constants::SchemaComponent::Success, schema);
+                    wrapped.insert_child(crate::sema::constants::SchemaComponent::Success, schema);
                     wrapped
                 });
                 let ty = self.check_expr_with_schema_arena(

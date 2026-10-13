@@ -369,9 +369,9 @@ const LOWERED_METHOD_NAMES: &[&str] = &["len"];
   assert report.lowered_nodes.statements > 0
   assert report.lowered_nodes.expressions > 0
   assert report.lowered_nodes.pipeline_stages == 46
-  assert report.pattern_variants == 18
+  assert report.pattern_variants == 17
   assert "pipeline stages: 46" in stdout_path.read_text()?
-  assert "pattern variants: 18" in stdout_path.read_text()?
+  assert "pattern variants: 17" in stdout_path.read_text()?
 }
 
 test test_ir_coverage_report_validation_rejects_incomplete_wire_data {

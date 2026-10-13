@@ -310,7 +310,6 @@ diagnostic_codes! {
         CheckDuplicateSignalHook = "check.duplicate-signal-hook", error, "Reject registering the same signal hook more than once";
         CheckDurationLiteral = "check.duration-literal", error, "Reject a duration literal that overflows the maximum millisecond count";
         CheckDynamicBoundary = "check.dynamic-boundary", error, fixable, "Validate an `Any` value with `.require(T)?` where the context names its concrete type";
-        CheckEachTail = "check.each-tail", error, "Reject an `each` or `tee` block with the wrong result type";
         CheckEffectViolation = "check.effect-violation", error, "Reject an operation that requires an effect the enclosing callable does not declare";
         CheckEmptyMatch = "check.empty-match", error, "Reject a `match` expression with no arms";
         CheckEnumWireMapping = "check.enum-wire-mapping", error, "Reject an invalid Str-backed enum variant wire mapping";

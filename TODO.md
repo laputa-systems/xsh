@@ -56,18 +56,10 @@ line always computes. Three things found while porting the rest:
 
 ## Defects
 
-The remaining typed-call verifier gap is W4-owned. It establishes signatures
-for parameter, local-slot, and capture callees, but not yet for callees
-produced by a record-field selection or a call result. Keep W4 open until the
-producer provenance is verified through those expressions.
-
-The W9 module publication and check-count gap also remains open. A frozen
-full-corpus comparison (`e240` reference vs `a280` candidate) found 256
-prepared-publication differences across 64 paths under four profiles, while
-diagnostics matched. The captured `core/b2sum.xsh` difference is missing
-prepared `cli_plans`; the audit did not establish a user-visible runtime
-failure. No current per-workspace module check counts have been recorded.
-Close W9 only after accepted publication parity and check-count evidence.
+The W9 module publication gap is closed for parity: the sealed owner matches
+the frozen reference on all 1,690 inputs and 6,760 profile outcomes, with
+matching diagnostics. No current per-workspace module check or preparation
+counts have been recorded. Close W9 only with that count evidence.
 
 ## Laputa
 

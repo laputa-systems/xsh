@@ -122,6 +122,31 @@ test test_null_test_narrows_every_later_branch {
   assert pick("a", "b") == "ab"
 }
 
+# A field read in the branch after a null test sees the record, also for an
+# annotated optional local inside a `try` block of a program's own procedure.
+test test_null_test_narrows_an_optional_record_local_for_field_reads { |ctx|
+  let result = test.run_xsh(
+    ctx,
+    r"""type R0 = {f0: List[Bool]}
+proc describe() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    let o: R0? = {...R0(f0: [true, false]), f0: [false, false, false]}
+    out += [if o == null {
+      "null"
+    } else {
+      "R0{" + ("[" + [f"{r}" for r in o.f0].join(",") + "]") + "}"
+    }]
+    out
+  }
+}
+for line in describe()? { print ${line} }
+""",
+  )?
+  assert result.success, result.stderr
+  assert result.stdout == "R0{[false,false,false]}\n", result.stdout
+}
+
 # A branch whose own condition tested nothing about `x` learns nothing more.
 test test_else_if_does_not_narrow_what_it_did_not_test { |ctx|
   let output = test.expect(

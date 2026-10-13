@@ -126,12 +126,8 @@ impl EffectGraph {
         };
         let program = view.program;
         let mut graph = Self::default();
-        for raw in 0..program.arena.stmt_tags.len() {
-            let statement_id = StmtId::from_index(raw);
+        for statement_id in program.arena.source_rows().stmt_ids(source_id) {
             let statement = program.arena.stmt(statement_id);
-            if statement.span.source_id != source_id {
-                continue;
-            }
             let definition = match statement.kind {
                 ArenaStmtKind::ProcDef(definition)
                 | ArenaStmtKind::StreamDef(definition)
@@ -364,7 +360,7 @@ impl EffectGraph {
 
 use super::{Checker, FunctionSig};
 use super::effect_bounds::ExcludedEffect;
-use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BlockId, StmtId};
+use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BlockId};
 
 #[derive(Clone, Debug)]
 pub(super) enum DeferredEffectKind {

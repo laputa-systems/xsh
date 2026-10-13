@@ -62,6 +62,7 @@ a block, such as `if`, `for`, or `proc`) needs no separator after it.
 | `NEWLINE` | a line break that ends a statement (see Line continuation) |
 | `WORD_PART` | any other token that can be part of a bare command word |
 | `PATH_PART` | a token made only of bare-path characters |
+| `GROUP_END` | a closing parenthesis owned by an expression group |
 | `KEYWORD` | a reserved keyword |
 
 Keywords:
@@ -141,7 +142,7 @@ statements = ( separator | compound_statement | simple_statement separator )* si
 separator = NEWLINE | ";" ;
 block = "{" separator* block_parameters? statements "}" ;
 block_parameters = "|" list1(IDENT) "|" ;
-top_level_declaration = test_declaration | cli_main ;
+top_level_declaration = test_declaration | cli_entry ;
 compound_statement = if_statement
                    | while_statement
                    | for_statement
@@ -208,7 +209,7 @@ error_variant = NAME ( "(" list(LABEL ":" type_expr) ")" )? ( ":" IDENT ( "," ID
 proc_declaration = "proc" NAME "(" parameters ")" effects? ( "->" type_expr )? block ;
 pure_declaration = "pure" IDENT "(" parameters ")" ( "->" type_expr )? block ;
 stream_declaration = "stream" IDENT "(" parameters ")" effects? "->" type_expr block ;
-cli_main = "cli" "main" IDENT* "(" parameters ")" effects? ( "->" type_expr )? block ;
+cli_entry = "cli" ( "main" IDENT* | IDENT ) "(" parameters ")" effects? ( "->" type_expr )? block ;
 test_declaration = "test" IDENT effects? "{" separator* ( "|" IDENT ","? "|" )? statements "}" ;
 parameters = list(parameter) ;
 parameter = IDENT ":" type_expr ( "=" expression )? | IDENT "=" expression | "." ~"." ~"." IDENT ":" type_expr ;
@@ -226,24 +227,24 @@ guarded_value = expression_item postfix_guard? | run_form ( "?" postfix_guard? )
 return_statement = "return" ( postfix_guard | guarded_value )? ;
 yield_statement = "yield" ( "@" expression postfix_guard? | guarded_value ) ;
 break_statement = "break" ( postfix_guard | expression postfix_guard? )? ;
-exit_statement = "exit" !( "as" | "is" ) line(expression) postfix_guard? ;
-fail_statement = "fail" !( "as" | "is" ) line(expression ( "because" expression )?) postfix_guard? ;
+exit_statement = !name_expression "exit" line(expression) postfix_guard? ;
+fail_statement = !name_expression "fail" line(expression ( "because" expression )?) postfix_guard? ;
 wait_until_statement = "wait" "until" condition_expression "within" head_duration ( "every" head_duration | "backoff" backoff_range )? ;
 continue_statement = "continue" postfix_guard? ;
 defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
-expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" ) expression "?"? ;
-guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) expression postfix_guard ;
+expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" ) &name_expression expression "?"? ;
+guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) &name_expression expression postfix_guard ;
 guard_fail_statement = "guard" !"let" guard_condition "else" "fail" line(expression ( "because" expression )?) ;
-if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
+if_statement = "if" condition !builder_callback_before_condition_body block ( "else" "if" condition !builder_callback_before_condition_body block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
-while_statement = "while" condition block ;
-for_statement = "for" ( IDENT "," )? binding_target "in" condition_expression block ;
+while_statement = "while" condition !builder_callback_before_condition_body block ;
+for_statement = "for" ( IDENT "," )? binding_target "in" condition_expression !builder_callback_before_condition_body block ;
 loop_statement = "loop" block ;
 repeat_statement = "repeat" line(condition_expression) "times" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
 atomically_statement = "atomically" "replace" condition_expression "as" IDENT block ;
-match_statement = "match" condition_expression "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
+match_statement = "match" condition_expression !builder_callback_before_condition_body "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
 arm_head = !( "." IDENT ) pattern ( "if" expression )? "=>" ;
 else_arm_head = "else" "=>" ;
 arm_body = ( block | compound_statement ) ","?
@@ -253,7 +254,7 @@ arm_statement = !"{" simple_statement
               | &( "{" "." "." | "{" "[" | "{" LABEL ":" | "{" LABEL "." | "{" STRING ":" | "{" NEWLINE "." "." | "{" NEWLINE "[" | "{" NEWLINE LABEL ":" | "{" NEWLINE LABEL "." | "{" NEWLINE STRING ":" ) record_expression "?"? ;
 guard_statement = "guard" ( !"let" guard_condition "else" block | "let" binding_target ( ":" type_expr )? "=" ( expression_item | run_form "?" ) "else" NEWLINE* block ) ;
 guard_condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) condition_expression ;
-with_statement = "with" list(IDENT "=" condition_expression) block NEWLINE* "else" NEWLINE* block ;
+with_statement = "with" list(IDENT "=" condition_expression) !builder_callback_before_condition_body block NEWLINE* "else" NEWLINE* block ;
 ```
 
 ## Expressions
@@ -268,7 +269,7 @@ equality = ordering
 pipe_stage = stream_stage | value_stage ;
 value_stage = !( "where" | "map" | "par-map" | "each" | "batch" | "sort" | "sort-by" | "take" | "drop" | "first" | "last" | "unique-by" | "enumerate" | "zip" | "range" | "repeat" | "tee" | "sum" | "min" | "max" | "group-by" | "fold" | "reduce" | "flat-map" | "any" | "all" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" | "count" | "collect" | "reduce-by" ) stage_expression ;
 stage_expression = logical ;
-stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* logical_tail | !( "{" | "(" ) stage_expression | stage_end )
+stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* logical_tail | !"{" stage_expression | stage_end )
              | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* logical_tail | !"{" postfix* logical_tail )
              | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" | !"(" ) postfix* logical_tail ;
 equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
@@ -283,14 +284,14 @@ multiplicative = conversion ( ( "*" | "/" | "%" | "&" ) NEWLINE* conversion )* ;
 conversion = unary conversion_tail ;
 conversion_tail = ( "as" type_expr )* ;
 unary = ( "!" | "-" ) unary | primary postfix* ;
-postfix = ~"." member_access
-        | ~"?" ~"." member_access
-        | ~"[" index "]"
+postfix = "." member_access
+        | "?" ~"." member_access
+        | "[" index "]"
         | ~"?" ~"[" index "]"
-        | ~"(" call_arguments ")"
+        | "(" call_arguments ")"
         | ~"?" ;
 member_access = "require" "(" NEWLINE* type_expr? NEWLINE* ")" | MEMBER ;
-index = "." ~"." expression? | expression ( "." ~"." expression? )? ;
+index = "." ~"." expression_item? | expression_item ( "." ~"." expression_item? )? ;
 call_arguments = list(argument) ;
 argument = "." ~"." ~"." NEWLINE* expression
          | "@" expression
@@ -300,7 +301,7 @@ argument = "." ~"." ~"." NEWLINE* expression
 expression_item = expression ( "?" &( NEWLINE | ";" | "," | ")" | "]" | "}" ) )? ;
 primary = literal
         | "$?"
-        | !( "collect" "{" ) IDENT
+        | !( "collect" "{" ) !context_scope_form IDENT
         | collect_expression
         | list_literal
         | record_literal
@@ -308,18 +309,17 @@ primary = literal
         | set_literal
         | set_comprehension
         | block
-        | "(" NEWLINE* expression_item NEWLINE* ")"
-        | "(" NEWLINE* run_form "?"? NEWLINE* ")"
+        | "(" group(NEWLINE* expression_item NEWLINE*) ")"
         | if_expression
         | match_expression
         | "loop" block
         | "try" block
-        | "try" run_form !"?" ( run_end | &")" )
+        | "try" run_form !"?" run_end
         | retry_expression
         | run_form ( "?" &"|>" | run_end )
-        | "spawn" ( run_form ( run_end | &")" ) | operand )
+        | "spawn" ( run_form run_end | operand )
         | "wait" !"until" operand
-        | "ctx" line(condition_expression) block
+        | "ctx" line(condition_expression) !builder_callback_before_condition_body block
         | context_scope
         | tempdir_scope
         | within_scope
@@ -352,8 +352,8 @@ set_literal = "{" NEWLINE* set_lead expression_item NEWLINE* "," list(!( "[" | L
 set_lead = &( STRING | PATH | FMT_STRING | PATH_FMT | ENV_STRING | INT | FLOAT | DURATION | BYTES | "(" | "-" | "!" | "true" | "false" | "null" | "not" | "if" | "match" | NAME ~"(" | NAME ~"." | NAME ~"[" | NAME ~"?" | NAME "??" | NAME "or" | NAME "and" | NAME "==" | NAME "!=" | NAME "<" | NAME "<=" | NAME ">" | NAME ">=" | NAME "in" | NAME "not" | NAME "+" | NAME "-" | NAME "*" | NAME "/" | NAME "%" | NAME "|" | NAME "&" | NAME "is" | NAME "as" | NAME "|>" | NAME "as" | NAME "," | NAME "for" ) ;
 set_comprehension = "{" NEWLINE* set_lead expression NEWLINE* comprehension "}" ;
 map_comprehension = "{" NEWLINE* ( "[" NEWLINE* expression NEWLINE* "]" | ( LABEL | STRING ) ( "." LABEL )* ) ":" expression NEWLINE* comprehension "}" ;
-if_expression = "if" condition block ( "else" "if" condition block )* "else" block ;
-match_expression = "match" condition_expression "{" ( separator | match_expression_arm ( "," | separator ) )* ( match_expression_arm | else_arm_head arm_value ","? separator* )? "}" ;
+if_expression = "if" condition !builder_callback_before_condition_body block ( "else" "if" condition !builder_callback_before_condition_body block )* "else" block ;
+match_expression = "match" condition_expression !builder_callback_before_condition_body "{" ( separator | match_expression_arm ( "," | separator ) )* ( match_expression_arm | else_arm_head arm_value ","? separator* )? "}" ;
 match_expression_arm = arm_head arm_value ;
 arm_value = block
           | !"{" expression_item
@@ -368,8 +368,8 @@ within_scope = "within" ( DURATION | IDENT ( "." IDENT )* ) block ;
 collect_expression = "collect" block ;
 head_duration = DURATION | IDENT ( "." IDENT )* ;
 backoff_range = head_duration "." ~"." head_duration ;
-tempdir_scope = "tempdir" IDENT ( "at" condition_expression )? "{" separator* statements "}" ;
-resource_scope = "with" list1(IDENT "=" condition_expression) block ;
+tempdir_scope = "tempdir" IDENT ( "at" condition_expression )? !builder_callback_before_condition_body "{" separator* statements "}" ;
+resource_scope = "with" list1(IDENT "=" condition_expression) !builder_callback_before_condition_body block ;
 builder_call = ( "process" ~"." ~"command" ) ( ~"(" call_arguments ")" )? builder_block ;
 builder_block = "{" ( separator | builder_compound_entry | builder_entry separator )* builder_entry? "}" ;
 builder_compound_entry = if_statement
@@ -401,7 +401,7 @@ condition_equality = ordering
 condition_pipe_stage = condition_stream_stage | condition_value_stage ;
 condition_value_stage = !( "where" | "map" | "par-map" | "each" | "batch" | "sort" | "sort-by" | "take" | "drop" | "first" | "last" | "unique-by" | "enumerate" | "zip" | "range" | "repeat" | "tee" | "sum" | "min" | "max" | "group-by" | "fold" | "reduce" | "flat-map" | "any" | "all" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" | "count" | "collect" | "reduce-by" ) condition_stage_expression ;
 condition_stage_expression = condition_logical ;
-condition_stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* condition_logical_tail | !( "{" | "(" ) condition_stage_expression | stage_end )
+condition_stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* condition_logical_tail | !"{" condition_stage_expression | stage_end )
                        | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* condition_logical_tail | !"{" postfix* condition_logical_tail )
                        | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" | !"(" ) postfix* condition_logical_tail ;
 condition_equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
@@ -441,7 +441,7 @@ primary_pattern = "(" NEWLINE* pattern NEWLINE* ")"
                 | list_pattern
                 | record_pattern ;
 list_pattern = "[" NEWLINE* ( ( pattern ( NEWLINE* "," NEWLINE* pattern )* ( NEWLINE* "," NEWLINE* list_rest )? | list_rest ) ( NEWLINE* "," )? )? NEWLINE* "]" ;
-list_rest = "." ~"." NAME? ;
+list_rest = "." ~"." IDENT? ;
 record_pattern = "{" list(record_pattern_field) "}" ;
 record_pattern_field = "." ~"." | LABEL ":" pattern | IDENT ;
 condition_primary_pattern = "(" NEWLINE* pattern NEWLINE* ")"
@@ -492,34 +492,31 @@ type_arguments = "[" ( type_expr ( "," type_expr )* )? "]" ;
 
 ```ebnf
 run_statement = run_form "?"? ( "|>" pipe_stage )* ;
-named_command = "cd" !"=" command_argument block
-              | "env" line(env_assignment+) block
-              | !( "print" | "eprint" | "cd" | "env" | "tempdir" IDENT "at" | "atomically" "replace" | "exit" | "fail" ) NAME ( lead_argument command_argument* )?
-              | ( "exit" | "fail" ) !"?"
-              | NAME ( ~"." ~NAME )+ dotted_lead_argument command_argument* ;
-print_statement = ( "print" | "eprint" ) ( !( "when" | "unless" ) lead_argument ( !( "when" | "unless" ) command_argument )* )? "?"? postfix_guard? ;
-lead_argument = !( "??" | "or" | "and" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not" | "+" | "-" | "*" | "/" | "%" | "|" | "&" | "is" | "as" | "|>" | "=" | "." ) command_argument
-              | "-" !~"=" ( ~WORD_PART | ~STRING | ~DOLLAR_NAME dollar_suffix* | ~"${" expression "}" )+ ;
-dotted_lead_argument = !( "??" | "or" | "and" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "+" | "-" | "*" | "/" | "%" | "|" | "&" | "is" | "as" | "|>" | "not" "in" | "=" | "." | "when" | "unless" ) command_argument ;
+named_command = "cd" !"=" !"{" command_argument block
+              | "env" line(env_assignment*) block
+              | !( "tempdir" IDENT "at" | "atomically" "replace" | "exit" | "fail" ) &proc_command NAME ( "." NAME )* !( "." | "=" ) ( command_argument command_argument* )?
+              | "exit" &( NEWLINE | ";" | "}" )
+              | "fail" &( NEWLINE | ";" | "}" | ~"," ) ;
+print_statement = !name_expression ( "print" | "eprint" ) !"=" ( !( "when" | "unless" ) command_argument ( !( "when" | "unless" ) command_argument )* )? "?"? postfix_guard? ;
 env_assignment = IDENT "=" command_argument ;
 command_argument = call_argument_chain
                  | "@" ( ~IDENT | ~GLOB | ~"(" expression ")" )
                  | "(" expression ")"
-                 | ( PATH | GLOB | ENV_STRING | PATH_FMT | FMT_STRING ) glued_postfix*
+                 | ( PATH | GLOB | ENV_STRING | PATH_FMT | FMT_STRING ) glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" )
                  | word ;
-call_argument_chain = ( IDENT | STRING ) ( ~"?"? ~"." ~LABEL )* ( ~"(" call_arguments ")" | ~"?"? ~"[" index "]" ) glued_postfix* ;
+call_argument_chain = ( IDENT | STRING ) ( ~"?"? ~"." ~LABEL )* ( ~"(" call_arguments ")" | ~"?"? ~"[" index "]" ) glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" ) ;
 glued_postfix = ~"." member_access
               | ~"?" ~"." member_access
               | ~"[" index "]"
               | ~"?" ~"[" index "]"
               | ~"(" call_arguments ")"
               | ~"?" ;
-word = ( !( PATH | GLOB | ENV_STRING | PATH_FMT | FMT_STRING ) WORD_PART | STRING | dollar_name | "${" expression "}" ) ( ~WORD_PART | ~STRING | ~DOLLAR_NAME dollar_suffix* | ~"${" expression "}" )* ;
+word = &word_argument ( !( PATH | GLOB | ENV_STRING | PATH_FMT | FMT_STRING ) WORD_PART | STRING | dollar_name | "${" expression "}" ) ( ~WORD_PART | ~STRING | ~DOLLAR_NAME dollar_suffix* | ~"${" expression "}" )* !( ~WORD_PART | ~STRING | ~DOLLAR_NAME | ~"${" | ~"(" ) ;
 dollar_name = DOLLAR_NAME dollar_suffix* ;
 dollar_suffix = ~"." ~LABEL | ~"(" call_arguments ")" ;
 run_form = run_segment ( "|" run_segment )* ;
-run_end = &( NEWLINE | ";" | "}" | "?" | "{" | "|>" ) ;
-run_segment = "run" ( ~"." run_member | !~"." ) run_options? !( "-" ~"-" ~"timeout" | "-" ~"-" ~"cpumax" | "-" ~"-" ~"accept" ) env_assignment* ( "(" NEWLINE command_argument ( NEWLINE | redirection | run_argument )* ")" | run_argument ( redirection | run_argument )* ) ;
+run_end = &( NEWLINE | ";" | "}" | "?" | "{" | "|>" | GROUP_END ) ;
+run_segment = "run" ( ~"." run_member | !~"." ) run_options? !( "-" ~"-" ~"timeout" | "-" ~"-" ~"cpumax" | "-" ~"-" ~"accept" ) !( "-" ~"-" ) env_assignment* ( "(" NEWLINE command_argument ( NEWLINE | redirection | !")" run_argument )* ")" | run_argument ( redirection | run_argument )* ) ;
 run_options = timeout_option
             | timeout_option cpumax_option
             | timeout_option cpumax_option accept_option
@@ -548,9 +545,9 @@ run_member = ~"status"
 run_option_value = INT
                  | DURATION
                  | IDENT !( ~"." | ~"(" | ~"[" )
-                 | IDENT &( ~"." | ~"(" | ~"[" ) glued_postfix+
-                 | !( INT | DURATION | IDENT | "spawn" | "wait" | "run" ) primary glued_postfix* ;
-run_argument = !( ">" | ">>" | "<" | "E>" | "E>>" | "2" ~">" | "2" ~">>" ) command_argument ;
+                 | IDENT &( ~"." | ~"(" | ~"[" ) glued_postfix+ !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" )
+                 | !( INT | DURATION | IDENT ) primary glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" ) ;
+run_argument = !( "{" | ">" | ">>" | "<" | "E>" | "E>>" | "2" ~">" | "2" ~">>" ) command_argument ;
 redirection = ( ">" | ">>" | "<" | "2" ~">" | "2" ~">>" | ">" "&" | "<" "&" ) ( BYTES glued_postfix* | command_argument ) ;
 ```
 

@@ -96,12 +96,12 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-tempdir` | Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit |
 | `lint.prefer-try-capture` | Replace a single-use closed helper with a local `try` block capture |
 | `lint.prefer-value-pipeline` | Use a value pipeline for nested calls or a single-use temporary |
-| `lint.prefer-with-scope` | Note `let NAME = OPEN?` directly followed by the deferred release of `NAME`, which one `with` scope would bind and release |
 | `lint.prefer-within` | Note a block whose `run` forms all carry the same `--timeout`, which one `within` scope would state once |
 | `lint.prefer-write-lines` | Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline |
 | `lint.prefer-yield-delegation` | Replace a transparent forwarding loop with `yield @iterable` |
 | `lint.public-result-error` | Spell the error type of each Result in an exported signature or module contract |
 | `lint.redundant-bare-return` | Remove a bare `return` at the end of a `Result[Unit]` function |
+| `lint.redundant-close` | Remove a deferred close that scope cleanup performs after deferred actions |
 | `lint.redundant-command-fmt` | Use command value syntax directly for a single-value command f-string |
 | `lint.redundant-command-interpolation` | Use expression syntax directly for a single interpolation in command args |
 | `lint.redundant-default` | Remove a named Bool argument that equals the call default, such as `parents: true` |

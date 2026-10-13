@@ -1124,7 +1124,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 opt(r("effects")),
                 t(T::LBrace),
                 star(sep()),
-                opt(seq([t(T::Pipe), ident(), opt(t(T::Comma)), t(T::Pipe)])),
+                opt(seq([t(T::Pipe), opt(seq([ident(), opt(t(T::Comma))])), t(T::Pipe)])),
                 r("statements"),
                 t(T::RBrace),
             ]),

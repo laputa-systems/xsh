@@ -501,14 +501,19 @@ test test_uu_tail_follow_descriptor_vs_rename1 { |ctx|
     time.sleep(row.delay)?
     alive(child)
     append(s, "FILE_A", "A\n")?
+    # Tail has opened the file once it echoes the first line; a rename before
+    # that races its startup, not the descriptor behavior under test.
+    wait_output(s, bytes.from_text("A\n"), b"")
     time.sleep(row.delay)?
     uu.rename(s, "FILE_A", "FILE_B")?
     time.sleep(row.delay)?
     append(s, "FILE_B", "B\n")?
+    wait_output(s, bytes.from_text("A\nB\n"), b"")
     time.sleep(row.delay)?
     uu.at(s, "FILE_B").rename(to: uu.at(s, "FILE_C"), overwrite: true)?
     time.sleep(row.delay)?
     append(s, "FILE_C", "C\n")?
+    wait_output(s, bytes.from_text("A\nB\nC\n"), b"")
     time.sleep(row.delay)?
     alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)?

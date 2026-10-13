@@ -314,7 +314,6 @@ test test_collect_formats_stably_and_is_rewritten_by_its_lint { |ctx|
         yield n * n
   }
 }
-
 let count = collect   { yield 1 }.len()
 """
   let candidate = test.temp_file(ctx, name: "collect.xsh", contents: bytes.from_text(source))?

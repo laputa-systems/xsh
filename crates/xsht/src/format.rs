@@ -2684,7 +2684,12 @@ impl<'a> Writer<'a> {
             }
             ArenaCommandArgKind::Typed(expr) => {
                 let kind = self.arena.expr(*expr).kind;
-                if matches!(kind, ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_))
+                if let ArenaExprKind::PathStr(value) = kind {
+                    // A bare `./a` or `/a` in a command is a word, not a
+                    // path value, so a path argument keeps its `p"..."`.
+                    output.push('p');
+                    write_quoted(self.arena.string_literal(value), output);
+                } else if matches!(kind, ArenaExprKind::GlobStr(_))
                     || self.command_typed_arg_can_be_bare(*expr)
                 {
                     self.write_expr(*expr, CLOSE, output);
