@@ -1,8 +1,8 @@
 use support.uu
 
-let FILE_NAME = "foo"
-let SYMLINK_NAME = "symlink"
-let CONTENTS = "abcd"
+const FILE_NAME = "foo"
+const SYMLINK_NAME = "symlink"
+const CONTENTS = "abcd"
 
 
 # Upstream scene symlinks use absolute targets; link assertions remove the scene prefix.

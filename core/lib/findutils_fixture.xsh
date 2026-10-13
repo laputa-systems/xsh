@@ -7,7 +7,7 @@
 ##! the same ages. Nothing here is used by an applet itself.
 
 ## Modification time of the fixed-age entries: 2001-09-09T01:46:40Z.
-export let EPOCH_NS = 1000000000000000000
+export const EPOCH_NS = 1000000000000000000
 
 const SECOND = 1000000000
 
