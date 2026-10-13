@@ -1672,7 +1672,7 @@ impl<'a> Linter<'a> {
             linter: self,
             suppress_expr_autofixes: true,
         }
-        .visit_command_arg(arg, false);
+        .visit_command_arg(arg, true);
     }
 
     pub(super) fn lint_proc_command_arg(&mut self, arg: &ArenaCommandArg) {
@@ -2017,6 +2017,25 @@ mod unused_local_resource_tests {
     use xsh::frontend::check::{Checker, Type};
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
+
+    #[test]
+    fn cd_path_expression_marks_local_as_used() {
+        let source = "test cd_path_expression_marks_local_as_used { |ctx|\n  let root = test.temp_dir(ctx)?\n  cd root {\n    assert true\n  }\n  let unused = 1\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let mut options = LintOptions {
+            only: Some(vec![DiagnosticCode::LintUnusedLocal]),
+            ..LintOptions::default()
+        };
+        options.checked_output = lint_requires_check_output(&options)
+            .then(|| std::sync::Arc::new(checked));
+        let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].message, "unused local variable `unused`");
+    }
 
     #[test]
     fn unused_local_requests_checked_types_for_deferred_resource_owners() {
