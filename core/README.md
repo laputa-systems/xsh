@@ -37,3 +37,8 @@ ambient capabilities, parent-death signal, then ptracer.
 | `more` | Paging requires terminal stdin, terminal stdout, and an accessible controlling terminal. Without that, it concatenates input; with no display transformations it preserves every byte, including an unterminated final line. |
 | `tail` | Copies selected data as bytes. `--follow=name` cannot follow standard input; read and write errors are reported and contribute to a failing exit status even when other operands produce output. |
 | `sort` | Keeps record contents as bytes; plain whole-record order is bytewise, and malformed UTF-8 payloads are not rewritten. Output uses newline separators by default and NUL with `-z`. File and output errors are reported as failures. |
+| `mdev` | Leaves the caller's umask unchanged. Device and alias parent directories request `0755`, narrowed by the caller's umask; rule commands run in a child with umask `000`. |
+| `cat` | With no display transforms, copies input bytes verbatim, including NUL and malformed UTF-8 across chunks. Numbering and show/squeeze options transform only the requested output. |
+| `dircolors` | Accepts a non-UTF-8 database path as raw bytes, but the database contents must be valid UTF-8 or the command fails. Diagnostics quote the original path bytes. |
+| `ls` | Retains entry names as raw bytes and sorts them bytewise. Quoting styles escape malformed UTF-8 bytes; literal output preserves them, while `-q` renders non-printable bytes as `?`. |
+| `nl` | `-d` appends `:` when its delimiter argument contains one character. C/POSIX locales count bytes; other locales count UTF-8 characters, with malformed bytes treated as separate units. |

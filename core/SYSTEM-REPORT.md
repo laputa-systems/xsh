@@ -32,6 +32,12 @@ the same report—for example, a PCI parent index addresses `pci.functions`, and
 a mount's block-device index addresses `storage.devices`. Redaction preserves
 these links; an index is not a kernel identifier.
 
+Section status is a separate enum: `complete`, `partial`, `absent`,
+`unsupported`, `permission_denied`, `not_requested`, `redacted`, `malformed`,
+`disappeared`, `raced`, and `truncated`. A partial section can retain valid
+entries and issues. Section status has no `range_failure` or `read_failure`
+state; those describe individual observations.
+
 Replay accepts older schema v1 reports with selected later fields omitted. It
 fills missing namespace observations as `unsupported`, treats absent CPU idle
 and thermal trip indexes as unknown, fills omitted USB runtime and sensor
@@ -61,3 +67,8 @@ automount.
 The report describes only data visible to the current process. Collection may
 race with system changes, and unavailable or malformed sources remain marked
 as such instead of being represented as observed values.
+
+On Linux, collection anchors path lookups to `O_PATH` directory descriptors
+and resolves descendants beneath the root with `openat2`. `O_PATH` identifies a
+path but does not grant read access; directory enumeration opens a separate
+readable descriptor, so ordinary filesystem permissions still apply.
