@@ -79,6 +79,10 @@ do not fail a run unless `--deny-notes` is set. `xsht lint --list
 [--format text|jsonl]` prints the catalog used by the generated
 [lint reference](reference/lints.md).
 
+`lint.prefer-atomically-replace` reports a temporary-file publication only
+when its final rename explicitly uses `overwrite: true`; a rename that refuses
+an existing destination does not have equivalent replacement behavior.
+
 ## Native tests
 
 `xsht test` discovers `test NAME { ... }` under `test_roots` (default
@@ -109,8 +113,8 @@ program.
 
 ## Generated references
 
-`make docs` refreshes `docs/reference/cli.md` from `xsht --help` and
-`xsht help COMMAND`, `docs/reference/lints.md` from `xsht lint --list`, and
+`make docs` refreshes `docs/reference/cli.md` from `xsh --help`, `xsht --help`,
+and `xsht help COMMAND`; `docs/reference/lints.md` from `xsht lint --list`, and
 `docs/reference/stdlib.md` from `xsht api`. It also renders
 `docs/reference/grammar.md` from `xsht grammar --format json`. In
 `docs/templates/SPEC.md`, a `{{.spec.NAME.desugared}}` placeholder obtains its
@@ -120,6 +124,7 @@ run `make docs`.
 
 ## Source representations
 
-`xsht grep` matches semantic AST structure. `xsht refactor` rewrites captured
-spans in the original source and does not format; run `xsht fmt` afterwards.
-See `docs/ARCHITECTURE.md` for the AST and CST invariants.
+`xsht grep` matches semantic AST structure. `xsht refactor` replaces each whole
+matched expression span; replacement metavariables reuse their captured source
+text. It does not format; run `xsht fmt` afterwards. See
+`docs/ARCHITECTURE.md` for the AST and CST invariants.
