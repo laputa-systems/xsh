@@ -46,8 +46,8 @@ proc terminal_listing(s: uu.Scene, args: List[Str]) [fs, process, net, env, erro
   let errors = listing_terminal()?
   defer unix.close_fd(errors.master)
   defer unix.close_fd(errors.replica)
-  let argv = uu.argv(s, "ls", [Path(word) for word in args])?
-  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, Path(input.name), Path(output.name), Path(errors.name), timeout: 5s)
+  let argv = uu.argv(s, "ls", [fp"{word}" for word in args])?
+  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, fp"{input.name}", fp"{output.name}", fp"{errors.name}", timeout: 5s)
   let status = process.run(plan)?
   Ok({util: "ls", args: args, status: status.exit_code()?, stdout: listing_terminal_bytes(output.master)?, stderr: listing_terminal_bytes(errors.master)?})
 }

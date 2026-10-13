@@ -22,7 +22,7 @@ proc stdout_contains_line(r: uu.Ran, expected: Str) [error] {
 
 # Set the descriptor limit in the child before the applet starts, retaining the oracle argv.
 proc invoke_limited(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let words = uu.argv(s, "ls", [Path(word) for word in args])?
+  let words = uu.argv(s, "ls", [fp"{word}" for word in args])?
   let argv = [p"/bin/sh", p"-c", p"ulimit -n 20 || exit; exec \"$@\"", p"ls-limit"].extend(words)
   let output = uu.at(s, "limited-out")
   let errors = uu.at(s, "limited-err")

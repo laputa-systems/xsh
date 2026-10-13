@@ -33,8 +33,8 @@ proc host(s: uu.Scene, args: List[Str]) [fs, process, error] -> Result[Bytes, Er
 # Wrappers establish descriptor and synchronization boundaries while retaining
 # the oracle's applet launcher and argument transport.
 proc wrapped(s: uu.Scene, args: List[Str], body: Str, mask: Int? = null) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "cp", [Path(arg) for arg in args], umask: mask)?
-  let words = [p"/bin/sh", p"-c", Path(body), p"cp-wrapper"].extend(launch)
+  let launch = uu.argv(s, "cp", [fp"{arg}" for arg in args], umask: mask)?
+  let words = [p"/bin/sh", p"-c", fp"{body}", p"cp-wrapper"].extend(launch)
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
   let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C", TZ: "UTC"}, b"", out, err, timeout: 65s))?

@@ -12,7 +12,7 @@ proc safe_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
 }
 
 proc absolute_link(s: uu.Scene, target: Str, name: Str) [fs, error] -> Result[Unit, Error] {
-  let to = if target.starts_with("/") { Path(target) } else { uu.at(s, target) }
+  let to = if target.starts_with("/") { fp"{target}" } else { uu.at(s, target) }
   uu.symlink(s, to.display(), name)
   Ok()
 }

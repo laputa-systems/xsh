@@ -2,7 +2,7 @@
 use support.uu as uu
 
 proc follow(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Command, Error] {
-  let argv = uu.argv(s, "tail", [Path(word) for word in args])?
+  let argv = uu.argv(s, "tail", [fp"{word}" for word in args])?
   let out = uu.at(s, ".live-out")
   let err = uu.at(s, ".live-err")
   Ok(process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, b"", out, err))

@@ -4,7 +4,7 @@ use support.uu
 # The first three words are the isolation launcher and its metadata; the target
 # following them is selected by uu, including when the reference oracle runs.
 proc nested(s: uu.Scene, util: Str, args: List[Str]) [fs, process, env, error] -> Result[List[Str], Error] {
-  let words = uu.argv(s, util, [Path(word) for word in args])?
+  let words = uu.argv(s, util, [fp"{word}" for word in args])?
   Ok([words[index].display() for index in range(3, words.len())])
 }
 

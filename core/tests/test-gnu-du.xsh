@@ -234,7 +234,7 @@ proc unreadable_cwd(s: uu.Scene, operands: List[Path]) [fs, process, env, error]
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
   let code = r"""denied=$1; shift; cd "$denied" || exit 99; chmod 000 "$denied" || exit 99; "$@"; result=$?; chmod 700 "$denied"; exit "$result"; """
-  let words = [p"/bin/sh", p"-c", Path(code), p"du-cwd", uu.at(s, "inaccessible")].extend(uu.argv(s, "du", operands)?)
+  let words = [p"/bin/sh", p"-c", fp"{code}", p"du-cwd", uu.at(s, "inaccessible")].extend(uu.argv(s, "du", operands)?)
   let result = process.run(process.command_argv(p"/bin/sh", words, s.root, stdout: out, stderr: err, timeout: 20s))?
   assert result.exited_with(0), err.read_text()?
 }
@@ -252,8 +252,8 @@ test test_gnu_du_long_from_unreadable_log { |ctx|
   let component = ["x" for _ in range(200)].join("")
   var directory = fs.open_root(s.root)?
   for _ in range(52) {
-    directory.mkdir(Path(component))
-    let child = directory.open_root(Path(component))?
+    directory.mkdir(fp"{component}")
+    let child = directory.open_root(fp"{component}")?
     directory.close()
     directory = child
   }
@@ -299,7 +299,7 @@ test test_gnu_du_one_file_system_log { |ctx|
   uu.mkdir(s, "d")
   let elsewhere = run.capture --text mktemp -d /dev/shm/xsh-du-XXXXXXXX
   assert elsewhere.status.exited_with(0), elsewhere.stderr
-  let other = Path(elsewhere.stdout.trim())
+  let other = fp"{elsewhere.stdout.trim()}"
   defer { other.remove() }
   fp"{other}/x".mkdir()
   assert fs.stat(other)?.dev != fs.stat(s.root)?.dev
@@ -416,7 +416,7 @@ test test_gnu_du_inodes_log { |ctx|
 test test_gnu_du_2g_log { |ctx|
   let made = run.capture --text mktemp -d /var/tmp/xsh-du-XXXXXXXX
   assert made.status.exited_with(0), made.stderr
-  let allocated: uu.Scene = {ctx: ctx, root: Path(made.stdout.trim())}
+  let allocated: uu.Scene = {ctx: ctx, root: fp"{made.stdout.trim()}"}
   defer { allocated.root.remove() }
   let big = uu.at(allocated, "big")
   let allocation = run.capture --text fallocate -l2G $big

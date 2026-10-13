@@ -72,7 +72,7 @@ proc short_fields(option: Str) [fs, process, time, error] -> Result[List[Str], E
       }
       expected += name.words()
     }
-    let terminal = if record.line.starts_with("/") { Path(record.line) } else { fp"/dev/{record.line}" }
+    let terminal = if record.line.starts_with("/") { fp"{record.line}" } else { fp"/dev/{record.line}" }
     var marker = "?"
     var idle = "?????"
     match fs.stat(terminal) {

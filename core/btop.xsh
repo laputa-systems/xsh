@@ -415,7 +415,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
   }
 
   if let bundle = opts.replay {
-    let loaded = replay.load(Path(bundle))?
+    let loaded = replay.load(fp"{bundle}")?
     if opts.headless {
       headless_replay(loaded, count, opts.dump_model, opts.dump_screen)
     } else {

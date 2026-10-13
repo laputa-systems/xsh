@@ -63,7 +63,7 @@ test test_uu_yes_long_input { |ctx|
   let s = uu.scene(ctx)?
   let word = repeat_text("abcdef", 14000)
   let expected = bytes.from_text(repeat_text(word + "\n", 5))
-  yes_prefix(s, [Path(word)], expected)
+  yes_prefix(s, [fp"{word}"], expected)
 }
 
 # origin: uutils test_yes::test_long_line_exceeds_pipe_capacity
@@ -72,7 +72,7 @@ test test_uu_yes_long_line_exceeds_pipe_capacity { |ctx|
   let word = repeat_text("a", 60000)
   let args = [word for _ in range(20)]
   let line = args.join(" ")
-  yes_prefix(s, [Path(arg) for arg in args], bytes.from_text(line + "\n" + line + "\n"))
+  yes_prefix(s, [fp"{arg}" for arg in args], bytes.from_text(line + "\n" + line + "\n"))
 }
 
 # origin: uutils test_yes::test_long_odd_output

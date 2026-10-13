@@ -21,7 +21,7 @@ proc created(s: uu.Scene, r: uu.Ran, pattern: Str, directory: Bool = false) [fs,
   uu.no_stderr(r)
   let name = output_name(r)?
   matches_template(pattern, name)
-  let target = if name.starts_with("/") { Path(name) } else { uu.at(s, name) }
+  let target = if name.starts_with("/") { fp"{name}" } else { uu.at(s, name) }
   if directory { assert target.is_dir()? } else { assert target.is_file()? }
 }
 
@@ -173,7 +173,7 @@ test test_uu_mktemp_mktemp_tmpdir_one_arg { |ctx|
   uu.succeeds(r)
   uu.no_stderr(r)
   uu.stdout_contains(r, "apt-key-gpghome.")
-  let target = Path(output_name(r)?)
+  let target = fp"{output_name(r)?}"
   assert target.is_file()?
   target.remove()
 }
@@ -185,7 +185,7 @@ test test_uu_mktemp_mktemp_directory_tmpdir { |ctx|
   uu.succeeds(r)
   uu.no_stderr(r)
   uu.stdout_contains(r, "apt-key-gpghome.")
-  let target = Path(output_name(r)?)
+  let target = fp"{output_name(r)?}"
   assert target.is_dir()?
   target.remove()
 }
@@ -387,7 +387,7 @@ test test_uu_mktemp_empty_tmpdir_env_var { |ctx|
     let r = uu.invoke(s, "mktemp", args, vars: {TMPDIR: ""})?
     uu.succeeds(r)
     uu.stdout_str_starts_with(r, "/tmp")
-    Path(output_name(r)?).remove()
+    fp"{output_name(r)?}".remove()
   }
 }
 
@@ -396,7 +396,7 @@ test test_uu_mktemp_default_missing_value { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "mktemp", ["-d", "--tmpdir"])?
   uu.succeeds(r)
-  Path(output_name(r)?).remove()
+  fp"{output_name(r)?}".remove()
 }
 
 # origin: uutils test_mktemp::test_default_issue_4821_t_tmpdir
@@ -498,7 +498,7 @@ test test_uu_mktemp_mktemp_hidden_file_single_dot { |ctx|
   let dir = test.temp_dir(ctx, name: "hidden")?
   let r = uu.invoke(s, "mktemp", [fp"{dir}/.XXXXXX".display()])?
   uu.succeeds(r)
-  let components = Path(r.stdout.utf8()?.trim()).components()
+  let components = fp"{r.stdout.utf8()?.trim()}".components()
   let filename = components[components.len() - 1].display()
   assert filename.starts_with(".")
   assert filename.byte_len() == 7

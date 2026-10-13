@@ -3,8 +3,8 @@ use support.uu
 # The shell owns shared descriptors, pipes, and resource limits. The applet
 # launch remains identical when these tests run against the reference tool.
 proc wrapped(s: uu.Scene, args: List[Str], setup: Str, timeout: Duration = 10s) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "head", [Path(arg) for arg in args])?
-  let words = [p"/bin/sh", p"-c", Path(setup), p"head-boundary"].extend(launch)
+  let launch = uu.argv(s, "head", [fp"{arg}" for arg in args])?
+  let words = [p"/bin/sh", p"-c", fp"{setup}", p"head-boundary"].extend(launch)
   let out = uu.at(s, ".wrapped-out")
   let err = uu.at(s, ".wrapped-err")
   let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C", TZ: "UTC"}, b"", out, err, timeout:))?

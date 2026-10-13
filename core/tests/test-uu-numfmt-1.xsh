@@ -22,7 +22,7 @@ proc tty_stderr(s: uu.Scene, args: List[Str], stdin: Bytes = b"") [fs, process, 
   defer unix.close_fd(pty.master)
   var replica_open = true
   defer { if replica_open { unix.close_fd(pty.replica) } }
-  let r = uu.invoke(s, "numfmt", args, stdin, stderr: Path(pty.name))?
+  let r = uu.invoke(s, "numfmt", args, stdin, stderr: fp"{pty.name}")?
   unix.close_fd(pty.replica)
   replica_open = false
   var captured = b""

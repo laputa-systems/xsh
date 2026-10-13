@@ -10,7 +10,7 @@ proc other_fs(s: uu.Scene) [fs, error] -> Result[Path, Error] {
 }
 
 proc traced_move(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let argv = [p"strace", p"-qe", p"trace=unlink"].extend(uu.argv(s, "mv", [Path(arg) for arg in args])?)
+  let argv = [p"strace", p"-qe", p"trace=unlink"].extend(uu.argv(s, "mv", [fp"{arg}" for arg in args])?)
   let out = uu.at(s, ".trace-out")
   let err = uu.at(s, ".trace-err")
   let status = process.run(process.command_argv(p"strace", argv, s.root, {}, b"", out, err, timeout: 10s))?

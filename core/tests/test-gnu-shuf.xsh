@@ -10,7 +10,7 @@ proc distinct(values: List[Str]) -> List[Str] {
 # The isolation launcher runs before the wrapper so descriptor and address-space
 # changes apply to the applet, rather than the launcher's own preparation.
 proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Bytes = b"", timeout: Duration = 30s) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let isolated = uu.argv(s, "shuf", [Path(arg) for arg in args])?
+  let isolated = uu.argv(s, "shuf", [fp"{arg}" for arg in args])?
   let words = isolated[..3].extend(prefix).extend(isolated[3..])
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")

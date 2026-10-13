@@ -792,7 +792,7 @@ test test_uu_ln_symlink_target_dir_non_utf8_source_name { |ctx|
   uu.mkdir(s, target_dir)
   let source = uu.at_bytes(s, source_bytes)?
   source.write("")
-  let run1 = uu.invoke_paths(s, "ln", [p"-s", p"-t", Path(target_dir), source_bytes as Path])?
+  let run1 = uu.invoke_paths(s, "ln", [p"-s", p"-t", fp"{target_dir}", source_bytes as Path])?
   uu.succeeds(run1)
   uu.no_stderr(run1)
   let entries = collect {

@@ -549,7 +549,7 @@ test test_uu_stty_combo_tabs { |ctx|
     for fd in [stdin.replica, stdout.replica, stderr.replica] {
       unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd:)
     }
-    let r = uu.invoke_from_path(s, "stty", [arg], stdin: Path(stdin.name), stdout: Path(stdout.name), stderr: Path(stderr.name))?
+    let r = uu.invoke_from_path(s, "stty", [arg], stdin: fp"{stdin.name}", stdout: fp"{stdout.name}", stderr: fp"{stderr.name}")?
     uu.succeeds(r)
     # The child has exited; unread terminal bytes would make the master readable.
     assert unix.poll_fd(stderr.master, ["readable"], timeout_ms: 0)? == [], "expected empty terminal stderr"
@@ -562,16 +562,16 @@ test test_uu_stty_stty_uses_stdin { |ctx|
   let tty = unix.open_pty()?
   defer unix.close_fd(tty.master)
   defer unix.close_fd(tty.replica)
-  let plain = uu.invoke_from_path(s, "stty", [], stdin: Path(tty.name))?
+  let plain = uu.invoke_from_path(s, "stty", [], stdin: fp"{tty.name}")?
   uu.succeeds(plain)
   uu.stdout_contains(plain, "speed")
-  let state = uu.invoke_from_path(s, "stty", ["-g"], stdin: Path(tty.name))?
+  let state = uu.invoke_from_path(s, "stty", ["-g"], stdin: fp"{tty.name}")?
   uu.succeeds(state)
   let saved = state.stdout.utf8()?.trim()
   assert ":" in saved
-  uu.succeeds(uu.invoke_from_path(s, "stty", [saved], stdin: Path(tty.name))?)
-  uu.succeeds(uu.invoke_from_path(s, "stty", ["rows", "30", "cols", "100"], stdin: Path(tty.name))?)
-  let shown = uu.invoke_from_path(s, "stty", ["--all"], stdin: Path(tty.name))?
+  uu.succeeds(uu.invoke_from_path(s, "stty", [saved], stdin: fp"{tty.name}")?)
+  uu.succeeds(uu.invoke_from_path(s, "stty", ["rows", "30", "cols", "100"], stdin: fp"{tty.name}")?)
+  let shown = uu.invoke_from_path(s, "stty", ["--all"], stdin: fp"{tty.name}")?
   uu.succeeds(shown)
   uu.stdout_contains(shown, "rows 30")
   uu.stdout_contains(shown, "columns 100")

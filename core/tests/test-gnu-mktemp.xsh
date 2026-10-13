@@ -11,7 +11,7 @@ proc created(s: uu.Scene, r: uu.Ran, directory: Bool) [fs, error] -> Result[Unit
 # Wrappers own syscall fault injection and descriptor setup, while every tested
 # applet receives argv from the helper shared with the reference oracle.
 proc wrapped(s: uu.Scene, args: List[Str], prefix: List[Path]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "mktemp", [Path(arg) for arg in args])?
+  let launch = uu.argv(s, "mktemp", [fp"{arg}" for arg in args])?
   let words = prefix.extend(launch)
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")

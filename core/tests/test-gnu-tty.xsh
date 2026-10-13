@@ -3,7 +3,7 @@ use support.uu
 # Descriptor closure belongs to the shell; the target argv stays under the
 # shared launcher so the reference receives the same closed standard input.
 proc closed_input(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "tty", [Path(arg) for arg in args])?
+  let launch = uu.argv(s, "tty", [fp"{arg}" for arg in args])?
   let words = [p"/bin/sh", p"-c", p"exec \"$@\" 0<&-", p"tty-closed-input"].extend(launch)
   let out = uu.at(s, ".closed-out")
   let err = uu.at(s, ".closed-err")
@@ -17,7 +17,7 @@ test test_gnu_tty_tty_log { |ctx|
   let terminal = unix.open_pty()?
   defer unix.close_fd(terminal.master)
   defer unix.close_fd(terminal.replica)
-  let input = Path(terminal.name)
+  let input = fp"{terminal.name}"
   let named = uu.invoke_from_path(s, "tty", [], input)?
   uu.succeeds(named)
   uu.stdout_only(named, f"{terminal.name}\n")

@@ -135,6 +135,6 @@ p"{path_file}".write(scratch.host_path()?.display())
   )?
 
   assert output.status == 0, output.stderr
-  let scratch = Path(path_file.read_text()?)
+  let scratch = fp"{path_file.read_text()?}"
   assert ! scratch.exists()?
 }

@@ -253,8 +253,8 @@ test test_gnu_tail_tail_sysfs_log { |ctx|
 test test_gnu_tail_tail_c_log { |ctx|
   let s = uu.scene(ctx)?
   for name in ["/proc/version", "/sys/kernel/profiling"] {
-    if Path(name).exists() {
-      uu.write_bytes(s, "copy", Path(name).read_bytes()?)
+    if fp"{name}".exists() {
+      uu.write_bytes(s, "copy", fp"{name}".read_bytes()?)
       let expected = uu.invoke(s, "tail", ["-c", "-1", "copy"])?
       uu.succeeds(expected)
       let actual = uu.invoke(s, "tail", ["-c", "-1", name])?
@@ -272,7 +272,7 @@ test test_gnu_tail_tail_c_log { |ctx|
 }
 
 proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = null, timeout: Duration = 10s) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let tail = uu.argv(s, "tail", [Path(arg) for arg in args])?
+  let tail = uu.argv(s, "tail", [fp"{arg}" for arg in args])?
   let words = if prefix[0] == p"timeout" {
     uu.argv(s, "timeout", prefix[1..].extend(tail))?
   } else { prefix.extend(tail) }

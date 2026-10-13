@@ -86,7 +86,7 @@ test test_uu_dir_literal_quoting_on_terminal { |ctx|
   defer unix.close_fd(pty.master)
   let r = {
     defer unix.close_fd(pty.replica)
-    uu.invoke(s, "dir", [], vars: {QUOTING_STYLE: "literal"}, stdout: Path(pty.name), timeout: 5s)?
+    uu.invoke(s, "dir", [], vars: {QUOTING_STYLE: "literal"}, stdout: fp"{pty.name}", timeout: 5s)?
   }
   uu.succeeds(r)
   uu.no_stderr(r)

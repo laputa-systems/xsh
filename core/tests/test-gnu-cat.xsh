@@ -3,13 +3,13 @@ use support.uu
 # The shell owns descriptor setup; the applet argv still comes from the same
 # launch helper used by the oracle, including its isolated environment.
 proc descriptor_run(s: uu.Scene, args: List[Str], setup: Str) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  wrapper_run(s, args, setup, uu.argv(s, "cat", [Path(arg) for arg in args])?)
+  wrapper_run(s, args, setup, uu.argv(s, "cat", [fp"{arg}" for arg in args])?)
 }
 
 proc wrapper_run(s: uu.Scene, args: List[Str], setup: Str, launch: List[Path]) [fs, process, error] -> Result[uu.Ran, Error] {
   let out = uu.at(s, ".descriptor-out")
   let err = uu.at(s, ".descriptor-err")
-  let words = [p"/bin/sh", p"-c", Path(setup), p"cat-descriptors"].extend(launch)
+  let words = [p"/bin/sh", p"-c", fp"{setup}", p"cat-descriptors"].extend(launch)
   let command = process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C"}, b"", out, err, timeout: 10s)
   let status = process.run(command)?
   Ok({util: "cat", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
@@ -113,7 +113,7 @@ test test_gnu_cat_cat_buf_log { |ctx|
     # The FIFO reader exits after its first read. Two separately timed input
     # writes must therefore leave only the first line in the captured file.
     let setup = r"""delay=$1; shift; dd if=fifo count=1 >first & reader=$!; trap 'kill "$reader" 2>/dev/null; wait "$reader" 2>/dev/null' EXIT; { printf '1\n'; sleep "$delay"; printf '2\n'; } | "$@" -v >fifo; wait "$reader"; result=$?; trap - EXIT; exit "$result";"""
-    let words = [p"/bin/sh", p"-c", Path(setup), p"cat-buffer", Path(delay)].extend(uu.argv(s, "cat", [])?)
+    let words = [p"/bin/sh", p"-c", fp"{setup}", p"cat-buffer", fp"{delay}"].extend(uu.argv(s, "cat", [])?)
     let command = process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C"}, b"", out, err, timeout: 10s)
     assert process.run(command)?.shell_code()? == 0, err.read_text()?
     if uu.read(s, "first")? == b"1\n" { matched = true; break }

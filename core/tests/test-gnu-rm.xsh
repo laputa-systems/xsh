@@ -11,7 +11,7 @@ proc present(s: uu.Scene, names: List[Str]) [fs, error] {
 proc shell_run(s: uu.Scene, args: List[Str], setup: Str, input: Bytes = b"", timeout: Duration = 120s) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
-  let words = [p"/bin/sh", p"-c", Path(setup), p"rm-wrapper"].extend(uu.argv(s, "rm", [Path(arg) for arg in args])?)
+  let words = [p"/bin/sh", p"-c", fp"{setup}", p"rm-wrapper"].extend(uu.argv(s, "rm", [fp"{arg}" for arg in args])?)
   let plan = process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C"}, input, out, err, timeout:)
   let status = process.run(plan)?.shell_code()?
   Ok({util: "rm", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})

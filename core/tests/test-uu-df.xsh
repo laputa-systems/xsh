@@ -9,7 +9,7 @@ pure lines(r: uu.Ran) -> Result[List[Str], Error] {
 # The type-filter check needs a working directory on a filesystem different
 # from /dev; temp scenes may share its tmpfs filesystem type.
 proc invoke_at_root(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let words = uu.argv(s, "df", [Path(word) for word in args])?
+  let words = uu.argv(s, "df", [fp"{word}" for word in args])?
   let out = uu.at(s, "root-stdout")
   let err = uu.at(s, "root-stderr")
   let status = process.run(process.command_argv(s.ctx.xsh_bin, words, p"/", {}, b"", out, err))?
@@ -20,7 +20,7 @@ proc invoke_at_root(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> R
 proc masked_proc(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let wrapper = uu.at(s, "mask-proc")
   wrapper.write("#!/bin/sh\nmount -t tmpfs tmpfs /proc || exit 99\nexec \"$@\"\n", mode: 0o755)
-  let words = [p"unshare", p"-rm", wrapper].extend(uu.argv(s, "df", [Path(word) for word in args])?)
+  let words = [p"unshare", p"-rm", wrapper].extend(uu.argv(s, "df", [fp"{word}" for word in args])?)
   let out = uu.at(s, "masked-stdout")
   let err = uu.at(s, "masked-stderr")
   let status = process.run(process.command_argv("unshare", words, s.root, {}, b"", out, err, timeout: 10s))?
@@ -206,7 +206,7 @@ test test_uu_df_df_follows_symlinks { |ctx|
   let output = lines(r)?
   for i in range(1, output.len()) {
     # Mount sources can be labels rather than paths; failed lookups are not links.
-    assert ! (Path(output[i]).is_symlink() ?? false)
+    assert ! (fp"{output[i]}".is_symlink() ?? false)
   }
 }
 

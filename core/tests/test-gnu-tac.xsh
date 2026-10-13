@@ -5,7 +5,7 @@ type ReverseCase = {args: List[Str], input: Bytes, output: Bytes}
 # Named files, regular stdin and pipe stdin exercise separate seekability paths.
 # Each pipe still launches its applet through the oracle's lossless argv helper.
 proc pipe_tac(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "tac", [Path(arg) for arg in args], vars)?
+  let launch = uu.argv(s, "tac", [fp"{arg}" for arg in args], vars)?
   let argv = [p"/bin/sh", p"-c", p"cat input | \"$@\"", p"tac-pipe"].extend(launch)
   let out = uu.at(s, ".pipe-out")
   let err = uu.at(s, ".pipe-err")

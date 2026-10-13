@@ -27,8 +27,8 @@ proc terminal_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, net, env, e
   let capture = test.temp_dir(s.ctx, name: "terminal")?
   defer capture.remove()
   let output = fp"{capture}/stdout"
-  let argv = uu.argv(s, "truncate", [Path(word) for word in args])?
-  let status = process.run(process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, b"", output, Path(pair.name), timeout: 5s))?
+  let argv = uu.argv(s, "truncate", [fp"{word}" for word in args])?
+  let status = process.run(process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, b"", output, fp"{pair.name}", timeout: 5s))?
   var diagnostic = b""
   while "readable" in unix.poll_fd(pair.master, ["readable"], timeout_ms: 0)? {
     let chunk = unix.read_fd(pair.master, 8192)?

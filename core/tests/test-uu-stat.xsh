@@ -248,7 +248,7 @@ test test_uu_stat_multi_files { |ctx|
   let s = uu.scene(ctx)?
   let targets = ["/dev", "/usr/lib", "/etc/fstab", "/var"]
   var expected = ""
-  for name in targets { expected += normal_output(Path(name), name)? }
+  for name in targets { expected += normal_output(fp"{name}", name)? }
   let r = uu.invoke(s, "stat", ["-c", NORMAL].extend(targets))?
   uu.succeeds(r)
   uu.stdout_is(r, expected)
@@ -259,7 +259,7 @@ test test_uu_stat_symlinks { |ctx|
   let s = uu.scene(ctx)?
   var tested = false
   for name in ["/bin/sh", "/data/data/com.termux/files/usr/bin/sh", "/bin/sudoedit", "/usr/bin/ex", "/etc/localtime", "/etc/aliases"] {
-    let target = Path(name)
+    let target = fp"{name}"
     let regular = match fs.stat(target, follow_symlinks: true) { Ok(meta) => meta.kind == "file", Err(failure) => { if failure.errno == 2 { false } else { return Err(failure) } } }
     if regular and fs.stat(target)?.kind == "symlink" {
       tested = true
@@ -734,7 +734,7 @@ test test_uu_stat_error_message_preserves_non_utf8_filename { |ctx|
 test test_uu_stat_correct_metadata { |ctx|
   let s = uu.scene(ctx)?
   for name in ["/", "/dev/null"] {
-    let meta = fs.stat(Path(name), follow_symlinks: true)?
+    let meta = fs.stat(fp"{name}", follow_symlinks: true)?
     let expected = [meta.uid, meta.gid, meta.mode, meta.blocks_512, meta.size, meta.nlink, meta.ino, meta.dev, fs.dev_major(meta.dev), fs.dev_minor(meta.dev), meta.dev, meta.rdev, fs.dev_major(meta.rdev), fs.dev_minor(meta.rdev), meta.rdev, fs.dev_major(meta.rdev), fs.dev_minor(meta.rdev)]
     let r = uu.invoke(s, "stat", ["--printf", "%u %g %f %b %s %h %i %d %Hd %Ld %D %r %Hr %Lr %R %t %T", name])?
     uu.succeeds(r)

@@ -56,7 +56,7 @@ proc invoke_terminal(s: uu.Scene, vars: Record) [fs, process, net, env, error] -
   defer unix.close_fd(errors.master)
   defer unix.close_fd(errors.replica)
   let argv = uu.argv(s, "vdir", [], vars)?
-  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, Path(input.name), Path(output.name), Path(errors.name), timeout: 5s)
+  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, fp"{input.name}", fp"{output.name}", fp"{errors.name}", timeout: 5s)
   let status = process.run(plan)?
   Ok({util: "vdir", args: [], status: status.exit_code()?, stdout: terminal_output(output.master)?, stderr: terminal_output(errors.master)?})
 }

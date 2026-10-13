@@ -132,7 +132,7 @@ export proc argv(
   let script = applet_script(s, util)?
   let words = [s.ctx.xsh_bin, script, p"--"].extend(args)
   let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
-  Ok([s.ctx.xsh_bin, launcher, Path(metadata)].extend(words))
+  Ok([s.ctx.xsh_bin, launcher, fp"{metadata}"].extend(words))
 }
 
 ## Creates an isolated applet command for callers that own spawning and waiting.
@@ -154,7 +154,7 @@ export proc command(
 ) [fs, process, env, error] -> Result[Command, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let argv = argv(s, util, [Path(word) for word in args], vars, umask)?
+  let argv = argv(s, util, [fp"{word}" for word in args], vars, umask)?
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {
@@ -238,7 +238,7 @@ export proc invoke_from_path(
 ) [fs, process, env, error] -> Result[Ran, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let argv = argv(s, util, [Path(word) for word in args], vars, umask)?
+  let argv = argv(s, util, [fp"{word}" for word in args], vars, umask)?
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {

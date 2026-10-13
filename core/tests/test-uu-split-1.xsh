@@ -53,8 +53,8 @@ proc terminal_stderr(s: uu.Scene, args: List[Str]) [fs, process, net, env, error
   defer unix.close_fd(pair.replica)
   unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: pair.replica)
   let out = uu.at(s, "stdout")
-  let argv = uu.argv(s, "split", [Path(word) for word in args])?
-  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, b"", out, Path(pair.name), timeout: 5s)
+  let argv = uu.argv(s, "split", [fp"{word}" for word in args])?
+  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, b"", out, fp"{pair.name}", timeout: 5s)
   let status = process.run(plan)?
   var errors = b""
   while "readable" in unix.poll_fd(pair.master, ["readable"], timeout_ms: 0)? {
@@ -734,8 +734,8 @@ test test_uu_split_round_robin { |ctx|
 test test_uu_split_round_robin_limited_file_descriptors { |ctx|
   let s = split_scene(ctx)?
   let args = ["-n", "r/40", "onehundredlines.txt"]
-  let applet_words = uu.argv(s, "split", [Path(word) for word in args])?
-  let argv = [p"/bin/sh", p"-c", Path("ulimit -n 9; exec \"$@\""), p"sh"].extend(applet_words)
+  let applet_words = uu.argv(s, "split", [fp"{word}" for word in args])?
+  let argv = [p"/bin/sh", p"-c", p"ulimit -n 9; exec \"$@\"", p"sh"].extend(applet_words)
   let out = uu.at(s, "out")
   let err = uu.at(s, "err")
   let status = process.run(process.command_argv(p"/bin/sh", argv, s.root, {}, b"", out, err, timeout: 5s))?

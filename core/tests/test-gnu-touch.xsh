@@ -3,8 +3,8 @@ use support.uu
 # Descriptor setup belongs to the parent shell; the child argv remains shared
 # with the oracle, including no-create operations on a closed stdout descriptor.
 proc descriptor_touch(s: uu.Scene, args: List[Str], setup: Str) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "touch", [Path(arg) for arg in args])?
-  let wrapper = [p"/bin/sh", p"-c", Path(setup), p"touch-descriptor"]
+  let launch = uu.argv(s, "touch", [fp"{arg}" for arg in args])?
+  let wrapper = [p"/bin/sh", p"-c", fp"{setup}", p"touch-descriptor"]
   let argv = if "1>&-" in setup { launch[0..3].extend(wrapper).extend(launch[3..]) } else { wrapper.extend(launch) }
   let out = uu.at(s, ".descriptor-out")
   let err = uu.at(s, ".descriptor-err")

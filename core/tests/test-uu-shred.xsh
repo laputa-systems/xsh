@@ -17,8 +17,8 @@ proc terminal_stderr(s: uu.Scene, args: List[Str]) [fs, process, net, env, error
   defer unix.close_fd(pair.replica)
   unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: pair.replica)
   let output = uu.at(s, "stdout")
-  let argv = uu.argv(s, "shred", [Path(word) for word in args])?
-  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, b"", output, Path(pair.name), timeout: 5s)
+  let argv = uu.argv(s, "shred", [fp"{word}" for word in args])?
+  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, b"", output, fp"{pair.name}", timeout: 5s)
   let status = process.run(plan)?
   var errors = b""
   while "readable" in unix.poll_fd(pair.master, ["readable"], timeout_ms: 0)? {

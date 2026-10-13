@@ -141,7 +141,7 @@ test test_gnu_split_b_chunk_log { |ctx|
   assert pieces(s)?.is_empty()
   uu.write(s, "input", "1\n2\n3\n4\n5\n")
   for file in ["input", "/proc/version", "/sys/kernel/profiling"] {
-    let pathname = if file.starts_with("/") { Path(file) } else { uu.at(s, file) }
+    let pathname = if file.starts_with("/") { fp"{file}" } else { uu.at(s, file) }
     continue unless pathname.exists()
     continue when fs.stat(pathname, follow_symlinks: true)?.kind != "file"
     for block in [1, 2, 4096] {
@@ -247,9 +247,9 @@ test test_gnu_split_r_chunk_log { |ctx|
 # the applet itself. A marker distinguishes failed setup from a started applet.
 proc vm_status(s: uu.Scene, args: List[Str], kilobytes: Int, marker: Str? = null, discovery: Bool = false) [fs, process, env, time, error] -> Result[Int, Error] {
   let shell = process.which("sh")?
-  let argv = uu.argv(s, "split", [Path(word) for word in args])?
+  let argv = uu.argv(s, "split", [fp"{word}" for word in args])?
   let wrapper = r"""trap '' SEGV; ulimit -c 0; ulimit -v "$1" || exit 77; shift; if test -n "$1"; then : > "$1" || exit; fi; shift; exec "$@"; """
-  let words = argv[..3].extend([shell, p"-c", Path(wrapper), p"vm-limit", Path(f"{kilobytes}"), Path(marker ?? "")]).extend(argv[3..])
+  let words = argv[..3].extend([shell, p"-c", fp"{wrapper}", p"vm-limit", Path(f"{kilobytes}"), fp"{marker ?? ""}"]).extend(argv[3..])
   let plan = process.command_argv(s.ctx.xsh_bin, words, s.root, {}, b"", uu.at(s, "vm-out"), uu.at(s, "vm-err"), timeout: 11s)
   let began = time.now() / 1000
   let result = process.run(plan)

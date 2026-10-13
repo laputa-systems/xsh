@@ -5,7 +5,7 @@ pure reversed(items: List[Str]) -> List[Str] { [items[items.len() - index - 1] f
 proc shell_sort(s: uu.Scene, args: List[Str], setup: Str, stdin: Bytes = b"", vars: Record = {}, timeout: Duration = 30s) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
-  let words = [p"/bin/sh", p"-c", Path(setup), p"sort-wrapper"].extend(uu.argv(s, "sort", [Path(word) for word in args], vars)?)
+  let words = [p"/bin/sh", p"-c", fp"{setup}", p"sort-wrapper"].extend(uu.argv(s, "sort", [fp"{word}" for word in args], vars)?)
   let plan = process.command_argv(p"/bin/sh", words, s.root, vars, stdin, out, err, timeout:)
   let status = process.run(plan)?.shell_code()?
   Ok({util: "sort", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})

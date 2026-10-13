@@ -3,7 +3,7 @@ use support.uu as uu
 proc wrapped(s: uu.Scene, code: Str, words: List[Path], stdin: Path? = null, input: Bytes = b"", timeout: Duration = 20s) [fs, process, env, error] -> uu.Ran {
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
-  let argv = [p"/bin/sh", p"-c", Path(code), p"tee-wrapper"].extend(words)
+  let argv = [p"/bin/sh", p"-c", fp"{code}", p"tee-wrapper"].extend(words)
   let plan = if let source = stdin {
     process.command_argv(p"/bin/sh", argv, s.root, {LC_ALL: "C"}, source, out, err, timeout:)
   } else {
@@ -109,7 +109,7 @@ test test_gnu_tee_tee_log { |ctx|
     {args: ["--output-error=exit", "./e/noent"], status: 1, errors: 1},
     {args: ["--output-error=exit-nopipe"], status: 0, errors: 0},
   ] {
-    let r = wrapped(s, r"""dd count=1 if=fifo of=/dev/null status=none & reader=$!; yes | "$@" > fifo; result=$?; wait "$reader"; exit "$result"; """, uu.argv(s, "tee", [Path(word) for word in row.args])?, timeout: 10s)
+    let r = wrapped(s, r"""dd count=1 if=fifo of=/dev/null status=none & reader=$!; yes | "$@" > fifo; result=$?; wait "$reader"; exit "$result"; """, uu.argv(s, "tee", [fp"{word}" for word in row.args])?, timeout: 10s)
     uu.fails_with_code(r, row.status)
     assert line_count(r.stderr) == row.errors
   }

@@ -9,8 +9,8 @@ proc installation(s: uu.Scene, args: List[Str], output: Str) [fs, process, env, 
 # Descriptor and signal setup stays outside the applet launcher, so the oracle
 # receives exactly the same inherited process state and lossless argument words.
 proc shell_install(s: uu.Scene, args: List[Str], setup: Str) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "install", [Path(word) for word in args])?
-  let argv = [p"/bin/sh", p"-c", Path(setup), p"install-state"].extend(launch)
+  let launch = uu.argv(s, "install", [fp"{word}" for word in args])?
+  let argv = [p"/bin/sh", p"-c", fp"{setup}", p"install-state"].extend(launch)
   let out = uu.at(s, ".setup-out")
   let err = uu.at(s, ".setup-err")
   let status = process.run(process.command_argv(p"/bin/sh", argv, s.root, {}, b"", out, err, timeout: 30s))?

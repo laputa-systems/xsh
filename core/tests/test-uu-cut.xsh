@@ -18,7 +18,7 @@ test test_uu_cut_8bit_non_utf8_delimiter { |ctx|
   let s = uu.scene(ctx)?
   uu.fixture(s, "cut", "8bit-delim.txt", "8bit-delim.txt")
   {
-    let r = uu.invoke_paths(s, "cut", [Path("-d"), b"\xad" as Path, Path("--out=_"), Path("-f2,3"), Path("8bit-delim.txt")])?
+    let r = uu.invoke_paths(s, "cut", [p"-d", b"\xad" as Path, p"--out=_", p"-f2,3", p"8bit-delim.txt"])?
     uu.succeeds(r)
     uu.stdout_is_bytes(r, b"b_c\n")
   }
@@ -365,12 +365,12 @@ test test_uu_cut_cut_chars_utf8_mixed_ascii_lines { |ctx|
 test test_uu_cut_cut_fields_gb18030_complement_and_gaps { |ctx|
   let s = uu.scene(ctx)?
   {
-    let r = uu.invoke_paths(s, "cut", [Path("--complement"), Path("-d"), b"\xb0\xa1" as Path, Path("-f2")] , stdin: b"red\xb0\xa1green\xb0\xa1blue\n", vars: {LC_ALL: "zh_CN.gb18030"})?
+    let r = uu.invoke_paths(s, "cut", [p"--complement", p"-d", b"\xb0\xa1" as Path, p"-f2"] , stdin: b"red\xb0\xa1green\xb0\xa1blue\n", vars: {LC_ALL: "zh_CN.gb18030"})?
     uu.succeeds(r)
     uu.stdout_only_bytes(r, b"red\xb0\xa1blue\n")
   }
   {
-    let r = uu.invoke_paths(s, "cut", [Path("-d"), b"\xb0\xa1" as Path, Path("-f1-3"), Path("--output-delimiter=|")] , stdin: b"\xb0\xa1\xb0\xa1z\n", vars: {LC_ALL: "zh_CN.gb18030"})?
+    let r = uu.invoke_paths(s, "cut", [p"-d", b"\xb0\xa1" as Path, p"-f1-3", p"--output-delimiter=|"] , stdin: b"\xb0\xa1\xb0\xa1z\n", vars: {LC_ALL: "zh_CN.gb18030"})?
     uu.succeeds(r)
     uu.stdout_only(r, "||z\n")
   }
@@ -380,12 +380,12 @@ test test_uu_cut_cut_fields_gb18030_complement_and_gaps { |ctx|
 test test_uu_cut_cut_fields_gb18030_delimiter { |ctx|
   let s = uu.scene(ctx)?
   {
-    let r = uu.invoke_paths(s, "cut", [Path("-d"), b"\xb0\xa1" as Path, Path("-f3"), Path("--output-delimiter=/")] , stdin: b"red\xb0\xa1green\xb0\xa1blue\n", vars: {LC_ALL: "zh_CN.gb18030"})?
+    let r = uu.invoke_paths(s, "cut", [p"-d", b"\xb0\xa1" as Path, p"-f3", p"--output-delimiter=/"] , stdin: b"red\xb0\xa1green\xb0\xa1blue\n", vars: {LC_ALL: "zh_CN.gb18030"})?
     uu.succeeds(r)
     uu.stdout_only(r, "blue\n")
   }
   {
-    let r = uu.invoke_paths(s, "cut", [Path("-d"), b"\xb0\xa1" as Path, Path("-f1,3")] , stdin: b"red\xb0\xa1green\xb0\xa1blue\n", vars: {LC_ALL: "zh_CN.gb18030"})?
+    let r = uu.invoke_paths(s, "cut", [p"-d", b"\xb0\xa1" as Path, p"-f1,3"] , stdin: b"red\xb0\xa1green\xb0\xa1blue\n", vars: {LC_ALL: "zh_CN.gb18030"})?
     uu.succeeds(r)
     uu.stdout_only_bytes(r, b"red\xb0\xa1blue\n")
   }
@@ -395,7 +395,7 @@ test test_uu_cut_cut_fields_gb18030_delimiter { |ctx|
 test test_uu_cut_cut_fields_single_byte_delimiter_in_mb_locale { |ctx|
   let s = uu.scene(ctx)?
   {
-    let r = uu.invoke_paths(s, "cut", [Path("-d"), b"\x80" as Path, Path("-f1,3"), Path("--output-delimiter=-")] , stdin: b"a\x80b\x80c\n", vars: {LC_ALL: "zh_CN.gb18030"})?
+    let r = uu.invoke_paths(s, "cut", [p"-d", b"\x80" as Path, p"-f1,3", p"--output-delimiter=-"] , stdin: b"a\x80b\x80c\n", vars: {LC_ALL: "zh_CN.gb18030"})?
     uu.succeeds(r)
     uu.stdout_only(r, "a-c\n")
   }
@@ -407,7 +407,7 @@ test test_uu_cut_cut_non_utf8_paths { |ctx|
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?
   file.write(b"a\tb\tc\n1\t2\t3\n")
   {
-    let r = uu.invoke_paths(s, "cut", [Path("-f1,3"), b"test_\xff\xfe.txt" as Path])?
+    let r = uu.invoke_paths(s, "cut", [p"-f1,3", b"test_\xff\xfe.txt" as Path])?
     uu.succeeds(r)
     uu.stdout_only(r, "a\tc\n1\t3\n")
   }
@@ -544,12 +544,12 @@ test test_uu_cut_failed_write_is_reported { |ctx|
 test test_uu_cut_field_delimiter_not_split_inside_multibyte_char { |ctx|
   let s = uu.scene(ctx)?
   {
-    let r = uu.invoke_paths(s, "cut", [Path("-d"), b"\xac" as Path, Path("-f2")] , stdin: b"1\xe2\x82\xac2\xac3\n", vars: {LC_ALL: "C.UTF-8"})?
+    let r = uu.invoke_paths(s, "cut", [p"-d", b"\xac" as Path, p"-f2"] , stdin: b"1\xe2\x82\xac2\xac3\n", vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_only_bytes(r, b"3\n")
   }
   {
-    let r = uu.invoke_paths(s, "cut", [Path("-d"), b"\xac" as Path, Path("-f1")] , stdin: b"1\xe2\x82\xac2\xac3\n", vars: {LC_ALL: "C.UTF-8"})?
+    let r = uu.invoke_paths(s, "cut", [p"-d", b"\xac" as Path, p"-f1"] , stdin: b"1\xe2\x82\xac2\xac3\n", vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_only_bytes(r, b"1\xe2\x82\xac2\n")
   }

@@ -758,7 +758,7 @@ test test_gnu_ls_readdir_mountpoint_inode_log { |ctx|
   let points = [line for line in mounts.stdout.utf8()?.lines() if line.starts_with("/") and line != "/"]
   if points.is_empty() { test.skip("no nonroot local mount point") }
   for index in range(if points.len() < 64 { points.len() } else { 64 }) {
-    let entry_path = Path(points[index])
+    let entry_path = fp"{points[index]}"
     let name = entry_path.basename()
     continue when name.starts_with(".") or "*" in name or "?" in name
     var options = ["-i", "-I", ".?*", "-I", f"{name}?*"]
@@ -782,7 +782,7 @@ proc mount_inode(s: uu.Scene, name: Str) [fs, process, env, error] -> Result[Byt
   let output = uu.at(s, "mount-inode")
   let errors = uu.at(s, "mount-inode-errors")
   let timeout = process.which("timeout")?
-  let argv = uu.argv(s, "stat", [p"--format=%i", Path(name)])?
+  let argv = uu.argv(s, "stat", [p"--format=%i", fp"{name}"])?
   let words = argv[..3].extend([timeout, p"1"]).extend(argv[3..])
   let plan = process.command_argv(s.ctx.xsh_bin, words, s.root, {}, b"", output, errors)
   let status = process.run(plan)?.shell_code()?
@@ -792,7 +792,7 @@ proc mount_inode(s: uu.Scene, name: Str) [fs, process, env, error] -> Result[Byt
 
 proc traced_stats(s: uu.Scene, args: List[Str], colors: Str, name: Str) [fs, process, env, error] -> Result[Int, Error] {
   let tracer = process.which("strace")?
-  let argv = uu.argv(s, "ls", [Path(arg) for arg in args], vars: {LS_COLORS: colors})?
+  let argv = uu.argv(s, "ls", [fp"{arg}" for arg in args], vars: {LS_COLORS: colors})?
   let plan = process.command_argv(tracer, [tracer, p"-f", p"-q", p"-o", uu.at(s, f"{name}-trace"), p"-e", p"trace=stat,lstat,newfstatat,statx"].extend(argv), s.root, {LS_COLORS: colors}, b"", uu.at(s, f"{name}-out"), uu.at(s, f"{name}-err"), timeout: 10s)
   assert process.run(plan)?.exit_code()? == 0
   let lines = uu.read_text(s, f"{name}-trace")?.lines()

@@ -748,7 +748,7 @@ test test_gnu_cksum_md5sum_parallel_log { |ctx|
   let payload = bytes.from_text((names + names + names).join("\n") + "\n")
   let output = uu.at(s, "out")
   let diagnostic = uu.at(s, "err")
-  let script = Path("\"$@\" | " + reader)
+  let script = fp"{"\"$@\" | " + reader}"
   let pipeline = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"sh"] + xargs_argv,
     s.root, {}, payload, output, diagnostic, timeout: 30s)
   assert process.run(pipeline)?.exit_code()? == 0

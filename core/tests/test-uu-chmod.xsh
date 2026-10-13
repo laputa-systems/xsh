@@ -19,7 +19,7 @@ proc tty_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resul
   let stdout = uu.at(s, ".tty-stdout")
   let stderr = uu.at(s, ".tty-stderr")
   let outer_error = uu.at(s, ".tty-wrapper-error")
-  let words = uu.argv(s, "chmod", [Path(word) for word in args])?
+  let words = uu.argv(s, "chmod", [fp"{word}" for word in args])?
   let quoted = ["'" + word.display().replace("'", with: "'\\''") + "'" for word in words]
   let command = quoted.join(" ") + " > '" + stdout.display().replace("'", with: "'\\''") + "'"
   let status = process.run(process.command_argv(p"/usr/bin/script", ["script", "-q", "-e", "-c", command, "/dev/null"], s.root, {}, b"", stderr, outer_error))?
