@@ -98,6 +98,7 @@ def main() -> int:
     cleaning_up = False
     signal_delivery_error: OSError | None = None
     process: subprocess.Popen[str] | None = None
+    completed = False
 
     def handle_signal(signum: int, _frame: object) -> None:
         nonlocal interrupted_by, signal_delivery_error
@@ -120,55 +121,58 @@ def main() -> int:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous_handlers[signum] = signal.signal(signum, handle_signal)
 
-        if interrupted_by is None:
+        try:
             try:
-                process = subprocess.Popen(
-                    command,
-                    cwd=formal_dir,
-                    env=env,
-                    start_new_session=True,
-                    preexec_fn=set_address_space_limit,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
-            except (OSError, subprocess.SubprocessError) as error:
                 if interrupted_by is None:
-                    print(f"could not start the fresh kernel check: {error}", file=sys.stderr)
-                else:
-                    result = 128 + interrupted_by
+                    try:
+                        process = subprocess.Popen(
+                            command,
+                            cwd=formal_dir,
+                            env=env,
+                            start_new_session=True,
+                            preexec_fn=set_address_space_limit,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                        )
+                    except (OSError, subprocess.SubprocessError) as error:
+                        if interrupted_by is None:
+                            print(f"could not start the fresh kernel check: {error}", file=sys.stderr)
+                        else:
+                            result = 128 + interrupted_by
 
-        if process is not None:
-            try:
-                if interrupted_by is not None:
-                    raise FreshCheckCancelled(interrupted_by)
-                output, _ = process.communicate(timeout=WALL_LIMIT_SECONDS)
-                sys.stdout.write(output)
-                if process.returncode == 0:
-                    print("fresh kernel check passed")
-                result = process.returncode
-            except FreshCheckCancelled as cancelled:
-                cleaning_up = True
-                try:
-                    terminate_process_group(process, cancelled.signum)
-                except (OSError, subprocess.SubprocessError) as error:
-                    print(f"could not fully stop the fresh kernel check: {error}", file=sys.stderr)
-                print("fresh kernel check was interrupted", file=sys.stderr)
-                result = 128 + cancelled.signum
+                if process is not None:
+                    if interrupted_by is not None:
+                        raise FreshCheckCancelled(interrupted_by)
+                    output, _ = process.communicate(timeout=WALL_LIMIT_SECONDS)
+                    sys.stdout.write(output)
+                    if process.returncode == 0:
+                        print("fresh kernel check passed")
+                    result = process.returncode
+                    completed = True
+                    cleaning_up = True
             except subprocess.TimeoutExpired:
                 cleaning_up = True
-                try:
-                    terminate_process_group(process)
-                except (OSError, subprocess.SubprocessError) as error:
-                    print(f"could not fully stop the fresh kernel check: {error}", file=sys.stderr)
-                if interrupted_by is None:
-                    print(f"fresh kernel check exceeded {WALL_LIMIT_SECONDS}s and was terminated", file=sys.stderr)
-                    result = 124
-                else:
-                    print("fresh kernel check was interrupted", file=sys.stderr)
-                    result = 128 + interrupted_by
+                print(f"fresh kernel check exceeded {WALL_LIMIT_SECONDS}s and was terminated", file=sys.stderr)
+                result = 124
+            except BaseException:
+                cleaning_up = True
+                raise
+        except FreshCheckCancelled as cancelled:
+            interrupted_by = cancelled.signum
+            cleaning_up = True
+            print("fresh kernel check was interrupted", file=sys.stderr)
+            result = 128 + cancelled.signum
     finally:
         cleaning_up = True
+        if process is not None and (not completed or interrupted_by is not None):
+            try:
+                terminate_process_group(
+                    process,
+                    interrupted_by if interrupted_by is not None else signal.SIGTERM,
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                print(f"could not fully stop the fresh kernel check: {error}", file=sys.stderr)
         for signum, previous_handler in previous_handlers.items():
             signal.signal(signum, previous_handler)
 
