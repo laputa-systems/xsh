@@ -1167,7 +1167,7 @@ test test_nvme_rejects_logs_it_does_not_have { |ctx|
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let scope = {XSH_MODULE_PATH: ctx.core_dir.display()}
   for option in [["-l", "directory"], ["-l", "selective"], ["-s", "on"]] {
-    let out = test.run_script(ctx, source, [@option, fp"{root}/nvme0".display()], scope, b"", "smartctl")?
+    let out = test.run_script(ctx, source, [@option, fp"{root}/nvme0"], scope, b"", "smartctl")?
     assert out.status == 1, option.join(" ")
     assert "not supported for NVMe devices" in out.stderr
   }

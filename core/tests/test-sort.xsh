@@ -78,7 +78,7 @@ test test_sort_dictionary_and_nonprinting_conflict_with_numeric { |ctx|
   let stderr = fp"{root}/stderr"
   for args in [["-dn"], ["-in"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @args], root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2
     assert stderr.read_text()? == f"sort: options '{args[0]}' are incompatible\n"
@@ -86,7 +86,7 @@ test test_sort_dictionary_and_nonprinting_conflict_with_numeric { |ctx|
   }
   for args in [["-dg"], ["-dM"], ["-ig"], ["-iM"], ["-k", "1d,1n"], ["-k", "1i,1M"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @args], root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2, args.join(" ")
     assert stderr.read_text()?.starts_with("sort: options '-"), args.join(" ")
@@ -173,7 +173,7 @@ test test_sort_month_order_stability_and_uniqueness { |ctx|
   let input = b"JAn\nMAY\n000may\nJun\nFeb\nJul 2\nJul 1\nJul 3\n asdf\n"
   for args in [["-M"], ["--month-sort"], ["--sort=month"], ["--sort=mont"], ["--sort=m"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @args], root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b" asdf\n000may\nJAn\nFeb\nMAY\nJun\nJul 1\nJul 2\nJul 3\n"
@@ -480,7 +480,7 @@ test test_sort_random_option_conflicts_match_gnu { |ctx|
   let letters = ["-nR", "-nR", "-dfgMnR"]
   for index in range(cases.len()) {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @cases[index]], root,
+      [ctx.xsh_bin, "--", script, @cases[index]], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2
     assert stderr.read_text()? == f"sort: options '{letters[index]}' are incompatible\n"
@@ -571,7 +571,7 @@ test test_sort_merge_batch_size_merges_multiple_passes { |ctx|
     }
   }
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "--batch-size=2", @paths], root,
+    [ctx.xsh_bin, "--", script, "-m", "--batch-size=2", @paths], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n"
@@ -624,7 +624,7 @@ test test_sort_field_separator_is_the_long_form_of_t { |ctx|
   let input = b"b:2\na:1\nc:3\n"
   for args in [["--field-separator=:", "-k2"], ["--field-separator", ":", "-k2"], ["-t:", "--field-separator=:", "-k2"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @args], root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b"a:1\nb:2\nc:3\n"
@@ -642,7 +642,7 @@ test test_sort_field_separator_is_the_long_form_of_t { |ctx|
     {args: ["-t:", "--field-separator=,"], message: "sort: incompatible tabs\n"},
   ] {
     let invalid = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @case.args], root,
+      [ctx.xsh_bin, "--", script, @case.args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert invalid.exit_code()? == 2
     assert stderr.read_text()? == case.message, case.message
@@ -704,7 +704,7 @@ test test_sort_key_option_suffixes_and_blank_boundaries { |ctx|
   let numeric_input = b"aa 3 cc\ndd 1 ff\ngg 2 cc\n"
   for args in [["-k", "2,2n"], ["-k", "2n,2"], ["-k", "2,2", "-n"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @args], root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, numeric_input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b"dd 1 ff\ngg 2 cc\naa 3 cc\n"
@@ -714,7 +714,7 @@ test test_sort_key_option_suffixes_and_blank_boundaries { |ctx|
   let blank_start_input = b"aa   3 cc\ndd  1 ff\ngg         2 cc\n"
   for args in [["-k", "2b,2"], ["-k", "2,2", "-b"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @args], root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, blank_start_input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b"dd  1 ff\ngg         2 cc\naa   3 cc\n"
@@ -1503,7 +1503,7 @@ test test_sort_multi_character_tab_is_a_gnu_diagnostic { |ctx|
     {args: ["-t:", "-tab"], message: "sort: multi-character tab 'ab'\n"},
   ] {
     let invalid = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), "-k2", @case.args], root,
+      [ctx.xsh_bin, "--", script, "-k2", @case.args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert invalid.exit_code()? == 2, case.message
     assert stderr.read_text()? == case.message, case.message
@@ -1519,7 +1519,7 @@ test test_sort_long_options_accept_unambiguous_prefixes { |ctx|
   let input = b"b:2\na:1\nc:3\n"
   for args in [["--field-sep=:", "-k2"], ["--field-sep", ":", "--ke=2,2"], ["--par=1", "--field-s=:", "--key=2"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @args], root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, input, stdout, stderr))?
     assert result.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_bytes()? == b"a:1\nb:2\nc:3\n"
@@ -1579,7 +1579,7 @@ test test_sort_buffer_size_and_file_list_diagnostics { |ctx|
     {args: ["--files0-from", "."], message: "cannot read file names from '.'"},
   ] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), @case.args], root,
+      [ctx.xsh_bin, "--", script, @case.args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2
     assert stderr.read_text()? == f"sort: {case.message}\n"
