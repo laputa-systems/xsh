@@ -185,10 +185,7 @@ test test_btop_model_marks_missed_samples_as_gaps_and_ignores_uptime_jumps_for_r
   )
   let before = capture(bundle, p"frames/000000", "clock", 1000000000, 0)?
   let current = capture(bundle, p"frames/000001", "clock", 2000000000, 1)?
-  let shifted_uptime: model.Observation = {
-    ...current,
-    cpu: {...current.cpu, uptime: {state: report.Observed, seconds: 604800.0}},
-  }
+  let shifted_uptime: model.Observation = {...current, cpu.uptime: {state: report.Observed, seconds: 604800.0}}
 
   let ordinary = model.step(current, before)
   let after_uptime_jump = model.step(shifted_uptime, before)
@@ -260,13 +257,7 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   assert seeded.metadata.by_pid.len() == 1
   assert seeded.value.processes[0].uid_state == .Fresh
 
-  let missing_uid: model.Observation = {
-    ...second,
-    processes: {
-      ...second.processes,
-      processes: [{...second.processes.processes[0], uid: null}],
-    },
-  }
+  let missing_uid: model.Observation = {...second, processes.processes: [{...second.processes.processes[0], uid: null}]}
   let stale = model.step_cached(missing_uid, first, seeded.metadata)
   assert stale.value.processes[0].uid == 1000
   assert stale.value.processes[0].uid_state == .Stale
@@ -280,27 +271,13 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   assert expired.value.processes[0].uid_state == .Unavailable
   assert expired.metadata.by_pid.is_empty()
 
-  let changed_command: model.Observation = {
-    ...missing_uid,
-    at_ns: 3000000000,
-    processes: {
-      ...missing_uid.processes,
-      processes: [{...missing_uid.processes.processes[0], command: "exec-worker"}],
-    },
-  }
+  let changed_command: model.Observation = {...missing_uid, at_ns: 3000000000, processes.processes: [{...missing_uid.processes.processes[0], command: "exec-worker"}]}
   let after_exec = model.step_cached(changed_command, missing_uid, seeded.metadata)
   assert after_exec.value.processes[0].uid == null
   assert after_exec.value.processes[0].uid_state == .Unavailable
   assert after_exec.metadata.by_pid.is_empty()
 
-  let changed_credentials: model.Observation = {
-    ...second,
-    at_ns: 3000000000,
-    processes: {
-      ...second.processes,
-      processes: [{...second.processes.processes[0], uid: 2000}],
-    },
-  }
+  let changed_credentials: model.Observation = {...second, at_ns: 3000000000, processes.processes: [{...second.processes.processes[0], uid: 2000}]}
   let refreshed = model.step_cached(changed_credentials, first, seeded.metadata)
   assert refreshed.value.processes[0].uid == 2000
   assert refreshed.value.processes[0].uid_state == .Fresh
@@ -314,20 +291,13 @@ test test_btop_process_uid_cache_evicts_exits_and_pid_reuse {
   let first = capture(bundle, p"frames/000000", "uid-churn", 1000000000, 0)?
   let seeded = model.step_cached(first, null, model.empty_metadata_cache("uid-churn"))
 
-  let reused: model.Observation = {
-    ...first,
-    at_ns: 2000000000,
-    processes: {
-      ...first.processes,
-      processes: [{...first.processes.processes[0], start_ticks: 9000, uid: null}],
-    },
-  }
+  let reused: model.Observation = {...first, at_ns: 2000000000, processes.processes: [{...first.processes.processes[0], start_ticks: 9000, uid: null}]}
   let reused_step = model.step_cached(reused, first, seeded.metadata)
   assert reused_step.value.processes[0].uid == null
   assert reused_step.value.processes[0].uid_state == .Unavailable
   assert reused_step.metadata.by_pid.is_empty()
 
-  let exited: model.Observation = {...first, at_ns: 3000000000, processes: {...first.processes, processes: []}}
+  let exited: model.Observation = {...first, at_ns: 3000000000, processes.processes: []}
   let exited_step = model.step_cached(exited, first, seeded.metadata)
   assert exited_step.value.processes == []
   assert exited_step.metadata.by_pid.is_empty()
