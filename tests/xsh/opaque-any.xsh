@@ -91,7 +91,7 @@ test test_opaque_any_keeps_storage_equality_and_keys {
   let raw: Any = {name: "demo"}
   let copied: Any = raw
   let field: OpaqueAnyEnvelope = OpaqueAnyEnvelope(raw)
-  let items: List[Any] = [raw, copied]
+  let items = [raw, copied]
   let entries: Map[Any] = {one: raw}
   assert keep_opaque_any(field.value) == raw
   assert raw == copied
@@ -103,7 +103,7 @@ test test_opaque_any_keeps_storage_equality_and_keys {
   assert entries["one"] == raw
   assert items.get(0)? == raw
   assert entries.get("one")? == raw
-  let one: List[Any] = [raw]
+  let one = [raw]
   assert keep_opaque_any(@one) == raw
   assert first_opaque_any(@items) == raw
   for item in items { assert item == raw }
@@ -155,8 +155,8 @@ test test_opaque_any_keeps_erased_record_leaf_access {
   assert erased["name"] == "demo"
   assert erased.get("name")? == "demo"
   assert json.get(erased.nested, ["count"])? == 1
-  let names: List[Str] = ["printf"]
-  let paths: List[Path] = [p"printf"]
+  let names = ["printf"]
+  let paths = [p"printf"]
   let _: Command = process.command_argv("printf", names)
   let _: Command = process.command_argv(p"printf", paths)
 }

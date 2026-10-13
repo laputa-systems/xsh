@@ -219,7 +219,18 @@ test test_btop_process_and_device_identity_churn_stays_bounded_and_warms_new_epo
       100000 + cycle * 100,
       process_seed + cycle,
     )
-    let current: model.Observation = {...base, source_id: "churn", at_ns: (cycle + 1) * 1000000000, processes.processes: current_processes, storage: disk_epoch(base.storage, disk_count, cycle * 1000 + 10, cycle * 100)}
+    let current: model.Observation = model.Observation(
+      source_id: "churn",
+      at_ns: (cycle + 1) * 1000000000,
+      page_size_bytes: base.page_size_bytes,
+      clock_ticks_per_second: base.clock_ticks_per_second,
+      cpu: base.cpu,
+      memory: base.memory,
+      network: base.network,
+      processes: {...base.processes, processes: current_processes},
+      telemetry: base.telemetry,
+      storage: disk_epoch(base.storage, disk_count, cycle * 1000 + 10, cycle * 100),
+    )
     let updated = model.step_cached(current, previous, cache)
     assert updated.value.processes.len() == process_count
     assert updated.metadata.by_pid.len() == process_count

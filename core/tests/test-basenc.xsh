@@ -93,7 +93,7 @@ test test_basenc_base58_large_zero_input_preserves_default_wrapping { |ctx|
   let root = test.temp_dir(ctx, name: "basenc-large-zeros")?
   let input = fp"{root}/zeros"
   input.write(b"")
-  let size = 20 * 1024 * 1024
+  let size: Int = 20MiB
   input.truncate(size)
   let output = fp"{root}/encoded"
   let result = invoke(ctx, ["--base58", input.display()], sink: output)?

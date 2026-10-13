@@ -66,7 +66,7 @@ test test_gnu_rm_dangling_symlink_log { |ctx|
   let s = uu.scene(ctx)?
   uu.symlink(s, "no-file", "dangle")
   uu.symlink(s, "/", "symlink")
-  let r = uu.invoke(s, "rm", ["---presume-input-tty", "dangle", "symlink"], timeout: 6300ms)?
+  let _ = uu.invoke(s, "rm", ["---presume-input-tty", "dangle", "symlink"], timeout: 6300ms)?
   assert ! uu.exists(s, "dangle")?
   assert ! uu.exists(s, "symlink")?
 }

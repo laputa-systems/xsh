@@ -70,26 +70,34 @@ test test_pattern_conditionals_produce_values_and_keep_literal_results {
   }
 }
 
-test test_pattern_conditional_expressions_advance_and_clear_branch_captures {
-  let outcome = Ok({message: "ready", code: 7})
-  let outer = "outer"
-  let selected = if let Ok({message: _, code: 8}) = outcome {
-    "wrong"
-  } else if let Ok({message: outer, code: 7}) = outcome {
-    outer
-  } else {
-    "missing"
-  }
-  let fallback = if let Ok({message: _, code: 8}) = outcome {
-    "wrong"
-  } else if let Err(_) = outcome {
-    "wrong"
-  } else {
-    outer
-  }
-  assert selected == "ready"
-  assert fallback == "outer"
-  assert outer == "outer"
+test test_pattern_conditional_expressions_advance_and_clear_branch_captures { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""# An expression branch capture may shadow an outer binding, which resolves again afterward.
+let outcome = Ok({message: "ready", code: 7})
+let outer = "outer"
+let selected = if let Ok({message: _, code: 8}) = outcome {
+  "wrong"
+} else if let Ok({message: outer, code: 7}) = outcome {
+  outer
+} else {
+  "missing"
+}
+let fallback = if let Ok({message: _, code: 8}) = outcome {
+  "wrong"
+} else if let Err(_) = outcome {
+  "wrong"
+} else {
+  outer
+}
+assert selected == "ready"
+assert fallback == "outer"
+assert outer == "outer"
+""",
+  )?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  assert output.stdout == ""
 }
 
 test test_pattern_loops_reevaluate_after_continue_and_keep_lexical_targets {

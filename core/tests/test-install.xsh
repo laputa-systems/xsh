@@ -505,7 +505,6 @@ test test_install_preserve_context_warns_and_continues { |ctx|
 }
 
 test test_install_context_warning_precedes_missing_operand_error { |ctx|
-  let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/install.xsh"
   let result = run.capture --text ${ctx.xsh_bin} $script -- --context=x
   assert result.status.exited_with(1)

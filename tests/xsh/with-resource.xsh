@@ -2,7 +2,7 @@
 # preserves cleanup-failure coverage without constructing an opaque identity.
 # Two workers and inputs avoid the serial path that uses the caller evaluator.
 proc foreign_lock(lock_path: Path) [fs, error] -> Result[FsLock] {
-  let locks = [lock_path, fp"{lock_path}.other"] |> par-map(jobs: 2) { |lock_path| fs.lock(lock_path)? }
+  let locks = [lock_path, fp"{lock_path}.other"] |> par-map(jobs: 2) { |worker_path| fs.lock(worker_path)? }
   locks[0]
 }
 
