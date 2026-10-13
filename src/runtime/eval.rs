@@ -6732,6 +6732,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 family_identity: Name::PROCESS_ERROR,
                 variant_name,
                 _symbols: symbols,
+                stream_item_attribution: None,
             }
         }
         value => RuntimeError::new(

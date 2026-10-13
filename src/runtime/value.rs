@@ -1520,7 +1520,7 @@ impl PathValue {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct RuntimeError {
     pub family: String,
     pub variant: String,
@@ -1548,6 +1548,88 @@ pub struct RuntimeError {
     pub(crate) family_identity: Name,
     pub(crate) variant_name: Name,
     pub(crate) _symbols: SymbolOwner,
+    // Carries the innermost stream-item attribution across evaluator
+    // boundaries without changing the public error's debug or equality view.
+    pub(crate) stream_item_attribution: Option<StreamItemErrorAttribution>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StreamItemErrorAttribution {
+    pub(crate) stage: &'static str,
+    pub(crate) item_index: usize,
+    pub(crate) trace_error: crate::trace::TraceError,
+    pub(crate) trace_emitted: bool,
+}
+
+impl fmt::Debug for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RuntimeError")
+            .field("family", &self.family)
+            .field("variant", &self.variant)
+            .field("kind", &self.kind)
+            .field("message", &self.message)
+            .field("payload", &self.payload)
+            .field("facets", &self.facets)
+            .field("span", &self.span)
+            .field("contexts", &self.contexts)
+            .field("cause", &self.cause)
+            .field("abort", &self.abort)
+            .field("within", &self.within)
+            .field("propagated", &self.propagated)
+            .field("propagated_run_error", &self.propagated_run_error)
+            .field("scope_cleanup", &self.scope_cleanup)
+            .field("family_name", &self.family_name)
+            .field("family_identity", &self.family_identity)
+            .field("variant_name", &self.variant_name)
+            .field("_symbols", &self._symbols)
+            .finish()
+    }
+}
+
+impl PartialEq for RuntimeError {
+    fn eq(&self, other: &Self) -> bool {
+        self.family == other.family
+            && self.variant == other.variant
+            && self.kind == other.kind
+            && self.message == other.message
+            && self.payload == other.payload
+            && self.facets == other.facets
+            && self.span == other.span
+            && self.contexts == other.contexts
+            && self.cause == other.cause
+            && self.abort == other.abort
+            && self.within == other.within
+            && self.propagated == other.propagated
+            && self.propagated_run_error == other.propagated_run_error
+            && self.scope_cleanup == other.scope_cleanup
+            && self.family_name == other.family_name
+            && self.family_identity == other.family_identity
+            && self.variant_name == other.variant_name
+            && self._symbols == other._symbols
+    }
+}
+
+impl Eq for RuntimeError {}
+
+#[cfg(test)]
+mod runtime_error_attribution_tests {
+    use super::{RuntimeError, StreamItemErrorAttribution};
+    use crate::trace::TraceError;
+
+    #[test]
+    fn stream_item_attribution_does_not_change_debug_or_equality() {
+        let original = RuntimeError::new("test-error", "failed");
+        let mut attributed = original.clone();
+        attributed.stream_item_attribution = Some(StreamItemErrorAttribution {
+            stage: "map",
+            item_index: 3,
+            trace_error: TraceError::new("test-error", "failed"),
+            trace_emitted: true,
+        });
+
+        assert_eq!(original, attributed);
+        assert_eq!(format!("{original:?}"), format!("{attributed:?}"));
+    }
 }
 
 impl RuntimeError {
@@ -1574,6 +1656,7 @@ impl RuntimeError {
             family_identity: Name::ERROR,
             variant_name,
             _symbols: symbols,
+            stream_item_attribution: None,
         }
     }
 
@@ -1629,6 +1712,7 @@ impl RuntimeError {
             family_identity,
             variant_name,
             _symbols: symbols,
+            stream_item_attribution: None,
         }
     }
 
@@ -1678,6 +1762,7 @@ impl RuntimeError {
             family_identity: Name::ERROR,
             variant_name: symbols.intern("Abort"),
             _symbols: symbols,
+            stream_item_attribution: None,
         }
     }
 

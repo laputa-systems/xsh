@@ -25,7 +25,7 @@ use crate::runtime::run::execute_run_with_policy;
 use crate::runtime::value::{
     CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream,
     DurationValue, FunctionName, LiveStream, PathValue, ProcessHandleValue, RecordMap, RegexValue,
-    RunError, RuntimeError, StreamValue, Value, error_constructor,
+    RunError, RuntimeError, StreamItemErrorAttribution, StreamValue, Value, error_constructor,
     identified_structured_error_constructor,
 };
 use crate::sema::types::Type;
@@ -7139,20 +7139,48 @@ impl Evaluator {
         if error.abort.is_some() {
             return error;
         }
-        self.trace_leaf(
-            TraceKind::StreamItemError,
-            error.span,
-            Some(stage),
-            TracePayload::StreamItem {
-                stage: stage.to_string(),
-                item_index,
-                error: Some(TraceError::from_runtime_error(&error)),
-            },
-        );
+        if let Some(mut attribution) = error.stream_item_attribution.take() {
+            if self.trace_enabled && !attribution.trace_emitted {
+                self.trace_leaf(
+                    TraceKind::StreamItemError,
+                    error.span,
+                    Some(attribution.stage),
+                    TracePayload::StreamItem {
+                        stage: attribution.stage.to_string(),
+                        item_index: attribution.item_index,
+                        error: Some(attribution.trace_error.clone()),
+                    },
+                );
+                attribution.trace_emitted = true;
+            }
+            error.stream_item_attribution = Some(attribution);
+            return error;
+        }
+        let trace_error = TraceError::from_runtime_error(&error);
+        let mut attribution = StreamItemErrorAttribution {
+            stage,
+            item_index,
+            trace_error: trace_error.clone(),
+            trace_emitted: self.trace_enabled,
+        };
+        if self.trace_enabled {
+            self.trace_leaf(
+                TraceKind::StreamItemError,
+                error.span,
+                Some(stage),
+                TracePayload::StreamItem {
+                    stage: stage.to_string(),
+                    item_index,
+                    error: Some(trace_error),
+                },
+            );
+            attribution.trace_emitted = true;
+        }
         error.message = format!(
             "stream stage `{stage}` item {item_index} failed: {}",
             error.message
         );
+        error.stream_item_attribution = Some(attribution);
         error
     }
 
@@ -8355,5 +8383,53 @@ mod lowered_module_support_authority_tests {
 
         #[cfg(feature = "native-tests")]
         assert!(Evaluator::lowered_module_op_supported(RuntimeOp::TestOk));
+    }
+}
+
+#[cfg(test)]
+mod stream_item_attribution_tests {
+    use super::*;
+
+    #[test]
+    fn receiving_evaluator_emits_carried_trace_without_wrapping_again() {
+        let mut evaluator = Evaluator::new(Vec::new()).with_tracing();
+        let mut error = RuntimeError::new(
+            "division-by-zero",
+            "stream stage `map` item 1 failed: division by zero",
+        );
+        error.stream_item_attribution = Some(StreamItemErrorAttribution {
+            stage: "map",
+            item_index: 1,
+            trace_error: TraceError::new("division-by-zero", "division by zero"),
+            trace_emitted: false,
+        });
+
+        let error = evaluator.stream_item_runtime_error("par-map", 0, error);
+        assert_eq!(
+            error.message,
+            "stream stage `map` item 1 failed: division by zero"
+        );
+        let error = evaluator.stream_item_runtime_error("par-map", 0, error);
+        assert_eq!(
+            error.message,
+            "stream stage `map` item 1 failed: division by zero"
+        );
+
+        let leaves = evaluator
+            .trace_events
+            .iter()
+            .filter(|event| event.kind == TraceKind::StreamItemError)
+            .collect::<Vec<_>>();
+        assert_eq!(leaves.len(), 1);
+        assert!(matches!(
+            &leaves[0].payload,
+            TracePayload::StreamItem {
+                stage,
+                item_index: 1,
+                error: Some(error),
+            } if stage == "map"
+                && error.kind == "division-by-zero"
+                && error.message == "division by zero"
+        ));
     }
 }

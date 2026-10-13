@@ -483,6 +483,50 @@ let _ = [7, 8] |> map { |outer|
   assert collection_error.stderr.split("kind=stream.item.error").len() - 1 == 1
 }
 
+test test_stage_engine_nested_mapped_producer_flat_map_error_wraps_once { |ctx|
+  let collection_error = test.run_xsht_trace(
+    ctx,
+    r"""
+stream mapped_numbers() [] -> Stream[Int] {
+  let values = [5, 0] |> map { |inner| 10 / inner } |> collect()
+  for value in values { yield value }
+}
+let _ = [7] |> flat-map { |outer|
+  let adjusted = outer + 0
+  mapped_numbers()
+} |> collect()
+""",
+    ["--trace", "--raw"],
+  )?
+  assert collection_error.status == 3, collection_error.stderr
+  assert "err: division-by-zero: stream stage `map` item 1 failed: division by zero" in collection_error.stderr
+  assert "stream stage `map` item 0 failed" not in collection_error.stderr
+  assert collection_error.stderr.split("kind=stream.item.error").len() - 1 == 1
+  assert "item_index=1" in collection_error.stderr
+}
+
+test test_stage_engine_nested_map_in_par_map_error_keeps_inner_attribution { |ctx|
+  let source = r"""
+let _ = [7, 8] |> par-map(jobs: 2) { |outer|
+  let inner = if outer == 8 {
+    [5, 0] |> map { |item| 10 / item } |> collect()
+  } else { [] }
+  inner.len()
+} |> collect()
+"""
+  let traced_error = test.run_xsht_trace(ctx, source, ["--trace", "--raw"])?
+  assert traced_error.status == 3, traced_error.stderr
+  assert "err: division-by-zero: stream stage `map` item 1 failed: division by zero" in traced_error.stderr
+  assert "stream stage `par-map` item 1 failed" not in traced_error.stderr
+  assert traced_error.stderr.split("kind=stream.item.error").len() - 1 == 1
+  assert "item_index=1" in traced_error.stderr
+
+  let parallel_error = test.run_xsh(ctx, source)?
+  assert parallel_error.status == 3, parallel_error.stderr
+  assert "stream stage `map` item 1 failed: division by zero" in parallel_error.stderr
+  assert "stream stage `par-map` item 1 failed" not in parallel_error.stderr
+}
+
 test test_stage_engine_for_body_error_is_not_a_map_item_error { |ctx|
   let for_body_error = test.run_xsht_trace(
     ctx,
