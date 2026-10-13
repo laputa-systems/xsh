@@ -2152,7 +2152,7 @@ pure merge_integers(values: List[Int]) -> List[Int] {
 pure leaf_blocks(keys: List[Str]) -> List[Bool] {
   var capacity = 0
   var count = 0
-  var leaves: Map[Bool] = {}
+  var leaves: Set[Str] = set.empty()
   let stays = collect {
     for key in keys {
       let k = key.parse_int() ?? 0
@@ -2187,7 +2187,7 @@ pure leaf_blocks(keys: List[Str]) -> List[Bool] {
         } else {
           let leaf = f"{trail}:{index}"
           if leaf not in leaves {
-            leaves = leaves.set(leaf, true)
+            leaves = leaves.add(leaf)
             capacity += size
           }
           break

@@ -96,13 +96,13 @@ proc directories(image: Path, initial: State) -> Result[State] {
   var state = initial
   let layout = state.layout
   var queue: List[Directory] = [{cluster: layout.root_cluster, parent: 0, root: true}]
-  var visited: Map[Int, Bool] = {}
+  var visited: Set[Int] = set.empty()
   var next_directory = 0
   while next_directory < queue.len() {
     let directory = queue[next_directory]
     next_directory += 1
     if directory.cluster in visited { state = issue(state, f"directory cycle at cluster {directory.cluster}", false); continue }
-    visited[directory.cluster] = true
+    visited = visited.add(directory.cluster)
     var offsets = []
     let length = if directory.root and layout.bits != 32 { layout.roots * 32 } else { geom.cluster_bytes(layout) }
     if directory.root and layout.bits != 32 { offsets = [geom.root_offset(layout)] } else {
