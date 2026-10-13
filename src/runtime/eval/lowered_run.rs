@@ -6428,10 +6428,13 @@ impl Evaluator {
             }
             #[cfg(feature = "native-tests")]
             callable; RuntimeOp::TestEq if values.len() == 2 || values.len() == 3 => {
+                let equal = crate::runtime::eval::lowered_values_semantically_equal(
+                    &values[0], &values[1],
+                );
                 let left = values[0].clone().into_value();
                 let right = values[1].clone().into_value();
                 let message = lowered_str_arg_owned(values.get(2).cloned(), "", "test.eq", span)?;
-                if left == right {
+                if equal {
                     lowered_result_ok(LoweredValue::Unit)
                 } else {
                     let detail = if message.is_empty() {
@@ -6448,10 +6451,12 @@ impl Evaluator {
             }
             #[cfg(feature = "native-tests")]
             callable; RuntimeOp::TestNe if values.len() == 2 || values.len() == 3 => {
+                let equal = crate::runtime::eval::lowered_values_semantically_equal(
+                    &values[0], &values[1],
+                );
                 let left = values[0].clone().into_value();
-                let right = values[1].clone().into_value();
                 let message = lowered_str_arg_owned(values.get(2).cloned(), "", "test.ne", span)?;
-                if left != right {
+                if !equal {
                     lowered_result_ok(LoweredValue::Unit)
                 } else {
                     let detail = if message.is_empty() {

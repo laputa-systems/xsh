@@ -1212,11 +1212,34 @@ fn finite(value: f64) -> Res<Val> {
 
 pub fn values_equal(left: &Val, right: &Val) -> bool {
     match (left, right) {
-        (Val::Float(a), Val::Float(b)) => a.to_bits() == b.to_bits() || a == b,
+        (Val::Float(a), Val::Float(b)) => a == b,
         (Val::List(a), Val::List(b)) => {
             a.len() == b.len() && a.iter().zip(b).all(|(a, b)| values_equal(a, b))
         }
         _ => left == right,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Val, values_equal};
+
+    #[test]
+    fn float_equality_matches_ieee_values_recursively() {
+        let positive_zero = Val::Float(0.0);
+        let negative_zero = Val::Float(-0.0);
+        let nan = Val::Float(f64::from_bits(0x7ff8_0000_0000_0001));
+
+        assert!(values_equal(&positive_zero, &negative_zero));
+        assert!(!values_equal(&nan, &nan));
+        assert!(values_equal(
+            &Val::List(vec![positive_zero.clone()]),
+            &Val::List(vec![negative_zero]),
+        ));
+        assert!(!values_equal(
+            &Val::List(vec![nan.clone()]),
+            &Val::List(vec![nan]),
+        ));
     }
 }
 

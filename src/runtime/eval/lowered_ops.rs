@@ -9,9 +9,9 @@ use super::{
     LoweredReturnKind, LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType,
     LoweredValue, add_error_context, bytes_contains, bytes_find,
     lowered_bytes_view_value, lowered_inline_stats_field_value, lowered_record_vec_get,
-    lowered_stats_field_value, lowered_str_view_value, normalize_path_value, path_parent,
-    path_posix_dirname, path_posix_extension, path_text_field, path_value_from_pathbuf,
-    path_with_ext, pathbuf_from_path_value,
+    lowered_stats_field_value, lowered_str_view_value, lowered_values_semantically_equal,
+    normalize_path_value, path_parent, path_posix_dirname, path_posix_extension,
+    path_text_field, path_value_from_pathbuf, path_with_ext, pathbuf_from_path_value,
 };
 use super::type_view::ValueView;
 use crate::map_key::{MapKey, MapKeyRef};
@@ -192,10 +192,14 @@ pub(super) fn lowered_binary_value(
         }));
     }
     if op == BinaryOp::Eq {
-        return Ok(LoweredValue::Bool(left == right));
+        return Ok(LoweredValue::Bool(lowered_values_semantically_equal(
+            &left, &right,
+        )));
     }
     if op == BinaryOp::Ne {
-        return Ok(LoweredValue::Bool(left != right));
+        return Ok(LoweredValue::Bool(!lowered_values_semantically_equal(
+            &left, &right,
+        )));
     }
     if let LoweredValue::Set(elements) = left {
         return super::set::lowered_set_binary_value(op, elements, &right, span);
@@ -327,8 +331,12 @@ pub(super) fn lowered_membership_value(
         return Ok(bytes_contains(container, needle));
     }
     match container {
-        LoweredValue::List(items) => Ok(items.iter().any(|item| item == needle)),
-        LoweredValue::SharedList(items) => Ok(items.iter().any(|item| item == needle)),
+        LoweredValue::List(items) => Ok(items
+            .iter()
+            .any(|item| lowered_values_semantically_equal(item, needle))),
+        LoweredValue::SharedList(items) => Ok(items
+            .iter()
+            .any(|item| lowered_values_semantically_equal(item, needle))),
         LoweredValue::Map(fields) => {
             let key = lowered_map_key_ref(needle, span)?;
             require_lowered_map_key_domain(fields, key, span)?;
@@ -370,8 +378,8 @@ pub(super) fn lowered_assertion_comparison(
     span: Span,
 ) -> Result<bool, RuntimeError> {
     match op {
-        BinaryOp::Eq => return Ok(left == right),
-        BinaryOp::Ne => return Ok(left != right),
+        BinaryOp::Eq => return Ok(lowered_values_semantically_equal(left, right)),
+        BinaryOp::Ne => return Ok(!lowered_values_semantically_equal(left, right)),
         BinaryOp::In | BinaryOp::NotIn => {
             let found = lowered_membership_value(left, right, span)?;
             return Ok(if op == BinaryOp::In { found } else { !found });

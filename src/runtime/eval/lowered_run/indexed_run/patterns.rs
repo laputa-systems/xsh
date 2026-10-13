@@ -388,10 +388,10 @@ impl Evaluator {
                 }
             }
             PatternView::Literal(value_ref) => {
-                value_ref
+                let pattern_value = value_ref
                     .materialize()
-                    .map_err(|error| indexed_error(error, span))?
-                    == *value
+                    .map_err(|error| indexed_error(error, span))?;
+                crate::runtime::eval::lowered_values_semantically_equal(&pattern_value, value)
             }
             PatternView::ResultOk { slot, unit_only } => {
                 if let LoweredValue::ResultOk(inner) = value {

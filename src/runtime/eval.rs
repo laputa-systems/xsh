@@ -1880,15 +1880,50 @@ pub(in crate::runtime::eval) fn lowered_record_vec_insert(
     }
 }
 
-fn lowered_record_map_eq_vec(
+fn lowered_record_map_eq_vec_with(
     map: &BTreeMap<Arc<str>, LoweredValue>,
     vec: &[(Name, LoweredValue)],
+    equal: impl Fn(&LoweredValue, &LoweredValue) -> bool,
 ) -> bool {
     map.len() == vec.len()
         && vec.iter().all(|(key, value)| {
             let key_text = key.as_str();
             map.get::<str>(key_text.as_str())
-                .is_some_and(|left| left == value)
+                .is_some_and(|left| equal(left, value))
+        })
+}
+
+fn lowered_record_map_eq_vec(
+    map: &BTreeMap<Arc<str>, LoweredValue>,
+    vec: &[(Name, LoweredValue)],
+) -> bool {
+    lowered_record_map_eq_vec_with(map, vec, |left, right| left == right)
+}
+
+fn lowered_record_map_semantically_eq_vec(
+    map: &BTreeMap<Arc<str>, LoweredValue>,
+    vec: &[(Name, LoweredValue)],
+) -> bool {
+    lowered_record_map_eq_vec_with(map, vec, lowered_values_semantically_equal)
+}
+
+fn lowered_record_map_eq_stats_value_with(
+    map: &BTreeMap<Arc<str>, LoweredValue>,
+    stats: &LoweredValue,
+    equal: impl Fn(&LoweredValue, &LoweredValue) -> bool,
+) -> bool {
+    map.len() == 4
+        && map.get("blanks").is_some_and(|value| {
+            lowered_stats_value_field(stats, "blanks").is_some_and(|field| equal(value, &field))
+        })
+        && map.get("blobs").is_some_and(|value| {
+            lowered_stats_value_field(stats, "blobs").is_some_and(|field| equal(value, &field))
+        })
+        && map.get("code").is_some_and(|value| {
+            lowered_stats_value_field(stats, "code").is_some_and(|field| equal(value, &field))
+        })
+        && map.get("comments").is_some_and(|value| {
+            lowered_stats_value_field(stats, "comments").is_some_and(|field| equal(value, &field))
         })
 }
 
@@ -1896,18 +1931,33 @@ fn lowered_record_map_eq_stats_value(
     map: &BTreeMap<Arc<str>, LoweredValue>,
     stats: &LoweredValue,
 ) -> bool {
-    map.len() == 4
-        && map.get("blanks").is_some_and(|value| {
-            lowered_stats_value_field(stats, "blanks").is_some_and(|field| value == &field)
+    lowered_record_map_eq_stats_value_with(map, stats, |left, right| left == right)
+}
+
+fn lowered_record_map_semantically_eq_stats_value(
+    map: &BTreeMap<Arc<str>, LoweredValue>,
+    stats: &LoweredValue,
+) -> bool {
+    lowered_record_map_eq_stats_value_with(map, stats, lowered_values_semantically_equal)
+}
+
+fn lowered_record_vec_eq_stats_value_with(
+    record: &[(Name, LoweredValue)],
+    stats: &LoweredValue,
+    equal: impl Fn(&LoweredValue, &LoweredValue) -> bool,
+) -> bool {
+    record.len() == 4
+        && lowered_record_vec_get(record, "blanks").is_some_and(|value| {
+            lowered_stats_value_field(stats, "blanks").is_some_and(|field| equal(value, &field))
         })
-        && map.get("blobs").is_some_and(|value| {
-            lowered_stats_value_field(stats, "blobs").is_some_and(|field| value == &field)
+        && lowered_record_vec_get(record, "blobs").is_some_and(|value| {
+            lowered_stats_value_field(stats, "blobs").is_some_and(|field| equal(value, &field))
         })
-        && map.get("code").is_some_and(|value| {
-            lowered_stats_value_field(stats, "code").is_some_and(|field| value == &field)
+        && lowered_record_vec_get(record, "code").is_some_and(|value| {
+            lowered_stats_value_field(stats, "code").is_some_and(|field| equal(value, &field))
         })
-        && map.get("comments").is_some_and(|value| {
-            lowered_stats_value_field(stats, "comments").is_some_and(|field| value == &field)
+        && lowered_record_vec_get(record, "comments").is_some_and(|value| {
+            lowered_stats_value_field(stats, "comments").is_some_and(|field| equal(value, &field))
         })
 }
 
@@ -1915,19 +1965,14 @@ fn lowered_record_vec_eq_stats_value(
     record: &[(Name, LoweredValue)],
     stats: &LoweredValue,
 ) -> bool {
-    record.len() == 4
-        && lowered_record_vec_get(record, "blanks").is_some_and(|value| {
-            lowered_stats_value_field(stats, "blanks").is_some_and(|field| value == &field)
-        })
-        && lowered_record_vec_get(record, "blobs").is_some_and(|value| {
-            lowered_stats_value_field(stats, "blobs").is_some_and(|field| value == &field)
-        })
-        && lowered_record_vec_get(record, "code").is_some_and(|value| {
-            lowered_stats_value_field(stats, "code").is_some_and(|field| value == &field)
-        })
-        && lowered_record_vec_get(record, "comments").is_some_and(|value| {
-            lowered_stats_value_field(stats, "comments").is_some_and(|field| value == &field)
-        })
+    lowered_record_vec_eq_stats_value_with(record, stats, |left, right| left == right)
+}
+
+fn lowered_record_vec_semantically_eq_stats_value(
+    record: &[(Name, LoweredValue)],
+    stats: &LoweredValue,
+) -> bool {
+    lowered_record_vec_eq_stats_value_with(record, stats, lowered_values_semantically_equal)
 }
 
 fn lowered_stats_value_field(stats: &LoweredValue, field: &str) -> Option<LoweredValue> {
@@ -2018,6 +2063,201 @@ impl PartialEq for LoweredValue {
             (Self::ResultErr(left), Self::ResultErr(right)) => left == right,
             _ => false,
         }
+    }
+}
+
+/// Language equality uses IEEE Float comparisons while representation equality
+/// keeps FloatValue's raw-bit contract for codecs and internal storage.
+pub(in crate::runtime::eval) fn lowered_values_semantically_equal(
+    left: &LoweredValue,
+    right: &LoweredValue,
+) -> bool {
+    match (left, right) {
+        (LoweredValue::Float(left), LoweredValue::Float(right)) => left.0 == right.0,
+        (LoweredValue::Record(left), LoweredValue::Record(right))
+        | (LoweredValue::Module(left), LoweredValue::Module(right)) => {
+            lowered_semantic_map_eq(left, right)
+        }
+        (LoweredValue::Record(left), LoweredValue::RecordVec(right)) => {
+            lowered_record_map_semantically_eq_vec(left, right)
+        }
+        (LoweredValue::RecordVec(left), LoweredValue::Record(right)) => {
+            lowered_record_map_semantically_eq_vec(right, left)
+        }
+        (
+            LoweredValue::Record(left),
+            right @ (LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)),
+        ) => lowered_record_map_semantically_eq_stats_value(left, right),
+        (
+            left @ (LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)),
+            LoweredValue::Record(right),
+        ) => lowered_record_map_semantically_eq_stats_value(right, left),
+        (
+            LoweredValue::RecordVec(left),
+            right @ (LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)),
+        ) => lowered_record_vec_semantically_eq_stats_value(left, right),
+        (
+            left @ (LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)),
+            LoweredValue::RecordVec(right),
+        ) => lowered_record_vec_semantically_eq_stats_value(right, left),
+        (LoweredValue::StatsBlob(left), LoweredValue::StatsBlob(right)) => {
+            left.blanks == right.blanks
+                && left.code == right.code
+                && left.comments == right.comments
+                && lowered_semantic_map_eq(&left.blobs, &right.blobs)
+        }
+        (LoweredValue::RecordVec(left), LoweredValue::RecordVec(right)) => {
+            left.len() == right.len()
+                && left.iter().zip(right.iter()).all(|((left_key, left), (right_key, right))| {
+                    left_key == right_key && lowered_values_semantically_equal(left, right)
+                })
+        }
+        (LoweredValue::List(left), LoweredValue::List(right)) => {
+            lowered_semantic_slice_eq(left, right)
+        }
+        (LoweredValue::List(left), LoweredValue::SharedList(right)) => {
+            lowered_semantic_slice_eq(left, right)
+        }
+        (LoweredValue::SharedList(left), LoweredValue::List(right)) => {
+            lowered_semantic_slice_eq(left, right)
+        }
+        (LoweredValue::SharedList(left), LoweredValue::SharedList(right)) => {
+            lowered_semantic_slice_eq(left, right)
+        }
+        (LoweredValue::Map(left), LoweredValue::Map(right)) => {
+            lowered_semantic_map_eq(left, right)
+        }
+        (LoweredValue::Tag(left), LoweredValue::Tag(right)) => {
+            left.type_name == right.type_name
+                && left.name == right.name
+                && left.wire == right.wire
+                && lowered_semantic_slice_eq(&left.fields, &right.fields)
+        }
+        (LoweredValue::ResultOk(left), LoweredValue::ResultOk(right)) => {
+            lowered_values_semantically_equal(left, right)
+        }
+        (LoweredValue::ResultErr(left), LoweredValue::ResultErr(right))
+        | (LoweredValue::Error(left), LoweredValue::Error(right)) => {
+            runtime_values_semantically_equal(left, right)
+        }
+        _ => left == right,
+    }
+}
+
+fn lowered_semantic_slice_eq(left: &[LoweredValue], right: &[LoweredValue]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| lowered_values_semantically_equal(left, right))
+}
+
+fn lowered_semantic_map_eq<K: Ord>(
+    left: &BTreeMap<K, LoweredValue>,
+    right: &BTreeMap<K, LoweredValue>,
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|((left_key, left), (right_key, right))| {
+            left_key == right_key && lowered_values_semantically_equal(left, right)
+        })
+}
+
+fn runtime_values_semantically_equal(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Float(left), Value::Float(right)) => left.0 == right.0,
+        (Value::List(left), Value::List(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| runtime_values_semantically_equal(left, right))
+        }
+        (Value::Map(left), Value::Map(right)) => {
+            left.len() == right.len()
+                && left.iter().zip(right).all(|((left_key, left), (right_key, right))| {
+                    left_key == right_key && runtime_values_semantically_equal(left, right)
+                })
+        }
+        (Value::Record(left), Value::Record(right))
+        | (Value::Module(left), Value::Module(right)) => {
+            left.len() == right.len()
+                && left.iter().all(|(key, value)| {
+                    right
+                        .get(key)
+                        .is_some_and(|other| runtime_values_semantically_equal(value, other))
+                })
+        }
+        (Value::Result(ResultValue::Ok(left)), Value::Result(ResultValue::Ok(right)))
+        | (Value::Result(ResultValue::Err(left)), Value::Result(ResultValue::Err(right))) => {
+            runtime_values_semantically_equal(left, right)
+        }
+        (
+            Value::Tag {
+                type_name: left_type,
+                name: left_name,
+                fields: left_fields,
+                wire: left_wire,
+            },
+            Value::Tag {
+                type_name: right_type,
+                name: right_name,
+                fields: right_fields,
+                wire: right_wire,
+            },
+        ) => {
+            left_type == right_type
+                && left_name == right_name
+                && left_wire == right_wire
+                && left_fields.len() == right_fields.len()
+                && left_fields
+                    .iter()
+                    .zip(right_fields)
+                    .all(|(left, right)| runtime_values_semantically_equal(left, right))
+        }
+        _ => left == right,
+    }
+}
+
+#[cfg(test)]
+mod semantic_float_equality_tests {
+    use super::{LoweredValue, lowered_values_semantically_equal};
+    use crate::runtime::value::FloatValue;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    #[test]
+    fn semantic_float_equality_is_ieee_and_representation_equality_stays_bitwise() {
+        let positive_zero = LoweredValue::Float(FloatValue(0.0));
+        let negative_zero = LoweredValue::Float(FloatValue(-0.0));
+        assert_ne!(positive_zero, negative_zero);
+        assert!(lowered_values_semantically_equal(
+            &positive_zero,
+            &negative_zero,
+        ));
+
+        let nan_bits = 0x7ff8_0000_0000_0001;
+        let nan = LoweredValue::Float(FloatValue(f64::from_bits(nan_bits)));
+        let same_bits_nan = LoweredValue::Float(FloatValue(f64::from_bits(nan_bits)));
+        assert_eq!(nan, same_bits_nan);
+        assert!(!lowered_values_semantically_equal(&nan, &same_bits_nan));
+
+        let positive = LoweredValue::List(vec![positive_zero]);
+        let negative = LoweredValue::List(vec![negative_zero]);
+        assert_ne!(positive, negative);
+        assert!(lowered_values_semantically_equal(&positive, &negative));
+
+        let positive_map = LoweredValue::Map(Arc::new(BTreeMap::from([(
+            crate::map_key::MapKey::Str(Arc::from("value")),
+            LoweredValue::Float(FloatValue(0.0)),
+        )])));
+        let negative_map = LoweredValue::Map(Arc::new(BTreeMap::from([(
+            crate::map_key::MapKey::Str(Arc::from("value")),
+            LoweredValue::Float(FloatValue(-0.0)),
+        )])));
+        assert!(lowered_values_semantically_equal(
+            &positive_map,
+            &negative_map,
+        ));
     }
 }
 

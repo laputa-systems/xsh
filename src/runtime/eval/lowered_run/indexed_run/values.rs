@@ -664,7 +664,9 @@ fn eval_indexed_typed_scalar(
                         let value = value
                             .materialize()
                             .map_err(|error| indexed_error(error, call_span))?;
-                        let equal = slots[slot] == value;
+                        let equal = crate::runtime::eval::lowered_values_semantically_equal(
+                            &slots[slot], &value,
+                        );
                         let result = match op {
                             BinaryOp::Eq => equal,
                             BinaryOp::Ne => !equal,
