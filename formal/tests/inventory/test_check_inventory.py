@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(103, len(result["fragment_roots"]))
+        self.assertEqual(113, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -289,6 +289,31 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Semantics.Effects.capture_keeps_unknown_contract_unresolved",
             },
             effect_roots,
+        )
+        nominal_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Validation.Nominal"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Validation.Nominal.constructor_introduction_retains_exact_provenance",
+                "Xsh.Validation.Nominal.require_introduction_retains_exact_provenance",
+                "Xsh.Validation.Nominal.erasure_preserves_underlying_value",
+                "Xsh.Validation.Nominal.package_declaration_ids_are_distinct",
+                "Xsh.Validation.Nominal.nominal_witnesses_keep_identity_before_erasure",
+                "Xsh.Validation.Nominal.nominal_witnesses_erase_to_the_same_value",
+                "Xsh.Validation.Nominal.erasure_is_not_injective",
+                "Xsh.Validation.Nominal.overlapping_nominal_union_keeps_alternatives_distinct",
+                "Xsh.Validation.Nominal.id_collapse_mutation_is_detected",
+                "Xsh.Validation.Nominal.provenance_erasure_mutation_is_detected",
+            },
+            nominal_roots,
+        )
+        self.assertTrue(
+            {
+                "Xsh.Validation.Nominal.id_collapse_mutation_is_detected",
+                "Xsh.Validation.Nominal.provenance_erasure_mutation_is_detected",
+            }.issubset(nominal_roots)
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:

@@ -2,8 +2,9 @@
 
 **Status:** Active staggered foundations, authorized 2026-10-13 after preflight.
 The pinned toolchain, finite private bridge fixtures, provisional inventory,
-scalar and base-machine fragments, validation, environment/store, effects,
-raw-IR, and transport codec/law fragments are integrated.
+scalar and base-machine fragments, validation, nominal identity/provenance and
+union-membership fragments, environment/store, effects, raw-IR, and transport
+codec/law fragments are integrated.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
 runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
 and `Xsh.Values.FloatEquality` defines an executable comparator over raw
@@ -11,12 +12,12 @@ encodings with Lean laws for IEEE value equality. A source regression covers
 runtime and constant-folded signed-zero, NaN, and nested comparisons. Consolidation
 acceptance and the post-consolidation G0b source freeze remain pending gates.
 The owner requested wider staggered lanes; continue on disjoint domains with
-the coordinated build and memory limits. No Rust conformance or full-language
-theorem is claimed, and all 72 inventoried full theorem obligations remain
+the coordinated build and memory limits. No source or Rust conformance claim or
+full G2 theorem is made, and all 72 inventoried full theorem obligations remain
 planned. The Raw decoder fragments prove successful word-read length, payload
 length and table bounds, plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 95 fragment roots; its 50 Python
+Rust conformance. The inventory now names 113 fragment roots; its 50 Python
 tests check inventory consistency, mutation controls, and finite-case evidence
 boundaries. Five observation
 fragments pair caller-supplied emissions with classified obligations, require
@@ -431,6 +432,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | Finite delayed-effect observations | After bridge baseline `6d77ab06`, five `SPEC_PROVED` roots in `Xsh.Effects.Lexical` show that positional observation pairs preserve supplied emission order and retain creation site, body site, and required effect; creation permission and equality with a finite pull sequence require explicit obligation alignment; a listed checked-consumer obligation is permitted at its own context. The inventory names 82 fragment roots, 89 owner sets, and 72 planned obligations; all 29 inventory tests remain. | Emissions and classified obligations are caller-supplied. Structural `Expr` site labels cannot distinguish identical occurrences. These results do not execute producers, establish Rust conformance, or close full EFF-LATENT or EFF-SEMANTIC. |
 | Finite error capture | `Xsh.Effects.Capture` proves error removal, preservation of other effects, idempotence, and commutation with represented effect closure; clause interpretation is permutation- and duplicate-invariant. Empty-bound witnesses expose mutations that drop named effects or unresolved work, and a captured missing-contract graph retains its unresolved fact. The inventory checker reports 89 owner sets, 95 fragment roots, and 72 planned obligations; all 50 inventory tests and `lake build Xsh.Effects.Capture` pass. | These theorems concern represented finite summaries, closure, and graph edges only. They do not establish Rust checker classification or propagation, complete solver behavior, full EFF-CAPTURE, EFF-LATENT, or EFF-SEMANTIC semantics, or conformance. |
 | Checked integer outcome laws | Commit `23d677cd2` adds checked conversion exactness, total signed-range outcome laws for addition, subtraction, multiplication, division, and remainder, plus concrete mutation witnesses for wrapping addition and Euclidean remainder. The inventory records all 8 added public theorem roots, bringing it to 103 fragment roots while retaining 89 owner sets and 72 planned obligations. The inventory checker and all 50 Python inventory tests pass. | These are fragments over the independent Lean integer model only; they establish no Rust arithmetic conformance or checker integration. The inventory remains provisional with null source identity and no finite conformance cases. |
+| Nominal identity, provenance, and union membership | Commit `b3e08a564` adds `Xsh.Validation.Nominal`; the root now imports it and the inventory lists all 10 public theorem declarations, including the ID-collapse and provenance-erasure mutation witnesses. The inventory checker reports 89 owner sets, 113 fragment roots, and 72 planned obligations; all 50 Python inventory tests pass. Schema 2 remains provisional with null source identity and no finite conformance cases. | This finite model does not validate record schemas or `.require` inputs, prove union exhaustiveness, or establish source/Rust conformance or full G2. The single `lake build Xsh` invocation stopped before compilation because its relative config path was resolved beneath `.work/`; no axiom audit or fresh kernel check was run. |
 
 ## For the owner afterwards
 

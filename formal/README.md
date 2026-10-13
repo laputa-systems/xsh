@@ -62,7 +62,15 @@ subtraction, multiplication, division, and remainder. Concrete mutation
 witnesses distinguish checked overflow from wrapping addition and truncating
 remainder from Euclidean remainder. These are results about the Lean integer
 model; they do not establish Rust arithmetic conformance or checker integration.
-The inventory names 103 rooted Lean fragment declarations. Its 50 Python tests
+`Xsh.Validation.Nominal` models declaration identity as module plus declaration
+name, tracks constructor and `.require` introduction provenance, erases nominal
+wrappers to their represented values, and checks nominal union membership. Its
+ten theorem roots include witnesses for equal representations with distinct
+identities and mutations that collapse IDs or erase provenance. The fragment
+does not validate record schemas or `.require` inputs, prove union
+exhaustiveness, or establish source/Rust conformance or full G2.
+
+The inventory names 113 rooted Lean fragment declarations. Its 50 Python tests
 check inventory shape, root reachability, mutation controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
 G1 closure or whole-language soundness claim is made.

@@ -3141,6 +3141,96 @@
       "boundary": "No end-to-end typing, control-flow, or Rust checker preservation claim."
     },
     {
+      "id": "fragment.Xsh.Validation.Nominal.constructor_introduction_retains_exact_provenance",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.constructor_introduction_retains_exact_provenance",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Constructor introduction retains the target nominal identity, constructor provenance, and represented value.",
+      "boundary": "Standalone nominal model only; no schema validation, source or Rust conformance, or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.require_introduction_retains_exact_provenance",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.require_introduction_retains_exact_provenance",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Require introduction retains the target identity, represented input category, and represented value.",
+      "boundary": "Records supplied provenance without proving require acceptance; no source or Rust conformance or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.erasure_preserves_underlying_value",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.erasure_preserves_underlying_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Erasure returns the represented composite value from a nominal wrapper.",
+      "boundary": "Does not validate or preserve nominal identity after erasure; no source or Rust conformance or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.package_declaration_ids_are_distinct",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.package_declaration_ids_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Equal declaration names in two represented modules have distinct nominal identities.",
+      "boundary": "Concrete identity witness only; no source or Rust conformance or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.nominal_witnesses_keep_identity_before_erasure",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.nominal_witnesses_keep_identity_before_erasure",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Concrete constructor and require values share a representation while retaining distinct identities and wrappers.",
+      "boundary": "Finite witness over represented values only; no source or Rust conformance or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.nominal_witnesses_erase_to_the_same_value",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.nominal_witnesses_erase_to_the_same_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Distinct nominal witnesses erase to one represented value while their identities remain distinct before erasure.",
+      "boundary": "Finite erasure witness only; no source or Rust conformance or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.erasure_is_not_injective",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.erasure_is_not_injective",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Erasure has two distinct nominal inputs with the same represented output.",
+      "boundary": "Concrete non-injectivity witness only; no source or Rust conformance or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.overlapping_nominal_union_keeps_alternatives_distinct",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.overlapping_nominal_union_keeps_alternatives_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A union accepts both distinct nominal identities with one representation and rejects each from the other singleton union.",
+      "boundary": "Concrete membership witness only; no union exhaustiveness, source or Rust conformance, or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.id_collapse_mutation_is_detected",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.id_collapse_mutation_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Mutation witness detects that collapsing nominal identities admits the wrong declaration to a singleton union.",
+      "boundary": "Concrete mutation over the represented union model only; no source or Rust conformance or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Nominal.provenance_erasure_mutation_is_detected",
+      "module": "Xsh.Validation.Nominal",
+      "declaration": "Xsh.Validation.Nominal.provenance_erasure_mutation_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Mutation witness detects replacement of require provenance by constructor provenance.",
+      "boundary": "Concrete mutation over represented provenance only; no source or Rust conformance or full G2 proof."
+    },
+    {
       "id": "fragment.Xsh.Validation.Store.accepted_write_preserves_store_invariant",
       "module": "Xsh.Validation.Store",
       "declaration": "Xsh.Validation.Store.accepted_write_preserves_store_invariant",

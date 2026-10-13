@@ -10,6 +10,7 @@ import Xsh.Proofs.BaseHostTrace
 import Xsh.Proofs.BaseHostRunnerLaws
 import Xsh.Validation.Boundary
 import Xsh.Validation.Store
+import Xsh.Validation.Nominal
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
