@@ -419,7 +419,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       let available = if size > skip { size - skip } else { 0 }
       let length = if available < limit { available } else { limit }
       if let fd = output_fd { unix.close_fd(fd); output_fd = null }
-      let copied = bytes.copy_file(file.path, dest.resolve()?, source_offset: skip, dest_offset: seek, length: length, create: ! ("nocreat" in opts.conv))?
+      let copied = bytes.copy_file(file.path, dest.resolve()?, source_offset: skip, dest_offset: seek, length:, create: ! ("nocreat" in opts.conv))?
       return Ok({complete: copied.bytes / opts.ibs, partial: if copied.bytes % opts.ibs == 0 { 0 } else { 1 }, written: copied.bytes, failure: null, discard_failed: discard_caches(opts)})
     }
   }
