@@ -669,10 +669,11 @@ test test_uu_tail_follow_name_multiple { |ctx|
   let plan = follow(s, [option, "foobar.txt", "foobar2.txt"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  time.sleep(100ms)
+  let initial_expected = fixture_bytes(ctx, "foobar_follow_multiple.expected")?
+  wait_output(s, initial_expected, b"")?
   alive(child)
   let initial = streams(s)?
-  uu.stdout_only_bytes(initial, fixture_bytes(ctx, "foobar_follow_multiple.expected")?)
+  uu.stdout_only_bytes(initial, initial_expected)
   append(s, "foobar2.txt", "trois\n")
   time.sleep(100ms)
   let first = streams(s)?
