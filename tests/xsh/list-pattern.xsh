@@ -139,9 +139,9 @@ let selected = match numbers() { [_, ..] => 1, _ => 0 }
 
 test test_list_pattern_rejects_middle_and_duplicate_rests { |ctx|
   for source in [
-    """let selected = match [1, 2] { [..tail, last] => last _ => 0 }
+    """let selected = match [1, 2] { [..tail, last] => last, _ => 0 }
 """,
-    """let selected = match [1, 2] { [first, ..tail, ..other] => first _ => 0 }
+    """let selected = match [1, 2] { [first, ..tail, ..other] => first, _ => 0 }
 """,
   ] {
     let result = test.run_script(ctx, source)?
