@@ -4,9 +4,8 @@ use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use crate::runtime::value::{DurationValue, PathValue, RegexValue, RuntimeError, Value};
 use crate::sema::check::{
     BindingId, BindingKind, CheckBundleView, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, Conversion,
-    ResourceTransferSite,
+    ResourceTransferSite, block_callable_body_cannot_fall_through_arena,
 };
-use crate::sema::check::block_never_falls_through_arena;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
@@ -2603,8 +2602,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             return Err(CompactFunctionBlocker::Body);
         }
-        let body_never_falls_through = block_never_falls_through_arena(self.program, def.body);
-        if !body_never_falls_through {
+        let tail_is_value = self
+            .program
+            .arena
+            .stmt_ids(self.program.arena.block(def.body).statements)
+            .last()
+            .map(|tail| self.program.arena.core_stmt_id(tail))
+            .is_some_and(|tail| {
+                self.bodies.statement_positions.get(&tail)
+                    != Some(&crate::sema::check::StatementPosition::Statement)
+            });
+        let body_cannot_fall_through =
+            block_callable_body_cannot_fall_through_arena(self.program, def.body, tail_is_value);
+        if !body_cannot_fall_through {
             if matches!(return_kind, LoweredReturnKind::Plain(LoweredType::Stream)) {
             } else if lowered_return_kind_accepts_unit_fallthrough(return_kind) {
                 body.push(push_build_row!(

@@ -382,7 +382,7 @@ pub use resource::{ResourceTransferFacts, ResourceTransferSite};
 mod set;
 #[path = "check/stmt.rs"]
 mod stmt;
-pub(crate) use stmt::block_never_falls_through_arena;
+pub(crate) use stmt::block_callable_body_cannot_fall_through_arena;
 #[path = "check/stream.rs"]
 mod stream;
 #[path = "check/typed_callable.rs"]
@@ -416,7 +416,6 @@ pub use self::compact::{
     CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
 };
 use self::expr::expr_ty_auto_propagates;
-use self::stmt::block_has_exit_point_arena;
 use self::types::{collection_item_ty, result_types, tail_type_matches_expected};
 
 /// The checked purpose of a statement remains fixed when its value is unused.
@@ -495,10 +494,8 @@ pub struct CheckOutput {
     pub function_effect_facts: BTreeMap<EffectDeclarationId, FunctionEffectFact>,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
-    /// Expression statements whose `Result[Unit]` value propagates its failure
-    /// instead of becoming a body's value: every statement outside a tail, a
-    /// tail whose body yields `Unit`, and the direct tail of a `Result[Unit]`
-    /// function.
+    /// Statements whose checked command or `Result[Unit]` expression
+    /// propagates failure instead of producing a value.
     pub propagating_statements: BTreeSet<Span>,
     /// `let _ = VALUE` statements whose value comes from a call registered as
     /// discardable, where `VALUE` alone would be a statement that drops it.

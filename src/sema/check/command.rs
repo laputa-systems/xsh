@@ -269,6 +269,14 @@ impl Checker {
             );
         }
         let ty = self.check_command_arena(arena, source, &stmt.command, span);
+        let propagates = stmt.propagate
+            || command_ty_auto_propagates(&ty)
+            || command_stmt_asserts_success_arena(arena, &stmt.command);
+        if propagates {
+            self.propagating_statements.insert(span);
+        } else {
+            self.propagating_statements.remove(&span);
+        }
         if command_stmt_asserts_success_arena(arena, &stmt.command) {
             self.record_statement_error(
                 &Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)),

@@ -2,7 +2,7 @@
 
 use super::{
     BTreeMap, BinaryOp, Checker, Diagnostic, Effect, Label, Name, RunKind, Span, Type, UnaryOp,
-    api_spec, block_has_exit_point_arena, collection_item_ty,
+    api_spec, collection_item_ty,
 };
 use crate::diagnostic::{DiagnosticCode, FixHint};
 use crate::syntax::arena::{
@@ -2221,7 +2221,7 @@ impl Checker {
         self.boundary.loop_depth += 1;
         self.check_block_arena(arena, source, block);
         self.boundary.loop_depth -= 1;
-        if !block_has_exit_point_arena(arena, block) {
+        if !self.block_has_exit_point_arena(arena, block) {
             self.error(
                 span,
                 "`loop` has no `break` — will run forever",
