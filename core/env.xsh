@@ -273,7 +273,7 @@ proc blocked_signal_names(options: List[SignalActionOption]) [process] -> List[S
         yield @names
       } else {
         for signal in process.signals() {
-          if signal.number != 0 { yield signal.name }
+          yield signal.name when signal.number != 0
         }
       }
     }
