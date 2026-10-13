@@ -149,7 +149,7 @@ export pure ipv4_text(raw: Bytes) -> Str {
 export pure ipv6_text(raw: Bytes) -> Str {
   let groups = [(raw.byte_at(index * 2) ?? 0) * 256 + (raw.byte_at(index * 2 + 1) ?? 0) for index in range(8)]
   if groups[0] == 0 and groups[1] == 0 and groups[2] == 0 and groups[3] == 0 and groups[4] == 0 and groups[5] == 65535 {
-    return "::ffff:" + ipv4_text(raw.slice(12, 4))
+    return "::ffff:" + ipv4_text(raw[12..16])
   }
   var best_start = -1
   var best_length = 0

@@ -601,7 +601,7 @@ export pure ipv6_text(data: Bytes) -> Str {
     if data.byte_at(index) != 0 { mapped = false }
   }
   if mapped and data.byte_at(10) == 255 and data.byte_at(11) == 255 {
-    return f"::ffff:{ipv4_text(data.slice(12, 4))}"
+    return f"::ffff:{ipv4_text(data[12..16])}"
   }
 
   var groups = [(data.byte_at(index * 2) ?? 0) * 256 + (data.byte_at(index * 2 + 1) ?? 0) for index in range(8)]
