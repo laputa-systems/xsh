@@ -4,7 +4,7 @@
 export error MetricError = Invalid(path: Str, line: Int, detail: Str) | Rise(name: Str, before: Int, after: Int) | Contract(detail: Str)
 
 type Token = {text: Str, start: Int, end: Int, line: Int, last_line: Int, literal: Bool}
-type Lexed = {tokens: Map[Int, Token], mates: Map[Int], size: Int, lines: Int}
+type Lexed = {tokens: Map[Int, Token], mates: Map[Int, Int], size: Int, lines: Int}
 type Span = {start: Int, end: Int, line: Int, last_line: Int}
 type Attribute = {start: Int, end: Int, inner: Bool, scope: Int, condition_active: Bool}
 type RustModule = {name: Str, directory: Str, explicit_path: Str?, excluded: Bool, dead_code: Bool, line: Int}
@@ -67,15 +67,17 @@ const REVIEW_REQUIREMENTS: List[Review] = [
 const PATTERN_SCHEMA_VARIANTS = ["Alias", "Alternation", "List", "TagType", "RecordTest", "ResultTest", "TagTest", "ErrorTest", "Wildcard", "Bind", "Type", "Literal", "ResultOk", "ResultErr", "Facet", "Tag", "Text"]
 const PATTERN_SCHEMA_ORDINALS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "15", "16", "17"]
 const REVIEW_SOURCE_PATHS = ["src", "crates", "tests", "core", "examples", "showcase", "tools", "dev/tests", "dev/consolidation_metrics.xsh", "dev/consolidation_metrics_current.xsh", "dev/consolidation/metrics.xsh"]
+const SOURCE_ADVISORY_METRICS = ["source_lines_src", "source_lines_xsht"]
+const FINAL_ZERO_METRICS = ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"]
+# A missing lookahead token keeps delimiter and attribute scans within the token map.
+const end_token: Token = Token(text: "", start: 0, end: 0, line: 0, last_line: 0, literal: false)
 
 pure ident_start(value: Str) -> Bool {
   value != "" and (value in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_" or value.byte_len() > 1)
 }
 pure first(value: Str) -> Str { value.split("").get(0) ?? "" }
 pure ident_part(value: Str) -> Bool { ident_start(value) or (value != "" and value in "0123456789") }
-# Missing lookahead is an explicit end-of-input token.
-const end_token: Token = {text: "", start: 0, end: 0, line: 0, last_line: 0, literal: false}
-proc invalid(source_path: Str, line: Int, detail: Str) [error] -> Result[Unit] { Err(MetricError.Invalid(path: source_path, line: line, detail: detail)) }
+proc invalid(source_path: Str, line: Int, detail: Str) [error] { Err(MetricError.Invalid(path: source_path, line:, detail:)) }
 
 # Literal contents never enter the token stream as identifiers or delimiters.
 # Offsets are Unicode scalar indices; line ownership is independent of byte width.
@@ -108,7 +110,7 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
         while cursor < chars.len() and depth > 0 {
           if (chars.get(cursor) ?? "") == "/" and (chars.get(cursor + 1) ?? "") == "*" { depth += 1; cursor += 2 } else if (chars.get(cursor) ?? "") == "*" and (chars.get(cursor + 1) ?? "") == "/" { depth -= 1; cursor += 2 } else { if (chars.get(cursor) ?? "") == "\n" { line += 1 }; cursor += 1 }
         }
-        if depth != 0 { invalid(source_path, start_line, "unterminated block comment")? }
+        if depth != 0 { invalid(source_path, start_line, "unterminated block comment") }
         continue
       }
       let start = cursor
@@ -128,8 +130,8 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
         if (chars.get(quote) ?? "") == "\"" { raw = true } else { quote = cursor }
       }
       let delimiter = chars.get(quote) ?? ""
-      if current == "c" and quote > cursor and delimiter == "'" { invalid(source_path, line, "C character literal is unsupported")? }
-      if raw and quote - start - (if current == "r" { 1 } else { 2 }) > 255 { invalid(source_path, line, "too many raw literal delimiters")? }
+      if current == "c" and quote > cursor and delimiter == "'" { invalid(source_path, line, "C character literal is unsupported") }
+      if raw and quote - start - (if current == "r" { 1 } else { 2 }) > 255 { invalid(source_path, line, "too many raw literal delimiters") }
       var literal = delimiter == "\"" or (quote > cursor and delimiter == "'")
       if delimiter == "'" and quote == cursor {
         # A lifetime is an apostrophe followed by an identifier without a closing quote.
@@ -141,7 +143,7 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
             yield {text: source.byte_slice(offsets[start], length: offsets[cursor] - offsets[start]), start: start, end: cursor, line: start_line, last_line: line, literal: false}
             continue
           }
-          if end != cursor + 2 { invalid(source_path, line, "multi-character Rust character literal")? }
+          if end != cursor + 2 { invalid(source_path, line, "multi-character Rust character literal") }
         }
         literal = true
       }
@@ -165,50 +167,50 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
           }
           if value == "\\" and ! raw {
             cursor += 1
-            if cursor >= chars.len() { break }
+            break when cursor >= chars.len()
             let escape = chars.get(cursor) ?? ""
-            if ! (escape in ["\\", "\"", "'", "n", "r", "t", "0", "x", "u", "\n", "\r"]) { invalid(source_path, line, "unsupported Rust escape")? }
+            if ! (escape in ["\\", "\"", "'", "n", "r", "t", "0", "x", "u", "\n", "\r"]) { invalid(source_path, line, "unsupported Rust escape") }
             if escape == "\n" { line += 1 }
-            if delimiter == "'" and escape in ["\n", "\r"] { invalid(source_path, start_line, "newline in character escape")? }
+            if delimiter == "'" and escape in ["\n", "\r"] { invalid(source_path, start_line, "newline in character escape") }
             if escape == "u" {
-              if current == "b" { invalid(source_path, line, "Unicode escape in byte literal")? }
-              if (chars.get(cursor + 1) ?? "") != "{" { invalid(source_path, line, "malformed Unicode escape")? }
+              if current == "b" { invalid(source_path, line, "Unicode escape in byte literal") }
+              if (chars.get(cursor + 1) ?? "") != "{" { invalid(source_path, line, "malformed Unicode escape") }
               cursor += 2
               var digits = 0
               var scalar = 0
               while cursor < chars.len() and (chars.get(cursor) ?? "") != "}" {
                 let digit = chars.get(cursor) ?? ""
                 if digit != "_" {
-                  if ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed Unicode escape")? }
+                  if ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed Unicode escape") }
                   digits += 1
                   scalar = scalar * 16 + ("0123456789abcdef".find(digit.lower()) ?? 0)
                 }
                 cursor += 1
               }
-              if (chars.get(cursor) ?? "") != "}" or digits == 0 or digits > 6 { invalid(source_path, start_line, "malformed Unicode escape")? }
-              if scalar > 1114111 or (scalar >= 55296 and scalar <= 57343) { invalid(source_path, line, "invalid Unicode scalar escape")? }
+              if (chars.get(cursor) ?? "") != "}" or digits == 0 or digits > 6 { invalid(source_path, start_line, "malformed Unicode escape") }
+              if scalar > 1114111 or (scalar >= 55296 and scalar <= 57343) { invalid(source_path, line, "invalid Unicode scalar escape") }
             } else if escape == "x" {
               for offset in [1, 2] {
                 let digit = chars.get(cursor + offset) ?? ""
-                if digit == "" or ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed hexadecimal escape")? }
+                if digit == "" or ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed hexadecimal escape") }
               }
-              if current != "b" and current != "c" and (chars.get(cursor + 1) ?? "").lower() in "89abcdef" { invalid(source_path, line, "non-ASCII hexadecimal escape")? }
+              if current != "b" and current != "c" and (chars.get(cursor + 1) ?? "").lower() in "89abcdef" { invalid(source_path, line, "non-ASCII hexadecimal escape") }
               cursor += 2
             }
             cursor += 1
             payload += 1
             continue
           }
-          if current == "b" and value.byte_len() > 1 { invalid(source_path, line, "non-ASCII byte literal")? }
+          if current == "b" and value.byte_len() > 1 { invalid(source_path, line, "non-ASCII byte literal") }
           if value == "\n" {
-            if delimiter == "'" { invalid(source_path, start_line, "newline in character literal")? }
+            if delimiter == "'" { invalid(source_path, start_line, "newline in character literal") }
             line += 1
           }
           payload += 1
           cursor += 1
         }
-        if ! closed { invalid(source_path, start_line, "unterminated Rust literal")? }
-        if delimiter == "'" and payload != 1 { invalid(source_path, start_line, "invalid character literal")? }
+        if ! closed { invalid(source_path, start_line, "unterminated Rust literal") }
+        if delimiter == "'" and payload != 1 { invalid(source_path, start_line, "invalid character literal") }
       } else {
         cursor += 1
         if ident_start(current) {
@@ -218,25 +220,25 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
       yield {text: source.byte_slice(offsets[start], length: offsets[cursor] - offsets[start]), start: start, end: cursor, line: start_line, last_line: line, literal: literal}
     }
   }
-  var stack: List[Int] = []
-  var mates: Map[Int] = {}
+  var stack = []
+  var mates: Map[Int, Int] = {}
   var token_table: Map[Int, Token] = {}
   var index = 0
   for item in tokens {
     token_table[index] = item
     if ! item.literal and item.text in ["(", "[", "{"] { stack += [index] }
     if ! item.literal and item.text in [")", "]", "}"] {
-      if stack.is_empty() { invalid(source_path, item.line, "unmatched closing delimiter")? }
-      let opening = stack[stack.len() - 1]
+      if stack.is_empty() { invalid(source_path, item.line, "unmatched closing delimiter") }
+      let opening = stack[-1]
       let expected = if item.text == ")" { "(" } else if item.text == "]" { "[" } else { "{" }
-      if tokens[opening].text != expected { invalid(source_path, item.line, "mismatched Rust delimiters")? }
-      mates[f"{opening}"] = index
-      mates[f"{index}"] = opening
+      if tokens[opening].text != expected { invalid(source_path, item.line, "mismatched Rust delimiters") }
+      mates[opening] = index
+      mates[index] = opening
       stack = stack |> take(stack.len() - 1) |> collect
     }
     index += 1
   }
-  if ! stack.is_empty() { invalid(source_path, tokens[stack[0]].line, "unclosed Rust delimiter")? }
+  if ! stack.is_empty() { invalid(source_path, tokens[stack[0]].line, "unclosed Rust delimiter") }
   let physical = if source == "" { 0 } else { line - (if source.ends_with("\n") { 1 } else { 0 }) }
   {tokens: token_table, mates: mates, size: chars.len(), lines: physical}
 }
@@ -252,7 +254,7 @@ pure words(lexed: Lexed, start: Int, end: Int) -> Str {
 proc cfg_eval(source_path: Str, lexed: Lexed, start: Int, assignments: Map[Bool]) [error] -> Result[CfgValue] {
   let name = (lexed.tokens.get(start) ?? end_token).text
   if name in ["all", "any", "not"] and (lexed.tokens.get(start + 1) ?? end_token).text == "(" {
-    let end = lexed.mates[f"{start + 1}"]
+    let end = lexed.mates[start + 1]
     var cursor = start + 2
     var value = name != "any"
     var count = 0
@@ -262,17 +264,17 @@ proc cfg_eval(source_path: Str, lexed: Lexed, start: Int, assignments: Map[Bool]
       count += 1
       cursor = child.next
       if cursor < end {
-        if (lexed.tokens.get(cursor) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "expected comma in cfg")? }
+      if (lexed.tokens.get(cursor) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "expected comma in cfg") }
         cursor += 1
       }
     }
-    if name == "not" and count != 1 { invalid(source_path, lexed.tokens[start].line, "cfg not requires one predicate")? }
+      if name == "not" and count != 1 { invalid(source_path, lexed.tokens[start].line, "cfg not requires one predicate") }
     return {value: value, next: end + 1}
   }
-  if ! ident_start(first(name)) { invalid(source_path, lexed.tokens[start].line, "unsupported cfg predicate")? }
+      if ! ident_start(first(name)) { invalid(source_path, lexed.tokens[start].line, "unsupported cfg predicate") }
   var end = start + 1
   if (lexed.tokens.get(end) ?? end_token).text == "=" {
-    if ! lexed.tokens[end + 1].literal { invalid(source_path, lexed.tokens[start].line, "cfg value must be a literal")? }
+          if ! lexed.tokens[end + 1].literal { invalid(source_path, lexed.tokens[start].line, "cfg value must be a literal") }
     end += 2
   }
   let atom = words(lexed, start, end)
@@ -280,13 +282,13 @@ proc cfg_eval(source_path: Str, lexed: Lexed, start: Int, assignments: Map[Bool]
 }
 
 proc satisfiable(source_path: Str, lexed: Lexed, predicates: List[CfgPredicate], atoms: List[Str], index: Int, assignments: Map[Bool]) [error] -> Result[Bool] {
-  if index < atoms.len() {
-    return true when satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], false))?
-    return satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], true))?
+  guard index >= atoms.len() else {
+    return true when satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], false))
+    return satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], true))
   }
   for predicate in predicates {
     let value = cfg_eval(source_path, lexed, predicate.start, assignments)?
-    if value.next != predicate.end { invalid(source_path, lexed.tokens[predicate.start].line, "trailing cfg tokens")? }
+    if value.next != predicate.end { invalid(source_path, lexed.tokens[predicate.start].line, "trailing cfg tokens") }
     return false when ! value.value
   }
   true
@@ -296,17 +298,17 @@ proc production_cfg(source_path: Str, lexed: Lexed, predicates: List[CfgPredicat
   # Recursive boolean evaluation needs only these predicates, not every
   # source token. Original token indices preserve diagnostic evidence.
   var cfg_tokens: Map[Int, Token] = {}
-  var cfg_mates: Map[Int] = {}
+  var cfg_mates: Map[Int, Int] = {}
   for predicate in predicates {
     var index = predicate.start - 1
     while index <= predicate.end {
       cfg_tokens[index] = lexed.tokens[index]
-      if let Ok(other) = lexed.mates.get(f"{index}") { cfg_mates[f"{index}"] = other }
+      if let Ok(other) = lexed.mates.get(index) { cfg_mates[index] = other }
       index += 1
     }
   }
-  let cfg_source: Lexed = {tokens: cfg_tokens, mates: cfg_mates, size: lexed.size, lines: lexed.lines}
-  var atoms: List[Str] = []
+  let cfg_source = Lexed(tokens: cfg_tokens, mates: cfg_mates, size: lexed.size, lines: lexed.lines)
+  var atoms = []
   for predicate in predicates {
     let end = predicate.end
     var cursor = predicate.start
@@ -325,7 +327,7 @@ proc production_cfg(source_path: Str, lexed: Lexed, predicates: List[CfgPredicat
 
 proc attributes(source_path: Str, lexed: Lexed) [error] -> Result[List[Attribute]] {
   var cursor = 0
-  var scopes: List[Int] = []
+  var scopes = []
   let found: List[Attribute] = collect {
     while cursor < lexed.tokens.len() {
       let name = (lexed.tokens.get(cursor) ?? end_token).text
@@ -334,31 +336,31 @@ proc attributes(source_path: Str, lexed: Lexed) [error] -> Result[List[Attribute
       if name == "#" {
         let inner = (lexed.tokens.get(cursor + 1) ?? end_token).text == "!"
         let opening = cursor + (if inner { 2 } else { 1 })
-        if (lexed.tokens.get(opening) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported Rust attribute")? }
-        let end = lexed.mates[f"{opening}"]
+        if (lexed.tokens.get(opening) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported Rust attribute") }
+        let end = lexed.mates[opening]
         let kind = (lexed.tokens.get(opening + 1) ?? end_token).text
         var condition_active = true
-        if kind in ["cfg", "cfg_attr"] and ((lexed.tokens.get(opening + 2) ?? end_token).text != "(" or lexed.mates[f"{opening + 2}"] != end - 1) {
-          invalid(source_path, lexed.tokens[cursor].line, "malformed conditional attribute")?
+        if kind in ["cfg", "cfg_attr"] and ((lexed.tokens.get(opening + 2) ?? end_token).text != "(" or lexed.mates[opening + 2] != end - 1) {
+          invalid(source_path, lexed.tokens[cursor].line, "malformed conditional attribute")
         }
         if kind == "cfg_attr" {
           # Conditional metadata is harmless; conditional cfg/source_path or custom
           # attributes could alter item ownership and must be reviewed explicitly.
           var child = opening + 3
           while child < end {
-            if (lexed.tokens.get(child) ?? end_token).text in ["(", "[", "{"] { child = lexed.mates[f"{child}"] + 1; continue }
-            if (lexed.tokens.get(child) ?? end_token).text == "," { break }
+            if (lexed.tokens.get(child) ?? end_token).text in ["(", "[", "{"] { child = lexed.mates[child] + 1; continue }
+            break when (lexed.tokens.get(child) ?? end_token).text == ","
             child += 1
           }
-          if (lexed.tokens.get(child) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "cfg_attr requires metadata")? }
+          if (lexed.tokens.get(child) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "cfg_attr requires metadata") }
           condition_active = production_cfg(source_path, lexed, [{start: opening + 3, end: child}])?
           child += 1
           while child < end - 1 {
             if ! ((lexed.tokens.get(child) ?? end_token).text in ["allow", "warn", "deny", "forbid", "expect", "derive", "doc"]) {
-              invalid(source_path, lexed.tokens[cursor].line, "cfg_attr eligibility is unsupported")?
+              invalid(source_path, lexed.tokens[cursor].line, "cfg_attr eligibility is unsupported")
             }
             child += 1
-            if (lexed.tokens.get(child) ?? end_token).text == "(" { child = lexed.mates[f"{child}"] + 1 } else if (lexed.tokens.get(child) ?? end_token).text == "=" { child += 2 } else { invalid(source_path, lexed.tokens[cursor].line, "malformed cfg_attr metadata")? }
+            if (lexed.tokens.get(child) ?? end_token).text == "(" { child = lexed.mates[child] + 1 } else if (lexed.tokens.get(child) ?? end_token).text == "=" { child += 2 } else { invalid(source_path, lexed.tokens[cursor].line, "malformed cfg_attr metadata") }
             if (lexed.tokens.get(child) ?? end_token).text == "," { child += 1 }
           }
         }
@@ -385,17 +387,17 @@ proc item_end(source_path: Str, lexed: Lexed, start: Int) [error] -> Result[Int]
     }
     if name == "<" and ! semicolon { angles += 1 }
     if name == ">" and angles > 0 and (lexed.tokens.get(cursor - 1) ?? end_token).text != "-" { angles -= 1 }
-    if name == ";" { return cursor }
-    if name == "," and angles == 0 and ! declaration { return cursor }
+    return cursor when name == ";"
+    return cursor when name == "," and angles == 0 and ! declaration
     if name == "{" {
-      let end = lexed.mates[f"{cursor}"]
+      let end = lexed.mates[cursor]
       # A use tree is followed by its semicolon; its braces do not end the item.
       if semicolon or angles > 0 { cursor = end + 1; continue }
       return end + (if (lexed.tokens.get(end + 1) ?? end_token).text in [";", ","] { 1 } else { 0 })
     }
-    if name in ["(", "["] { cursor = lexed.mates[f"{cursor}"] + 1 } else { cursor += 1 }
+    if name in ["(", "["] { cursor = lexed.mates[cursor] + 1 } else { cursor += 1 }
   }
-  invalid(source_path, lexed.tokens[start].line, "cannot determine attributed item boundary")?
+  invalid(source_path, lexed.tokens[start].line, "cannot determine attributed item boundary")
   start
 }
 
@@ -410,13 +412,13 @@ proc scope_start(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result
   var item = false
   while cursor >= 0 {
     let name = (lexed.tokens.get(cursor) ?? end_token).text
-    if name in [";", "{", "}"] { break }
+    break when name in [";", "{", "}"]
     if name in ["fn", "mod", "impl", "trait", "extern"] { item = true }
-    if name in [")", "]"] { cursor = lexed.mates[f"{cursor}"] }
+    if name in [")", "]"] { cursor = lexed.mates[cursor] }
     start = cursor
     cursor -= 1
   }
-  if ! item { invalid(source_path, lexed.tokens[opening].line, "inner cfg scope is not a supported Rust item")? }
+  if ! item { invalid(source_path, lexed.tokens[opening].line, "inner cfg scope is not a supported Rust item") }
   start
 }
 
@@ -424,8 +426,8 @@ pure struct_body_name(lexed: Lexed, opening: Int) -> Str {
   var cursor = opening - 1
   while cursor >= 0 {
     let value = lexed.tokens[cursor].text
-    if value == "struct" { return lexed.tokens[cursor + 1].text }
-    if value in [";", "{", "}"] { return "" }
+    return lexed.tokens[cursor + 1].text when value == "struct"
+    return "" when value in [";", "{", "}"]
     cursor -= 1
   }
   ""
@@ -434,12 +436,12 @@ pure struct_body_name(lexed: Lexed, opening: Int) -> Str {
 proc attributed_item_target(source_path: Str, lexed: Lexed, attr: Attribute) [error] -> Result[AttributeTarget] {
   var cursor = attr.end + 1
   while (lexed.tokens.get(cursor) ?? end_token).text == "#" {
-    if (lexed.tokens.get(cursor + 1) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported dead_code allowance target")? }
-    cursor = lexed.mates[f"{cursor + 1}"] + 1
+    if (lexed.tokens.get(cursor + 1) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported dead_code allowance target") }
+    cursor = lexed.mates[cursor + 1] + 1
   }
   while true {
     let value = (lexed.tokens.get(cursor) ?? end_token).text
-    if value == "pub" { cursor += 1; if (lexed.tokens.get(cursor) ?? end_token).text == "(" { cursor = lexed.mates[f"{cursor}"] + 1 }; continue }
+    if value == "pub" { cursor += 1; if (lexed.tokens.get(cursor) ?? end_token).text == "(" { cursor = lexed.mates[cursor] + 1 }; continue }
     if value in ["unsafe", "async", "default", "auto"] or (value == "const" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "fn") { cursor += 1; continue }
     if value == "extern" {
       cursor += 1
@@ -457,10 +459,10 @@ proc attributed_item_target(source_path: Str, lexed: Lexed, attr: Attribute) [er
     }
     let kind = if value == "mod" { "module" } else if value == "impl" { "impl" } else if value == "trait" { "trait" } else if value in ["fn", "struct", "enum", "union", "type", "const", "static", "use", "extern"] { value } else if value in ["macro_rules", "macro"] and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" { "macro_definition" } else if ident_start(first(value)) {
       var after = cursor + 1
-      while (lexed.tokens.get(after) ?? end_token).text == ":" and (lexed.tokens.get(after + 1) ?? end_token).text == ":" { after += 2; if ! ident_start(first((lexed.tokens.get(after) ?? end_token).text)) { break }; after += 1 }
+      while (lexed.tokens.get(after) ?? end_token).text == ":" and (lexed.tokens.get(after + 1) ?? end_token).text == ":" { after += 2; break unless ident_start(first((lexed.tokens.get(after) ?? end_token).text)); after += 1 }
       if (lexed.tokens.get(after) ?? end_token).text == "!" { "macro_invocation" } else { "" }
     } else { "" }
-    if kind == "" { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, "unsupported dead_code allowance target")? }
+    if kind == "" { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, "unsupported dead_code allowance target") }
     let name = if kind in ["module", "fn", "struct", "enum", "union", "trait", "type", "const", "static", "macro_definition"] { (lexed.tokens.get(cursor + (if kind == "macro_definition" { 2 } else { 1 })) ?? end_token).text } else { kind }
     let last = item_end(source_path, lexed, attr.end + 1)?
     return {kind: kind, name: name, first: lexed.tokens[attr.start].line, last: lexed.tokens[last].line}
@@ -473,9 +475,9 @@ pure attribute_allows_dead_code(lexed: Lexed, attr: Attribute) -> Bool {
   var cursor = kind
   while cursor < attr.end {
     if lexed.tokens[cursor].text == "allow" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "(" {
-      let end = lexed.mates[f"{cursor + 1}"]
+      let end = lexed.mates[cursor + 1]
       var argument = cursor + 2
-      while argument < end { if lexed.tokens[argument].text == "dead_code" { return true }; argument += 1 }
+      while argument < end { return true when lexed.tokens[argument].text == "dead_code"; argument += 1 }
       cursor = end + 1
     } else { cursor += 1 }
   }
@@ -488,13 +490,13 @@ proc dead_code_allowance_analysis(source_path: Str, lexed: Lexed, spans: List[Sp
   var items: List[ItemAllowance] = []
   for attr in attrs {
     if inside(lexed.tokens[attr.start], spans) or ! attr.condition_active or ! attribute_allows_dead_code(lexed, attr) { continue }
-    var target: AttributeTarget = {kind: "", name: "", first: 0, last: 0}
+    var target = AttributeTarget(kind: "", name: "", first: 0, last: 0)
     var is_scope = attr.inner
     var detail = "allow(dead_code) inner scope"
     if attr.inner {
-      let first = if attr.scope < 0 { 1 } else { lexed.tokens[scope_start(source_path, lexed, attr.scope)?].line }
-      let last = if attr.scope < 0 { lexed.lines } else { lexed.tokens[lexed.mates[f"{attr.scope}"]].line }
-      target = {kind: "inner_scope", name: "scope", first: first, last: last}
+      let scope_first = if attr.scope < 0 { 1 } else { lexed.tokens[scope_start(source_path, lexed, attr.scope)?].line }
+      let last = if attr.scope < 0 { lexed.lines } else { lexed.tokens[lexed.mates[attr.scope]].line }
+      target = {kind: "inner_scope", name: "scope", first: scope_first, last: last}
     } else {
       target = attributed_item_target(source_path, lexed, attr)?
       is_scope = target.kind in ["module", "impl", "trait", "extern_block"]
@@ -521,35 +523,36 @@ proc excluded_spans(source_path: Str, lexed: Lexed, attrs: List[Attribute]) [err
   var spans: List[Span] = []
   var cursor = 0
   while cursor < attrs.len() {
-    let first = attrs[cursor]
-    var last = first
-    var predicates: List[CfgPredicate] = []
-    while true {
-      let actual = last.start + (if last.inner { 3 } else { 2 })
-      if (lexed.tokens.get(actual) ?? end_token).text == "cfg" {
-        if (lexed.tokens.get(actual + 1) ?? end_token).text != "(" { invalid(source_path, lexed.tokens[last.start].line, "malformed cfg attribute")? }
-        predicates += [{start: actual + 2, end: lexed.mates[f"{actual + 1}"]}]
+    let first_attr = attrs[cursor]
+    var last_attr = first_attr
+    let predicates: List[CfgPredicate] = collect {
+      while true {
+        let actual = last_attr.start + (if last_attr.inner { 3 } else { 2 })
+        if (lexed.tokens.get(actual) ?? end_token).text == "cfg" {
+        if (lexed.tokens.get(actual + 1) ?? end_token).text != "(" { invalid(source_path, lexed.tokens[last_attr.start].line, "malformed cfg attribute") }
+          yield {start: actual + 2, end: lexed.mates[actual + 1]}
+        }
+        cursor += 1
+        if cursor >= attrs.len() or attrs[cursor].start != last_attr.end + 1 or attrs[cursor].inner != first_attr.inner { break }
+        last_attr = attrs[cursor]
       }
-      cursor += 1
-      if cursor >= attrs.len() or attrs[cursor].start != last.end + 1 or attrs[cursor].inner != first.inner { break }
-      last = attrs[cursor]
     }
-    if ! predicates.is_empty() and ! production_cfg(source_path, lexed, predicates)? {
-      var start = lexed.tokens[first.start].start
+        if ! predicates.is_empty() and ! production_cfg(source_path, lexed, predicates) {
+      var start = lexed.tokens[first_attr.start].start
       var end = lexed.size
-      var start_line = lexed.tokens[first.start].line
+      var start_line = lexed.tokens[first_attr.start].line
       var last_line = lexed.lines
-      if first.inner {
-        if first.scope >= 0 {
-          let item = scope_start(source_path, lexed, first.scope)?
+      if first_attr.inner {
+        if first_attr.scope >= 0 {
+          let item = scope_start(source_path, lexed, first_attr.scope)?
           start = lexed.tokens[item].start
           start_line = lexed.tokens[item].line
-          let closing = lexed.mates[f"{first.scope}"]
+          let closing = lexed.mates[first_attr.scope]
           end = lexed.tokens[closing].end
           last_line = lexed.tokens[closing].last_line
         } else { start = 0; start_line = 1 }
       } else {
-        let closing = item_end(source_path, lexed, last.end + 1)?
+        let closing = item_end(source_path, lexed, last_attr.end + 1)?
         end = lexed.tokens[closing].end
         last_line = lexed.tokens[closing].last_line
       }
@@ -560,22 +563,22 @@ proc excluded_spans(source_path: Str, lexed: Lexed, attrs: List[Attribute]) [err
 }
 
 pure count_lines(source_path: Str, lexed: Lexed, spans: List[Span]) -> SourceCount {
-  var retained: Map[Bool] = {}
-  var excluded: Map[Bool] = {}
+  var retained: Map[Int, Bool] = {}
+  var excluded: Map[Int, Bool] = {}
   for span in spans {
     var line = span.line
-    while line <= span.last_line { excluded[f"{line}"] = true; line += 1 }
+    while line <= span.last_line { excluded[line] = true; line += 1 }
   }
   for item in lexed.tokens.values() {
     if ! inside(item, spans) {
       var line = item.line
-      while line <= item.last_line { retained[f"{line}"] = true; line += 1 }
+      while line <= item.last_line { retained[line] = true; line += 1 }
     }
   }
   let lines: List[Int] = collect {
     var line = 1
     while line <= lexed.lines {
-      yield line when ! (excluded.get(f"{line}") ?? false) or (retained.get(f"{line}") ?? false)
+      yield line when ! (excluded.get(line) ?? false) or (retained.get(line) ?? false)
       line += 1
     }
   }
@@ -590,30 +593,30 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
   var cursor = 0
   let edges: List[RustModule] = collect {
     while cursor < lexed.tokens.len() {
-      while ! inline.is_empty() and cursor > inline[inline.len() - 1].end { inline = inline |> take(inline.len() - 1) |> collect }
+        while ! inline.is_empty() and cursor > inline[-1].end { inline = inline |> take(inline.len() - 1) |> collect }
       if (lexed.tokens.get(cursor) ?? end_token).text == "mod" and ident_start(first((lexed.tokens.get(cursor + 1) ?? end_token).text)) {
         let name = (lexed.tokens.get(cursor + 1) ?? end_token).text
-        let parent = if inline.is_empty() { directory } else { inline[inline.len() - 1].directory }
-        var explicit: Str? = null
+          let parent = if inline.is_empty() { directory } else { inline[-1].directory }
+          var explicit = null
         var previous = cursor - 1
-        if (lexed.tokens.get(previous) ?? end_token).text == ")" { previous = lexed.mates[f"{previous}"] - 1 }
+        if (lexed.tokens.get(previous) ?? end_token).text == ")" { previous = lexed.mates[previous] - 1 }
         if (lexed.tokens.get(previous) ?? end_token).text == "pub" { previous -= 1 }
         let backwards = collect {
           var index = attrs.len() - 1
           while index >= 0 { yield attrs[index]; index -= 1 }
         }
         for attr in backwards {
-          if attr.end != previous { continue }
+            guard attr.end == previous else { continue }
           let kind = attr.start + (if attr.inner { 3 } else { 2 })
           if (lexed.tokens.get(kind) ?? end_token).text == "path" {
             let value = (lexed.tokens.get(kind + 2) ?? end_token).text
-            if (lexed.tokens.get(kind + 1) ?? end_token).text != "=" { invalid(source_path, lexed.tokens[attr.start].line, "malformed path attribute")? }
+              if (lexed.tokens.get(kind + 1) ?? end_token).text != "=" { invalid(source_path, lexed.tokens[attr.start].line, "malformed path attribute") }
             if value.starts_with("r") and "\"" in value {
               let parts = value.split("\"", maxsplit: 1)
               let suffix = f"\"{parts[0].byte_slice(1)}"
               explicit = parts[1].byte_slice(0, length: parts[1].byte_len() - suffix.byte_len())
             } else {
-              if ! value.starts_with("\"") or ! value.ends_with("\"") or "\\" in value { invalid(source_path, lexed.tokens[attr.start].line, "unsupported path attribute literal")? }
+              if ! value.starts_with("\"") or ! value.ends_with("\"") or "\\" in value { invalid(source_path, lexed.tokens[attr.start].line, "unsupported path attribute literal") }
               explicit = value.byte_slice(1, length: value.byte_len() - 2)
             }
           }
@@ -622,7 +625,7 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
         # An explicit inline directory replaces the normal module component.
         let base = if inline.is_empty() { file.parent().display() } else { parent }
         if (lexed.tokens.get(cursor + 2) ?? end_token).text == "{" {
-          inline += [{end: lexed.mates[f"{cursor + 2}"], directory: if explicit != null { f"{base}/{explicit}" } else { f"{parent}/{name}" }}]
+          inline += [{end: lexed.mates[cursor + 2], directory: if explicit != null { f"{base}/{explicit}" } else { f"{parent}/{name}" }}]
         }
         if (lexed.tokens.get(cursor + 2) ?? end_token).text == ";" {
           yield {name: name, directory: if explicit != null { base } else { parent }, explicit_path: explicit, excluded: inside(lexed.tokens[cursor], spans), dead_code: false, line: lexed.tokens[cursor].line}
@@ -634,22 +637,22 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
   edges
 }
 
-pure metric(name: Str, evidence: List[Evidence]) -> Metric { {name: name, value: evidence.len(), evidence: evidence} }
+pure metric(name: Str, rows: List[Evidence]) -> Metric { {name: name, value: rows.len(), evidence: rows} }
 pure evidence(source_path: Str, item: Token, detail: Str) -> Evidence { {path: source_path, line: item.line, detail: detail} }
 
 # Macro output is a template, but the eager helper is accepted only in the schema macro's generated match arm.
 pure token_sequence_matches(lexed: Lexed, opening: Int, expected: List[Str]) -> Bool {
   var offset = 0
   while offset < expected.len() {
-    if (lexed.tokens.get(opening + offset) ?? end_token).text != expected[offset] { return false }
+    return false when (lexed.tokens.get(opening + offset) ?? end_token).text != expected[offset]
     offset += 1
   }
   true
 }
 
-proc validate_instruction_schema_definition(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[Unit] {
-  if source_path != "src/runtime/eval/indexed/full/schema.rs" { invalid(source_path, lexed.tokens[opening].line, "instruction schema eager helper is outside its generated source authority")? }
-  let closing = lexed.mates[f"{opening}"]
+proc validate_instruction_schema_definition(source_path: Str, lexed: Lexed, opening: Int) [error] {
+      if source_path != "src/runtime/eval/indexed/full/schema.rs" { invalid(source_path, lexed.tokens[opening].line, "instruction schema eager helper is outside its generated source authority") }
+  let closing = lexed.mates[opening]
   let eager_false_arm = ["(", "@", "eager_atom", ")", "=", ">", "{", "false", "}", ";"]
   let eager_true_arm = ["(", "@", "eager_atom", "EagerAtom", ")", "=", ">", "{", "true", "}", ";"]
   let classification_matcher = [
@@ -663,43 +666,46 @@ proc validate_instruction_schema_definition(source_path: Str, lexed: Lexed, open
   var helper_calls = 0
   var cursor = opening + 1
   while cursor < closing {
-    if cursor + eager_false_arm.len() <= closing and token_sequence_matches(lexed, cursor, eager_false_arm) { false_arms += 1 }
-    if cursor + eager_true_arm.len() <= closing and token_sequence_matches(lexed, cursor, eager_true_arm) { true_arms += 1 }
-    if cursor + classification_matcher.len() <= closing and token_sequence_matches(lexed, cursor, classification_matcher) { classification_matchers += 1 }
-    if lexed.tokens[cursor].text == "instruction_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
+    let name = lexed.tokens[cursor].text
+    if name == "(" {
+      if cursor + eager_false_arm.len() <= closing and token_sequence_matches(lexed, cursor, eager_false_arm) { false_arms += 1 }
+      if cursor + eager_true_arm.len() <= closing and token_sequence_matches(lexed, cursor, eager_true_arm) { true_arms += 1 }
+    }
+    if name == "$" and cursor + classification_matcher.len() <= closing and token_sequence_matches(lexed, cursor, classification_matcher) { classification_matchers += 1 }
+    if name == "instruction_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
       helper_calls += 1
       let call_open = cursor + 2
       if (lexed.tokens.get(call_open) ?? end_token).text != "(" {
-        invalid(source_path, lexed.tokens[cursor].line, "malformed instruction schema eager helper invocation")?
+      invalid(source_path, lexed.tokens[cursor].line, "malformed instruction schema eager helper invocation")
       }
-      let call_close = lexed.mates[f"{call_open}"]
+      let call_close = lexed.mates[call_open]
       let anchor_start = cursor - 7
       let repetition_start = cursor - 11
       let repetition_context = ["$", "(", "$", "("]
       let match_arm_context = ["Self", ":", ":", "$", "tag", "=", ">"]
       if cursor < 11 {
-        invalid(source_path, lexed.tokens[cursor].line, "unrecognized instruction schema eager helper expansion")?
+      invalid(source_path, lexed.tokens[cursor].line, "unrecognized instruction schema eager helper expansion")
       }
       let valid_anchor = token_sequence_matches(lexed, repetition_start, repetition_context) and token_sequence_matches(lexed, anchor_start, match_arm_context)
       let valid_arguments = call_close == call_open + eager_helper_arguments.len() + 1 and token_sequence_matches(lexed, call_open + 1, eager_helper_arguments)
       let valid_repetition_end = (lexed.tokens.get(call_close + 1) ?? end_token).text == "," and (lexed.tokens.get(call_close + 2) ?? end_token).text == ")" and (lexed.tokens.get(call_close + 3) ?? end_token).text == "*" and (lexed.tokens.get(call_close + 4) ?? end_token).text == ")" and (lexed.tokens.get(call_close + 5) ?? end_token).text == "*"
       if ! valid_anchor or ! valid_arguments or ! valid_repetition_end {
-        invalid(source_path, lexed.tokens[cursor].line, "unrecognized instruction schema eager helper expansion")?
+      invalid(source_path, lexed.tokens[cursor].line, "unrecognized instruction schema eager helper expansion")
       }
     }
     cursor += 1
   }
   if false_arms != 1 or true_arms != 1 or classification_matchers != 1 or helper_calls != 1 {
-    invalid(source_path, lexed.tokens[opening].line, "unrecognized instruction schema eager classification definition")?
+      invalid(source_path, lexed.tokens[opening].line, "unrecognized instruction schema eager classification definition")
   }
   Ok()
 }
 
 # The macro call owns the four instruction tables that generate FullTag.
 proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, strict_classification: Bool) [error] -> Result[List[Evidence]] {
-  let closing = lexed.mates[f"{opening}"]
+  let closing = lexed.mates[opening]
   let expected_rows = ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow"]
-  var rows: List[Str] = []
+    var rows = []
   var variants: List[Evidence] = []
   var tags: Map[Bool] = {}
   var ordinals: Map[Bool] = {}
@@ -708,37 +714,37 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
   while cursor < closing {
     let row = (lexed.tokens.get(cursor) ?? end_token).text
     let header = if row == "BuildIntRow" { ["IntView", "Int"] } else if row == "BuildBoolRow" { ["BoolView", "Bool"] } else if row == "BuildExprRow" { ["ExprView", "Expr"] } else if row == "BuildStmtRow" { ["StmtView", "Stmt"] } else { [] }
-    if header.is_empty() { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"unknown instruction schema row {row}")? }
-    if row in rows { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"repeated instruction schema row {row}")? }
+      if header.is_empty() { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"unknown instruction schema row {row}") }
+    if row in rows { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"repeated instruction schema row {row}") }
     rows += [row]
     if (lexed.tokens.get(cursor + 1) ?? end_token).text != "=" or (lexed.tokens.get(cursor + 2) ?? end_token).text != ">" or (lexed.tokens.get(cursor + 3) ?? end_token).text != header[0] or (lexed.tokens.get(cursor + 4) ?? end_token).text != "[" or (lexed.tokens.get(cursor + 5) ?? end_token).text != header[1] or (lexed.tokens.get(cursor + 6) ?? end_token).text != "]" or (lexed.tokens.get(cursor + 7) ?? end_token).text != "{" {
-      invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"malformed instruction schema header for {row}")?
+      invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"malformed instruction schema header for {row}")
     }
     let table_open = cursor + 7
-    let table_close = lexed.mates[f"{table_open}"]
+    let table_close = lexed.mates[table_open]
     var entry = table_open + 1
     var entry_count = 0
-    var row_variants: List[Str] = []
+    var row_variants = []
     while entry < table_close {
       let variant = lexed.tokens.get(entry) ?? end_token
-      if variant.text == "" or ! ident_start(first(variant.text)) { invalid(source_path, variant.line, f"malformed instruction schema entry in {row}")? }
-      if variant.text in row_variants { invalid(source_path, variant.line, f"duplicate instruction schema variant {row}::{variant.text}")? }
+      if variant.text == "" or ! ident_start(first(variant.text)) { invalid(source_path, variant.line, f"malformed instruction schema entry in {row}") }
+      if variant.text in row_variants { invalid(source_path, variant.line, f"duplicate instruction schema variant {row}::{variant.text}") }
       row_variants += [variant.text]
       var after_variant = entry + 1
       let fields = (lexed.tokens.get(after_variant) ?? end_token).text
       if fields in ["(", "{"] {
-        let fields_close = lexed.mates[f"{after_variant}"]
-        if fields_close <= after_variant or fields_close >= table_close { invalid(source_path, variant.line, f"malformed instruction schema fields for {row}::{variant.text}")? }
+        let fields_close = lexed.mates[after_variant]
+        if fields_close <= after_variant or fields_close >= table_close { invalid(source_path, variant.line, f"malformed instruction schema fields for {row}::{variant.text}") }
         after_variant = fields_close + 1
       }
       if (lexed.tokens.get(after_variant) ?? end_token).text != "=" or (lexed.tokens.get(after_variant + 1) ?? end_token).text != ">" {
-        invalid(source_path, variant.line, f"malformed instruction schema entry for {row}::{variant.text}")?
+        invalid(source_path, variant.line, f"malformed instruction schema entry for {row}::{variant.text}")
       }
       let tag = lexed.tokens.get(after_variant + 2) ?? end_token
       if tag.text == "" or ! ident_start(first(tag.text)) or (lexed.tokens.get(after_variant + 3) ?? end_token).text != "=" {
-        invalid(source_path, variant.line, f"malformed instruction schema tag for {row}::{variant.text}")?
+        invalid(source_path, variant.line, f"malformed instruction schema tag for {row}::{variant.text}")
       }
-      if tags.get(tag.text) ?? false { invalid(source_path, variant.line, f"duplicate instruction schema tag {tag.text}")? }
+      if tags.get(tag.text) ?? false { invalid(source_path, variant.line, f"duplicate instruction schema tag {tag.text}") }
       tags[tag.text] = true
       var ordinal_end = after_variant + 4
       var ordinal_text = ""
@@ -747,42 +753,40 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
         ordinal_end += 1
       }
       if (lexed.tokens.get(ordinal_end) ?? end_token).text == "-" {
-        invalid(source_path, variant.line, f"negative instruction schema ordinal for {row}::{variant.text}")?
+        invalid(source_path, variant.line, f"negative instruction schema ordinal for {row}::{variant.text}")
       }
-      match ordinal_text.parse_int() {
-        Ok(ordinal) => {
-          let ordinal_key = f"{ordinal}"
-          if ordinals.get(ordinal_key) ?? false { invalid(source_path, variant.line, f"duplicate instruction schema ordinal {ordinal_key}")? }
-          ordinals[ordinal_key] = true
-          if ordinal > 255 { invalid(source_path, variant.line, f"instruction schema ordinal {ordinal_key} is outside the u8 range")? }
-          if ordinal <= previous_ordinal { invalid(source_path, variant.line, f"instruction schema ordinals are not strictly increasing at {ordinal_key}")? }
-          previous_ordinal = ordinal
-        }
-        Err(_) => invalid(source_path, variant.line, f"malformed instruction schema ordinal for {row}::{variant.text}")?,
-      }
+      if let Ok(ordinal) = ordinal_text.parse_int() {
+        let ordinal_key = f"{ordinal}"
+        if ordinals.get(ordinal_key) ?? false { invalid(source_path, variant.line, f"duplicate instruction schema ordinal {ordinal_key}") }
+        ordinals[ordinal_key] = true
+        if ordinal > 255 { invalid(source_path, variant.line, f"instruction schema ordinal {ordinal_key} is outside the u8 range") }
+        if ordinal <= previous_ordinal { invalid(source_path, variant.line, f"instruction schema ordinals are not strictly increasing at {ordinal_key}") }
+        previous_ordinal = ordinal
+      } else { invalid(source_path, variant.line, f"malformed instruction schema ordinal for {row}::{variant.text}") }
       let effects_open = ordinal_end
-      if (lexed.tokens.get(effects_open) ?? end_token).text != "[" { invalid(source_path, variant.line, f"malformed instruction schema effects for {row}::{variant.text}")? }
-      let effects_close = lexed.mates[f"{effects_open}"]
+      if (lexed.tokens.get(effects_open) ?? end_token).text != "[" { invalid(source_path, variant.line, f"malformed instruction schema effects for {row}::{variant.text}") }
+      let effects_close = lexed.mates[effects_open]
       if effects_close <= effects_open or effects_close >= table_close or (lexed.tokens.get(effects_close + 1) ?? end_token).text != ";" {
-        invalid(source_path, variant.line, f"malformed instruction schema terminator for {row}::{variant.text}: {(lexed.tokens.get(effects_close + 1) ?? end_token).text}")?
+        invalid(source_path, variant.line, f"malformed instruction schema terminator for {row}::{variant.text}: {(lexed.tokens.get(effects_close + 1) ?? end_token).text}")
       }
       if strict_classification {
-        var separators: List[Int] = []
         var contains_eager_marker = false
         var marker_cursor = effects_open + 1
-        while marker_cursor < effects_close {
-          let marker = lexed.tokens[marker_cursor]
-          if marker.text == "EagerAtom" { contains_eager_marker = true }
-          if marker.text in ["(", "[", "{"] { marker_cursor = lexed.mates[f"{marker_cursor}"] + 1; continue }
-          if marker.text == ";" { separators += [marker_cursor] }
-          marker_cursor += 1
+        let separators = collect {
+          while marker_cursor < effects_close {
+            let marker = lexed.tokens[marker_cursor]
+            if marker.text == "EagerAtom" { contains_eager_marker = true }
+            if marker.text in ["(", "[", "{"] { marker_cursor = lexed.mates[marker_cursor] + 1; continue }
+              yield marker_cursor when marker.text == ";"
+            marker_cursor += 1
+          }
         }
-        if separators.len() > 3 { invalid(source_path, variant.line, f"malformed instruction schema classification for {row}::{variant.text}")? }
-        if contains_eager_marker and separators.len() != 3 { invalid(source_path, variant.line, f"malformed instruction schema classification for {row}::{variant.text}")? }
+        if separators.len() > 3 { invalid(source_path, variant.line, f"malformed instruction schema classification for {row}::{variant.text}") }
+        if contains_eager_marker and separators.len() != 3 { invalid(source_path, variant.line, f"malformed instruction schema classification for {row}::{variant.text}") }
         if separators.len() == 3 {
           let classification = lexed.tokens[separators[2] + 1]
           if separators[2] + 2 != effects_close or classification.text != "EagerAtom" or row != "BuildExprRow" {
-            invalid(source_path, variant.line, f"unrecognized instruction schema classification for {row}::{variant.text}")?
+            invalid(source_path, variant.line, f"unrecognized instruction schema classification for {row}::{variant.text}")
           }
         }
       }
@@ -790,24 +794,24 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
       entry_count += 1
       entry = effects_close + 2
     }
-    if entry_count == 0 { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"empty instruction schema row {row}")? }
+    if entry_count == 0 { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"empty instruction schema row {row}") }
     cursor = table_close + 1
   }
-  if (rows |> sort) != (expected_rows |> sort) { invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "incomplete instruction schema table set")? }
+  if (rows |> sort) != (expected_rows |> sort) { invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "incomplete instruction schema table set") }
   variants
 }
 
 proc legacy_stage_enum_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Str]] {
-  let closing = lexed.mates[f"{opening}"]
+  let closing = lexed.mates[opening]
   var cursor = opening + 1
-  var variants: List[Str] = []
+  var variants = []
   while cursor < closing {
     let variant = lexed.tokens[cursor]
-    if ! ident_start(first(variant.text)) or variant.text in variants { invalid(source_path, variant.line, "malformed or repeated handwritten FullStageTag variant")? }
+    if ! ident_start(first(variant.text)) or variant.text in variants { invalid(source_path, variant.line, "malformed or repeated handwritten FullStageTag variant") }
     variants += [variant.text]
     cursor += 1
     if cursor < closing {
-      if lexed.tokens[cursor].text != "," { invalid(source_path, lexed.tokens[cursor].line, "handwritten FullStageTag variants must be unit entries")? }
+      if lexed.tokens[cursor].text != "," { invalid(source_path, lexed.tokens[cursor].line, "handwritten FullStageTag variants must be unit entries") }
       cursor += 1
     }
   }
@@ -815,27 +819,27 @@ proc legacy_stage_enum_variants(source_path: Str, lexed: Lexed, opening: Int) [e
 }
 
 proc legacy_stage_codec_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Str]] {
-  let closing = lexed.mates[f"{opening}"]
+  let closing = lexed.mates[opening]
   var cursor = opening + 1
-  var variants: List[Str] = []
+  var variants = []
   while cursor < closing {
     if lexed.tokens[cursor].text == "," { cursor += 1; continue }
     let row = lexed.tokens[cursor]
-    var paths: List[Str] = []
-    var arrows: List[Int] = []
+    var paths = []
+    var arrows = []
     var member = cursor
     while member < closing and lexed.tokens[member].text != "," {
       let value = lexed.tokens[member].text
-      if value in ["(", "[", "{"] { member = lexed.mates[f"{member}"] + 1; continue }
+      if value in ["(", "[", "{"] { member = lexed.mates[member] + 1; continue }
       if value == "LoweredPipelineStage" and (lexed.tokens.get(member + 1) ?? end_token).text == ":" and (lexed.tokens.get(member + 2) ?? end_token).text == ":" { paths += [(lexed.tokens.get(member + 3) ?? end_token).text] }
       if value == "=" and (lexed.tokens.get(member + 1) ?? end_token).text == ">" { arrows += [member]; member += 2; continue }
       member += 1
     }
-    if paths.len() != 2 or paths[0] != paths[1] or arrows.len() != 2 { invalid(source_path, row.line, f"malformed handwritten pipeline stage codec row ({paths.len()} variant paths, {arrows.len()} arrows)")? }
+    if paths.len() != 2 or paths[0] != paths[1] or arrows.len() != 2 { invalid(source_path, row.line, f"malformed handwritten pipeline stage codec row ({paths.len()} variant paths, {arrows.len()} arrows)") }
     let tag = (lexed.tokens.get(arrows[0] + 2) ?? end_token).text
     let fields = arrows[0] + 3
-    if tag != paths[0] or lexed.tokens[fields].text != "{" or lexed.mates[f"{fields}"] + 1 != arrows[1] {
-      invalid(source_path, row.line, "handwritten pipeline stage codec tag or payload does not match its variant")?
+    if tag != paths[0] or lexed.tokens[fields].text != "{" or lexed.mates[fields] + 1 != arrows[1] {
+      invalid(source_path, row.line, "handwritten pipeline stage codec tag or payload does not match its variant")
     }
     variants += [paths[0]]
     cursor = member + 1
@@ -845,10 +849,10 @@ proc legacy_stage_codec_variants(source_path: Str, lexed: Lexed, opening: Int) [
 
 proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[LegacyPipelineStageLayout] {
   var tag_definitions = 0
-  var tag_variants: List[Str] = []
+  var tag_variants = []
   var codec_definitions = 0
   var codec_tables = 0
-  var codec_variants: List[Str] = []
+  var codec_variants = []
   var semantic_definitions = 0
   var cursor = 0
   while cursor < lexed.tokens.len() {
@@ -857,18 +861,18 @@ proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Sp
       let next = (lexed.tokens.get(cursor + 1) ?? end_token).text
       if item.text == "enum" and next in ["FullStageTag", "LoweredPipelineStage"] {
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage enum")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage enum") }
         if next == "FullStageTag" { tag_definitions += 1; tag_variants = legacy_stage_enum_variants(source_path, lexed, opening)? } else { semantic_definitions += 1 }
-        cursor = lexed.mates[f"{opening}"] + 1
+        cursor = lexed.mates[opening] + 1
         continue
       }
       if item.text == "macro_rules" and next == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "impl_stage_codec" {
         codec_definitions += 1
         let opening = cursor + 3
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage codec definition")? }
-        let closing = lexed.mates[f"{opening}"]
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage codec definition") }
+        let closing = lexed.mates[opening]
         for required in ["FullCodec", "LoweredPipelineStage", "FullStageTag", "encode", "decode", "verify"] {
-          if ! contains_token(lexed, opening + 1, closing, required) { invalid(source_path, item.line, "incomplete handwritten pipeline stage codec definition")? }
+          if ! contains_token(lexed, opening + 1, closing, required) { invalid(source_path, item.line, "incomplete handwritten pipeline stage codec definition") }
         }
         cursor = closing + 1
         continue
@@ -876,72 +880,73 @@ proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Sp
       if item.text == "impl_stage_codec" and next == "!" {
         codec_tables += 1
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "handwritten pipeline stage codec table must use a block")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "handwritten pipeline stage codec table must use a block") }
         codec_variants = legacy_stage_codec_variants(source_path, lexed, opening)?
-        cursor = lexed.mates[f"{opening}"] + 1
+        cursor = lexed.mates[opening] + 1
         continue
       }
     }
-    if item.text in ["(", "[", "{"] { cursor = lexed.mates[f"{cursor}"] + 1 } else { cursor += 1 }
+    if item.text in ["(", "[", "{"] { cursor = lexed.mates[cursor] + 1 } else { cursor += 1 }
   }
   {tag_definitions: tag_definitions, tag_variants: tag_variants, codec_definitions: codec_definitions, codec_tables: codec_tables, codec_variants: codec_variants, semantic_definitions: semantic_definitions}
 }
 
 # The generated lowered-stage enum has no source members; its schema invocation owns them.
 proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Evidence]] {
-  let closing = lexed.mates[f"{opening}"]
+  let closing = lexed.mates[opening]
   var cursor = opening + 1
   if (lexed.tokens.get(cursor) ?? end_token).text != "@" or (lexed.tokens.get(cursor + 1) ?? end_token).text != "context" {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")
   }
   cursor += 2
-  var context: List[Str] = []
+  var context = []
   while cursor < closing and lexed.tokens[cursor].text != ";" { context += [lexed.tokens[cursor].text]; cursor += 1 }
   let core_context = ["stage_builder", "stage_decoder", "stage_payload"]
   let view_context = [@core_context, "stage_view_context", "stage_view_input", "stage_view_value", "stage_view_expectations"]
   if (context != core_context and context != view_context) or (lexed.tokens.get(cursor) ?? end_token).text != ";" {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")
   }
   cursor += 1
 
   var seen: Map[Bool] = {}
-  var variants: List[Evidence] = []
-  while cursor < closing {
-    let variant = lexed.tokens.get(cursor) ?? end_token
-    if variant.text == "_" or ! ident_start(first(variant.text)) {
-      invalid(source_path, variant.line, "malformed pipeline stage schema entry")?
-    }
-    if seen.get(variant.text) ?? false {
-      invalid(source_path, variant.line, f"repeated pipeline stage schema variant {variant.text}")?
-    }
-    seen[variant.text] = true
-    let form = (lexed.tokens.get(cursor + 1) ?? end_token).text
-    if form not in ["unit", "tuple", "struct"] {
-      invalid(source_path, variant.line, f"unknown pipeline stage schema form {form}")?
-    }
-    let fields_open = cursor + 2
-    if (lexed.tokens.get(fields_open) ?? end_token).text != "{" {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")?
-    }
-    let fields_close = lexed.mates[f"{fields_open}"]
-    if fields_close <= fields_open or fields_close >= closing {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")?
-    }
-    if form == "unit" {
-      if fields_open + 1 != fields_close {
-        invalid(source_path, variant.line, f"unit pipeline stage has fields in {variant.text}")?
+  let variants: List[Evidence] = collect {
+    while cursor < closing {
+      let variant = lexed.tokens.get(cursor) ?? end_token
+      if variant.text == "_" or ! ident_start(first(variant.text)) {
+        invalid(source_path, variant.line, "malformed pipeline stage schema entry")
       }
-    } else if fields_open + 1 == fields_close {
-      invalid(source_path, variant.line, f"empty pipeline stage schema fields in {variant.text}")?
+      if seen.get(variant.text) ?? false {
+        invalid(source_path, variant.line, f"repeated pipeline stage schema variant {variant.text}")
+      }
+      seen[variant.text] = true
+      let form = (lexed.tokens.get(cursor + 1) ?? end_token).text
+      if form not in ["unit", "tuple", "struct"] {
+        invalid(source_path, variant.line, f"unknown pipeline stage schema form {form}")
+      }
+      let fields_open = cursor + 2
+      if (lexed.tokens.get(fields_open) ?? end_token).text != "{" {
+        invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")
+      }
+      let fields_close = lexed.mates[fields_open]
+      if fields_close <= fields_open or fields_close >= closing {
+        invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")
+      }
+      if form == "unit" {
+        if fields_open + 1 != fields_close {
+          invalid(source_path, variant.line, f"unit pipeline stage has fields in {variant.text}")
+        }
+      } else if fields_open + 1 == fields_close {
+        invalid(source_path, variant.line, f"empty pipeline stage schema fields in {variant.text}")
+      }
+      if (lexed.tokens.get(fields_close + 1) ?? end_token).text != ";" {
+        invalid(source_path, variant.line, f"malformed pipeline stage schema terminator for {variant.text}")
+      }
+      yield evidence(source_path, variant, f"LoweredPipelineStage::{variant.text}")
+      cursor = fields_close + 2
     }
-    if (lexed.tokens.get(fields_close + 1) ?? end_token).text != ";" {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema terminator for {variant.text}")?
-    }
-    variants += [evidence(source_path, variant, f"LoweredPipelineStage::{variant.text}")]
-    cursor = fields_close + 2
   }
   if variants.is_empty() {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "empty pipeline stage schema")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "empty pipeline stage schema")
   }
   variants
 }
@@ -950,7 +955,7 @@ pure contains_token(lexed: Lexed, start: Int, end: Int, value: Str) -> Bool {
   var cursor = start
   while cursor < end {
     let token = lexed.tokens[cursor]
-    if ! token.literal and token.text == value { return true }
+    return true when ! token.literal and token.text == value
     cursor += 1
   }
   false
@@ -969,14 +974,14 @@ proc function_region_for_parameters(source_path: Str, lexed: Lexed, keyword: Int
       params_start += 1
       continue
     }
-    if value == "(" and generic_depth == 0 { break }
+    break when value == "(" and generic_depth == 0
     if value in ["{", ";"] and generic_depth == 0 { return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1} }
-    if value in ["(", "[", "{"] { params_start = lexed.mates[f"{params_start}"] + 1 } else { params_start += 1 }
+    if value in ["(", "[", "{"] { params_start = lexed.mates[params_start] + 1 } else { params_start += 1 }
   }
   if params_start >= lexed.tokens.len() or (lexed.tokens.get(params_start) ?? end_token).text != "(" {
     return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
   }
-  let params_end = lexed.mates[f"{params_start}"]
+  let params_end = lexed.mates[params_start]
   var has_required_parameter = false
   for required_parameter in required_parameters {
     if contains_token(lexed, params_start + 1, params_end, required_parameter) {
@@ -1001,19 +1006,19 @@ proc function_region_for_parameters(source_path: Str, lexed: Lexed, keyword: Int
       return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
     }
     if value == "{" {
-      if angle_depth == 0 { break }
-      body_start = lexed.mates[f"{body_start}"] + 1
+      break when angle_depth == 0
+      body_start = lexed.mates[body_start] + 1
       continue
     }
-    if value in ["(", "["] { body_start = lexed.mates[f"{body_start}"] + 1 } else { body_start += 1 }
+    if value in ["(", "["] { body_start = lexed.mates[body_start] + 1 } else { body_start += 1 }
   }
   if body_start >= lexed.tokens.len() or lexed.tokens[body_start].text != "{" {
-    invalid(source_path, lexed.tokens[keyword].line, "cannot locate conversion function body")?
+    invalid(source_path, lexed.tokens[keyword].line, "cannot locate conversion function body")
   }
   if required_return != "" and ! contains_token(lexed, params_end + 1, body_start, required_return) {
     return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
   }
-  {name: name, params_start: params_start + 1, params_end: params_end, body_start: body_start + 1, body_end: lexed.mates[f"{body_start}"]}
+  {name: name, params_start: params_start + 1, params_end: params_end, body_start: body_start + 1, body_end: lexed.mates[body_start]}
 }
 
 pure recursive_type_expr_call(lexed: Lexed, region: FunctionRegion) -> Bool {
@@ -1048,7 +1053,7 @@ pure function_return_contains(lexed: Lexed, region: FunctionRegion, value: Str) 
 }
 
 pure qualified_variant_count(lexed: Lexed, region: FunctionRegion, type_name: Str) -> Int {
-  var variants: List[Str] = []
+    var variants = []
   var cursor = region.body_start
   while cursor + 2 < region.body_end {
     if lexed.tokens[cursor].text == type_name and lexed.tokens[cursor + 1].text == ":" and lexed.tokens[cursor + 2].text == ":" {
@@ -1061,69 +1066,70 @@ pure qualified_variant_count(lexed: Lexed, region: FunctionRegion, type_name: St
 }
 
 proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
-  if ! source_path.starts_with("src/runtime/eval/") { return [] }
+  return [] when ! source_path.starts_with("src/runtime/eval/")
   if ! contains_token(lexed, 0, lexed.tokens.len(), "Type") or ! contains_token(lexed, 0, lexed.tokens.len(), "LoweredType") or ! contains_token(lexed, 0, lexed.tokens.len(), "match") { return [] }
-  var found: List[Evidence] = []
   var cursor = 0
-  while cursor < lexed.tokens.len() {
-    let item = lexed.tokens[cursor]
-    if ! item.literal and item.text == "fn" and ! inside(item, spans) {
-      let region = function_region_for_parameters(source_path, lexed, cursor, ["Type", "LoweredType"], "")?
-      if region.body_start >= 0 {
-        let takes_type = contains_token(lexed, region.params_start, region.params_end, "Type")
-        let takes_lowered_type = contains_token(lexed, region.params_start, region.params_end, "LoweredType")
-        let maps_type_to_lowered = takes_type and ! takes_lowered_type and function_return_contains(lexed, region, "LoweredType")
-        let maps_lowered_to_type = takes_lowered_type and ! takes_type and function_return_contains(lexed, region, "Type")
-        if (maps_type_to_lowered or maps_lowered_to_type) and contains_token(lexed, region.body_start, region.body_end, "match") {
-          let source_type = if maps_type_to_lowered { "Type" } else { "LoweredType" }
-          let target_type = if maps_type_to_lowered { "LoweredType" } else { "Type" }
-          let source_variants = qualified_variant_count(lexed, region, source_type)
-          let target_variants = qualified_variant_count(lexed, region, target_type)
-          if source_variants >= 8 and target_variants >= 8 {
-            found += [evidence(source_path, item, region.name)]
-          } else if source_variants >= 8 or target_variants >= 8 {
-            invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")?
+  let found: List[Evidence] = collect {
+    while cursor < lexed.tokens.len() {
+      let item = lexed.tokens[cursor]
+      if ! item.literal and item.text == "fn" and ! inside(item, spans) {
+        let region = function_region_for_parameters(source_path, lexed, cursor, ["Type", "LoweredType"], "")?
+        if region.body_start >= 0 {
+          let takes_type = contains_token(lexed, region.params_start, region.params_end, "Type")
+          let takes_lowered_type = contains_token(lexed, region.params_start, region.params_end, "LoweredType")
+          let maps_type_to_lowered = takes_type and ! takes_lowered_type and function_return_contains(lexed, region, "LoweredType")
+          let maps_lowered_to_type = takes_lowered_type and ! takes_type and function_return_contains(lexed, region, "Type")
+          if (maps_type_to_lowered or maps_lowered_to_type) and contains_token(lexed, region.body_start, region.body_end, "match") {
+            let source_type = if maps_type_to_lowered { "Type" } else { "LoweredType" }
+            let target_type = if maps_type_to_lowered { "LoweredType" } else { "Type" }
+            let source_variants = qualified_variant_count(lexed, region, source_type)
+            let target_variants = qualified_variant_count(lexed, region, target_type)
+            if source_variants >= 8 and target_variants >= 8 {
+              yield evidence(source_path, item, region.name)
+            } else if source_variants >= 8 or target_variants >= 8 {
+                invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")
+            }
           }
         }
       }
+      cursor += 1
     }
-    cursor += 1
   }
   found
 }
 
 # Pattern rows are generated from one table whose ordinal hole preserves the wire tags.
 proc pattern_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Evidence]] {
-  let closing = lexed.mates[f"{opening}"]
+  let closing = lexed.mates[opening]
   var cursor = opening + 1
   if (lexed.tokens.get(cursor) ?? end_token).text != "enum" or (lexed.tokens.get(cursor + 1) ?? end_token).text != "FullPatternTag" or (lexed.tokens.get(cursor + 2) ?? end_token).text != "{" {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "unrecognized pattern schema enum")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "unrecognized pattern schema enum")
   }
   let rows_open = cursor + 2
-  let rows_close = lexed.mates[f"{rows_open}"]
+  let rows_close = lexed.mates[rows_open]
   if rows_close <= rows_open or rows_close >= closing or rows_close + 1 != closing {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "unrecognized pattern schema table boundary")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "unrecognized pattern schema table boundary")
   }
   cursor = rows_open + 1
-  var names: List[Str] = []
-  var ordinals: List[Str] = []
+  var names = []
+  var ordinals = []
   var seen_names: Map[Bool] = {}
   var seen_ordinals: Map[Bool] = {}
   var found: List[Evidence] = []
   while cursor < rows_close {
     while (lexed.tokens.get(cursor) ?? end_token).text == "#" {
       if (lexed.tokens.get(cursor + 1) ?? end_token).text != "[" {
-        invalid(source_path, lexed.tokens[cursor].line, "malformed pattern schema entry attribute")?
+        invalid(source_path, lexed.tokens[cursor].line, "malformed pattern schema entry attribute")
       }
-      cursor = lexed.mates[f"{cursor + 1}"] + 1
+      cursor = lexed.mates[cursor + 1] + 1
     }
-    if cursor == rows_close { break }
+    break when cursor == rows_close
     let variant = lexed.tokens.get(cursor) ?? end_token
     if variant.text == "_" or ! ident_start(first(variant.text)) {
-      invalid(source_path, variant.line, "malformed pattern schema entry")?
+      invalid(source_path, variant.line, "malformed pattern schema entry")
     }
     if seen_names.get(variant.text) ?? false {
-      invalid(source_path, variant.line, f"duplicate pattern schema variant {variant.text}")?
+      invalid(source_path, variant.line, f"duplicate pattern schema variant {variant.text}")
     }
     let equals = lexed.tokens.get(cursor + 1) ?? end_token
     let ordinal = lexed.tokens.get(cursor + 2) ?? end_token
@@ -1136,10 +1142,10 @@ proc pattern_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [erro
       ordinal_cursor += 1
     }
     if equals.text != "=" or !(ordinal_text in PATTERN_SCHEMA_ORDINALS) {
-      invalid(source_path, variant.line, "malformed pattern schema entry")?
+      invalid(source_path, variant.line, "malformed pattern schema entry")
     }
     if seen_ordinals.get(ordinal_text) ?? false {
-      invalid(source_path, ordinal.line, f"duplicate pattern schema ordinal {ordinal_text} at {variant.text}")?
+      invalid(source_path, ordinal.line, f"duplicate pattern schema ordinal {ordinal_text} at {variant.text}")
     }
     seen_names[variant.text] = true
     seen_ordinals[ordinal_text] = true
@@ -1147,24 +1153,24 @@ proc pattern_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [erro
     ordinals += [ordinal_text]
     cursor = ordinal_cursor
     let payload = (lexed.tokens.get(cursor) ?? end_token).text
-    if payload in ["{", "("] { cursor = lexed.mates[f"{cursor}"] + 1 }
+    if payload in ["{", "("] { cursor = lexed.mates[cursor] + 1 }
     if (lexed.tokens.get(cursor) ?? end_token).text != "[" {
-      invalid(source_path, variant.line, "malformed pattern schema entry")?
+      invalid(source_path, variant.line, "malformed pattern schema entry")
     }
     let mode = lexed.tokens.get(cursor + 1) ?? end_token
     let comma = lexed.tokens.get(cursor + 2) ?? end_token
     let constraint = lexed.tokens.get(cursor + 3) ?? end_token
     let bracket = lexed.tokens.get(cursor + 4) ?? end_token
     if !(mode.text in ["Normal", "Text"]) or comma.text != "," or !(constraint.text in ["None", "CaptureSlots", "ListRest", "Alternation"]) or bracket.text != "]" {
-      invalid(source_path, variant.line, "malformed pattern schema entry")?
+      invalid(source_path, variant.line, "malformed pattern schema entry")
     }
     cursor += 5
     found += [evidence(source_path, variant, f"pattern_schema::{variant.text}")]
     let separator = (lexed.tokens.get(cursor) ?? end_token).text
-    if separator == "," { cursor += 1 } else if cursor != rows_close { invalid(source_path, variant.line, "malformed pattern schema entry separator")? }
+    if separator == "," { cursor += 1 } else if cursor != rows_close { invalid(source_path, variant.line, "malformed pattern schema entry separator") }
   }
   if names != PATTERN_SCHEMA_VARIANTS or ordinals != PATTERN_SCHEMA_ORDINALS {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "unrecognized pattern schema inventory")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "unrecognized pattern schema inventory")
   }
   found
 }
@@ -1175,7 +1181,7 @@ pure inside_macro_definition(lexed: Lexed, index: Int) -> Bool {
   while cursor < index {
     if lexed.tokens[cursor].text == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
       let opening = cursor + 3
-      if opening < index and (lexed.tokens.get(opening) ?? end_token).text == "{" and lexed.mates[f"{opening}"] > index { return true }
+      if opening < index and (lexed.tokens.get(opening) ?? end_token).text == "{" and lexed.mates[opening] > index { return true }
     }
     cursor += 1
   }
@@ -1185,30 +1191,31 @@ pure inside_macro_definition(lexed: Lexed, index: Int) -> Bool {
 # Count semantic walks over type-expression tags, not wrappers or name rendering.
 proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
   if source_path != "src/runtime/eval/lower.rs" and ! source_path.starts_with("src/runtime/eval/lower/") { return [] }
-  var found: List[Evidence] = []
   var cursor = 0
-  while cursor < lexed.tokens.len() {
-    let item = lexed.tokens[cursor]
-    if ! item.literal and item.text == "fn" and ! inside(item, spans) {
-      let region = function_region_for_parameters(source_path, lexed, cursor, ["TypeExprId"], "")?
-      if region.body_start >= 0 {
-        let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
-        let recursive = recursive_type_expr_call(lexed, region)
-        if type_dispatch {
-          let returns_string = function_return_contains(lexed, region, "String")
-          if ! returns_string {
-            let returns_semantic_type = function_return_contains(lexed, region, "Type") or function_return_contains(lexed, region, "LoweredType")
-            let constructs_type = constructs_semantic_type(lexed, region)
-            if constructs_type {
-              found += [evidence(source_path, item, region.name)]
-            } else if returns_semantic_type or recursive {
-              invalid(source_path, item.line, "unclassified type-expression tag walker")?
+  let found: List[Evidence] = collect {
+    while cursor < lexed.tokens.len() {
+      let item = lexed.tokens[cursor]
+      if ! item.literal and item.text == "fn" and ! inside(item, spans) {
+        let region = function_region_for_parameters(source_path, lexed, cursor, ["TypeExprId"], "")?
+        if region.body_start >= 0 {
+          let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
+          let recursive = recursive_type_expr_call(lexed, region)
+          if type_dispatch {
+            let returns_string = function_return_contains(lexed, region, "String")
+            if ! returns_string {
+              let returns_semantic_type = function_return_contains(lexed, region, "Type") or function_return_contains(lexed, region, "LoweredType")
+              let constructs_type = constructs_semantic_type(lexed, region)
+              if constructs_type {
+                yield evidence(source_path, item, region.name)
+              } else if returns_semantic_type or recursive {
+                invalid(source_path, item.line, "unclassified type-expression tag walker")
+              }
             }
           }
         }
       }
+      cursor += 1
     }
-    cursor += 1
   }
   found
 }
@@ -1246,36 +1253,36 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
       if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "pipeline_stage_schema" {
         pipeline_stage_schema_definitions += 1
         pipeline_stage_schema_definition = true
-        cursor = lexed.mates[f"{cursor + 3}"] + 1
+        cursor = lexed.mates[cursor + 3] + 1
         continue
       }
       if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "instruction_schema" {
         instruction_schema_definitions += 1
-        if instruction_schema_definitions > 1 { invalid(source_path, item.line, "multiple instruction schema definitions in one source file")? }
+        if instruction_schema_definitions > 1 { invalid(source_path, item.line, "multiple instruction schema definitions in one source file") }
         let opening = cursor + 3
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed instruction schema definition")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed instruction schema definition") }
         instruction_schema_definition = true
         instruction_schema_definition_opening = opening
-        cursor = lexed.mates[f"{opening}"] + 1
+        cursor = lexed.mates[opening] + 1
         continue
       }
       if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "pattern_schema" { pattern_schema_definitions += 1 }
       if name == "instruction_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
-        if inside_macro_definition(lexed, cursor) { invalid(source_path, item.line, "instruction schema invocation is nested in an unrelated macro definition")? }
+        if inside_macro_definition(lexed, cursor) { invalid(source_path, item.line, "instruction schema invocation is nested in an unrelated macro definition") }
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "instruction schema invocation must use a table block")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "instruction schema invocation must use a table block") }
         instruction_schema_calls += 1
         instructions += instruction_schema_variants(source_path, lexed, opening, instruction_schema_definition)?
       }
       if name == "pattern_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "pattern schema invocation must use a table block")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "pattern schema invocation must use a table block") }
         pattern_schema_calls += 1
         patterns += pattern_schema_variants(source_path, lexed, opening)?
       }
       if name == "pipeline_stage_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "pipeline stage schema invocation must use a table block")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "pipeline stage schema invocation must use a table block") }
         pipeline_stage_schema_calls += 1
         stages += pipeline_stage_schema_variants(source_path, lexed, opening)?
       }
@@ -1299,18 +1306,18 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
         }
         if definition in ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow", "LoweredPipelineStage"] or (definition == "BuildPatternRow" and include_pattern_enum) {
           if definition in ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow"] { hand_instruction_rows = true }
-          let closing = lexed.mates[f"{cursor + 2}"]
+          let closing = lexed.mates[cursor + 2]
           var member = cursor + 3
           var at_start = true
           while member < closing {
             let value = (lexed.tokens.get(member) ?? end_token).text
-            if value == "#" { member = lexed.mates[f"{member + 1}"] + 1; continue }
+            if value == "#" { member = lexed.mates[member + 1] + 1; continue }
             if at_start and ident_start(first(value)) and ! inside(lexed.tokens[member], spans) {
               let found = evidence(source_path, lexed.tokens[member], f"{definition}::{value}")
               if definition == "BuildPatternRow" { patterns += [found] } else if definition == "LoweredPipelineStage" { stages += [found] } else { instructions += [found] }
               at_start = false
             }
-            if value in ["(", "[", "{"] { member = lexed.mates[f"{member}"] + 1; continue }
+            if value in ["(", "[", "{"] { member = lexed.mates[member] + 1; continue }
             if value == "," { at_start = true }
             member += 1
           }
@@ -1319,13 +1326,13 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
       if name == "match" {
         var opening = cursor + 1
         while opening < lexed.tokens.len() and (lexed.tokens.get(opening) ?? end_token).text != "{" {
-          if (lexed.tokens.get(opening) ?? end_token).text in ["(", "["] { opening = lexed.mates[f"{opening}"] + 1 } else { opening += 1 }
+          if (lexed.tokens.get(opening) ?? end_token).text in ["(", "["] { opening = lexed.mates[opening] + 1 } else { opening += 1 }
         }
-        if opening >= lexed.tokens.len() { invalid(source_path, item.line, "match body not found")? }
-        let closing = lexed.mates[f"{opening}"]
+        if opening >= lexed.tokens.len() { invalid(source_path, item.line, "match body not found") }
+        let closing = lexed.mates[opening]
         var member = opening + 1
         var in_pattern = true
-        var names: List[Str] = []
+          var names = []
         var wildcard = false
         var last_wildcard = false
         while member < closing {
@@ -1346,7 +1353,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
             }
           }
           if value in ["(", "[", "{"] {
-            let end = lexed.mates[f"{member}"]
+            let end = lexed.mates[member]
             if in_pattern {
               var nested = member + 1
               while nested < end {
@@ -1374,26 +1381,26 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
     }
     cursor += 1
   }
-  if instruction_schema_calls > 1 { invalid(source_path, 1, "multiple instruction schema tables in one source file")? }
-  if instruction_schema_definition and instruction_schema_calls != 1 { invalid(source_path, 1, "instruction schema definition has no supported table invocation")? }
-  if source_path == "src/runtime/eval/indexed/full/schema.rs" and instruction_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated instruction schema layout")? }
-  if instruction_schema_definition_opening >= 0 { validate_instruction_schema_definition(source_path, lexed, instruction_schema_definition_opening)? }
-  if instruction_schema_calls > 0 and hand_instruction_rows { invalid(source_path, 1, "handwritten instruction rows overlap the generated schema")? }
-  if pattern_schema_definitions > 1 { invalid(source_path, 1, "multiple pattern schema definitions in one source file")? }
-  if pattern_schema_calls > 1 { invalid(source_path, 1, "multiple pattern schema tables in one source file")? }
-  if pattern_schema_definitions > 0 and pattern_schema_calls != 1 { invalid(source_path, 1, "pattern schema definition has no supported table invocation")? }
-  if pattern_schema_calls > 0 and hand_pattern_rows { invalid(source_path, 1, "pattern schema overlaps the handwritten BuildPatternRow enum")? }
-  if pipeline_stage_schema_definitions > 1 { invalid(source_path, 1, "multiple pipeline stage schema definitions in one source file")? }
-  if pipeline_stage_schema_calls > 1 { invalid(source_path, 1, "multiple pipeline stage schema tables in one source file")? }
-  if pipeline_stage_schema_definition and pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "pipeline stage schema definition has no supported table invocation")? }
+  if instruction_schema_calls > 1 { invalid(source_path, 1, "multiple instruction schema tables in one source file") }
+  if instruction_schema_definition and instruction_schema_calls != 1 { invalid(source_path, 1, "instruction schema definition has no supported table invocation") }
+  if source_path == "src/runtime/eval/indexed/full/schema.rs" and instruction_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated instruction schema layout") }
+  if instruction_schema_definition_opening >= 0 { validate_instruction_schema_definition(source_path, lexed, instruction_schema_definition_opening) }
+  if instruction_schema_calls > 0 and hand_instruction_rows { invalid(source_path, 1, "handwritten instruction rows overlap the generated schema") }
+  if pattern_schema_definitions > 1 { invalid(source_path, 1, "multiple pattern schema definitions in one source file") }
+  if pattern_schema_calls > 1 { invalid(source_path, 1, "multiple pattern schema tables in one source file") }
+  if pattern_schema_definitions > 0 and pattern_schema_calls != 1 { invalid(source_path, 1, "pattern schema definition has no supported table invocation") }
+  if pattern_schema_calls > 0 and hand_pattern_rows { invalid(source_path, 1, "pattern schema overlaps the handwritten BuildPatternRow enum") }
+  if pipeline_stage_schema_definitions > 1 { invalid(source_path, 1, "multiple pipeline stage schema definitions in one source file") }
+  if pipeline_stage_schema_calls > 1 { invalid(source_path, 1, "multiple pipeline stage schema tables in one source file") }
+  if pipeline_stage_schema_definition and pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "pipeline stage schema definition has no supported table invocation") }
   let has_legacy_stage_layout = legacy_stages.tag_definitions > 0 or legacy_stages.codec_definitions > 0 or legacy_stages.codec_tables > 0 or legacy_stages.semantic_definitions > 0
   let has_generated_stage_layout = pipeline_stage_schema_definitions > 0 or pipeline_stage_schema_calls > 0
-  if has_generated_stage_layout and has_legacy_stage_layout { invalid(source_path, 1, "pipeline stage schema and handwritten pipeline stage layouts overlap")? }
+  if has_generated_stage_layout and has_legacy_stage_layout { invalid(source_path, 1, "pipeline stage schema and handwritten pipeline stage layouts overlap") }
   if source_path == "src/runtime/eval/indexed/full.rs" {
     if pipeline_stage_schema_calls > 0 {
-      if pipeline_stage_schema_definitions != 1 or pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout")? }
+      if pipeline_stage_schema_definitions != 1 or pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout") }
     } else if legacy_stages.tag_definitions == 1 and legacy_stages.codec_definitions == 1 and legacy_stages.codec_tables == 1 and legacy_stages.semantic_definitions == 0 and legacy_stages.tag_variants.len() == 46 and legacy_stages.codec_variants == legacy_stages.tag_variants {
-    } else if has_legacy_stage_layout { invalid(source_path, 1, "unrecognized handwritten pipeline stage layout")? } else { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout")? }
+    } else if has_legacy_stage_layout { invalid(source_path, 1, "unrecognized handwritten pipeline stage layout") } else { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout") }
   }
   let allowances = dead_code_allowance_analysis(source_path, lexed, spans, attrs, count)?
   # Overlapping blanket scopes own a physical line only once.
@@ -1422,9 +1429,9 @@ export proc scan_file(source_path: Str, source: Str) [error] -> Result[SourceSca
 }
 
 proc module_target(root: Path, owner: Str, edge: RustModule) [fs, error] -> Result[Str] {
-  var candidates: List[Path] = []
+    var candidates = []
   if edge.explicit_path != null { candidates = [if edge.explicit_path.starts_with("/") { fp"{edge.explicit_path}" } else { fp"{root}/{edge.directory}/{edge.explicit_path}" }] } else { candidates = [fp"{root}/{edge.directory}/{edge.name}.rs", fp"{root}/{edge.directory}/{edge.name}/mod.rs"] }
-  let existing = collect { for candidate in candidates { yield candidate.resolve()?.strip_prefix(root)?.display() when candidate.exists()? } }
+  let existing = collect { for candidate in candidates { yield candidate.resolve()?.strip_prefix(root)?.display() when candidate.exists() } }
   if existing.len() != 1 { return Err(MetricError.Invalid(path: owner, line: edge.line, detail: f"module {edge.name} resolves to {existing.len()} files")) }
   existing[0]
 }
@@ -1436,7 +1443,7 @@ export proc measure(root: Path, source_roots: List[Str]) [fs, error] -> Result[R
 
 ## The separate allowance inventory uses the same live-module and inheritance traversal as the report.
 export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, error] -> Result[Measurement, Error] {
-  if (source_roots |> sort) != ["crates/xsht/src", "src"] { return Err(MetricError.Contract(detail: "source roots must be exactly src and crates/xsht/src")) }
+  guard (source_roots |> sort) == ["crates/xsht/src", "src"] else { return Err(MetricError.Contract(detail: "source roots must be exactly src and crates/xsht/src")) }
   let base = root.resolve()?
   var scans: List[SourceScan] = []
   var sizes: Map[Int] = {}
@@ -1472,7 +1479,7 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
       if active.get(scan.count.path) ?? false {
         for row in scan.metrics {
           if row.name == "pattern_variants" {
-            for found in row.evidence { if found.detail.starts_with("pattern_schema::") { yield found } }
+            for found in row.evidence { yield found when found.detail.starts_with("pattern_schema::") }
           }
         }
       }
@@ -1483,7 +1490,7 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
       if active.get(scan.count.path) ?? false {
         for row in scan.metrics {
           if row.name == "pattern_variants" {
-            for found in row.evidence { if found.detail.starts_with("BuildPatternRow::") { yield found } }
+            for found in row.evidence { yield found when found.detail.starts_with("BuildPatternRow::") }
           }
         }
       }
@@ -1491,11 +1498,11 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
   }
   let active_pattern_owners = collect {
     for scan in scans {
-      if (active.get(scan.count.path) ?? false) and (scan.count.path in ["src/runtime/eval.rs", "src/runtime/eval/indexed/full/schema.rs"]) { yield scan.count.path }
+        if (active.get(scan.count.path) ?? false) and scan.count.path in ["src/runtime/eval.rs", "src/runtime/eval/indexed/full/schema.rs"] { yield scan.count.path }
     }
   }
   let has_pattern_owner = !active_pattern_owners.is_empty()
-  if pattern_schema_rows.len() > 0 and legacy_pattern_rows.len() > 0 {
+  if ! pattern_schema_rows.is_empty() and ! legacy_pattern_rows.is_empty() {
     return Err(MetricError.Invalid(path: pattern_schema_rows[0].path, line: pattern_schema_rows[0].line, detail: "pattern schema overlaps the handwritten BuildPatternRow enum"))
   }
   if pattern_schema_rows.len() > PATTERN_SCHEMA_VARIANTS.len() {
@@ -1533,7 +1540,7 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
 
 ## Fails on a structural rise or a changed metric schema; baseline files decode through Report.
 export proc assert_not_risen(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
-  if current.schema != baseline.schema { return Err(MetricError.Contract(detail: "metric schema changed")) }
+  guard current.schema == baseline.schema else { return Err(MetricError.Contract(detail: "metric schema changed")) }
   let names = current.metrics |> map .name |> sort
   let previous = baseline.metrics |> map .name |> sort
   if names != previous { return Err(MetricError.Contract(detail: "metric inventory changed")) }
@@ -1551,13 +1558,10 @@ pure metric_value(report: Report, name: Str) -> Result[Int, Error] {
   rows[0].value
 }
 
-const SOURCE_ADVISORY_METRICS = ["source_lines_src", "source_lines_xsht"]
-const FINAL_ZERO_METRICS = ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"]
-
 # Source totals remain in reports and audits but do not participate in structural rise checks.
-proc validate_policy_report(report: Report) [error] -> Result[Unit, Error] {
-  if report.schema != 1 { return Err(MetricError.Contract(detail: "unsupported consolidation metric schema")) }
-  assert_not_risen(report, report)?
+proc validate_policy_report(report: Report) [error] {
+  guard report.schema == 1 else { return Err(MetricError.Contract(detail: "unsupported consolidation metric schema")) }
+  assert_not_risen(report, report)
   for name in SOURCE_ADVISORY_METRICS {
     let rows = report.metrics |> where .name == name |> collect
     if rows.len() != 1 { return Err(MetricError.Contract(detail: f"expected exactly one {name} metric")) }
@@ -1565,13 +1569,13 @@ proc validate_policy_report(report: Report) [error] -> Result[Unit, Error] {
 }
 
 pure structural_report(report: Report) -> Report {
-  {...report, metrics: collect { for row in report.metrics { if row.name not in SOURCE_ADVISORY_METRICS { yield row } } }}
+  {...report, metrics: collect { for row in report.metrics { yield row when row.name not in SOURCE_ADVISORY_METRICS } }}
 }
 
 ## Intermediate and final acceptance use one structural ratchet while keeping source totals advisory.
 export proc assert_structural_not_risen(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
-  validate_policy_report(current)?
-  validate_policy_report(baseline)?
+  validate_policy_report(current)
+  validate_policy_report(baseline)
   assert_not_risen(structural_report(current), structural_report(baseline))
 }
 
@@ -1581,9 +1585,9 @@ export proc assert_final_close(current: Report, baseline: Report) [error] -> Res
     let _ = metric_value(current, name)?
     let _ = metric_value(baseline, name)?
   }
-  assert_structural_not_risen(current, baseline)?
+  assert_structural_not_risen(current, baseline)
   for name in FINAL_ZERO_METRICS {
-    if metric_value(current, name)? != 0 {
+      guard metric_value(current, name)? == 0 else {
       return Err(MetricError.Contract(detail: f"final close requires zero {name}"))
     }
   }
@@ -1702,12 +1706,12 @@ export proc verify_blanket_baseline(root: Path, baseline_path: Str, provenance_p
     }
   }
   if blanket_rows != 1 { return Err(MetricError.Contract(detail: "corrected blanket baseline must contain exactly one blanket metric")) }
-  verify_observer_successor(root, baseline_path, provenance_path, baseline)?
+  verify_observer_successor(root, baseline_path, provenance_path, baseline)
 }
 
 pure valid_object_id(value: Str) -> Bool {
-  if value.byte_len() not in [40, 64] { return false }
-  for digit in value.split("") { if !(digit.lower() in "0123456789abcdef") { return false } }
+  return false when value.byte_len() not in [40, 64]
+  for digit in value { guard digit.lower() in "0123456789abcdef" else { return false } }
   true
 }
 
@@ -1728,7 +1732,7 @@ proc commit_source_oids(root: Path, commit: Str) [process, error] -> Result[List
   }
 }
 
-proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] -> Result[Unit, Error] {
+proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] {
   if artifact.path.trim() != artifact.path or artifact.path == "" or artifact.path.starts_with("/") or "\\" in artifact.path {
     return Err(MetricError.Contract(detail: "review artifact path must be workspace-relative"))
   }
@@ -1736,7 +1740,7 @@ proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] -> Result
     if segment in ["", ".", ".."] { return Err(MetricError.Contract(detail: "review artifact path escapes or aliases the workspace")) }
   }
   if artifact.sha256.byte_len() != 64 { return Err(MetricError.Contract(detail: "review artifact SHA-256 must be 64 hexadecimal characters")) }
-  for digit in artifact.sha256.split("") { if !(digit.lower() in "0123456789abcdef") { return Err(MetricError.Contract(detail: "review artifact SHA-256 is not hexadecimal")) } }
+  for digit in artifact.sha256 { guard digit.lower() in "0123456789abcdef" else { return Err(MetricError.Contract(detail: "review artifact SHA-256 is not hexadecimal")) } }
   if artifact.command.trim() == "" or artifact.method.trim() == "" or artifact.result.trim() != "verified" {
     return Err(MetricError.Contract(detail: "review artifact needs a command, method, and verified reviewer result"))
   }
@@ -1750,7 +1754,7 @@ proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] -> Result
 
 ## Evidence stays separate from the fixed requirements; code and test trees bind it to reviewed behavior.
 export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle, root: Path) [fs, process, error] -> Result[Unit, Error] {
-  if bundle.schema != 1 { return Err(MetricError.Contract(detail: "unsupported review evidence schema")) }
+  guard bundle.schema == 1 else { return Err(MetricError.Contract(detail: "unsupported review evidence schema")) }
   let expected_names = REVIEW_REQUIREMENTS |> map .name |> sort
   let current_names = current.reviews |> map .name |> sort
   if current_names != expected_names { return Err(MetricError.Contract(detail: "current report does not contain the canonical review rows")) }
@@ -1791,6 +1795,6 @@ export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle
     if row.status != "review_verified" or row.reviewer.trim() == "" or row.evidence.is_empty() {
       return Err(MetricError.Contract(detail: f"review row is not verified with evidence: {row.name}"))
     }
-    for artifact in row.evidence { verify_artifact(base, artifact)? }
+    for artifact in row.evidence { verify_artifact(base, artifact) }
   }
 }

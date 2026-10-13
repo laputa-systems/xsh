@@ -3,7 +3,7 @@
   "original_scanner_path": "dev/consolidation_metrics.xsh",
   "original_scanner_sha256": "da2c3e70cf6cc08e79ff7eba3ce5ebaf05848203cd7f21797150141155f35e79",
   "successor_scanner_path": "dev/consolidation_metrics_current.xsh",
-  "successor_scanner_sha256": "035fe47aae2ebc14eb69c1b4d21394642bdab1db07eb120eafbd73e1b4fd3b7c",
+  "successor_scanner_sha256": "941dde147cbe95b75acb9ecb116a83d4d4e4e43acdb98cef9845f2b2931c561a",
   "original_baseline_path": "dev/consolidation/baseline.json",
   "original_baseline_sha256": "be63588c6888fb7907d5f1054ee4b1559559eb70d784fd7ae15797826d06dbd6",
   "corrected_baseline_path": "dev/consolidation/baseline-blanket-scope.json",
@@ -14,7 +14,7 @@
   "historical_ratchet_tests_sha256": "03476ced9d86706c4da0ffac8f909bd4e3ca568c25a8f593e8646265493ca147",
   "baseline_ratchet_tests_sha256": "13234a59fbb7a147ee2b33e5ffe3cb55b2b654b3b781c2b60f026002f81e8503",
   "current_ratchet_tests_path": "dev/tests/test-consolidation-ratchets-current.xsh",
-  "current_ratchet_tests_sha256": "decf6d054c23d6b92c1bb0a3edd317677907f3f1234acdb62141d125ce83e3ca",
+  "current_ratchet_tests_sha256": "3933a62d2ee4a65add713362116b7dea3f0948923017db7ee2e74eb744a461ae",
   "start_commit": "5e66b6b896a47d0c692739135d51200b007a2a67",
   "source_manifest_sha256": "035fa1d95aae1668635441709ff81cbe38fb91cc9f7f8d59156f534d9f8ca0a2",
   "same_baseline": {
