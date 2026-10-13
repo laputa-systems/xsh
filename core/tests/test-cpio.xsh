@@ -114,7 +114,7 @@ pure is_zero_tail(data: Bytes, from: Int) -> Bool {
 }
 
 test test_cpio_round_trips_through_every_format { |ctx|
-  let root = test.temp_dir(ctx, name: "cpio-roundtrip")?
+  let _ = test.temp_dir(ctx, name: "cpio-roundtrip")?
   let source = test.temp_dir(ctx, name: "cpio-roundtrip-src")?
   let every_byte = collect {
     for value in range(256) { yield value }
@@ -275,7 +275,7 @@ test test_cpio_patterns_select_and_exclude_names { |ctx|
     assert from_file.stdout == b"a.txt\nlink.txt\npipe\n"
   }
   let out = test.temp_dir(ctx, name: "cpio-patterns-out")?
-  let one = cpio(ctx, out, ["-idv", "link.txt"], GNU_NEWC)?
+  let _ = cpio(ctx, out, ["-idv", "link.txt"], GNU_NEWC)?
   # Skipping the first link must not lose the data carried by the second.
   assert fp"{out}/link.txt".read_text()? == "hello\n"
   assert ! fp"{out}/a.txt".exists()?
@@ -297,7 +297,7 @@ test test_cpio_absolute_names_and_no_absolute_filenames { |ctx|
   assert fp"{out}/{relative}".read_text()? == "in"
   # Without the option the archived absolute name is used as it is.
   fp"{root}/inner/file".remove()
-  let restored = cpio(ctx, out, ["-id", "--quiet", "--absolute-filenames"], packed.stdout)?
+  let _ = cpio(ctx, out, ["-id", "--quiet", "--absolute-filenames"], packed.stdout)?
   assert fp"{root}/inner/file".read_text()? == "in"
   # ".." components are cut together with everything before them.
   let dots = cpio(ctx, root, ["-o", "-H", "newc", "--quiet"], b"inner/../inner/file\n")?
@@ -381,7 +381,7 @@ test test_cpio_checks_crc_checksums { |ctx|
   var damaged = packed_archive.stdout
   # The data starts after the 110-byte header and the 5-byte name, padded to 4.
   let at = 116
-  damaged = bytes.concat([damaged.slice(0, at), b"X", damaged.slice(at + 1, damaged.len() - at - 1)])
+  damaged = bytes.concat([damaged[..at], b"X", damaged[at + 1..]])
   let bad = cpio(ctx, root, ["-i", "--only-verify-crc", "--quiet"], damaged)?
   assert bad.status == 0
   assert "data: checksum error (0x" in bad.stderr

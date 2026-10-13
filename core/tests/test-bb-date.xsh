@@ -29,7 +29,7 @@ test test_bb_date_date_works_4a64c371 { |ctx|
 test test_bb_date_date_R_works_7b91452c { |ctx|
   let s = uu.scene(ctx)?
   var matched = false
-  for attempt in range(8) {
+  repeat 8 times {
     let out = uu.at(s, "host-out")
     let err = uu.at(s, "host-err")
     let host = process.command_argv(p"/bin/date", [p"/bin/date", p"-R"], s.root, {LC_ALL: "C", TZ: "UTC"}, b"", out, err, timeout: 5s)

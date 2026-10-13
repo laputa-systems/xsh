@@ -81,7 +81,8 @@ proc read_to_eof(fd: Int) [net, process, error] -> Result[Bytes] {
 proc send_all(fd: Int, data: Bytes) [net, process, error] {
   var rest = data
   while ! rest.is_empty() {
-    rest = rest.slice(unix.write_fd(fd, rest)?)
+    let written = unix.write_fd(fd, rest)?
+    rest = rest[written..]
   }
   Ok()
 }

@@ -4,6 +4,8 @@
 
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
+const HOP_V4 = rx"^ 1:  127\.0\.0\.1 +[0-9]+\.[0-9]{3}ms reached$"
+
 proc tracepath(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "tracepath")?
   let out = fp"{root}/stdout"
@@ -31,8 +33,6 @@ proc need_loopback(family: Str) [process, net, error] {
   }
   Ok()
 }
-
-const HOP_V4 = rx"^ 1:  127\.0\.0\.1 +[0-9]+\.[0-9]{3}ms reached$"
 
 test test_tracepath_reaches_the_loopback_destination_in_one_hop { |ctx|
   need_loopback("inet")

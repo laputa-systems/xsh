@@ -99,10 +99,7 @@ proc controller_page() [error] -> Result[Bytes, Error] {
 proc nvme(ctx: TestContext, lines: List[Record], args: List[Str], log: Path) [fs, process, error] -> Result[Ran, Error] {
   let root = test.temp_dir(ctx, name: "nvme-run")?
   let fixture = fp"{root}/fixture.jsonl"
-  var recorded = []
-  for line in lines {
-    recorded += [line]
-  }
+  let recorded: List[Any] = [line for line in lines]
   fixture.write(json.encode_lines(recorded)?)
   test.linux_fake(ctx, {storage_fixture: fixture, log: log})
   let source = fp"{ctx.core_dir}/nvme.xsh".read_text()?
@@ -162,8 +159,6 @@ proc ns_page() [error] -> Result[Bytes, Error] {
   data = put(data, 104, b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10")?
   Ok(data)
 }
-
-type Install = {log: Path}
 
 proc ran_ok(ran: Ran) -> Ran {
   assert ran.status == 0, f"status {ran.status}: {ran.stderr}"
@@ -665,10 +660,7 @@ proc namespace_tree(ctx: TestContext) [fs, process, error] -> Result[Path, Error
 proc nvme_list(ctx: TestContext, root: Path, lines: List[Record], args: List[Str]) [fs, process, error] -> Result[Ran, Error] {
   let work = test.temp_dir(ctx, name: "nvme-list-run")?
   let fixture = fp"{work}/fixture.jsonl"
-  var recorded = []
-  for line in lines {
-    recorded += [line]
-  }
+  let recorded: List[Any] = [line for line in lines]
   fixture.write(json.encode_lines(recorded)?)
   test.linux_fake(ctx, {storage_fixture: fixture})
   let source = "use lib.nvme_cli\nproc main(...argv: List[Str]) {\n  nvme_cli.dispatch(argv[2..], fp\"{argv[0]}\", fp\"{argv[1]}\")\n}\n"

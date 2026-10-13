@@ -3,6 +3,12 @@ use core.lib.http_transfer
 type Ran = {status: Int, stdout: Str, stderr: Str, dir: Path}
 type Server = {base: Str, handle: ProcessHandle}
 
+# The progress meter's second-to-last and last lines are timing dependent, so
+# compare them by shape.
+const METER_HEAD = "  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current\n                                 Dload  Upload  Total   Spent   Left   Speed\n"
+
+const SKIP = "requires perl for the loopback HTTP fixture"
+
 # A loopback HTTP fixture in Perl, which the host and the test image both
 # carry. It answers one request per connection and publishes its port through
 # a file once it is listening.
@@ -174,12 +180,6 @@ proc curl_without_trust_store(ctx: TestContext, args: List[Str]) [fs, process, e
   let status = process.run(plan)?
   Ok({status: status.shell_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?, dir: root})
 }
-
-# The progress meter's second-to-last and last lines are timing dependent, so
-# compare them by shape.
-const METER_HEAD = "  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current\n                                 Dload  Upload  Total   Spent   Left   Speed\n"
-
-const SKIP = "requires perl for the loopback HTTP fixture"
 
 # The failure cause as a name, so tests can state the classification.
 pure cause(failure: http_transfer.TransferFailure) -> Str {

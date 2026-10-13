@@ -1,4 +1,5 @@
 type Ran = {status: Int, stdout: Str, stderr: Str}
+type ListCase = {input: Str, cpus: List[Int], shown: Str}
 
 const HELP = """Usage: taskset [options] [mask | cpu-list] [pid|cmd [args...]]
 
@@ -25,6 +26,24 @@ Ranges in list format can take a stride argument:
 
 For more details see taskset(1).
 """
+
+# Each pair was printed by util-linux taskset for the same CPUs.
+const LIST_CASES: List[ListCase] = [
+  {input: "0,2,4", cpus: [0, 2, 4], shown: "0-4:2"},
+  {input: "0-3:2,5,8-9", cpus: [0, 2, 5, 8, 9], shown: "0,2-8:3,9"},
+  {input: "0,1,3,5,7", cpus: [0, 1, 3, 5, 7], shown: "0,1-7:2"},
+  {input: "0,5,10,11,12,13,20", cpus: [0, 5, 10, 11, 12, 13, 20], shown: "0-10:5,11-13,20"},
+  {input: "0,2,4,7,9,11", cpus: [0, 2, 4, 7, 9, 11], shown: "0-4:2,7-11:2"},
+  {input: "0,1,3,4,6,7", cpus: [0, 1, 3, 4, 6, 7], shown: "0,1,3,4,6,7"},
+  {input: "0,3,6,7,8,9", cpus: [0, 3, 6, 7, 8, 9], shown: "0-6:3,7-9"},
+  {input: "0,2,4,6,8,10,12,14,15,16,17", cpus: [0, 2, 4, 6, 8, 10, 12, 14, 15, 16, 17], shown: "0-14:2,15-17"},
+  {input: "1,6,11,16,21,23,25,26,31", cpus: [1, 6, 11, 16, 21, 23, 25, 26, 31], shown: "1-21:5,23,25,26,31"},
+  {input: "0,1,3,4,8,12,16,19,20,24,28", cpus: [0, 1, 3, 4, 8, 12, 16, 19, 20, 24, 28], shown: "0,1,3,4-16:4,19,20-28:4"},
+  {input: "0-1,4-5", cpus: [0, 1, 4, 5], shown: "0,1,4,5"},
+  {input: "0-3,8-11", cpus: [0, 1, 2, 3, 8, 9, 10, 11], shown: "0-3,8-11"},
+  {input: "1-31:2", cpus: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31], shown: "1-31:2"},
+]
+
 
 # Runs core/taskset.xsh by its real path, so the invoked name is `taskset` and
 # `lib.gnu` resolves beside it, capturing both streams.
@@ -90,24 +109,6 @@ pure has_all(allowed: List[Int], wanted: List[Int]) -> Bool {
   true
 }
 
-type ListCase = {input: Str, cpus: List[Int], shown: Str}
-
-# Each pair was printed by util-linux taskset for the same CPUs.
-const LIST_CASES = [
-  {input: "0,2,4", cpus: [0, 2, 4], shown: "0-4:2"},
-  {input: "0-3:2,5,8-9", cpus: [0, 2, 5, 8, 9], shown: "0,2-8:3,9"},
-  {input: "0,1,3,5,7", cpus: [0, 1, 3, 5, 7], shown: "0,1-7:2"},
-  {input: "0,5,10,11,12,13,20", cpus: [0, 5, 10, 11, 12, 13, 20], shown: "0-10:5,11-13,20"},
-  {input: "0,2,4,7,9,11", cpus: [0, 2, 4, 7, 9, 11], shown: "0-4:2,7-11:2"},
-  {input: "0,1,3,4,6,7", cpus: [0, 1, 3, 4, 6, 7], shown: "0,1,3,4,6,7"},
-  {input: "0,3,6,7,8,9", cpus: [0, 3, 6, 7, 8, 9], shown: "0-6:3,7-9"},
-  {input: "0,2,4,6,8,10,12,14,15,16,17", cpus: [0, 2, 4, 6, 8, 10, 12, 14, 15, 16, 17], shown: "0-14:2,15-17"},
-  {input: "1,6,11,16,21,23,25,26,31", cpus: [1, 6, 11, 16, 21, 23, 25, 26, 31], shown: "1-21:5,23,25,26,31"},
-  {input: "0,1,3,4,8,12,16,19,20,24,28", cpus: [0, 1, 3, 4, 8, 12, 16, 19, 20, 24, 28], shown: "0,1,3,4-16:4,19,20-28:4"},
-  {input: "0-1,4-5", cpus: [0, 1, 4, 5], shown: "0,1,4,5"},
-  {input: "0-3,8-11", cpus: [0, 1, 2, 3, 8, 9, 10, 11], shown: "0-3,8-11"},
-  {input: "1-31:2", cpus: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31], shown: "1-31:2"},
-]
 
 test test_taskset_reports_the_affinity_of_a_process_as_mask_and_list { |ctx|
   let cpus = process.affinity()?

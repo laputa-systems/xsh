@@ -500,14 +500,14 @@ test test_ata_health_reports_the_return_status_verdict { |ctx|
   assert has_line(failed.stdout, "  5 Reallocated_Sector_Ct   0x0033   100   200   140    Pre-fail  Always   FAILING_NOW 0")
 
   # With no readable attribute table the verdict points at the attribute list.
-  var unreadable: List[Any] = [identify_line(identify_page()), lines[7]]
+  var unreadable = [identify_line(identify_page()), lines[7]]
   let blind = smartctl(ctx, unreadable, ["-d", "sat", "-H"])
   assert blind.status == 8, blind.stderr
   assert has_line(blind.stdout, "See vendor-specific Attribute list for failed Attributes.")
 
   # A pass with an attribute that was below its threshold in the past is
   # marked marginal.
-  var marginal_page: List[Int] = []
+  var marginal_page = []
   let healthy = smart_data_page(200)
   for index in range(healthy.len()) { marginal_page += [healthy.byte_at(index) ?? 0] }
   # Attribute 5 sits in slot 2: raise its value above and keep worst below.
@@ -1101,8 +1101,8 @@ test test_json_self_test_start_reports_information_messages { |ctx|
   let out = smartctl(ctx, lines, ["-d", "sat", "-j", "-t", "short"])
   assert out.status == 0, out.stderr
   let parsed = json.decode(out.stdout)?
-  var texts: List[Str] = []
-  var severities: List[Str] = []
+  var texts = []
+  var severities = []
   for index in range(6) {
     texts += [json.get(parsed, ["smartctl", "messages", index, "string"])?.require(Str)?]
     severities += [json.get(parsed, ["smartctl", "messages", index, "severity"])?.require(Str)?]
@@ -1230,7 +1230,7 @@ test test_nvme_noserial_omits_serial_and_eui { |ctx|
 }
 
 test test_device_without_smart_capability_is_reported { |ctx|
-  var cells_in: List[Int] = []
+  var cells_in = []
   let page = identify_page()
   for index in range(page.len()) { cells_in += [page.byte_at(index) ?? 0] }
   # Word 82 bit 0 clear: SMART is not supported.

@@ -90,7 +90,7 @@ pure sorted_lines(items: List[Str]) -> List[Str] {
   items |> sort-by .
 }
 
-pure only(scene: Scene, port: Int) -> Str {
+pure only(port: Int) -> Str {
   f"sport = :{port} or dport = :{port}"
 }
 
@@ -111,7 +111,7 @@ test test_ss_shows_established_connections_with_their_queues { |ctx|
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
-  let ran = ss(ctx, ["-tn", only(scene, scene.a)])?
+  let ran = ss(ctx, ["-tn", only(scene.a)])?
   assert ran.status == 0, ran.stderr
   let lines = ran.stdout.lines()
   assert lines[0] == "State Recv-Q Send-Q Local Address:Port  Peer Address:Port"
@@ -125,7 +125,7 @@ test test_ss_header_suppression_and_ipv6_alignment { |ctx|
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
-  let ran = ss(ctx, ["-tanH", only(scene, scene.b)])?
+  let ran = ss(ctx, ["-tanH", only(scene.b)])?
   assert ran.status == 0, ran.stderr
   let lines = ran.stdout.lines()
   assert lines[0] == f"LISTEN 0      4      [::1]:{scene.b}  [::]:*"
@@ -139,7 +139,7 @@ test test_ss_udp_unconnected_and_connected { |ctx|
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
-  let ran = ss(ctx, ["-uan", only(scene, scene.c)])?
+  let ran = ss(ctx, ["-uan", only(scene.c)])?
   assert ran.status == 0, ran.stderr
   let lines = ran.stdout.lines()
   assert lines[0] == "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port"
@@ -229,7 +229,7 @@ test test_ss_no_queues_and_oneline_layouts { |ctx|
   let scene = build_scene()?
   defer close_scene(scene)
   if !five_digit(scene) { test.skip("the ephemeral port range holds ports below 10000"); return }
-  let quiet = ss(ctx, ["-tnQ", only(scene, scene.a)])?
+  let quiet = ss(ctx, ["-tnQ", only(scene.a)])?
   assert quiet.status == 0, quiet.stderr
   assert quiet.stdout.lines()[0] == "State Local Address:Port  Peer Address:Port"
   assert sorted_lines(quiet.stdout.lines() |> drop(1)) == sorted_lines([
@@ -457,7 +457,7 @@ test test_ss_refuses_what_it_cannot_do { |ctx|
   assert version.status == 0 and version.stdout.starts_with("ss utility")
 }
 
-test test_net_sockets_ipv6_text_matches_inet_ntop { |ctx|
+test test_net_sockets_ipv6_text_matches_inet_ntop {
   let zero = bytes.zero(16)?
   assert sockets.ipv6_text(zero) == "::"
   assert sockets.ipv6_text(bytes.from_ints([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])?) == "::1"
@@ -473,7 +473,7 @@ test test_net_sockets_ipv6_text_matches_inet_ntop { |ctx|
   assert sockets.endpoint_address(bytes.zero(4)?, sockets.AF_INET, false) == "0.0.0.0"
 }
 
-test test_net_sockets_counter_text_follows_the_reference_tool { |ctx|
+test test_net_sockets_counter_text_follows_the_reference_tool {
   # A tcp_info of 248 bytes with the fields a loopback connection sets:
   # options ts+sack+wscale, wscale 10/10, rto 201 ms, mss 32768, rtt 23 us,
   # rttvar 11 us, cwnd 10, notsent 5.
@@ -499,7 +499,7 @@ test test_net_sockets_counter_text_follows_the_reference_tool { |ctx|
   assert sockets.hex(0) == "0" and sockets.hex(255) == "ff" and sockets.hex(65536) == "10000"
 }
 
-test test_net_sockets_summary_counts_the_scene { |ctx|
+test test_net_sockets_summary_counts_the_scene {
   let scene = build_scene()?
   defer close_scene(scene)
   let counts = sockets.summary()?
@@ -510,7 +510,7 @@ test test_net_sockets_summary_counts_the_scene { |ctx|
   assert 0 <= ports.low and ports.low <= ports.high and ports.high <= 65535
 }
 
-test test_net_sockets_resolve_cgroup_ids_through_the_unified_hierarchy { |ctx|
+test test_net_sockets_resolve_cgroup_ids_through_the_unified_hierarchy {
   # The cgroup2 root is its own id and names itself "/"; a path that is not a
   # directory of the hierarchy has no id.
   assert sockets.cgroup_id("/definitely/not/a/cgroup") == null

@@ -1,6 +1,6 @@
 use core.lib.acl
 
-test test_acl_binary_codec_orders_entries_and_rejects_invalid { |ctx|
+test test_acl_binary_codec_orders_entries_and_rejects_invalid {
   let entries = acl.parse("u::rwx,g::r-x,o::---,u:1001:rw-,m::r--")?
   let payload = acl.encode(entries)?
   assert payload.len() == 44
@@ -12,7 +12,7 @@ test test_acl_binary_codec_orders_entries_and_rejects_invalid { |ctx|
   assert acl.parse("u:4294967295:r--") is Err(_)
 }
 
-test test_acl_mask_calculation_and_mode_projection { |ctx|
+test test_acl_mask_calculation_and_mode_projection {
   let entries = acl.calculate_mask(acl.parse("u::rw-,u:1001:rwx,g::r--,g:1002:-w-,o::---")?)
   assert acl.mode(entries)? == 0o670
   assert acl.permissions(7) == "rwx"

@@ -73,7 +73,7 @@ test test_xargs_token_spans_reader_chunk_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "xargs-chunk")?
   let input = fp"{root}/input"
   var block = "v"
-  for index in range(16) { block = f"{block}{block}" }
+  repeat 16 times { block = f"{block}{block}" }
   let prefix = block.byte_slice(0,65535)
   input.write(f"{prefix}\\ tail\n")
   let out = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/xargs.xsh" -- printf "%s" < $input

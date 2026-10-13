@@ -50,6 +50,10 @@ Available output columns:
 For more details see prlimit(1).
 """
 
+const NAMES = ["AS", "CORE", "CPU", "DATA", "FSIZE", "LOCKS", "MEMLOCK", "MSGQUEUE", "NICE", "NOFILE", "NPROC", "RSS", "RTPRIO", "RTTIME", "SIGPENDING", "STACK"]
+
+const RESOURCES = ["as", "core", "cpu", "data", "fsize", "locks", "memlock", "msgqueue", "nice", "nofile", "nproc", "rss", "rtprio", "rttime", "sigpending", "stack"]
+
 # Runs core/prlimit.xsh by its real path, so the invoked name is `prlimit` and
 # `lib.gnu` resolves beside it, capturing both streams.
 proc prlimit_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran] {
@@ -77,10 +81,6 @@ proc reporter(ctx: TestContext, names: List[Str]) [fs, process, error] -> Result
 
   Ok([ctx.xsh_bin.display(), script.display()].extend(names))
 }
-
-const NAMES = ["AS", "CORE", "CPU", "DATA", "FSIZE", "LOCKS", "MEMLOCK", "MSGQUEUE", "NICE", "NOFILE", "NPROC", "RSS", "RTPRIO", "RTTIME", "SIGPENDING", "STACK"]
-
-const RESOURCES = ["as", "core", "cpu", "data", "fsize", "locks", "memlock", "msgqueue", "nice", "nofile", "nproc", "rss", "rtprio", "rttime", "sigpending", "stack"]
 
 # The tests run `sleep` itself rather than a shell that execs it: these limits
 # can be lower than a starting shell needs. The spawn can return while the
@@ -184,16 +184,16 @@ test test_prlimit_shows_the_requested_resources_in_command_line_order { |ctx|
     test.skip(f"cannot lower this process's limits: {failure.message}")
   }
 
-  let shown = prlimit_run(ctx, ["--nofile", "--core", "-s", f"--pid={child}"])?
-  assert shown.status == 0, shown.stderr
-  assert shown.stdout == """RESOURCE DESCRIPTION              SOFT HARD UNITS
+  let listing = prlimit_run(ctx, ["--nofile", "--core", "-s", f"--pid={child}"])?
+  assert listing.status == 0, listing.stderr
+  assert listing.stdout == """RESOURCE DESCRIPTION              SOFT HARD UNITS
 NOFILE   max number of open files  109  209 files
 CORE     max core file size        101  201 bytes
 STACK    max stack size            115  215 bytes
-""", shown.stdout
+""", listing.stdout
 
   let short = prlimit_run(ctx, ["-n", "-c", "-s", "-p", f"{child}"])?
-  assert short.stdout == shown.stdout
+  assert short.stdout == listing.stdout
 
   # A letter takes the rest of its word, so `-ncs` is one malformed limit.
   let cluster = prlimit_run(ctx, ["-ncs", "-p", f"{child}"])?

@@ -3,6 +3,10 @@ use core.lib.efivars as efi
 type Run = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}
 
 const GUID_SUFFIX = "-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+const GPT_SIGNATURE = [120, 86, 52, 18, 52, 18, 120, 86, 18, 52, 86, 120, 18, 52, 86, 120]
+const END = b"\x7f\xff\x04\x00"
+const HD_LINUX = "HD(1,GPT,12345678-1234-5678-1234-567812345678,0x800,0x100000)"
+const ESP_GUID = "11112222-3333-4444-5555-666677778888"
 
 # Boot manager variables are written with attributes NV|BS|RT (7).
 proc put(dir: Path, name: Str, data: Bytes) [fs, error] {
@@ -41,9 +45,6 @@ proc hard_drive(part: Int, start: Int, size: Int, signature: List[Int], table: I
   node(4, 1, bytes.concat([bytes.pack_le(part, 4)?, bytes.pack_le(start, 8)?, bytes.pack_le(size, 8)?, bytes.from_ints(signature)?, bytes.from_ints([table, table])?]))
 }
 
-const GPT_SIGNATURE = [120, 86, 52, 18, 52, 18, 120, 86, 18, 52, 86, 120, 18, 52, 86, 120]
-const END = b"\x7f\xff\x04\x00"
-
 proc load_option(attributes: Int, description: Str, nodes: Bytes, data: Bytes) -> Bytes {
   let list = bytes.concat([nodes, END])
   bytes.concat([bytes.pack_le(attributes, 4)?, u16(list.len()), utf16z(description), list, data])
@@ -77,8 +78,6 @@ proc invoke_with(ctx: TestContext, dir: Path, argv: List[Str], allow_any_dir: Bo
 proc invoke(ctx: TestContext, dir: Path, argv: List[Str]) [fs, process, error] -> Run {
   invoke_with(ctx, dir, argv, false, b"")
 }
-
-const HD_LINUX = "HD(1,GPT,12345678-1234-5678-1234-567812345678,0x800,0x100000)"
 
 test test_efibootmgr_lists_state_and_load_options { |ctx|
   let dir = fixture(ctx, "efibootmgr-list")
@@ -263,8 +262,6 @@ test test_efibootmgr_driver_and_sysprep_use_their_own_variables { |ctx|
   assert invoke(ctx, dir, ["-r", "-n", "0000"]).status == 26
   assert invoke(ctx, dir, ["-y", "-t", "3"]).status == 27
 }
-
-const ESP_GUID = "11112222-3333-4444-5555-666677778888"
 
 # A 4 MiB image with an ESP and a root partition, in the requested table.
 proc disk_image(ctx: TestContext, name: Str, label: Str) [fs, process, error] -> Path {

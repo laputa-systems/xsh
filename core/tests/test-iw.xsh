@@ -134,10 +134,7 @@ proc wlan0_reply() [error] -> Result[Record, Error] {
 
 proc fixture(ctx: TestContext, name: Str, lines: List[Record]) [fs, error] -> Result[Path, Error] {
   let file = test.temp_file(ctx, name: f"{name}.jsonl", contents: b"")?
-  var values = []
-  for line in lines {
-    values += [line]
-  }
+  let values: List[Any] = [line for line in lines]
   file.write(json.encode_lines(values)?)
   file
 }

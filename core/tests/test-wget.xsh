@@ -1,6 +1,8 @@
 type Ran = {status: Int, stdout: Str, stderr: Str, dir: Path}
 type Server = {base: Str, handle: ProcessHandle}
 
+const SKIP = "requires perl for the loopback HTTP fixture"
+
 # A loopback HTTP fixture in Perl, which the host and the test image both
 # carry. It answers one request per connection and publishes its port through
 # a file once it is listening.
@@ -157,8 +159,6 @@ proc wget(ctx: TestContext, args: List[Str], input = b"", dir: Path? = null, tim
   let status = process.run(plan)?
   Ok({status: status.shell_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?, dir: root})
 }
-
-const SKIP = "requires perl for the loopback HTTP fixture"
 
 # Replaces the time stamps, rates and elapsed times, which vary run to run,
 # so the rest of wget's wording can be compared exactly.

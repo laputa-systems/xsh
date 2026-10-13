@@ -10,7 +10,7 @@ pure default_processes() -> List[fixture.ProcessFixture] {
   [{pid: 42, start_ticks: 1000, cpu_ticks: 10, rss_pages: 16384, uid: 1000}]
 }
 
-proc capture(root: FsRoot, prefix: Path, source_id: Str, at_ns: Int, index: Int) [fs, error] -> Result[model.Observation, Error] {
+proc capture(root: FsRoot, prefix: Path, source_id: Str, at_ns: Int) [fs, error] -> Result[model.Observation, Error] {
   let frame_root = root.open_root(prefix)?
   defer frame_root.close()
   source.capture(frame_root, source_id, at_ns, 4096, 100)
@@ -26,8 +26,8 @@ test test_btop_model_matches_the_independent_b3_monitor_oracle {
     1,
     [{pid: 42, start_ticks: 1000, cpu_ticks: 35, rss_pages: 16384, uid: 1000}],
   )
-  let before = capture(bundle, p"frames/000000", "b3", 1000000000, 0)?
-  let current = capture(bundle, p"frames/000001", "b3", 2000000000, 1)?
+  let before = capture(bundle, p"frames/000000", "b3", 1000000000)?
+  let current = capture(bundle, p"frames/000001", "b3", 2000000000)?
   let first = model.step(before, null)
   let next = model.step(current, before)
 
@@ -78,10 +78,10 @@ test test_btop_model_tracks_sparse_cpu_ids_and_hotplug_without_inheriting_histor
     p"frames/000003/proc/stat",
     "cpu 280 0 110 1210 0 0 0 0 0 0\ncpu0 40 0 20 480 0 0 0 0 0 0\ncpu4 20 0 10 560 0 0 0 0 0 0\ncpu9 140 0 55 605 0 0 0 0 0 0\n",
   )
-  let first = capture(bundle, p"frames/000000", "cpu-hotplug", 1000000000, 0)?
-  let second = capture(bundle, p"frames/000001", "cpu-hotplug", 2000000000, 1)?
-  let third = capture(bundle, p"frames/000002", "cpu-hotplug", 3000000000, 2)?
-  let fourth = capture(bundle, p"frames/000003", "cpu-hotplug", 4000000000, 3)?
+  let first = capture(bundle, p"frames/000000", "cpu-hotplug", 1000000000)?
+  let second = capture(bundle, p"frames/000001", "cpu-hotplug", 2000000000)?
+  let third = capture(bundle, p"frames/000002", "cpu-hotplug", 3000000000)?
+  let fourth = capture(bundle, p"frames/000003", "cpu-hotplug", 4000000000)?
   let initial = model.step(first, null)
   let hotplug = model.step(second, first)
   assert (initial.cpu_cores |> map .id) == [0, 4]
@@ -130,9 +130,9 @@ test test_btop_model_ranks_equal_process_rates_by_pid_and_tracks_lifetimes {
       {pid: 42, start_ticks: 3000, cpu_ticks: 50, rss_pages: 10, uid: 1000},
     ],
   )
-  let before = capture(bundle, p"frames/000000", "lifetime", 1000000000, 0)?
-  let current = capture(bundle, p"frames/000001", "lifetime", 2000000000, 1)?
-  let next = capture(bundle, p"frames/000002", "lifetime", 3000000000, 1)?
+  let before = capture(bundle, p"frames/000000", "lifetime", 1000000000)?
+  let current = capture(bundle, p"frames/000001", "lifetime", 2000000000)?
+  let next = capture(bundle, p"frames/000002", "lifetime", 3000000000)?
   let stable = model.step(current, before)
   assert [row.pid for row in stable.processes] == [42, 43]
   assert stable.processes[0].cpu_percent.value == stable.processes[1].cpu_percent.value
@@ -153,20 +153,20 @@ test test_btop_model_does_not_mix_source_identities_or_invalid_intervals {
     1,
     [{pid: 42, start_ticks: 1000, cpu_ticks: 35, rss_pages: 16384, uid: 1000}],
   )
-  let before = capture(bundle, p"frames/000000", "first-source", 1000000000, 0)?
-  let next_source = capture(bundle, p"frames/000001", "second-source", 2000000000, 1)?
+  let before = capture(bundle, p"frames/000000", "first-source", 1000000000)?
+  let next_source = capture(bundle, p"frames/000001", "second-source", 2000000000)?
   let changed_source = model.step(next_source, before)
   assert changed_source.cpu_percent.state == .Warming
   assert changed_source.network.rx_bytes_per_second.state == .Warming
   assert changed_source.processes[0].cpu_percent.state == .Warming
 
-  let same_time = capture(bundle, p"frames/000001", "first-source", 1000000000, 1)?
+  let same_time = capture(bundle, p"frames/000001", "first-source", 1000000000)?
   let invalid = model.step(same_time, before)
   assert invalid.cpu_percent.state == .Invalid
   assert invalid.network.rx_bytes_per_second.state == .Invalid
   assert invalid.processes[0].cpu_percent.state == .Invalid
 
-  let reversed_time = capture(bundle, p"frames/000001", "first-source", 999999999, 1)?
+  let reversed_time = capture(bundle, p"frames/000001", "first-source", 999999999)?
   let reversed = model.step(reversed_time, before)
   assert reversed.cpu_percent.state == .Invalid
   assert reversed.network.rx_bytes_per_second.state == .Invalid
@@ -183,9 +183,20 @@ test test_btop_model_marks_missed_samples_as_gaps_and_ignores_uptime_jumps_for_r
     1,
     [{pid: 42, start_ticks: 1000, cpu_ticks: 35, rss_pages: 16384, uid: 1000}],
   )
-  let before = capture(bundle, p"frames/000000", "clock", 1000000000, 0)?
-  let current = capture(bundle, p"frames/000001", "clock", 2000000000, 1)?
-  let shifted_uptime: model.Observation = {...current, cpu.uptime: {state: report.Observed, seconds: 604800.0}}
+  let before = capture(bundle, p"frames/000000", "clock", 1000000000)?
+  let current = capture(bundle, p"frames/000001", "clock", 2000000000)?
+  let shifted_uptime: model.Observation = model.Observation(
+    source_id: current.source_id,
+    at_ns: current.at_ns,
+    page_size_bytes: current.page_size_bytes,
+    clock_ticks_per_second: current.clock_ticks_per_second,
+    cpu: {...current.cpu, uptime: {state: report.Observed, seconds: 604800.0}},
+    memory: current.memory,
+    network: current.network,
+    processes: current.processes,
+    telemetry: current.telemetry,
+    storage: current.storage,
+  )
 
   let ordinary = model.step(current, before)
   let after_uptime_jump = model.step(shifted_uptime, before)
@@ -205,11 +216,11 @@ test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
   defer bundle.close()
   fixture.write_b3_frame(bundle, "frames/000000", 0, default_processes())
   fixture.write_b3_frame(bundle, "frames/000001", 1, default_processes())
-  let before = capture(bundle, p"frames/000000", "net-epoch", 1000000000, 0)?
+  let before = capture(bundle, p"frames/000000", "net-epoch", 1000000000)?
   let previous = model.step(before, null)
 
   bundle.write(p"frames/000001/sys/class/net/eth0/ifindex", "3\n")
-  let replaced = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
+  let replaced = capture(bundle, p"frames/000001", "net-epoch", 2000000000)?
   let replacement = model.step(replaced, before)
   assert replacement.network.interface_name == "eth0"
   assert replacement.network.rx_bytes_per_second.state == .Warming
@@ -220,7 +231,7 @@ test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
   )
   bundle.mkdir(p"frames/000001/sys/class/net/enp0", parents: true)
   bundle.write(p"frames/000001/sys/class/net/enp0/ifindex", "2\n")
-  let renamed = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
+  let renamed = capture(bundle, p"frames/000001", "net-epoch", 2000000000)?
   let rename_step = model.step(renamed, before)
   assert rename_step.network.interface_name == "enp0"
   assert rename_step.network.rx_bytes_per_second.state == .Warming
@@ -230,7 +241,7 @@ test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
     "Inter-| Receive                                                | Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\neth0: 999999 100 0 0 0 0 0 0 499999 100 0 0 0 0 0 0\nlo: 64 1 0 0 0 0 0 0 64 1 0 0 0 0 0 0\n",
   )
   bundle.write(p"frames/000001/sys/class/net/eth0/ifindex", "2\n")
-  let reset = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
+  let reset = capture(bundle, p"frames/000001", "net-epoch", 2000000000)?
   let reset_step = model.step(reset, before)
   assert reset_step.network.rx_bytes_per_second.state == .Reset
   assert previous.network.rx_bytes_per_second.state == .Warming
@@ -239,7 +250,7 @@ test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
   for index in range(40) {
     let epoch = 10 + index
     bundle.write(p"frames/000001/sys/class/net/eth0/ifindex", f"{epoch}\n")
-    let current = capture(bundle, p"frames/000001", "net-epoch", 3000000000 + index * 1000000000, index)?
+    let current = capture(bundle, p"frames/000001", "net-epoch", 3000000000 + index * 1000000000)?
     let current_model = model.step(current, previous_observation)
     assert current_model.network.rx_bytes_per_second.state == .Warming
     previous_observation = current
@@ -251,13 +262,24 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   defer bundle.close()
   fixture.write_b3_frame(bundle, "frames/000000", 0, default_processes())
   fixture.write_b3_frame(bundle, "frames/000001", 1, default_processes())
-  let first = capture(bundle, p"frames/000000", "uid-cache", 1000000000, 0)?
-  let second = capture(bundle, p"frames/000001", "uid-cache", 2000000000, 1)?
+  let first = capture(bundle, p"frames/000000", "uid-cache", 1000000000)?
+  let second = capture(bundle, p"frames/000001", "uid-cache", 2000000000)?
   let seeded = model.step_cached(first, null, model.empty_metadata_cache("uid-cache"))
   assert seeded.metadata.by_pid.len() == 1
   assert seeded.value.processes[0].uid_state == .Fresh
 
-  let missing_uid: model.Observation = {...second, processes.processes: [{...second.processes.processes[0], uid: null}]}
+  let missing_uid: model.Observation = model.Observation(
+    source_id: second.source_id,
+    at_ns: second.at_ns,
+    page_size_bytes: second.page_size_bytes,
+    clock_ticks_per_second: second.clock_ticks_per_second,
+    cpu: second.cpu,
+    memory: second.memory,
+    network: second.network,
+    processes: {...second.processes, processes: [{...second.processes.processes[0], uid: null}]},
+    telemetry: second.telemetry,
+    storage: second.storage,
+  )
   let stale = model.step_cached(missing_uid, first, seeded.metadata)
   assert stale.value.processes[0].uid == 1000
   assert stale.value.processes[0].uid_state == .Stale
@@ -265,19 +287,52 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   let stale_screen = renderer.render_view(stale.value, ui.initial(stale.value, 1), 80, 24)?
   assert (stale_screen.lines |> join("\n")).find("~1000") != null
 
-  let expired_input: model.Observation = {...missing_uid, at_ns: 6000000000}
+  let expired_input: model.Observation = model.Observation(
+    source_id: missing_uid.source_id,
+    at_ns: 6000000000,
+    page_size_bytes: missing_uid.page_size_bytes,
+    clock_ticks_per_second: missing_uid.clock_ticks_per_second,
+    cpu: missing_uid.cpu,
+    memory: missing_uid.memory,
+    network: missing_uid.network,
+    processes: missing_uid.processes,
+    telemetry: missing_uid.telemetry,
+    storage: missing_uid.storage,
+  )
   let expired = model.step_cached(expired_input, missing_uid, stale.metadata)
   assert expired.value.processes[0].uid == null
   assert expired.value.processes[0].uid_state == .Unavailable
   assert expired.metadata.by_pid.is_empty()
 
-  let changed_command: model.Observation = {...missing_uid, at_ns: 3000000000, processes.processes: [{...missing_uid.processes.processes[0], command: "exec-worker"}]}
+  let changed_command: model.Observation = model.Observation(
+    source_id: missing_uid.source_id,
+    at_ns: 3000000000,
+    page_size_bytes: missing_uid.page_size_bytes,
+    clock_ticks_per_second: missing_uid.clock_ticks_per_second,
+    cpu: missing_uid.cpu,
+    memory: missing_uid.memory,
+    network: missing_uid.network,
+    processes: {...missing_uid.processes, processes: [{...missing_uid.processes.processes[0], command: "exec-worker"}]},
+    telemetry: missing_uid.telemetry,
+    storage: missing_uid.storage,
+  )
   let after_exec = model.step_cached(changed_command, missing_uid, seeded.metadata)
   assert after_exec.value.processes[0].uid == null
   assert after_exec.value.processes[0].uid_state == .Unavailable
   assert after_exec.metadata.by_pid.is_empty()
 
-  let changed_credentials: model.Observation = {...second, at_ns: 3000000000, processes.processes: [{...second.processes.processes[0], uid: 2000}]}
+  let changed_credentials: model.Observation = model.Observation(
+    source_id: second.source_id,
+    at_ns: 3000000000,
+    page_size_bytes: second.page_size_bytes,
+    clock_ticks_per_second: second.clock_ticks_per_second,
+    cpu: second.cpu,
+    memory: second.memory,
+    network: second.network,
+    processes: {...second.processes, processes: [{...second.processes.processes[0], uid: 2000}]},
+    telemetry: second.telemetry,
+    storage: second.storage,
+  )
   let refreshed = model.step_cached(changed_credentials, first, seeded.metadata)
   assert refreshed.value.processes[0].uid == 2000
   assert refreshed.value.processes[0].uid_state == .Fresh
@@ -288,16 +343,38 @@ test test_btop_process_uid_cache_evicts_exits_and_pid_reuse {
   defer bundle.close()
   fixture.write_b3_frame(bundle, "frames/000000", 0, default_processes())
   fixture.write_b3_frame(bundle, "frames/000001", 1, default_processes())
-  let first = capture(bundle, p"frames/000000", "uid-churn", 1000000000, 0)?
+  let first = capture(bundle, p"frames/000000", "uid-churn", 1000000000)?
   let seeded = model.step_cached(first, null, model.empty_metadata_cache("uid-churn"))
 
-  let reused: model.Observation = {...first, at_ns: 2000000000, processes.processes: [{...first.processes.processes[0], start_ticks: 9000, uid: null}]}
+  let reused: model.Observation = model.Observation(
+    source_id: first.source_id,
+    at_ns: 2000000000,
+    page_size_bytes: first.page_size_bytes,
+    clock_ticks_per_second: first.clock_ticks_per_second,
+    cpu: first.cpu,
+    memory: first.memory,
+    network: first.network,
+    processes: {...first.processes, processes: [{...first.processes.processes[0], start_ticks: 9000, uid: null}]},
+    telemetry: first.telemetry,
+    storage: first.storage,
+  )
   let reused_step = model.step_cached(reused, first, seeded.metadata)
   assert reused_step.value.processes[0].uid == null
   assert reused_step.value.processes[0].uid_state == .Unavailable
   assert reused_step.metadata.by_pid.is_empty()
 
-  let exited: model.Observation = {...first, at_ns: 3000000000, processes.processes: []}
+  let exited: model.Observation = model.Observation(
+    source_id: first.source_id,
+    at_ns: 3000000000,
+    page_size_bytes: first.page_size_bytes,
+    clock_ticks_per_second: first.clock_ticks_per_second,
+    cpu: first.cpu,
+    memory: first.memory,
+    network: first.network,
+    processes: {...first.processes, processes: []},
+    telemetry: first.telemetry,
+    storage: first.storage,
+  )
   let exited_step = model.step_cached(exited, first, seeded.metadata)
   assert exited_step.value.processes == []
   assert exited_step.metadata.by_pid.is_empty()
@@ -307,7 +384,7 @@ test test_btop_process_uid_cache_evicts_exits_and_pid_reuse {
   for index in range(40) {
     let row = {pid: 100 + index, start_ticks: 1000 + index, cpu_ticks: index, rss_pages: 1, uid: 1000}
     fixture.write_b3_frame(bundle, f"frames/churn-{index}", 0, [row])
-    let current = capture(bundle, fp"frames/churn-{index}", "uid-churn", 4000000000 + index * 1000000000, index)?
+    let current = capture(bundle, fp"frames/churn-{index}", "uid-churn", 4000000000 + index * 1000000000)?
     let next = model.step_cached(current, churn_previous, churn_cache)
     assert next.metadata.by_pid.len() <= 1
     churn_cache = next.metadata

@@ -1,5 +1,31 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
+# Archive names are PAYLOAD.TOOL-OPTION; the decoder side maps TOOL back to an
+# applet and compares with the PAYLOAD file.
+const MAKE_ARCHIVES = r"""
+for plain in text empty bin lines big; do
+  gzip -1 -c $plain > $plain.gzip-1
+  gzip -9 -c $plain > $plain.gzip-9
+  bzip2 -1 -c $plain > $plain.bzip2-1
+  bzip2 -9 -c $plain > $plain.bzip2-9
+  xz -0 -c $plain > $plain.xz-0
+  xz -9e -c $plain > $plain.xz-9
+  xz -6 --check=crc32 -c $plain > $plain.xz-crc32
+  xz --format=lzma -1 -c $plain > $plain.lzma-1
+  xz --format=lzma -9 -c $plain > $plain.lzma-9
+  zstd -q -1 -c $plain > $plain.zstd-1
+  zstd -q -19 -c $plain > $plain.zstd-19
+  zstd -q --ultra -22 -c $plain > $plain.zstd-22
+  zstd -q --fast=4 -c $plain > $plain.zstd-fast
+done
+"""
+
+const IMAGE_PROBE = r"""docker image inspect "${XSH_ORACLE_IMAGE:-xsh-oracle}" >/dev/null 2>&1 && echo ready"""
+
+const TOOL_PROBE = "command -v gzip bzip2 xz zstd >/dev/null && echo ready"
+
+const ORACLE_SKIP = "requires docker with the xsh-oracle image (dev/reference/oracle.sh)"
+
 # Runs one applet script with `dir` as its working directory; the captured
 # streams live elsewhere so listing `dir` shows only what the applet made.
 proc invoke_in(ctx: TestContext, tool: Str, args: List[Str], dir: Path, input = b"") [fs, process, error] -> Result[Ran] {
@@ -724,32 +750,6 @@ for archive in *.*-*; do
 done
 exit 0
 """
-
-# Archive names are PAYLOAD.TOOL-OPTION; the decoder side maps TOOL back to an
-# applet and compares with the PAYLOAD file.
-const MAKE_ARCHIVES = r"""
-for plain in text empty bin lines big; do
-  gzip -1 -c $plain > $plain.gzip-1
-  gzip -9 -c $plain > $plain.gzip-9
-  bzip2 -1 -c $plain > $plain.bzip2-1
-  bzip2 -9 -c $plain > $plain.bzip2-9
-  xz -0 -c $plain > $plain.xz-0
-  xz -9e -c $plain > $plain.xz-9
-  xz -6 --check=crc32 -c $plain > $plain.xz-crc32
-  xz --format=lzma -1 -c $plain > $plain.lzma-1
-  xz --format=lzma -9 -c $plain > $plain.lzma-9
-  zstd -q -1 -c $plain > $plain.zstd-1
-  zstd -q -19 -c $plain > $plain.zstd-19
-  zstd -q --ultra -22 -c $plain > $plain.zstd-22
-  zstd -q --fast=4 -c $plain > $plain.zstd-fast
-done
-"""
-
-const IMAGE_PROBE = r"""docker image inspect "${XSH_ORACLE_IMAGE:-xsh-oracle}" >/dev/null 2>&1 && echo ready"""
-
-const TOOL_PROBE = "command -v gzip bzip2 xz zstd >/dev/null && echo ready"
-
-const ORACLE_SKIP = "requires docker with the xsh-oracle image (dev/reference/oracle.sh)"
 
 # The reference tools run only inside the oracle container, never as a runtime
 # dependency. Returns the oracle script, or null when this host has no docker

@@ -519,7 +519,7 @@ test test_sort_sigint_removes_external_runs { |ctx|
   let lines = collect {
     for index in range(30000) { yield f"{index:05} {payload}" }
   }
-  input.write(lines.join("\n") + "\n")
+  input.write_lines(lines)
 
   let child = spawn run @(["/bin/sh", "-c", "error_file=$1; shift; exec \"$@\" 2>\"$error_file\"", "sort-test",
     stderr.display(), ctx.xsh_bin.display(), "--", script.display(), "-S1", "-T", root.display(),

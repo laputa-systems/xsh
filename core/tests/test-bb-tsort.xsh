@@ -88,7 +88,7 @@ test test_bb_tsort_tsort_empty2_a8b8e172 { |ctx|
   let words = []
   let r = uu.invoke(s, "tsort", [], stdin: bytes.from_text(words.join(" ") + "\n"))?
   uu.succeeds(r)
-  let output = r.stdout.utf8()?.split("\n")
+  let _ = r.stdout.utf8()?.split("\n")
   uu.no_stdout(r)
 }
 

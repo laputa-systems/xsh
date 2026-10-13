@@ -1,5 +1,14 @@
 use core.lib.nettools
 
+const ADDRESSED = [
+  "fixture.link_add_dummy(\"d0\", \"02:00:00:00:00:01\")",
+  "fixture.link_up(\"d0\")",
+  "fixture.address_add4(\"d0\", \"192.0.2.1\", 24, \"192.0.2.255\", \"\")",
+  "fixture.address_add4(\"d0\", \"198.51.100.7\", 25, \"198.51.100.127\", \"d0:1\")",
+  "fixture.address_add6(\"d0\", \"2001:db8::5\", 64)",
+  "fixture.link_add_dummy(\"d1\", \"02:00:00:00:00:02\")",
+]
+
 # The expected text below was produced by the reference tool (net-tools 2.x)
 # for the same interface state; the counters are synthetic so that the layout
 # of every column is pinned without depending on kernel traffic.
@@ -153,15 +162,6 @@ proc main(...argv: List[Str]) [fs, process, net, io, error] {{
     }
   }
 }
-
-const ADDRESSED = [
-  "fixture.link_add_dummy(\"d0\", \"02:00:00:00:00:01\")",
-  "fixture.link_up(\"d0\")",
-  "fixture.address_add4(\"d0\", \"192.0.2.1\", 24, \"192.0.2.255\", \"\")",
-  "fixture.address_add4(\"d0\", \"198.51.100.7\", 25, \"198.51.100.127\", \"d0:1\")",
-  "fixture.address_add6(\"d0\", \"2001:db8::5\", 64)",
-  "fixture.link_add_dummy(\"d1\", \"02:00:00:00:00:02\")",
-]
 
 # The counter lines depend on kernel traffic, so only the stable lines of a
 # real listing are compared.

@@ -394,8 +394,8 @@ test test_btop_process_source_exposes_a_reused_pid_as_a_new_identity {
 }
 
 test test_btop_rates_match_the_independent_gate_one_oracle {
-  let previous_cpu: syscpu.CpuCounters = syscpu.CpuCounters(fields: [100, 0, 50, 850, 0, 0, 0, 0, 0, 0])
-  let current_cpu: syscpu.CpuCounters = syscpu.CpuCounters(fields: [160, 0, 70, 970, 0, 0, 0, 0, 0, 0])
+  let previous_cpu: syscpu.CpuCounters = syscpu.CpuCounters([100, 0, 50, 850, 0, 0, 0, 0, 0, 0])
+  let current_cpu: syscpu.CpuCounters = syscpu.CpuCounters([160, 0, 70, 970, 0, 0, 0, 0, 0, 0])
   let aggregate = rates.cpu_percent(current_cpu, previous_cpu)
   assert aggregate.state == .Observed and aggregate.value == 40.0
   assert rates.process_percent(35, 10, current_cpu, previous_cpu, 2, per_core: false).value == 12.5
@@ -406,9 +406,9 @@ test test_btop_rates_match_the_independent_gate_one_oracle {
 }
 
 test test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval {
-  let previous: syscpu.CpuCounters = syscpu.CpuCounters(fields: [100, 0, 50, 850, 0, 0, 0, 0, 0, 0])
-  let idle: syscpu.CpuCounters = syscpu.CpuCounters(fields: [100, 0, 50, 950, 0, 0, 0, 0, 0, 0])
-  let reset: syscpu.CpuCounters = syscpu.CpuCounters(fields: [90, 0, 50, 950, 0, 0, 0, 0, 0, 0])
+  let previous: syscpu.CpuCounters = syscpu.CpuCounters([100, 0, 50, 850, 0, 0, 0, 0, 0, 0])
+  let idle: syscpu.CpuCounters = syscpu.CpuCounters([100, 0, 50, 950, 0, 0, 0, 0, 0, 0])
+  let reset: syscpu.CpuCounters = syscpu.CpuCounters([90, 0, 50, 950, 0, 0, 0, 0, 0, 0])
   assert rates.cpu_percent(idle, null).state == .Warming
   assert rates.cpu_percent(idle, previous).value == 0.0
   assert rates.cpu_percent(reset, previous).state == .Reset
@@ -419,8 +419,8 @@ test test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval {
 
 test test_btop_counter_precision_preserves_small_deltas_at_large_bases {
   let base = 9007199254740992
-  let previous_cpu: syscpu.CpuCounters = syscpu.CpuCounters(fields: [base, 0, 0, base, 0, 0, 0, 0, 0, 0])
-  let current_cpu: syscpu.CpuCounters = syscpu.CpuCounters(fields: [base + 10, 0, 0, base + 10, 0, 0, 0, 0, 0, 0])
+  let previous_cpu: syscpu.CpuCounters = syscpu.CpuCounters([base, 0, 0, base, 0, 0, 0, 0, 0, 0])
+  let current_cpu: syscpu.CpuCounters = syscpu.CpuCounters([base + 10, 0, 0, base + 10, 0, 0, 0, 0, 0, 0])
   assert rates.cpu_percent(current_cpu, previous_cpu).value == 50.0
   assert rates.process_percent(base + 10, base, current_cpu, previous_cpu, 2).value == 50.0
   assert rates.counter_rate(base + 100, base, elapsed_ns: 1000000000).value == 100.0
@@ -438,23 +438,23 @@ test test_btop_counter_precision_preserves_small_deltas_at_large_bases {
 
 test test_btop_counter_precision_withholds_aggregate_sum_overflow {
   let half = 4611686018427387903
-  let previous: syscpu.CpuCounters = syscpu.CpuCounters(fields: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-  let current: syscpu.CpuCounters = syscpu.CpuCounters(fields: [half, half, half, half, half, half, half, half, 0, 0])
+  let previous: syscpu.CpuCounters = syscpu.CpuCounters([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  let current: syscpu.CpuCounters = syscpu.CpuCounters([half, half, half, half, half, half, half, half, 0, 0])
   assert rates.cpu_percent(current, previous).state == .Invalid
   assert rates.cpu_percent(current, current).state == .Invalid
 }
 
 test test_btop_cpu_usage_excludes_guest_time_and_corrects_iowait_regression {
-  let previous: syscpu.CpuCounters = syscpu.CpuCounters(fields: [100, 20, 30, 200, 10, 10, 5, 5, 50, 10])
-  let current: syscpu.CpuCounters = syscpu.CpuCounters(fields: [200, 30, 40, 300, 20, 15, 10, 10, 150, 15])
+  let previous: syscpu.CpuCounters = syscpu.CpuCounters([100, 20, 30, 200, 10, 10, 5, 5, 50, 10])
+  let current: syscpu.CpuCounters = syscpu.CpuCounters([200, 30, 40, 300, 20, 15, 10, 10, 150, 15])
   let usage = rates.cpu_percent(current, previous)
   assert usage.state == .Observed
   assert usage.value?.format(precision: 1) == "21.4"
 
-  let wait_before: syscpu.CpuCounters = syscpu.CpuCounters(fields: [100, 0, 0, 50, 20, 0, 0, 0, 0, 0])
-  let wait_after: syscpu.CpuCounters = syscpu.CpuCounters(fields: [100, 0, 0, 100, 10, 0, 0, 0, 0, 0])
+  let wait_before: syscpu.CpuCounters = syscpu.CpuCounters([100, 0, 0, 50, 20, 0, 0, 0, 0, 0])
+  let wait_after: syscpu.CpuCounters = syscpu.CpuCounters([100, 0, 0, 100, 10, 0, 0, 0, 0, 0])
   assert rates.cpu_percent(wait_after, wait_before).value == 0.0
 
-  let reset: syscpu.CpuCounters = syscpu.CpuCounters(fields: [90, 20, 30, 300, 20, 15, 10, 10, 150, 15])
+  let reset: syscpu.CpuCounters = syscpu.CpuCounters([90, 20, 30, 300, 20, 15, 10, 10, 150, 15])
   assert rates.cpu_percent(reset, previous).state == .Reset
 }

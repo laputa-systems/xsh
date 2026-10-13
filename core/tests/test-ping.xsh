@@ -1,5 +1,8 @@
 use core.lib.icmp
 
+const REPLY_V4 = rx"^64 bytes from 127\.0\.0\.1: icmp_seq=[0-9]+ ttl=[0-9]+ time=[0-9]+\.[0-9]{1,3} ms$"
+const RTT_LINE = rx"^rtt min/avg/max/mdev = [0-9]+\.[0-9]{3}/[0-9]+\.[0-9]{3}/[0-9]+\.[0-9]{3}/[0-9]+\.[0-9]{3} ms$"
+
 # Every probe here goes to a loopback address. The output shapes below are
 # the ones iputils prints for the same command lines on loopback; time values
 # vary run to run, so they are compared by shape.
@@ -45,9 +48,6 @@ proc need_icmp(family: Str) [process, net, error] {
   }
   Ok()
 }
-
-const REPLY_V4 = rx"^64 bytes from 127\.0\.0\.1: icmp_seq=[0-9]+ ttl=[0-9]+ time=[0-9]+\.[0-9]{1,3} ms$"
-const RTT_LINE = rx"^rtt min/avg/max/mdev = [0-9]+\.[0-9]{3}/[0-9]+\.[0-9]{3}/[0-9]+\.[0-9]{3}/[0-9]+\.[0-9]{3} ms$"
 
 test test_icmp_checksum_and_echo_request_layout {
   # RFC 1071: the complement of the 16-bit one's-complement sum.

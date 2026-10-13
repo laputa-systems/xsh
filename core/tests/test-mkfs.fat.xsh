@@ -34,7 +34,7 @@ test test_fat_allocation_checker_repairs_lost_cluster { |ctx|
   let _ = vfat.format(image, 1474560, bits: 12)?
   let original = image.read_bytes()?
   # Cluster two occupies the low twelve bits at FAT offset three.
-  let damaged = bytes.concat([original[..515], b"\xff\x0f", original.slice(517)])
+  let damaged = bytes.concat([original[..515], b"\xff\x0f", original[517..]])
   image.write(damaged)
   assert ! vfat.check(image)?.issues.is_empty()
   assert image.read_bytes()? == damaged

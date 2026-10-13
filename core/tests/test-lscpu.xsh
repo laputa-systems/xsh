@@ -24,10 +24,26 @@ test test_lscpu_fixture_preserves_cpu_identity_and_offline_selection { |ctx|
   assert {field: "Architecture:", data: "x86_64"} in summary
   assert {field: "CPU(s):", data: "2"} in summary
   assert {field: "Core(s) per socket:", data: "2"} in summary
-  let sparse: report.CpuSection = {...section, cpus: [
-    {...section.cpus[0], package_id: 4, core_id: 7, die_id: 5, numa_node: 2},
-    {...section.cpus[1], package_id: 9, core_id: 7, die_id: 5, numa_node: 8},
-  ]}
+  let sparse: report.CpuSection = report.CpuSection(
+    status: section.status,
+    possible: section.possible,
+    present: section.present,
+    online: section.online,
+    offline: section.offline,
+    affinity: section.affinity,
+    effective_cpuset: section.effective_cpuset,
+    global_idle_driver: section.global_idle_driver,
+    global_idle_governor: section.global_idle_governor,
+    cpus: [
+      {...section.cpus[0], package_id: 4, core_id: 7, die_id: 5, numa_node: 2},
+      {...section.cpus[1], package_id: 9, core_id: 7, die_id: 5, numa_node: 8},
+    ],
+    caches: section.caches,
+    frequency_policies: section.frequency_policies,
+    idle_states: section.idle_states,
+    vulnerabilities: section.vulnerabilities,
+    available_idle_governors: section.available_idle_governors,
+  )
   let columns = ["CPU", "SOCKET", "CORE", "DIE", "NODE"]
   assert hardware.cpu_rows(sparse, columns, "all", true)?[-1] == "1,1,1,1,1"
   assert hardware.cpu_rows(sparse, columns, "all", true, true)?[-1] == "1,9,7,5,8"
@@ -38,10 +54,26 @@ test test_lscpu_fixture_preserves_cpu_identity_and_offline_selection { |ctx|
     {id: 2, sysfs_index: 0, owner_cpu_id: 1, level: 1, kind: "Data", size_bytes: 32768, line_size_bytes: 64, sets: 64, shared_cpus: [1]},
     {id: 3, sysfs_index: 1, owner_cpu_id: 1, level: 1, kind: "Instruction", size_bytes: 32768, line_size_bytes: 64, sets: 64, shared_cpus: [1]},
   ]
-  let cached: report.CpuSection = {...section, caches: caches, cpus: [
-    {...section.cpus[0], cache_indices: [0, 1], cache_ids: [0, 1]},
-    {...section.cpus[1], cache_indices: [2, 3], cache_ids: [2, 3]},
-  ]}
+  let cached: report.CpuSection = report.CpuSection(
+    status: section.status,
+    possible: section.possible,
+    present: section.present,
+    online: section.online,
+    offline: section.offline,
+    affinity: section.affinity,
+    effective_cpuset: section.effective_cpuset,
+    global_idle_driver: section.global_idle_driver,
+    global_idle_governor: section.global_idle_governor,
+    cpus: [
+      {...section.cpus[0], cache_indices: [0, 1], cache_ids: [0, 1]},
+      {...section.cpus[1], cache_indices: [2, 3], cache_ids: [2, 3]},
+    ],
+    caches:,
+    frequency_policies: section.frequency_policies,
+    idle_states: section.idle_states,
+    vulnerabilities: section.vulnerabilities,
+    available_idle_governors: section.available_idle_governors,
+  )
   assert hardware.cpu_rows(cached, ["CPU", "CACHE"], "all", true)? == ["# CPU,CACHE", "0,0:0", "1,1:1"]
   assert {field: "L1d cache:", data: "64 KiB (2 instances)"} in hardware.cpu_summary(cached, "x86_64")
   assert {field: "L1d cache:", data: "65536 (2 instances)"} in hardware.cpu_summary(cached, "x86_64", true)

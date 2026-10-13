@@ -143,17 +143,28 @@ test test_btop_g4a_disk_panel_lists_mount_usage_rates_and_io_graph_modes {
   let loaded = replay.load(bundle.host_path()?)?
   let base = replay.models(loaded.observations)[1]
   let first: disks.Device = disks.Device(identity: "41:8:0", identity_state: report.Observed, name: "sda", major: 8, minor: 0, mount_targets: ["/mnt/data"], filesystem: "ext4", capacity_state: report.Observed, capacity_age_ns: 1000000000, total_bytes: 1073741824, used_bytes: 268435456, available_bytes: 805306368, read_sectors: 10, read_state: report.Observed, read_bytes_per_second: {state: rates.Observed, value: 1024.0}, write_sectors: 20, write_state: report.Observed, write_bytes_per_second: {state: rates.Observed, value: 2048.0}, in_flight: 0, in_flight_state: report.Observed)
-  let second: disks.Device = {
-    ...first,
+  let second: disks.Device = disks.Device(
     identity: "52:259:0",
+    identity_state: first.identity_state,
     name: "nvme0n1",
     major: 259,
     minor: 0,
     mount_targets: ["/var"],
+    filesystem: first.filesystem,
+    capacity_state: first.capacity_state,
+    capacity_age_ns: first.capacity_age_ns,
     total_bytes: 2147483648,
     used_bytes: 1073741824,
     available_bytes: 1073741824,
-  }
+    read_sectors: first.read_sectors,
+    read_state: first.read_state,
+    read_bytes_per_second: first.read_bytes_per_second,
+    write_sectors: first.write_sectors,
+    write_state: first.write_state,
+    write_bytes_per_second: first.write_bytes_per_second,
+    in_flight: first.in_flight,
+    in_flight_state: first.in_flight_state,
+  )
   let value = {...base, storage: {block_state: report.Observed, mount_state: report.Observed, devices: [first, second]}}
   let histories = graphs.observe(graphs.empty(), value)?
   let initial = ui.initial(value, render.process_capacity(40))
@@ -220,14 +231,25 @@ test test_btop_g4a_process_tree_golden_shows_depth_collapse_and_aggregation {
   let loaded = replay.load(bundle.host_path()?)?
   let base = replay.models(loaded.observations)[1]
   let rows = base.processes |> sort-by { |row| row.pid }
-  let value: model.Model = {
-    ...base,
+  let value: model.Model = model.Model(
+    source_id: base.source_id,
+    at_ns: base.at_ns,
+    cpu_percent: base.cpu_percent,
+    cpu_cores: base.cpu_cores,
+    telemetry: base.telemetry,
+    uptime: base.uptime,
+    load: base.load,
+    cpu_state: base.cpu_state,
+    memory: base.memory,
+    network: base.network,
+    process_state: base.process_state,
     processes: [
       {...rows[0], parent_pid: 0, cpu_percent: {state: rates.Observed, value: 10.0}, cpu_percent_per_core: {state: rates.Observed, value: 20.0}, cpu_average_percent: {state: rates.Observed, value: 10.0}, rss_bytes: 100},
       {...rows[1], parent_pid: 42, cpu_percent: {state: rates.Observed, value: 3.0}, cpu_percent_per_core: {state: rates.Observed, value: 6.0}, cpu_average_percent: {state: rates.Observed, value: 3.0}, rss_bytes: 20},
       {...rows[2], parent_pid: 43, cpu_percent: {state: rates.Observed, value: 2.0}, cpu_percent_per_core: {state: rates.Observed, value: 4.0}, cpu_average_percent: {state: rates.Observed, value: 2.0}, rss_bytes: 10},
     ],
-  }
+    storage: base.storage,
+  )
   let initial = ui.initial(value, render.process_capacity(24))
   let tree_mode = ui.reduce(initial, .Pressed(.Text("e")), value)
   let tree_screen = render.render_view(value, tree_mode, 80, 24, [])?

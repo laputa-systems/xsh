@@ -160,7 +160,7 @@ pure escape(data: Bytes) -> Str {
       } else if byte == 0 {
         yield "\\0"
       } else if byte >= 32 and byte < 127 {
-        yield data.slice(index, length: 1).utf8() ?? "?"
+        yield data[index..index + 1].utf8() ?? "?"
       } else {
         yield f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"
       }

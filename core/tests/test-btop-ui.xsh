@@ -157,14 +157,25 @@ test test_btop_ui_process_tree_toggle_collapse_children_and_aggregate {
   let frames = prepare_frames(root)?
   let base = frames[1]
   let rows = base.processes |> sort-by { |row| row.pid }
-  let value: model.Model = {
-    ...base,
+  let value: model.Model = model.Model(
+    source_id: base.source_id,
+    at_ns: base.at_ns,
+    cpu_percent: base.cpu_percent,
+    cpu_cores: base.cpu_cores,
+    telemetry: base.telemetry,
+    uptime: base.uptime,
+    load: base.load,
+    cpu_state: base.cpu_state,
+    memory: base.memory,
+    network: base.network,
+    process_state: base.process_state,
     processes: [
       {...rows[0], parent_pid: 0, cpu_percent: {state: rates.Observed, value: 10.0}, cpu_percent_per_core: {state: rates.Observed, value: 20.0}, cpu_average_percent: {state: rates.Observed, value: 10.0}, rss_bytes: 100},
       {...rows[1], parent_pid: 42, cpu_percent: {state: rates.Observed, value: 3.0}, cpu_percent_per_core: {state: rates.Observed, value: 6.0}, cpu_average_percent: {state: rates.Observed, value: 3.0}, rss_bytes: 20},
       {...rows[2], parent_pid: 43, cpu_percent: {state: rates.Observed, value: 2.0}, cpu_percent_per_core: {state: rates.Observed, value: 4.0}, cpu_average_percent: {state: rates.Observed, value: 2.0}, rss_bytes: 10},
     ],
-  }
+    storage: base.storage,
+  )
   let initial = ui.initial(value, 3)
   assert ! initial.tree_view
   assert initial.sort == .CpuLazy and ! initial.reverse
@@ -180,10 +191,21 @@ test test_btop_ui_process_tree_toggle_collapse_children_and_aggregate {
   assert [entry.depth for entry in visible] == [0, 1, 2]
   assert visible[0].has_children and ! visible[0].collapsed
 
-  let sibling_value: model.Model = {
-    ...value,
+  let sibling_value: model.Model = model.Model(
+    source_id: value.source_id,
+    at_ns: value.at_ns,
+    cpu_percent: value.cpu_percent,
+    cpu_cores: value.cpu_cores,
+    telemetry: value.telemetry,
+    uptime: value.uptime,
+    load: value.load,
+    cpu_state: value.cpu_state,
+    memory: value.memory,
+    network: value.network,
+    process_state: value.process_state,
     processes: [value.processes[0], value.processes[1], {...value.processes[2], parent_pid: 42}],
-  }
+    storage: value.storage,
+  )
   let pid_descending = ui.visible_tree_rows(sibling_value, {...tree_mode, sort: .Pid, reverse: false})
   assert [entry.row.pid for entry in pid_descending] == [42, 44, 43]
   assert [entry.depth for entry in pid_descending] == [0, 1, 1]
@@ -298,8 +320,18 @@ test test_btop_ui_supports_every_pinned_process_sort_and_direction {
   let frames = prepare_frames(root)?
   let sampled = frames[1]
   let sampled_rows = sampled.processes |> sort-by { |row| row.pid }
-  let value: model.Model = {
-    ...sampled,
+  let value: model.Model = model.Model(
+    source_id: sampled.source_id,
+    at_ns: sampled.at_ns,
+    cpu_percent: sampled.cpu_percent,
+    cpu_cores: sampled.cpu_cores,
+    telemetry: sampled.telemetry,
+    uptime: sampled.uptime,
+    load: sampled.load,
+    cpu_state: sampled.cpu_state,
+    memory: sampled.memory,
+    network: sampled.network,
+    process_state: sampled.process_state,
     processes: [
       {
         ...sampled_rows[0],
@@ -329,7 +361,8 @@ test test_btop_ui_supports_every_pinned_process_sort_and_direction {
         cpu_average_percent: {state: rates.Observed, value: 50.0},
       },
     ],
-  }
+    storage: sampled.storage,
+  )
   let local_display: List[processes.LocalProcessDisplay] = [
     {pid: 42, start_ticks: 1000, command_line: "zebra --slow", user_name: "zed"},
     {pid: 43, start_ticks: 2000, command_line: "alpha --zzz", user_name: "amy"},
@@ -389,8 +422,18 @@ test test_btop_ui_cpu_lazy_promotes_recent_spikes_ahead_of_lifetime_average {
   defer frame_root.close()
   let observation = source.capture(frame_root, "spikes", 1000000000, 4096, 100)?
   let sampled = model.step(observation, null)
-  let value: model.Model = {
-    ...sampled,
+  let value: model.Model = model.Model(
+    source_id: sampled.source_id,
+    at_ns: sampled.at_ns,
+    cpu_percent: sampled.cpu_percent,
+    cpu_cores: sampled.cpu_cores,
+    telemetry: sampled.telemetry,
+    uptime: sampled.uptime,
+    load: sampled.load,
+    cpu_state: sampled.cpu_state,
+    memory: sampled.memory,
+    network: sampled.network,
+    process_state: sampled.process_state,
     processes: [
       {
         ...row,
@@ -399,7 +442,8 @@ test test_btop_ui_cpu_lazy_promotes_recent_spikes_ahead_of_lifetime_average {
       }
       for row in sampled.processes
     ],
-  }
+    storage: sampled.storage,
+  )
   let lazy = {...ui.initial(value, 8), sort: ui.CpuLazy}
   assert [row.pid for row in ui.visible_processes(value, lazy)] == [42, 49, 48, 47, 46, 45, 44, 43]
 }

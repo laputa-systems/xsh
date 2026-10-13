@@ -5,7 +5,7 @@ test test_fsck_fat_cli_readonly_and_explicit_repair { |ctx|
   let image = fp"{root}/disk.img"
   let _ = vfat.format(image, 1474560, bits: 12)?
   let original = image.read_bytes()?
-  image.write(bytes.concat([original[..515], b"\xff\x0f", original.slice(517)]))
+  image.write(bytes.concat([original[..515], b"\xff\x0f", original[517..]]))
   let damaged = image.read_bytes()?
   let script = fp"{ctx.core_dir}/fsck.fat.xsh"
   test.expect(ctx, script.read_text()?, status: 1, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-n", image])?
