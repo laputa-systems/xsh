@@ -60,14 +60,14 @@ def map {α : Type u} {β : Type v} (f : α → β) (value : NonEmptyList α) :
     NonEmptyList β :=
   ⟨value.val.map f, by
     cases hvalues : value.val with
-    | nil => exact value.property hvalues
-    | cons head tail => simp [hvalues]⟩
+    | nil => exact (value.property hvalues).elim
+    | cons head tail => simp⟩
 
 def append {α : Type u} (value : NonEmptyList α) (tail : List α) : NonEmptyList α :=
   ⟨value.val ++ tail, by
     cases hvalues : value.val with
-    | nil => exact value.property hvalues
-    | cons head rest => simp [hvalues]⟩
+    | nil => exact (value.property hvalues).elim
+    | cons head rest => simp⟩
 
 def prepend {α : Type u} (before : List α) (value : NonEmptyList α) : NonEmptyList α :=
   ⟨before ++ value.val, append_ne_nil_right before value.val value.property⟩
