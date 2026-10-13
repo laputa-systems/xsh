@@ -50,19 +50,19 @@ test test_bb_date_date_timezone_876fad85 { |ctx|
     let r = uu.invoke(s, "date", ["-d", "1999-1-2 3:4:5Z"], vars: {TZ: "UTC0"})?
     uu.succeeds(r)
     uu.no_stderr(r)
-    assert r.stdout.slice(0, 19) == b"Sat Jan  2 03:04:05"
+    assert r.stdout[..19] == b"Sat Jan  2 03:04:05"
   }
   {
     let r = uu.invoke(s, "date", ["-d", "1999-1-2 3:4:5 +0600"], vars: {TZ: "UTC0"})?
     uu.succeeds(r)
     uu.no_stderr(r)
-    assert r.stdout.slice(0, 19) == b"Fri Jan  1 21:04:05"
+    assert r.stdout[..19] == b"Fri Jan  1 21:04:05"
   }
   {
     let r = uu.invoke(s, "date", ["-d", "1999-1-2 3:4:5 -0600"], vars: {TZ: "UTC0"})?
     uu.succeeds(r)
     uu.no_stderr(r)
-    assert r.stdout.slice(0, 19) == b"Sat Jan  2 09:04:05"
+    assert r.stdout[..19] == b"Sat Jan  2 09:04:05"
   }
   {
     let r = uu.invoke(s, "date", ["-d", "2021-03-28 00:59:59 +0000"], vars: {TZ: "GMT0BST,M3.5.0/1,M10.5.0/2"})?

@@ -530,7 +530,7 @@ Self Test Result[1]:
 """
   assert ran.stdout == expected, ran.stdout
   # -e shortens the transfer to the header and that many entries.
-  let two = put(page.slice(0, length: 60), 0, b"\x00\x00")?
+  let two = put(page[..60], 0, b"\x00\x00")?
   let short = ran_ok(nvme(ctx, [log_line(6, 60, two)], ["self-test-log", "-e", "2", "/dev/null"], log)?)
   assert short.stdout.starts_with("Device Self Test Log for NVME device:null\nCurrent operation  : 0\nSelf Test Result[0]:")
   let printed = ran_ok(nvme(ctx, lines, ["self-test-log", "-o", "json", "/dev/null"], log)?)

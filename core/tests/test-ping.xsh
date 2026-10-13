@@ -56,7 +56,7 @@ test test_icmp_checksum_and_echo_request_layout {
   assert icmp.checksum(b"\xff") == 255
   let payload = icmp.echo_stamped(icmp.echo_fill(20, b"")?, bytes.zero(16)?)
   let raw = icmp.echo_request("inet", 4660, 7, payload, true)?
-  assert raw.slice(0, 2) == b"\x08\x00"
+  assert raw[..2] == b"\x08\x00"
   assert bytes.unpack_be(raw, 2, 4)? == 4660
   assert bytes.unpack_be(raw, 2, 6)? == 7
   assert icmp.checksum_ok(raw)
@@ -76,7 +76,7 @@ test test_icmp_payload_fill_and_pattern {
   let plain = icmp.echo_fill(20, b"")?
   assert plain.byte_at(0) == 0 and plain.byte_at(19) == 19
   let stamped = icmp.echo_stamped(plain, bytes.from_ints([255, 255, 255, 255])?)
-  assert stamped.slice(0, 4) == b"\xff\xff\xff\xff"
+  assert stamped[..4] == b"\xff\xff\xff\xff"
   assert stamped.byte_at(4) == 4 and stamped.len() == 20
   assert icmp.echo_stamped(b"\x01", b"\xaa\xbb") == b"\x01"
   let patterned = icmp.echo_fill(5, b"\x12\x03")?

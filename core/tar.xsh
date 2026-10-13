@@ -399,7 +399,7 @@ proc archive_data(opts: Options) [fs, io, error, process, env] -> Result[Bytes] 
 }
 
 pure detected_format(raw: Bytes) -> Str {
-  if raw.slice(0, 2) == b"\x1f\x8b" { "gz" } else if raw.slice(0, 3) == b"BZh" { "bz2" } else if raw.slice(0, 6) == b"\xfd7zXZ\x00" { "xz" } else { "" }
+  if raw[..2] == b"\x1f\x8b" { "gz" } else if raw[..3] == b"BZh" { "bz2" } else if raw[..6] == b"\xfd7zXZ\x00" { "xz" } else { "" }
 }
 
 proc list_members(opts: Options) [fs, io, error, process, env, time] -> Result[Unit] {

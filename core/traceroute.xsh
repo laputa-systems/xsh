@@ -622,7 +622,7 @@ pure echo_request(v6: Bool, seq: Int, ident: Int, checksum: Bool, payload: Bytes
 
   let sum = icmp_checksum(message)
 
-  bytes.concat([message.slice(0, 2), bytes.pack_be(sum, 2) ?? b"", message.slice(4)])
+  bytes.concat([message[..2], bytes.pack_be(sum, 2) ?? b"", message.slice(4)])
 }
 
 # Whether the ICMP header at `at` is our echo request with this identifier

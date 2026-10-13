@@ -228,7 +228,7 @@ test test_raw_icmp_socket_filters_and_checks_replies {
 
       let body = bytes.concat([bytes.from_ints([8, 0, 0, 0, 18, 52, 0, 7])?, bytes.from_text("raw")])
       let sum = icmp_checksum(body)
-      let request = bytes.concat([body.slice(0, 2), bytes.pack_be(sum, 2)?, body.slice(4)])
+      let request = bytes.concat([body[..2], bytes.pack_be(sum, 2)?, body.slice(4)])
       let _ = linux.sendto(fd, request, {family: "inet", address: "127.0.0.1"})?
       let reply = linux.recvfrom(fd, 256)?
       # Raw sockets deliver the IP header; its length is the low nibble in words.
@@ -464,7 +464,7 @@ test test_ioctl_reads_loopback_interface_state {
 
   let flags = linux.ioctl(fd, c.SIOCGIFFLAGS, ifname("lo")?, 40)?
   assert flags.len() == 40
-  assert flags.slice(0, 2) == bytes.from_text("lo")
+  assert flags[..2] == bytes.from_text("lo")
   let word = bytes.unpack_le(flags, 2, 16)?
   assert word.bit_and(c.IFF_UP) != 0
   assert word.bit_and(c.IFF_LOOPBACK) != 0

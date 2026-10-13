@@ -58,7 +58,7 @@ export pure echo_request(family: Str, identifier: Int, sequence: Int, payload: B
   let head = bytes.concat([bytes.from_ints([request_type(family), 0, 0, 0])?, bytes.pack_be(identifier, 2)?, bytes.pack_be(sequence, 2)?])
   let message = bytes.concat([head, payload])
   return Ok(message) when ! checksummed or family == "inet6"
-  Ok(bytes.concat([message.slice(0, 2), bytes.pack_be(checksum(message), 2)?, message.slice(4)]))
+  Ok(bytes.concat([message[..2], bytes.pack_be(checksum(message), 2)?, message.slice(4)]))
 }
 
 ## The fill of an echo payload of `size` bytes. Without a pattern byte N

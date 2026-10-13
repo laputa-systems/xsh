@@ -904,7 +904,7 @@ pure rate_list(data: Bytes) -> Str {
 # The name `iw` gives a cipher or key-management suite selector, or the
 # selector as `00-0f-ac:N` when it has none.
 pure suite_text(data: Bytes, akm: Bool) -> Str {
-  let oui = hex_bytes(data.slice(0, 3))
+  let oui = hex_bytes(data[..3])
   let kind = data.byte_at(3) ?? 0
   if oui == "00 0f ac" {
     for item in if akm { AKM_NAMES } else { CIPHER_SUITE_NAMES } {
@@ -1064,7 +1064,7 @@ pure tim_lines(data: Bytes) -> List[Str] {
 
 pure country_lines(data: Bytes) -> List[Str] {
   return ["\tCountry: <invalid>"] when data.len() < 3
-  let code = data.slice(0, 2).utf8() ?? "??"
+  let code = data[..2].utf8() ?? "??"
   let environment = data.byte_at(2) ?? 32
   let place = match environment {
     32 => "Indoor/Outdoor"
@@ -1093,7 +1093,7 @@ pure load_lines(data: Bytes) -> List[Str] {
   return ["\tBSS Load: <invalid>"] when data.len() < 5
   [
     "\tBSS Load:",
-    f"\t\t * station count: {uint(data.slice(0, 2))}",
+    f"\t\t * station count: {uint(data[..2])}",
     f"\t\t * channel utilisation: {data.byte_at(2) ?? 0}/255",
     f"\t\t * available admission capacity: {uint(data.slice(3, 2))} [*32us]",
   ]
@@ -1119,13 +1119,13 @@ pure erp_lines(data: Bytes) -> List[Str] {
 
 pure rsn_lines(data: Bytes) -> List[Str] {
   return ["\tRSN: <invalid>"] when data.len() < 2
-  let version = uint(data.slice(0, 2))
+  let version = uint(data[..2])
   let body = cipher_lines(data, 2, version, true)
   ["\tRSN:" + body[0], @body[1..]]
 }
 
 pure vendor_lines(data: Bytes, unknown: Bool) -> List[Str] {
-  if data.len() >= 8 and hex_bytes(data.slice(0, 4)) == "00 50 f2 01" {
+  if data.len() >= 8 and hex_bytes(data[..4]) == "00 50 f2 01" {
     let version = uint(data.slice(4, 2))
     let body = cipher_lines(data, 6, version, false)
     return ["\tWPA:" + body[0], @body[1..]]
@@ -1444,7 +1444,7 @@ export pure station_lines(message: Message, interface: Str, boot_ms: Int, wall_m
   }
   let flags = pick(info, STA_FLAGS)
   if flags != null and flags.len() >= 8 {
-    let mask = uint(flags.slice(0, 4))
+    let mask = uint(flags[..4])
     let value_bits = uint(flags.slice(4, 4))
     # Station flag bits: authorized 1, short preamble 2, WME 3, MFP 4,
     # authenticated 5, TDLS peer 6, associated 7.
@@ -1585,7 +1585,7 @@ const CIPHER_NAMES = [
 # The name `iw` gives a cipher suite selector (three OUI bytes and a type).
 pure cipher_name(selector: Bytes) -> Str {
   let kind = selector.byte_at(3) ?? 0
-  if hex_bytes(selector.slice(0, 3)) == "00 0f ac" {
+  if hex_bytes(selector[..3]) == "00 0f ac" {
     for item in CIPHER_NAMES {
       return f"{item.name} ({suite_dashed(selector)})" when item.kind == kind
     }
@@ -1596,7 +1596,7 @@ pure cipher_name(selector: Bytes) -> Str {
 
 # The selector as `00-0f-ac:4`.
 pure suite_dashed(selector: Bytes) -> Str {
-  let oui = hex_bytes(selector.slice(0, 3)).replace(" ", with: "-")
+  let oui = hex_bytes(selector[..3]).replace(" ", with: "-")
   f"{oui}:{selector.byte_at(3) ?? 0}"
 }
 

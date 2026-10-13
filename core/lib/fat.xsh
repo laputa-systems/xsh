@@ -185,7 +185,7 @@ export proc inspect(image: Path) -> Result[Info, Error] {
       if first != 229 and geom.byte(entry, 11)? == 8 {
         guard ! found_label else { return Err(error.failure("duplicate root volume labels")) }
         found_label = true
-        name = geom.label_text(entry.slice(0, length: 11))?
+        name = geom.label_text(entry[..11])?
       }
     }
   }

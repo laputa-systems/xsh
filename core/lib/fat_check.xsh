@@ -125,16 +125,16 @@ proc directories(image: Path, initial: State) -> Result[State] {
         if first == 229 { if ! parts.is_empty() { state = bad_lfn(image, state, parts)?; parts = [] }; continue }
         let attributes = geom.byte(entry, 11)?
         if attributes == 15 { parts += [{offset: at, data: entry}]; continue }
-        if ! parts.is_empty() { if ! valid_lfn(parts, entry.slice(0, length: 11)) { state = bad_lfn(image, state, parts)? }; parts = [] }
+        if ! parts.is_empty() { if ! valid_lfn(parts, entry[..11]) { state = bad_lfn(image, state, parts)? }; parts = [] }
         let cluster = geom.number(entry, 20, 2)? * 65536 + geom.number(entry, 26, 2)?
         let size = geom.number(entry, 28, 4)?
         if attributes.bit_and(192) != 0 or (layout.bits != 32 and geom.number(entry, 20, 2)? != 0) { state = issue(state, f"invalid directory entry at byte {at}", false) }
         if attributes.bit_and(8) != 0 {
-          if directory.root { state.labels += [{offset: at, data: entry.slice(0, length: 11)}] } else { state = issue(state, f"volume label outside root at byte {at}", false) }
+          if directory.root { state.labels += [{offset: at, data: entry[..11]}] } else { state = issue(state, f"volume label outside root at byte {at}", false) }
           if attributes != 8 or cluster != 0 or size != 0 { state = issue(state, f"invalid volume-label entry at byte {at}", false) }
           continue
         }
-        let short_name = entry.slice(0, length: 11)
+        let short_name = entry[..11]
         if short_name in [b".          ", b"..         "] {
           let dot = short_name == b".          "
           if dot { found_dot = true } else { found_parent = true }
@@ -151,7 +151,7 @@ proc directories(image: Path, initial: State) -> Result[State] {
           }
           continue
         }
-        var invalid_name = short_name.slice(0, length: 8) == b"        " or geom.byte(entry, 12)?.clear_bits(24) != 0
+        var invalid_name = short_name[..8] == b"        " or geom.byte(entry, 12)?.clear_bits(24) != 0
         for name_at in range(11) {
           let byte = geom.byte(short_name, name_at)?
           if (byte < 32 and ! (name_at == 0 and byte == 5)) or byte in [34, 42, 43, 44, 46, 47, 58, 59, 60, 61, 62, 63, 91, 92, 93, 124] { invalid_name = true }

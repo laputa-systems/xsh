@@ -220,7 +220,7 @@ test test_efibootmgr_active_state_and_driver_reconnect_bits { |ctx|
   let disabled = invoke(ctx, dir, ["-b", "0002", "-A"])
   assert disabled.status == 0, disabled.stderr
   assert "Boot0002  Shell\t" in disabled.stdout
-  assert get(dir, "Boot0002").slice(0, length: 8) == b"\x07\x00\x00\x00\x00\x00\x00\x00"
+  assert get(dir, "Boot0002")[..8] == b"\x07\x00\x00\x00\x00\x00\x00\x00"
   let absent = invoke(ctx, dir, ["-b", "0009", "-a"])
   assert absent.status == 16
   assert absent.stderr == "efibootmgr: Boot entry 9 not found\nCould not set active state for Boot0009: No such file or directory\n"
@@ -229,10 +229,10 @@ test test_efibootmgr_active_state_and_driver_reconnect_bits { |ctx|
   put(dir, "DriverOrder", u16_list([0]))
   let reconnect = invoke(ctx, dir, ["-r", "-b", "0000", "-f"])
   assert reconnect.status == 0, reconnect.stderr
-  assert get(dir, "Driver0000").slice(0, length: 8) == b"\x07\x00\x00\x00\x03\x00\x00\x00"
+  assert get(dir, "Driver0000")[..8] == b"\x07\x00\x00\x00\x03\x00\x00\x00"
   assert reconnect.stdout.starts_with("DriverOrder: 0000\nDriver0000* Drv\t\\drv.efi\n")
   assert invoke(ctx, dir, ["-r", "-b", "0000", "-F"]).status == 0
-  assert get(dir, "Driver0000").slice(0, length: 8) == b"\x07\x00\x00\x00\x01\x00\x00\x00"
+  assert get(dir, "Driver0000")[..8] == b"\x07\x00\x00\x00\x01\x00\x00\x00"
   assert invoke(ctx, dir, ["-f", "-b", "0000"]).stderr == "--reconnect is supported only for driver entries.\n"
 }
 

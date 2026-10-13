@@ -170,11 +170,11 @@ test test_cpio_default_format_is_binary_and_c_means_odc { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-defaults")?
   fp"{root}/f".write(b"data")
   let default_format = cpio(ctx, root, ["-o", "--quiet"], b"f\n")?
-  assert default_format.stdout.slice(0, 2) == b"\xc7\x71"
+  assert default_format.stdout[..2] == b"\xc7\x71"
   let portable = cpio(ctx, root, ["-oc", "--quiet"], b"f\n")?
-  assert portable.stdout.slice(0, 6) == b"070707"
+  assert portable.stdout[..6] == b"070707"
   let crc = cpio(ctx, root, ["-o", "-H", "CRC", "--quiet"], b"f\n")?
-  assert crc.stdout.slice(0, 6) == b"070702"
+  assert crc.stdout[..6] == b"070702"
   let reversed = cpio(ctx, root, ["-o", "-H", "newc", "-c"], b"f\n")?
   assert reversed.status == 2
   assert "Archive format multiply defined" in reversed.stderr
@@ -426,7 +426,7 @@ test test_cpio_reports_bad_archives { |ctx|
   assert garbage.stderr == "cpio: premature end of archive\n"
   let empty = cpio(ctx, root, ["-t"], b"")?
   assert empty.stderr == "cpio: premature end of archive\n"
-  let cut = cpio(ctx, root, ["-t"], GNU_NEWC.slice(0, 200))?
+  let cut = cpio(ctx, root, ["-t"], GNU_NEWC[..200])?
   assert cut.status == 2
   assert cut.stdout == b"dir\n"
   assert cut.stderr == "cpio: premature end of file\n"

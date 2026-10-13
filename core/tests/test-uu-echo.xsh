@@ -189,7 +189,7 @@ test test_uu_echo_cmd_result_stderr_check_and_stderr_str_check { |ctx|
   let r = uu.invoke(s, "echo", ["Hello world"], stdout: stderr)?
   let output = stderr.read_bytes()?
   assert output.utf8()?.ends_with("world\n")
-  assert output.slice(0, length: 2) == b"He"
+  assert output[..2] == b"He"
   uu.no_stdout(r)
 }
 
@@ -198,7 +198,7 @@ test test_uu_echo_cmd_result_stdout_check_and_stdout_str_check { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "echo", ["Hello world"])?
   assert r.stdout.utf8()?.ends_with("world\n")
-  assert r.stdout.slice(0, length: 2) == b"He"
+  assert r.stdout[..2] == b"He"
   uu.no_stderr(r)
 }
 
