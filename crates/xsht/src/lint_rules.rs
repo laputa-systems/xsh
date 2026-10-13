@@ -242,7 +242,7 @@ lint_rules! {
     LintStringlyTypedMatch: (RuleSetting::Always, [], FixPolicy::NoFix, [RuleHook::Statement(StatementSite::StringlyMatch, lint_statement_stringly_match)]);
     LintUnsortedImports: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::ImportBlock, run_import_block_hook)]);
     LintUnusedCallable: (RuleSetting::DeadCode, [], FixPolicy::NoFix, [RuleHook::Root(RootStage::DeclarationReachability, run_unused_callable_hook)]);
-    LintUnusedLocal: (RuleSetting::Always, [], FixPolicy::NoFix, [RuleHook::ScopeExit(run_unused_local_hook)]);
+    LintUnusedLocal: (RuleSetting::Always, [LocalBindingTypes], FixPolicy::NoFix, [RuleHook::ScopeExit(run_unused_local_hook)]);
     LintUnusedType: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::UnusedTypes, run_unused_types_hook)]);
     LintPreferInferredProcReturn: (RuleSetting::OptIn(RuleOption::InferredProcReturns), [CheckerDiagnostics, ExpressionTypes, FunctionReturns, FunctionEffects, StatementPositions, ParameterTypes, ReturnProofProbe], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::InferredProcReturns, run_inferred_proc_return_hook)]);
     LintRedundantUseAlias: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::RedundantUseAlias, run_redundant_use_alias_hook)]);
@@ -1405,7 +1405,7 @@ pub(super) fn root_hooks<'source>(
 }
 #[cfg(test)]
 mod tests {
-    use super::{LINT_RULES, LintOptions, Linter, RuleSelection, lint_codes};
+    use super::{CheckedFact, LINT_RULES, LintOptions, Linter, RuleSelection, lint_codes, rule};
     use xsh::diagnostic::{DiagnosticCode, DiagnosticFamily};
     #[test]
     fn table_contains_every_lint_code_once() {
@@ -1428,6 +1428,7 @@ mod tests {
             })
         };
         let no_facts = selection(Some(vec![DiagnosticCode::LintRunless]), Vec::new());
+        let unused_local = selection(Some(vec![DiagnosticCode::LintUnusedLocal]), Vec::new());
         let checked = selection(Some(vec![DiagnosticCode::LintPreferListSplicing]), Vec::new());
         let default_parameter = selection(Some(vec![DiagnosticCode::LintDefaultParamType]), Vec::new());
         let parser_alias = selection(Some(vec![DiagnosticCode::LintBlockHeader]), Vec::new());
@@ -1436,6 +1437,11 @@ mod tests {
             vec![DiagnosticCode::LintPreferListSplicing],
         );
         assert!(!no_facts.requires_check_output());
+        assert_eq!(
+            rule(DiagnosticCode::LintUnusedLocal).unwrap().facts,
+            &[CheckedFact::LocalBindingTypes],
+        );
+        assert!(unused_local.requires_check_output());
         assert!(!selection(Some(vec![DiagnosticCode::LintRunStatus]), Vec::new()).requires_check_output());
         assert!(selection(Some(vec![DiagnosticCode::LintPreferMapLiteral]), Vec::new()).requires_check_output());
         assert!(!selection(Some(vec![DiagnosticCode::LintPreferEmptyMapLiteral]), Vec::new()).requires_check_output());

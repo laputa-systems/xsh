@@ -1957,29 +1957,29 @@ impl<'a> Linter<'a> {
 
 #[cfg(test)]
 mod unused_local_resource_tests {
-    use super::super::{LintOptions, Linter};
+    use super::super::{LintOptions, Linter, lint_requires_check_output};
     use xsh::diagnostic::DiagnosticCode;
-    use xsh::frontend::check::Checker;
+    use xsh::frontend::check::{Checker, Type};
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
     #[test]
-    fn scope_owned_resource_bindings_are_not_reported_as_unused() {
-        let source = "proc hold_lock() [fs, error] -> Result[Unit] {\n  let lock = fs.lock(p\"unused-lint-lock\")?\n  Ok()\n}\nproc hold_stream() [process, error] {\n  let kept = run.stream --text printf value\n}\npure ignore_scalar() -> Int {\n  let unused = 1\n  0\n}\n";
+    fn unused_local_requests_checked_types_for_deferred_resource_owners() {
+        let source = "proc hold_locks(first_path: Path, second_path: Path) [fs, error] -> Result[Unit] {\n  let lock = fs.lock(first_path)?\n  let second_lock = fs.lock(second_path)?\n  defer {\n    assert true\n  }\n  Ok()\n}\nproc hold_stream() [process, error] {\n  let owned = run.stream --text --accept=[0] printf value\n  defer {\n    let kept = owned\n    assert true\n  }\n}\npure ignore_scalar() -> Int {\n  let unused = 1\n  0\n}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let diagnostics = Linter::lint(
-            &parsed.arena,
-            source,
-            LintOptions {
-                checked_output: Some(std::sync::Arc::new(checked)),
-                only: Some(vec![DiagnosticCode::LintUnusedLocal]),
-                ..LintOptions::default()
-            },
-        )
-        .diagnostics;
+        assert!(checked.local_binding_types.values().any(|ty| *ty == Type::FsLock));
+        assert!(checked.local_binding_types.values().any(|ty| matches!(ty, Type::Stream(item) if item.as_ref() == &Type::Str)));
+
+        let mut options = LintOptions {
+            only: Some(vec![DiagnosticCode::LintUnusedLocal]),
+            ..LintOptions::default()
+        };
+        options.checked_output = lint_requires_check_output(&options)
+            .then(|| std::sync::Arc::new(checked));
+        let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert_eq!(
             diagnostics[0].message,
