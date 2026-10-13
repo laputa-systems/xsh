@@ -354,7 +354,7 @@ test test_uu_od_no_offset { |ctx|
   let s = od_scene(ctx)?
   let LINE = " 00000000 00000000 00000000 00000000\n"
   let input = bytes.from_ints([0 for _ in range(31)])?
-  let expected_output = [LINE, LINE, LINE, LINE].join("")
+  let expected_output = LINE + LINE + LINE + LINE
   let r1 = uu.invoke(s, "od", ["-An", "-X", "-X"], stdin: input)?
   uu.succeeds(r1)
   uu.stdout_only(r1, expected_output)
