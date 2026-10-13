@@ -181,7 +181,7 @@ pure encode_charset(data: Bytes, opts: Options) -> Result[Bytes] {
 }
 
 pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
-  var pieces: List[Bytes] = []
+  var pieces = []
   for block in records {
     var values = [block.byte_at(i) ?? 0 for i in range(block.len())]
     if "sync" in opts.conv and block.len() < opts.ibs {
@@ -219,7 +219,7 @@ pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
     return Ok({data: b"", blocks: block_outputs, truncated: truncated})
   }
   if "unblock" in opts.conv {
-    var out: List[Bytes] = []
+    var out = []
     for block in mapped.chunks(opts.cbs) {
       var end = block.len()
       while end > 0 and block.byte_at(end - 1) == 32 { end -= 1 }
@@ -386,7 +386,7 @@ proc reopen_without_direct(fd: Int, dest: Path, offset: Int, flags: List[Str]) [
 
 proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
   let dest = if let output = opts.output { output } else { fp"/dev/stdout" }
-  var output_fd: Int? = null
+  var output_fd = null
   var output_kind = 0
   if opts.output != null {
     if "nocreat" in opts.conv and ! dest.exists() { fail "No such file or directory" }
@@ -407,7 +407,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   }
   var source: tio.Source? = null
   if let input = opts.input { source = open_dd_source(input)? }
-  var input_fd: Int? = null
+  var input_fd = null
   if let file = source {
     if file.kind in [1, 2, 6] or ! opts.input_flags.is_empty() { input_fd = unix.open_fd(file.path, nonblock: false, flags: opts.input_flags)? }
     if file.mode == "file" and opts.output != null and output_kind == 8 and ! ("sparse" in opts.conv) and opts.input_flags.is_empty() and opts.output_flags.is_empty() {
@@ -453,8 +453,8 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   var complete = 0
   var partial = 0
   var written = 0
-  var failure: Str? = null
-  var output_chunks: List[Bytes] = []
+    var failure = null
+    var output_chunks = []
   var output_length = 0
   var output_position = 0
   # A NUL output block is skipped by seeking, which leaves existing bytes in place
@@ -576,7 +576,7 @@ proc require_directory_input(input: Path?) [fs, process, env, error, io] {
 
 ## The records of a block conversion with their padding, joined for one write.
 proc joined_records(blocks: List[BlockOutput]) [error] -> Result[Bytes] {
-  var pieces: List[Bytes] = []
+  var pieces = []
   for record in blocks {
     pieces += [record.data, bytes.from_ints([record.pad_byte for _ in range(record.padding)])?]
   }
@@ -626,8 +626,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     if copied.discard_failed { exit 1 }
     return
   }
-  var records: List[Bytes] = []
-  var source_fd: Int? = null
+    var records = []
+    var source_fd = null
   var source_seekable = false
   if let input = opts.input {
     guard let source = open_dd_source(input) else { |failure| gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
@@ -672,7 +672,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   } else if limit > 0 {
     if let input = opts.input {
       guard let source = open_dd_source(input) else { |failure| gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
-      var chunks: List[Bytes] = []
+        var chunks = []
       var at = skip
       var remaining = limit
       loop {
@@ -720,7 +720,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   let complete = [record for record in records if record.len() == opts.ibs].len()
   let converted = transform(records, opts)?
   var written = 0
-  var write_failure: Str? = null
+  var write_failure = null
   if opts.output == null and "append" in opts.output_flags {
     # Append mode belongs to the open file description, so standard output is
     # written through /dev/stdout, as the plain path does.
