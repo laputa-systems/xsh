@@ -1,7 +1,8 @@
 /-!
-An independent model of the byte-lexical `RelPath` boundary. Paths are lists
-of bytes, components are separated by `/`, and only the depth of `..`
-components matters. Validation wraps the exact input bytes in a subtype.
+An independent model of the byte-lexical `RelPath` boundary. Path candidates
+are lists of bytes; a valid Path contains no NUL byte. Components are separated
+by `/`, and only the depth of `..` components matters. Validation wraps the
+exact input bytes in a subtype.
 
 The laws and witnesses here do not establish checker/runtime correspondence,
 Rust conformance, filesystem confinement through symlinks, or full validated
@@ -14,6 +15,7 @@ abbrev PathBytes := List UInt8
 
 def slashByte : UInt8 := UInt8.ofNat 47
 def dotByte : UInt8 := UInt8.ofNat 46
+def nulByte : UInt8 := UInt8.ofNat 0
 
 def advanceComponent (depth : Nat) (component : List UInt8) : Option Nat :=
   if component = [] || component = [dotByte] then
@@ -36,7 +38,9 @@ def scanPath (bytes : PathBytes) : Option Nat :=
   else
     scanComponents (bytes.splitOn slashByte) 0
 
-def isRelPath (bytes : PathBytes) : Prop := scanPath bytes ≠ none
+def isPathBytes (bytes : PathBytes) : Prop := nulByte ∉ bytes
+
+def isRelPath (bytes : PathBytes) : Prop := isPathBytes bytes ∧ scanPath bytes ≠ none
 
 instance (bytes : PathBytes) : Decidable (isRelPath bytes) := by
   unfold isRelPath
@@ -71,6 +75,12 @@ theorem parent_with_depth_decreases (depth : Nat) :
     advanceComponent (depth + 1) [dotByte, dotByte] = some depth := by
   simp [advanceComponent]
 
+theorem ordinary_component_increases_depth (depth : Nat) (component : List UInt8)
+    (not_empty : component ≠ []) (not_dot : component ≠ [dotByte])
+    (not_parent : component ≠ [dotByte, dotByte]) :
+    advanceComponent depth component = some (depth + 1) := by
+  simp [advanceComponent, not_empty, not_dot, not_parent]
+
 theorem empty_path_is_rejected : ¬ isRelPath [] := by
   decide
 
@@ -91,6 +101,10 @@ theorem cancelling_parent_is_accepted :
     isRelPath (asciiBytes [97, 47, 46, 46, 47, 98]) := by
   decide
 
+theorem cancelling_parent_to_start_is_accepted :
+    isRelPath (asciiBytes [97, 47, 46, 46]) := by
+  decide
+
 theorem escaping_parent_is_rejected :
     ¬ isRelPath (asciiBytes [97, 47, 46, 46, 47, 46, 46]) := by
   decide
@@ -99,6 +113,12 @@ theorem non_utf8_name_is_accepted :
     isRelPath [UInt8.ofNat 97, slashByte, UInt8.ofNat 255, slashByte,
       UInt8.ofNat 98] := by
   decide
+
+theorem nul_byte_is_rejected (before after : PathBytes) :
+    ¬ isRelPath (before ++ nulByte :: after) := by
+  intro accepted
+  have nul_present : nulByte ∈ before ++ nulByte :: after := by simp
+  exact accepted.1 nul_present
 
 theorem introduce_erases_exactly (bytes : PathBytes) (accepted : isRelPath bytes) :
     erase (introduce bytes accepted) = bytes := rfl
