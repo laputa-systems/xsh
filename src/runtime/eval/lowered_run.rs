@@ -25,7 +25,7 @@ use crate::runtime::run::execute_run_with_policy;
 use crate::runtime::value::{
     CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream,
     DurationValue, FunctionName, LiveStream, PathValue, ProcessHandleValue, RecordMap, RegexValue,
-    RunError, RuntimeError, StreamItemErrorContext, StreamValue, Value, error_constructor,
+    RunError, RuntimeError, StreamValue, Value, error_constructor,
     identified_structured_error_constructor,
 };
 use crate::sema::types::Type;
@@ -7136,7 +7136,7 @@ impl Evaluator {
         item_index: usize,
         mut error: RuntimeError,
     ) -> RuntimeError {
-        if error.abort.is_some() || error.stream_item_context.is_some() {
+        if error.abort.is_some() {
             return error;
         }
         self.trace_leaf(
@@ -7153,8 +7153,28 @@ impl Evaluator {
             "stream stage `{stage}` item {item_index} failed: {}",
             error.message
         );
-        error.stream_item_context = Some(StreamItemErrorContext { stage, item_index });
         error
+    }
+
+    /// Wrap a stage error that is leaving a nested evaluator operation. The
+    /// marker lives on this evaluator until explicit unwinding begins, where it
+    /// prevents an outer pending map callback from attributing the same error.
+    fn stream_item_runtime_error_before_unwind(
+        &mut self,
+        stage: &'static str,
+        item_index: usize,
+        error: RuntimeError,
+    ) -> RuntimeError {
+        if self.pending_stream_item_error_unwind {
+            return error;
+        }
+        let error = self.stream_item_runtime_error(stage, item_index, error);
+        self.pending_stream_item_error_unwind = error.abort.is_none();
+        error
+    }
+
+    pub(super) fn take_pending_stream_item_error_unwind(&mut self) -> bool {
+        std::mem::take(&mut self.pending_stream_item_error_unwind)
     }
 
     pub(super) fn trace_process_run_start(&mut self, span: Span, invocation: &ProcessInvocation) {

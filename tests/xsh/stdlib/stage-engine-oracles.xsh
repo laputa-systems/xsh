@@ -412,6 +412,77 @@ let _ = [7, 8] |> map { |outer|
   assert callback_error.stderr.split("kind=stream.item.error").len() - 1 == 1
 }
 
+test test_stage_engine_nested_par_map_error_wraps_once { |ctx|
+  let source = r"""
+let _ = [7, 8] |> map { |outer|
+  let inner = if outer == 8 {
+    [0, 1] |> par-map(jobs: 2) { |item|
+      let adjusted = item + outer
+      10 / item
+    } |> collect()
+  } else { [] }
+  inner.len()
+} |> collect()
+"""
+  let callback_error = test.run_xsht_trace(ctx, source, ["--trace", "--raw"])?
+  assert callback_error.status == 3, callback_error.stderr
+  assert "err: division-by-zero: stream stage `par-map` item 0 failed: division by zero" in callback_error.stderr
+  assert "stream stage `map` item 1 failed" not in callback_error.stderr
+  assert callback_error.stderr.split("kind=stream.item.error").len() - 1 == 1
+
+  let parallel_error = test.run_xsh(ctx, source)?
+  assert parallel_error.status == 3, parallel_error.stderr
+  assert "stream stage `par-map` item 0 failed: division by zero" in parallel_error.stderr
+  assert "stream stage `map` item 1 failed" not in parallel_error.stderr
+}
+
+test test_stage_engine_flat_map_collection_error_keeps_item_context { |ctx|
+  let collection_error = test.run_xsht_trace(
+    ctx,
+    r"""
+stream singleton(item: Int) [] -> Stream[Int] { yield item }
+stream broken() [] -> Stream[Int] {
+  let quotient = 10 / 0
+  yield quotient
+}
+let _ = [1, 2] |> flat-map { |item|
+  if item == 2 { broken() } else { singleton(item) }
+} |> collect()
+""",
+    ["--trace", "--raw"],
+  )?
+  assert collection_error.status == 3, collection_error.stderr
+  assert "err: division-by-zero: stream stage `map` item 1 failed: division by zero" in collection_error.stderr
+  assert "kind=stream.item.error" in collection_error.stderr
+  assert "item_index=1" in collection_error.stderr
+}
+
+test test_stage_engine_nested_flat_map_collection_error_wraps_once { |ctx|
+  let collection_error = test.run_xsht_trace(
+    ctx,
+    r"""
+stream broken() [] -> Stream[Int] {
+  let quotient = 10 / 0
+  yield quotient
+}
+let _ = [7, 8] |> map { |outer|
+  let inner = if outer == 8 {
+    [1] |> flat-map { |item|
+      let adjusted = item + outer
+      broken()
+    } |> collect()
+  } else { [] }
+  inner.len()
+} |> collect()
+""",
+    ["--trace", "--raw"],
+  )?
+  assert collection_error.status == 3, collection_error.stderr
+  assert "err: division-by-zero: stream stage `map` item 0 failed: division by zero" in collection_error.stderr
+  assert "stream stage `map` item 1 failed" not in collection_error.stderr
+  assert collection_error.stderr.split("kind=stream.item.error").len() - 1 == 1
+}
+
 test test_stage_engine_for_body_error_is_not_a_map_item_error { |ctx|
   let for_body_error = test.run_xsht_trace(
     ctx,

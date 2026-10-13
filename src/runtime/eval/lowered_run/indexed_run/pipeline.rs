@@ -270,7 +270,7 @@ impl Evaluator {
                     continue;
                 }
                 let value = result.map_err(|error| {
-                    self.stream_item_runtime_error("par-map", item_index, error)
+                    self.stream_item_runtime_error_before_unwind("par-map", item_index, error)
                 })?;
                 if let Some(flow) = flow {
                     self.pending_value_block_flow = Some(flow);

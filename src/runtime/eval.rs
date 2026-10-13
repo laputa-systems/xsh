@@ -2605,6 +2605,9 @@ pub struct Evaluator {
     last_status: Option<ProcessStatus>,
     trace_enabled: bool,
     pending_value_block_flow: Option<StmtFlow>,
+    // An eager stage error was wrapped before it entered explicit unwinding.
+    // Consume this once so an outer pending map callback does not wrap it too.
+    pending_stream_item_error_unwind: bool,
     cleanup_error_contexts: Vec<ErrorContext>,
     trace_events: Vec<TraceEvent>,
     event_stack: Vec<TraceFrame>,
@@ -2918,6 +2921,7 @@ impl Evaluator {
             last_status: None,
             trace_enabled: false,
             pending_value_block_flow: None,
+            pending_stream_item_error_unwind: false,
             cleanup_error_contexts: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
@@ -3157,6 +3161,7 @@ impl Evaluator {
             last_status: None,
             trace_enabled: false,
             pending_value_block_flow: None,
+            pending_stream_item_error_unwind: false,
             cleanup_error_contexts: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
@@ -6717,7 +6722,6 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 facets,
                 span: error.span.or(Some(span)),
                 contexts: error.contexts,
-                stream_item_context: None,
                 cause: error.cause,
                 abort: None,
                 within: None,

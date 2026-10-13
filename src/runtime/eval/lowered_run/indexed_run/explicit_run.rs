@@ -4023,6 +4023,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.result = Some(Err(error));
             return;
         }
+        let mut stage_error_was_wrapped =
+            self.evaluator.take_pending_stream_item_error_unwind();
         // A failure that starts to unwind is a `within` checkpoint: what
         // fails after the deadline, such as the child the deadline stopped,
         // leaves as the scope's timeout.
@@ -4034,9 +4036,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .unwrap_or_else(crate::runtime::eval::zero_span);
             if let Err(timeout) = self.evaluator.check_within_deadline(span) {
                 error = timeout;
+                stage_error_was_wrapped = false;
             }
         }
-        if error.abort.is_none() && self.pending_error.is_none() {
+        if !stage_error_was_wrapped && error.abort.is_none() && self.pending_error.is_none() {
             // A block callback leaves statement and function frames above the
             // pipeline continuation while an item error unwinds.
             let stage_item = self.calls.iter().rev().find_map(|call| {
@@ -11980,8 +11983,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.complete_call(index, StmtFlow::Return(value))
             }
             Err(error) => {
+                let stage_item = pipeline
+                    .pending_map_error_item()
+                    .map(|item_index| ("map", item_index));
                 let _ = pipeline.finish(self.evaluator, Some(&error));
-                Err(error)
+                Err(match stage_item {
+                    Some((stage, item_index)) => self
+                        .evaluator
+                        .stream_item_runtime_error_before_unwind(stage, item_index, error),
+                    None => error,
+                })
             }
         }
     }
@@ -12033,8 +12044,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             Err(error) => {
+                let stage_item = pipeline.pending_item_error();
                 let _ = pipeline.finish(self.evaluator, Some(&error));
-                Err(error)
+                Err(match stage_item {
+                    Some((stage, item_index)) => self
+                        .evaluator
+                        .stream_item_runtime_error_before_unwind(stage, item_index, error),
+                    None => error,
+                })
             }
         }
     }

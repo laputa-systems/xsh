@@ -2128,7 +2128,20 @@ impl IndexedSerialPipeline {
                         SerialExprKind::Map { flat } => {
                             slots[awaiting.slot] = LoweredValue::Unit;
                             if flat {
-                                let rows = evaluator.lowered_flat_map_rows(value, self.span)?;
+                                let rows = match evaluator.lowered_flat_map_rows(value, self.span) {
+                                    Ok(rows) => rows,
+                                    Err(error) => {
+                                        self.awaiting = Some(SerialAwait {
+                                            stage_index: awaiting.stage_index,
+                                            slot: awaiting.slot,
+                                            item: awaiting.item,
+                                            phase: SerialAwaitPhase::Expr(
+                                                SerialExprKind::Map { flat },
+                                            ),
+                                        });
+                                        return Err(error);
+                                    }
+                                };
                                 self.pending.extend(
                                     rows.into_iter()
                                         .rev()
@@ -2246,11 +2259,15 @@ impl IndexedSerialPipeline {
                             match evaluator.indexed_borrowed_field_value(&input, field, *field_span) {
                                 Ok(projected) => projected,
                                 Err(error) => {
-                                    return Err(evaluator.stream_item_runtime_error(
-                                        "map",
-                                        self.source_index.saturating_sub(1),
-                                        error,
-                                    ));
+                                    self.awaiting = Some(SerialAwait {
+                                        stage_index,
+                                        slot,
+                                        item: input,
+                                        phase: SerialAwaitPhase::Expr(
+                                            SerialExprKind::Map { flat },
+                                        ),
+                                    });
+                                    return Err(error);
                                 }
                             }
                         } else {
