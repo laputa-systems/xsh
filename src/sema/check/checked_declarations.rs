@@ -29,6 +29,16 @@ pub struct InstantiatedTypeExpressions {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CheckedFunctionKind { Proc, Pure, Stream, CliMain }
 
+/// Identity of a user function selected while checking one call. The arena
+/// ID identifies its declaration within its source arena; namespace and name
+/// distinguish arena-local IDs when module arenas are combined.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CheckedFunctionTarget {
+    pub(crate) definition: FunctionDefId,
+    pub(crate) namespace: Option<Name>,
+    pub(crate) name: Name,
+}
+
 #[derive(Clone, Debug)]
 pub struct CheckedTypeDeclaration {
     pub name: Name,

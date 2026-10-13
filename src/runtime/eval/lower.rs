@@ -3,7 +3,8 @@
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use crate::runtime::value::{DurationValue, PathValue, RegexValue, RuntimeError, Value};
 use crate::sema::check::{
-    BindingId, BindingKind, CheckBundleView, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, Conversion,
+    BindingId, BindingKind, CheckBundleView, CheckedApiCall, CheckedFunctionTarget,
+    CompactBodyFacts, CompactDeclOutput, Conversion,
     ResourceTransferSite, block_callable_body_cannot_fall_through_arena,
 };
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
@@ -863,6 +864,27 @@ impl CompactFunctionIndex {
         self.index_of
             .get(&key)
             .and_then(|index| self.defs.get(*index))
+    }
+
+    fn checked_target_key(
+        &self,
+        target: crate::sema::check::CheckedFunctionTarget,
+    ) -> Option<LoweredFunctionKey> {
+        self.defs.iter().find_map(|function| {
+            if function.id != target.definition {
+                return None;
+            }
+            let matches = match function.key {
+                LoweredFunctionKey::Name(name) => {
+                    target.namespace.is_none() && name == target.name
+                }
+                LoweredFunctionKey::Qualified(qualified) => {
+                    target.namespace == Some(qualified.namespace)
+                        && qualified.member == target.name
+                }
+            };
+            matches.then_some(function.key)
+        })
     }
 }
 

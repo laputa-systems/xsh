@@ -402,6 +402,7 @@ impl Checker {
                 return Type::Unknown;
             }
             if let Some(sig) = self.procs.get(&name).cloned() {
+                self.record_selected_function_call(span, &sig);
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -420,6 +421,7 @@ impl Checker {
                 return sig.return_ty;
             }
             if let Some(sig) = self.pures.get(&name).cloned() {
+                self.record_selected_function_call(span, &sig);
                 self.check_function_call_arguments_arena(
                     arena, source, args, &sig.params, span, checked_argument,
                 );
@@ -427,6 +429,7 @@ impl Checker {
                 return sig.return_ty;
             }
             if let Some(sig) = self.streams.get(&name).cloned() {
+                self.record_selected_function_call(span, &sig);
                 if self.boundary.in_pure {
                     self.error(
                         span,
@@ -552,6 +555,7 @@ impl Checker {
                 }
                 let qualified = QualifiedName::new(module, name);
                 if let Some(sig) = self.qualified_pures.get(&qualified).cloned() {
+                    self.record_selected_function_call(span, &sig);
                     self.check_function_call_arguments_arena(
                         arena, source, args, &sig.params, span, checked_argument,
                     );
@@ -559,6 +563,7 @@ impl Checker {
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_procs.get(&qualified).cloned() {
+                    self.record_selected_function_call(span, &sig);
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -575,6 +580,7 @@ impl Checker {
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_streams.get(&qualified).cloned() {
+                    self.record_selected_function_call(span, &sig);
                     if self.boundary.in_pure {
                         self.error(
                             span,
@@ -1015,6 +1021,9 @@ impl Checker {
                 }
                 _ => None,
             });
+        if let Some(signature) = &signature {
+            self.record_selected_function_call(span, signature);
+        }
         let parameters = signature.map(|signature| signature.params).or_else(|| {
             let definition = self.record_constructors.constructor_definition(
                 &arena.arena,
@@ -1203,6 +1212,15 @@ impl Checker {
                 .remove(&call_arg_expr_id_arena(&arg.kind));
         }
         result
+    }
+
+    fn record_selected_function_call(&mut self, span: Span, signature: &super::FunctionSig) {
+        let Some(target) = signature.definition_target else {
+            return;
+        };
+        if let Some(previous) = self.selected_function_calls.insert(span, target) {
+            assert_eq!(previous, target, "a call resolved to conflicting function definitions");
+        }
     }
 
     fn check_inferred_record_constructor_arena(

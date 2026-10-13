@@ -92,6 +92,9 @@ pub struct CompactBodyFacts {
     /// Registered method and module function calls keyed by call expression;
     /// a stage callable's plan is keyed by its callee.
     pub api_calls: FxHashMap<ExprId, super::CheckedApiCall>,
+    /// Checker-selected user declarations for static function calls.
+    pub(crate) selected_function_calls:
+        FxHashMap<ExprId, super::CheckedFunctionTarget>,
     pub module_commands: BTreeMap<Span, super::CheckedModuleCommand>,
     /// User callable calls and structured stages keyed by their source span.
     pub argument_bindings: BTreeMap<Span, super::CheckedArguments>,
@@ -181,6 +184,9 @@ impl CompactBodyFacts {
             }
             if let Some(call) = checked.api_calls.get(&span) {
                 facts.api_calls.insert(id, call.clone());
+            }
+            if let Some(target) = checked.selected_function_calls.get(&span) {
+                facts.selected_function_calls.insert(id, *target);
             }
             if matches!(expression.kind, ArenaExprKind::Call { .. })
                 && let Some(instance) = checked.resolved_type_expressions.instantiations.get(&span) {

@@ -340,6 +340,7 @@ impl Checker {
             std::mem::take(&mut self.proven_nonnull_fallback_receivers);
         let static_callable_aliases = std::mem::take(&mut self.static_callable_aliases);
         let typed_callable_calls = std::mem::take(&mut self.typed_callable_calls);
+        let selected_function_calls = std::mem::take(&mut self.selected_function_calls);
         let diagnostics = std::mem::take(&mut self.diagnostics);
         let annotation_facts = std::mem::take(&mut self.annotation_facts);
         let reveal_types = std::mem::take(&mut self.reveal_types);
@@ -371,6 +372,7 @@ impl Checker {
         self.proven_nonnull_fallback_receivers = proven_nonnull_fallback_receivers;
         self.static_callable_aliases = static_callable_aliases;
         self.typed_callable_calls = typed_callable_calls;
+        self.selected_function_calls = selected_function_calls;
         self.diagnostics = diagnostics;
         self.annotation_facts = annotation_facts;
         self.reveal_types = reveal_types;

@@ -685,6 +685,9 @@ struct BuildScratch {
     /// Exact checker types for callable expressions, structured error constructors,
     /// and error sources; aligned with `expressions` until instruction encoding.
     checked_expr_types: Vec<Option<CheckedExprType>>,
+    /// Lowered identities of checker-selected declarations, aligned with
+    /// expressions until instruction encoding.
+    checked_call_targets: Vec<Option<CheckedCallTarget>>,
     /// Binary expressions with a checked operand other than Int (a Duration,
     /// even when the result is an Int interval count, or Str concatenation)
     /// prohibit integer-only specialization.
@@ -696,6 +699,11 @@ struct BuildScratch {
     ints: Vec<BuildIntRow>,
     bools: Vec<BuildBoolRow>,
     top_statements: Vec<BuildTopStmtRow>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CheckedCallTarget {
+    function: LoweredFunctionKey,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -729,7 +737,26 @@ impl BuildScratch {
         let id = BuildExprId::new(self.expressions.len());
         self.expressions.push(row);
         self.checked_expr_types.push(None);
+        self.checked_call_targets.push(None);
         id
+    }
+
+    fn record_checked_call_target(
+        &mut self,
+        id: BuildExprId,
+        function: LoweredFunctionKey,
+    ) -> bool {
+        let Some(target) = self.checked_call_targets.get_mut(id.index()) else {
+            return false;
+        };
+        let checked = CheckedCallTarget { function };
+        match target {
+            Some(existing) => *existing == checked,
+            None => {
+                *target = Some(checked);
+                true
+            }
+        }
     }
 
     fn record_checked_expr_type(

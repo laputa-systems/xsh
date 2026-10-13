@@ -746,6 +746,11 @@ impl Checker {
             explicit_return: !def.return_ty_defaulted,
             is_alias: false,
             definition: Some(program.arena.span(program.arena.block(def.body).span)),
+            definition_target: Some(super::CheckedFunctionTarget {
+                definition: def_id,
+                namespace: self.current_namespace,
+                name: def.name,
+            }),
             params: program
                 .arena
                 .params(def.params)

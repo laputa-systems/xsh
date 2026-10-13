@@ -35,6 +35,52 @@ proc main() [io] {
   assert valid.stdout == "0\n1\n2\n1\n2\n", valid.stdout
 }
 
+test test_user_defined_range_calls_keep_the_resolved_target { |ctx|
+  for case in [
+    {
+      declaration: "stream range(end: Int) -> Stream[Int] { yield end }\n",
+      call: "range(3).collect()",
+      expected: "[3]",
+    },
+    {
+      declaration: "pure range(end: Int) -> Int { end }\n",
+      call: "range(end: 3)",
+      expected: "3",
+    },
+    {
+      declaration: "proc range(end: Int) [] -> Int { return end }\n",
+      call: "range(3)",
+      expected: "3",
+    },
+    {
+      declaration: "pure range(value: Int) -> Int { value + 10 }\n",
+      call: "([1, 2] |> map(range) |> collect())",
+      expected: "[11, 12]",
+    },
+  ] {
+    let source = case.declaration + "proc main() {\n  assert " + case.call + " == " + case.expected + "\n}\n"
+    test.expect(ctx, source, status: 0)?
+  }
+}
+
+test test_imported_range_call_keeps_its_selected_function { |ctx|
+  let root = test.temp_dir(ctx, name: "imported-range")?
+  fp"{root}/helper.xsh".write(r"""##! A user function whose name overlaps the stream constructor.
+## Produce the one row associated with the supplied endpoint.
+export stream range(end: Int) -> Stream[Int] {
+  yield end
+}
+""")
+  let output = test.expect(
+    ctx,
+    "use helper\nassert helper.range(end: 3).collect() == [3]\n",
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert output.stdout == "", output.stdout
+}
+
 test test_pipeline_parameters_shadow_outer_bindings_and_restore_their_types { |ctx|
   for stage in ["fold", "reduce"] {
     let source = r"""type Totals = {values: Map[Int], seed: Str, item: Str}

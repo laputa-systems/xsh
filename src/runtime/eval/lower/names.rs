@@ -67,6 +67,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .or_else(|| self.compact_imported_unqualified_function_sig(name))
     }
 
+    pub(super) fn compact_function_sig_for_key(
+        &self,
+        key: LoweredFunctionKey,
+    ) -> Option<&crate::sema::check::CompactFunctionSig> {
+        match key {
+            LoweredFunctionKey::Name(name) => self
+                .declarations
+                .pures
+                .get(&name)
+                .or_else(|| self.declarations.procs.get(&name))
+                .or_else(|| self.declarations.streams.get(&name)),
+            LoweredFunctionKey::Qualified(qualified) => self
+                .declarations
+                .qualified_pures
+                .get(&qualified)
+                .or_else(|| self.declarations.qualified_procs.get(&qualified))
+                .or_else(|| self.declarations.qualified_streams.get(&qualified)),
+        }
+    }
+
     pub(super) fn compact_direct_pure_call_candidate(&self, key: LoweredFunctionKey) -> bool {
         let definitions = self.function_index();
         let Some(function) = definitions.definition(key) else {

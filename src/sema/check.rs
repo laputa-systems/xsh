@@ -328,6 +328,7 @@ mod collect;
 mod checked_declarations;
 pub use checked_declarations::{CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
     CheckedFunctionKind, CheckedTypeDeclaration, InstantiatedTypeExpressions, ResolvedTypeExpressions};
+pub(crate) use checked_declarations::CheckedFunctionTarget;
 mod scopecheck;
 pub use scopecheck::{BindingDeclaration, BindingId, BindingKind, ResolvedBindings};
 #[path = "check/command.rs"]
@@ -602,6 +603,10 @@ pub struct CheckOutput {
     /// expression, with the signature the call was checked against. Lowering
     /// reads the signature here instead of working out what the callee is.
     pub typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
+    /// The checker-selected declaration for each statically resolved user
+    /// function call. Lowering consumes this identity instead of resolving
+    /// the call again from its spelling.
+    pub(crate) selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
     /// List index expressions whose index is a negative integer literal,
     /// with the distance from the end it names: `items[-2]` is 2. Only these
     /// count from the end; lowering reads this instead of looking at the
@@ -663,6 +668,8 @@ impl CheckOutput {
             .extend(module.resolved_type_expressions.instantiations);
         self.static_callable_aliases
             .append(&mut module.static_callable_aliases);
+        self.selected_function_calls
+            .append(&mut module.selected_function_calls);
         self.local_binding_types
             .append(&mut module.local_binding_types);
         self.proven_nonnull_fallback_receivers
@@ -945,6 +952,7 @@ pub(super) struct FunctionSig {
     explicit_return: bool,
     is_alias: bool,
     definition: Option<Span>,
+    definition_target: Option<CheckedFunctionTarget>,
     params: Vec<FunctionParamSig>,
     return_ty: Type,
     return_schema: Option<super::constants::SchemaExpectation>,
@@ -1277,6 +1285,7 @@ pub struct Checker {
     pub(super) type_constraints: super::constraints::TypeConstraints,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
+    selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources:
         FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
@@ -1572,6 +1581,7 @@ impl Checker {
             resolved_type_expressions: self.resolved_type_expressions,
             static_callable_aliases: self.static_callable_aliases,
             typed_callable_calls: self.typed_callable_calls,
+            selected_function_calls: self.selected_function_calls,
             local_binding_types: self.local_inference.checked_bindings,
             resolved_bindings: self.resolved_bindings,
             prepared_constants: self.prepared_constants,
@@ -1660,6 +1670,7 @@ impl Checker {
             boundary: BoundaryContext::default(),
             static_callable_aliases: BTreeMap::new(),
             typed_callable_calls: BTreeMap::new(),
+            selected_function_calls: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
             procs: FxHashMap::default(),
             byte_script_arguments: false,

@@ -155,6 +155,7 @@ impl Checker {
                 explicit_return: true,
                 is_alias: false,
                 definition: None,
+                definition_target: None,
                 params: sig
                     .params
                     .iter()

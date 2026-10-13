@@ -1,7 +1,8 @@
 use super::{
     Arc, ArenaCallArg, ArenaCallArgKind, ArenaExprKind, BuildExprId, BuildExprRow, CallableParamType,
     CompactLowerConstructProbe, ExprId, FxHashMap, FxHashSet, LoweredCallArg, LoweredFunctionKey,
-    LoweredHashVerifyFileArgs, LoweredProcessCommandArgv, LoweredRecordEntry, LoweredStrPredicate,
+    CheckedFunctionTarget, LoweredHashVerifyFileArgs, LoweredProcessCommandArgv, LoweredRecordEntry,
+    LoweredStrPredicate,
     LoweredTypeCheck,
     ModuleExportType, Name, QualifiedName, RuntimeOp, SlotScope, Span, StdlibLowerLinkage, Type,
     api_spec, compact_call_arg_expr, is_env_module_expr, lower_archive_tar_create_args,
@@ -11,6 +12,81 @@ use super::{
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    fn lower_checked_function_call(
+        &mut self,
+        id: ExprId,
+        args: &[ArenaCallArg],
+        target: CheckedFunctionTarget,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let function = self.function_index().checked_target_key(target)?;
+        let params = self.compact_function_sig_for_key(function)?.params.clone();
+        let lowered_args = self.lower_function_call_args(
+            args,
+            Some(&params),
+            self.call_argument_slots(id),
+            Some((function, 0)),
+            slots,
+            current_function,
+            item_slot,
+        )?;
+        let span = self.program.arena.expr(id).span;
+        self.lower_checked_function_call_values(
+            function,
+            lowered_args,
+            span,
+            current_function,
+        )
+    }
+
+    fn lower_checked_function_call_values(
+        &mut self,
+        function: LoweredFunctionKey,
+        lowered_args: Vec<LoweredCallArg>,
+        span: Span,
+        current_function: Option<Name>,
+    ) -> Option<BuildExprId> {
+        let self_call = current_function.is_some_and(|name| match function {
+            LoweredFunctionKey::Name(target) => self.current_namespace.is_none() && target == name,
+            LoweredFunctionKey::Qualified(target) => {
+                self.current_namespace == Some(target.namespace) && target.member == name
+            }
+        });
+        if let Some(op) = self.compact_bridge_op(function) {
+            let args = lowered_args
+                .into_iter()
+                .map(|arg| match arg {
+                    LoweredCallArg::Single(expr) => Some(expr),
+                    LoweredCallArg::Splice(_) | LoweredCallArg::Default(_) => None,
+                })
+                .collect::<Option<Vec<_>>>()?;
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::ModuleCall {
+                    call_plan: None,
+                    op,
+                    args: args.into_iter().map(Some).collect(),
+                    span,
+                }
+            ));
+        }
+        let row = if self_call {
+            BuildExprRow::SelfCall { args: lowered_args, span }
+        } else if self.compact_direct_pure_call_candidate(function) {
+            BuildExprRow::DirectPureCall { function, args: lowered_args, span }
+        } else {
+            BuildExprRow::Call { function, args: lowered_args, span }
+        };
+        let lowered = push_build_row!(self, expr, row);
+        self.scratch
+            .borrow_mut()
+            .record_checked_call_target(lowered, function)
+            .then_some(lowered)
+    }
+
     // The checker publishes a stage's one-item call at its descriptor span.
     // Preserve that selected overload and the ordinary runtime default boundary.
     pub(super) fn lower_stage_callable_call(
@@ -26,6 +102,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             let callee = self.lower_expr(callee, slots, current_function, None)?;
             BuildExprRow::DynamicCall { callee, args, span }
+        } else if let Some(target) = self.bodies.selected_function_calls.get(&callee).copied() {
+            let function = self.function_index().checked_target_key(target)?;
+            return self.lower_checked_function_call_values(
+                function,
+                args,
+                span,
+                current_function,
+            );
         } else if let Some(plan) = self.module_call_plan(callee) {
             if let Some(script) = plan.sig.script_impl() {
                 let namespace = self.internal_namespace(script.module)?;
@@ -384,6 +468,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 id,
                 callee,
                 args,
+                slots,
+                current_function,
+                item_slot,
+            );
+        }
+        if let Some(target) = self.bodies.selected_function_calls.get(&id).copied() {
+            return self.lower_checked_function_call(
+                id,
+                &args_vec,
+                target,
                 slots,
                 current_function,
                 item_slot,

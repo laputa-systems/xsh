@@ -18,7 +18,7 @@ use super::{
 use crate::modules::RuntimeOp;
 use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
-    BuildBoolId, BuildExprId, BuildIntId, BuildPatternId,
+    BuildBoolId, BuildExprId, BuildIntId, BuildPatternId, CheckedCallTarget,
     BuildPatternIdSlots, BuildScratch, BuildStmtId, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
@@ -368,6 +368,12 @@ struct FullCheckedExprType {
     with_error_source: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FullCheckedCallTarget {
+    instruction: u32,
+    function: IrFunctionId,
+}
+
 /// What a pipeline stage's parameter slot receives.
 enum PipelineStageSlotRole {
     /// The item the stage processes.
@@ -514,6 +520,8 @@ struct FullStore {
     /// Private true marks come only from checked facts emitted by the builder.
     /// They stay beside the instruction stream and never enter encoded payloads.
     resource_transfers: Vec<bool>,
+    /// Marks instructions whose selected declaration identity must be retained.
+    checked_call_target_required: Vec<bool>,
     data: Vec<IrData>,
     extra: Vec<u32>,
     patterns: Vec<FullPatternTag>,
@@ -533,6 +541,8 @@ struct FullStore {
     slot_type_facts: Vec<u32>,
     /// Sparse checker types for typed callables, structured errors, and error sources.
     checked_expr_types: Vec<FullCheckedExprType>,
+    /// Sparse checker-selected targets for direct user-function calls.
+    checked_call_targets: Vec<FullCheckedCallTarget>,
     /// Exact nominal payload fields attached to the checked pattern producers.
     checked_pattern_variants:
         BTreeMap<CheckedPatternVariantKey, FullPatternVariantSchema>,
@@ -573,6 +583,7 @@ impl Default for FullStore {
             source_id: SourceId::new(0),
             tags: Vec::new(),
             resource_transfers: Vec::new(),
+            checked_call_target_required: Vec::new(),
             data: Vec::new(),
             extra: Vec::new(),
             patterns: Vec::new(),
@@ -591,6 +602,7 @@ impl Default for FullStore {
             functions: Vec::new(),
             slot_type_facts: Vec::new(),
             checked_expr_types: Vec::new(),
+            checked_call_targets: Vec::new(),
             checked_pattern_variants: BTreeMap::new(),
             declared_pattern_variants: BTreeMap::new(),
             function_instruction_starts: Vec::new(),
@@ -714,6 +726,7 @@ impl FullStore {
         size_of::<Self>()
             + self.tags.capacity() * size_of::<FullTag>()
             + self.resource_transfers.capacity() * size_of::<bool>()
+            + self.checked_call_target_required.capacity() * size_of::<bool>()
             + self.data.capacity() * size_of::<IrData>()
             + self.extra.capacity() * size_of::<u32>()
             + self.patterns.capacity() * size_of::<FullPatternTag>()
@@ -731,6 +744,7 @@ impl FullStore {
             + self.functions.capacity() * size_of::<FullFunction>()
             + self.slot_type_facts.capacity() * size_of::<u32>()
             + self.checked_expr_types.capacity() * size_of::<FullCheckedExprType>()
+            + self.checked_call_targets.capacity() * size_of::<FullCheckedCallTarget>()
             + self
                 .checked_pattern_variants
                 .values()
@@ -790,6 +804,7 @@ impl FullStore {
     fn shrink_to_fit(&mut self) {
         self.tags.shrink_to_fit();
         self.resource_transfers.shrink_to_fit();
+        self.checked_call_target_required.shrink_to_fit();
         self.data.shrink_to_fit();
         self.extra.shrink_to_fit();
         self.patterns.shrink_to_fit();
@@ -807,6 +822,7 @@ impl FullStore {
         self.functions.shrink_to_fit();
         self.slot_type_facts.shrink_to_fit();
         self.checked_expr_types.shrink_to_fit();
+        self.checked_call_targets.shrink_to_fit();
         for schema in self.checked_pattern_variants.values_mut() {
             schema.fields.shrink_to_fit();
         }
@@ -1626,6 +1642,7 @@ struct FullCheckpoint {
     driver_programs: usize,
     driver_root: u32,
     checked_expr_types: usize,
+    checked_call_targets: usize,
     params: usize,
     captures: usize,
     validations: usize,
@@ -2780,12 +2797,71 @@ impl FullBuilder {
         let range = self.push_extra(payload)?;
         self.store.tags.push(tag);
         self.store.resource_transfers.push(false);
+        self.store.checked_call_target_required.push(false);
         self.store.data.push(IrData::new(range.start, range.len));
         debug_assert_eq!(
             function,
             self.current_owner.expect("instruction owner remains set")
         );
         Ok(id)
+    }
+
+    fn record_checked_call_target(
+        &mut self,
+        target: CheckedCallTarget,
+        instruction_start: usize,
+    ) -> Result<(), IrBuildError> {
+        let instruction = self
+            .store
+            .tags
+            .len()
+            .checked_sub(1)
+            .filter(|instruction| *instruction >= instruction_start)
+            .ok_or_else(|| {
+                IrBuildError::format(
+                    "checked_call_target_instruction",
+                    None,
+                    0,
+                    self.store.tags.len(),
+                )
+            })?;
+        let function = self
+            .function_ids
+            .get(&target.function)
+            .copied()
+            .ok_or_else(|| {
+                IrBuildError::format(
+                    "checked_call_target_missing",
+                    None,
+                    0,
+                    instruction,
+                )
+            })?;
+        let required = self
+            .store
+            .checked_call_target_required
+            .get_mut(instruction)
+            .ok_or_else(|| {
+                IrBuildError::format(
+                    "checked_call_target_instruction",
+                    None,
+                    0,
+                    instruction,
+                )
+            })?;
+        *required = true;
+        self.store.checked_call_targets.push(FullCheckedCallTarget {
+            instruction: u32::try_from(instruction).map_err(|_| {
+                IrBuildError::format(
+                    "checked_call_target_instruction",
+                    None,
+                    0,
+                    instruction,
+                )
+            })?,
+            function,
+        });
+        Ok(())
     }
 
     fn push_pattern(&mut self, tag: FullPatternTag, payload: &[u32]) -> Result<u32, IrBuildError> {
@@ -2986,6 +3062,7 @@ impl FullBuilder {
             driver_programs: self.store.driver_programs.len(),
             driver_root: self.store.driver_root,
             checked_expr_types: self.store.checked_expr_types.len(),
+            checked_call_targets: self.store.checked_call_targets.len(),
             params: self.store.params.len(),
             captures: self.store.captures.len(),
             validations: self.store.validations.len(),
@@ -3011,6 +3088,9 @@ impl FullBuilder {
     fn rewind(&mut self, checkpoint: FullCheckpoint) {
         self.store.tags.truncate(checkpoint.tags);
         self.store.resource_transfers.truncate(checkpoint.tags);
+        self.store
+            .checked_call_target_required
+            .truncate(checkpoint.tags);
         self.store.data.truncate(checkpoint.tags);
         self.store.extra.truncate(checkpoint.extra);
         self.store.patterns.truncate(checkpoint.patterns);
@@ -3033,6 +3113,9 @@ impl FullBuilder {
         self.store
             .checked_expr_types
             .truncate(checkpoint.checked_expr_types);
+        self.store
+            .checked_call_targets
+            .truncate(checkpoint.checked_call_targets);
         self.store.params.truncate(checkpoint.params);
         self.store.captures.truncate(checkpoint.captures);
         self.store.validations.truncate(checkpoint.validations);
@@ -7834,6 +7917,42 @@ impl<'a> FullDecoder<'a> {
                 ));
             }
         }
+        self.verify_checked_function_call_targets()?;
+        Ok(())
+    }
+
+    fn verify_checked_function_call_targets(&self) -> Result<(), IrVerifyError> {
+        let facts = &self.store.checked_call_targets;
+        let first = facts.partition_point(|fact| {
+            (fact.instruction as usize) < self.instruction_range.start
+        });
+        let last = facts.partition_point(|fact| {
+            (fact.instruction as usize) < self.instruction_range.end
+        });
+        for fact in &facts[first..last] {
+            let instruction = fact.instruction as usize;
+            let actual = match self.store.tags[instruction] {
+                FullTag::ExprCall | FullTag::ExprDirectPureCall => {
+                    let payload = self.store.payload(self.store.data[instruction].range())?;
+                    IrFunctionId::from_raw(*payload.first().ok_or_else(|| {
+                        IrVerifyError::new("checked direct call has no target")
+                    })?)
+                    .ok_or_else(|| IrVerifyError::new("checked direct call target is invalid"))?
+                }
+                FullTag::ExprSelfCall => IrFunctionId::from_raw(self.owner)
+                    .ok_or_else(|| IrVerifyError::new("checked self call has no owner"))?,
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "checker-selected function target is attached to a non-direct call",
+                    ));
+                }
+            };
+            if actual != fact.function {
+                return Err(IrVerifyError::new(
+                    "direct call target differs from the checker-selected function",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -11601,6 +11720,36 @@ impl FullVerifier {
         Ok(())
     }
 
+    fn verify_checked_call_target_coverage(store: &FullStore) -> Result<(), IrVerifyError> {
+        if store.checked_call_target_required.len() != store.tags.len() {
+            return Err(IrVerifyError::new(
+                "checked call target requirements do not match instruction count",
+            ));
+        }
+        let mut facts = store.checked_call_targets.iter().peekable();
+        for (instruction, &required) in store.checked_call_target_required.iter().enumerate() {
+            let has_fact = facts
+                .peek()
+                .is_some_and(|fact| fact.instruction as usize == instruction);
+            if required != has_fact {
+                return Err(IrVerifyError::new(if required {
+                    "checker-selected direct call has no checked target row"
+                } else {
+                    "checked target row has no checker-selected call"
+                }));
+            }
+            if has_fact {
+                facts.next();
+            }
+        }
+        if facts.next().is_some() {
+            return Err(IrVerifyError::new(
+                "checked call target row is out of instruction bounds",
+            ));
+        }
+        Ok(())
+    }
+
     /// Private representation operations are reachable only from the embedded
     /// implementation module that declares them.
     ///
@@ -11663,6 +11812,7 @@ impl FullVerifier {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
         Self::verify_resource_transfer_sites(store)?;
+        Self::verify_checked_call_target_coverage(store)?;
         for plan in &store.prepared_module_call_plans {
             match plan.as_ref() {
                 crate::runtime::eval::ModuleCallPlan::SignatureCli(_) => {}
@@ -11768,6 +11918,23 @@ impl FullVerifier {
                 ));
             }
             previous_checked_expression = Some(instruction);
+        }
+        let mut previous_checked_call_target = None;
+        for fact in &store.checked_call_targets {
+            let instruction = fact.instruction as usize;
+            if instruction >= store.tags.len()
+                || previous_checked_call_target.is_some_and(|previous| previous >= instruction)
+                || !matches!(
+                    store.tags[instruction],
+                    FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall
+                )
+                || fact.function.index() >= store.functions.len()
+            {
+                return Err(IrVerifyError::new(
+                    "checked function call target rows are invalid or unordered",
+                ));
+            }
+            previous_checked_call_target = Some(instruction);
         }
         program
             .sources
@@ -13739,6 +13906,11 @@ macro_rules! impl_build_id_codec {
                 } else {
                     None
                 };
+                let checked_call_target = if $checked_expr_type {
+                    scratch.checked_call_targets.get(self.index()).copied().flatten()
+                } else {
+                    None
+                };
                 let transfers_resource = if $resource_transfer {
                     *scratch.resource_transfers.get(self.index()).ok_or_else(|| {
                         IrBuildError::format("indexed_resource_transfer_fact", None, 0, 0)
@@ -13815,6 +13987,9 @@ macro_rules! impl_build_id_codec {
                         ));
                     }
                     builder.store.resource_transfers[instruction] = true;
+                }
+                if let Some(target) = checked_call_target {
+                    builder.record_checked_call_target(target, instruction_start)?;
                 }
                 Ok(())
             }
@@ -14928,9 +15103,11 @@ run true
         let mut store = FullStore::default();
         store.tags.push(FullTag::StmtReturn);
         store.resource_transfers.push(true);
+        store.checked_call_target_required.push(false);
         assert!(FullVerifier::verify_resource_transfer_sites(&store).is_ok());
 
         store.tags.push(FullTag::StmtContinue);
+        store.checked_call_target_required.push(false);
         assert!(FullVerifier::verify_resource_transfer_sites(&store).is_err());
 
         store.resource_transfers.push(false);
@@ -15032,6 +15209,169 @@ run true
             );
             FullVerifier::verify(&program).unwrap();
         });
+    }
+
+    #[test]
+    fn checked_function_target_rejects_a_same_signature_call_substitution() {
+        let program = fixture(
+            "checked-function-target.xsh",
+            r#"pure range(value: Int) -> Int { value }
+pure other(value: Int) -> Int { value + 1 }
+pure wrong_type(value: Int) -> Str { "wrong" }
+proc main() {
+  let checked: Int = range(3)
+  print $checked
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
+        let call = program
+            .store
+            .checked_call_targets
+            .iter()
+            .map(|fact| fact.instruction as usize)
+            .find(|instruction| {
+                let target = program
+                    .store
+                    .payload(program.store.data[*instruction].range())
+                    .unwrap()[0];
+                let target = IrFunctionId::from_raw(target).unwrap().index();
+                program.store.string(program.store.functions[target].name).unwrap() == "range"
+            })
+            .expect("checked call target for the user-defined range function");
+        let other = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "other")
+            .expect("same-signature alternate function");
+        let mut forged = program.clone();
+        forged.store.extra[forged.store.data[call].range().start as usize] =
+            IrFunctionId::new(other).unwrap().raw();
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("direct call target differs from the checker-selected function"),
+            "{}",
+            error.message
+        );
+
+        let mut missing_fact = program.clone();
+        missing_fact
+            .store
+            .checked_call_targets
+            .retain(|fact| fact.instruction as usize != call);
+        missing_fact.store.extra[missing_fact.store.data[call].range().start as usize] =
+            IrFunctionId::new(other).unwrap().raw();
+        let error = FullVerifier::verify(&missing_fact).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checker-selected direct call has no checked target row"),
+            "{}",
+            error.message
+        );
+
+        let wrong_type = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "wrong_type")
+            .expect("incompatible alternate function");
+        let mut forged = program.clone();
+        forged.store.extra[forged.store.data[call].range().start as usize] =
+            IrFunctionId::new(wrong_type).unwrap().raw();
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
+    fn checked_json_type_name_uses_its_verified_bridge_operation() {
+        // Its checked declaration is represented by a private operation inside JSON.
+        let source = "proc main() { let _ = json.encode_lines([1]) }\n";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "checked-json-bridge.xsh",
+            crate::loader::entry_source_from_text("checked-json-bridge.xsh", source.to_string()),
+            Vec::new(),
+        );
+        let source_id = crate::source::SourceMap::files(&sources)
+            .first()
+            .map(crate::source::SourceFile::id)
+            .expect("entry source is present");
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions {
+                reveal_types: true,
+                embedded_bodies: true,
+                ..crate::sema::check::CheckOptions::default()
+            },
+        );
+        let declarations = Checker::compact_declarations(&parsed.arena, checked);
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        assert!(declarations.bodies.selected_function_calls.values().any(|target| {
+            target.name.as_str().as_str() == "type_name"
+                && target
+                    .namespace
+                    .is_some_and(|namespace| namespace.as_str().as_str() == "<xsh-stdlib:json>")
+        }));
+
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            source,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        FullVerifier::verify(&program).unwrap();
+        let bridge_instruction = program
+            .store
+            .tags
+            .iter()
+            .enumerate()
+            .find_map(|(instruction, tag)| {
+                if *tag != FullTag::ExprModuleCall {
+                    return None;
+                }
+                let payload = program
+                    .store
+                    .payload(program.store.data[instruction].range())
+                    .expect("verified module call payload");
+                let op_index = *payload.first().expect("module call operation index");
+                let op = *program
+                    .store
+                    .runtime_ops
+                    .get(op_index as usize)
+                    .expect("verified runtime operation");
+                (op == RuntimeOp::BridgeTypeName).then_some(instruction)
+            })
+            .expect("the embedded JSON type_name call uses its private bridge");
+        let owner = program
+            .store
+            .functions
+            .iter()
+            .enumerate()
+            .find_map(|(index, _)| {
+                let range = program
+                    .store
+                    .function_instruction_range(index)
+                    .expect("verified function instruction range");
+                range
+                    .contains(&bridge_instruction)
+                    .then_some(program.store.function_metadata[index].owner)
+            })
+            .expect("the bridge instruction belongs to an embedded function");
+        assert_eq!(
+            program.store.string(owner).unwrap(),
+            "<xsh-stdlib:json>"
+        );
     }
 
     #[test]
@@ -16097,6 +16437,7 @@ proc main() [env, error] -> Result[Unit] {
                 .push(IrData::new(literal_start, literal_len));
             program.store.tags.push(FullTag::ExprStr);
             program.store.resource_transfers.push(false);
+            program.store.checked_call_target_required.push(false);
 
             let instruction = program.store.tags.len();
             let mut payload = template.clone();
@@ -16109,6 +16450,7 @@ proc main() [env, error] -> Result[Unit] {
             program.store.data.push(IrData::new(start, len));
             program.store.tags.push(FullTag::ExprBinary);
             program.store.resource_transfers.push(false);
+            program.store.checked_call_target_required.push(false);
             appended.push(instruction);
             child = u32::try_from(instruction).expect("fixture instruction ID fits");
         }
