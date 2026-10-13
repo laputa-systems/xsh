@@ -300,6 +300,67 @@ reversed and nonnegative encodings follow them, with the raw sign bit removed. -
 def floatTotalKey (bits : FloatBits) : Nat :=
   if floatSign ≤ bits.val then signed64Width - 1 - bits.val else bits.val + floatSign
 
+theorem float_total_key_lt_width (bits : FloatBits) : floatTotalKey bits < 2 ^ 64 := by
+  unfold floatTotalKey
+  by_cases signSet : floatSign ≤ bits.val
+  · simp [signSet]
+    unfold signed64Width floatSign at *
+    omega
+  · have belowSign : bits.val < floatSign := Nat.lt_of_not_ge signSet
+    simp [signSet]
+    unfold signed64Width floatSign at *
+    omega
+
+/-- Recover the raw IEEE bits from a key in the exact 64-bit key domain. -/
+def floatBitsFromTotalKey (key : Fin signed64Width) : FloatBits :=
+  if keyBelowSign : key.val < floatSign then
+    ⟨signed64Width - 1 - key.val, by
+      have keyBound : key.val < signed64Width := key.isLt
+      have keyBelowSign' : key.val < floatSign := keyBelowSign
+      unfold signed64Width floatSign at *
+      omega⟩
+  else
+    ⟨key.val - floatSign, by
+      have keyBound : key.val < signed64Width := key.isLt
+      have keyAtOrAboveSign : floatSign ≤ key.val := Nat.le_of_not_gt keyBelowSign
+      unfold signed64Width floatSign at *
+      omega⟩
+
+theorem float_total_key_decode_encode (bits : FloatBits) :
+    floatBitsFromTotalKey ⟨floatTotalKey bits, by
+      simpa [signed64Width] using float_total_key_lt_width bits⟩ = bits := by
+  apply Fin.ext
+  unfold floatBitsFromTotalKey floatTotalKey
+  by_cases signSet : floatSign ≤ bits.val
+  · have keyBelowSign : signed64Width - 1 - bits.val < floatSign := by
+      have bitsBound : bits.val < signed64Width := bits.isLt
+      unfold signed64Width floatSign at *
+      omega
+    simp [signSet, keyBelowSign]
+    unfold signed64Width floatSign at *
+    omega
+  · have bitsBelowSign : bits.val < floatSign := Nat.lt_of_not_ge signSet
+    have keyNotBelowSign : ¬ bits.val + floatSign < floatSign := by
+      unfold floatSign at *
+      omega
+    simp [signSet, keyNotBelowSign]
+
+theorem float_total_key_encode_decode (key : Fin signed64Width) :
+    floatTotalKey (floatBitsFromTotalKey key) = key.val := by
+  unfold floatTotalKey floatBitsFromTotalKey
+  by_cases keyBelowSign : key.val < floatSign
+  · have decodedAtOrAboveSign : floatSign ≤ signed64Width - 1 - key.val := by
+      have keyBound : key.val < signed64Width := key.isLt
+      unfold signed64Width floatSign at *
+      omega
+    simp [keyBelowSign, decodedAtOrAboveSign]
+    unfold signed64Width floatSign at *
+    omega
+  · have keyAtOrAboveSign : floatSign ≤ key.val := Nat.le_of_not_gt keyBelowSign
+    simp [keyBelowSign, keyAtOrAboveSign]
+    unfold signed64Width floatSign at *
+    omega
+
 def floatTotalLE (left right : FloatBits) : Prop := floatTotalKey left ≤ floatTotalKey right
 
 theorem float_total_key_injective {left right : FloatBits}
