@@ -56,14 +56,17 @@ line always computes. Three things found while porting the rest:
 
 ## Defects
 
-The W9 module publication gap is closed for frozen parity: all 1,690 inputs
-and 6,760 profile outcomes match. At `59a6dfbc`, temporary tracing confirmed
-one preparation and check per full module-record key in each shared session:
-XSH check 1,661 / default lint 1,518; Laputa check 379 / default lint 316.
-Default lint also created 288 fresh candidate-probe caches in XSH (905
-records) and 77 in Laputa (347 records). The instrumentation was removed.
-Diagnostics match as a multiset, but parallel ownership of shared imports
-makes their order nondeterministic. Close current W9 after that is repaired.
+Frozen W9 parity at `59a6dfbc` covered 1,690 inputs and 6,760 profile
+outcomes; this is historical evidence, not final-source acceptance. Temporary
+tracing at that revision counted one preparation and check per full
+module-record key in each shared session: XSH check 1,661 / default lint
+1,518; Laputa check 379 / default lint 316. Default lint also created 288
+fresh candidate-probe caches in XSH (905 records) and 77 in Laputa (347
+records). Source-matched tracing and its build/measurement harness are now
+implemented in `0f6e50aad` and `ce5eb64fd`; the final frozen-source measurement
+is pending. Shared-module diagnostic ordering was made deterministic in
+`60f127126`, with retained fallback coverage. W9 remains open until its final
+measurement and acceptance are complete.
 
 ### The xsh-wide lint pass is landed but unverified
 
@@ -82,16 +85,11 @@ cannot pass until warn/err/info reach zero. `core/dd.xsh`,
 `core/tests/test-uu-tail-1.xsh` and `tests/xsh/stdlib/linux_storage.xsh` kept
 master's text in the merge and were not linted.
 
-Lint bugs found, with reproducers in the commit bodies of the reverts or the
-lane report: `lint.prefer-positional-constructor` (bulk `xsht check` then fails
-`compact.indexed-build` at `core/arch.xsh`; reverted); `lint.needless-annotation`
-suggests dropping `List[Any]` that the checker then rejects; 
-`lint.prefer-as-conversion` prints an unparenthesised `if ... else {} as Path`
-(`core/cp.xsh:711`); `lint.prefer-collect` rewrites rejected by the checker;
-`lint.prefer-record-constructor` joins long literals onto one line;
-`lint.redundant-close` leaves the removed line's indentation on the next line;
-directory-argument discovery ignores `xsht-config.ini` excludes (the excluded
-`core/tests/data/patch/tree.xsh` was rewritten once and restored).
+One known lint defect remains: `lint.prefer-collect` has produced rewrites the
+checker rejects. The historical findings for needless annotations, directory
+excludes, conditional `as` conversions, multiline record-constructor fixes,
+redundant-close indentation, and positional callable constructors have merged
+fixes; their evidence is recorded in the consolidation handoff.
 
 ### Host-load flakes and slow tests in the full native suite
 
@@ -100,12 +98,18 @@ on the machine, 1.5 h) ended `13377 passed; 116 failed; 138 skipped`.
 Re-running the 72 `FAILED` IDs one at a time passed 71; the remaining one
 (`test_uu_tail_follow_descriptor_vs_rename1`) is a startup race fixed in the
 test. Re-running the 44 `TIMEOUT 2m` IDs one at a time passed 40; four still
-time out alone, and two of them also time out at 2 minutes on the frozen
-abdd589c build, so they are slow tests and not regressions:
+timed out alone, and two also timed out at 2 minutes on the frozen abdd589c
+build:
 `test-gnu-cut.xsh::test_gnu_cut_cut_log`,
 `test-gnu-factor.xsh::test_gnu_factor_factor_parallel_log`,
 `test-uu-sort-2.xsh::test_uu_sort_merge_write_error_does_not_panic`,
 `dev/tests/test-system-report-check.xsh::test_system_report_traced_live_and_replay_paths_keep_host_effect_...`.
+The system-report test has since been split into live-text, live-JSON,
+replay-path, and invalid-section groups (`30fff44de`); all four groups were run
+and passed under the native test timeout, so the old combined timeout ID is
+stale. The GNU cut shards have also been run: 15/15 passed, with the longest
+taking 33.7 seconds. Factor and sort were split into shorter cases, but their
+current pass status remains pending.
 Which of the other 111 are test pollution and which are timing-gated is not
 settled. Known pollution: a test that closes a descriptor and asserts the
 error from the same number races any concurrent test that opens a file
@@ -125,19 +129,13 @@ follows host load alone is timing.
   unchanged graph, grouped candidates, or skipping probes on a clean corpus.
 - The full IR verifier derives a field receiver's type from the slot's
   declared type; a narrowed optional record is peeled one layer, but a callable
-  field read or call through a narrowed optional record, and an error pattern
-  on a narrowed `FetchError?`, may still be rejected. The soundness fuzzer
-  does not reach them.
-- `tag` pattern verification (`verify_tag_pattern_subject`) has the same
-  declared-union shape as the error-pattern subject fix.
+  field read or call through a narrowed optional record may still be rejected.
+  The soundness fuzzer does not reach them.
 - `third_party/regex-lite` is a vendored copy of regex-lite 0.1.9 whose capture
   name map is a `BTreeMap`, so compiling a regex literal does not need
   `getrandom` (`test_uu_shuf_getrandom_fail`); the owner chose this over
   leaving the test red. Build time and binary size were not measured; drop the
   patch if an upstream release removes the std `HashMap`.
-- `tests/xsh/list-pattern.xsh` lines 142 and 144 use the one-line `=> last _ =>`
-  arm form that the parser now rejects without a separator; they are
-  error-expectation fixtures and may pass for the wrong reason.
 
 ## Laputa
 

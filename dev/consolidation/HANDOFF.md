@@ -2,6 +2,42 @@
 
 Status: active 2026-10-13.
 
+## Merged status reconciliation — 2026-10-13
+
+This update reconciles the defect inventory against merged history. The
+needless-annotation contract (`fb86547ec`), directory-argument excludes
+(`65ea15b36`), tag patterns on union subjects (`2e641d157`), malformed
+list-pattern error fixtures (`969d2408f`), optional error patterns
+(`99c34c274`), conditional `as` conversion fixes (`d3fc9d03b`), multiline
+record-constructor fixes (`f40052856`), redundant-close indentation
+(`87926c482`), and the positional callable-constructor verifier gap
+(`bf11aa0c4`, covered by `cb2f444a3`) are fixed and merged. These are retired
+from the active defect list; their earlier reports remain below as history.
+
+The old system-report timeout test was split into live-text, live-JSON,
+replay-path, and invalid-section groups (`30fff44de`); all four groups were run
+and passed under the native test timeout. The GNU cut shards (`8790eab49`,
+`7dc1c7c73`) passed 15/15, with the longest taking 33.7 seconds. Factor and
+sort were split into smaller cases (`f0706e8a5`, `25cbed070`), but their current
+pass status remains pending. The old aggregate timeout evidence does not
+establish the current factor/sort status.
+
+W9 source-matched cache tracing and its build/measurement harness are
+implemented (`0f6e50aad`, `ce5eb64fd`). The counts measured at `59a6dfbc` are
+historical; final frozen-source measurement is pending, so W9 remains open.
+Shared-module diagnostic ordering has since been made deterministic
+(`60f127126`).
+
+The stage-attribution series `588d1a9f3..99fff71d5` is merged and independently
+reviewed. Merged-source focused verification is running; full acceptance is
+pending. Control-flow final `23756bd255` is not merged; review found a
+checker/lowerer tag-catch-all issue, and the lane is back in follow-up.
+Dead-tail cleanup remains unmerged and unaccepted. Generated SPEC, tour, and
+reference docs still need regeneration. Final correctness, structural and
+reliability verification and comparative performance work remain open; the
+last perf readiness check reported `perf gate deferred: host busy`, and no
+final comparative timings are recorded. The campaign is not complete.
+
 ## Resumed verification and documentation refresh — 2026-10-13
 
 Resume began at `59a6dfbc`. Main through `2495fee8` includes the stream
