@@ -509,7 +509,7 @@ assert results.len() == 2
       args: [dir],
     },
   ] {
-    test.expect(ctx, source, status: 3, stderr: ["stream-owner"], args: args)?
+    test.expect(ctx, source, status: 3, stderr: ["stream-owner"], args:)?
   }
 }
 
