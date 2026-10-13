@@ -608,15 +608,15 @@ test test_pidstat_reports_one_row_per_selected_process_and_report { |ctx|
   assert (lines |> where . == "UID PID %usr %system %CPU CPU Command" |> collect).len() == 2
   let rows = data_rows(one.stdout)
   assert rows.len() == 2, "one row per report for the selected pid"
-  for row in rows {
-    let columns = row.fields()
-    assert columns.len() == 7, row
+  for process_row in rows {
+    let columns = process_row.fields()
+    assert columns.len() == 7, process_row
     assert columns[0] == f"{me.uid}" and columns[1] == f"{first.pid}" and columns[6] == first.name
     assert is_fixed_point(columns[2]) and is_fixed_point(columns[3]) and is_fixed_point(columns[4])
     assert columns[5].parse_int() is Ok(_)
   }
   let both = sample_tool(ctx, "pidstat", ["-p", f"{first.pid},{second.pid}", "0.01", "1"])?
-  let pids = [row.fields()[1] for row in data_rows(both.stdout)]
+  let pids = [process_row.fields()[1] for process_row in data_rows(both.stdout)]
   assert pids == [f"{first.pid}", f"{second.pid}"] or pids == [f"{second.pid}", f"{first.pid}"]
 }
 

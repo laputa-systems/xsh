@@ -11,7 +11,7 @@ export proc check_chunk(ctx: TestContext, util: Str, start: Int) [fs, process, e
   assert expected.len() == 1000, f"expected 1,000 {util} input digests"
   let block = bytes.from_text(["The quick brown fox jumps over the lazy dog\n" for _ in range(24)].join(""))
   for length in range(start, start + 100) {
-    let result = uu.invoke(scene, util, [], stdin: block.slice(0, length))?
+    let result = uu.invoke(scene, util, [], stdin: block[0..length])?
     uu.succeeds(result)
     assert result.stdout == bytes.from_text(expected[length] + "\n"), f"{util} input length {length} stdout bytes differ"
   }

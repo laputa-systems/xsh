@@ -47,6 +47,12 @@ type ByteCount = {high: UInt, low: UInt, overflow: Bool}
 const BYTE_BASE = 1000000000
 const BYTE_MAX_HIGH = 18446744073
 const BYTE_MAX_LOW = 709551615
+const MEBIBYTE = 1048576
+
+# Characters `unicode-width` gives no width (controls are matched apart) or
+# two columns.
+const ZERO = "[\\x{300}-\\x{36f}\\x{483}-\\x{489}\\x{591}-\\x{5bd}\\x{5bf}\\x{5c1}\\x{5c2}\\x{5c4}\\x{5c5}\\x{5c7}\\x{610}-\\x{61a}\\x{64b}-\\x{65f}\\x{670}\\x{6d6}-\\x{6dc}\\x{6df}-\\x{6e4}\\x{6e7}\\x{6e8}\\x{6ea}-\\x{6ed}\\x{711}\\x{730}-\\x{74a}\\x{7a6}-\\x{7b0}\\x{900}-\\x{902}\\x{93a}\\x{93c}\\x{941}-\\x{948}\\x{94d}\\x{951}-\\x{957}\\x{962}\\x{963}\\x{e31}\\x{e34}-\\x{e3a}\\x{e47}-\\x{e4e}\\x{200b}-\\x{200f}\\x{2060}-\\x{2064}\\x{20d0}-\\x{20f0}\\x{fe00}-\\x{fe0f}\\x{fe20}-\\x{fe2f}\\x{feff}\\x{1ab0}-\\x{1aff}\\x{1dc0}-\\x{1dff}]"
+const WIDE = "[\\x{1100}-\\x{115f}\\x{231a}\\x{231b}\\x{2329}\\x{232a}\\x{23e9}-\\x{23ec}\\x{23f0}\\x{23f3}\\x{25fd}\\x{25fe}\\x{2614}\\x{2615}\\x{2648}-\\x{2653}\\x{267f}\\x{2693}\\x{26a1}\\x{26aa}\\x{26ab}\\x{26bd}\\x{26be}\\x{26c4}\\x{26c5}\\x{26ce}\\x{26d4}\\x{26ea}\\x{26f2}\\x{26f3}\\x{26f5}\\x{26fa}\\x{26fd}\\x{2705}\\x{270a}\\x{270b}\\x{2728}\\x{274c}\\x{274e}\\x{2753}-\\x{2755}\\x{2757}\\x{2795}-\\x{2797}\\x{27b0}\\x{27bf}\\x{2b1b}\\x{2b1c}\\x{2b50}\\x{2b55}\\x{2e80}-\\x{303e}\\x{3041}-\\x{33ff}\\x{3400}-\\x{4dbf}\\x{4e00}-\\x{9fff}\\x{a000}-\\x{a4cf}\\x{a960}-\\x{a97f}\\x{ac00}-\\x{d7a3}\\x{f900}-\\x{faff}\\x{fe10}-\\x{fe19}\\x{fe30}-\\x{fe6f}\\x{ff00}-\\x{ff60}\\x{ffe0}-\\x{ffe6}\\x{1f300}-\\x{1f64f}\\x{1f900}-\\x{1f9ff}\\x{20000}-\\x{3fffd}]"
 
 pure byte_count(size: Int) -> ByteCount {
   {high: size / BYTE_BASE, low: size % BYTE_BASE, overflow: false}
@@ -84,13 +90,6 @@ type Input = {name: Str, path: Path, stdin: Bool, issue: Str}
 # Text decoded around invalid bytes: `clean` leaves them out, `marked` holds
 # one placeholder word character for each.
 type Decoded = {clean: Str, marked: Str}
-
-const MEBIBYTE = 1048576
-
-# Characters `unicode-width` gives no width (controls are matched apart) or
-# two columns.
-const ZERO = "[\\x{300}-\\x{36f}\\x{483}-\\x{489}\\x{591}-\\x{5bd}\\x{5bf}\\x{5c1}\\x{5c2}\\x{5c4}\\x{5c5}\\x{5c7}\\x{610}-\\x{61a}\\x{64b}-\\x{65f}\\x{670}\\x{6d6}-\\x{6dc}\\x{6df}-\\x{6e4}\\x{6e7}\\x{6e8}\\x{6ea}-\\x{6ed}\\x{711}\\x{730}-\\x{74a}\\x{7a6}-\\x{7b0}\\x{900}-\\x{902}\\x{93a}\\x{93c}\\x{941}-\\x{948}\\x{94d}\\x{951}-\\x{957}\\x{962}\\x{963}\\x{e31}\\x{e34}-\\x{e3a}\\x{e47}-\\x{e4e}\\x{200b}-\\x{200f}\\x{2060}-\\x{2064}\\x{20d0}-\\x{20f0}\\x{fe00}-\\x{fe0f}\\x{fe20}-\\x{fe2f}\\x{feff}\\x{1ab0}-\\x{1aff}\\x{1dc0}-\\x{1dff}]"
-const WIDE = "[\\x{1100}-\\x{115f}\\x{231a}\\x{231b}\\x{2329}\\x{232a}\\x{23e9}-\\x{23ec}\\x{23f0}\\x{23f3}\\x{25fd}\\x{25fe}\\x{2614}\\x{2615}\\x{2648}-\\x{2653}\\x{267f}\\x{2693}\\x{26a1}\\x{26aa}\\x{26ab}\\x{26bd}\\x{26be}\\x{26c4}\\x{26c5}\\x{26ce}\\x{26d4}\\x{26ea}\\x{26f2}\\x{26f3}\\x{26f5}\\x{26fa}\\x{26fd}\\x{2705}\\x{270a}\\x{270b}\\x{2728}\\x{274c}\\x{274e}\\x{2753}-\\x{2755}\\x{2757}\\x{2795}-\\x{2797}\\x{27b0}\\x{27bf}\\x{2b1b}\\x{2b1c}\\x{2b50}\\x{2b55}\\x{2e80}-\\x{303e}\\x{3041}-\\x{33ff}\\x{3400}-\\x{4dbf}\\x{4e00}-\\x{9fff}\\x{a000}-\\x{a4cf}\\x{a960}-\\x{a97f}\\x{ac00}-\\x{d7a3}\\x{f900}-\\x{faff}\\x{fe10}-\\x{fe19}\\x{fe30}-\\x{fe6f}\\x{ff00}-\\x{ff60}\\x{ffe0}-\\x{ffe6}\\x{1f300}-\\x{1f64f}\\x{1f900}-\\x{1f9ff}\\x{20000}-\\x{3fffd}]"
 
 pure continuation(data: Bytes, at: Int) -> Bool {
   let byte = data.byte_at(at) ?? 0
@@ -665,7 +664,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let utf8 = locale.lower().find("utf-8") != null or locale.lower().find("utf8") != null
   let posix = posix_mode()
   let only_bytes = shown.bytes and ! shown.lines and ! shown.words and ! shown.chars and ! shown.longest
-  var state: WcState = WcState(total: Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(0), longest: 0), output: "", seen: 0, failed: false)
+  var state: WcState = WcState(Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(0), longest: 0), "", 0, false)
 
   if streamed_list {
     # A pipe may wait for each count before it sends the next filename.

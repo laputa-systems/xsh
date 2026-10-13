@@ -10,6 +10,7 @@
 export const EPOCH_NS = 1000000000000000000
 
 const SECOND = 1000000000
+const DIGITS = "0123456789abcdef"
 
 proc put(target: Path, text: Str, mode: Int, mtime_ns: Int, atime_ns: Int? = null) [fs, error] {
   target.write(text, mode:)
@@ -31,7 +32,7 @@ export proc build_recent(tree: Path) [fs, time, error] {
 }
 
 ## Build the fixture tree named `name` below `root`.
-export proc build(root: Path, name: Str = "tree") [fs, time, error] {
+export proc build(root: Path, name = "tree") [fs, time, error] {
   let tree = fp"{root}/{name}"
   tree.mkdir()
   let T = EPOCH_NS
@@ -148,8 +149,6 @@ export proc restore(root: Path) [fs, error] {
 export type Case = {name: Str, flags: Str, input: Bytes, args: List[Str]}
 ## What a run printed, with the exit status.
 export type Observed = {status: Int, stdout: Bytes, stderr: Bytes}
-
-const DIGITS = "0123456789abcdef"
 
 ## Lowercase hexadecimal text of the bytes.
 export pure hex(data: Bytes) -> Str {
@@ -349,7 +348,7 @@ export type Stored = {name: Str, flags: Str, args: List[Str], input: Str, input_
 # Directory st_size is a property of the host filesystem, while regular-file
 # sizes remain part of the frozen GNU oracle and must still compare exactly.
 pure replace_expected_row(data: Bytes, case_name: Str, before: Str, after: Str) -> Result[Bytes, Error] {
-  let text = data.utf8()?
+  let text = data as Str
   let at = text.find(before) ?? -1
   return Err(error.failure(f"{case_name}: missing frozen directory-size row {hex(bytes.from_text(before))}")) when at < 0
   let end = at + before.byte_len()
@@ -365,7 +364,7 @@ proc fixture_directory_size(root: Path, relative: Str) [fs, error] -> Result[Int
 
 proc update_ls_directory_sizes(data: Bytes, root: Path, case_name: Str) [fs, error] -> Result[Bytes, Error] {
   return Err(error.failure(f"{case_name}: unterminated normalized -ls output")) when ! data.is_empty() and data.byte_at(data.len() - 1) != 10
-  var output: List[Bytes] = []
+  var output = []
   var start = 0
   for at in range(data.len()) {
     continue when data.byte_at(at) != 10
@@ -376,9 +375,9 @@ proc update_ls_directory_sizes(data: Bytes, root: Path, case_name: Str) [fs, err
       continue
     }
 
-    var fields: List[Bytes] = []
-    var begins: List[Int] = []
-    var ends: List[Int] = []
+    var fields = []
+    var begins = []
+    var ends = []
     var cursor = 0
     while fields.len() < 10 {
       while cursor < line.len() and line.byte_at(cursor) == 32 { cursor += 1 }
@@ -439,14 +438,14 @@ proc may_print_directory_size(c: Case, root: Path) [fs, error] -> Result[Bool, E
 
   for arg in c.args {
     continue when arg.starts_with("-")
-    let start = if arg.starts_with("/") { Path(arg) } else { fp"{root}/{arg}" }
+    let start = if arg.starts_with("/") { fp"{arg}" } else { fp"{root}/{arg}" }
     return Ok(fs.stat(start, follow_symlinks: true)?.kind == "dir")
   }
   Err(error.failure(f"{c.name}: cannot locate find start path for a %s format"))
 }
 
 proc update_expected_directory_sizes(c: Case, expected: Bytes, root: Path) [fs, error] -> Result[Bytes, Error] {
-  if "-ls" in c.args { return update_ls_directory_sizes(expected, root, c.name) }
+  return update_ls_directory_sizes(expected, root, c.name) when "-ls" in c.args
   if c.name == "printf_s" {
     let size = fixture_directory_size(root, "tree/sizes")?
     return replace_expected_row(expected, c.name, "180 sizes\n", f"{size} sizes\n")
@@ -465,7 +464,7 @@ proc update_expected_directory_sizes(c: Case, expected: Bytes, root: Path) [fs, 
     let size = fixture_directory_size(root, "tree/times")?
     return replace_expected_row(expected, c.name, "tree/times d 755 100\n", f"tree/times d 755 {size}\n")
   }
-  if may_print_directory_size(c, root)? {
+  if may_print_directory_size(c, root) {
     return Err(error.failure(f"{c.name}: unsupported directory-size output format"))
   }
   Ok(expected)

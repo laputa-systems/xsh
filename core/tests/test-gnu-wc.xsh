@@ -1,5 +1,5 @@
+use lib.gnu
 use support.uu
-use lib.gnu as gnu
 
 const WC_METADATA_SIZE = 2 * 1048576
 const WC_OVERLAY_SIZE = 2305843009213693952
@@ -144,7 +144,7 @@ test test_gnu_wc_wc_parallel_log { |ctx|
   let xargs_words = uu.argv(s, "xargs", [p"-n2000", p"-P2", @wc_words])?
   let cat_words = uu.argv(s, "cat", [])?
   let reader = [shell_word(word.display()) for word in cat_words].join(" ")
-  let script = Path("\"$@\" | " + reader)
+  let script = fp"\"$@\" | {reader}"
   let input = bytes.from_text([@names, @names, @names].join("\n") + "\n")
   let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"wc-pipe", @xargs_words],
     s.root, {}, input, uu.at(s, "out"), uu.at(s, "err"), timeout: 30s)
@@ -182,7 +182,7 @@ test test_gnu_wc_wc_proc_log { |ctx|
   let words = uu.argv(s, "wc", [p"-c"])?
   for case in [{name: "no_read", expected: "2\n0\n"}, {name: "do_read", expected: "1048576\n0\n"}] {
     # Both children inherit the same open file description and its current offset.
-    let script = Path(r""""$@"; "$@"; """)
+    let script = p"\"$@\"; \"$@\"; "
     let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"wc-offset", @words],
       s.root, {}, uu.at(s, case.name), uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
     assert process.run(command)?.exit_code()? == 0
@@ -224,19 +224,19 @@ test test_gnu_wc_wc_total_log { |ctx|
       uu.stdout_is(hidden, [" 2305843009213693952 big\n" for n in range(8)].join(""))
     }
     Err(failure) => {
-      if gnu.errno(failure) != 27 { return Err(failure) }
-      uu.at(s, "big").truncate(WC_METADATA_SIZE)?
+      guard gnu.errno(failure) == 27 else { return Err(failure) }
+      uu.at(s, "big").truncate(WC_METADATA_SIZE)
       let source = wc_size_overlay(ctx, WC_METADATA_SIZE, WC_OVERLAY_SIZE)?
       let title = uu.at(s, "big").display()
       let file_args = [title for n in range(8)]
       let overflow = wc_overlay_in(s, source, ["--total=only", "-c"].extend(file_args))?
       let hidden = wc_overlay_in(s, source, ["--total=never", "-c"].extend(file_args))?
-      assert overflow.status == 1, f"total=only status {overflow.status}, stderr {overflow.stderr.utf8()?}"
-      assert overflow.stdout.utf8()? == "18446744073709551615\n", overflow.stdout.utf8()?
-      assert overflow.stderr.utf8()? == "wc: total bytes: Value too large for defined data type\n", overflow.stderr.utf8()?
-      assert hidden.status == 0, f"total=never status {hidden.status}, stderr {hidden.stderr.utf8()?}"
+      assert overflow.status == 1, f"total=only status {overflow.status}, stderr {overflow.stderr as Str}"
+      assert overflow.stdout as Str == "18446744073709551615\n", overflow.stdout as Str
+      assert overflow.stderr as Str == "wc: total bytes: Value too large for defined data type\n", overflow.stderr as Str
+      assert hidden.status == 0, f"total=never status {hidden.status}, stderr {hidden.stderr as Str}"
       let item = f" 2305843009213693952 {title}\n"
-      assert hidden.stdout.utf8()? == [item for n in range(8)].join(""), hidden.stdout.utf8()?
+      assert hidden.stdout as Str == [item for n in range(8)].join(""), hidden.stdout as Str
       assert hidden.stderr == b""
     }
   }

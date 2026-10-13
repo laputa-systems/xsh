@@ -1,4 +1,4 @@
-use lib.gnu as gnu
+use lib.gnu
 
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
@@ -334,7 +334,7 @@ test test_wc_sparse_totals_and_alignment_overflow { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-sparse")?
   let file = fp"{dir}/a"
   file.write("")
-  file.truncate(WC_METADATA_SIZE)?
+  file.truncate(WC_METADATA_SIZE)
   let moderate = wc_in(ctx, dir, ["-c", "a", "a"])?
   assert moderate.status == 0, moderate.stderr
   assert moderate.stdout == "2097152 a\n2097152 a\n4194304 total\n", moderate.stdout
@@ -354,8 +354,8 @@ test test_wc_sparse_totals_and_alignment_overflow { |ctx|
       assert hidden.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n 9223372036854775807 a\n", hidden.stdout
     }
     Err(failure) => {
-      if gnu.errno(failure) != 27 { return Err(failure) }
-      file.truncate(WC_METADATA_SIZE)?
+      guard gnu.errno(failure) == 27 else { return Err(failure) }
+      file.truncate(WC_METADATA_SIZE)
       let source = wc_size_overlay(ctx, WC_METADATA_SIZE, WC_I64_MAX)?
       let title = file.display()
       let item = f" 9223372036854775807 {title}\n"
