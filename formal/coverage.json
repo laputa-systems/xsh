@@ -3195,6 +3195,15 @@
       "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
     },
     {
+      "id": "fragment.Xsh.Proofs.BaseMachine.resumeHostRequest_preserved_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.resumeHostRequest_preserved_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The BaseMachine timeNow host response boundary and preservation of the checked expression continuation when a host response resumes the machine.",
+      "boundary": "Covers only this formal timeNow request and machine invariant. It proves no concrete clock behavior, Rust or operating-system conformance, source evaluator equivalence, or whole-language property."
+    },
+    {
       "id": "fragment.Xsh.Proofs.BaseMachine.machine_runner_never_stuck_fragment",
       "module": "Xsh.Proofs.BaseMachine",
       "declaration": "Xsh.Proofs.BaseMachine.machine_runner_never_stuck_fragment",
@@ -3283,6 +3292,42 @@
       "status": "fragment",
       "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
       "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.time_now_is_a_typed_host_request_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.time_now_is_a_typed_host_request_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The BaseMachine timeNow expression, its typed integer request, checked host response, mismatch fault, resumption, and sequential request order.",
+      "boundary": "Covers only the formal timeNow host boundary. It proves no concrete clock behavior, Rust or operating-system conformance, source evaluator equivalence, or whole-language property."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.time_now_accepts_only_an_integer_host_response_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.time_now_accepts_only_an_integer_host_response_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The BaseMachine timeNow expression, its typed integer request, checked host response, mismatch fault, resumption, and sequential request order.",
+      "boundary": "Covers only the formal timeNow host boundary. It proves no concrete clock behavior, Rust or operating-system conformance, source evaluator equivalence, or whole-language property."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.boolean_response_type_mutation_is_rejected_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.boolean_response_type_mutation_is_rejected_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The BaseMachine timeNow expression, its typed integer request, checked host response, mismatch fault, resumption, and sequential request order.",
+      "boundary": "Covers only the formal timeNow host boundary. It proves no concrete clock behavior, Rust or operating-system conformance, source evaluator equivalence, or whole-language property."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.host_requests_are_observed_in_machine_order_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.host_requests_are_observed_in_machine_order_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The BaseMachine timeNow expression, its typed integer request, checked host response, mismatch fault, resumption, and sequential request order.",
+      "boundary": "Covers only the formal timeNow host boundary. It proves no concrete clock behavior, Rust or operating-system conformance, source evaluator equivalence, or whole-language property."
     },
     {
       "id": "fragment.Xsh.Proofs.BaseMachine.scalar_literal_runs_to_its_typed_payload_fragment",

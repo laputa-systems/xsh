@@ -56,6 +56,19 @@ class InventoryCheckerTests(unittest.TestCase):
                 for root in roots
             )
         )
+        base_machine_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Proofs.BaseMachine"
+        }
+        self.assertTrue(
+            {
+                "Xsh.Proofs.BaseMachine.resumeHostRequest_preserved_fragment",
+                "Xsh.Proofs.BaseMachine.time_now_is_a_typed_host_request_fragment",
+                "Xsh.Proofs.BaseMachine.time_now_accepts_only_an_integer_host_response_fragment",
+                "Xsh.Proofs.BaseMachine.boolean_response_type_mutation_is_rejected_fragment",
+                "Xsh.Proofs.BaseMachine.host_requests_are_observed_in_machine_order_fragment",
+            }.issubset(base_machine_roots)
+        )
 
     def test_missing_fragment_module_root_fails(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
