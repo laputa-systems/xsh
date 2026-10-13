@@ -34,8 +34,7 @@ proc check_case(s: uu.Scene, c: CutCase, locale: Str) [fs, process, env, error] 
     assert r.stderr == bytes.from_text(c.stderr), f"{c.name}/{locale}/{transport}: {r.stderr as Str}"
   }
 }
-# origin: gnu cut/cut.log
-test test_gnu_cut_cut_log { |ctx|
+proc check_cut_partition(ctx: TestContext, shard: Int) [fs, process, env, error] {
   let s = uu.scene(ctx)?
   let position_zero = diagnostic("byte/character positions are numbered from 1")
   let field_zero = diagnostic("fields are numbered from 1")
@@ -181,12 +180,16 @@ test test_gnu_cut_cut_log { |ctx|
     case("EOL-subsumed-4", ["--output-d=:", "-b1-2,2-3,3-"], b"1234\n", b"1234\n"),
   ]
   for locale in ["C", "fr_FR.utf-8"] {
-    uu.write(s, "f", "x")
-    uu.write(s, "g", "y")
-    let multi = uu.invoke(s, "cut", ["-f2-", "f", "g"], vars: {LC_ALL: locale})?
-    uu.succeeds(multi)
-    uu.stdout_only(multi, "x\ny\n")
-    for c in cases { check_case(s, c, locale) }
+    if shard == 0 {
+      uu.write(s, "f", "x")
+      uu.write(s, "g", "y")
+      let multi = uu.invoke(s, "cut", ["-f2-", "f", "g"], vars: {LC_ALL: locale})?
+      uu.succeeds(multi)
+      uu.stdout_only(multi, "x\ny\n")
+    }
+    for index in range(cases.len()) {
+      if shard < 6 and index % 6 == shard { check_case(s, cases[index], locale) }
+    }
   }
   let multibyte = [
     case("mb-char-1", ["-c1"], b"\xc3\xa9x\n", b"\xc3\xa9\n"),
@@ -240,11 +243,31 @@ test test_gnu_cut_cut_log { |ctx|
     case("mb-F-1", ["-F", "2"], b"\xc3\xa9\t\xc3\xbc\n", b"\xc3\xbc\n"),
     case("mb-mismatch", ["-f1", "-d", "😀", "-d", "，"], b"a\xef\xbc\x8cb\n", b"a\n"),
   ]
-  for c in multibyte { check_case(s, c, "fr_FR.utf-8") }
+  for index in range(multibyte.len()) {
+    if shard >= 6 and shard < 9 and index % 3 == shard - 6 {
+      check_case(s, multibyte[index], "fr_FR.utf-8")
+    }
+  }
   let single_byte = [
     case("mb-delim-C", ["-d", "é", "-f1"], null, status: 1, stderr: diagnostic("the delimiter must be a single character")),
     case("c-locale-byte", ["-c2"], b"a\xc3\xa9b\n", b"\xc3\n"),
     case("c-locale-nosplit", ["-b2", "-n"], b"a\xc3\xa9b\n", b"\xc3\n"),
   ]
-  for c in single_byte { check_case(s, c, "C") }
+  for index in range(single_byte.len()) {
+    if shard == 9 { check_case(s, single_byte[index], "C") }
+  }
 }
+
+# origin: gnu cut/cut.log
+# The stable case positions divide the original locale matrix into six core
+# shards, three multibyte shards, and one single-byte shard.
+test test_gnu_cut_cut_log_core_0 { |ctx| check_cut_partition(ctx, 0) }
+test test_gnu_cut_cut_log_core_1 { |ctx| check_cut_partition(ctx, 1) }
+test test_gnu_cut_cut_log_core_2 { |ctx| check_cut_partition(ctx, 2) }
+test test_gnu_cut_cut_log_core_3 { |ctx| check_cut_partition(ctx, 3) }
+test test_gnu_cut_cut_log_core_4 { |ctx| check_cut_partition(ctx, 4) }
+test test_gnu_cut_cut_log_core_5 { |ctx| check_cut_partition(ctx, 5) }
+test test_gnu_cut_cut_log_multibyte_0 { |ctx| check_cut_partition(ctx, 6) }
+test test_gnu_cut_cut_log_multibyte_1 { |ctx| check_cut_partition(ctx, 7) }
+test test_gnu_cut_cut_log_multibyte_2 { |ctx| check_cut_partition(ctx, 8) }
+test test_gnu_cut_cut_log_single_byte { |ctx| check_cut_partition(ctx, 9) }
