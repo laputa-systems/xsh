@@ -3553,6 +3553,132 @@
       "status": "fragment",
       "scope": "A concrete witness that an out-of-bounds Raw payload range is rejected.",
       "boundary": "This single rejection witness does not establish total decoder soundness, schema completeness, or Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.permitsCreationBool_correct",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.permitsCreationBool_correct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The executable closed-fragment permission predicate agrees with lexical creation permission.",
+      "boundary": "Finite classified obligations only; no Rust checker classification, full-source conformance, EFF-LATENT, or EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.checkProducerCall_success_implies_creation_permission",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.checkProducerCall_success_implies_creation_permission",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A successful producer call carries permission for its delayed body obligations in its creation context.",
+      "boundary": "Closed producer table and source-call form only; no Rust checker or parser connection, full-source conformance, EFF-LATENT, or EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.checkProducerCall_success_records_its_lexical_site",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.checkProducerCall_success_records_its_lexical_site",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A successful producer call retains its own lexical context and creation expression.",
+      "boundary": "Closed producer call form only; no Rust source-site classification, full-source conformance, EFF-LATENT, or EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.checked_producer_body_obligation_is_permitted_at_creation",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.checked_producer_body_obligation_is_permitted_at_creation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every classified body obligation of a checked producer is permitted at that producer creation site.",
+      "boundary": "The checked handle is a static derivation, not a consumer permission; no runtime sandbox or Rust conformance is proved."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.outside_creation_accepts_the_classified_producer_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.outside_creation_accepts_the_classified_producer_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A network producer is accepted in the matching outside lexical context.",
+      "boundary": "Concrete witness in the closed checker fragment only; no Rust checker classification or full-source conformance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.alias_preserves_the_creation_handle_inside_without",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.alias_preserves_the_creation_handle_inside_without",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An alias inside a restricted consumer context resolves to the unchanged previously checked handle.",
+      "boundary": "No consumer-side permission recharge is modeled; no Rust alias/runtime conformance, EFF-LATENT, or EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.restricted_consumption_does_not_recharge_a_checked_alias_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.restricted_consumption_does_not_recharge_a_checked_alias_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Pulling an outside-created aliased producer retains the creation-site charge and causal body site inside without-net.",
+      "boundary": "Abstract finite pull only; no consumer permission API, Rust stream conformance, EFF-LATENT, or EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.without_net_rejects_a_network_producer_creation_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.without_net_rejects_a_network_producer_creation_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The checker rejects network producer creation inside a lexical without-net context.",
+      "boundary": "Concrete witness in the closed checker fragment only; no runtime sandbox or Rust checker conformance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.delegated_child_retains_outer_delegate_child_and_body_sites_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.delegated_child_retains_outer_delegate_child_and_body_sites_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A delegated child retains the outer call, its own delegate-call creation site, and its causal body site.",
+      "boundary": "Closed delegation source form only; no stream alias/close/resource runtime semantics, Rust conformance, EFF-LATENT, or EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.delegated_child_is_checked_at_its_own_call_context_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.delegated_child_is_checked_at_its_own_call_context_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A delegated child rejected at its own restricted lexical call context makes the source check fail.",
+      "boundary": "Concrete witness in the closed checker fragment only; no Rust source classification or full-source conformance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.conditional_source_retains_both_tagged_producer_alternatives_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.conditional_source_retains_both_tagged_producer_alternatives_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A conditional source preserves both feasible arms as tagged producer alternatives with distinct origins.",
+      "boundary": "Both arms are feasible in this closed fragment; no condition evaluation, Rust checker conformance, EFF-LATENT, or EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.conditional_blocked_arm_mutation_is_rejected_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.conditional_blocked_arm_mutation_is_rejected_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Restricting one conditional arm to without-net causes the whole checked source to be rejected.",
+      "boundary": "Mutation witness in the closed checker fragment only; no Rust conditional typing or full-source conformance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.missing_alias_binding_mutation_is_rejected_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.missing_alias_binding_mutation_is_rejected_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Changing an alias to a missing binding is rejected rather than given a default producer.",
+      "boundary": "Mutation witness in the closed alias table only; no Rust binding-resolution or full-source conformance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.unknown_source_fails_closed_fragment",
+      "module": "Xsh.Effects.ExpressionBridge",
+      "declaration": "Xsh.Semantics.Effects.unknown_source_fails_closed_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The explicit unknown-source constructor is rejected by the finite checker fragment.",
+      "boundary": "This does not model unknown producer summaries, Rust source classification, or full-source conformance."
     }
   ]
 }

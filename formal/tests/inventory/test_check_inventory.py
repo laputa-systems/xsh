@@ -26,7 +26,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(63, len(result["fragment_roots"]))
+        self.assertEqual(77, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
@@ -129,6 +129,7 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Effects.Lattice",
                 "Xsh.Effects.Solver",
                 "Xsh.Effects.Lexical",
+                "Xsh.Effects.ExpressionBridge",
             }
         }
         self.assertEqual(
@@ -139,6 +140,20 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Semantics.Effects.pull_sequence_preserves_creation_and_body_order",
                 "Xsh.Semantics.Effects.pull_sequence_charge_keeps_origin_and_body_site",
                 "Xsh.Semantics.Effects.pull_sequence_charges_are_permitted",
+                "Xsh.Semantics.Effects.permitsCreationBool_correct",
+                "Xsh.Semantics.Effects.checkProducerCall_success_implies_creation_permission",
+                "Xsh.Semantics.Effects.checkProducerCall_success_records_its_lexical_site",
+                "Xsh.Semantics.Effects.checked_producer_body_obligation_is_permitted_at_creation",
+                "Xsh.Semantics.Effects.outside_creation_accepts_the_classified_producer_fragment",
+                "Xsh.Semantics.Effects.alias_preserves_the_creation_handle_inside_without",
+                "Xsh.Semantics.Effects.restricted_consumption_does_not_recharge_a_checked_alias_fragment",
+                "Xsh.Semantics.Effects.without_net_rejects_a_network_producer_creation_fragment",
+                "Xsh.Semantics.Effects.delegated_child_retains_outer_delegate_child_and_body_sites_fragment",
+                "Xsh.Semantics.Effects.delegated_child_is_checked_at_its_own_call_context_fragment",
+                "Xsh.Semantics.Effects.conditional_source_retains_both_tagged_producer_alternatives_fragment",
+                "Xsh.Semantics.Effects.conditional_blocked_arm_mutation_is_rejected_fragment",
+                "Xsh.Semantics.Effects.missing_alias_binding_mutation_is_rejected_fragment",
+                "Xsh.Semantics.Effects.unknown_source_fails_closed_fragment",
             },
             effect_roots,
         )

@@ -15,8 +15,18 @@ retains its creation and body sites, and that a supplied creation-context
 permission premise implies permission for every pulled charge. The
 `DelayedWork`/`pull` model uses that premise only in the permission result; it
 does not establish Rust checker classification or diagnostics, stream aliases,
-delegation, close semantics, or conformance, and it closes neither
-`EFF-LATENT` nor `EFF-SEMANTIC`. The raw IR layer models typed pool IDs,
+delegation, close semantics, or conformance. The closed `ExpressionBridge`
+fragment checks classified producer bodies at each call's lexical context,
+retains the checked producer and cursor through aliases, records delegated
+origins and body sites, and keeps both conditional alternatives tagged. Its
+witnesses accept an outside-created producer consumed inside `without net`,
+reject creation inside that region, reject a missing alias, an unknown source
+form, and a blocked conditional arm, and show that a restricted consumer does
+not move the charge site. These are checker facts for the represented finite
+source forms only;
+they do not establish Rust source classification, full stream semantics or
+conformance. Together, the effect fragments close neither `EFF-LATENT` nor
+`EFF-SEMANTIC`. The raw IR layer models typed pool IDs,
 optional IDs, ranges, tables, and row decoding. Its decoder fragments prove
 successful sequential read length, successful payload length and table bounds,
 and rejection of one concrete out-of-bounds payload range. These independent
@@ -31,7 +41,7 @@ bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. The inventory names 63 rooted Lean
+72 complete theorem obligations planned. The inventory names 77 rooted Lean
 fragment declarations. Its 29 Python tests check inventory shape, root
 reachability, and mutation controls; they are not semantic or Rust conformance
 tests. No full G1 closure or whole-language soundness claim is made.
