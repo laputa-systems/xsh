@@ -490,7 +490,7 @@ test test_gnu_sort_sort_debug_keys_log { |ctx|
         stdin: bytes.from_text(item.input),
         vars: {LC_ALL: item.locale, LC_MESSAGES: "C"},
       )?
-      let normalize = regex.compile("(?m)^\\^ .*\\n")?
+      let normalize = rx"(?m)^\^ .*\n"
       let actual = normalize.replace(r.stdout as Str, with: "^ no match for key\n")
       if actual != item.expected { yield f"{item.locale} {item.args.join(" ")}: {actual} expected {item.expected}" }
     }
@@ -560,7 +560,8 @@ test test_gnu_sort_sort_files0_from_log { |ctx|
   let regular = uu.invoke(s, "sort", ["--files0-from=aux"])?
   uu.fails_with_code(regular, 2)
   uu.no_stdout(regular)
-  let strip = regex.compile("no input from[^\n]*")?
+  let strip = rx"""no input from[^
+]*"""
   assert strip.replace(regular.stderr as Str, with: "") == "sort: \n"
   let device = uu.invoke(s, "sort", ["--files0-from=/dev/null"])?
   uu.fails_with_code(device, 2)

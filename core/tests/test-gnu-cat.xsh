@@ -45,7 +45,7 @@ test test_gnu_cat_cat_proc_log { |ctx|
   uu.succeeds(plain)
   uu.no_stderr(marked)
   uu.no_stderr(plain)
-  let digits = regex.compile("[0-9]+")?
+  let digits = rx"[0-9]+"
   assert digits.replace(marked.stdout as Str, with: "D").replace("$", with: "") == digits.replace(plain.stdout as Str, with: "D").replace("$", with: "")
 }
 

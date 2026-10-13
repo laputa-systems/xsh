@@ -24,7 +24,9 @@ test test_gnu_rm_cycle_log { |ctx|
   uu.touch(s, "a/b/file")
   uu.set_mode(s, "a/b", 0o555)
   let r = uu.invoke(s, "rm", ["-rf", "a", "a"])?
-  let strip = regex.compile(":[^:\n]*\n")?
+  let strip = rx""":[^:
+]*
+"""
   assert strip.replace(bytes.concat([r.stdout, r.stderr]) as Str, with: "\n") == "rm: cannot remove 'a/b/file'\nrm: cannot remove 'a/b/file'\n"
 }
 
@@ -324,7 +326,8 @@ test test_gnu_rm_r_4_log { |ctx|
   for name in ["d/.", "d/./", "d/.////", "d/..", "d/../"] {
     let r = uu.invoke(s, "rm", ["-fr", name])?
     uu.fails(r)
-    let diagnostic = regex.compile("^rm: refusing to remove '\\.' or '\\.\\.' directory: skipping '.*'\n$")?
+    let diagnostic = rx"""^rm: refusing to remove '\.' or '\.\.' directory: skipping '.*'
+$"""
     assert diagnostic.matches(r.stderr as Str)
   }
   present(s, ["d/a"])

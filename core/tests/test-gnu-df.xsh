@@ -1,7 +1,7 @@
 use support.uu
 
 proc verify_total(output: Str) [error] {
-  let row = regex.compile("^(.*?) +(-?[0-9]+|-) +(-?[0-9]+|-) +(-?[0-9]+|-) +(?:-|[0-9]+%) (.*)$")?
+  let row = rx"^(.*?) +(-?[0-9]+|-) +(-?[0-9]+|-) +(-?[0-9]+|-) +(?:-|[0-9]+%) (.*)$"
   let lines = output.trim().split("\n")
   var size = 0
   var used = 0
@@ -32,7 +32,7 @@ test test_gnu_df_df_P_log { |ctx|
   let configured = uu.invoke(s, "df", ["-P", "."], vars: {BLOCK_SIZE: "1M"})?
   uu.succeeds(plain)
   uu.succeeds(configured)
-  let spaces = regex.compile(" +")?
+  let spaces = rx" +"
   assert spaces.replace(plain.stdout.utf8()?.split("\n")[0], with: " ") == spaces.replace(configured.stdout.utf8()?.split("\n")[0], with: " ")
 }
 

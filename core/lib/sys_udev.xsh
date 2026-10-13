@@ -304,7 +304,7 @@ export proc parent_devpath(root: FsRoot, devpath: Str) [fs, error] -> Result[Str
 ## run of newlines removed) is at most 4095 printable ASCII characters. Names
 ## are sorted so the order does not depend on the directory.
 export proc attributes(root: FsRoot, devpath: Str) [fs, error] -> Result[List[Attribute], Error] {
-  let printable = regex.compile("^[ -~]*$")?
+  let printable = rx"^[ -~]*$"
   let listing = root.children(fp"sys{devpath}", max_entries: 8192)?
   let names = collect {
     for entry in listing.children {

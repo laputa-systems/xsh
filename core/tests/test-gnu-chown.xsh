@@ -7,7 +7,9 @@ test test_gnu_chown_deref_log { |ctx|
   uu.symlink(s, "no-such", "dangle")
   let dangling = uu.invoke(s, "chown", ["--dereference", owner, "dangle"])?
   uu.fails(dangling)
-  let strip = regex.compile(":[^:\n]*\n")?
+  let strip = rx""":[^:
+]*
+"""
   assert strip.replace(dangling.stderr as Str, with: "\n") == "chown: cannot dereference 'dangle'\n"
   uu.mkdir(s, "cyc/b/c")
   uu.symlink(s, uu.at(s, "cyc").display(), "cyc/b/c/d")

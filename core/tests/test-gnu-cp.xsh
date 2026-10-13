@@ -571,7 +571,7 @@ test test_gnu_cp_proc_short_read_log { |ctx|
   let s = uu.scene(ctx)?
   copied(s, ["/proc/cpuinfo", "1"])
   let reference = p"/proc/cpuinfo".read_text()?
-  let filter = regex.compile("MHz|[Bb][Oo][Gg][Oo][Mm][Ii][Pp][Ss]")?
+  let filter = rx"MHz|[Bb][Oo][Gg][Oo][Mm][Ii][Pp][Ss]"
   let copied_lines = [line for line in (uu.read_text(s, "1")?).split("\n") if !filter.matches(line)]
   let reference_lines = [line for line in reference.split("\n") if !filter.matches(line)]
   assert copied_lines == reference_lines
