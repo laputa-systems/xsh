@@ -16,12 +16,16 @@ type Recorded = {id: Str, args: List[Str], stdin: Str, locale: Str, scrub: Bool,
 const TIME_FIRST = 1600000000123456789
 const TIME_SECOND = 1700000000987654321
 
-proc invoke(ctx: TestContext, args: List[Str], input = b"", cwd: Path? = null, label = "diff-capture", locale = "C") [fs, process, error] -> Result[Ran] {
+proc invoke(ctx: TestContext, args: List[Str], input = b"", cwd: Path? = null, label = "diff-capture", locale = "C", timeout = 0ms) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: label)?
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/diff.xsh"
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), cwd ?? root, {LC_ALL: locale, TZ: "UTC", TERM: "xterm"}, input, out, err)
+  let plan = if timeout == 0ms {
+    process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), cwd ?? root, {LC_ALL: locale, TZ: "UTC", TERM: "xterm"}, input, out, err)
+  } else {
+    process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), cwd ?? root, {LC_ALL: locale, TZ: "UTC", TERM: "xterm"}, input, out, err, timeout:)
+  }
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
@@ -237,7 +241,7 @@ test test_diff_unbounded_device_is_reported { |ctx|
   assert fs.stat(p"/dev/zero")?.kind == "char"
   let root = test.temp_dir(ctx, name: "diff-unbounded-device")?
   fp"{root}/small".write("x\n")
-  let result = invoke(ctx, ["/dev/zero", "small"], cwd: root)?
+  let result = invoke(ctx, ["/dev/zero", "small"], cwd: root, timeout: 2s)?
   assert result.status == 2
   assert result.stdout == b""
   assert result.stderr as Str == "diff: /dev/zero: input is unbounded or too large to compare\n"
