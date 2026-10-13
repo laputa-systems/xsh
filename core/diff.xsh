@@ -454,7 +454,7 @@ pure render_merged(cfg: Settings, first: gnudiff.Source, second: gnudiff.Source,
   diffrender.render(first, second, script, cfg.fmt, top)
 }
 
-error DeviceError = TooLarge(message: Str)
+error DeviceError = TooLarge
 
 # The most a device operand may supply: comparing an endless device such as
 # /dev/zero cannot finish, so it stops with an error rather than exhausting

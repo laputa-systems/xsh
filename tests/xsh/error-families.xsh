@@ -523,27 +523,21 @@ test test_date_parse_keeps_its_nominal_invalid_error { |ctx|
   assert candidate.read_text()? == source
 }
 
-test test_device_error_message_migration_keeps_the_nominal_family { |ctx|
+test test_device_error_source_keeps_its_nominal_kind_and_message { |ctx|
   let source = p"core/diff.xsh".read_text()?
-  assert "error DeviceError = TooLarge(message: Str)" in source, source
+  assert "error DeviceError = TooLarge\n" in source, source
+  assert "TooLarge(message: Str)" not in source, source
+  assert "DeviceError.TooLarge(\"input is unbounded or too large to compare\")" in source, source
   let candidate = test.temp_file(ctx, name: "diff.xsh", contents: bytes.from_text(source))?
 
   let both = run.capture --text "xsht" lint --only lint.prefer-fail,lint.prefer-implicit-message $candidate
-  assert both.status.exited_with(1), both.stderr
+  assert both.status.exited_with(0), both.stderr
   assert "note[lint.prefer-fail]" in both.stderr, both.stderr
-  assert "warn[lint.prefer-implicit-message]" in both.stderr, both.stderr
-  assert "help: declare the variant without a payload" in both.stderr, both.stderr
+  assert "warn[lint.prefer-implicit-message]" not in both.stderr, both.stderr
 
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail,lint.prefer-implicit-message $candidate
   assert fixing.status.exited_with(0), fixing.stderr
-  let fixed = candidate.read_text()?
-  assert "error DeviceError = TooLarge\n" in fixed, fixed
-  assert "DeviceError.TooLarge(\"input is unbounded or too large to compare\")" in fixed, fixed
-
-  let after = run.capture --text "xsht" lint --only lint.prefer-fail,lint.prefer-implicit-message $candidate
-  assert after.status.exited_with(0), after.stderr
-  assert "note[lint.prefer-fail]" in after.stderr, after.stderr
-  assert "warn[lint.prefer-implicit-message]" not in after.stderr, after.stderr
+  assert candidate.read_text()? == source
 }
 
 test test_positional_error_arguments_fix_names_the_fields_they_fill { |ctx|
