@@ -33,13 +33,14 @@ proc index_of(name: Str) [process, net, error] -> Int {
 }
 
 pure mac_bytes(text: Str) -> Bytes {
-  var octets = []
-  for part in text.split(":") {
-    var value = 0
-    for digit in part.lower() {
-      value = value * 16 + ("0123456789abcdef".find(digit) ?? 0)
+  let octets = collect {
+    for part in text.split(":") {
+      var value = 0
+      for digit in part.lower() {
+        value = value * 16 + ("0123456789abcdef".find(digit) ?? 0)
+      }
+      yield value
     }
-    octets += [value]
   }
   bytes.from_ints(octets) ?? b""
 }

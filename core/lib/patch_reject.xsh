@@ -40,25 +40,35 @@ export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool, cr_marked:
   let kinds = hunk.kinds
   # Within one change group, removed and added lines show as changed (`!`)
   # when the group has both, otherwise as `-` or `+`.
-  var marks = []
   var index = 0
-  while index < kinds.len() {
-    if kinds[index] == 0 {
-      marks += [" "]
-      index += 1
-      continue
+  let marks = collect {
+    while index < kinds.len() {
+      if kinds[index] == 0 {
+        yield " "
+        index += 1
+        continue
+      }
+
+      var end = index
+      var removed = 0
+      var added = 0
+      while end < kinds.len() and kinds[end] != 0 {
+        if kinds[end] == 1 { removed += 1 } else { added += 1 }
+        end += 1
+      }
+
+      for k in range(end - index) {
+        if removed > 0 and added > 0 and ! from_normal {
+          yield "!"
+        } else if kinds[index + k] == 1 {
+          yield "-"
+        } else {
+          yield "+"
+        }
+      }
+
+      index = end
     }
-    var end = index
-    var removed = 0
-    var added = 0
-    while end < kinds.len() and kinds[end] != 0 {
-      if kinds[end] == 1 { removed += 1 } else { added += 1 }
-      end += 1
-    }
-    for k in range(end - index) {
-      if removed > 0 and added > 0 and !from_normal { marks += ["!"] } else if kinds[index + k] == 1 { marks += ["-"] } else { marks += ["+"] }
-    }
-    index = end
   }
   for at in range(kinds.len()) {
     let mark = marks[at]

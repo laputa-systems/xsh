@@ -113,13 +113,14 @@ proc identity(spec: Str) [fs, error] -> Result[Identity] {
 
 proc additional_groups(spec: Str) [fs, error, env] -> Result[List[Int]] {
   return [] when spec == ""
-  var groups = []
-  for name in spec.split(",") {
-    continue when name == ""
-    let group_name = name.trim()
-    match perm.gid(group_name) {
-      Ok(id) => groups += [id]
-      Err(_) => return Err(IdentityError.Invalid(f"invalid group {gnu.quote(name)}"))
+  let groups = collect {
+    for name in spec.split(",") {
+      continue when name == ""
+      let group_name = name.trim()
+      match perm.gid(group_name) {
+        Ok(id) => yield id
+        Err(_) => return Err(IdentityError.Invalid(f"invalid group {gnu.quote(name)}"))
+      }
     }
   }
   return Err(IdentityError.Invalid(f"invalid group list {gnu.quote(spec)}")) when groups.is_empty()

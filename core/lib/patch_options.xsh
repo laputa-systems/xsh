@@ -11,9 +11,10 @@ export pure reorder_candidates(message: Str) -> Str {
   let at = message.find(marker) ?? -1
   return message when at < 0
   let head = message.byte_slice(0, at + marker.byte_len())
-  var names = []
-  for part in message.byte_slice(at + marker.byte_len()).split(" ") {
-    if part != "" { names += [part] }
+  let names = collect {
+    for part in message.byte_slice(at + marker.byte_len()).split(" ") {
+      if part != "" { yield part }
+    }
   }
   var ordered = []
   for known in LONG_OPTION_ORDER {

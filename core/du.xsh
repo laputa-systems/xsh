@@ -431,12 +431,13 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
       }
     }
   }
-  var patterns = []
-  for pattern in excludes {
-    match regex.compile(glob_regex(pattern)) {
-      Ok(compiled) => patterns += [compiled]
-      Err(_) => { gnu.error(f"Invalid exclude syntax: {gnu.quote(pattern)}")
-        exit 1 }
+  let patterns = collect {
+    for pattern in excludes {
+      match regex.compile(glob_regex(pattern)) {
+        Ok(compiled) => yield compiled
+        Err(_) => { gnu.error(f"Invalid exclude syntax: {gnu.quote(pattern)}")
+          exit 1 }
+      }
     }
   }
   var time_field = ""
@@ -491,16 +492,17 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
       return }
     targets = text.split("\0")
     if ! targets.is_empty() and targets[-1] == "" { targets = targets[..targets.len() - 1] }
-    var valid = []
-    for index in range(targets.len()) {
-      let name = targets[index]
-      if name == "" {
-        gnu.error(f"{gnu.quote_maybe(list)}:{index + 1}: invalid zero-length file name")
-        failed = true
-      } else if name == "-" and list == "-" {
-        gnu.error("when reading file names from standard input, no file name of '-' allowed")
-        failed = true
-      } else { valid += [name] }
+    let valid = collect {
+      for index in range(targets.len()) {
+        let name = targets[index]
+        if name == "" {
+          gnu.error(f"{gnu.quote_maybe(list)}:{index + 1}: invalid zero-length file name")
+          failed = true
+        } else if name == "-" and list == "-" {
+          gnu.error("when reading file names from standard input, no file name of '-' allowed")
+          failed = true
+        } else { yield name }
+      }
     }
     targets = valid
   } else if targets.is_empty() { targets = ["."] }

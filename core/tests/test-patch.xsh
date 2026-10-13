@@ -65,18 +65,19 @@ pure hex_digit(byte: Int) -> Int {
 # A stored file name with its %XX escapes turned back into bytes.
 pure decode_name(name: Str) -> Bytes {
   let raw = bytes.from_text(name)
-  var output = []
   var at = 0
-  while at < raw.len() {
-    let byte = raw.byte_at(at) ?? 0
-    let high = hex_digit(raw.byte_at(at + 1) ?? 0)
-    let low = hex_digit(raw.byte_at(at + 2) ?? 0)
-    if byte == 37 and high >= 0 and low >= 0 {
-      output += [high * 16 + low]
-      at += 3
-    } else {
-      output += [byte]
-      at += 1
+  let output = collect {
+    while at < raw.len() {
+      let byte = raw.byte_at(at) ?? 0
+      let high = hex_digit(raw.byte_at(at + 1) ?? 0)
+      let low = hex_digit(raw.byte_at(at + 2) ?? 0)
+      if byte == 37 and high >= 0 and low >= 0 {
+        yield high * 16 + low
+        at += 3
+      } else {
+        yield byte
+        at += 1
+      }
     }
   }
   bytes.from_ints(output) ?? b""
@@ -119,9 +120,10 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     fp"{work}/w".mkdir()
   }
   # Stored names are percent-encoded; restore them, deepest first.
-  var encoded = []
-  for entry in fs.walk(fp"{work}/w", hidden: true)? {
-    if entry.path.display().find("%") != null { encoded += [entry.path.display()] }
+  let encoded = collect {
+    for entry in fs.walk(fp"{work}/w", hidden: true)? {
+      if entry.path.display().find("%") != null { yield entry.path.display() }
+    }
   }
   let ascending = encoded |> sort
   var position = ascending.len()
@@ -226,19 +228,21 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
 # split over several tests so the runner can work on them in parallel.
 proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, error] -> Result[Unit, Error] {
   let corpus = fp"{ctx.core_dir}/tests/data/patch"
-  var names = []
-  for entry in fs.children(corpus, stat: true)? {
-    if entry.kind == "dir" { names += [entry.name] }
+  let names = collect {
+    for entry in fs.children(corpus, stat: true)? {
+      if entry.kind == "dir" { yield entry.name }
+    }
   }
   let ordered = names |> sort
-  var problems = []
   var count = 0
-  for index in range(ordered.len()) {
-    continue when index % shards != shard
-    let name = ordered[index]
-    continue unless fp"{corpus}/{name}/out/status".exists()
-    count += 1
-    problems += check_case(ctx, fp"{corpus}/{name}")?
+  let problems = collect {
+    for index in range(ordered.len()) {
+      continue when index % shards != shard
+      let name = ordered[index]
+      continue unless fp"{corpus}/{name}/out/status".exists()
+      count += 1
+      yield @check_case(ctx, fp"{corpus}/{name}")?
+    }
   }
   assert count > 0, "no recorded cases in this shard"
   assert problems.is_empty(), f"{problems.len()} differences in {count} cases:\n{problems.join("\n")}"

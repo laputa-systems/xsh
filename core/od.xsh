@@ -45,29 +45,63 @@ pure number(value: Int, base: Int, width: Int) -> Str {
 }
 
 pure formats(text: Str) -> Result[List[Format]] {
-  var out: List[Format] = []
   var i = 0
-  while i < text.byte_len() {
-    let kind = text.byte_slice(i, length: 1)
-    i += 1
-    if ! (kind in ["a", "c", "d", "o", "u", "x", "f"]) { fail f"invalid type string {text}" }
-    var size = if kind in ["a", "c"] { 1 } else if kind == "f" { 8 } else { 4 }
-    var float_format = if kind == "f" { "binary64" } else { "" }
-    if i < text.byte_len() and kind != "a" and kind != "c" {
-      let next = text.byte_slice(i, length: 1)
-      if kind == "f" and next in ["2", "4", "8", "H", "B", "F", "D"] {
-        size = if next in ["2", "H", "B"] { 2 } else if next in ["4", "F"] { 4 } else { 8 }
-        float_format = if next in ["2", "H"] { "binary16" } else if next == "B" { "bfloat16" } else if next in ["4", "F"] { "binary32" } else { "binary64" }
-        i += 1
-      } else if kind != "f" and next in ["1", "2", "4", "8", "C", "S", "I", "L"] {
-        size = if next in ["1", "C"] { 1 } else if next in ["2", "S"] { 2 } else if next in ["4", "I"] { 4 } else { 8 }
+  let out: List[Format] = collect {
+    while i < text.byte_len() {
+      let kind = text.byte_slice(i, length: 1)
+      i += 1
+      if ! (kind in ["a", "c", "d", "o", "u", "x", "f"]) { fail f"invalid type string {text}" }
+      var size = if kind in ["a", "c"] { 1 } else if kind == "f" { 8 } else { 4 }
+      var float_format = if kind == "f" { "binary64" } else { "" }
+      if i < text.byte_len() and kind != "a" and kind != "c" {
+        let next = text.byte_slice(i, length: 1)
+        if kind == "f" and next in ["2", "4", "8", "H", "B", "F", "D"] {
+          size = if next in ["2", "H", "B"] { 2 } else if next in ["4", "F"] { 4 } else { 8 }
+          float_format = if next in ["2", "H"] {
+            "binary16"
+          } else if next == "B" {
+            "bfloat16"
+          } else if next in ["4", "F"] {
+            "binary32"
+          } else {
+            "binary64"
+          }
+          i += 1
+        } else if kind != "f" and next in ["1", "2", "4", "8", "C", "S", "I", "L"] {
+          size = if next in ["1", "C"] {
+            1
+          } else if next in ["2", "S"] {
+            2
+          } else if next in ["4", "I"] {
+            4
+          } else {
+            8
+          }
+          i += 1
+        }
+      }
+
+      var ascii = false
+      if i < text.byte_len() and text.byte_slice(i, length: 1) == "z" {
+        ascii = true
         i += 1
       }
+
+      let chars = if kind in ["a", "c"] {
+        3
+      } else if kind == "f" {
+        if size == 8 { 24 } else { 15 }
+      } else if kind == "x" {
+        size * 2
+      } else if kind == "o" {
+        (size * 8 + 2) / 3
+      } else if kind == "d" {
+        if size == 1 { 4 } else if size == 2 { 6 } else if size == 4 { 11 } else { 20 }
+      } else {
+        if size == 1 { 3 } else if size == 2 { 5 } else if size == 4 { 10 } else { 20 }
+      }
+      yield {kind: kind, size: size, chars: chars, ascii: ascii, float_format: float_format}
     }
-    var ascii = false
-    if i < text.byte_len() and text.byte_slice(i, length: 1) == "z" { ascii = true; i += 1 }
-    let chars = if kind in ["a", "c"] { 3 } else if kind == "f" { if size == 8 { 24 } else { 15 } } else if kind == "x" { size * 2 } else if kind == "o" { (size * 8 + 2) / 3 } else if kind == "d" { if size == 1 { 4 } else if size == 2 { 6 } else if size == 4 { 11 } else { 20 } } else { if size == 1 { 3 } else if size == 2 { 5 } else if size == 4 { 10 } else { 20 } }
-    out += [{kind: kind, size: size, chars: chars, ascii: ascii, float_format: float_format}]
   }
   Ok(out)
 }
@@ -169,13 +203,14 @@ pure item(data: Bytes, fmt: Format, big: Bool) -> Result[Str] {
   if fmt.kind == "d" {
     let lead = data.byte_at(if big { 0 } else { data.len() - 1 }) ?? 0
     if lead >= 128 {
-      var magnitude = []
       var carry = 1
-      for i in range(data.len()) {
-        let at = if big { data.len() - i - 1 } else { i }
-        let n = 255 - (data.byte_at(at) ?? 0) + carry
-        magnitude += [n % 256]
-        carry = n / 256
+      let magnitude = collect {
+        for i in range(data.len()) {
+          let at = if big { data.len() - i - 1 } else { i }
+          let n = 255 - (data.byte_at(at) ?? 0) + carry
+          yield n % 256
+          carry = n / 256
+        }
       }
       return Ok("-" + unsigned(bytes.from_ints(magnitude)?, false, 10, 0))
     }
@@ -390,10 +425,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.error(f"invalid {width_option} argument {gnu.quote(opts.width)}")
     exit 1
   }
-  var selected: List[Format] = []
-  for text in if requested.is_empty() { ["o2"] } else { requested } {
-    guard let parsed = formats(text) else { |failure| gnu.usage_error(failure.message); return }
-    selected += parsed
+  let selected: List[Format] = collect {
+    for text in if requested.is_empty() { ["o2"] } else { requested } {
+      guard let parsed = formats(text) else { |failure| gnu.usage_error(failure.message); return }
+      yield @parsed
+    }
   }
   var unit = 1
   for fmt in selected {
@@ -416,31 +452,44 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
   let files = if operands.is_empty() { ["-"] } else { operands }
-  var chunks = []
   var failed = false
   var remaining = if count > 9223372036854775807 - skip { 9223372036854775807 } else { count + skip }
   var seekable_device = null
-  for name in files {
-    if name == "-" {
-      while remaining > 0 {
-        let want = if remaining < 65536 { remaining } else { 65536 }
-        guard let block = io.stdin_read(want) else { |failure| gnu.name_error(name, failure); failed = true; break }
-        break when block.is_empty()
-        chunks += [block]
-        remaining -= block.len()
-      }
-    } else {
-      guard let source = tio.open_source(name) else { |failure| gnu.name_error(name, failure); failed = true; continue }
-      if files.len() == 1 and source.mode == "device" { seekable_device = source.path }
-      var at = 0
-      while remaining > 0 {
-        let want = if remaining < 65536 { remaining } else { 65536 }
-        guard let block = tio.read_chunk(source, at, want) else { |failure| gnu.name_error(name, failure); failed = true; break }
-        break when block.is_empty()
-        let part = block.slice(0, length: remaining)
-        chunks += [part]
-        remaining -= part.len()
-        at += part.len()
+  let chunks = collect {
+    for name in files {
+      if name == "-" {
+        while remaining > 0 {
+          let want = if remaining < 65536 { remaining } else { 65536 }
+          guard let block = io.stdin_read(want) else { |failure|
+            gnu.name_error(name, failure)
+            failed = true
+            break
+          }
+          break when block.is_empty()
+          yield block
+          remaining -= block.len()
+        }
+      } else {
+        guard let source = tio.open_source(name) else { |failure|
+          gnu.name_error(name, failure)
+          failed = true
+          continue
+        }
+        if files.len() == 1 and source.mode == "device" { seekable_device = source.path }
+        var at = 0
+        while remaining > 0 {
+          let want = if remaining < 65536 { remaining } else { 65536 }
+          guard let block = tio.read_chunk(source, at, want) else { |failure|
+            gnu.name_error(name, failure)
+            failed = true
+            break
+          }
+          break when block.is_empty()
+          let part = block.slice(0, length: remaining)
+          yield part
+          remaining -= part.len()
+          at += part.len()
+        }
       }
     }
   }

@@ -34,9 +34,10 @@ export const FLAGS: List[FileFlag] = [
 ## Display raw inode flags, including flags that cannot be changed.
 export pure flag_text(flags: Int, long = false) -> Str {
   var text = ""
-  var names = []
-  for flag in FLAGS {
-    if flags.bit_and(flag.bit) != 0 { text += flag.letter; names += [flag.name] } else { text += "-" }
+  let names = collect {
+    for flag in FLAGS {
+      if flags.bit_and(flag.bit) != 0 { text += flag.letter; yield flag.name } else { text += "-" }
+    }
   }
   if ! long { text } else if names.is_empty() { "---" } else { names.join(", ") }
 }
@@ -127,8 +128,9 @@ export pure decode(raw: Str) -> Result[Bytes, Error] {
   if raw.starts_with("0x") or raw.starts_with("0X") {
     let text = rx"[[:space:]]".replace(raw.byte_slice(2), with: "")
     return Err(AttributeError.Encoding("bad input encoding")) when text.byte_len() % 2 != 0 or ! rx"^[0-9A-Fa-f]*$".matches(text)
-    var values = []
-    for index in range(text.byte_len() / 2) { values += [("0x" + text.byte_slice(index * 2, length: 2)) as Int] }
+    let values = collect {
+      for index in range(text.byte_len() / 2) { yield ("0x" + text.byte_slice(index * 2, length: 2)) as Int }
+    }
     return bytes.from_ints(values)
   }
   if raw.starts_with("0s") or raw.starts_with("0S") {

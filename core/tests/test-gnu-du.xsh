@@ -143,12 +143,13 @@ test test_gnu_du_exclude_log { |ctx|
 test test_gnu_du_fd_leak_log { |ctx|
   let s = uu.scene(ctx)?
   let alphabet = "abcdefghijklmnopqrstuvwxyz0123456789".split("")
-  var names = []
-  for first in alphabet { for second in alphabet {
-    let name = first + second
-    uu.touch(s, name)
-    names += [name]
-  } }
+  let names = collect {
+    for first in alphabet { for second in alphabet {
+      let name = first + second
+      uu.touch(s, name)
+      yield name
+    } }
+  }
   assert names.len() == 1296
   uu.succeeds(uu.invoke(s, "du", names, timeout: 10s)?)
 }

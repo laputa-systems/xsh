@@ -724,12 +724,13 @@ pure add_error(parser: Parser, message: Str) -> Parser {
 }
 pure block(parser: Parser) -> Result[Parsed[Int]] {
   var p = separators(require(parser, "{")?)
-  var body = []
-  while ! is_at(p, "}") {
-    return Err(unexpected(p)) when peek(p) == TokEnd
-    let next = statement(p)?
-    p = separators(next.parser)
-    body += [next.value]
+  let body = collect {
+    while ! is_at(p, "}") {
+      return Err(unexpected(p)) when peek(p) == TokEnd
+      let next = statement(p)?
+      p = separators(next.parser)
+      yield next.value
+    }
   }
   Ok(statement_node(advance(p), Block(body)))
 }
@@ -1685,16 +1686,17 @@ pure engine_matches(translated: Str, subject: Bytes, bounds: Bounds, marked: Lis
     let hits = regex.find_bytes(translated, subject, extended: true, ignore_case: ignore_case)?
     return Ok([{start: hit.start, end: hit.end} for hit in hits])
   }
-  var found: List[Match] = []
   var offset = 0
-  while offset <= subject.len() {
-    let caps = regex.captures_bytes(translated, subject, offset, extended: true, ignore_case: ignore_case)?
-    break when caps.is_empty()
-    let span = caps[0] ?? {start: 0, end: 0}
-    if boundaries_hold(subject, span.start, span.end, bounds.lead, bounds.trail, marked) {
-      found += [{start: span.start, end: span.end}]
-      offset = if span.end > span.start { span.end } else { span.end + 1 }
-    } else { offset = span.start + 1 }
+  let found: List[Match] = collect {
+    while offset <= subject.len() {
+      let caps = regex.captures_bytes(translated, subject, offset, extended: true, ignore_case: ignore_case)?
+      break when caps.is_empty()
+      let span = caps[0] ?? {start: 0, end: 0}
+      if boundaries_hold(subject, span.start, span.end, bounds.lead, bounds.trail, marked) {
+        yield {start: span.start, end: span.end}
+        offset = if span.end > span.start { span.end } else { span.end + 1 }
+      } else { offset = span.start + 1 }
+    }
   }
   Ok(found)
 }
@@ -1826,35 +1828,43 @@ pure continuation(byte: Int) -> Bool { byte >= 128 and byte <= 191 }
 # sequence is kept as the private-use character U+10FF00 plus the byte (and
 # turned back into that byte on output), as GNU awk keeps such bytes in place.
 pure decode_lossy(data: Bytes) -> Result[Str] {
-  var out = []
   let size = data.len()
   var at = 0
-  while at < size {
-    let byte = data.byte_at(at) ?? 0
-    var width = 0
-    if byte < 128 { width = 1 } else if byte >= 194 and byte <= 223 {
-      if at + 1 < size and continuation(data.byte_at(at + 1) ?? 0) { width = 2 }
-    } else if byte >= 224 and byte <= 239 {
-      if at + 2 < size {
-        let second = data.byte_at(at + 1) ?? 0
-        let lowest = if byte == 224 { 160 } else { 128 }
-        let highest = if byte == 237 { 159 } else { 191 }
-        if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) { width = 3 }
+  let out = collect {
+    while at < size {
+      let byte = data.byte_at(at) ?? 0
+      var width = 0
+      if byte < 128 {
+        width = 1
+      } else if byte >= 194 and byte <= 223 {
+        if at + 1 < size and continuation(data.byte_at(at + 1) ?? 0) { width = 2 }
+      } else if byte >= 224 and byte <= 239 {
+        if at + 2 < size {
+          let second = data.byte_at(at + 1) ?? 0
+          let lowest = if byte == 224 { 160 } else { 128 }
+          let highest = if byte == 237 { 159 } else { 191 }
+          if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) { width = 3 }
+        }
+      } else if byte >= 240 and byte <= 244 {
+        if at + 3 < size {
+          let second = data.byte_at(at + 1) ?? 0
+          let lowest = if byte == 240 { 144 } else { 128 }
+          let highest = if byte == 244 { 143 } else { 191 }
+          if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) and continuation(
+            data.byte_at(at + 3) ?? 0,
+          ) {
+            width = 4
+          }
+        }
       }
-    } else if byte >= 240 and byte <= 244 {
-      if at + 3 < size {
-        let second = data.byte_at(at + 1) ?? 0
-        let lowest = if byte == 240 { 144 } else { 128 }
-        let highest = if byte == 244 { 143 } else { 191 }
-        if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) and continuation(data.byte_at(at + 3) ?? 0) { width = 4 }
+
+      if width > 0 {
+        for index in range(width) { yield data.byte_at(at + index) ?? 0 }
+        at += width
+      } else {
+        yield @[244, 143, 190 + (byte - 128) / 64, 128 + byte % 64]
+        at += 1
       }
-    }
-    if width > 0 {
-      for index in range(width) { out += [data.byte_at(at + index) ?? 0] }
-      at += width
-    } else {
-      out += [244, 143, 190 + (byte - 128) / 64, 128 + byte % 64]
-      at += 1
     }
   }
   Ok(bytes.from_ints(out)?.utf8()?)
@@ -1878,17 +1888,20 @@ pure decode_chunk(carry: Bytes, fresh: Bytes) -> Result[Chunk] {
 pure output_bytes(text: Str, lossy: Bool) -> Bytes {
   let encoded = bytes.from_text(text)
   return encoded unless lossy
-  var out = []
   let size = encoded.len()
   var at = 0
-  while at < size {
-    let byte = encoded.byte_at(at) ?? 0
-    if byte == 244 and at + 3 < size and encoded.byte_at(at + 1) == 143 and (encoded.byte_at(at + 2) ?? 0) >= 190 and (encoded.byte_at(at + 2) ?? 0) <= 191 {
-      out += [128 + ((encoded.byte_at(at + 2) ?? 190) - 190) * 64 + (encoded.byte_at(at + 3) ?? 128) - 128]
-      at += 4
-    } else {
-      out += [byte]
-      at += 1
+  let out = collect {
+    while at < size {
+      let byte = encoded.byte_at(at) ?? 0
+      if byte == 244 and at + 3 < size and encoded.byte_at(at + 1) == 143 and (encoded.byte_at(at + 2) ?? 0) >= 190 and (encoded.byte_at(
+        at + 2,
+      ) ?? 0) <= 191 {
+        yield 128 + ((encoded.byte_at(at + 2) ?? 190) - 190) * 64 + (encoded.byte_at(at + 3) ?? 128) - 128
+        at += 4
+      } else {
+        yield byte
+        at += 1
+      }
     }
   }
   bytes.from_ints(out) ?? encoded
@@ -2059,15 +2072,17 @@ pure string_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[
     }
     chains[codes[at] % size] = [at] + chains[codes[at] % size]
   }
-  var listing = []
-  for chain in chains { for item in chain { listing += [keys[item]] } }
+  let listing = collect {
+    for chain in chains { for item in chain { yield keys[item] } }
+  }
   listing
 }
 # Integer subscripts hash into buckets of two, newest bucket first.
 pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[Str] {
   return [] when keys.is_empty()
-  var values = []
-  for key in keys { values += [key.parse_int() ?? 0] }
+  let values = collect {
+    for key in keys { yield key.parse_int() ?? 0 }
+  }
   var size = 13
   var chains: List[List[List[Int]]] = [[] for _ in range(size)]
   var pointer = 0
@@ -2094,15 +2109,17 @@ pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List
     let slot = integer_code(values[at]) % size
     if chains[slot].is_empty() or chains[slot][0].len() >= 2 { chains[slot] = [[at]] + chains[slot] } else { chains[slot][0] = chains[slot][0] + [at] }
   }
-  var listing = []
-  for chain in chains { for bucket in chain { for item in bucket { listing += [keys[item]] } } }
+  let listing = collect {
+    for chain in chains { for bucket in chain { for item in bucket { yield keys[item] } } }
+  }
   listing
 }
 # Non-negative integer subscripts in ascending order.
 pure ascending_integers(keys: List[Str]) -> List[Str] {
   return keys when keys.len() <= 1
-  var numbers = []
-  for key in keys { numbers += [key.parse_int() ?? 0] }
+  let numbers = collect {
+    for key in keys { yield key.parse_int() ?? 0 }
+  }
   let ordered = merge_integers(numbers)
   [f"{value}" for value in ordered]
 }
@@ -2126,47 +2143,48 @@ pure merge_integers(values: List[Int]) -> List[Int] {
 # one that would waste too much allocated capacity overflows to the hash table.
 # Returns, for each key in insertion order, whether it stayed in the blocks.
 pure leaf_blocks(keys: List[Str]) -> List[Bool] {
-  var stays = []
   var capacity = 0
   var count = 0
   var leaves: Map[Bool] = {}
-  for key in keys {
-    let k = key.parse_int() ?? 0
-    var width = 0
-    var remaining = k
-    while remaining > 0 { width += 1; remaining = remaining / 2 }
-    let h1 = if width - 1 < 10 { 10 } else { width }
-    let m = h1 - 1
-    var estimate = if m > 10 { m } else { 10 }
-    while estimate >= 10 { estimate = (estimate + 1) / 2 }
-    var allocated = 1
-    for _ in range(estimate) { allocated *= 2 }
-    if capacity + allocated - count > 2048 {
-      stays += [false]
-      continue
-    }
-    count += 1
-    stays += [true]
-    var level = if m < 10 { 10 } else { m }
-    var base = 0
-    if m >= 10 { base = 1; for _ in range(m) { base *= 2 } }
-    var trail = f"{h1}"
-    loop {
-      let n = (level + 1) / 2
-      var size = 1
-      for _ in range(n) { size *= 2 }
-      let index = (k - base) / size
-      if n > 10 {
-        trail += f"/{index}"
-        base = base + size * index
-        level = n
-      } else {
-        let leaf = f"{trail}:{index}"
-        if leaf not in leaves {
-          leaves = leaves.set(leaf, true)
-          capacity += size
+  let stays = collect {
+    for key in keys {
+      let k = key.parse_int() ?? 0
+      var width = 0
+      var remaining = k
+      while remaining > 0 { width += 1; remaining = remaining / 2 }
+      let h1 = if width - 1 < 10 { 10 } else { width }
+      let m = h1 - 1
+      var estimate = if m > 10 { m } else { 10 }
+      while estimate >= 10 { estimate = (estimate + 1) / 2 }
+      var allocated = 1
+      for _ in range(estimate) { allocated *= 2 }
+      if capacity + allocated - count > 2048 {
+        yield false
+        continue
+      }
+      count += 1
+      yield true
+      var level = if m < 10 { 10 } else { m }
+      var base = 0
+      if m >= 10 { base = 1; for _ in range(m) { base *= 2 } }
+      var trail = f"{h1}"
+      loop {
+        let n = (level + 1) / 2
+        var size = 1
+        for _ in range(n) { size *= 2 }
+        let index = (k - base) / size
+        if n > 10 {
+          trail += f"/{index}"
+          base = base + size * index
+          level = n
+        } else {
+          let leaf = f"{trail}:{index}"
+          if leaf not in leaves {
+            leaves = leaves.set(leaf, true)
+            capacity += size
+          }
+          break
         }
-        break
       }
     }
   }
@@ -2200,17 +2218,20 @@ pure array_order(table: Table) -> List[Str] {
   }
   if table.kind == 2 {
     # Every integer subscript is in the integer table, strings in its overflow.
-    var all_seqs = []
-    for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { all_seqs += [seqs[at]] } }
-    var in_order = []
-    for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { in_order += [keys[at]] } }
+    let all_seqs = collect {
+      for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { yield seqs[at] } }
+    }
+    let in_order = collect {
+      for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { yield keys[at] } }
+    }
     return string_order(strings, string_seqs, null) + integer_order(in_order, all_seqs, events)
   }
   # Non-negative integers still held by the blocks list ascending after the
   # overflow table, which is an integer table when its first subscript was an
   # integer, else a string table.
-  var natural_keys = []
-  for at in range(keys.len()) { if subscript_kind(keys[at]) == 1 { natural_keys += [keys[at]] } }
+  let natural_keys = collect {
+    for at in range(keys.len()) { if subscript_kind(keys[at]) == 1 { yield keys[at] } }
+  }
   let stays = leaf_blocks(natural_keys)
   var held = []
   var overflow = []
@@ -2249,10 +2270,11 @@ pure grown_table(cells: Map[Cell], first_key: Str) -> Table {
   let count = cells.len()
   let kind = if count == 0 { 0 } else { subscript_kind(first_key) }
   var size = 0
-  var growths = []
-  if kind != 1 and count > 0 {
-    size = 13
-    for seq in range(count) { if (seq + 1) / size > 10 { size = next_table_size(size); growths += [seq] } }
+  let growths = collect {
+    if kind != 1 and count > 0 {
+      size = 13
+      for seq in range(count) { if (seq + 1) / size > 10 { size = next_table_size(size); yield seq } }
+    }
   }
   Table(cells: cells, next: count, kind: kind, size: size, growths: growths)
 }
@@ -2326,8 +2348,9 @@ pure compile_place(x: List[Expression], names: List[Str], id: Int) -> Result[Pla
       Ok({ops: compile_expression(x, names, child)?, spot: SpotField})
     }
     Index(name, keys) => {
-      var ops: List[Op] = []
-      for key in keys { ops += compile_expression(x, names, key)? }
+      let ops: List[Op] = collect {
+        for key in keys { yield @compile_expression(x, names, key)? }
+      }
       let slot = slot_of(names, name)
       Ok({ops: ops, spot: if slot >= 0 { SpotIndexLocal(slot, name, keys.len()) } else { SpotIndexGlobal(name, keys.len()) }})
     }
@@ -2358,8 +2381,9 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
     }
     Field(child) => Ok(compile_expression(x, names, child)? + [OpLoadField])
     Index(name, keys) => {
-      var ops: List[Op] = []
-      for key in keys { ops += compile_expression(x, names, key)? }
+      let ops: List[Op] = collect {
+        for key in keys { yield @compile_expression(x, names, key)? }
+      }
       let slot = slot_of(names, name)
       Ok(ops + [if slot >= 0 { OpLoadIndexLocal(slot, name, keys.len()) } else { OpLoadIndexGlobal(name, keys.len()) }])
     }
@@ -2398,8 +2422,9 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
       Ok(first + second + [operation])
     }
     Member(keys, array) => {
-      var ops: List[Op] = []
-      for key in keys { ops += compile_expression(x, names, key)? }
+      let ops: List[Op] = collect {
+        for key in keys { yield @compile_expression(x, names, key)? }
+      }
       let slot = slot_of(names, array)
       Ok(ops + [OpMember(if slot >= 0 { SpotIndexLocal(slot, array, keys.len()) } else { SpotIndexGlobal(array, keys.len()) })])
     }
@@ -2456,8 +2481,11 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
     if name == "match" {
       if args.len() < 2 or args.len() > 3 { return Err(fatal_error("match: wrong number of arguments")) }
       ops += compile_expression(x, names, args[0])? + compile_regex_source(x, names, args[1])?
-      var spots: List[Spot] = []
-      if args.len() == 3 { spots += [match x[args[2]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }] }
+      let spots: List[Spot] = collect {
+        if args.len() == 3 {
+          yield match x[args[2]] { Variable(variable) => array_spot(names, variable), _ => SpotNone }
+        }
+      }
       return Ok(ops + [OpArrayBuiltin("match", spots, args.len())])
     }
     if name == "gensub" {
@@ -2510,16 +2538,17 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
     return Ok(ops + [OpBuiltin(name, args.len())])
   }
   # Anything else is a user function, resolved when the call runs.
-  var kinds: List[Arg] = []
-  for child in args {
-    match x[child] {
-      Variable(variable) => {
-        let slot = slot_of(names, variable)
-        kinds += [if slot >= 0 { ArgLocal(slot) } else { ArgGlobal(variable) }]
-      }
-      _ => {
-        ops += compile_expression(x, names, child)?
-        kinds += [ArgValue]
+  let kinds: List[Arg] = collect {
+    for child in args {
+      match x[child] {
+        Variable(variable) => {
+          let slot = slot_of(names, variable)
+          yield if slot >= 0 { ArgLocal(slot) } else { ArgGlobal(variable) }
+        }
+        _ => {
+          ops += compile_expression(x, names, child)?
+          yield ArgValue
+        }
       }
     }
   }
@@ -2529,12 +2558,13 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
 # Statements. Loop bodies carry BreakMarker and ContinueMarker placeholders
 # that the enclosing loop turns into jumps once its layout is known.
 pure patch_markers(body: List[Op], break_to: Int, continue_to: Int) -> List[Op] {
-  var out: List[Op] = []
-  for at in range(body.len()) {
-    match body[at] {
-      OpBreakMarker => { out += [OpJump(break_to - (at + 1))] }
-      OpContinueMarker => { out += [OpJump(continue_to - (at + 1))] }
-      _ => { out += [body[at]] }
+  let out: List[Op] = collect {
+    for at in range(body.len()) {
+      match body[at] {
+        OpBreakMarker => { yield OpJump(break_to - (at + 1)) }
+        OpContinueMarker => { yield OpJump(continue_to - (at + 1)) }
+        _ => { yield body[at] }
+      }
     }
   }
   out
@@ -2557,8 +2587,9 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
   let site = [OpSetSite(id)]
   match s[id] {
     Block(body) => {
-      var ops: List[Op] = []
-      for child in body { ops += compile_statement(x, s, names, child)? }
+      let ops: List[Op] = collect {
+        for child in body { yield @compile_statement(x, s, names, child)? }
+      }
       Ok(ops)
     }
     ExpressionStatement(child) => {
@@ -2679,8 +2710,9 @@ pure link(program: Program) -> Result[Linked] {
   let x = program.expressions
   let s = program.statements
   var labels = program.site
-  var begin_ops: List[Op] = []
-  for id in program.begin { begin_ops += compile_statement(x, s, [], id)? }
+  let begin_ops: List[Op] = collect {
+    for id in program.begin { yield @compile_statement(x, s, [], id)? }
+  }
   var rule_ops: List[Op] = []
   var range_index = 0
   for rule in program.rules {
@@ -2701,8 +2733,9 @@ pure link(program: Program) -> Result[Linked] {
     let tail = stop + [OpJumpTrue(1), OpJump(1), OpSetRange(index, false)] + action
     rule_ops += [OpSetSite(label), OpRangeActive(index, cond_ops.len() + 2)] + cond_ops + [OpJumpFalse(1 + tail.len()), OpSetRange(index, true)] + tail
   }
-  var end_ops: List[Op] = []
-  for id in program.end { end_ops += compile_statement(x, s, [], id)? }
+  let end_ops: List[Op] = collect {
+    for id in program.end { yield @compile_statement(x, s, [], id)? }
+  }
   let main_section = ! program.rules.is_empty() or ! program.end.is_empty()
   var ops = begin_ops
   var loop_at = begin_ops.len()
@@ -2934,12 +2967,13 @@ pure split_fields(content: Str, separator: Str, regex_mode: Bool, ignore_case: B
   if separator == " " and ! regex_mode { return Ok([input(piece)? for piece in content.replace("\n", with: " ").replace("\t", with: " ").split(" ") if ! piece.is_empty()]) }
   if separator.is_empty() and ! regex_mode { return Ok([input(piece)? for piece in content.split("")]) }
   if separator.count_chars() == 1 and ! regex_mode { return Ok([input(piece)? for piece in content.split(separator)]) }
-  var fields: List[Scalar] = []
   var start = 0
-  for hit in rx_matches(separator, content, ignore_case)? {
-    continue when hit.start == hit.end
-    fields += [input(content.byte_slice(start, length: hit.start - start))?]
-    start = hit.end
+  let fields: List[Scalar] = collect {
+    for hit in rx_matches(separator, content, ignore_case)? {
+      continue when hit.start == hit.end
+      yield input(content.byte_slice(start, length: hit.start - start))?
+      start = hit.end
+    }
   }
   Ok(fields + [input(content.byte_slice(start))?])
 }
@@ -2970,61 +3004,63 @@ pure invalid_field_widths(index: Int, near: Str) -> Error {
   fatal_error(f"invalid FIELDWIDTHS value, for field {index}, near `{near}'")
 }
 pure parse_field_widths(spec: Str) -> Result[List[FieldWidth]] {
-  var widths: List[FieldWidth] = []
   let size = spec.byte_len()
   var at = 0
   var index = 0
-  loop {
-    while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
-    break when at >= size
-    index += 1
-    var skip = 0
-    var begin = at
-    var digits = 0
-    var value = 0
-    while at < size and (spec.byte_at(at) ?? 0) >= 48 and (spec.byte_at(at) ?? 0) <= 57 {
-      value = value * 10 + ((spec.byte_at(at) ?? 48) - 48)
-      at += 1
-      digits += 1
-    }
-    if digits > 0 and at < size and spec.byte_at(at) == 58 {
-      skip = value
-      at += 1
-      begin = at
-      value = 0
-      digits = 0
+  let widths: List[FieldWidth] = collect {
+    loop {
+      while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
+      break when at >= size
+      index += 1
+      var skip = 0
+      var begin = at
+      var digits = 0
+      var value = 0
       while at < size and (spec.byte_at(at) ?? 0) >= 48 and (spec.byte_at(at) ?? 0) <= 57 {
         value = value * 10 + ((spec.byte_at(at) ?? 48) - 48)
         at += 1
         digits += 1
       }
+      if digits > 0 and at < size and spec.byte_at(at) == 58 {
+        skip = value
+        at += 1
+        begin = at
+        value = 0
+        digits = 0
+        while at < size and (spec.byte_at(at) ?? 0) >= 48 and (spec.byte_at(at) ?? 0) <= 57 {
+          value = value * 10 + ((spec.byte_at(at) ?? 48) - 48)
+          at += 1
+          digits += 1
+        }
+      }
+      if digits == 0 and at < size and spec.byte_at(at) == 42 {
+        at += 1
+        while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
+        return Err(fatal_error("`*' must be the last designator in FIELDWIDTHS")) when at < size
+        yield {skip: skip, width: -1}
+        break
+      }
+      if digits == 0 or value <= 0 or (at < size and ! ((spec.byte_at(at) ?? 0) in [32, 9, 10])) {
+        return Err(invalid_field_widths(index, spec.byte_slice(begin)))
+      }
+      yield {skip: skip, width: value}
     }
-    if digits == 0 and at < size and spec.byte_at(at) == 42 {
-      at += 1
-      while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
-      return Err(fatal_error("`*' must be the last designator in FIELDWIDTHS")) when at < size
-      widths += [{skip: skip, width: -1}]
-      break
-    }
-    if digits == 0 or value <= 0 or (at < size and ! ((spec.byte_at(at) ?? 0) in [32, 9, 10])) {
-      return Err(invalid_field_widths(index, spec.byte_slice(begin)))
-    }
-    widths += [{skip: skip, width: value}]
   }
   Ok(widths)
 }
 # The fields of a record cut at fixed character positions.
 pure cut_fields(record: Str, widths: List[FieldWidth]) -> Result[List[Scalar]] {
   let characters = record.split("")
-  var fields: List[Scalar] = []
   var at = 0
-  for designator in widths {
-    at += designator.skip
-    break when at >= characters.len()
-    let available = characters.len() - at
-    let take = if designator.width < 0 or designator.width > available { available } else { designator.width }
-    fields += [input(characters[at..at + take].join(""))?]
-    at += take
+  let fields: List[Scalar] = collect {
+    for designator in widths {
+      at += designator.skip
+      break when at >= characters.len()
+      let available = characters.len() - at
+      let take = if designator.width < 0 or designator.width > available { available } else { designator.width }
+      yield input(characters[at..at + take].join(""))?
+      at += take
+    }
   }
   Ok(fields)
 }
@@ -3033,12 +3069,13 @@ pure cut_fields(record: Str, widths: List[FieldWidth]) -> Result[List[Scalar]] {
 # FPAT is matched without case folding even when IGNORECASE is set.
 pure pattern_fields(record: Str, pattern: Str) -> Result[List[Scalar]] {
   return Ok([]) when record.is_empty()
-  var fields: List[Scalar] = []
   var previous_end = -1
-  for hit in dynamic_matches(pattern, record, false)? {
-    continue when hit.start == hit.end and previous_end == hit.start
-    fields += [input(record.byte_slice(hit.start, length: hit.end - hit.start))?]
-    previous_end = hit.end
+  let fields: List[Scalar] = collect {
+    for hit in dynamic_matches(pattern, record, false)? {
+      continue when hit.start == hit.end and previous_end == hit.start
+      yield input(record.byte_slice(hit.start, length: hit.end - hit.start))?
+      previous_end = hit.end
+    }
   }
   Ok(fields)
 }
@@ -3367,12 +3404,13 @@ pure leading_integer(word: Str) -> Int? {
   if negative { 0 - value } else { value }
 }
 proc make_time(spec: Str, utc: Bool) -> Result[Int] {
-  var parts = []
-  for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
-    continue when word.is_empty()
-    let number = leading_integer(word)
-    return Ok(-1) when number == null
-    parts += [number ?? 0]
+  let parts = collect {
+    for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
+      continue when word.is_empty()
+      let number = leading_integer(word)
+      return Ok(-1) when number == null
+      yield number ?? 0
+    }
   }
   return Ok(-1) when parts.len() < 6
   var year = parts[0]
@@ -3528,8 +3566,9 @@ pure record_fields(record: Str, globals: Map[Scalar], mode: Int) -> Result[List[
 # Subscripts on the stack joined with SUBSEP.
 pure subscript_key(stack: List[Scalar], top: Int, count: Int, separator: Str, conversion: Str) -> Result[Str] {
   return scalar_text(stack[top - 1], conversion) when count == 1
-  var pieces = []
-  for at in range(top - count, top) { pieces += [scalar_text(stack[at], conversion)?] }
+  let pieces = collect {
+    for at in range(top - count, top) { yield scalar_text(stack[at], conversion)? }
+  }
   Ok(pieces.join(separator))
 }
 pure no_cell() -> Cell { Cell(value: Empty, seq: -1) }
@@ -4153,8 +4192,9 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           } else {
             if count == 0 { text = record } else {
               let output_format = plain_text(globals.get("OFMT") ?? Empty)?
-              var pieces = []
-              for at in range(sp - count, sp) { pieces += [scalar_text(stack[at], output_format)?] }
+              let pieces = collect {
+                for at in range(sp - count, sp) { yield scalar_text(stack[at], output_format)? }
+              }
               text = pieces.join(plain_text(globals.get("OFS") ?? Empty)?)
             }
             text += plain_text(globals.get("ORS") ?? Empty)?
@@ -4439,8 +4479,9 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
           } else if name == "and" or name == "or" or name == "xor" {
             if count < 2 { Err(fatal_error(f"{name}: called with less than two arguments"))? }
-            var operands = []
-            for at in range(count) { operands += [to_bit_operand(name, at + 1, number(values[at])?)?] }
+            let operands = collect {
+              for at in range(count) { yield to_bit_operand(name, at + 1, number(values[at])?)? }
+            }
             result = Numeric(bit_fold(name, operands))
           } else if name == "lshift" or name == "rshift" {
             if count != 2 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
@@ -4669,12 +4710,13 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 Err(_) => { Err(fatal_error(f"{name}: second argument is not an array"))? }
               }
             }
-            var items: List[SortItem] = []
-            if source in arrays {
-              for subscript in arrays[source].cells.keys() {
-                let held = (arrays[source].cells.get(subscript) ?? no_cell()).value
-                let shown = if name == "asorti" { input(subscript)? } else { held }
-                items += [sort_item(shown, subscript, how)?]
+            let items: List[SortItem] = collect {
+              if source in arrays {
+                for subscript in arrays[source].cells.keys() {
+                  let held = (arrays[source].cells.get(subscript) ?? no_cell()).value
+                  let shown = if name == "asorti" { input(subscript)? } else { held }
+                  yield sort_item(shown, subscript, how)?
+                }
               }
             }
             let ordered = merge_sort(items, how.ends_with("_desc"))

@@ -140,16 +140,17 @@ pure long_names() -> List[Str] {
 }
 
 pure matching_names(prefix: Str) -> List[Str] {
-  var found = []
   var exact = false
 
-  for name in long_names() {
-    if name == prefix {
-      exact = true
-    }
+  let found = collect {
+    for name in long_names() {
+      if name == prefix {
+        exact = true
+      }
 
-    if name.starts_with(prefix) {
-      found += [name]
+      if name.starts_with(prefix) {
+        yield name
+      }
     }
   }
 
@@ -262,42 +263,55 @@ pure padded(text: Str, width: Int, right: Bool, last: Bool) -> Str {
 # every column but the last padded to its widest cell, SOFT and HARD right
 # aligned. `--raw` drops the padding and escapes blanks.
 pure render(rows: List[Row], columns: List[Str], headings: Bool, raw: Bool) -> Str {
-  var widths = []
+  let widths = collect {
+    for column in columns {
+      var width = if headings { column.byte_len() } else { 0 }
 
-  for column in columns {
-    var width = if headings { column.byte_len() } else { 0 }
+      for row in rows {
+        let size = cell(row, column).byte_len()
 
-    for row in rows {
-      let size = cell(row, column).byte_len()
-
-      if size > width {
-        width = size
+        if size > width {
+          width = size
+        }
       }
-    }
 
-    widths += [width]
+      yield width
+    }
   }
 
   var lines = []
 
   if headings {
-    var pieces = []
-
-    for index in range(columns.len()) {
-      pieces += [if raw { columns[index] } else { padded(columns[index], widths[index], columns[index] == "SOFT" or columns[index] == "HARD", index == columns.len() - 1) }]
+    let pieces = collect {
+      for index in range(columns.len()) {
+        yield if raw {
+          columns[index]
+        } else {
+          padded(
+            columns[index],
+            widths[index],
+            columns[index] == "SOFT" or columns[index] == "HARD",
+            index == columns.len() - 1,
+          )
+        }
+      }
     }
 
     lines += [pieces.join(" ")]
   }
 
   for row in rows {
-    var pieces = []
+    let pieces = collect {
+      for index in range(columns.len()) {
+        let column = columns[index]
+        let text = cell(row, column)
 
-    for index in range(columns.len()) {
-      let column = columns[index]
-      let text = cell(row, column)
-
-      pieces += [if raw { escaped(text) } else { padded(text, widths[index], column == "SOFT" or column == "HARD", index == columns.len() - 1) }]
+        yield if raw {
+          escaped(text)
+        } else {
+          padded(text, widths[index], column == "SOFT" or column == "HARD", index == columns.len() - 1)
+        }
+      }
     }
 
     lines += [pieces.join(" ")]
@@ -321,28 +335,29 @@ proc fail(message: Str) [process, env] {
 # name is reported with the rest of the list that follows it, as util-linux
 # does.
 proc parse_columns(text: Str) [process, env, error] -> List[Str] {
-  var columns = []
   var consumed = 0
 
-  for element in text.split(",") {
-    let rest = text.byte_slice(consumed)
+  let columns = collect {
+    for element in text.split(",") {
+      let rest = text.byte_slice(consumed)
 
-    if element == "" {
-      if rest == "" or consumed + 1 >= text.byte_len() {
-        fail(f"unknown column: {text}")
+      if element == "" {
+        if rest == "" or consumed + 1 >= text.byte_len() {
+          fail(f"unknown column: {text}")
+        }
+
+        exit 1
       }
 
-      exit 1
+      let name = element.upper()
+
+      if ! (name in COLUMNS) {
+        fail(f"unknown column: {rest}")
+      }
+
+      yield name
+      consumed += element.byte_len() + 1
     }
-
-    let name = element.upper()
-
-    if ! (name in COLUMNS) {
-      fail(f"unknown column: {rest}")
-    }
-
-    columns += [name]
-    consumed += element.byte_len() + 1
   }
 
   columns

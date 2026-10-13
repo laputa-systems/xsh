@@ -35,9 +35,10 @@ export pure initial(now_ns: Int) -> Result[State, Error] {
   if now_ns < 0 or now_ns > MAX_TIME_NS - interval(Blocking) {
     return Err(error.failure("collection schedule requires a nonnegative monotonic time"))
   }
-  var entries: List[Entry] = []
-  for class in [Inventory, Counters, Gauges, Blocking] {
-    entries += [{class: class, interval_ns: interval(class), next_due_ns: now_ns, invalidated: false}]
+  let entries: List[Entry] = collect {
+    for class in [Inventory, Counters, Gauges, Blocking] {
+      yield {class: class, interval_ns: interval(class), next_due_ns: now_ns, invalidated: false}
+    }
   }
   Ok({entries: entries})
 }

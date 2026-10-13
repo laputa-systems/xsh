@@ -26,8 +26,9 @@ test test_gnu_tee_append_log { |ctx|
     uu.stdout_is(initial, "line 1\n")
     for name in files { uu.file_is(s, name, "line 1\n") }
     uu.write(s, "inp", "line 2\n")
-    var args = []
-    for name in files { args += [option, name] }
+    let args = collect {
+      for name in files { yield @[option, name] }
+    }
     let appended = uu.invoke_from_path(s, "tee", args, uu.at(s, "inp"))?
     uu.succeeds(appended)
     uu.stdout_is(appended, "line 2\n")

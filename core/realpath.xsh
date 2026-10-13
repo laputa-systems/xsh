@@ -32,15 +32,16 @@ pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
 }
 
 pure path_components(name: Bytes) -> List[Bytes] {
-  var parts = []
   var begin = 0
-  for index in range(name.len()) {
-    if name.byte_at(index) == 47 {
-      if index > begin { parts += [name.slice(begin, length: index - begin)] }
-      begin = index + 1
+  let parts = collect {
+    for index in range(name.len()) {
+      if name.byte_at(index) == 47 {
+        if index > begin { yield name.slice(begin, length: index - begin) }
+        begin = index + 1
+      }
     }
+    if name.len() > begin { yield name.slice(begin) }
   }
-  if name.len() > begin { parts += [name.slice(begin)] }
   parts
 }
 

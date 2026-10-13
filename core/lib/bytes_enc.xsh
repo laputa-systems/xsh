@@ -121,33 +121,34 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
   if kind == "base64url" and ! ignore and has_any_byte(data, [43, 47]) {
     return Ok({data: b"", valid: false})
   }
-  var values = []
   var valid = true
   var padded = false
   var pads = 0
-  for position in range(data.len()) {
-    let byte = data.byte_at(position) ?? 0
-    continue when byte == 10 or byte == 13
-    if byte == 61 and kind in ["base64", "base64url", "base32", "base32hex"] {
-      padded = true
-      pads += 1
-      continue
+  let values = collect {
+    for position in range(data.len()) {
+      let byte = data.byte_at(position) ?? 0
+      continue when byte == 10 or byte == 13
+      if byte == 61 and kind in ["base64", "base64url", "base32", "base32hex"] {
+        padded = true
+        pads += 1
+        continue
+      }
+      let char = bytes.from_ints([byte])?.utf8() ?? ""
+      let symbol = if kind == "base16" { char.upper() } else { char }
+      let value: Int? = if symbol == "" { null } else { chars.find(symbol) }
+      if value == null {
+        continue when ignore
+        valid = false
+        break
+      }
+      if padded {
+        let prefix = decode(data[0..position], kind, ignore)?
+        return Ok(prefix) unless prefix.valid
+        let suffix = decode(data[position..], kind, ignore)?
+        return Ok({data: bytes.concat([prefix.data, suffix.data]), valid: suffix.valid})
+      }
+      yield value ?? 0
     }
-    let char = bytes.from_ints([byte])?.utf8() ?? ""
-    let symbol = if kind == "base16" { char.upper() } else { char }
-    let value: Int? = if symbol == "" { null } else { chars.find(symbol) }
-    if value == null {
-      continue when ignore
-      valid = false
-      break
-    }
-    if padded {
-      let prefix = decode(data[0..position], kind, ignore)?
-      return Ok(prefix) unless prefix.valid
-      let suffix = decode(data[position..], kind, ignore)?
-      return Ok({data: bytes.concat([prefix.data, suffix.data]), valid: suffix.valid})
-    }
-    values += [value ?? 0]
   }
   var out = []
   if kind == "base58" {
@@ -235,19 +236,36 @@ export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env,
   # Encoding selectors use ordered argv rather than Boolean fields: GNU
   # permits multiple selectors and the last one chooses the encoding.
   var kind = default_kind
-  var args = []
   var options = true
-  let selectors = ["--base64", "--base64url", "--base32", "--base32hex", "--base16", "--base2msbf", "--base2lsbf", "--z85", "--base58"]
-  for arg in argv {
-    if arg == "--" { options = false }
-    let candidates = if options and arg.starts_with("--") and arg != "--" and default_kind == "" { [selector for selector in selectors if selector.starts_with(arg)] } else { [] }
-    if options and arg in selectors and default_kind == "" {
-      kind = arg.byte_slice(2)
-    } else if candidates.len() == 1 {
-      kind = candidates[0].byte_slice(2)
-    } else if candidates.len() > 1 {
-      gnu.usage_error(f"option {gnu.quote(arg)} is ambiguous")
-    } else { args += [arg] }
+  let selectors = [
+    "--base64",
+    "--base64url",
+    "--base32",
+    "--base32hex",
+    "--base16",
+    "--base2msbf",
+    "--base2lsbf",
+    "--z85",
+    "--base58",
+  ]
+  let args = collect {
+    for arg in argv {
+      if arg == "--" { options = false }
+      let candidates = if options and arg.starts_with("--") and arg != "--" and default_kind == "" {
+        [selector for selector in selectors if selector.starts_with(arg)]
+      } else {
+        []
+      }
+      if options and arg in selectors and default_kind == "" {
+        kind = arg.byte_slice(2)
+      } else if candidates.len() == 1 {
+        kind = candidates[0].byte_slice(2)
+      } else if candidates.len() > 1 {
+        gnu.usage_error(f"option {gnu.quote(arg)} is ambiguous")
+      } else {
+        yield arg
+      }
+    }
   }
   let opts = cli.applet(args, {
     gnu: {status: 1},

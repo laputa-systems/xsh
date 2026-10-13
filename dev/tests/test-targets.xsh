@@ -113,14 +113,15 @@ test test_docker_argv_applies_split_resource_limits_before_the_image {
       "",
       [],
     )?
-    var docker_options_before_image = []
     var image_seen = false
-    for argument in argv {
-      if argument == "xsh-test" {
-        image_seen = true
-        break
+    let docker_options_before_image = collect {
+      for argument in argv {
+        if argument == "xsh-test" {
+          image_seen = true
+          break
+        }
+        yield argument
       }
-      docker_options_before_image += [argument]
     }
     assert image_seen
     assert "--cpus=0.01" in docker_options_before_image

@@ -43,16 +43,18 @@ proc usage_error() [process, error] {
 pure parse_address(word: Str) -> Bytes? {
   let parts = word.split(".")
   return null when parts.len() < 1 or parts.len() > 4
-  var values = []
-  for part in parts {
-    let value = nettools.decimal(part)
-    return null when value == null
-    values += [value ?? 0]
+  let values = collect {
+    for part in parts {
+      let value = nettools.decimal(part)
+      return null when value == null
+      yield value ?? 0
+    }
   }
-  var octets = []
-  for index in range(parts.len() - 1) {
-    return null when values[index] > 255
-    octets += [values[index]]
+  let octets = collect {
+    for index in range(parts.len() - 1) {
+      return null when values[index] > 255
+      yield values[index]
+    }
   }
   var tail = values[parts.len() - 1]
   let room = 4 - octets.len()

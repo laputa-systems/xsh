@@ -36,10 +36,10 @@ proc local_port(fd: Int) [process, error] -> Result[Int] {
 # The datagrams waiting on `fd` after a trace finished, in arrival order.
 proc drain(fd: Int) [process, net, error] -> Result[List[Bytes]] {
   let c = linux.net_constants()
-  var found = []
-
-  while "readable" in unix.poll_fd(fd, ["readable"], 200)? {
-    found += [linux.recvfrom(fd, 70000, c.MSG_DONTWAIT)?.data]
+  let found = collect {
+    while "readable" in unix.poll_fd(fd, ["readable"], 200)? {
+      yield linux.recvfrom(fd, 70000, c.MSG_DONTWAIT)?.data
+    }
   }
 
   Ok(found)

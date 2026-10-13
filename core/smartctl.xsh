@@ -475,9 +475,10 @@ proc json_document(options: Options, argv: List[Str], machine: Str, release: Str
     j.m("argv", ["smartctl"] + argv),
   ]
   if !messages.is_empty() or !notes.is_empty() {
-    var entries: List[j.Object] = []
-    for message in messages { entries += [j.object([j.m("string", message), j.m("severity", "error")])] }
-    for note in notes { entries += [j.object([j.m("string", note), j.m("severity", "information")])] }
+    let entries: List[j.Object] = collect {
+      for message in messages { yield j.object([j.m("string", message), j.m("severity", "error")]) }
+      for note in notes { yield j.object([j.m("string", note), j.m("severity", "information")]) }
+    }
     block += [j.m("messages", entries)]
   }
   block += [j.m("exit_status", status)]

@@ -159,13 +159,13 @@ pure ipv4_text(raw: Bytes, at: Int) -> Str {
 # the longest run of zero groups (two or more) compressed, and IPv4-mapped
 # addresses with a dotted tail.
 pure ipv6_text(raw: Bytes, at: Int) -> Str {
-  var groups = []
+  let groups = collect {
+    for index in range(8) {
+      let high = raw.byte_at(at + index * 2) ?? 0
+      let low = raw.byte_at(at + index * 2 + 1) ?? 0
 
-  for index in range(8) {
-    let high = raw.byte_at(at + index * 2) ?? 0
-    let low = raw.byte_at(at + index * 2 + 1) ?? 0
-
-    groups += [high * 256 + low]
+      yield high * 256 + low
+    }
   }
 
   let mapped = groups[0] == 0 and groups[1] == 0 and groups[2] == 0 and groups[3] == 0 and groups[4] == 0 and groups[5] == 65535
@@ -423,10 +423,10 @@ proc resolve_host(name: Str, family: Str, argc: Int) [net, process, error] -> Re
 
 proc dotted_quad(name: Str) [net, error] -> Result[Bytes] {
   let addr = resolve_one(name, "ipv4")?
-  var octets = []
-
-  for part in addr.split(".") {
-    octets += [part.parse_int_decimal()?]
+  let octets = collect {
+    for part in addr.split(".") {
+      yield part.parse_int_decimal()?
+    }
   }
 
   bytes.from_ints(octets)
@@ -1210,19 +1210,19 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
       usage_die(f"Cannot handle `-w' option with arg `{text}' (argc {argc})")
     }
 
-    var numbers = []
+    let numbers = collect {
+      for part in parts {
+        guard let number = part.parse_float() else { |failure|
+          usage_die(f"Cannot handle `-w' option with arg `{text}' (argc {argc})")
+          return
+        }
 
-    for part in parts {
-      guard let number = part.parse_float() else { |failure|
-        usage_die(f"Cannot handle `-w' option with arg `{text}' (argc {argc})")
-        return
+        if number < 0.0 {
+          usage_die(f"bad wait specifications `{text}' used")
+        }
+
+        yield number
       }
-
-      if number < 0.0 {
-        usage_die(f"bad wait specifications `{text}' used")
-      }
-
-      numbers += [number]
     }
 
     max_wait_ms = seconds_ms(parts[0]) ?? max_wait_ms
@@ -1324,21 +1324,21 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     source = found[0].addr
   }
 
-  var gateways = []
-
   if ! opts.gateway.is_empty() and target.v6 {
     usage_die("traceroute: option '-g' is not supported: IPv6 routing headers are not available")
   }
 
-  for list in opts.gateway {
-    for name in list.split(",") {
-      guard let gate = dotted_quad(name) else { |failure|
-        eprint f"{name}: Name or service not known"
-        usage_die(f"Cannot handle `-g' option with arg `{list}' (argc {argc})")
-        return
-      }
+  let gateways = collect {
+    for list in opts.gateway {
+      for name in list.split(",") {
+        guard let gate = dotted_quad(name) else { |failure|
+          eprint f"{name}: Name or service not known"
+          usage_die(f"Cannot handle `-g' option with arg `{list}' (argc {argc})")
+          return
+        }
 
-      gateways += [gate]
+        yield gate
+      }
     }
   }
 

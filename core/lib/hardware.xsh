@@ -234,41 +234,71 @@ pure usb_depth(devices: List[usb.UsbDevice], index: Int) -> Result[Int] {
 
 ## Renders USB identities, descriptor fields, interfaces, endpoints and topology.
 export pure usb_lines(devices: List[usb.UsbDevice], names: Map[Str], view: UsbView) -> Result[List[Str], Error] {
-  var lines = []
-  for index in range(devices.len()) {
-    let device = devices[index]
-    if view.tree {
-      let indent = ["    "] |> repeat(usb_depth(devices, index)?).join("")
-      if device.is_root_hub { lines += [f"/:  Bus {decimal(device.bus_number, 3)}.Port 001: Dev {decimal(device.device_number, 1)}, Class=root_hub, {device.speed_mbps ?? "?"}M"] } else {
-        for interface in device.interfaces {
-          let matches = interface.alternate_settings |> where .number == interface.active_alternate
-          let alternate: report.UsbAlternateSetting? = if matches.is_empty() { null } else { matches[0] }
-          let class_name = if alternate != null { names.get(f"c:{hex(alternate.class_code, 2)}") ?? hex(alternate.class_code, 2) } else { "?" }
-          lines += [f"{indent}|__ Port {device.port_path ?? device.sysfs_name}: Dev {decimal(device.device_number, 1)}, If {interface.number}, Class={class_name}, Driver={interface.driver ?? ""}, {device.speed_mbps ?? "?"}M"]
+  let lines = collect {
+    for index in range(devices.len()) {
+      let device = devices[index]
+      if view.tree {
+        let indent = ["    "] |> repeat(usb_depth(devices, index)?).join("")
+        if device.is_root_hub {
+          yield f"/:  Bus {decimal(device.bus_number, 3)}.Port 001: Dev {decimal(device.device_number, 1)}, Class=root_hub, {device.speed_mbps ?? "?"}M"
+        } else {
+          for interface in device.interfaces {
+            let matches = interface.alternate_settings |> where .number == interface.active_alternate
+            let alternate: report.UsbAlternateSetting? = if matches.is_empty() { null } else { matches[0] }
+            let class_name = if alternate != null {
+              names.get(f"c:{hex(alternate.class_code, 2)}") ?? hex(alternate.class_code, 2)
+            } else {
+              "?"
+            }
+            yield f"{indent}|__ Port {device.port_path ?? device.sysfs_name}: Dev {decimal(device.device_number, 1)}, If {interface.number}, Class={class_name}, Driver={interface.driver ?? ""}, {device.speed_mbps ?? "?"}M"
+          }
+
+          if device.interfaces.is_empty() {
+            yield f"{indent}|__ Port {device.port_path ?? device.sysfs_name}: Dev {decimal(device.device_number, 1)}, {device.speed_mbps ?? "?"}M"
+          }
         }
-        if device.interfaces.is_empty() { lines += [f"{indent}|__ Port {device.port_path ?? device.sysfs_name}: Dev {decimal(device.device_number, 1)}, {device.speed_mbps ?? "?"}M"] }
+
+        continue
       }
-      continue
-    }
-    lines += [usb_title(device, names)]
-    continue unless view.verbose
-    lines += ["Device Descriptor:", f"  bDeviceClass        {decimal(device.class_code, 1)}", f"  bDeviceSubClass     {decimal(device.subclass, 1)}",
-      f"  bDeviceProtocol     {decimal(device.protocol, 1)}", f"  idVendor           0x{hex(device.vendor_id, 4)}", f"  idProduct          0x{hex(device.product_id, 4)}"]
-    if device.device_version != null { lines += [f"  bcdDevice          {device.device_version}"] }
-    if device.manufacturer.value != null { lines += [f"  iManufacturer      {device.manufacturer.value}"] }
-    if device.product.value != null { lines += [f"  iProduct           {device.product.value}"] }
-    if device.serial.value != null { lines += [f"  iSerialNumber      {device.serial.value}"] }
-    if device.configuration_count != null { lines += [f"  bNumConfigurations {device.configuration_count}"] }
-    for interface in device.interfaces {
-      for alternate in interface.alternate_settings {
-        lines += ["    Interface Descriptor:", f"      bInterfaceNumber    {interface.number}", f"      bAlternateSetting   {alternate.number}",
-          f"      bInterfaceClass     {alternate.class_code}", f"      bInterfaceSubClass  {alternate.subclass}", f"      bInterfaceProtocol  {alternate.protocol}"]
-        for endpoint in alternate.endpoints {
-          lines += ["      Endpoint Descriptor:", f"        bEndpointAddress   0x{hex(endpoint.address, 2)}", f"        wMaxPacketSize     {endpoint.max_packet_size}", f"        bInterval          {endpoint.interval}"]
+
+      yield usb_title(device, names)
+      continue unless view.verbose
+      yield @[
+        "Device Descriptor:",
+        f"  bDeviceClass        {decimal(device.class_code, 1)}",
+        f"  bDeviceSubClass     {decimal(device.subclass, 1)}",
+        f"  bDeviceProtocol     {decimal(device.protocol, 1)}",
+        f"  idVendor           0x{hex(device.vendor_id, 4)}",
+        f"  idProduct          0x{hex(device.product_id, 4)}",
+      ]
+      if device.device_version != null { yield f"  bcdDevice          {device.device_version}" }
+      if device.manufacturer.value != null { yield f"  iManufacturer      {device.manufacturer.value}" }
+      if device.product.value != null { yield f"  iProduct           {device.product.value}" }
+      if device.serial.value != null { yield f"  iSerialNumber      {device.serial.value}" }
+      if device.configuration_count != null { yield f"  bNumConfigurations {device.configuration_count}" }
+      for interface in device.interfaces {
+        for alternate in interface.alternate_settings {
+          yield @[
+            "    Interface Descriptor:",
+            f"      bInterfaceNumber    {interface.number}",
+            f"      bAlternateSetting   {alternate.number}",
+            f"      bInterfaceClass     {alternate.class_code}",
+            f"      bInterfaceSubClass  {alternate.subclass}",
+            f"      bInterfaceProtocol  {alternate.protocol}",
+          ]
+          for endpoint in alternate.endpoints {
+            yield @[
+              "      Endpoint Descriptor:",
+              f"        bEndpointAddress   0x{hex(endpoint.address, 2)}",
+              f"        wMaxPacketSize     {endpoint.max_packet_size}",
+              f"        bInterval          {endpoint.interval}",
+            ]
+          }
         }
       }
+
+      yield ""
     }
-    lines += [""]
   }
   lines
 }
@@ -344,12 +374,16 @@ pure cpu_cell(section: report.CpuSection, processor: report.Cpu, column: Str, id
     }
     "ONLINE" => if processor.online == null { "-" } else if processor.online { "Y" } else { "N" }
     "CACHE" => {
-      var cache_ids = []
-      for index in processor.cache_indices {
-        if index < 0 or index >= section.caches.len() { return Err(HardwareError.InvalidInventory("CPU cache index is out of range")) }
-        let cache = section.caches[index]
-        let cache_group = ids.caches.get(f"{cache.level}:{cache.kind.lower()}")?
-        cache_ids += [f"{cache_group.get(f"{index}")?}"]
+      let cache_ids = collect {
+        for index in processor.cache_indices {
+          if index < 0 or index >= section.caches.len() {
+            return Err(HardwareError.InvalidInventory("CPU cache index is out of range"))
+          }
+
+          let cache = section.caches[index]
+          let cache_group = ids.caches.get(f"{cache.level}:{cache.kind.lower()}")?
+          yield f"{cache_group.get(f"{index}")?}"
+        }
       }
       if cache_ids.is_empty() { "-" } else { cache_ids.join(":") }
     }
@@ -379,10 +413,17 @@ export pure cpu_rows(section: report.CpuSection, columns: List[Str], selection: 
   for processor in section.cpus |> sort-by .id {
     continue when selection == "online" and processor.online != true
     continue when selection == "offline" and processor.online != false
-    var cells = []
-    for column in checked {
-      let value = cpu_cell(section, processor, column, ids, physical)?
-      if parse { cells += [if value == "-" { "" } else { value }] } else if column == "ONLINE" { cells += [if value == "Y" { "yes" } else if value == "N" { "no" } else { value }] } else { cells += [value] }
+    let cells = collect {
+      for column in checked {
+        let value = cpu_cell(section, processor, column, ids, physical)?
+        if parse {
+          yield if value == "-" { "" } else { value }
+        } else if column == "ONLINE" {
+          yield if value == "Y" { "yes" } else if value == "N" { "no" } else { value }
+        } else {
+          yield value
+        }
+      }
     }
     rows += [cells]
   }
@@ -421,11 +462,12 @@ export pure cpu_summary(section: report.CpuSection, architecture: Str, bytes_mod
   let nodes = section.cpus |> where .numa_node != null |> unique-by .numa_node ?? -1
   if ! sockets.is_empty() { rows += [{field: "Socket(s):", data: f"{sockets.len()}"}] }
   if ! nodes.is_empty() { rows += [{field: "NUMA node(s):", data: f"{nodes.len()}"}] }
-  var core_counts = []
-  for socket in sockets {
-    let cores = section.cpus |> where .package_id == socket.package_id |> where .core_id != null
-      |> unique-by { |processor| f"{processor.die_id ?? -1}:{processor.core_id ?? -1}" }
-    core_counts += [cores.len()]
+  let core_counts = collect {
+    for socket in sockets {
+      let cores = section.cpus |> where .package_id == socket.package_id |> where .core_id != null
+        |> unique-by { |processor| f"{processor.die_id ?? -1}:{processor.core_id ?? -1}" }
+      yield cores.len()
+    }
   }
   let unique_cores = core_counts |> unique-by .
   if unique_cores.len() == 1 and unique_cores[0] > 0 { rows += [{field: "Core(s) per socket:", data: f"{unique_cores[0]}"}] }
@@ -481,10 +523,14 @@ pure radio_name(name: Str) -> Str {
 
 ## Renders the traditional rfkill list blocks with both independent block states.
 export pure rfkill_list_lines(devices: List[LinuxRfkill]) -> List[Str] {
-  var lines = []
-  for device in devices |> sort-by .id {
-    lines += [f"{device.id}: {device.name}: {radio_name(device.type)}", f"\tSoft blocked: {if device.soft_blocked { "yes" } else { "no" }}",
-      f"\tHard blocked: {if device.hard_blocked { "yes" } else { "no" }}"]
+  let lines = collect {
+    for device in devices |> sort-by .id {
+      yield @[
+        f"{device.id}: {device.name}: {radio_name(device.type)}",
+        f"\tSoft blocked: {if device.soft_blocked { "yes" } else { "no" }}",
+        f"\tHard blocked: {if device.hard_blocked { "yes" } else { "no" }}",
+      ]
+    }
   }
   lines
 }
@@ -630,24 +676,33 @@ pure radio_raw(value: Str) -> Str {
 }
 
 pure table_row(values: List[Str], widths: List[Int]) -> Str {
-  var pieces = []
-  for index in range(values.len()) {
-    let spaces = [" "] |> repeat(if index == values.len() - 1 { 0 } else { widths[index] - values[index].count_chars() })
-    pieces += [values[index] + spaces.join("")]
+  let pieces = collect {
+    for index in range(values.len()) {
+      let spaces = [" "] |> repeat(
+        if index == values.len() - 1 {
+          0
+        } else {
+          widths[index] - values[index].count_chars()
+        },
+      )
+      yield values[index] + spaces.join("")
+    }
   }
   pieces.join(" ")
 }
 
 pure aligned_lines(headers: List[Str], rows: List[List[Str]], headings: Bool) -> List[Str] {
-  var lines = []
-  var widths = []
-  for index in range(headers.len()) {
-    var width = headers[index].count_chars()
-    for row in rows { if row[index].count_chars() > width { width = row[index].count_chars() } }
-    widths += [width]
+  let widths = collect {
+    for index in range(headers.len()) {
+      var width = headers[index].count_chars()
+      for row in rows { if row[index].count_chars() > width { width = row[index].count_chars() } }
+      yield width
+    }
   }
-  if headings { lines += [table_row(headers, widths)] }
-  for row in rows { lines += [table_row(row, widths)] }
+  let lines = collect {
+    if headings { yield table_row(headers, widths) }
+    for row in rows { yield table_row(row, widths) }
+  }
   lines
 }
 
@@ -669,10 +724,11 @@ export pure rfkill_json(devices: List[LinuxRfkill], columns: List[Str]) -> Resul
   let checked = radio_columns(columns.join(","))?
   var records = []
   for device in devices {
-    var fields = []
-    for column in checked {
-      let value = if column == "ID" { json.encode(device.id)? } else { json.encode(radio_cell(device, column)?)? }
-      fields += [json.encode(column.lower())? + ":" + value]
+    let fields = collect {
+      for column in checked {
+        let value = if column == "ID" { json.encode(device.id)? } else { json.encode(radio_cell(device, column)?)? }
+        yield json.encode(column.lower())? + ":" + value
+      }
     }
     records += ["{" + fields.join(",") + "}"]
   }

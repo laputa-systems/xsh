@@ -521,8 +521,9 @@ test test_env_text_reads_of_non_utf8_values_stop_a_script { |ctx|
 test test_env_entries_report_raw_bytes_in_name_order {
   env ({XSH_ENTRIES_B: "second", XSH_ENTRIES_A: "h\u{e9}llo"}) {
     let entries = env.entries()?
-    var names = []
-    for entry in entries { names += [entry.name] }
+    let names = collect {
+      for entry in entries { yield entry.name }
+    }
     assert b"XSH_ENTRIES_A" in names and b"XSH_ENTRIES_B" in names
 
     for entry in entries {

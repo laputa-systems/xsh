@@ -116,8 +116,9 @@ pure is_zero_tail(data: Bytes, from: Int) -> Bool {
 test test_cpio_round_trips_through_every_format { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-roundtrip")?
   let source = test.temp_dir(ctx, name: "cpio-roundtrip-src")?
-  var every_byte = []
-  for value in range(256) { every_byte += [value] }
+  let every_byte = collect {
+    for value in range(256) { yield value }
+  }
   fp"{source}/all bytes".write(bytes.from_ints(every_byte)?)
   fp"{source}/line\nbreak".write(b"newline in the name")
   fp"{source}/odd".write(b"123")

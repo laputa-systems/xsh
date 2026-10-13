@@ -1315,21 +1315,22 @@ type ByteRendered = {text: Bytes, err: Str}
 pure split_bytes(line: Bytes, delimiter: Bytes) -> List[Bytes] {
   return [line] when delimiter.len() == 0
 
-  var pieces = []
   var start = 0
   var at = 0
 
-  while at + delimiter.len() <= line.len() {
-    if line[at..at + delimiter.len()] == delimiter {
-      pieces += [line[start..at]]
-      at += delimiter.len()
-      start = at
-    } else {
-      at += 1
+  let pieces = collect {
+    while at + delimiter.len() <= line.len() {
+      if line[at..at + delimiter.len()] == delimiter {
+        yield line[start..at]
+        at += delimiter.len()
+        start = at
+      } else {
+        at += 1
+      }
     }
-  }
 
-  pieces += [line[start..line.len()]]
+    yield line[start..line.len()]
+  }
   pieces
 }
 

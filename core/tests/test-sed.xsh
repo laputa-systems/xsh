@@ -304,20 +304,21 @@ test sed_nul_bytes_are_ordinary_text_for_regexes { |ctx|
 type CaseRow = {name: Str, args: List[Str], stdin: Str, show: List[Str], env: List[Str], setup: List[Str], skip: Str}
 
 pure escape_bytes(data: Bytes) -> Str {
-  var out = []
   let digits = "0123456789abcdef"
-  for index in range(data.len()) {
-    let byte = data.byte_at(index) ?? 0
-    if byte == 10 {
-      out += ["\\n"]
-    } else if byte == 92 {
-      out += ["\\\\"]
-    } else if byte == 39 {
-      out += ["\\'"]
-    } else if byte >= 32 and byte < 127 {
-      out += [data[index..index + 1].utf8() ?? "?"]
-    } else {
-      out += [f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"]
+  let out = collect {
+    for index in range(data.len()) {
+      let byte = data.byte_at(index) ?? 0
+      if byte == 10 {
+        yield "\\n"
+      } else if byte == 92 {
+        yield "\\\\"
+      } else if byte == 39 {
+        yield "\\'"
+      } else if byte >= 32 and byte < 127 {
+        yield data[index..index + 1].utf8() ?? "?"
+      } else {
+        yield f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"
+      }
     }
   }
   out.join("")

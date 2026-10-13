@@ -538,9 +538,10 @@ pure strip_start(raw: Bytes) -> Bytes {
 
 proc option_value(value: Str, choices: List[Str], option: Str) -> Str {
   return value when value in choices
-  var matches = []
-  for choice in choices {
-    if value != "" and choice.starts_with(value) { matches += [choice] }
+  let matches = collect {
+    for choice in choices {
+      if value != "" and choice.starts_with(value) { yield choice }
+    }
   }
   return matches[0] when matches.len() == 1
   let kind = if matches.is_empty() { "invalid" } else { "ambiguous" }

@@ -9,8 +9,9 @@ pure split_events(sequence: Bytes, split: Int) -> List[input.Event] {
 }
 
 pure repeated(byte: Int, count: Int) -> Bytes {
-  var chunks = []
-  for _ in range(count) { chunks += [bytes.from_ints([byte]) ?? b""] }
+  let chunks = collect {
+    for _ in range(count) { yield bytes.from_ints([byte]) ?? b"" }
+  }
   bytes.concat(chunks)
 }
 

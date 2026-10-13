@@ -121,14 +121,15 @@ export pure build(
     for pid in walked { finished = finished.add(pid) }
   }
 
-  var roots = []
   var children_by_pid: Map[Int, List[Int]] = {}
-  for row in ordered {
-    if let Ok(parent) = parent_by_pid.get(row.pid) {
-      let children = if let Ok(found) = children_by_pid.get(parent) { found } else { [] }
-      children_by_pid = children_by_pid.set(parent, children + [row.pid])
-    } else {
-      roots += [row.pid]
+  let roots = collect {
+    for row in ordered {
+      if let Ok(parent) = parent_by_pid.get(row.pid) {
+        let children = if let Ok(found) = children_by_pid.get(parent) { found } else { [] }
+        children_by_pid = children_by_pid.set(parent, children + [row.pid])
+      } else {
+        yield row.pid
+      }
     }
   }
 

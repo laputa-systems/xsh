@@ -55,19 +55,20 @@ export pure property_value(device: Device, name: Str) -> Str? {
 }
 
 pure upsert(properties: List[Property], name: Str, value: Str) -> List[Property] {
-  var updated: List[Property] = []
   var replaced = false
-  for property in properties {
-    if property.name == name {
-      updated += [{name: name, value: value}]
-      replaced = true
-    } else {
-      updated += [property]
+  let updated: List[Property] = collect {
+    for property in properties {
+      if property.name == name {
+        yield {name: name, value: value}
+        replaced = true
+      } else {
+        yield property
+      }
     }
-  }
 
-  if ! replaced {
-    updated += [{name: name, value: value}]
+    if ! replaced {
+      yield {name: name, value: value}
+    }
   }
 
   updated
@@ -75,11 +76,12 @@ pure upsert(properties: List[Property], name: Str, value: Str) -> List[Property]
 
 pure sorted_unique(values: List[Str]) -> List[Str] {
   var seen: Set[Str] = set.empty()
-  var kept = []
-  for value in values |> sort-by { |item| item } {
-    if value not in seen {
-      seen = seen.add(value)
-      kept += [value]
+  let kept = collect {
+    for value in values |> sort-by { |item| item } {
+      if value not in seen {
+        seen = seen.add(value)
+        yield value
+      }
     }
   }
 
@@ -87,10 +89,11 @@ pure sorted_unique(values: List[Str]) -> List[Str] {
 }
 
 pure path_parts(text: Str) -> List[Str] {
-  var parts = []
-  for part in text.split("/") {
-    if part != "" {
-      parts += [part]
+  let parts = collect {
+    for part in text.split("/") {
+      if part != "" {
+        yield part
+      }
     }
   }
 
@@ -303,39 +306,41 @@ export proc parent_devpath(root: FsRoot, devpath: Str) [fs, error] -> Result[Str
 export proc attributes(root: FsRoot, devpath: Str) [fs, error] -> Result[List[Attribute], Error] {
   let printable = regex.compile("^[ -~]*$")?
   let listing = root.children(fp"sys{devpath}", max_entries: 8192)?
-  var names = []
-  for entry in listing.children {
-    names += [entry.name()]
+  let names = collect {
+    for entry in listing.children {
+      yield entry.name()
+    }
   }
 
-  var found: List[Attribute] = []
-  for name in names |> sort-by { |item| item } {
-    continue when name == "uevent" or name == "dev"
+  let found: List[Attribute] = collect {
+    for name in names |> sort-by { |item| item } {
+      continue when name == "uevent" or name == "dev"
 
-    let file = fp"sys{devpath}/{name}"
-    let info = root.stat(file, follow_symlinks: false)
-    continue when info is Err(_)
+      let file = fp"sys{devpath}/{name}"
+      let info = root.stat(file, follow_symlinks: false)
+      continue when info is Err(_)
 
-    let facts = info?
-    continue when facts.kind != "file" or facts.mode / 256 % 2 == 0
+      let facts = info?
+      continue when facts.kind != "file" or facts.mode / 256 % 2 == 0
 
-    let raw = root.read_result(file, max_bytes: 4096)?
-    continue when raw.state != "observed" or raw.truncated or raw.data == null
+      let raw = root.read_result(file, max_bytes: 4096)?
+      continue when raw.state != "observed" or raw.truncated or raw.data == null
 
-    let data = raw.data ?? b""
-    continue when data.len() >= 4096
+      let data = raw.data ?? b""
+      continue when data.len() >= 4096
 
-    let decoded = data.utf8()
-    continue when decoded is Err(_)
+      let decoded = data.utf8()
+      continue when decoded is Err(_)
 
-    var value = decoded?
-    while value.ends_with("\n") {
-      value = value.byte_slice(0, value.byte_len() - 1)
+      var value = decoded?
+      while value.ends_with("\n") {
+        value = value.byte_slice(0, value.byte_len() - 1)
+      }
+
+      continue when ! printable.matches(value)
+
+      yield {name: name, value: value}
     }
-
-    continue when ! printable.matches(value)
-
-    found += [{name: name, value: value}]
   }
 
   Ok(found)
@@ -347,27 +352,28 @@ export proc attributes(root: FsRoot, devpath: Str) [fs, error] -> Result[List[At
 ## the target is joined lexically instead of walked component by component.
 export proc enumerate(root: FsRoot) [fs, error] -> Result[List[Str], Error] {
   var seen: Set[Str] = set.empty()
-  var devpaths = []
-  for area in ["bus", "class"] {
-    let kinds = root.children(fp"sys/{area}", max_entries: 4096)?
-    for kind in kinds.children {
-      let directory = if area == "bus" { fp"{kind}/devices" } else { kind }
-      let entries = root.children(directory, max_entries: 65536)?
-      for entry in entries.children {
-        let link = root.readlink_result(entry)?
-        var real = entry.display()
-        if link.state == "observed" {
-          real = fp"{directory}/{(link.target ?? p"").display()}".normalize().display()
-        }
+  let devpaths = collect {
+    for area in ["bus", "class"] {
+      let kinds = root.children(fp"sys/{area}", max_entries: 4096)?
+      for kind in kinds.children {
+        let directory = if area == "bus" { fp"{kind}/devices" } else { kind }
+        let entries = root.children(directory, max_entries: 65536)?
+        for entry in entries.children {
+          let link = root.readlink_result(entry)?
+          var real = entry.display()
+          if link.state == "observed" {
+            real = fp"{directory}/{(link.target ?? p"").display()}".normalize().display()
+          }
 
-        continue when ! real.starts_with("sys/")
+          continue when ! real.starts_with("sys/")
 
-        let devpath = real.byte_slice(3)
-        continue when devpath in seen
+          let devpath = real.byte_slice(3)
+          continue when devpath in seen
 
-        if has_uevent(root, real) {
-          seen = seen.add(devpath)
-          devpaths += [devpath]
+          if has_uevent(root, real) {
+            seen = seen.add(devpath)
+            yield devpath
+          }
         }
       }
     }
@@ -382,13 +388,14 @@ export type Subsystem = {syspath: Str, kind: Str}
 ## Lists `bus/*` directories (kind `subsystem`) and their `drivers/*`
 ## directories (kind `drivers`) as sorted sysfs-relative paths.
 export proc subsystems(root: FsRoot) [fs, error] -> Result[List[Subsystem], Error] {
-  var found: List[Subsystem] = []
   let buses = root.children(p"sys/bus", max_entries: 4096)?
-  for bus in buses.children {
-    found += [{syspath: f"/{bus.display().byte_slice(4)}", kind: "subsystem"}]
-    let drivers = root.children(fp"{bus}/drivers", max_entries: 65536)?
-    for driver in drivers.children {
-      found += [{syspath: f"/{driver.display().byte_slice(4)}", kind: "drivers"}]
+  let found: List[Subsystem] = collect {
+    for bus in buses.children {
+      yield {syspath: f"/{bus.display().byte_slice(4)}", kind: "subsystem"}
+      let drivers = root.children(fp"{bus}/drivers", max_entries: 65536)?
+      for driver in drivers.children {
+        yield {syspath: f"/{driver.display().byte_slice(4)}", kind: "drivers"}
+      }
     }
   }
 

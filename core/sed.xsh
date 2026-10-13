@@ -155,10 +155,11 @@ proc long_option(settings: Settings, word: Str, rest: List[Str], at: Int) [fs, i
   let chosen = found[0]
   if found.len() > 1 {
     var same = true
-    var listed = []
-    for option in found {
-      if option.argument != chosen.argument or option.code != chosen.code { same = false }
-      listed += [f"'--{option.name}'"]
+    let listed = collect {
+      for option in found {
+        if option.argument != chosen.argument or option.code != chosen.code { same = false }
+        yield f"'--{option.name}'"
+      }
     }
     if !same { bad_usage(f"option '--{name}' is ambiguous; possibilities: {listed.join(" ")}") }
   }

@@ -539,8 +539,9 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
     } else {
       match dns.resolve_host(host) {
         Ok(found) => {
-          var addresses = []
-          for entry in found { addresses += [entry.addr] }
+          let addresses = collect {
+            for entry in found { yield entry.addr }
+          }
           log_verbose(options, f"Resolving {host} ({host})... {addresses.join(", ")}\n")
           announce = f"Connecting to {host} ({host})|{addresses[0]}|:{port}... "
         }

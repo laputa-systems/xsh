@@ -203,10 +203,11 @@ pure filter_matches(
   state: State,
   values: LocalDisplayIndex,
 ) -> List[model.ProcessRow] {
-  var visible: List[model.ProcessRow] = []
   let filter = filter_text(state)
-  for row in rows {
-    if matches(row, filter, values) { visible += [row] }
+  let visible: List[model.ProcessRow] = collect {
+    for row in rows {
+      if matches(row, filter, values) { yield row }
+    }
   }
   visible
 }
@@ -273,28 +274,29 @@ pure process_tree_rows(
     }
   }
 
-  var visible: List[VisibleRow] = []
   var hidden_depth = null
-  for pid in hierarchy.preorder {
-    let node = hierarchy.nodes[pid]
-    if hidden_depth != null {
-      continue when node.depth > (hidden_depth ?? node.depth)
-      hidden_depth = null
+  let visible: List[VisibleRow] = collect {
+    for pid in hierarchy.preorder {
+      let node = hierarchy.nodes[pid]
+      if hidden_depth != null {
+        continue when node.depth > (hidden_depth ?? node.depth)
+        hidden_depth = null
+      }
+      continue when pid not in included
+      let key = identity_key(identity(node.row))
+      let has_children = ! node.children.is_empty()
+      let collapsed = has_children and key in state.collapsed
+      yield {
+        row: node.row,
+        depth: node.depth,
+        has_children: has_children,
+        collapsed: collapsed,
+        cpu_total: node.cpu_total,
+        cpu_total_per_core: node.cpu_total_per_core,
+        rss_total_bytes: node.rss_total_bytes,
+      }
+      if collapsed { hidden_depth = node.depth }
     }
-    continue when pid not in included
-    let key = identity_key(identity(node.row))
-    let has_children = ! node.children.is_empty()
-    let collapsed = has_children and key in state.collapsed
-    visible += [{
-      row: node.row,
-      depth: node.depth,
-      has_children: has_children,
-      collapsed: collapsed,
-      cpu_total: node.cpu_total,
-      cpu_total_per_core: node.cpu_total_per_core,
-      rss_total_bytes: node.rss_total_bytes,
-    }]
-    if collapsed { hidden_depth = node.depth }
   }
   visible
 }

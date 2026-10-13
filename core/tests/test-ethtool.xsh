@@ -80,13 +80,14 @@ proc session(ctx: TestContext, commands: List[Str]) [fs, process, error] -> Resu
     return []
   }
   assert status.exited_with(0), fp"{root}/setup.err".read_text()?
-  var results: List[Ran] = []
-  for index in range(commands.len()) {
-    results += [{
-      status: fp"{root}/{index}.status".read_text()?.trim() as Int,
-      stdout: fp"{root}/{index}.out".read_text()?,
-      stderr: fp"{root}/{index}.err".read_text()?,
-    }]
+  let results: List[Ran] = collect {
+    for index in range(commands.len()) {
+      yield {
+        status: fp"{root}/{index}.status".read_text()?.trim() as Int,
+        stdout: fp"{root}/{index}.out".read_text()?,
+        stderr: fp"{root}/{index}.err".read_text()?,
+      }
+    }
   }
   Ok(results)
 }

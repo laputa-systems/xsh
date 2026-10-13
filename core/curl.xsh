@@ -212,10 +212,11 @@ proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error
   match raw {
     Ok(content) => {
       return content unless strip
-      var kept = []
-      for index in range(content.len()) {
-        let byte = content.byte_at(index) ?? 0
-        if byte != 10 and byte != 13 { kept += [byte] }
+      let kept = collect {
+        for index in range(content.len()) {
+          let byte = content.byte_at(index) ?? 0
+          if byte != 10 and byte != 13 { yield byte }
+        }
       }
       return bytes.from_ints(kept) ?? b""
     }
@@ -316,9 +317,10 @@ proc find_long(name: Str) [io, error] -> Spec? {
   for spec in OPTIONS {
     return spec when spec.long == name
   }
-  var matches: List[Spec] = []
-  for spec in OPTIONS {
-    if spec.long.starts_with(name) and spec.long != "" { matches += [spec] }
+  let matches: List[Spec] = collect {
+    for spec in OPTIONS {
+      if spec.long.starts_with(name) and spec.long != "" { yield spec }
+    }
   }
   return null when matches.is_empty()
   let first = matches[0]
@@ -804,12 +806,13 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     return 3
   }
   var body = b""
-  var parts = []
   var first = true
-  for part in settings.data {
-    if !first { parts += [b"&"] }
-    parts += [part]
-    first = false
+  let parts = collect {
+    for part in settings.data {
+      if !first { yield b"&" }
+      yield part
+      first = false
+    }
   }
   body = bytes.concat(parts)
   var method = settings.method ?? "GET"
@@ -1037,8 +1040,11 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
         for header in reply.headers {
           if header.name.lower() == "set-cookie" {
             if let made = cookie_from(header.value, host, cookie_dir(http_transfer.url_path(request.url))) {
-              var kept: List[Cookie] = []
-              for old in all { if !(old.domain == made.domain and old.path == made.path and old.name == made.name) { kept += [old] } }
+              let kept: List[Cookie] = collect {
+                for old in all {
+                  if ! (old.domain == made.domain and old.path == made.path and old.name == made.name) { yield old }
+                }
+              }
               all = kept.extend([made])
             }
           }

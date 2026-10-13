@@ -264,20 +264,26 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
   }
   let locale = env.get_or("LC_ALL", env.get_or("LC_CTYPE", env.get_or("LANG", "C") ?? "C") ?? "C") ?? "C"
   let ascii = locale in ["C", "POSIX"]
-  var widths = []
-  for column in columns {
-    var width = minimum_width(column)
-    if column_width(headings[column], ascii) > width { width = column_width(headings[column], ascii) }
-    for data in table { if column_width(data[column], ascii) > width { width = column_width(data[column], ascii) } }
-    widths += [width]
+  let widths = collect {
+    for column in columns {
+      var width = minimum_width(column)
+      if column_width(headings[column], ascii) > width { width = column_width(headings[column], ascii) }
+      for data in table { if column_width(data[column], ascii) > width { width = column_width(data[column], ascii) } }
+      yield width
+    }
   }
   for data in [headings].extend(table) {
-    var cells = []
-    for index in range(columns.len()) {
-      let field = columns[index]
-      let text = data[field]
-      let padding = [" " for _ in range(widths[index] - column_width(text, ascii))].join("")
-      cells += [if left_column(field) { text + (if index == columns.len() - 1 { "" } else { padding }) } else { padding + text }]
+    let cells = collect {
+      for index in range(columns.len()) {
+        let field = columns[index]
+        let text = data[field]
+        let padding = [" " for _ in range(widths[index] - column_width(text, ascii))].join("")
+        yield if left_column(field) {
+          text + (if index == columns.len() - 1 { "" } else { padding })
+        } else {
+          padding + text
+        }
+      }
     }
     gnu.write_text(cells.join(" ") + "\n")
   }

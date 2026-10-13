@@ -114,20 +114,21 @@ test resource_lock_unlocks_after_its_defers { |ctx|
   let dir = test.temp_dir(ctx, name: "resource-lock-exit")?
   let lock_path = fp"{dir}/lock"
   let second_lock_path = fp"{dir}/second-lock"
-  var root_paths = []
   var held_in_defer = false
-  {
-    let first_root = fs.tempdir()?
-    root_paths += [first_root.host_path()?]
-    let lock = fs.lock(lock_path)?
-    let second_root = fs.tempdir()?
-    root_paths += [second_root.host_path()?]
-    let second_lock = fs.lock(second_lock_path)?
-    defer {
-      held_in_defer = first_root.exists(p".")? and second_root.exists(p".")? and
-        ! resource_lock_available(ctx, lock_path)? and ! resource_lock_available(ctx, second_lock_path)?
+  let root_paths = collect {
+    {
+      let first_root = fs.tempdir()?
+      yield first_root.host_path()?
+      let lock = fs.lock(lock_path)?
+      let second_root = fs.tempdir()?
+      yield second_root.host_path()?
+      let second_lock = fs.lock(second_lock_path)?
+      defer {
+        held_in_defer = first_root.exists(p".")? and second_root.exists(p".")? and
+          ! resource_lock_available(ctx, lock_path)? and ! resource_lock_available(ctx, second_lock_path)?
+      }
+      assert ! resource_lock_available(ctx, lock_path)?
     }
-    assert ! resource_lock_available(ctx, lock_path)?
   }
   assert held_in_defer
   for root_path in root_paths { assert ! root_path.exists()? }

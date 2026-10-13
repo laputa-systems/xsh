@@ -310,12 +310,13 @@ Options:
 # The command's usage text, without a final newline, with the two headings in
 # bold as nvme-cli prints them whether or not stdout is a terminal.
 pure usage_with_headings(cmd: Str) -> Str {
-  var out = []
-  for line in usage_text(cmd).lines() {
-    if line.starts_with("Usage: ") or line == "Options:" {
-      out += [BOLD + line + PLAIN]
-    } else {
-      out += [line]
+  let out = collect {
+    for line in usage_text(cmd).lines() {
+      if line.starts_with("Usage: ") or line == "Options:" {
+        yield BOLD + line + PLAIN
+      } else {
+        yield line
+      }
     }
   }
   out.join("\n")
@@ -675,15 +676,26 @@ proc admin(dev: Session, what: Str, opcode: Int, nsid: Int, cdw10: Int, length: 
 # One Get Log Page covering `length` bytes at `nsid`, in transfers of at most
 # 4 KiB with the log page offset carried in dwords 12 and 13.
 proc get_log(dev: Session, what: Str, log_id: Int, nsid: Int, length: Int) [process, env, io, error] -> Bytes {
-  var chunks = []
   var offset = 0
-  while offset < length {
-    let size = if length - offset > LOG_CHUNK_BYTES { LOG_CHUNK_BYTES } else { length - offset }
-    let dwords = size / 4 - 1
-    let cdw10 = dwords % 65536 * 65536 + log_id
-    let reply = admin(dev, what, OPCODE_GET_LOG_PAGE, nsid, cdw10, size, cdw11: dwords / 65536, cdw12: offset % 4294967296, cdw13: offset / 4294967296)
-    chunks += [reply.data]
-    offset += size
+  let chunks = collect {
+    while offset < length {
+      let size = if length - offset > LOG_CHUNK_BYTES { LOG_CHUNK_BYTES } else { length - offset }
+      let dwords = size / 4 - 1
+      let cdw10 = dwords % 65536 * 65536 + log_id
+      let reply = admin(
+        dev,
+        what,
+        OPCODE_GET_LOG_PAGE,
+        nsid,
+        cdw10,
+        size,
+        cdw11: dwords / 65536,
+        cdw12: offset % 4294967296,
+        cdw13: offset / 4294967296,
+      )
+      yield reply.data
+      offset += size
+    }
   }
   bytes.concat(chunks)
 }
@@ -712,23 +724,24 @@ pure label(name: Str, width: Int, text: Str) -> Str {
 # first text, an empty text for zero hides a reserved field that is zero.
 # `%P` in a text is replaced by two to the power of the field value.
 pure bit_lines(value: Int, table: List[Str], prefix: Str, between: Str) -> List[Str] {
-  var out = []
-  for entry in table {
-    let parts = entry.split("|")
-    let range = parts[0].split(" ")
-    let high = range[0].parse_int() ?? 0
-    let low = range[1].parse_int() ?? 0
-    var shifted = value
-    for _ in range(low) { shifted = shifted / 2 }
-    var span = 1
-    for _ in range(high - low + 1) { span = span * 2 }
-    let field = shifted % span
-    var text = if field == 0 { parts[1] } else if parts.len() > 2 and high == low { parts[2] } else { parts[1] }
-    continue when text == ""
-    var power = 1
-    for _ in range(field) { power = power * 2 }
-    text = text.replace("%P", with: f"{power}")
-    out += [f"{prefix}[{high}:{low}]{between}: {hex(field)}\t{text}"]
+  let out = collect {
+    for entry in table {
+      let parts = entry.split("|")
+      let range = parts[0].split(" ")
+      let high = range[0].parse_int() ?? 0
+      let low = range[1].parse_int() ?? 0
+      var shifted = value
+      for _ in range(low) { shifted = shifted / 2 }
+      var span = 1
+      for _ in range(high - low + 1) { span = span * 2 }
+      let field = shifted % span
+      var text = if field == 0 { parts[1] } else if parts.len() > 2 and high == low { parts[2] } else { parts[1] }
+      continue when text == ""
+      var power = 1
+      for _ in range(field) { power = power * 2 }
+      text = text.replace("%P", with: f"{power}")
+      yield f"{prefix}[{high}:{low}]{between}: {hex(field)}\t{text}"
+    }
   }
   out
 }
@@ -915,14 +928,15 @@ pure max_power_text(state: dec.PowerState) -> Str {
 }
 
 pure power_state_lines(states: List[dec.PowerState]) -> List[Str] {
-  var lines = []
-  for index in range(states.len()) {
-    let state = states[index]
-    let kind = if state.non_operational { "non-operational" } else { "operational" }
-    lines += [f"ps {tui.left_pad(f"{index}", 4)} : mp:{max_power_text(state)} {kind} enlat:{state.entry_latency} exlat:{state.exit_latency} rrt:{state.read_throughput} rrl:{state.read_latency}"]
-    lines += [f"          rwt:{state.write_throughput} rwl:{state.write_latency} idle_power:{power_text(state.idle_power, state.idle_scale)} active_power:{power_text(state.active_power, state.active_scale)}"]
-    let workload = if state.active_scale == 0 { "-" } else { f"{state.workload}" }
-    lines += [f"          active_power_workload:{workload}"]
+  let lines = collect {
+    for index in range(states.len()) {
+      let state = states[index]
+      let kind = if state.non_operational { "non-operational" } else { "operational" }
+      yield f"ps {tui.left_pad(f"{index}", 4)} : mp:{max_power_text(state)} {kind} enlat:{state.entry_latency} exlat:{state.exit_latency} rrt:{state.read_throughput} rrl:{state.read_latency}"
+      yield f"          rwt:{state.write_throughput} rwl:{state.write_latency} idle_power:{power_text(state.idle_power, state.idle_scale)} active_power:{power_text(state.active_power, state.active_scale)}"
+      let workload = if state.active_scale == 0 { "-" } else { f"{state.workload}" }
+      yield f"          active_power_workload:{workload}"
+    }
   }
   lines
 }
@@ -1065,20 +1079,22 @@ proc list_ns(argv: List[Str]) [fs, process, env, io, error] {
     exit 1
   }
   let data = admin(dev, "id namespace list", OPCODE_IDENTIFY, first - 1, selector, 4096, cdw11: csi * 16777216).data
-  var ids = []
-  for index in range(1024) {
-    let nsid = dec.le(data, index * 4, 4)
-    break when nsid == 0
-    ids += [nsid]
+  let ids = collect {
+    for index in range(1024) {
+      let nsid = dec.le(data, index * 4, 4)
+      break when nsid == 0
+      yield nsid
+    }
   }
   if begun.format == "json" {
     let items = [json_object([["nsid", json_number(nsid)]]) for nsid in ids]
     gnu.write_text(json_object([["nsid_list", json_array(items)]]) + "\n")
     return
   }
-  var lines = []
-  for index in range(ids.len()) {
-    lines += [f"[{tui.left_pad(f"{index}", 4)}]:{hex(ids[index])}"]
+  let lines = collect {
+    for index in range(ids.len()) {
+      yield f"[{tui.left_pad(f"{index}", 4)}]:{hex(ids[index])}"
+    }
   }
   if ! lines.is_empty() { gnu.write_text(lines.join("\n") + "\n") }
 }
@@ -1101,10 +1117,11 @@ proc smart_log(argv: List[Str]) [fs, process, env, io, error] {
   let fields = dec.decode(data, dec.SMART_LAYOUT)
   let sensors = [item for item in fields if item.name.starts_with("temp_sensor")]
   if begun.format == "json" {
-    var members = []
-    for item in fields {
-      continue when item.name.starts_with("temp_sensor") and item.value == 0
-      members += [[smart_json_key(item.name), item.decimal]]
+    let members = collect {
+      for item in fields {
+        continue when item.name.starts_with("temp_sensor") and item.value == 0
+        yield [smart_json_key(item.name), item.decimal]
+      }
     }
     gnu.write_text(json_object(members) + "\n")
     return
@@ -1187,24 +1204,25 @@ proc error_log(argv: List[Str]) [fs, process, env, io, error] {
   }
   let devname = device_name(begun.parsed.operands[0])
   if begun.format == "json" {
-    var items = []
-    for index in range(entries) {
-      let fields = dec.error_entry(data, index)
-      let status = dec.field_value(fields, "status_field")
-      items += [json_object([
-        ["error_count", dec.field(fields, "error_count").decimal],
-        ["sqid", json_number(dec.field_value(fields, "sqid"))],
-        ["cmdid", json_number(dec.field_value(fields, "cmdid"))],
-        ["status_field", json_number(status / 2)],
-        ["phase_tag", json_number(status % 2)],
-        ["parm_error_location", json_number(dec.field_value(fields, "parm_error_location"))],
-        ["lba", dec.field(fields, "lba").decimal],
-        ["nsid", json_number(dec.field_value(fields, "nsid"))],
-        ["vs", json_number(dec.field_value(fields, "vs"))],
-        ["trtype", json_number(dec.field_value(fields, "trtype"))],
-        ["cs", dec.field(fields, "cs").decimal],
-        ["trtype_spec_info", json_number(dec.field_value(fields, "trtype_spec_info"))],
-      ])]
+    let items = collect {
+      for index in range(entries) {
+        let fields = dec.error_entry(data, index)
+        let status = dec.field_value(fields, "status_field")
+        yield json_object([
+          ["error_count", dec.field(fields, "error_count").decimal],
+          ["sqid", json_number(dec.field_value(fields, "sqid"))],
+          ["cmdid", json_number(dec.field_value(fields, "cmdid"))],
+          ["status_field", json_number(status / 2)],
+          ["phase_tag", json_number(status % 2)],
+          ["parm_error_location", json_number(dec.field_value(fields, "parm_error_location"))],
+          ["lba", dec.field(fields, "lba").decimal],
+          ["nsid", json_number(dec.field_value(fields, "nsid"))],
+          ["vs", json_number(dec.field_value(fields, "vs"))],
+          ["trtype", json_number(dec.field_value(fields, "trtype"))],
+          ["cs", dec.field(fields, "cs").decimal],
+          ["trtype_spec_info", json_number(dec.field_value(fields, "trtype_spec_info"))],
+        ])
+      }
     }
     gnu.write_text(json_object([["errors", json_array(items)]]) + "\n")
     return
@@ -1309,10 +1327,11 @@ proc fw_log(argv: List[Str]) [fs, process, env, io, error] {
   }
   let devname = device_name(begun.parsed.operands[0])
   let active = dec.u8(data, 0)
-  var slots = []
-  for slot in range(1, 8) {
-    let magnitude = dec.wide(data, 8 + (slot - 1) * 8, 8)
-    if magnitude.hex != "0" { slots += [[f"{slot}", magnitude.hex, dec.firmware_revision(data, slot)]] }
+  let slots = collect {
+    for slot in range(1, 8) {
+      let magnitude = dec.wide(data, 8 + (slot - 1) * 8, 8)
+      if magnitude.hex != "0" { yield [f"{slot}", magnitude.hex, dec.firmware_revision(data, slot)] }
+    }
   }
   if begun.format == "json" {
     var members: List[List[Str]] = [["Active Slot", json_number(active % 8)], ["Next Slot", json_number(active / 16 % 8)]]
@@ -1545,29 +1564,30 @@ proc listed_namespaces(sys_root: Path, dev_root: Path) [fs, process, env, io, er
       []
     }
   }
-  var rows: List[ListedNamespace] = []
-  for item in found {
-    continue when item.kind != "nvme_namespace"
-    let base = fp"{sys_root}/block/{item.name}"
-    let pieces = item.name.split("n")
-    let nsid = sysfs_number(fp"{base}/nsid") ?? pieces[pieces.len() - 1].parse_int() ?? 0
-    var block_size = sysfs_number(fp"{base}/queue/logical_block_size") ?? 512
-    if block_size <= 0 { block_size = 512 }
-    var block_count = (item.size_bytes ?? 0) / block_size
-    var used = block_count
-    var metadata = sysfs_number(fp"{base}/metadata_bytes") ?? 0
-    let measured = identify_listed(item.path, nsid) ?? []
-    if measured.len() == 4 {
-      block_size = measured[0]
-      block_count = measured[1]
-      used = measured[2]
-      metadata = measured[3]
+  let rows: List[ListedNamespace] = collect {
+    for item in found {
+      continue when item.kind != "nvme_namespace"
+      let base = fp"{sys_root}/block/{item.name}"
+      let pieces = item.name.split("n")
+      let nsid = sysfs_number(fp"{base}/nsid") ?? pieces[pieces.len() - 1].parse_int() ?? 0
+      var block_size = sysfs_number(fp"{base}/queue/logical_block_size") ?? 512
+      if block_size <= 0 { block_size = 512 }
+      var block_count = (item.size_bytes ?? 0) / block_size
+      var used = block_count
+      var metadata = sysfs_number(fp"{base}/metadata_bytes") ?? 0
+      let measured = identify_listed(item.path, nsid) ?? []
+      if measured.len() == 4 {
+        block_size = measured[0]
+        block_count = measured[1]
+        used = measured[2]
+        metadata = measured[3]
+      }
+      yield {
+        name: item.name, generic: "ng" + item.name.byte_slice(4), serial: item.serial ?? "",
+        model: item.model ?? "", firmware: item.firmware ?? "", nsid: nsid,
+        block_size: block_size, block_count: block_count, used_blocks: used, metadata_size: metadata,
+      }
     }
-    rows += [{
-      name: item.name, generic: "ng" + item.name.byte_slice(4), serial: item.serial ?? "",
-      model: item.model ?? "", firmware: item.firmware ?? "", nsid: nsid,
-      block_size: block_size, block_count: block_count, used_blocks: used, metadata_size: metadata,
-    }]
   }
   rows
 }
@@ -1607,20 +1627,21 @@ proc list_devices(argv: List[Str], sys_root: Path, dev_root: Path) [fs, process,
   if has(parsed, "dry-run") { exit 0 }
   let rows = listed_namespaces(sys_root, dev_root)
   if format == "json" {
-    var items = []
-    for row in rows {
-      items += [json_object([
-        ["NameSpace", json_number(row.nsid)],
-        ["DevicePath", json_string(row.name)],
-        ["GenericPath", json_string(row.generic)],
-        ["Firmware", json_string(row.firmware)],
-        ["ModelNumber", json_string(row.model)],
-        ["SerialNumber", json_string(row.serial)],
-        ["UsedBytes", json_number(row.used_blocks * row.block_size)],
-        ["MaximumLBA", json_number(row.block_count)],
-        ["PhysicalSize", json_number(row.block_count * row.block_size)],
-        ["SectorSize", json_number(row.block_size)],
-      ])]
+    let items = collect {
+      for row in rows {
+        yield json_object([
+          ["NameSpace", json_number(row.nsid)],
+          ["DevicePath", json_string(row.name)],
+          ["GenericPath", json_string(row.generic)],
+          ["Firmware", json_string(row.firmware)],
+          ["ModelNumber", json_string(row.model)],
+          ["SerialNumber", json_string(row.serial)],
+          ["UsedBytes", json_number(row.used_blocks * row.block_size)],
+          ["MaximumLBA", json_number(row.block_count)],
+          ["PhysicalSize", json_number(row.block_count * row.block_size)],
+          ["SectorSize", json_number(row.block_size)],
+        ])
+      }
     }
     gnu.write_text(json_object([["Devices", json_array(items)]]) + "\n")
     return
@@ -1629,16 +1650,17 @@ proc list_devices(argv: List[Str], sys_root: Path, dev_root: Path) [fs, process,
     eprint "No NVMe devices detected."
     return
   }
-  var lines = []
   let widths = [21, 21, 20, 40, 10, 26, 16, 8]
   let titles = ["Node", "Generic", "SN", "Model", "Namespace", "Usage", "Format", "FW Rev"]
-  lines += [[tui.right_pad(titles[index], widths[index]) for index in range(8)].join(" ")]
-  lines += [[tui.right_pad("", widths[index]).replace(" ", with: "-") for index in range(8)].join(" ")]
-  for row in rows {
-    let usage = f"{si_column(row.used_blocks * row.block_size)} / {si_column(row.block_count * row.block_size)}"
-    let format_text = f"{binary_column(row.block_size)} + {tui.left_pad(f"{row.metadata_size}", 2)} B"
-    let cells = [row.name, row.generic, row.serial, row.model, hex(row.nsid), usage, format_text, row.firmware]
-    lines += [[tui.right_pad(cells[index], widths[index]) for index in range(8)].join(" ")]
+  let lines = collect {
+    yield [tui.right_pad(titles[index], widths[index]) for index in range(8)].join(" ")
+    yield [tui.right_pad("", widths[index]).replace(" ", with: "-") for index in range(8)].join(" ")
+    for row in rows {
+      let usage = f"{si_column(row.used_blocks * row.block_size)} / {si_column(row.block_count * row.block_size)}"
+      let format_text = f"{binary_column(row.block_size)} + {tui.left_pad(f"{row.metadata_size}", 2)} B"
+      let cells = [row.name, row.generic, row.serial, row.model, hex(row.nsid), usage, format_text, row.firmware]
+      yield [tui.right_pad(cells[index], widths[index]) for index in range(8)].join(" ")
+    }
   }
   gnu.write_text(lines.join("\n") + "\n")
 }

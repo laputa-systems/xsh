@@ -517,16 +517,21 @@ proc excluded_spans(source_path: Str, lexed: Lexed, attrs: List[Attribute]) [err
   while cursor < attrs.len() {
     let first = attrs[cursor]
     var last = first
-    var predicates: List[CfgPredicate] = []
-    while true {
-      let actual = last.start + (if last.inner { 3 } else { 2 })
-      if (lexed.tokens.get(actual) ?? end_token).text == "cfg" {
-        if (lexed.tokens.get(actual + 1) ?? end_token).text != "(" { invalid(source_path, lexed.tokens[last.start].line, "malformed cfg attribute") }
-        predicates += [{start: actual + 2, end: lexed.mates[f"{actual + 1}"]}]
+    let predicates: List[CfgPredicate] = collect {
+      while true {
+        let actual = last.start + (if last.inner { 3 } else { 2 })
+        if (lexed.tokens.get(actual) ?? end_token).text == "cfg" {
+          if (lexed.tokens.get(actual + 1) ?? end_token).text != "(" {
+            invalid(source_path, lexed.tokens[last.start].line, "malformed cfg attribute")
+          }
+
+          yield {start: actual + 2, end: lexed.mates[f"{actual + 1}"]}
+        }
+
+        cursor += 1
+        if cursor >= attrs.len() or attrs[cursor].start != last.end + 1 or attrs[cursor].inner != first.inner { break }
+        last = attrs[cursor]
       }
-      cursor += 1
-      if cursor >= attrs.len() or attrs[cursor].start != last.end + 1 or attrs[cursor].inner != first.inner { break }
-      last = attrs[cursor]
     }
     if ! predicates.is_empty() and ! production_cfg(source_path, lexed, predicates) {
       var start = lexed.tokens[first.start].start
@@ -803,40 +808,41 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
   cursor += 1
 
   var seen: Map[Bool] = {}
-  var variants: List[Evidence] = []
-  while cursor < closing {
-    let variant = lexed.tokens.get(cursor) ?? end_token
-    if variant.text == "_" or ! ident_start(first(variant.text)) {
-      invalid(source_path, variant.line, "malformed pipeline stage schema entry")
-    }
-    if seen.get(variant.text) ?? false {
-      invalid(source_path, variant.line, f"repeated pipeline stage schema variant {variant.text}")
-    }
-    seen[variant.text] = true
-    let form = (lexed.tokens.get(cursor + 1) ?? end_token).text
-    if form not in ["unit", "tuple", "struct"] {
-      invalid(source_path, variant.line, f"unknown pipeline stage schema form {form}")
-    }
-    let fields_open = cursor + 2
-    if (lexed.tokens.get(fields_open) ?? end_token).text != "{" {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")
-    }
-    let fields_close = lexed.mates[f"{fields_open}"]
-    if fields_close <= fields_open or fields_close >= closing {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")
-    }
-    if form == "unit" {
-      if fields_open + 1 != fields_close {
-        invalid(source_path, variant.line, f"unit pipeline stage has fields in {variant.text}")
+  let variants: List[Evidence] = collect {
+    while cursor < closing {
+      let variant = lexed.tokens.get(cursor) ?? end_token
+      if variant.text == "_" or ! ident_start(first(variant.text)) {
+        invalid(source_path, variant.line, "malformed pipeline stage schema entry")
       }
-    } else if fields_open + 1 == fields_close {
-      invalid(source_path, variant.line, f"empty pipeline stage schema fields in {variant.text}")
+      if seen.get(variant.text) ?? false {
+        invalid(source_path, variant.line, f"repeated pipeline stage schema variant {variant.text}")
+      }
+      seen[variant.text] = true
+      let form = (lexed.tokens.get(cursor + 1) ?? end_token).text
+      if form not in ["unit", "tuple", "struct"] {
+        invalid(source_path, variant.line, f"unknown pipeline stage schema form {form}")
+      }
+      let fields_open = cursor + 2
+      if (lexed.tokens.get(fields_open) ?? end_token).text != "{" {
+        invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")
+      }
+      let fields_close = lexed.mates[f"{fields_open}"]
+      if fields_close <= fields_open or fields_close >= closing {
+        invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")
+      }
+      if form == "unit" {
+        if fields_open + 1 != fields_close {
+          invalid(source_path, variant.line, f"unit pipeline stage has fields in {variant.text}")
+        }
+      } else if fields_open + 1 == fields_close {
+        invalid(source_path, variant.line, f"empty pipeline stage schema fields in {variant.text}")
+      }
+      if (lexed.tokens.get(fields_close + 1) ?? end_token).text != ";" {
+        invalid(source_path, variant.line, f"malformed pipeline stage schema terminator for {variant.text}")
+      }
+      yield evidence(source_path, variant, f"LoweredPipelineStage::{variant.text}")
+      cursor = fields_close + 2
     }
-    if (lexed.tokens.get(fields_close + 1) ?? end_token).text != ";" {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema terminator for {variant.text}")
-    }
-    variants += [evidence(source_path, variant, f"LoweredPipelineStage::{variant.text}")]
-    cursor = fields_close + 2
   }
   if variants.is_empty() {
     invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "empty pipeline stage schema")
@@ -961,31 +967,46 @@ pure qualified_variant_count(lexed: Lexed, region: FunctionRegion, type_name: St
 proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
   return [] unless source_path.starts_with("src/runtime/eval/")
   if ! contains_token(lexed, 0, lexed.tokens.len(), "Type") or ! contains_token(lexed, 0, lexed.tokens.len(), "LoweredType") or ! contains_token(lexed, 0, lexed.tokens.len(), "match") { return [] }
-  var found: List[Evidence] = []
   var cursor = 0
-  while cursor < lexed.tokens.len() {
-    let item = lexed.tokens[cursor]
-    if ! item.literal and item.text == "fn" and ! inside(item, spans) {
-      let region = function_region_for_parameters(source_path, lexed, cursor, ["Type", "LoweredType"], "")?
-      if region.body_start >= 0 {
-        let takes_type = contains_token(lexed, region.params_start, region.params_end, "Type")
-        let takes_lowered_type = contains_token(lexed, region.params_start, region.params_end, "LoweredType")
-        let maps_type_to_lowered = takes_type and ! takes_lowered_type and function_return_contains(lexed, region, "LoweredType")
-        let maps_lowered_to_type = takes_lowered_type and ! takes_type and function_return_contains(lexed, region, "Type")
-        if (maps_type_to_lowered or maps_lowered_to_type) and contains_token(lexed, region.body_start, region.body_end, "match") {
-          let source_type = if maps_type_to_lowered { "Type" } else { "LoweredType" }
-          let target_type = if maps_type_to_lowered { "LoweredType" } else { "Type" }
-          let source_variants = qualified_variant_count(lexed, region, source_type)
-          let target_variants = qualified_variant_count(lexed, region, target_type)
-          if source_variants >= 8 and target_variants >= 8 {
-            found += [evidence(source_path, item, region.name)]
-          } else if source_variants >= 8 or target_variants >= 8 {
-            invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")
+  let found: List[Evidence] = collect {
+    while cursor < lexed.tokens.len() {
+      let item = lexed.tokens[cursor]
+      if ! item.literal and item.text == "fn" and ! inside(item, spans) {
+        let region = function_region_for_parameters(source_path, lexed, cursor, ["Type", "LoweredType"], "")?
+        if region.body_start >= 0 {
+          let takes_type = contains_token(lexed, region.params_start, region.params_end, "Type")
+          let takes_lowered_type = contains_token(lexed, region.params_start, region.params_end, "LoweredType")
+          let maps_type_to_lowered = takes_type and ! takes_lowered_type and function_return_contains(
+            lexed,
+            region,
+            "LoweredType",
+          )
+          let maps_lowered_to_type = takes_lowered_type and ! takes_type and function_return_contains(
+            lexed,
+            region,
+            "Type",
+          )
+          if (maps_type_to_lowered or maps_lowered_to_type) and contains_token(
+            lexed,
+            region.body_start,
+            region.body_end,
+            "match",
+          ) {
+            let source_type = if maps_type_to_lowered { "Type" } else { "LoweredType" }
+            let target_type = if maps_type_to_lowered { "LoweredType" } else { "Type" }
+            let source_variants = qualified_variant_count(lexed, region, source_type)
+            let target_variants = qualified_variant_count(lexed, region, target_type)
+            if source_variants >= 8 and target_variants >= 8 {
+              yield evidence(source_path, item, region.name)
+            } else if source_variants >= 8 or target_variants >= 8 {
+              invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")
+            }
           }
         }
       }
+
+      cursor += 1
     }
-    cursor += 1
   }
   found
 }
@@ -993,30 +1014,36 @@ proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, spans: List[S
 # Count semantic walks over type-expression tags, not wrappers or name rendering.
 proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
   if source_path != "src/runtime/eval/lower.rs" and ! source_path.starts_with("src/runtime/eval/lower/") { return [] }
-  var found: List[Evidence] = []
   var cursor = 0
-  while cursor < lexed.tokens.len() {
-    let item = lexed.tokens[cursor]
-    if ! item.literal and item.text == "fn" and ! inside(item, spans) {
-      let region = function_region_for_parameters(source_path, lexed, cursor, ["TypeExprId"], "")?
-      if region.body_start >= 0 {
-        let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
-        let recursive = recursive_type_expr_call(lexed, region)
-        if type_dispatch {
-          let returns_string = function_return_contains(lexed, region, "String")
-          if ! returns_string {
-            let returns_semantic_type = function_return_contains(lexed, region, "Type") or function_return_contains(lexed, region, "LoweredType")
-            let constructs_type = constructs_semantic_type(lexed, region)
-            if constructs_type {
-              found += [evidence(source_path, item, region.name)]
-            } else if returns_semantic_type or recursive {
-              invalid(source_path, item.line, "unclassified type-expression tag walker")
+  let found: List[Evidence] = collect {
+    while cursor < lexed.tokens.len() {
+      let item = lexed.tokens[cursor]
+      if ! item.literal and item.text == "fn" and ! inside(item, spans) {
+        let region = function_region_for_parameters(source_path, lexed, cursor, ["TypeExprId"], "")?
+        if region.body_start >= 0 {
+          let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
+          let recursive = recursive_type_expr_call(lexed, region)
+          if type_dispatch {
+            let returns_string = function_return_contains(lexed, region, "String")
+            if ! returns_string {
+              let returns_semantic_type = function_return_contains(lexed, region, "Type") or function_return_contains(
+                lexed,
+                region,
+                "LoweredType",
+              )
+              let constructs_type = constructs_semantic_type(lexed, region)
+              if constructs_type {
+                yield evidence(source_path, item, region.name)
+              } else if returns_semantic_type or recursive {
+                invalid(source_path, item.line, "unclassified type-expression tag walker")
+              }
             }
           }
         }
       }
+
+      cursor += 1
     }
-    cursor += 1
   }
   found
 }

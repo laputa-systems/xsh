@@ -75,25 +75,25 @@ pure sorted_unique(values: List[Int]) -> List[Int] {
 pure parse_list(text: Str) -> List[Int]? {
   return null when text == ""
 
-  var cpus = []
+  let cpus = collect {
+    for element in text.split(",") {
+      let parts = LIST_ELEMENT.captures(element)
 
-  for element in text.split(",") {
-    let parts = LIST_ELEMENT.captures(element)
+      return null when parts.is_empty()
 
-    return null when parts.is_empty()
+      let first = count_of(parts[1])
+      let last = if parts[2] == "" { first } else { count_of(parts[2]) }
+      let stride = if parts[3] == "" { 1 } else { count_of(parts[3]) }
 
-    let first = count_of(parts[1])
-    let last = if parts[2] == "" { first } else { count_of(parts[2]) }
-    let stride = if parts[3] == "" { 1 } else { count_of(parts[3]) }
+      return null when last < first or stride < 1
 
-    return null when last < first or stride < 1
+      var at = first
+      let end = if last < CPU_LIMIT { last } else { CPU_LIMIT - 1 }
 
-    var at = first
-    let end = if last < CPU_LIMIT { last } else { CPU_LIMIT - 1 }
-
-    while at <= end {
-      cpus += [at]
-      at += stride
+      while at <= end {
+        yield at
+        at += stride
+      }
     }
   }
 
@@ -108,37 +108,38 @@ pure parse_mask(text: Str) -> List[Int]? {
 
   return null when ! MASK_TEXT.matches(body)
 
-  var cpus = []
   var number = 0
   var at = body.byte_len() - 1
 
-  while at >= 0 {
-    var digit_text = body.byte_slice(at, length: 1)
+  let cpus = collect {
+    while at >= 0 {
+      var digit_text = body.byte_slice(at, length: 1)
 
-    if digit_text == "," {
-      at -= 1
+      if digit_text == "," {
+        at -= 1
 
-      return null when at < 0
+        return null when at < 0
 
-      digit_text = body.byte_slice(at, length: 1)
-    }
-
-    let digit = HEX_DIGITS.find(digit_text.lower())
-
-    return null when digit == null
-
-    let value = digit ?? 0
-
-    for bit in range(4) {
-      let weight = [1, 2, 4, 8][bit]
-
-      if value / weight % 2 == 1 and number + bit < CPU_LIMIT {
-        cpus += [number + bit]
+        digit_text = body.byte_slice(at, length: 1)
       }
-    }
 
-    number += 4
-    at -= 1
+      let digit = HEX_DIGITS.find(digit_text.lower())
+
+      return null when digit == null
+
+      let value = digit ?? 0
+
+      for bit in range(4) {
+        let weight = [1, 2, 4, 8][bit]
+
+        if value / weight % 2 == 1 and number + bit < CPU_LIMIT {
+          yield number + bit
+        }
+      }
+
+      number += 4
+      at -= 1
+    }
   }
 
   cpus
@@ -174,30 +175,31 @@ pure format_mask(cpus: List[Int]) -> Str {
 # starts at the first CPU not yet written; a shorter run is written one CPU at a
 # time, so the tail of a two-CPU run can start the next range.
 pure format_list(cpus: List[Int]) -> Str {
-  var entries = []
   var at = 0
 
-  while at < cpus.len() {
-    if at + 1 >= cpus.len() {
-      entries += [f"{cpus[at]}"]
-      break
-    }
+  let entries = collect {
+    while at < cpus.len() {
+      if at + 1 >= cpus.len() {
+        yield f"{cpus[at]}"
+        break
+      }
 
-    let stride = cpus[at + 1] - cpus[at]
-    var last = at + 1
+      let stride = cpus[at + 1] - cpus[at]
+      var last = at + 1
 
-    while last + 1 < cpus.len() and cpus[last + 1] - cpus[last] == stride {
-      last += 1
-    }
+      while last + 1 < cpus.len() and cpus[last + 1] - cpus[last] == stride {
+        last += 1
+      }
 
-    if last - at >= 2 {
-      let range = f"{cpus[at]}-{cpus[last]}"
+      if last - at >= 2 {
+        let range = f"{cpus[at]}-{cpus[last]}"
 
-      entries += [if stride == 1 { range } else { f"{range}:{stride}" }]
-      at = last + 1
-    } else {
-      entries += [f"{cpus[at]}"]
-      at += 1
+        yield if stride == 1 { range } else { f"{range}:{stride}" }
+        at = last + 1
+      } else {
+        yield f"{cpus[at]}"
+        at += 1
+      }
     }
   }
 
@@ -255,10 +257,10 @@ proc task_ids(pid: Int) [process, error] -> List[Int]? {
   match process.threads(pid) {
     Ok(threads) => {
       let rows: List[ProcessThread] = threads |> collect
-      var ids = []
-
-      for row in rows {
-        ids += [row.thread_id]
+      let ids = collect {
+        for row in rows {
+          yield row.thread_id
+        }
       }
 
       if ids.is_empty() { null } else { ids |> sort }

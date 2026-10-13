@@ -36,8 +36,9 @@ pure repeated(character: Str, count: Int) -> Str {
 }
 
 pure no_roles(height: Int) -> List[color.Role?] {
-  var roles: List[color.Role?] = []
-  for _ in range(height) { roles += [null] }
+  let roles: List[color.Role?] = collect {
+    for _ in range(height) { yield null }
+  }
   roles
 }
 
@@ -51,8 +52,9 @@ export pure blank(width: Int, height: Int) -> Result[Surface, Error] {
     return Err(error.failure("surface dimensions exceed the cell bound"))
   }
   let line = repeated(" ", width)
-  var lines = []
-  for _ in range(height) { lines += [line] }
+  let lines = collect {
+    for _ in range(height) { yield line }
+  }
   Ok({width: width, height: height, lines: lines, roles: no_roles(height)})
 }
 
@@ -61,10 +63,11 @@ export pure from_lines(width: Int, height: Int, source: List[Str]) -> Result[Sur
   if ! valid_dimensions(width, height) or source.len() > height {
     return Err(error.failure("surface rows do not fit the requested geometry"))
   }
-  var lines = []
-  for row in range(height) {
-    let value = if row < source.len() { source[row] } else { "" }
-    lines += [fit(value, width)]
+  let lines = collect {
+    for row in range(height) {
+      let value = if row < source.len() { source[row] } else { "" }
+      yield fit(value, width)
+    }
   }
   Ok({width: width, height: height, lines: lines, roles: no_roles(height)})
 }
@@ -80,9 +83,10 @@ export pure from_lines_with_roles(
   if roles.len() > height {
     return Err(error.failure("surface palette roles exceed the row bound"))
   }
-  var row_roles: List[color.Role?] = []
-  for row in range(height) {
-    row_roles += [if row < roles.len() { roles[row] } else { null }]
+  let row_roles: List[color.Role?] = collect {
+    for row in range(height) {
+      yield if row < roles.len() { roles[row] } else { null }
+    }
   }
   Ok({width: plain.width, height: plain.height, lines: plain.lines, roles: row_roles})
 }
@@ -183,10 +187,11 @@ export pure selected_row(value: Str, selected: Bool, width: Int) -> Str {
 export pure viewport(rows: List[Str], offset: Int, height: Int) -> List[Str] {
   return [] when height <= 0 or height > MAX_DIMENSION
   let start = if offset < 0 { 0 } else { offset }
-  var visible = []
-  for row in range(height) {
-    let at = start + row
-    visible += [if at < rows.len() { rows[at] } else { "" }]
+  let visible = collect {
+    for row in range(height) {
+      let at = start + row
+      yield if at < rows.len() { rows[at] } else { "" }
+    }
   }
   visible
 }

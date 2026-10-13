@@ -21,8 +21,9 @@ export type Entry = {path: Path, start: Path, depth: Int, meta: Meta}
 export type Segment = {kind: Str, text: Bytes, flags: Str, width: Int, precision: Int, spec: Str, sub: Str}
 
 pure spaces(count: Int) -> Bytes {
-  var parts = []
-  for _ in range(count) { parts += [b" "] }
+  let parts = collect {
+    for _ in range(count) { yield b" " }
+  }
   bytes.concat(parts)
 }
 
@@ -337,13 +338,28 @@ export proc render(segments: List[Segment], entry: Entry) [fs, time, error] -> R
 # `-ls` names print with C escapes for control bytes and backslash, and as
 # octal for bytes outside printable ASCII.
 pure escape_name(raw: Bytes) -> Bytes {
-  var parts = []
-  for at in range(raw.len()) {
-    let byte = raw.byte_at(at) ?? 0
-    let simple = match byte { 7 => "\\a"; 8 => "\\b"; 9 => "\\t"; 10 => "\\n"; 11 => "\\v"; 12 => "\\f"; 13 => "\\r"; 92 => "\\\\"; _ => "" }
-    if simple != "" { parts += [bytes.from_text(simple)] } else if byte < 32 or byte >= 127 {
-      parts += [bytes.from_text(f"\\{byte / 64}{byte / 8 % 8}{byte % 8}")]
-    } else { parts += [raw[at..at + 1]] }
+  let parts = collect {
+    for at in range(raw.len()) {
+      let byte = raw.byte_at(at) ?? 0
+      let simple = match byte {
+        7 => "\\a",
+        8 => "\\b",
+        9 => "\\t",
+        10 => "\\n",
+        11 => "\\v",
+        12 => "\\f",
+        13 => "\\r",
+        92 => "\\\\",
+        _ => "",
+      }
+      if simple != "" {
+        yield bytes.from_text(simple)
+      } else if byte < 32 or byte >= 127 {
+        yield bytes.from_text(f"\\{byte / 64}{byte / 8 % 8}{byte % 8}")
+      } else {
+        yield raw[at..at + 1]
+      }
+    }
   }
   bytes.concat(parts)
 }

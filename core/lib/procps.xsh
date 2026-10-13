@@ -11,12 +11,13 @@ export pure selector() -> Selector {
 
 ## Parses positive decimal process identifiers without accepting empty fields.
 export proc ids(text: Str) [error] -> Result[List[Int], Error] {
-  var out = []
-  for word in text.replace(" ", with: ",").split(",") {
-    return Err(error.failure(f"invalid process id: {word}")) when ! rx"^[0-9]+$".matches(word)
-    let value = word as Int
-    return Err(error.failure(f"invalid process id: {word}")) when value <= 0
-    out = out.push(value)
+  let out = collect {
+    for word in text.replace(" ", with: ",").split(",") {
+      return Err(error.failure(f"invalid process id: {word}")) when ! rx"^[0-9]+$".matches(word)
+      let value = word as Int
+      return Err(error.failure(f"invalid process id: {word}")) when value <= 0
+      yield value
+    }
   }
   out
 }
@@ -30,23 +31,36 @@ export proc select(rows: List[ProcessEntry], options: Selector, self_pid: Int) [
   let source = options.pattern ?? ""
   let bounded = if options.exact { f"^(?:{source})$" } else { source }
   let pattern = regex.compile(if options.ignore_case { f"(?i){bounded}" } else { bounded })?
-  var out = []
-  for row in rows {
-    continue when row.pid == self_pid
-    var matches = options.pids.is_empty() or row.pid in options.pids
-    matches = matches and (options.parents.is_empty() or row.parent_pid in options.parents)
-    matches = matches and (options.users.is_empty() or row.user in options.users or f"{row.uid}" in options.users)
-    matches = matches and (options.names.is_empty() or (if options.ignore_case { row.command.lower() in [name.lower() for name in options.names] } else { row.command in options.names }))
-    if ! options.groups.is_empty() {
-      guard let group_id = row.pgrp else { return Err(error.failure("process group selection is unavailable on this host")) }
-      matches = matches and group_id in options.groups
+  let out = collect {
+    for row in rows {
+      continue when row.pid == self_pid
+      var matches = options.pids.is_empty() or row.pid in options.pids
+      matches = matches and (options.parents.is_empty() or row.parent_pid in options.parents)
+      matches = matches and (options.users.is_empty() or row.user in options.users or f"{row.uid}" in options.users)
+      matches = matches and (options.names.is_empty() or (if options.ignore_case { row.command.lower() in [name.lower() for name in options.names] } else { row.command in options.names }))
+      if ! options.groups.is_empty() {
+        guard let group_id = row.pgrp else {
+          return Err(error.failure("process group selection is unavailable on this host"))
+        }
+        matches = matches and group_id in options.groups
+      }
+
+      if ! options.sessions.is_empty() {
+        guard let session_id = row.session else {
+          return Err(error.failure("session selection is unavailable on this host"))
+        }
+        matches = matches and session_id in options.sessions
+      }
+
+      matches = matches and (options.pattern == null or pattern.matches(
+        if options.full {
+          row.argv
+        } else {
+          row.command
+        },
+      ))
+      if matches != options.inverse { yield row }
     }
-    if ! options.sessions.is_empty() {
-      guard let session_id = row.session else { return Err(error.failure("session selection is unavailable on this host")) }
-      matches = matches and session_id in options.sessions
-    }
-    matches = matches and (options.pattern == null or pattern.matches(if options.full { row.argv } else { row.command }))
-    if matches != options.inverse { out = out.push(row) }
   }
   return out |> sort-by(desc: true) age_key(.) |> take(1) when options.newest
   return out |> sort-by age_key(.) |> take(1) when options.oldest
@@ -100,19 +114,32 @@ export proc grep_main(argv: List[Str], send_signal: Bool) [process, env, error, 
   if let Err(problem) = matching { eprint f"pgrep/pkill: {problem.message}"; exit 2 }
   let selected = matching?
   var delivered = 0
-  var output = []
-  if send_signal {
-    let requested = process.signal(opts.signal)
-    if let Err(problem) = requested { eprint f"pkill: {problem.message}"; exit 2 }
-    let signal = requested?
-    for row in selected {
-      if let Err(failure) = process.kill(row.pid, signal.name) {
-        eprint f"pkill: {row.pid}: {failure.message}"
-      } else { delivered = delivered + 1 }
-    }
-  } else {
-    for row in selected {
-      output = output.push(if opts.list_full { f"{row.pid} {row.argv}" } else if opts.list_name { f"{row.pid} {row.command}" } else { f"{row.pid}" })
+  let output = collect {
+    if send_signal {
+      let requested = process.signal(opts.signal)
+      if let Err(problem) = requested {
+        eprint f"pkill: {problem.message}"
+        exit 2
+      }
+
+      let signal = requested?
+      for row in selected {
+        if let Err(failure) = process.kill(row.pid, signal.name) {
+          eprint f"pkill: {row.pid}: {failure.message}"
+        } else {
+          delivered = delivered + 1
+        }
+      }
+    } else {
+      for row in selected {
+        yield if opts.list_full {
+          f"{row.pid} {row.argv}"
+        } else if opts.list_name {
+          f"{row.pid} {row.command}"
+        } else {
+          f"{row.pid}"
+        }
+      }
     }
   }
   if opts.count { print selected.len() } else if ! send_signal and ! output.is_empty() { print output.join(opts.delimiter) }

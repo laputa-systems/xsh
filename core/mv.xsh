@@ -169,18 +169,19 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
     return {outcome: Skipped, copies} when policy == "skip" and gnu.errno(failure) == 17
     return Err(failure)
   }
-  var published_copies: List[FileIdentity] = []
   let staged_bytes = staged.bytes()
-  for index in range(updated.len()) {
-    let entry = updated[index]
-    let published_path = if index < copies.len() {
-      entry.path
-    } else {
-      let raw = entry.path.bytes()
-      let suffix = raw[staged_bytes.len()..]
-      bytes.concat([target.bytes(), suffix]) as Path
+  let published_copies: List[FileIdentity] = collect {
+    for index in range(updated.len()) {
+      let entry = updated[index]
+      let published_path = if index < copies.len() {
+        entry.path
+      } else {
+        let raw = entry.path.bytes()
+        let suffix = raw[staged_bytes.len()..]
+        bytes.concat([target.bytes(), suffix]) as Path
+      }
+      yield {dev: entry.dev, ino: entry.ino, path: published_path}
     }
-    published_copies += [{dev: entry.dev, ino: entry.ino, path: published_path}]
   }
   staged_dir.remove_dir()
   if verbose { report_move_copy(source, target) }

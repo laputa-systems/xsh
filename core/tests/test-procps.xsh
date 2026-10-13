@@ -545,9 +545,10 @@ pure are_fixed_point(words: List[Str]) -> Bool {
 }
 
 pure data_rows(text: Str) -> List[Str] {
-  var rows = []
-  for line in text.lines() {
-    rows = rows.push(line) when ! line.starts_with("UID")
+  let rows = collect {
+    for line in text.lines() {
+      yield line when ! line.starts_with("UID")
+    }
   }
   rows
 }

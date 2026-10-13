@@ -98,21 +98,25 @@ pure utf8_char_width(raw: Bytes, at: Int) -> Int {
 # unchanged, so a `%` before it prints literally and the byte is never read as a
 # conversion.
 proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Bytes] {
-  var pieces = []
   var piece_start = 0
   var at = 0
-  while at < format.len() {
-    let width = utf8_char_width(format, at)
-    if width == 0 {
-      if piece_start < at { pieces += [bytes.from_text(format_text(instant, format[piece_start..at] as Str, utc, style)?)] }
-      pieces += [format[at..at + 1]]
-      at += 1
-      piece_start = at
-    } else {
-      at += width
+  let pieces = collect {
+    while at < format.len() {
+      let width = utf8_char_width(format, at)
+      if width == 0 {
+        if piece_start < at { yield bytes.from_text(format_text(instant, format[piece_start..at] as Str, utc, style)?) }
+        yield format[at..at + 1]
+        at += 1
+        piece_start = at
+      } else {
+        at += width
+      }
+    }
+
+    if piece_start < format.len() {
+      yield bytes.from_text(format_text(instant, format[piece_start..format.len()] as Str, utc, style)?)
     }
   }
-  if piece_start < format.len() { pieces += [bytes.from_text(format_text(instant, format[piece_start..format.len()] as Str, utc, style)?)] }
   Ok(bytes.concat(pieces))
 }
 

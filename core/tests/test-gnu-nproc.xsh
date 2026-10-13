@@ -36,11 +36,14 @@ test test_gnu_nproc_nproc_override_log { |ctx|
     {vars: {OMP_THREAD_LIMIT: f"{available + 1}", OMP_NUM_THREADS: f"{available + 2}"}, expected: f"{available + 1}"},
     {vars: {OMP_NUM_THREADS: f"{available + 1}"}, expected: f"{available + 1}"},
   ]
-  var failures = []
-  for index in range(rows.len()) {
-    let item = rows[index]
-    let r = uu.invoke(s, "nproc", [], vars: item.vars)?
-    if r.stdout.utf8()?.trim() != item.expected { failures += [f"override row {index}: {r.stdout as Str} expected {item.expected}"] }
+  let failures = collect {
+    for index in range(rows.len()) {
+      let item = rows[index]
+      let r = uu.invoke(s, "nproc", [], vars: item.vars)?
+      if r.stdout.utf8()?.trim() != item.expected {
+        yield f"override row {index}: {r.stdout as Str} expected {item.expected}"
+      }
+    }
   }
   assert failures.is_empty(), failures.join("\n")
 }

@@ -395,9 +395,10 @@ export pure bit_set(value: Int, bit: Int) -> Bool {
 ## An ATA string: each 16-bit word holds two characters, high byte first;
 ## leading and trailing blanks are dropped.
 export pure ata_string(page: Bytes, first_word: Int, word_count: Int) -> Str {
-  var chars = []
-  for index in range(word_count) {
-    chars += [at(page, (first_word + index) * 2 + 1), at(page, (first_word + index) * 2)]
+  let chars = collect {
+    for index in range(word_count) {
+      yield @[at(page, (first_word + index) * 2 + 1), at(page, (first_word + index) * 2)]
+    }
   }
   let raw = bytes.from_ints(chars) ?? b""
   let text = raw.utf8() ?? ""
@@ -723,15 +724,16 @@ export pure power_up_time(ms: Int) -> Str {
 
 ## Error-register mnemonic list for an ATA error.
 export pure error_flags(error: Int) -> List[Str] {
-  var names = []
-  if bit_set(error, 7) { names += ["ICRC"] }
-  if bit_set(error, 6) { names += ["UNC"] }
-  if bit_set(error, 5) { names += ["MC"] }
-  if bit_set(error, 4) { names += ["IDNF"] }
-  if bit_set(error, 3) { names += ["MCR"] }
-  if bit_set(error, 2) { names += ["ABRT"] }
-  if bit_set(error, 1) { names += ["TK0NF"] }
-  if bit_set(error, 0) { names += ["AMNF"] }
+  let names = collect {
+    if bit_set(error, 7) { yield "ICRC" }
+    if bit_set(error, 6) { yield "UNC" }
+    if bit_set(error, 5) { yield "MC" }
+    if bit_set(error, 4) { yield "IDNF" }
+    if bit_set(error, 3) { yield "MCR" }
+    if bit_set(error, 2) { yield "ABRT" }
+    if bit_set(error, 1) { yield "TK0NF" }
+    if bit_set(error, 0) { yield "AMNF" }
+  }
   names
 }
 
@@ -777,21 +779,22 @@ export pure error_log(page: Bytes) -> ErrorLog {
       let slot = (pointer + k) % 5
       let base = 2 + slot * 90
       continue when all_zero(page, base, 90)
-      var commands: List[ErrorCommand] = []
-      for back in range(5) {
-        let c = base + (4 - back) * 12
-        continue when all_zero(page, c, 12)
-        commands += [{
-          device_control: at(page, c),
-          features: at(page, c + 1),
-          count: at(page, c + 2),
-          lba_low: at(page, c + 3),
-          lba_mid: at(page, c + 4),
-          lba_high: at(page, c + 5),
-          device: at(page, c + 6),
-          command: at(page, c + 7),
-          timestamp_ms: le(page, c + 8, 4),
-        }]
+      let commands: List[ErrorCommand] = collect {
+        for back in range(5) {
+          let c = base + (4 - back) * 12
+          continue when all_zero(page, c, 12)
+          yield {
+            device_control: at(page, c),
+            features: at(page, c + 1),
+            count: at(page, c + 2),
+            lba_low: at(page, c + 3),
+            lba_mid: at(page, c + 4),
+            lba_high: at(page, c + 5),
+            device: at(page, c + 6),
+            command: at(page, c + 7),
+            timestamp_ms: le(page, c + 8, 4),
+          }
+        }
       }
       let e = base + 60
       entries += [{
@@ -815,34 +818,35 @@ export pure error_log(page: Bytes) -> ErrorLog {
 ## Decodes the SMART self-test log (log address 6).
 export pure self_test_log(page: Bytes) -> SelfTestLog {
   let latest = at(page, 508)
-  var entries: List[SelfTestEntry] = []
   var errors = 0
   var outdated = 0
   var superseded_by = 0
   var number = 0
-  if latest >= 1 and latest <= 21 {
-    for step in range(21) {
-      let slot = (20 - step + latest) % 21
-      let base = 2 + slot * 24
-      continue when all_zero(page, base, 24)
-      number += 1
-      let status = at(page, base + 1)
-      let nibble = status / 16
-      let kind = at(page, base)
-      if nibble >= 3 and nibble <= 8 {
-        errors += 1
-        if superseded_by > 0 { outdated += 1 }
+  let entries: List[SelfTestEntry] = collect {
+    if latest >= 1 and latest <= 21 {
+      for step in range(21) {
+        let slot = (20 - step + latest) % 21
+        let base = 2 + slot * 24
+        continue when all_zero(page, base, 24)
+        number += 1
+        let status = at(page, base + 1)
+        let nibble = status / 16
+        let kind = at(page, base)
+        if nibble >= 3 and nibble <= 8 {
+          errors += 1
+          if superseded_by > 0 { outdated += 1 }
+        }
+        if nibble == 0 and (kind == 2 or kind == 130) and superseded_by == 0 { superseded_by = number }
+        yield {
+          number: number,
+          kind: at(page, base),
+          status: nibble,
+          remaining_percent: status % 16 * 10,
+          hours: le(page, base + 2, 2),
+          checkpoint: at(page, base + 4),
+          lba: le(page, base + 5, 4),
+        }
       }
-      if nibble == 0 and (kind == 2 or kind == 130) and superseded_by == 0 { superseded_by = number }
-      entries += [{
-        number: number,
-        kind: at(page, base),
-        status: nibble,
-        remaining_percent: status % 16 * 10,
-        hours: le(page, base + 2, 2),
-        checkpoint: at(page, base + 4),
-        lba: le(page, base + 5, 4),
-      }]
     }
   }
   {
@@ -891,9 +895,10 @@ export pure self_test_status_text(nibble: Int) -> Str {
 
 ## Decodes the selective self-test log (log address 9).
 export pure selective_log(page: Bytes) -> SelectiveLog {
-  var spans: List[SelectiveSpan] = []
-  for index in range(5) {
-    spans += [{start: le(page, 2 + index * 16, 8), end: le(page, 10 + index * 16, 8)}]
+  let spans: List[SelectiveSpan] = collect {
+    for index in range(5) {
+      yield {start: le(page, 2 + index * 16, 8), end: le(page, 10 + index * 16, 8)}
+    }
   }
   {
     revision: le(page, 0, 2),

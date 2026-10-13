@@ -869,25 +869,27 @@ pure strip_trailing_slashes(name: Bytes) -> Bytes {
 pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
   match data.utf8() {
     Ok(text) => {
-      var names = []
       let parts = text.split(if terminator == 0 { "\0" } else { "\n" })
-      for index in range(parts.len()) {
-        break when index == parts.len() - 1 and parts[index] == ""
-        let cstring = parts[index].find("\0") ?? -1
-        names += [bytes.from_text(if cstring < 0 { parts[index] } else { parts[index].byte_slice(0, length: cstring) })]
+      let names = collect {
+        for index in range(parts.len()) {
+          break when index == parts.len() - 1 and parts[index] == ""
+          let cstring = parts[index].find("\0") ?? -1
+          yield bytes.from_text(if cstring < 0 { parts[index] } else { parts[index].byte_slice(0, length: cstring) })
+        }
       }
       names
     }
     Err(_) => {
-      var names = []
       var begin = 0
-      for index in range(data.len()) {
-        if data.byte_at(index) == terminator {
-          names += [cut_at_nul(data.slice(begin, index - begin))]
-          begin = index + 1
+      let names = collect {
+        for index in range(data.len()) {
+          if data.byte_at(index) == terminator {
+            yield cut_at_nul(data.slice(begin, index - begin))
+            begin = index + 1
+          }
         }
+        if begin < data.len() { yield cut_at_nul(data.slice(begin, data.len() - begin)) }
       }
-      if begin < data.len() { names += [cut_at_nul(data.slice(begin, data.len() - begin))] }
       names
     }
   }
@@ -1634,10 +1636,11 @@ proc parse_command_line(argv: List[Str]) [fs, io, process, env] -> Options {
       var inline_value = null
       if equals >= 0 { inline_value = body.byte_slice(equals + 1) }
       var chosen: LongOption? = null
-      var candidates: List[LongOption] = []
-      for option in LONG_OPTIONS {
-        if option.name == given { chosen = option }
-        if option.name.starts_with(given) { candidates += [option] }
+      let candidates: List[LongOption] = collect {
+        for option in LONG_OPTIONS {
+          if option.name == given { chosen = option }
+          if option.name.starts_with(given) { yield option }
+        }
       }
       if chosen == null {
         var distinct: List[LongOption] = []
@@ -1827,20 +1830,21 @@ proc create_directory(st: Run, opts: Options, header: Header, existing: Bool, ch
 # After a data-carrying link is created, links every deferred name for the same inode to it.
 proc create_deferred_links(st: Run, opts: Options, header: Header) [fs, process, env] -> Run {
   var state = st
-  var remaining: List[Header] = []
   let target = match path_of(header.name) {
     Ok(value) => value
     Err(_) => { return st }
   }
-  for waiting in st.deferred {
-    if same_inode(waiting, header) {
-      let linked = link_to_name(state, opts, waiting.name, target)
-      state = linked.st
-      if ! linked.linked {
-        gnu.error(f"cannot link {shown(waiting.name)} to {shown(header.name)}: {linked.reason}")
+  let remaining: List[Header] = collect {
+    for waiting in st.deferred {
+      if same_inode(waiting, header) {
+        let linked = link_to_name(state, opts, waiting.name, target)
+        state = linked.st
+        if ! linked.linked {
+          gnu.error(f"cannot link {shown(waiting.name)} to {shown(header.name)}: {linked.reason}")
+        }
+      } else {
+        yield waiting
       }
-    } else {
-      remaining += [waiting]
     }
   }
   {...state, deferred: remaining}
@@ -2192,13 +2196,14 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
     let kind = kind_bits(header.mode)
     if skip {
       if header.nlink > 1 and (format == "newc" or format == "crc") and size > 0 {
-        var waiting: List[Header] = []
         var adopted: Header? = null
-        for candidate in st.deferred {
-          if adopted == null and same_inode(candidate, header) {
-            adopted = candidate
-          } else {
-            waiting += [candidate]
+        let waiting: List[Header] = collect {
+          for candidate in st.deferred {
+            if adopted == null and same_inode(candidate, header) {
+              adopted = candidate
+            } else {
+              yield candidate
+            }
           }
         }
         if let target = adopted {
@@ -2427,13 +2432,14 @@ proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_sta
           if same_inode(waiting.header, header) { count += 1 }
         }
         if header.nlink == count + 1 {
-          var remaining: List[Deferred] = []
-          for waiting in deferred {
-            if same_inode(waiting.header, header) {
-              let flat = encode_header(format, {...waiting.header, size: 0}, opts.warn_truncate)
-              if let head = flat { sink = sink_emit(sink, head) }
-            } else {
-              remaining += [waiting]
+          let remaining: List[Deferred] = collect {
+            for waiting in deferred {
+              if same_inode(waiting.header, header) {
+                let flat = encode_header(format, {...waiting.header, size: 0}, opts.warn_truncate)
+                if let head = flat { sink = sink_emit(sink, head) }
+              } else {
+                yield waiting
+              }
             }
           }
           deferred = remaining
@@ -2722,15 +2728,16 @@ proc read_archive(opts: Options) [fs, io, error, process, env] -> Bytes {
 
 # Pattern operands plus the lines of the -E file.
 proc collect_patterns(opts: Options) [fs, error, process, env] -> List[Bytes] {
-  var patterns = []
-  if let name = opts.pattern_file {
-    match fp"{name}".read_bytes() {
-      Ok(data) => {
-        for line in split_names(data, 10) { patterns += [line] }
-      }
-      Err(failure) => {
-        gnu.error(f"{name}: Cannot open: {gnu.strerror(failure)}")
-        exit 2
+  let patterns = collect {
+    if let name = opts.pattern_file {
+      match fp"{name}".read_bytes() {
+        Ok(data) => {
+          for line in split_names(data, 10) { yield line }
+        }
+        Err(failure) => {
+          gnu.error(f"{name}: Cannot open: {gnu.strerror(failure)}")
+          exit 2
+        }
       }
     }
   }

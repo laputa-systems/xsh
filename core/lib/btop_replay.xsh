@@ -159,46 +159,48 @@ export proc load(bundle_path: Path) [fs, error] -> Result[Bundle, Error] {
 
   let captured_usage = read_captured_usage(root, manifest.frames)?
 
-  var observations: List[model.Observation] = []
   var previous_at_ns = null
-  for index in range(manifest.frames.len()) {
-    let at_ns = manifest.frames[index].at_ns
-    if at_ns < 0 or (previous_at_ns != null and at_ns <= (previous_at_ns ?? -1)) {
-      return Err(error.failure("btop replay timestamps must be nonnegative and strictly increasing"))
+  let observations: List[model.Observation] = collect {
+    for index in range(manifest.frames.len()) {
+      let at_ns = manifest.frames[index].at_ns
+      if at_ns < 0 or (previous_at_ns != null and at_ns <= (previous_at_ns ?? -1)) {
+        return Err(error.failure("btop replay timestamps must be nonnegative and strictly increasing"))
+      }
+      let frame_usage = if let Ok(values) = captured_usage.get(f"{index}") { values } else { [] }
+      yield capture_frame(
+        root,
+        index,
+        manifest.source_id,
+        at_ns,
+        manifest.page_size_bytes,
+        manifest.clock_ticks_per_second,
+        frame_usage,
+      )?
+      previous_at_ns = at_ns
     }
-    let frame_usage = if let Ok(values) = captured_usage.get(f"{index}") { values } else { [] }
-    observations += [capture_frame(
-      root,
-      index,
-      manifest.source_id,
-      at_ns,
-      manifest.page_size_bytes,
-      manifest.clock_ticks_per_second,
-      frame_usage,
-    )?]
-    previous_at_ns = at_ns
   }
   Ok({observations: observations, display: manifest.display})
 }
 
 ## Applies the same interval reducer to every frame without waiting for wall time.
 export pure models(observations: List[model.Observation]) -> List[model.Model] {
-  var frames: List[model.Model] = []
   var previous: model.Observation? = null
   var metadata = model.empty_metadata_cache(if observations.is_empty() { "" } else { observations[0].source_id })
-  for current in observations {
-    let before = previous ?? current
-    let has_previous = previous != null
-    let elapsed_ns = if has_previous and before.at_ns >= 0 and current.at_ns > before.at_ns {
-      current.at_ns - before.at_ns
-    } else {
-      0
+  let frames: List[model.Model] = collect {
+    for current in observations {
+      let before = previous ?? current
+      let has_previous = previous != null
+      let elapsed_ns = if has_previous and before.at_ns >= 0 and current.at_ns > before.at_ns {
+        current.at_ns - before.at_ns
+      } else {
+        0
+      }
+      let gap = elapsed_ns >= scheduler.SAMPLE_INTERVAL_NS * 2
+      let next = model.step_cached(current, previous, metadata, gap: gap)
+      yield next.value
+      metadata = next.metadata
+      previous = current
     }
-    let gap = elapsed_ns >= scheduler.SAMPLE_INTERVAL_NS * 2
-    let next = model.step_cached(current, previous, metadata, gap: gap)
-    frames += [next.value]
-    metadata = next.metadata
-    previous = current
   }
   frames
 }

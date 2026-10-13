@@ -570,21 +570,23 @@ test test_gnu_ls_abmon_align_log { |ctx|
   let current = uu.invoke(s, "date", ["+%Y-%m-15"])?
   uu.succeeds(current)
   let mid = current.stdout.utf8()?.trim()
-  var names = []
-  for month in range(1, 13) {
-    let padded = if month < 10 { f"0{month}" } else { f"{month}" }
-    names += [f"{padded}.ts"]
-    uu.succeeds(uu.invoke(s, "touch", ["-d", f"{mid} +{padded} month", f"{padded}.ts"])?)
+  let names = collect {
+    for month in range(1, 13) {
+      let padded = if month < 10 { f"0{month}" } else { f"{month}" }
+      yield f"{padded}.ts"
+      uu.succeeds(uu.invoke(s, "touch", ["-d", f"{mid} +{padded} month", f"{padded}.ts"])?)
+    }
   }
   for format in ["%b", "[%b", "%b]", "[%b]"] {
     for locale in ["C", "gv_GB", "ga_IE", "fi_FI.utf8", "zh_CN", "ar_SY", "fr_FR.UTF-8"] {
       let r = uu.invoke(s, "ls", ["-lgG"].extend(names), vars: {LC_ALL: locale, TIME_STYLE: f"+{format}"})?
       let months = [bytes.from_text(line).slice(15, line.byte_len() - 15 - 6).utf8()?.replace(" ", with: ".") for line in r.stdout.utf8()?.lines()]
       assert months.len() == 12
-      var widths = []
-      for month in months {
-        let width = uu.invoke(s, "wc", ["-L"], stdin: bytes.from_text(month + "\n"), vars: {LC_ALL: locale})?
-        widths += [width.stdout.utf8()?.trim()]
+      let widths = collect {
+        for month in months {
+          let width = uu.invoke(s, "wc", ["-L"], stdin: bytes.from_text(month + "\n"), vars: {LC_ALL: locale})?
+          yield width.stdout.utf8()?.trim()
+        }
       }
       assert widths.to_set().len() == 1
       assert months.to_set().len() == 12
@@ -629,10 +631,17 @@ test test_gnu_ls_block_size_log { |ctx|
     let width = uu.invoke(sub, "wc", ["-L"], stdin: bytes.from_text(prefix), vars: {LC_ALL: locale})?
     continue when width.stdout.utf8()?.trim() != "5"
     let all = uu.invoke(sub, "ls", ["-s1", "--block-size='k"], vars: {LC_ALL: locale})?
-    var widths = []
-    for line in [all.stdout.utf8()?.lines()[i] for i in range(1, all.stdout.utf8()?.lines().len())] {
-      let measured = uu.invoke(sub, "wc", ["-L"], stdin: bytes.from_text(line.split("K")[0] + "\n"), vars: {LC_ALL: locale})?
-      widths += [measured.stdout.utf8()?.trim()]
+    let widths = collect {
+      for line in [all.stdout.utf8()?.lines()[i] for i in range(1, all.stdout.utf8()?.lines().len())] {
+        let measured = uu.invoke(
+          sub,
+          "wc",
+          ["-L"],
+          stdin: bytes.from_text(line.split("K")[0] + "\n"),
+          vars: {LC_ALL: locale},
+        )?
+        yield measured.stdout.utf8()?.trim()
+      }
     }
     assert widths.to_set().len() == 1
   }

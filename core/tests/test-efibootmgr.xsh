@@ -20,14 +20,16 @@ proc exists(dir: Path, name: Str) [fs, error] -> Bool {
 proc u16(value: Int) -> Bytes { bytes.pack_le(value, 2)? }
 
 proc u16_list(values: List[Int]) -> Bytes {
-  var chunks = []
-  for value in values { chunks += [u16(value)] }
+  let chunks = collect {
+    for value in values { yield u16(value) }
+  }
   bytes.concat(chunks)
 }
 
 proc utf16z(text: Str) -> Bytes {
-  var ints = []
-  for byte in bytes.from_text(text) { ints += [byte, 0] }
+  let ints = collect {
+    for byte in bytes.from_text(text) { yield @[byte, 0] }
+  }
   bytes.concat([bytes.from_ints(ints)?, b"\x00\x00"])
 }
 
@@ -278,15 +280,17 @@ proc disk_image(ctx: TestContext, name: Str, label: Str) [fs, process, error] ->
 }
 
 proc names_in(dir: Path) [fs, error] -> List[Str] {
-  var names = []
-  for child in fs.children(dir)? { names += [child.name] }
+  let names = collect {
+    for child in fs.children(dir)? { yield child.name }
+  }
   names
 }
 
 # Whole-directory snapshot used to prove a refused command changed nothing.
 proc snapshot(dir: Path) [fs, error] -> Str {
-  var lines = []
-  for child in fs.children(dir)? { lines += [f"{child.name} {child.path.read_bytes()?.base64()}"] }
+  let lines = collect {
+    for child in fs.children(dir)? { yield f"{child.name} {child.path.read_bytes()?.base64()}" }
+  }
   lines.join("\n")
 }
 
@@ -395,8 +399,9 @@ test test_efibootmgr_writes_only_named_variables_in_the_directory { |ctx|
   let result = invoke(ctx, dir, ["-c", "-d", image.display(), "-n", "0000", "-t", "2"])
   assert result.status == 0, result.stderr
   let after = names_in(dir)
-  var added = []
-  for name in after { if name not in before { added += [name] } }
+  let added = collect {
+    for name in after { if name not in before { yield name } }
+  }
   let ordered = added |> sort-by .
   assert ordered == [f"Boot0003{GUID_SUFFIX}", f"BootNext{GUID_SUFFIX}"], added.join(",")
 }

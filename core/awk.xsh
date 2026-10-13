@@ -218,52 +218,53 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
   var settings: Settings = {pieces: [], assignments: [], operands: [], sandbox: false, version: false, help: false}
   var index = 0
   var program_given = false
-  var seen: List[Given] = []
   var include_found = []
   var program_found = []
-  while index < args.len() {
-    let argument = args[index]
-    if argument == "--" { index += 1; break }
-    break when ! argument.starts_with("-") or argument == "-"
-    index += 1
-    if argument.starts_with("--") {
-      var body = argument.byte_slice(2)
-      var value = null
-      let equals = body.find("=")
-      if equals != null {
-        value = body.byte_slice((equals ?? 0) + 1)
-        body = body.byte_slice(0, length: equals ?? 0)
-      }
-      let candidates = [name for name in LONG_OPTIONS if name.starts_with(body)]
-      var option = ""
-      if body in LONG_OPTIONS { option = body } else if candidates.len() == 1 { option = candidates[0] } else {
-        usage_failure("")
-      }
-      if option in OPTIONS_WITH_VALUE and value == null {
-        if index >= args.len() { usage_failure(f"awk: option '--{option}' requires an argument\n") }
-        value = args[index]
-        index += 1
-      }
-      seen += [{name: option, value: value}]
-    } else {
-      var at = 1
-      while at < argument.byte_len() {
-        let letter = argument.byte_slice(at, length: 1)
-        at += 1
-        if letter not in SHORT_LONG { usage_failure("") }
-        let option = SHORT_LONG.get(letter) ?? ""
+  let seen: List[Given] = collect {
+    while index < args.len() {
+      let argument = args[index]
+      if argument == "--" { index += 1; break }
+      break when ! argument.starts_with("-") or argument == "-"
+      index += 1
+      if argument.starts_with("--") {
+        var body = argument.byte_slice(2)
         var value = null
-        if letter in SHORT_WITH_VALUE {
-          if at < argument.byte_len() { value = argument.byte_slice(at); at = argument.byte_len() } else {
-            if index >= args.len() { usage_failure(f"awk: option requires an argument -- {letter}\n") }
-            value = args[index]
-            index += 1
-          }
-        } else if letter in SHORT_OPTIONAL_VALUE and at < argument.byte_len() {
-          value = argument.byte_slice(at)
-          at = argument.byte_len()
+        let equals = body.find("=")
+        if equals != null {
+          value = body.byte_slice((equals ?? 0) + 1)
+          body = body.byte_slice(0, length: equals ?? 0)
         }
-        seen += [{name: option, value: value}]
+        let candidates = [name for name in LONG_OPTIONS if name.starts_with(body)]
+        var option = ""
+        if body in LONG_OPTIONS { option = body } else if candidates.len() == 1 { option = candidates[0] } else {
+          usage_failure("")
+        }
+        if option in OPTIONS_WITH_VALUE and value == null {
+          if index >= args.len() { usage_failure(f"awk: option '--{option}' requires an argument\n") }
+          value = args[index]
+          index += 1
+        }
+        yield {name: option, value: value}
+      } else {
+        var at = 1
+        while at < argument.byte_len() {
+          let letter = argument.byte_slice(at, length: 1)
+          at += 1
+          if letter not in SHORT_LONG { usage_failure("") }
+          let option = SHORT_LONG.get(letter) ?? ""
+          var value = null
+          if letter in SHORT_WITH_VALUE {
+            if at < argument.byte_len() { value = argument.byte_slice(at); at = argument.byte_len() } else {
+              if index >= args.len() { usage_failure(f"awk: option requires an argument -- {letter}\n") }
+              value = args[index]
+              index += 1
+            }
+          } else if letter in SHORT_OPTIONAL_VALUE and at < argument.byte_len() {
+            value = argument.byte_slice(at)
+            at = argument.byte_len()
+          }
+          yield {name: option, value: value}
+        }
       }
     }
   }

@@ -176,9 +176,10 @@ proc dump_frames(
   display: terminal.Inputs,
 ) [fs, error] -> Result[Unit, Error] {
   if let output_path = model_path {
-    var lines = []
-    for frame in frames {
-      lines += [model.encode_wire_json(frame)?]
+    let lines = collect {
+      for frame in frames {
+        yield model.encode_wire_json(frame)?
+      }
     }
     fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))
   }

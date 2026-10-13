@@ -471,11 +471,12 @@ proc numeric(name: Str, algorithm: Str) [fs, io] -> Result[Numeric] {
 
 pure raw_digest(hex: Str) -> Result[Bytes] {
   let digits = "0123456789abcdef"
-  var values = []
   var at = 0
-  while at < hex.byte_len() {
-    values += [(digits.find(hex.byte_slice(at, length: 1)) ?? 0) * 16 + (digits.find(hex.byte_slice(at + 1, length: 1)) ?? 0)]
-    at += 2
+  let values = collect {
+    while at < hex.byte_len() {
+      yield (digits.find(hex.byte_slice(at, length: 1)) ?? 0) * 16 + (digits.find(hex.byte_slice(at + 1, length: 1)) ?? 0)
+      at += 2
+    }
   }
   bytes.from_ints(values)
 }

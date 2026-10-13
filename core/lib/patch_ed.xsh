@@ -44,13 +44,14 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
     if c[1] == "" and c[2] == "" and command != "" { first = current; last = current }
     i += 1
     if command == "a" or command == "i" or command == "c" {
-      var added = []
       var closed = false
-      while i < lines.len() {
-        let body = patch_parse.body_text(lines[i])
-        i += 1
-        if body == "." { closed = true; break }
-        added += [with_newline(lines[i - 1])]
+      let added = collect {
+        while i < lines.len() {
+          let body = patch_parse.body_text(lines[i])
+          i += 1
+          if body == "." { closed = true; break }
+          yield with_newline(lines[i - 1])
+        }
       }
       return {output: buffer, failed: text, next: i} unless closed
       if command == "a" {
@@ -104,9 +105,10 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
 }
 
 pure bytes_list_splice(list: List[Bytes], from: Int, to: Int, middle: List[Bytes]) -> List[Bytes] {
-  var output = []
-  for index in range(from) { output += [list[index]] }
-  output += middle
-  for index in range(to, list.len()) { output += [list[index]] }
+  let output = collect {
+    for index in range(from) { yield list[index] }
+    yield @middle
+    for index in range(to, list.len()) { yield list[index] }
+  }
   output
 }

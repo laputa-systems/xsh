@@ -134,8 +134,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     continue when ! opts.recursive or info.kind != "dir"
     let children = fs.children(target)
     if let Err(failure) = children { fileattrs.report(visit.name, failure); success = false; continue }
-    var descendants: List[Visit] = []
-    for child in children? { descendants += [{name: f"{visit.name}/{child.name}", ancestors: visit.ancestors.extend([identity]), operand: false}] }
+    let descendants: List[Visit] = collect {
+      for child in children? {
+        yield {name: f"{visit.name}/{child.name}", ancestors: visit.ancestors.extend([identity]), operand: false}
+      }
+    }
     pending = descendants.extend(pending)
   }
   if ! success { exit 1 }

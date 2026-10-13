@@ -284,22 +284,22 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
 # connected or while a writer is silent.
 proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: Duration) [fs, process, net, time, error] -> Result[Bytes] {
   let fd = unix.open_fd(fifo, nonblock: true)?
-  var chunks = []
-
-  loop {
-    match unix.read_fd(fd, tio.CHUNK) {
-      Ok(chunk) => { if ! chunk.is_empty() { chunks += [chunk] } }
-      Err(failure) => {
-        if gnu.errno(failure) not in [11, 35] {
-          unix.close_fd(fd)
-          return Err(failure)
+  let chunks = collect {
+    loop {
+      match unix.read_fd(fd, tio.CHUNK) {
+        Ok(chunk) => { if ! chunk.is_empty() { yield chunk } }
+        Err(failure) => {
+          if gnu.errno(failure) not in [11, 35] {
+            unix.close_fd(fd)
+            return Err(failure)
+          }
         }
       }
-    }
 
-    let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
-    break when ! alive
-    time.sleep(interval)
+      let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
+      break when ! alive
+      time.sleep(interval)
+    }
   }
 
   unix.close_fd(fd)
@@ -593,21 +593,21 @@ proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int
   var reverted = false
 
   loop {
-    var next: List[NameFile] = []
+    let next: List[NameFile] = collect {
+      for file in active {
+        let step = follow_name_once(file, retrying, headers, last)
+        last = step.last
+        failed = failed or step.failed
 
-    for file in active {
-      let step = follow_name_once(file, retrying, headers, last)
-      last = step.last
-      failed = failed or step.failed
+        if step.dir_removed and inotify and ! reverted {
+          gnu.error("directory containing watched file was removed")
+          gnu.error("inotify cannot be used, reverting to polling")
+          reverted = true
+        }
 
-      if step.dir_removed and inotify and ! reverted {
-        gnu.error("directory containing watched file was removed")
-        gnu.error("inotify cannot be used, reverting to polling")
-        reverted = true
-      }
-
-      if step.keep {
-        next += [step.file]
+        if step.keep {
+          yield step.file
+        }
       }
     }
 
@@ -652,17 +652,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   # parser strips the leading dashes of long names, so this spelling cannot be declared
   # as an option; it is removed here before parsing, and this pre-scan can go once the
   # form can name it.
-  var rest = []
   var operands_only = false
   var inotify = true
-  for arg in tio.without_presume_pipe(argv) {
-    if operands_only or arg == "--" {
-      operands_only = true
-      rest += [arg]
-    } else if arg == "---disable-inotify" {
-      inotify = false
-    } else {
-      rest += [arg]
+  let rest = collect {
+    for arg in tio.without_presume_pipe(argv) {
+      if operands_only or arg == "--" {
+        operands_only = true
+        yield arg
+      } else if arg == "---disable-inotify" {
+        inotify = false
+      } else {
+        yield arg
+      }
     }
   }
 

@@ -531,10 +531,11 @@ pure scan_words() -> List[Str] {
 
 # Hex bytes written as `00:11:..`, or null when malformed.
 pure parse_hex_list(text: Str) -> Bytes? {
-  var values = []
-  for part in text.split(":") {
-    return null unless rx"^[0-9A-Fa-f]{1,2}$".matches(part)
-    values += [("0x" + part).parse_int() ?? 0]
+  let values = collect {
+    for part in text.split(":") {
+      return null unless rx"^[0-9A-Fa-f]{1,2}$".matches(part)
+      yield ("0x" + part).parse_int() ?? 0
+    }
   }
   if let Ok(packed) = bytes.from_ints(values) {
     return packed

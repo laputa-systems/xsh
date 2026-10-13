@@ -68,15 +68,21 @@ proc main(...argv: List[Str]) [fs, process, io, error] {
     continue when pids.is_empty() and ! opts.all
     matched = matched or ! pids.is_empty()
     if ! opts.silent {
-      var table: List[Holder] = []
       var letters = ""
-      for pid in pids {
-        let mine = rows |> where .pid == pid |> collect
-        let access = if protocol == "file" { access_string(mine) } else { "F...." }
-        let named = snapshot |> where .pid == pid |> collect
-        table = table.push({pid: pid, command: if named.is_empty() { "?" } else { named[0].command }, user: if named.is_empty() { "(unknown)" } else { named[0].user }, access: access})
-        letters = letters + plain_letters(access)
-        io.write_stdout(f"{pid:>6}")
+      let table: List[Holder] = collect {
+        for pid in pids {
+          let mine = rows |> where .pid == pid |> collect()
+          let access = if protocol == "file" { access_string(mine) } else { "F...." }
+          let named = snapshot |> where .pid == pid |> collect()
+          yield {
+            pid: pid,
+            command: if named.is_empty() { "?" } else { named[0].command },
+            user: if named.is_empty() { "(unknown)" } else { named[0].user },
+            access: access,
+          }
+          letters = letters + plain_letters(access)
+          io.write_stdout(f"{pid:>6}")
+        }
       }
       if table.is_empty() { io.write_stderr(f"{label}\n") } else if opts.verbose {
         var first = true

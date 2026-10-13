@@ -61,12 +61,13 @@ proc has_capability(number: Int) [process, error] -> Bool {
 }
 
 pure list_after(text: Str, label: Str) -> List[Int] {
-  var found = []
-  for line in text.lines() {
-    if line.starts_with(label) {
-      for word in line.byte_slice(label.byte_len()).trim().split("\t") {
-        for piece in word.split(" ") {
-          if piece != "" { found += [piece.parse_int() ?? -1] }
+  let found = collect {
+    for line in text.lines() {
+      if line.starts_with(label) {
+        for word in line.byte_slice(label.byte_len()).trim().split("\t") {
+          for piece in word.split(" ") {
+            if piece != "" { yield piece.parse_int() ?? -1 }
+          }
         }
       }
     }

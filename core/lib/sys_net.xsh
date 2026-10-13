@@ -46,15 +46,16 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
       issues += [src.issue(f"network.{name}", report.Malformed, "incomplete_netdev_row", null)]
       continue
     }
-    var counters = []
     var state: report.ObservationState? = null
-    for value in fields |> take(16) {
-      let parsed = src.parse_integer(value)
-      if parsed == null or (parsed ?? -1) < 0 {
-        state = if src.decimal_digits(value) { report.RangeFailure } else { report.Malformed }
-        break
+    let counters = collect {
+      for value in fields |> take(16) {
+        let parsed = src.parse_integer(value)
+        if parsed == null or (parsed ?? -1) < 0 {
+          state = if src.decimal_digits(value) { report.RangeFailure } else { report.Malformed }
+          break
+        }
+        yield parsed ?? 0
       }
-      counters += [parsed ?? 0]
     }
     if state != null {
       issues += [src.issue(f"network.{name}", state ?? report.Malformed, "invalid_netdev_counter", null)]

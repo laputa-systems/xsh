@@ -167,11 +167,12 @@ test test_uu_support_command_preserves_parallel_input_and_append_output { |ctx|
   let s = uu.scene(ctx)?
   let output = uu.at(s, "output")
   output.write("")
-  var children = []
-  for index in range(3) {
-    let plan = uu.command(s, "cat", [], stdin: bytes.from_text(f"child-{index}\n"),
-      stdout: output, stderr: uu.at(s, f"stderr-{index}"), stdout_append: true, timeout: 2s)?
-    children += [spawn plan?]
+  let children = collect {
+    for index in range(3) {
+      let plan = uu.command(s, "cat", [], stdin: bytes.from_text(f"child-{index}\n"),
+        stdout: output, stderr: uu.at(s, f"stderr-{index}"), stdout_append: true, timeout: 2s)?
+      yield spawn plan?
+    }
   }
   for child in children { assert (wait child?).exited_with(0) }
   let lines = [line for line in output.read_text()?.split("\n") if line != ""] |> sort
@@ -213,11 +214,12 @@ test test_uu_support_child_umask_applies_to_path_and_parallel_commands { |ctx|
   uu.write(s, "input", "")
   uu.succeeds(uu.invoke_from_path(s, "mkdir", ["from-input"], uu.at(s, "input"), umask: 0o027)?)
   assert uu.mode(s, "from-input")? == 0o750
-  var children = []
-  for index in range(3) {
-    let plan = uu.command(s, "mkdir", [f"parallel-{index}"], umask: 0o022,
-      stdout: uu.at(s, f"stdout-{index}"), stderr: uu.at(s, f"stderr-{index}"))?
-    children += [spawn plan?]
+  let children = collect {
+    for index in range(3) {
+      let plan = uu.command(s, "mkdir", [f"parallel-{index}"], umask: 0o022,
+        stdout: uu.at(s, f"stdout-{index}"), stderr: uu.at(s, f"stderr-{index}"))?
+      yield spawn plan?
+    }
   }
   for child in children { assert (wait child?).exited_with(0) }
   for index in range(3) { assert uu.mode(s, f"parallel-{index}")? == 0o755 }

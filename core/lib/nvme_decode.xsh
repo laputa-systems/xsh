@@ -158,12 +158,13 @@ pure decimal_of(digits: List[Int]) -> Str {
   var current = digits
   var chunks = []
   while ! current.is_empty() {
-    var quotient = []
     var remainder = 0
-    for byte in current {
-      let accumulated = remainder * 256 + byte
-      quotient += [accumulated / 1000000000]
-      remainder = accumulated % 1000000000
+    let quotient = collect {
+      for byte in current {
+        let accumulated = remainder * 256 + byte
+        yield accumulated / 1000000000
+        remainder = accumulated % 1000000000
+      }
     }
     chunks += [remainder]
     var start = 0
@@ -281,26 +282,27 @@ export pure display(item: Field) -> Str {
 ## The Power State Descriptor entries of an Identify Controller structure:
 ## `npss` plus one descriptors from byte 2048.
 export pure power_states(data: Bytes, count: Int) -> List[PowerState] {
-  var out: List[PowerState] = []
-  for index in range(count) {
-    let base = 2048 + index * 32
-    let flags = u8(data, base + 3)
-    out += [{
-      max_power: le(data, base, 2),
-      max_scale: flags % 2,
-      non_operational: flags / 2 % 2 == 1,
-      entry_latency: le(data, base + 4, 4),
-      exit_latency: le(data, base + 8, 4),
-      read_throughput: u8(data, base + 12) % 32,
-      read_latency: u8(data, base + 13) % 32,
-      write_throughput: u8(data, base + 14) % 32,
-      write_latency: u8(data, base + 15) % 32,
-      idle_power: le(data, base + 16, 2),
-      idle_scale: u8(data, base + 18) / 64,
-      active_power: le(data, base + 20, 2),
-      active_scale: u8(data, base + 22) / 64,
-      workload: u8(data, base + 22) % 8,
-    }]
+  let out: List[PowerState] = collect {
+    for index in range(count) {
+      let base = 2048 + index * 32
+      let flags = u8(data, base + 3)
+      yield {
+        max_power: le(data, base, 2),
+        max_scale: flags % 2,
+        non_operational: flags / 2 % 2 == 1,
+        entry_latency: le(data, base + 4, 4),
+        exit_latency: le(data, base + 8, 4),
+        read_throughput: u8(data, base + 12) % 32,
+        read_latency: u8(data, base + 13) % 32,
+        write_throughput: u8(data, base + 14) % 32,
+        write_latency: u8(data, base + 15) % 32,
+        idle_power: le(data, base + 16, 2),
+        idle_scale: u8(data, base + 18) / 64,
+        active_power: le(data, base + 20, 2),
+        active_scale: u8(data, base + 22) / 64,
+        workload: u8(data, base + 22) % 8,
+      }
+    }
   }
   out
 }
@@ -308,14 +310,15 @@ export pure power_states(data: Bytes, count: Int) -> List[PowerState] {
 ## The LBA format descriptors of an Identify Namespace structure
 ## (`nlbaf` and `nulbaf` are zero-based counts).
 export pure lba_formats(data: Bytes, count: Int) -> List[LbaFormat] {
-  var out: List[LbaFormat] = []
-  for index in range(count) {
-    let base = 128 + index * 4
-    out += [{
-      metadata_size: le(data, base, 2),
-      data_size_shift: u8(data, base + 2),
-      relative_performance: u8(data, base + 3) % 4,
-    }]
+  let out: List[LbaFormat] = collect {
+    for index in range(count) {
+      let base = 128 + index * 4
+      yield {
+        metadata_size: le(data, base, 2),
+        data_size_shift: u8(data, base + 2),
+        relative_performance: u8(data, base + 3) % 4,
+      }
+    }
   }
   out
 }
@@ -334,23 +337,24 @@ export pure error_entry(log: Bytes, index: Int) -> List[Field] {
 ## The result entries of a Device Self-test log (used entries only: an entry
 ## whose result is 0xf was never written).
 export pure self_test_results(log: Bytes, limit: Int) -> List[SelfTestResult] {
-  var out: List[SelfTestResult] = []
-  for index in range(limit) {
-    let base = SELF_TEST_HEADER_BYTES + index * SELF_TEST_ENTRY_BYTES
-    let status = u8(log, base)
-    continue when status % 16 == 15
-    out += [{
-      code: status / 16,
-      result: status % 16,
-      segment: u8(log, base + 1),
-      valid: u8(log, base + 2) % 16,
-      power_on_hours: wide(log, base + 4, 8),
-      nsid: le(log, base + 12, 4),
-      failing_lba: wide(log, base + 16, 8),
-      status_code_type: u8(log, base + 24) % 8,
-      status_code: u8(log, base + 25),
-      vendor_specific: le(log, base + 26, 2),
-    }]
+  let out: List[SelfTestResult] = collect {
+    for index in range(limit) {
+      let base = SELF_TEST_HEADER_BYTES + index * SELF_TEST_ENTRY_BYTES
+      let status = u8(log, base)
+      continue when status % 16 == 15
+      yield {
+        code: status / 16,
+        result: status % 16,
+        segment: u8(log, base + 1),
+        valid: u8(log, base + 2) % 16,
+        power_on_hours: wide(log, base + 4, 8),
+        nsid: le(log, base + 12, 4),
+        failing_lba: wide(log, base + 16, 8),
+        status_code_type: u8(log, base + 24) % 8,
+        status_code: u8(log, base + 25),
+        vendor_specific: le(log, base + 26, 2),
+      }
+    }
   }
   out
 }

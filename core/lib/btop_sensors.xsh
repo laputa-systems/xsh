@@ -112,16 +112,17 @@ pure selected_cpu_sensor(candidates: List[TemperatureCandidate]) -> TemperatureC
 
 # Orders distinct Core and Tccd channels for stable logical-core mapping.
 pure core_sensor_candidates(candidates: List[TemperatureCandidate]) -> List[TemperatureCandidate] {
-  var unique: List[TemperatureCandidate] = []
   var seen: Set[Str] = set.empty()
   let ordered = candidates
     |> where .label.starts_with("Core") or .label.starts_with("Tccd")
     |> sort-by { |item| item.key }
     |> sort-by { |item| item.key.count_chars() }
-  for item in ordered {
-    continue when item.key in seen
-    seen = seen.add(item.key)
-    unique += [item]
+  let unique: List[TemperatureCandidate] = collect {
+    for item in ordered {
+      continue when item.key in seen
+      seen = seen.add(item.key)
+      yield item
+    }
   }
   unique
 }
@@ -224,11 +225,12 @@ pure cpu_temperature(sources: live.MonitorSources, logical_cpu_ids: List[Int]) -
   }
   let cpu_ids = if logical_cpu_ids.is_empty() { labeled_cpu_ids } else { logical_cpu_ids }
   let mapping = core_mapping(sources, cpu_ids, core_sensors.len())
-  var cores: List[CoreTemperature] = []
-  for item in mapping {
-    if let Ok(observed_sensor) = core_sensors.get(item.sensor_index) {
-      if let millidegrees = observed_sensor.millidegrees {
-        cores += [{id: item.logical_id, millidegrees: millidegrees}]
+  let cores: List[CoreTemperature] = collect {
+    for item in mapping {
+      if let Ok(observed_sensor) = core_sensors.get(item.sensor_index) {
+        if let millidegrees = observed_sensor.millidegrees {
+          yield {id: item.logical_id, millidegrees: millidegrees}
+        }
       }
     }
   }

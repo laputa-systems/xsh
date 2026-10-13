@@ -177,8 +177,9 @@ export pure health_json(report: Exceptions) -> List[j.Member] {
 
 ## JSON members for the temperatures.
 export pure temperature_json(temps: Temperatures) -> List[j.Member] {
-  var out: List[j.Member] = []
-  if let current = temps.current { out += [j.m("temperature", j.object([j.m("current", current)]))] }
-  if let trip = temps.trip { out += [j.m("scsi_temperature", j.object([j.m("drive_trip", trip)]))] }
+  let out: List[j.Member] = collect {
+    if let current = temps.current { yield j.m("temperature", j.object([j.m("current", current)])) }
+    if let trip = temps.trip { yield j.m("scsi_temperature", j.object([j.m("drive_trip", trip)])) }
+  }
   out
 }

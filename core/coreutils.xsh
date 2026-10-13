@@ -21,13 +21,17 @@ Built-in programs:
 # of an applet; directories, this front end, and names with other dots such as
 # README.md are not applets.
 proc applet_names(dir: Path) [fs, error] -> Result[List[Str]] {
-  var names = []
+  let names = collect {
+    for entry in fs.children(dir)? {
+      let name = if entry.name.ends_with(".xsh") {
+        entry.name.byte_slice(0, entry.name.byte_len() - 4)
+      } else {
+        entry.name
+      }
 
-  for entry in fs.children(dir)? {
-    let name = if entry.name.ends_with(".xsh") { entry.name.byte_slice(0, entry.name.byte_len() - 4) } else { entry.name }
-
-    if entry.kind != "dir" and name != "coreutils" and (name.find(".") ?? -1) < 0 {
-      names += [name]
+      if entry.kind != "dir" and name != "coreutils" and (name.find(".") ?? -1) < 0 {
+        yield name
+      }
     }
   }
 

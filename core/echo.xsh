@@ -172,18 +172,20 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
     }
   }
 
-  var words = []
-  for text in texts[first..texts.len()] {
-    words += [gnu.argument_bytes(text, prepared.raw)]
+  let words = collect {
+    for text in texts[first..texts.len()] {
+      yield gnu.argument_bytes(text, prepared.raw)
+    }
   }
 
   if ! (escapes or posix) {
-    var parts = []
-    for index in range(words.len()) {
-      if index > 0 { parts += [b" "] }
-      parts += [words[index]]
+    let parts = collect {
+      for index in range(words.len()) {
+        if index > 0 { yield b" " }
+        yield words[index]
+      }
+      if newline { yield b"\n" }
     }
-    if newline { parts += [b"\n"] }
     gnu.write_bytes(bytes.concat(parts))
     return
   }

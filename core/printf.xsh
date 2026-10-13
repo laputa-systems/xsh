@@ -824,8 +824,9 @@ proc main(...argv: List[Bytes]) [error, io, process, env] {
   }
   if arguments.is_empty() { gnu.missing_operand() }
   let format = arguments[0]
-  var values: List[PrintfArgument] = []
-  for value in arguments[1..] { values += [printf_argument(value)?] }
+  let values: List[PrintfArgument] = collect {
+    for value in arguments[1..] { yield printf_argument(value)? }
+  }
   let output = render(format, values)
   gnu.write_bytes(output.data)
   if ! output.stopped and output.next_argument < values.len() {

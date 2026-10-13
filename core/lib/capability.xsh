@@ -92,12 +92,13 @@ export pure parse_set(text: Str) -> Result[Int, Error] {
 
 ## Render a bitmap in numeric order, retaining unknown future capability bits.
 export pure format_mask(mask: Mask) -> Str {
-  var names = []
-  for index in range(64) {
-    continue when ! contains(mask, index)
-    var name = f"{index}"
-    for entry in CAPABILITIES { if entry.bit == index { name = entry.name; break } }
-    names += [name]
+  let names = collect {
+    for index in range(64) {
+      continue when ! contains(mask, index)
+      var name = f"{index}"
+      for entry in CAPABILITIES { if entry.bit == index { name = entry.name; break } }
+      yield name
+    }
   }
   names.join(",")
 }

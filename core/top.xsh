@@ -23,12 +23,17 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
     print "PID USER PR NI VIRT RES S %CPU %MEM TIME+ COMMAND"
     let elapsed_ms = if previous == null { current.uptime_ms } else { current.sampled_at_ms - previous.sampled_at_ms }
     return Err(error.failure("sampling clock did not advance")) when elapsed_ms <= 0
-    var ranked: List[RatedProcess] = []
-    for row in current.processes {
-      continue when ! pids.is_empty() and row.pid not in pids
-      let older: List[LinuxProcessSample] = if previous == null { [] } else { previous.processes |> where .pid == row.pid and .start_ticks == row.start_ticks }
-      let percent = procps.delta(row.cpu_ticks, if older.is_empty() { 0 } else { older[0].cpu_ticks })?.float() * 100000.0 / elapsed_ms.float() / current.ticks_per_second.float()
-      ranked = ranked.push({row: row, percent: percent, basis_points: (percent * 100.0).round()?})
+    let ranked: List[RatedProcess] = collect {
+      for row in current.processes {
+        continue when ! pids.is_empty() and row.pid not in pids
+        let older: List[LinuxProcessSample] = if previous == null {
+          []
+        } else {
+          previous.processes |> where .pid == row.pid and .start_ticks == row.start_ticks
+        }
+        let percent = procps.delta(row.cpu_ticks, if older.is_empty() { 0 } else { older[0].cpu_ticks })?.float() * 100000.0 / elapsed_ms.float() / current.ticks_per_second.float()
+        yield {row: row, percent: percent, basis_points: (percent * 100.0).round()?}
+      }
     }
     for item in ranked |> sort-by(desc: true) .basis_points {
       let row = item.row

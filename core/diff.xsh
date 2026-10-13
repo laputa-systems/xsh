@@ -372,17 +372,18 @@ proc stamp(moment: Int, unified: Bool) [env, time, error] -> Str {
 proc header(cfg: Settings, left: Probe, right: Probe) [env, time, error] -> Bytes {
   let unified = cfg.style == "unified"
   let marks = if unified { ["---", "+++"] } else { ["***", "---"] }
-  var chunks = []
-  for side in range(2) {
-    let item = if side == 0 { left } else { right }
-    var text = ""
-    if cfg.labels.len() > side {
-      text = f"{marks[side]} {cfg.labels[side]}"
-    } else {
-      let moment = if item.kind == "absent" { 0 } else { item.mtime_ns }
-      text = f"{marks[side]} {c_name(item.name, utf8_locale())}\t{stamp(moment, unified)}"
+  let chunks = collect {
+    for side in range(2) {
+      let item = if side == 0 { left } else { right }
+      var text = ""
+      if cfg.labels.len() > side {
+        text = f"{marks[side]} {cfg.labels[side]}"
+      } else {
+        let moment = if item.kind == "absent" { 0 } else { item.mtime_ns }
+        text = f"{marks[side]} {c_name(item.name, utf8_locale())}\t{stamp(moment, unified)}"
+      }
+      yield @[diffrender.paint(cfg.fmt, 1, bytes.from_text(text)), b"\n"]
     }
-    chunks += [diffrender.paint(cfg.fmt, 1, bytes.from_text(text)), b"\n"]
   }
   bytes.concat(chunks)
 }
@@ -460,14 +461,17 @@ const DEVICE_LIMIT = 67108864
 # Read a character or block device in chunks until it ends or passes the limit.
 proc read_device(name: Str) [fs, io, error] -> Result[Bytes, Error] {
   let source = tio.open_source(name)?
-  var parts = []
   var total = 0
-  while true {
-    let chunk = tio.read_chunk(source, total, 65536)?
-    break when chunk.is_empty()
-    parts += [chunk]
-    total += chunk.len()
-    if total >= DEVICE_LIMIT { return Err(DeviceError.TooLarge(message: "input is unbounded or too large to compare")) }
+  let parts = collect {
+    while true {
+      let chunk = tio.read_chunk(source, total, 65536)?
+      break when chunk.is_empty()
+      yield chunk
+      total += chunk.len()
+      if total >= DEVICE_LIMIT {
+        return Err(DeviceError.TooLarge(message: "input is unbounded or too large to compare"))
+      }
+    }
   }
   Ok(bytes.concat(parts))
 }
@@ -488,10 +492,12 @@ proc entry_names(cfg: Settings, side: Probe) [fs, error] -> Result[List[Str], Er
     if !excluded(cfg.patterns, child.name) { names += [child.name] }
   }
   if cfg.fold_names {
-    var keyed: List[Folded] = []
-    for name in names { keyed += [{key: name.lower(), name: name}] }
-    var ordered = []
-    for item in keyed |> sort-by .key { ordered += [item.name] }
+    let keyed: List[Folded] = collect {
+      for name in names { yield {key: name.lower(), name: name} }
+    }
+    let ordered = collect {
+      for item in keyed |> sort-by .key { yield item.name }
+    }
     names = ordered
   }
   Ok(names)
@@ -1155,22 +1161,23 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   let fmt: diffrender.Format = {utf8: rules.utf8, style: style, context: context, initial_tab: opts.initial_tab, expand_tabs: opts.expand_tabs, tabsize: tabsize, suppress_blank_empty: opts.suppress_blank_empty, width: width, left_column: opts.left_column, suppress_common: opts.suppress_common, function_patterns: function_patterns, ignore_blank: opts.ignore_blank, blank_skips_space: opts.space_change or opts.all_space, patterns: opts.ignore_matching, palette: if colored { palette } else { [] }}
   let cfg: Settings = {opts: opts, rules: rules, fmt: fmt, templates: templates, labels: opts.label, switches: switch_text(argv), patterns: patterns, style: style, fold_names: fold_names}
 
-  var pairs = []
-  if let from = opts.from_file {
-    for operand in opts.files { pairs += [[from, operand]] }
-  } else if let to = opts.to_file {
-    for operand in opts.files { pairs += [[operand, to]] }
-  } else {
-    if opts.files.len() < 2 {
-      var last = gnu.prog()
-      for word in argv {
-        if word != "--" { last = word }
+  let pairs = collect {
+    if let from = opts.from_file {
+      for operand in opts.files { yield [from, operand] }
+    } else if let to = opts.to_file {
+      for operand in opts.files { yield [operand, to] }
+    } else {
+      if opts.files.len() < 2 {
+        var last = gnu.prog()
+        for word in argv {
+          if word != "--" { last = word }
+        }
+        if opts.files.len() == 1 { last = opts.files[0] }
+        usage_trouble(f"missing operand after {locale_quote(last)}")
       }
-      if opts.files.len() == 1 { last = opts.files[0] }
-      usage_trouble(f"missing operand after {locale_quote(last)}")
+      if opts.files.len() > 2 { usage_trouble(f"extra operand {locale_quote(opts.files[2])}") }
+      yield [opts.files[0], opts.files[1]]
     }
-    if opts.files.len() > 2 { usage_trouble(f"extra operand {locale_quote(opts.files[2])}") }
-    pairs += [[opts.files[0], opts.files[1]]]
   }
   var status = 0
   for pair in pairs {

@@ -5,14 +5,55 @@ type Options = {all: Bool, full: Bool, pids: Str?, parents: Str?, output: List[S
 type Column = {field: Str, header: Str}
 
 proc columns(specs: List[Str]) [error] -> Result[List[Column]] {
-  var out: List[Column] = []
-  for spec in specs {
-    for token in spec.split(",") {
-      let parts = token.split("=")
-      let field = parts[0]
-      return Err(error.failure(f"ps: unsupported output field '{field}'")) when field not in ["pid", "ppid", "uid", "user", "comm", "args", "cmd", "command", "stat", "etime", "etimes", "start", "lstart", "time", "c", "pcpu", "%cpu", "pmem", "%mem", "rss", "vsz", "tty", "state", "ni", "pri", "nlwp", "pgid", "sid"]
-      let header = if parts.len() > 1 { parts[1] } else { match field { "pcpu" | "%cpu" => "%CPU"; "pmem" | "%mem" => "%MEM"; "comm" | "args" | "cmd" | "command" => "COMMAND"; "etime" => "ELAPSED"; "start" => "START"; else => field.upper() } }
-      out = out.push({field: field, header: header})
+  let out: List[Column] = collect {
+    for spec in specs {
+      for token in spec.split(",") {
+        let parts = token.split("=")
+        let field = parts[0]
+        return Err(error.failure(f"ps: unsupported output field '{field}'")) when field not in [
+          "pid",
+          "ppid",
+          "uid",
+          "user",
+          "comm",
+          "args",
+          "cmd",
+          "command",
+          "stat",
+          "etime",
+          "etimes",
+          "start",
+          "lstart",
+          "time",
+          "c",
+          "pcpu",
+          "%cpu",
+          "pmem",
+          "%mem",
+          "rss",
+          "vsz",
+          "tty",
+          "state",
+          "ni",
+          "pri",
+          "nlwp",
+          "pgid",
+          "sid",
+        ]
+        let header = if parts.len() > 1 {
+          parts[1]
+        } else {
+          match field {
+            "pcpu" | "%cpu" => "%CPU"
+            "pmem" | "%mem" => "%MEM"
+            "comm" | "args" | "cmd" | "command" => "COMMAND"
+            "etime" => "ELAPSED"
+            "start" => "START"
+            else => field.upper()
+          }
+        }
+        yield {field: field, header: header}
+      }
     }
   }
   out

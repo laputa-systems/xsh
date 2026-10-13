@@ -19,8 +19,19 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
     match action.kind {
       StripExtended => {
         access_changed = true; default_changed = true; access_mask = false; default_mask = false
-        var base: List[acl.Entry] = []
-        for entry in entries { if ! entry.default and entry.tag in [acl.AclOwner, acl.AclGroupOwner, acl.AclOther] { base += [{tag: entry.tag, id: entry.id, permissions: acl.effective(entry, entries), default: false, conditional_execute: false}] } }
+        let base: List[acl.Entry] = collect {
+          for entry in entries {
+            if ! entry.default and entry.tag in [acl.AclOwner, acl.AclGroupOwner, acl.AclOther] {
+              yield {
+                tag: entry.tag,
+                id: entry.id,
+                permissions: acl.effective(entry, entries),
+                default: false,
+                conditional_execute: false,
+              }
+            }
+          }
+        }
         entries = base
       }
       StripDefault => { default_changed = true; default_mask = false; entries = collect { for entry in entries { yield entry when ! entry.default } } }
@@ -57,8 +68,13 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
   }
   if mask_policy != "none" {
     let calculated = acl.calculate_mask(entries, force: mask_policy == "force")
-    var explicit: List[acl.Entry] = []
-    for entry in entries { if entry.tag == acl.AclMask and ((entry.default and default_mask) or (! entry.default and access_mask)) { explicit += [entry] } }
+    let explicit: List[acl.Entry] = collect {
+      for entry in entries {
+        if entry.tag == acl.AclMask and ((entry.default and default_mask) or (! entry.default and access_mask)) {
+          yield entry
+        }
+      }
+    }
     entries = collect { for entry in calculated { yield entry when (! entry.default and access_changed) or (entry.default and default_changed) } }.extend(collect { for entry in entries { yield entry when (! entry.default and ! access_changed) or (entry.default and ! default_changed) } })
     if mask_policy != "force" { entries = acl.merge(entries, explicit) }
   }

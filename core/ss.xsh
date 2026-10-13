@@ -427,15 +427,16 @@ pure parse_ipv4(text: Str) -> Bytes? {
   let parts = text.split(".")
   return null when parts.len() != 4
 
-  var values = []
-  for part in parts {
-    return null when part == "" or part.byte_len() > 3
-    for letter in part {
-      return null when digit_value(letter) < 0
+  let values = collect {
+    for part in parts {
+      return null when part == "" or part.byte_len() > 3
+      for letter in part {
+        return null when digit_value(letter) < 0
+      }
+      let number = part.parse_int() ?? -1
+      return null when number < 0 or number > 255
+      yield number
     }
-    let number = part.parse_int() ?? -1
-    return null when number < 0 or number > 255
-    values += [number]
   }
   if let Ok(data) = bytes.from_ints(values) { return data }
   null
@@ -464,15 +465,16 @@ pure parse_ipv6(text: Str) -> Bytes? {
   var groups = []
   var after = []
   for index in range(halves.len()) {
-    var target = []
-    if halves[index] != "" {
-      for part in halves[index].split(":") {
-        return null when part == "" or part.byte_len() > 4
+    let target = collect {
+      if halves[index] != "" {
+        for part in halves[index].split(":") {
+          return null when part == "" or part.byte_len() > 4
 
-        let value = f"0x{part}".parse_int() ?? -1
-        return null when value < 0 or value > 65535
+          let value = f"0x{part}".parse_int() ?? -1
+          return null when value < 0 or value > 65535
 
-        target += [value]
+          yield value
+        }
       }
     }
     if index == 0 { groups = target } else { after = target }
@@ -1052,16 +1054,17 @@ proc socket_row(item: sockets.DiagSocket, config: Config, names: Names, owners: 
 }
 
 proc render(rows: List[List[Str]], visible: List[Bool], config: Config) [process, env, io] {
-  var widths = []
-  for column in range(10) {
-    var width = 0
-    if !config.no_header { width = HEADERS[column].byte_len() }
-    if column == 2 or column == 3 { width = 6 }
-    for row in rows {
-      let size = row[column].byte_len()
-      if size > width { width = size }
+  let widths = collect {
+    for column in range(10) {
+      var width = 0
+      if !config.no_header { width = HEADERS[column].byte_len() }
+      if column == 2 or column == 3 { width = 6 }
+      for row in rows {
+        let size = row[column].byte_len()
+        if size > width { width = size }
+      }
+      yield width
     }
-    widths += [width]
   }
   # The last visible table column (Process, or the peer port without -p) is
   # not padded, so rows carry no trailing blanks there; the extra-text column
@@ -1248,9 +1251,10 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   var found: List[sockets.DiagSocket] = []
   var incomplete = false
 
-  var unix_tables = []
-  for table in ["u_str", "u_dgr", "u_seq"] {
-    if table in tables { unix_tables += [table] }
+  let unix_tables = collect {
+    for table in ["u_str", "u_dgr", "u_seq"] {
+      if table in tables { yield table }
+    }
   }
   if !unix_tables.is_empty() {
     let listed = sockets.collect_unix(channel, states, config.memory, config.extended)
@@ -1296,20 +1300,22 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
       }
     }
   }
-  var rows = []
-  for item in found {
-    continue when ! program.is_empty() and ! evaluate(program, item, context)
-    rows += [socket_row(item, config, names, owners, interfaces, cgroup_map)]
+  let rows = collect {
+    for item in found {
+      continue when ! program.is_empty() and ! evaluate(program, item, context)
+      yield socket_row(item, config, names, owners, interfaces, cgroup_map)
+    }
   }
 
-  var visible = []
-  for column in range(10) {
-    var shown = true
-    if column == 0 and tables.len() == 1 { shown = false }
-    if column == 1 and !show_state_column { shown = false }
-    if (column == 2 or column == 3) and config.no_queues { shown = false }
-    if column == 8 and !config.processes { shown = false }
-    visible += [shown]
+  let visible = collect {
+    for column in range(10) {
+      var shown = true
+      if column == 0 and tables.len() == 1 { shown = false }
+      if column == 1 and !show_state_column { shown = false }
+      if (column == 2 or column == 3) and config.no_queues { shown = false }
+      if column == 8 and !config.processes { shown = false }
+      yield shown
+    }
   }
   # A one-line listing joins the extra lines of each socket to its row.
   render(rows, visible, config)

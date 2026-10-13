@@ -28,12 +28,13 @@ pure hex_value(text: Str) -> Int {
 
 pure bits_of(mask: Int) -> List[Int] {
   var rest = mask
-  var found = []
   var number = 0
-  while rest > 0 {
-    if rest % 2 == 1 { found += [number] }
-    rest = rest / 2
-    number += 1
+  let found = collect {
+    while rest > 0 {
+      if rest % 2 == 1 { yield number }
+      rest = rest / 2
+      number += 1
+    }
   }
   found
 }

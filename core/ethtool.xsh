@@ -198,20 +198,21 @@ type Pair = {name: Str, value: Str}
 # Splits `NAME VALUE ...` parameters, rejecting a name outside `known` and a
 # name without a value, in command-line order.
 proc pairs(option: Str, rest: List[Str], known: List[Str]) -> List[Pair] {
-  var found: List[Pair] = []
   var index = 0
-  while index < rest.len() {
-    let name = rest[index]
-    if name not in known {
-      warn(f"ethtool ({option}): unknown parameter '{name}'")
-      exit 1
+  let found: List[Pair] = collect {
+    while index < rest.len() {
+      let name = rest[index]
+      if name not in known {
+        warn(f"ethtool ({option}): unknown parameter '{name}'")
+        exit 1
+      }
+      if index + 1 >= rest.len() {
+        warn(f"ethtool ({option}): no value for parameter '{name}'")
+        exit 1
+      }
+      yield {name: name, value: rest[index + 1]}
+      index += 2
     }
-    if index + 1 >= rest.len() {
-      warn(f"ethtool ({option}): no value for parameter '{name}'")
-      exit 1
-    }
-    found += [{name: name, value: rest[index + 1]}]
-    index += 2
   }
   found
 }
@@ -465,8 +466,9 @@ proc show_coalesce(fd: Int, device: Str, rest: List[Str]) {
 }
 
 pure range_zero(count: Int) -> List[Int] {
-  var zeros = []
-  for _ in range(count) { zeros += [0] }
+  let zeros = collect {
+    for _ in range(count) { yield 0 }
+  }
   zeros
 }
 
@@ -679,8 +681,9 @@ proc change_settings(fd: Int, device: Str, rest: List[Str]) {
       wol = mask
     } else if pair.name == "sopass" {
       let octets = pair.value.split(":")
-      var password = []
-      for octet in octets { password += [("0x" + octet).parse_int() ?? -1] }
+      let password = collect {
+        for octet in octets { yield ("0x" + octet).parse_int() ?? -1 }
+      }
       if octets.len() != 6 or ! [o for o in password if o < 0 or o > 255].is_empty() {
         warn(f"ethtool (-s): invalid value '{pair.value}' for parameter 'sopass'")
         exit 1

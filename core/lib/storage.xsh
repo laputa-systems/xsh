@@ -393,15 +393,16 @@ proc arguments(argv: List[Str], booleans: List[Str], valued: List[Str]) -> Argum
     }
     continue when found
     if ! word.starts_with("--") and word.byte_len() > 2 {
-      var bundled = []
-      for char in word.byte_slice(1) {
-        var canonical = null
-        for forms in booleans {
-          let aliases = forms.split(" ")
-          if f"-{char}" in aliases { canonical = aliases[0]; break }
+      let bundled = collect {
+        for char in word.byte_slice(1) {
+          var canonical = null
+          for forms in booleans {
+            let aliases = forms.split(" ")
+            if f"-{char}" in aliases { canonical = aliases[0]; break }
+          }
+          if canonical == null { unsupported(f"option {gnu.quote(word)}") }
+          yield canonical ?? ""
         }
-        if canonical == null { unsupported(f"option {gnu.quote(word)}") }
-        bundled += [canonical ?? ""]
       }
       flags += bundled
       continue
@@ -462,8 +463,9 @@ proc columns(value: Str, allowed: List[Str]) -> List[Str] {
 }
 
 proc json_fields(keys: List[Str], values: List[Str]) -> Str {
-  var fields = []
-  for index in range(keys.len()) { fields += [json.encode(keys[index].lower())? + ":" + json.encode(values[index])?] }
+  let fields = collect {
+    for index in range(keys.len()) { yield json.encode(keys[index].lower())? + ":" + json.encode(values[index])? }
+  }
   "{" + fields.join(",") + "}"
 }
 
@@ -492,8 +494,11 @@ pure mount_children(entries: List[mounts.MountEntry], index: Int) -> List[Int] {
 
 proc mount_json_row(entries: List[mounts.MountEntry], index: Int, cols: List[Str], ancestors: List[Int]) -> Str {
   let row = json_fields(cols, [mount_value(entries[index], column) for column in cols])
-  var children = []
-  for child in mount_children(entries, index) { if child not in ancestors { children += [mount_json_row(entries, child, cols, ancestors + [index])] } }
+  let children = collect {
+    for child in mount_children(entries, index) {
+      if child not in ancestors { yield mount_json_row(entries, child, cols, ancestors + [index]) }
+    }
+  }
   return row when children.is_empty()
   row.byte_slice(0, row.byte_len() - 1) + ",\"children\":[" + children.join(",") + "]}"
 }
@@ -525,9 +530,14 @@ export proc findmnt_from_root(root: FsRoot, argv: List[Str]) {
   entries = [entry for entry in entries if type_matches(entry.filesystem, args.values.get("-t") ?? "")]
   if entries.is_empty() { exit 1 }
   let tree = "-l" not in args.flags and "-r" not in args.flags and "TARGET" in cols
-  var roots = []
   let ids = [entry.mount_id for entry in entries]
-  for index in range(entries.len()) { if ! tree or entries[index].parent_id not in ids or entries[index].parent_id == entries[index].mount_id { roots += [index] } }
+  let roots = collect {
+    for index in range(entries.len()) {
+      if ! tree or entries[index].parent_id not in ids or entries[index].parent_id == entries[index].mount_id {
+        yield index
+      }
+    }
+  }
   if roots.is_empty() { gnu.error("mount table contains a cyclic hierarchy"); exit 1 }
   if "-J" in args.flags {
     let rows = if tree { [mount_json_row(entries, index, cols, []) for index in roots] } else { [json_fields(cols, [mount_value(entry, column) for column in cols]) for entry in entries] }
@@ -550,9 +560,10 @@ proc findmnt(argv: List[Str]) {
 }
 
 pure block_children(devices: List[block.BlockDevice], parent: Int) -> List[Int] {
-  var children = []
-  for index in range(devices.len()) {
-    if devices[index].parent_device_index == parent or parent in devices[index].slave_indices { children += [index] }
+  let children = collect {
+    for index in range(devices.len()) {
+      if devices[index].parent_device_index == parent or parent in devices[index].slave_indices { yield index }
+    }
   }
   children
 }
@@ -622,15 +633,18 @@ export proc lsblk_from_root(root: FsRoot, argv: List[Str]) {
   if ! inventory.enumeration_succeeded { gnu.error("cannot enumerate block devices"); exit 1 }
   let table = mounts.collect(root)
   let devices = inventory.devices
-  var selected = []
-  for index in range(devices.len()) {
-    let device = devices[index]
-    continue when "-a" not in args.flags and device.size_bytes == 0
-    if ! args.operands.is_empty() {
-      if f"/dev/{device.name}" in args.operands { selected += [index] }
-    } else if "-d" in args.flags {
-      if device.parent_device_index == null and device.slave_indices.is_empty() { selected += [index] }
-    } else if "-l" in args.flags or "-r" in args.flags or (device.parent_device_index == null and device.slave_indices.is_empty()) { selected += [index] }
+  let selected = collect {
+    for index in range(devices.len()) {
+      let device = devices[index]
+      continue when "-a" not in args.flags and device.size_bytes == 0
+      if ! args.operands.is_empty() {
+        if f"/dev/{device.name}" in args.operands { yield index }
+      } else if "-d" in args.flags {
+        if device.parent_device_index == null and device.slave_indices.is_empty() { yield index }
+      } else if "-l" in args.flags or "-r" in args.flags or (device.parent_device_index == null and device.slave_indices.is_empty()) {
+        yield index
+      }
+    }
   }
   for operand in args.operands { if operand not in [f"/dev/{devices[index].name}" for index in selected] { gnu.error(f"{operand}: not a block device"); exit 1 } }
   if "-J" in args.flags { gnu.write_text("{\"blockdevices\":[" + [block_json_row(devices, index, table, cols, args, []) for index in selected].join(",") + "]}\n"); return }
@@ -664,10 +678,11 @@ pure hex_offset(value: UInt, digits: Int) -> Str {
 }
 
 pure hex_bytes(data: Bytes) -> Str {
-  var pairs = []
-  for index in range(data.len()) {
-    let value = data.byte_at(index) ?? 0
-    pairs += ["0123456789abcdef".byte_slice(value / 16, length: 1) + "0123456789abcdef".byte_slice(value % 16, length: 1)]
+  let pairs = collect {
+    for index in range(data.len()) {
+      let value = data.byte_at(index) ?? 0
+      yield "0123456789abcdef".byte_slice(value / 16, length: 1) + "0123456789abcdef".byte_slice(value % 16, length: 1)
+    }
   }
   pairs.join(" ")
 }
@@ -677,20 +692,28 @@ pure hex_bytes(data: Bytes) -> Str {
 # separator behind exactly as the util-linux table printer does. A column with
 # a minimum width widens to it only once its data outgrows its heading.
 pure table_lines(headers: List[Str], right: List[Bool], minimums: List[Int], rows: List[List[Str]], headings: Bool) -> List[Str] {
-  var widths = []
-  for at in range(headers.len()) {
-    var widest = 0
-    for row in rows { if row[at].count_chars() > widest { widest = row[at].count_chars() } }
-    let heading = headers[at].count_chars()
-    var width = if headings and heading > widest { heading } else { widest }
-    if widest > heading and minimums[at] > width { width = minimums[at] }
-    widths += [width]
+  let widths = collect {
+    for at in range(headers.len()) {
+      var widest = 0
+      for row in rows { if row[at].count_chars() > widest { widest = row[at].count_chars() } }
+      let heading = headers[at].count_chars()
+      var width = if headings and heading > widest { heading } else { widest }
+      if widest > heading and minimums[at] > width { width = minimums[at] }
+      yield width
+    }
   }
   var lines = []
   for row in if headings { [headers] + rows } else { rows } {
-    var cells = []
-    for at in range(row.len()) {
-      if right[at] { cells += [tui.left_pad(row[at], widths[at])] } else if at + 1 < row.len() { cells += [tui.right_pad(row[at], widths[at])] } else { cells += [row[at]] }
+    let cells = collect {
+      for at in range(row.len()) {
+        if right[at] {
+          yield tui.left_pad(row[at], widths[at])
+        } else if at + 1 < row.len() {
+          yield tui.right_pad(row[at], widths[at])
+        } else {
+          yield row[at]
+        }
+      }
     }
     lines += [cells.join(" ")]
   }
@@ -750,19 +773,20 @@ proc wipefs(argv: List[Str]) {
   let cols = columns((args.values.get("-O") ?? "DEVICE,OFFSET,TYPE,UUID,LABEL").upper(), ["DEVICE", "OFFSET", "TYPE", "UUID", "LABEL", "LENGTH", "USAGE"])
   let given_offsets = args.multiple.get("-o") ?? []
   if "-a" in args.flags and ! given_offsets.is_empty() { gnu.usage_error("--all and --offset are mutually exclusive") }
-  var offsets = []
-  for value in given_offsets {
-    if value.starts_with("0x") {
-      let digits = value.byte_slice(2)
-      if digits == "" { gnu.usage_error("invalid signature offset") }
-      var parsed: UInt = 0
-      for char in digits.lower() {
-        let at = "0123456789abcdef".find(char)
-        if at == null { gnu.usage_error("invalid hexadecimal signature offset") }
-        parsed = parsed * 16 + (at ?? 0) as UInt
-      }
-      offsets += [parsed]
-    } else { offsets += [byte_count(value)] }
+  let offsets = collect {
+    for value in given_offsets {
+      if value.starts_with("0x") {
+        let digits = value.byte_slice(2)
+        if digits == "" { gnu.usage_error("invalid signature offset") }
+        var parsed: UInt = 0
+        for char in digits.lower() {
+          let at = "0123456789abcdef".find(char)
+          if at == null { gnu.usage_error("invalid hexadecimal signature offset") }
+          parsed = parsed * 16 + (at ?? 0) as UInt
+        }
+        yield parsed
+      } else { yield byte_count(value) }
+    }
   }
   let erase = "-a" in args.flags or ! offsets.is_empty()
   if erase and "-J" in args.flags { gnu.usage_error("JSON cannot be combined with signature erasure") }
@@ -794,11 +818,12 @@ proc wipefs(argv: List[Str]) {
       let cells = [values.get(column) ?? "" for column in cols]
       rows += [cells]
       if "-J" in args.flags {
-        var members = []
-        for at in range(cols.len()) {
-          let key = json.encode(cols[at].lower())?
-          let present = cells[at] != "" or cols[at] in ["DEVICE", "OFFSET", "TYPE", "LENGTH", "USAGE"]
-          members += [f"         {key}: {if present { json.encode(cells[at])? } else { "null" }}"]
+        let members = collect {
+          for at in range(cols.len()) {
+            let key = json.encode(cols[at].lower())?
+            let present = cells[at] != "" or cols[at] in ["DEVICE", "OFFSET", "TYPE", "LENGTH", "USAGE"]
+            yield f"         {key}: {if present { json.encode(cells[at])? } else { "null" }}"
+          }
         }
         json_rows += ["{\n" + members.join(",\n") + "\n      }"]
       }
@@ -862,11 +887,18 @@ proc blkid(argv: List[Str]) {
     let info = linux.blkid(fp"{name}")?
     let tags = ["UUID", "LABEL", "TYPE", "PTTYPE", "PART_ENTRY_UUID"]
     let values = [info.uuid, info.label, info.type, info.part_table_type, info.part_entry_uuid]
-    var fields = []
-    for index in range(tags.len()) {
-      if values[index] == "" or (! selected_tags.is_empty() and tags[index] not in selected_tags) { continue }
-      observed = true
-      if format == "value" { fields += [values[index]] } else if format == "export" { fields += [f"{tags[index]}={values[index]}"] } else { fields += [tags[index] + "=" + json.encode(values[index])?] }
+    let fields = collect {
+      for index in range(tags.len()) {
+        if values[index] == "" or (! selected_tags.is_empty() and tags[index] not in selected_tags) { continue }
+        observed = true
+        if format == "value" {
+          yield values[index]
+        } else if format == "export" {
+          yield f"{tags[index]}={values[index]}"
+        } else {
+          yield tags[index] + "=" + json.encode(values[index])?
+        }
+      }
     }
     continue when fields.is_empty()
     if format == "device" { gnu.write_text(name + "\n") } else if format == "value" { gnu.write_text(fields.join("\n") + "\n") } else if format == "export" { gnu.write_text(f"DEVNAME={name}\n" + fields.join("\n") + "\n\n") } else { gnu.write_text(name + ": " + fields.join(" ") + "\n") }
@@ -1191,12 +1223,21 @@ pure dos_code(code: Str) -> Str {
 # GPT attribute bits by name, ascending; the high word is the type-specific
 # GUID:N range.
 pure gpt_attribute_names(raw: Bytes) -> Str {
-  var names = []
-  for bit in range(64) {
-    var mask = 1
-    for _ in range(bit % 8) { mask *= 2 }
-    continue when (raw.byte_at(bit / 8) ?? 0) / mask % 2 == 0
-    if bit == 0 { names += ["RequiredPartition"] } else if bit == 1 { names += ["NoBlockIOProtocol"] } else if bit == 2 { names += ["LegacyBIOSBootable"] } else { names += [f"GUID:{bit}"] }
+  let names = collect {
+    for bit in range(64) {
+      var mask = 1
+      for _ in range(bit % 8) { mask *= 2 }
+      continue when (raw.byte_at(bit / 8) ?? 0) / mask % 2 == 0
+      if bit == 0 {
+        yield "RequiredPartition"
+      } else if bit == 1 {
+        yield "NoBlockIOProtocol"
+      } else if bit == 2 {
+        yield "LegacyBIOSBootable"
+      } else {
+        yield f"GUID:{bit}"
+      }
+    }
   }
   names.join(" ")
 }
@@ -1322,15 +1363,28 @@ proc list_layout(name: Str, layout: DiskLayout, request: Str) {
     if ! offered { gnu.error(f"{layout.label} unknown column: {word}"); exit 1 }
     cols += [column]
   }
-  var rows = []
-  for item in layout.partitions {
-    let known: Map[Str] = {
-      Device: partition_node(name, item.index), Boot: if item.bootable { "*" } else { "" },
-      Start: f"{item.start}", End: f"{item.end}", Sectors: f"{item.size}", Size: human_size(item.size * layout.sector_size, false),
-      Id: item.type, Type: if layout.label == "dos" { type_name(DOS_TYPE_NAMES, item.type) } else { type_name(GPT_TYPE_NAMES, item.type) },
-      "Type-UUID": item.type, Attrs: item.attrs, Name: item.name, UUID: item.uuid,
+  let rows = collect {
+    for item in layout.partitions {
+      let known: Map[Str] = {
+        Device: partition_node(name, item.index),
+        Boot: if item.bootable { "*" } else { "" },
+        Start: f"{item.start}",
+        End: f"{item.end}",
+        Sectors: f"{item.size}",
+        Size: human_size(item.size * layout.sector_size, false),
+        Id: item.type,
+        Type: if layout.label == "dos" {
+          type_name(DOS_TYPE_NAMES, item.type)
+        } else {
+          type_name(GPT_TYPE_NAMES, item.type)
+        },
+        "Type-UUID": item.type,
+        Attrs: item.attrs,
+        Name: item.name,
+        UUID: item.uuid,
+      }
+      yield [known.get(column) ?? "" for column in cols]
     }
-    rows += [[known.get(column) ?? "" for column in cols]]
   }
   let numeric = ["Start", "End", "Sectors", "Size", "Id"]
   # Minimum widths of the fdisk columns; they apply once the data outgrows

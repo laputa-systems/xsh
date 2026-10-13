@@ -283,8 +283,9 @@ export pure relative(target: Str, base: Str) -> Str {
 }
 
 pure components(name: Str) -> List[Str] {
-  var parts = []
-  for part in name.split("/") { if part != "" { parts += [part] } }
+  let parts = collect {
+    for part in name.split("/") { if part != "" { yield part } }
+  }
   parts
 }
 

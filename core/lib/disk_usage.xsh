@@ -113,20 +113,21 @@ export pure block_label(size: Int) -> Str {
 export proc argument_units(argv: List[Str], initial: Units, value_flags: List[Str], si_short = "") [env, process, error] -> Units {
   var selected = initial
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
-  var token_argv = []
   var options = true
-  for raw in argv {
-    var expanded = raw
-    if options and raw.starts_with("--") and raw != "--" {
-      let pieces = raw.byte_slice(2).split("=")
-      let name = pieces[0]
-      let matches = [flag for flag in value_flags if flag.byte_len() > 1 and flag.starts_with(name)]
-      if matches.len() == 1 {
-        expanded = "--" + matches[0] + (if pieces.len() > 1 { "=" + pieces[1..].join("=") } else { "" })
+  let token_argv = collect {
+    for raw in argv {
+      var expanded = raw
+      if options and raw.starts_with("--") and raw != "--" {
+        let pieces = raw.byte_slice(2).split("=")
+        let name = pieces[0]
+        let matches = [flag for flag in value_flags if flag.byte_len() > 1 and flag.starts_with(name)]
+        if matches.len() == 1 {
+          expanded = "--" + matches[0] + (if pieces.len() > 1 { "=" + pieces[1..].join("=") } else { "" })
+        }
       }
+      yield expanded
+      if raw == "--" { options = false }
     }
-    token_argv += [expanded]
-    if raw == "--" { options = false }
   }
   for token in cli.tokens(token_argv, value_flags)? {
     break when posix and token.kind == "operand"

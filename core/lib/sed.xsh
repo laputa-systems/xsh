@@ -195,65 +195,66 @@ enum TextKind { RegexText, ReplacementText, LiteralText, TextBlock }
 # GNU's normalize_text: C-style and numeric escapes become the bytes they name.
 # Unknown escapes keep their backslash, except in a/i/c text where it is dropped.
 pure normalize(text: Bytes, kind: TextKind) -> Result[Bytes, Error] {
-  var out = []
   var at = 0
-  while at < text.len() {
-    let byte = at_byte(text, at)
-    if byte != 92 or at + 1 >= text.len() {
-      out += [text[at..at + 1]]
-      at += 1
-      continue
-    }
-    let letter = at_byte(text, at + 1)
-    let control = control_byte(letter)
-    if control >= 0 {
-      out += [bytes.from_ints([control])?]
-      at += 2
-      continue
-    }
-    if letter in [100, 111, 120] {
-      let radix = if letter == 120 { 16 } else if letter == 111 { 8 } else { 10 }
-      let width = if radix == 16 { 2 } else { 3 }
-      var value = 0
-      var digits = 0
-      var cursor = at + 2
-      while digits < width {
-        let found = digit_value(at_byte(text, cursor), radix)
-        break when found < 0
-        value = value * radix + found
-        cursor += 1
-        digits += 1
+  let out = collect {
+    while at < text.len() {
+      let byte = at_byte(text, at)
+      if byte != 92 or at + 1 >= text.len() {
+        yield text[at..at + 1]
+        at += 1
+        continue
       }
-      if digits == 0 {
-        out += [text[at + 1..at + 2]]
+      let letter = at_byte(text, at + 1)
+      let control = control_byte(letter)
+      if control >= 0 {
+        yield bytes.from_ints([control])?
         at += 2
         continue
       }
-      let produced = value % 256
-      if kind == .ReplacementText and produced in [38, 92] { out += [b"\\"] }
-      out += [bytes.from_ints([produced])?]
-      at = cursor
-      continue
-    }
-    if letter == 99 and at + 2 < text.len() {
-      let source = at_byte(text, at + 2)
-      var consumed = 3
-      if source == 92 {
-        if at_byte(text, at + 3) != 92 { return Err(SedError.Invalid("recursive escaping after \\c not allowed")) }
-        consumed = 4
+      if letter in [100, 111, 120] {
+        let radix = if letter == 120 { 16 } else if letter == 111 { 8 } else { 10 }
+        let width = if radix == 16 { 2 } else { 3 }
+        var value = 0
+        var digits = 0
+        var cursor = at + 2
+        while digits < width {
+          let found = digit_value(at_byte(text, cursor), radix)
+          break when found < 0
+          value = value * radix + found
+          cursor += 1
+          digits += 1
+        }
+        if digits == 0 {
+          yield text[at + 1..at + 2]
+          at += 2
+          continue
+        }
+        let produced = value % 256
+        if kind == .ReplacementText and produced in [38, 92] { yield b"\\" }
+        yield bytes.from_ints([produced])?
+        at = cursor
+        continue
       }
-      let upper = upper_byte(source)
-      out += [bytes.from_ints([if upper / 64 % 2 == 1 { upper - 64 } else { upper + 64 }])?]
-      at += consumed
-      continue
-    }
-    if kind == .TextBlock {
-      out += [text[at + 1..at + 2]]
+      if letter == 99 and at + 2 < text.len() {
+        let source = at_byte(text, at + 2)
+        var consumed = 3
+        if source == 92 {
+          if at_byte(text, at + 3) != 92 { return Err(SedError.Invalid("recursive escaping after \\c not allowed")) }
+          consumed = 4
+        }
+        let upper = upper_byte(source)
+        yield bytes.from_ints([if upper / 64 % 2 == 1 { upper - 64 } else { upper + 64 }])?
+        at += consumed
+        continue
+      }
+      if kind == .TextBlock {
+        yield text[at + 1..at + 2]
+        at += 2
+        continue
+      }
+      yield text[at..at + 2]
       at += 2
-      continue
     }
-    out += [text[at..at + 2]]
-    at += 2
   }
   Ok(bytes.concat(out))
 }
@@ -380,35 +381,36 @@ pure regex_message(host: Str, pattern: Str, extended: Bool) -> Str {
 
 # GNU accepts `{,N}` as `{0,N}`; the host matcher does not.
 pure widen_intervals(pattern: Bytes, extended: Bool) -> Bytes {
-  var out = []
   var at = 0
-  while at < pattern.len() {
-    let byte = at_byte(pattern, at)
-    if byte == 92 and at + 1 < pattern.len() {
-      if !extended and at_byte(pattern, at + 1) == 123 and at_byte(pattern, at + 2) == 44 {
-        out += [b"\\{0"]
+  let out = collect {
+    while at < pattern.len() {
+      let byte = at_byte(pattern, at)
+      if byte == 92 and at + 1 < pattern.len() {
+        if !extended and at_byte(pattern, at + 1) == 123 and at_byte(pattern, at + 2) == 44 {
+          yield b"\\{0"
+          at += 2
+          continue
+        }
+        yield pattern[at..at + 2]
         at += 2
         continue
       }
-      out += [pattern[at..at + 2]]
-      at += 2
-      continue
-    }
-    if byte == 91 {
-      let close = bracket_end(pattern, at, false)
-      if close >= 0 {
-        out += [pattern[at..close]]
-        at = close
+      if byte == 91 {
+        let close = bracket_end(pattern, at, false)
+        if close >= 0 {
+          yield pattern[at..close]
+          at = close
+          continue
+        }
+      }
+      if extended and byte == 123 and at_byte(pattern, at + 1) == 44 {
+        yield b"{0"
+        at += 1
         continue
       }
-    }
-    if extended and byte == 123 and at_byte(pattern, at + 1) == 44 {
-      out += [b"{0"]
+      yield pattern[at..at + 1]
       at += 1
-      continue
     }
-    out += [pattern[at..at + 1]]
-    at += 1
   }
   bytes.concat(out)
 }
@@ -418,52 +420,58 @@ pure widen_intervals(pattern: Bytes, extended: Bool) -> Bytes {
 # collating symbol or equivalence class such as `[[.a.]]` and `[[=a=]]`; the
 # host matcher rejects both.
 pure adapt_basic(pattern: Bytes) -> Bytes {
-  var out = []
   var at = 0
   var fresh = true
-  while at < pattern.len() {
-    let byte = at_byte(pattern, at)
-    if byte == 92 and at + 1 < pattern.len() {
-      let next = at_byte(pattern, at + 1)
-      if fresh and next in [43, 63] {
-        out += [pattern[at + 1..at + 2]]
+  let out = collect {
+    while at < pattern.len() {
+      let byte = at_byte(pattern, at)
+      if byte == 92 and at + 1 < pattern.len() {
+        let next = at_byte(pattern, at + 1)
+        if fresh and next in [43, 63] {
+          yield pattern[at + 1..at + 2]
+          at += 2
+          fresh = false
+          continue
+        }
+        yield pattern[at..at + 2]
+        fresh = next in [40, 124]
         at += 2
-        fresh = false
         continue
       }
-      out += [pattern[at..at + 2]]
-      fresh = next in [40, 124]
-      at += 2
-      continue
-    }
-    if byte == 91 {
-      let close = bracket_end(pattern, at, false)
-      if close >= 0 {
-        out += [simplify_bracket(pattern[at..close])]
-        at = close
-        fresh = false
-        continue
+      if byte == 91 {
+        let close = bracket_end(pattern, at, false)
+        if close >= 0 {
+          yield simplify_bracket(pattern[at..close])
+          at = close
+          fresh = false
+          continue
+        }
       }
+      yield pattern[at..at + 1]
+      fresh = byte == 94 and fresh
+      at += 1
     }
-    out += [pattern[at..at + 1]]
-    fresh = byte == 94 and fresh
-    at += 1
   }
   bytes.concat(out)
 }
 
 # Replace `[.c.]` and `[=c=]` inside a bracket expression by the byte `c`.
 pure simplify_bracket(text: Bytes) -> Bytes {
-  var out = []
   var at = 0
-  while at < text.len() {
-    if at_byte(text, at) == 91 and at_byte(text, at + 1) in [46, 61] and at + 4 < text.len() and at_byte(text, at + 3) == at_byte(text, at + 1) and at_byte(text, at + 4) == 93 {
-      out += [text[at + 2..at + 3]]
-      at += 5
-      continue
+  let out = collect {
+    while at < text.len() {
+      if at_byte(text, at) == 91 and at_byte(text, at + 1) in [46, 61] and at + 4 < text.len() and at_byte(text, at + 3) == at_byte(
+        text,
+        at + 1,
+      ) and at_byte(text, at + 4) == 93 {
+        yield text[at + 2..at + 3]
+        at += 5
+        continue
+      }
+
+      yield text[at..at + 1]
+      at += 1
     }
-    out += [text[at..at + 1]]
-    at += 1
   }
   bytes.concat(out)
 }
@@ -580,22 +588,23 @@ pure read_file_name(text: Bytes, start: Int) -> NameScan {
 pure read_text(chunk: Chunk, start: Int) -> Result[TextScan, Error] {
   let text = chunk.text
   var at = start
-  var out = []
   var open = false
-  while at < text.len() {
-    let byte = at_byte(text, at)
-    at += 1
-    break when byte == NEWLINE
-    if byte == 92 {
-      if at >= text.len() {
-        open = true
-        break
-      }
-      out += [text[at - 1..at + 1]]
+  let out = collect {
+    while at < text.len() {
+      let byte = at_byte(text, at)
       at += 1
-      continue
+      break when byte == NEWLINE
+      if byte == 92 {
+        if at >= text.len() {
+          open = true
+          break
+        }
+        yield text[at - 1..at + 1]
+        at += 1
+        continue
+      }
+      yield text[at - 1..at]
     }
-    out += [text[at - 1..at]]
   }
   let normal = normalize(bytes.concat(out), .TextBlock)?
   Ok({text: bytes.concat([normal, b"\n"]), next: at, open: open})
@@ -1083,20 +1092,42 @@ pure octal(value: Int) -> Str { f"\\{value / 64}{value / 8 % 8}{value % 8}" }
 # The `l` rendering: escapes, `$` at the end, and `\` line wraps so that no
 # output row is longer than WIDTH characters (0 never wraps).
 pure list_text(text: Bytes, width: Int, delim: Bytes) -> Bytes {
-  var parts = []
   var column = 0
-  for index in range(text.len()) {
-    let byte = at_byte(text, index)
-    var piece = text[index..index + 1]
-    if byte == 92 { piece = b"\\\\" } else if byte == 7 { piece = b"\\a" } else if byte == 8 { piece = b"\\b" } else if byte == 12 { piece = b"\\f" } else if byte == 10 { piece = b"\\n" } else if byte == 13 { piece = b"\\r" } else if byte == 9 { piece = b"\\t" } else if byte == 11 { piece = b"\\v" } else if byte < 32 or byte > 126 { piece = bytes.from_text(octal(byte)) }
-    if width > 0 and column + piece.len() > width - 1 {
-      parts += [b"\\", delim]
-      column = 0
+  let parts = collect {
+    for index in range(text.len()) {
+      let byte = at_byte(text, index)
+      var piece = text[index..index + 1]
+      if byte == 92 {
+        piece = b"\\\\"
+      } else if byte == 7 {
+        piece = b"\\a"
+      } else if byte == 8 {
+        piece = b"\\b"
+      } else if byte == 12 {
+        piece = b"\\f"
+      } else if byte == 10 {
+        piece = b"\\n"
+      } else if byte == 13 {
+        piece = b"\\r"
+      } else if byte == 9 {
+        piece = b"\\t"
+      } else if byte == 11 {
+        piece = b"\\v"
+      } else if byte < 32 or byte > 126 {
+        piece = bytes.from_text(octal(byte))
+      }
+
+      if width > 0 and column + piece.len() > width - 1 {
+        yield @[b"\\", delim]
+        column = 0
+      }
+
+      yield piece
+      column += piece.len()
     }
-    parts += [piece]
-    column += piece.len()
+
+    yield @[b"$", delim]
   }
-  parts += [b"$", delim]
   bytes.concat(parts)
 }
 
@@ -1130,9 +1161,10 @@ pure regex_subject(pattern: Str, text: Bytes) -> Result[Bytes, Error] {
     }
   }
   if stand_in < 0 { return Err(SedError.Invalid("no control byte is free to stand in for NUL")) }
-  var out = []
-  for at in range(text.len()) {
-    out += [if text.byte_at(at) == 0 { bytes.from_ints([stand_in])? } else { text[at..at + 1] }]
+  let out = collect {
+    for at in range(text.len()) {
+      yield if text.byte_at(at) == 0 { bytes.from_ints([stand_in])? } else { text[at..at + 1] }
+    }
   }
   Ok(bytes.concat(out))
 }
@@ -1173,9 +1205,14 @@ pure find_match(spec: RegexSpec, subject: Bytes, start: Int, extended: Bool) -> 
       let offset = if start > line_start { start - line_start } else { 0 }
       let found: List[Capture?] = regex.captures_bytes(spec.pattern, subject[line_start..line_end], offset, extended, spec.ignore_case)?
       if !found.is_empty() {
-        var shifted: List[Capture?] = []
-        for item in found {
-          if let span = item { shifted += [{start: span.start + line_start, end: span.end + line_start}] } else { shifted += [null] }
+        let shifted: List[Capture?] = collect {
+          for item in found {
+            if let span = item {
+              yield {start: span.start + line_start, end: span.end + line_start}
+            } else {
+              yield null
+            }
+          }
         }
         return Ok(shifted)
       }
@@ -1295,12 +1332,22 @@ pure convert_case(text: Bytes, kind: Int) -> Bytes {
   let mode = kind % 4
   let upper_first = kind / 4 % 2 == 1
   let lower_first = kind / 8 % 2 == 1
-  var out = []
-  for index in range(text.len()) {
-    let byte = at_byte(text, index)
-    var value = byte
-    if index == 0 and upper_first { value = upper_byte(byte) } else if index == 0 and lower_first { value = lower_byte(byte) } else if mode == MODE_UPPER { value = upper_byte(byte) } else if mode == MODE_LOWER { value = lower_byte(byte) }
-    out += [value]
+  let out = collect {
+    for index in range(text.len()) {
+      let byte = at_byte(text, index)
+      var value = byte
+      if index == 0 and upper_first {
+        value = upper_byte(byte)
+      } else if index == 0 and lower_first {
+        value = lower_byte(byte)
+      } else if mode == MODE_UPPER {
+        value = upper_byte(byte)
+      } else if mode == MODE_LOWER {
+        value = lower_byte(byte)
+      }
+
+      yield value
+    }
   }
   bytes.from_ints(out) ?? text
 }
@@ -1308,26 +1355,27 @@ pure convert_case(text: Bytes, kind: Int) -> Bytes {
 # GNU's append_replacement: a pending `\u` or `\l` left over from an empty group
 # applies to the next piece that has no modifier of its own.
 pure expand_replacement(nodes: List[ReplNode], text: Bytes, captures: List[Capture?]) -> Bytes {
-  var out = []
   var carried = 0
-  for node in nodes {
-    var kind = if node.kind >= 4 { node.kind } else { node.kind + carried }
-    carried = 0
-    if !node.text.is_empty() {
-      out += [convert_case(node.text, kind)]
-      kind = kind % 4
-    }
-    if node.group >= 0 {
-      var span: Capture? = null
-      if node.group < captures.len() { span = captures[node.group] }
-      if let found = span {
-        if found.start == found.end {
-          if node.kind >= 4 { carried = node.kind - node.kind % 4 }
-        } else {
-          out += [convert_case(text[found.start..found.end], kind)]
+  let out = collect {
+    for node in nodes {
+      var kind = if node.kind >= 4 { node.kind } else { node.kind + carried }
+      carried = 0
+      if !node.text.is_empty() {
+        yield convert_case(node.text, kind)
+        kind = kind % 4
+      }
+      if node.group >= 0 {
+        var span: Capture? = null
+        if node.group < captures.len() { span = captures[node.group] }
+        if let found = span {
+          if found.start == found.end {
+            if node.kind >= 4 { carried = node.kind - node.kind % 4 }
+          } else {
+            yield convert_case(text[found.start..found.end], kind)
+          }
+        } else if node.kind >= 4 {
+          carried = node.kind - node.kind % 4
         }
-      } else if node.kind >= 4 {
-        carried = node.kind - node.kind % 4
       }
     }
   }
@@ -1338,40 +1386,50 @@ pure expand_replacement(nodes: List[ReplNode], text: Bytes, captures: List[Captu
 # behave like GNU's loop. An empty match directly after the previous match is
 # skipped, and an empty match advances one byte.
 pure substitute(spec: RegexSpec, text: Bytes, sub: Substitution, extended: Bool) -> Result[Replacement, Error] {
-  var out = []
   var search = 0
   var copied = 0
   var count = 0
   var changed = false
   var previous_end = -1
   let subject = regex_subject(spec.pattern, text)?
-  while search <= text.len() {
-    let captures = find_match(spec, subject, search, extended)?
-    break when captures.is_empty()
-    guard let whole = captures[0] else { return Err(SedError.Invalid("missing whole-match capture")) }
-    let begin = whole.start
-    let end = whole.end
-    if begin == end and previous_end == begin {
-      break when end == text.len()
-      search = end + 1
-      continue
+  let out = collect {
+    while search <= text.len() {
+      let captures = find_match(spec, subject, search, extended)?
+      break when captures.is_empty()
+      guard let whole = captures[0] else { return Err(SedError.Invalid("missing whole-match capture")) }
+      let begin = whole.start
+      let end = whole.end
+      if begin == end and previous_end == begin {
+        break when end == text.len()
+        search = end + 1
+        continue
+      }
+
+      count += 1
+      let selected = if sub.occurrence == 0 {
+        sub.global or count == 1
+      } else {
+        count == sub.occurrence or (sub.global and count > sub.occurrence)
+      }
+      if selected {
+        changed = true
+        yield text[copied..begin]
+        yield expand_replacement(sub.nodes, text, captures)
+        copied = end
+        break unless sub.global
+      }
+
+      previous_end = end
+      if begin == end {
+        break when end == text.len()
+        search = end + 1
+      } else {
+        search = end
+      }
     }
-    count += 1
-    let selected = if sub.occurrence == 0 { sub.global or count == 1 } else { count == sub.occurrence or (sub.global and count > sub.occurrence) }
-    if selected {
-      changed = true
-      out += [text[copied..begin]]
-      out += [expand_replacement(sub.nodes, text, captures)]
-      copied = end
-      break unless sub.global
-    }
-    previous_end = end
-    if begin == end {
-      break when end == text.len()
-      search = end + 1
-    } else { search = end }
+
+    yield text[copied..]
   }
-  out += [text[copied..]]
   Ok({text: bytes.concat(out), changed: changed})
 }
 
@@ -1384,15 +1442,16 @@ pure split_records(data: Bytes, delim: Int) -> List[Bytes] {
     for item in lines { covered += item.len() }
     if covered == data.len() or (covered == data.len() - 1 and !data.ends_with(b"\n")) { return lines }
   }
-  var records = []
   var start = 0
-  for at in range(data.len()) {
-    if data.byte_at(at) == delim {
-      records += [data[start..at]]
-      start = at + 1
+  let records = collect {
+    for at in range(data.len()) {
+      if data.byte_at(at) == delim {
+        yield data[start..at]
+        start = at + 1
+      }
     }
+    if start < data.len() { yield data[start..] }
   }
-  if start < data.len() { records += [data[start..]] }
   records
 }
 
@@ -1799,8 +1858,9 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
           }
         }
         121 => {
-          var translated = []
-          for at in range(line.text.len()) { translated += [command.table[at_byte(line.text, at)]] }
+          let translated = collect {
+            for at in range(line.text.len()) { yield command.table[at_byte(line.text, at)] }
+          }
           line = {...line, text: bytes.from_ints(translated) ?? line.text}
         }
         122 => line = {...line, text: b""}

@@ -57,14 +57,15 @@ test test_gnu_env_env_S_script_log { |ctx|
 test test_gnu_env_env_null_log { |ctx|
   let s = uu.scene(ctx)?
   let search_path = env.get("PATH") ?? ""
-  var outputs = []
-  for util in ["env", "printenv"] {
-    for flag in ["-0", "--null"] {
-      let target = nested(s, util, [flag])?
-      let r = uu.invoke(s, "env", ["-i", "PATH=" + search_path] + target)?
-      uu.succeeds(r)
-      uu.no_stderr(r)
-      outputs += [r.stdout]
+  let outputs = collect {
+    for util in ["env", "printenv"] {
+      for flag in ["-0", "--null"] {
+        let target = nested(s, util, [flag])?
+        let r = uu.invoke(s, "env", ["-i", "PATH=" + search_path] + target)?
+        uu.succeeds(r)
+        uu.no_stderr(r)
+        yield r.stdout
+      }
     }
   }
   for output in outputs { assert output == outputs[0] }

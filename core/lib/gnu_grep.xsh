@@ -480,18 +480,19 @@ pure separator_byte(ctx: Context, sep: Int) -> Bytes {
 # The prefix GNU grep prints before a line or match: file name, line
 # number, byte offset and the optional alignment tab.
 pure line_head(ctx: Context, show_name: Bool, label: Bytes, lineno: Int, offset: Int, sep: Int, width: Int, length: Int) -> Bytes {
-  var parts = []
-  if show_name {
-    parts += [paint(ctx, ctx.c.filename, label)]
-    parts += [if ctx.o.null_name { b"\0" } else { separator_byte(ctx, sep) }]
+  let parts = collect {
+    if show_name {
+      yield paint(ctx, ctx.c.filename, label)
+      yield if ctx.o.null_name { b"\0" } else { separator_byte(ctx, sep) }
+    }
+    if ctx.o.number {
+      yield @[paint(ctx, ctx.c.line_number, bytes.from_text(padded(lineno, width))), separator_byte(ctx, sep)]
+    }
+    if ctx.o.byte {
+      yield @[paint(ctx, ctx.c.byte_offset, bytes.from_text(padded(offset, width))), separator_byte(ctx, sep)]
+    }
+    if ctx.o.tabs and (show_name or ctx.o.number or ctx.o.byte) and length > 0 { yield b"\t" }
   }
-  if ctx.o.number {
-    parts += [paint(ctx, ctx.c.line_number, bytes.from_text(padded(lineno, width))), separator_byte(ctx, sep)]
-  }
-  if ctx.o.byte {
-    parts += [paint(ctx, ctx.c.byte_offset, bytes.from_text(padded(offset, width))), separator_byte(ctx, sep)]
-  }
-  if ctx.o.tabs and (show_name or ctx.o.number or ctx.o.byte) and length > 0 { parts += [b"\t"] }
   bytes.concat(parts)
 }
 
@@ -580,10 +581,11 @@ pure delimiter_positions(data: Bytes, eol: Int, zap: Bool) -> List[Int] {
       Err(_) => {}
     }
   }
-  var out = []
-  for at in range(data.len()) {
-    let byte = data.byte_at(at) ?? 0
-    if byte == eol or (zap and byte == 0) { out += [at] }
+  let out = collect {
+    for at in range(data.len()) {
+      let byte = data.byte_at(at) ?? 0
+      if byte == eol or (zap and byte == 0) { yield at }
+    }
   }
   out
 }
@@ -684,24 +686,25 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
     if eof and ! leftover.is_empty() { records += [leftover]; leftover = b"" }
     # Plain strings: one native search over the buffer finds which records
     # can match at all, so the rest skip per-record matching.
-    var possible = []
-    if ctx.prefilter != null and ! zap and ctx.eol == 10 and ! records.is_empty() {
-      match regex.find_bytes(ctx.prefilter ?? "", data, extended: true, ignore_case: o.ignore_case) {
-        Ok(found) => {
-          var cursor = 0
-          var record_begin = 0
-          for record in records {
-            let record_end = record_begin + record.len()
-            var seen = false
-            while cursor < found.len() and found[cursor].start <= record_end {
-              if found[cursor].start >= record_begin { seen = true }
-              cursor += 1
+    let possible = collect {
+      if ctx.prefilter != null and ! zap and ctx.eol == 10 and ! records.is_empty() {
+        match regex.find_bytes(ctx.prefilter ?? "", data, extended: true, ignore_case: o.ignore_case) {
+          Ok(found) => {
+            var cursor = 0
+            var record_begin = 0
+            for record in records {
+              let record_end = record_begin + record.len()
+              var seen = false
+              while cursor < found.len() and found[cursor].start <= record_end {
+                if found[cursor].start >= record_begin { seen = true }
+                cursor += 1
+              }
+              yield seen
+              record_begin = record_end + 1
             }
-            possible += [seen]
-            record_begin = record_end + 1
           }
+          Err(_) => {}
         }
-        Err(_) => {}
       }
     }
     var record_index = -1
@@ -835,12 +838,13 @@ proc finish_input(ctx: Context, progress: Run, scanned: Scan, label: Bytes, show
   out.used = scanned.used
   if ! scanned.ok { out.failed = true }
   if o.count and o.list == 0 and ! o.quiet {
-    var parts = []
-    if show_name {
-      parts += [paint(ctx, ctx.c.filename, label)]
-      parts += [if o.null_name { b"\0" } else { separator_byte(ctx, 58) }]
+    let parts = collect {
+      if show_name {
+        yield paint(ctx, ctx.c.filename, label)
+        yield if o.null_name { b"\0" } else { separator_byte(ctx, 58) }
+      }
+      yield bytes.from_text(f"{scanned.count}\n")
     }
-    parts += [bytes.from_text(f"{scanned.count}\n")]
     emit(bytes.concat(parts))
     if o.line_buffered { flush_stdout() }
   }
@@ -1014,10 +1018,11 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
       }
       let name = text_of(name_bytes)
       var found: LongOption? = null
-      var candidates: List[LongOption] = []
-      for option in longs {
-        if option.name == name { found = option; break }
-        if option.name.starts_with(name) { candidates += [option] }
+      let candidates: List[LongOption] = collect {
+        for option in longs {
+          if option.name == name { found = option; break }
+          if option.name.starts_with(name) { yield option }
+        }
       }
       if found == null {
         var distinct: List[LongOption] = []

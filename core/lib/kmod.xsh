@@ -26,13 +26,20 @@ pure module_name(text: Str) -> Str {
 # The kernel parameter parser understands double quotes around values. Keep
 # whitespace inside one argv item attached to its parameter, without a shell.
 pure parameters(values: List[Str]) -> Str {
-  var output = []
-  for value in values {
-    let pieces = value.split("=", maxsplit: 1)
-    if pieces.len() == 2 {
-      let escaped = pieces[1].replace("\\", with: "\\\\").replace("\"", with: "\\\"")
-      if escaped.find(" ") != null or escaped.find("\t") != null or escaped.find("\"") != null { output += [f"{pieces[0]}=\"{escaped}\""] } else { output += [value] }
-    } else { output += [value] }
+  let output = collect {
+    for value in values {
+      let pieces = value.split("=", maxsplit: 1)
+      if pieces.len() == 2 {
+        let escaped = pieces[1].replace("\\", with: "\\\\").replace("\"", with: "\\\"")
+        if escaped.find(" ") != null or escaped.find("\t") != null or escaped.find("\"") != null {
+          yield f"{pieces[0]}=\"{escaped}\""
+        } else {
+          yield value
+        }
+      } else {
+        yield value
+      }
+    }
   }
   output.join(" ")
 }
@@ -43,11 +50,12 @@ pure short_options(argv: List[Str], boolean_flags: Str) -> List[Str] {
   var output = []
   for arg in argv {
     if arg.starts_with("-") and ! arg.starts_with("--") and arg.byte_len() > 2 {
-      var pieces = []
       var recognized = true
-      for char in arg.byte_slice(1) {
-        if boolean_flags.find(char) == null { recognized = false }
-        pieces += [f"-{char}"]
+      let pieces = collect {
+        for char in arg.byte_slice(1) {
+          if boolean_flags.find(char) == null { recognized = false }
+          yield f"-{char}"
+        }
       }
       output += if recognized { pieces } else { [arg] }
     } else { output += [arg] }
@@ -82,25 +90,71 @@ export proc modinfo(raw: List[Str]) {
   let argv = short_options(raw, "adlpn0")
   var selected = ""
   var delimiter = "\n"
-  var names = []
   var index = 0
   var operands = false
-  while index < argv.len() {
-    let arg = argv[index]; index += 1
-    if ! operands and arg == "--" { operands = true; continue }
-    if ! operands and common(arg, "Usage: modinfo [OPTIONS] MODULE...\n  -a, --author        show author\n  -d, --description   show description\n  -l, --license       show license\n  -p, --parameters    show parameters\n  -n, --filename      show filename\n  -F, --field FIELD   show one field\n  -0, --null          terminate fields with NUL") { return }
-    if ! operands and (arg == "-0" or arg == "--null") { delimiter = "\0"; continue }
-    if ! operands and (arg == "-a" or arg == "--author") { selected = "author"; continue }
-    if ! operands and (arg == "-d" or arg == "--description") { selected = "description"; continue }
-    if ! operands and (arg == "-l" or arg == "--license") { selected = "license"; continue }
-    if ! operands and (arg == "-p" or arg == "--parameters") { selected = "parm"; continue }
-    if ! operands and (arg == "-n" or arg == "--filename") { selected = "filename"; continue }
-    if ! operands and (arg == "-F" or arg == "--field" or arg.starts_with("--field=") or (arg.starts_with("-F") and arg.byte_len() > 2)) {
-      if arg.starts_with("--field=") { selected = arg.byte_slice(8) } else if arg.starts_with("-F") and arg.byte_len() > 2 { selected = arg.byte_slice(2) } else { if index >= argv.len() { gnu.usage_error(f"option {gnu.quote(arg)} requires an argument") }; selected = argv[index]; index += 1 }
-      continue
+  let names = collect {
+    while index < argv.len() {
+      let arg = argv[index]
+      index += 1
+      if ! operands and arg == "--" {
+        operands = true
+        continue
+      }
+
+      if ! operands and common(
+        arg,
+        "Usage: modinfo [OPTIONS] MODULE...\n  -a, --author        show author\n  -d, --description   show description\n  -l, --license       show license\n  -p, --parameters    show parameters\n  -n, --filename      show filename\n  -F, --field FIELD   show one field\n  -0, --null          terminate fields with NUL",
+      ) {
+        return
+      }
+
+      if ! operands and (arg == "-0" or arg == "--null") {
+        delimiter = "\0"
+        continue
+      }
+
+      if ! operands and (arg == "-a" or arg == "--author") {
+        selected = "author"
+        continue
+      }
+
+      if ! operands and (arg == "-d" or arg == "--description") {
+        selected = "description"
+        continue
+      }
+
+      if ! operands and (arg == "-l" or arg == "--license") {
+        selected = "license"
+        continue
+      }
+
+      if ! operands and (arg == "-p" or arg == "--parameters") {
+        selected = "parm"
+        continue
+      }
+
+      if ! operands and (arg == "-n" or arg == "--filename") {
+        selected = "filename"
+        continue
+      }
+
+      if ! operands and (arg == "-F" or arg == "--field" or arg.starts_with("--field=") or (arg.starts_with("-F") and arg.byte_len() > 2)) {
+        if arg.starts_with("--field=") {
+          selected = arg.byte_slice(8)
+        } else if arg.starts_with("-F") and arg.byte_len() > 2 {
+          selected = arg.byte_slice(2)
+        } else {
+          if index >= argv.len() { gnu.usage_error(f"option {gnu.quote(arg)} requires an argument") }
+          selected = argv[index]
+          index += 1
+        }
+
+        continue
+      }
+
+      if ! operands and arg.starts_with("-") { unsupported(arg) }
+      yield arg
     }
-    if ! operands and arg.starts_with("-") { unsupported(arg) }
-    names += [arg]
   }
   if names.is_empty() { gnu.missing_operand() }
   var ok = true
@@ -152,15 +206,34 @@ export proc insmod(argv: List[Str]) {
 export proc rmmod(argv: List[Str]) {
   var force = false
   var verbose = false
-  var names = []
   var operands = false
-  for arg in short_options(argv, "fv") {
-    if ! operands and arg == "--" { operands = true; continue }
-    if ! operands and common(arg, "Usage: rmmod [OPTIONS] MODULE...\n  -f, --force     force removal\n  -v, --verbose   print each removal") { return }
-    if ! operands and (arg == "-f" or arg == "--force") { force = true; continue }
-    if ! operands and (arg == "-v" or arg == "--verbose") { verbose = true; continue }
-    if ! operands and arg.starts_with("-") { unsupported(arg) }
-    names += [arg]
+  let names = collect {
+    for arg in short_options(argv, "fv") {
+      if ! operands and arg == "--" {
+        operands = true
+        continue
+      }
+
+      if ! operands and common(
+        arg,
+        "Usage: rmmod [OPTIONS] MODULE...\n  -f, --force     force removal\n  -v, --verbose   print each removal",
+      ) {
+        return
+      }
+
+      if ! operands and (arg == "-f" or arg == "--force") {
+        force = true
+        continue
+      }
+
+      if ! operands and (arg == "-v" or arg == "--verbose") {
+        verbose = true
+        continue
+      }
+
+      if ! operands and arg.starts_with("-") { unsupported(arg) }
+      yield arg
+    }
   }
   if names.is_empty() { gnu.missing_operand() }
   var ok = true

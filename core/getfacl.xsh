@@ -19,19 +19,25 @@ proc table(entries: List[acl.Entry], uid: Int, gid: Int, numeric: Bool) [fs, io,
     keys += [key]
     let label = match entry.tag { acl.AclOwner => "USER", acl.AclUser => "user", acl.AclGroupOwner => "GROUP", acl.AclGroup => "group", acl.AclMask => "mask", acl.AclOther => "other" }
     let name = if entry.tag == acl.AclOwner { acl.identity(uid, false, numeric) } else if entry.tag == acl.AclGroupOwner { acl.identity(gid, true, numeric) } else if let id = entry.id { acl.identity(id, entry.tag == acl.AclGroup, numeric) } else { "" }
-    var columns = []
-    for default in [false, true] {
-      var value = "   "
-      for candidate in entries {
-        if candidate.default == default and candidate.tag == entry.tag and candidate.id == entry.id {
-          let raw = acl.permissions(candidate.permissions)
-          let allowed = acl.permissions(acl.effective(candidate, entries))
-          value = ""
-          for at in range(3) { let ch = raw.byte_slice(at, length: 1); value += if allowed.byte_slice(at, length: 1) == "-" { ch.upper() } else { ch } }
-          break
+    let columns = collect {
+      for default in [false, true] {
+        var value = "   "
+        for candidate in entries {
+          if candidate.default == default and candidate.tag == entry.tag and candidate.id == entry.id {
+            let raw = acl.permissions(candidate.permissions)
+            let allowed = acl.permissions(acl.effective(candidate, entries))
+            value = ""
+            for at in range(3) {
+              let ch = raw.byte_slice(at, length: 1)
+              value += if allowed.byte_slice(at, length: 1) == "-" { ch.upper() } else { ch }
+            }
+
+            break
+          }
         }
+
+        yield value
       }
-      columns += [value]
     }
     gnu.write_text(fileattrs.field(label, 5) + "  " + fileattrs.field(name, width) + "  " + columns[0] + "  " + columns[1] + "\n")
   }
@@ -49,8 +55,9 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   if opts.version { gnu.version("getfacl"); return }
   var files = opts.files
   if files.is_empty() { gnu.missing_operand(status: 2) }
-  var names = []
-  for name in files { if name == "-" { names += gnu.read_operand("-")?.utf8()?.lines() } else { names += [name] } }
+  let names = collect {
+    for name in files { if name == "-" { yield @gnu.read_operand("-")?.utf8()?.lines() } else { yield name } }
+  }
   var traversal = if opts.physical { "P" } else if opts.logical { "L" } else { "H" }
   for word in argv {
     break when word == "--"

@@ -67,12 +67,13 @@ proc wait_readable(fd: Int) [net, process, error] -> Result[Unit] {
 }
 
 proc read_to_eof(fd: Int) [net, process, error] -> Result[Bytes] {
-  var chunks = []
-  while true {
-    wait_readable(fd)
-    let data = unix.read_fd(fd, 65536)?
-    break when data.is_empty()
-    chunks += [data]
+  let chunks = collect {
+    while true {
+      wait_readable(fd)
+      let data = unix.read_fd(fd, 65536)?
+      break when data.is_empty()
+      yield data
+    }
   }
   Ok(bytes.concat(chunks))
 }
@@ -103,12 +104,13 @@ proc udp_socket() [net, process, error] -> Result[Listener] {
 
 # A payload that covers every byte value and spans several relay buffers.
 proc pattern(length: Int) [error] -> Result[Bytes] {
-  var chunks = []
   var made = 0
   let block = bytes.from_ints([n for n in range(256)])?
-  while made < length {
-    chunks += [block]
-    made += 256
+  let chunks = collect {
+    while made < length {
+      yield block
+      made += 256
+    }
   }
   Ok(bytes.concat(chunks).slice(0, length))
 }
@@ -327,17 +329,18 @@ test test_nc_scans_ascending_ranges_even_when_given_backwards { |ctx|
   var middle = -1
   for _ in range(20) {
     let seed = closed_port()?
-    var held = []
     let c = linux.net_constants()
     var usable = true
-    for offset in range(3) {
-      let fd = linux.socket(c.AF_INET, c.SOCK_STREAM)?
-      match linux.bind(fd, {family: "inet", address: "127.0.0.1", port: seed + offset}) {
-        Ok(_) => held += [fd]
-        Err(_) => {
-          unix.close_fd(fd)
-          usable = false
-          break
+    let held = collect {
+      for offset in range(3) {
+        let fd = linux.socket(c.AF_INET, c.SOCK_STREAM)?
+        match linux.bind(fd, {family: "inet", address: "127.0.0.1", port: seed + offset}) {
+          Ok(_) => yield fd
+          Err(_) => {
+            unix.close_fd(fd)
+            usable = false
+            break
+          }
         }
       }
     }
@@ -407,18 +410,19 @@ test test_nc_connect_timeout_is_reported_by_name { |ctx|
   linux.bind(held, {family: "inet", address: "127.0.0.1", port: 0})
   linux.listen(held, 0)
   let port = linux.getsockname(held)?.port
-  var fillers = []
   var full = false
-  for _ in range(16) {
-    let filler = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?
-    fillers += [filler]
-    match linux.connect(filler, {family: "inet", address: "127.0.0.1", port: port}) {
-      Ok(_) => { }
-      Err(_) => { }
-    }
-    if unix.poll_fd(filler, ["writable"], 300)?.is_empty() {
-      full = true
-      break
+  let fillers = collect {
+    for _ in range(16) {
+      let filler = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?
+      yield filler
+      match linux.connect(filler, {family: "inet", address: "127.0.0.1", port: port}) {
+        Ok(_) => { }
+        Err(_) => { }
+      }
+      if unix.poll_fd(filler, ["writable"], 300)?.is_empty() {
+        full = true
+        break
+      }
     }
   }
   if ! full {

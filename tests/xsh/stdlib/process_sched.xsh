@@ -6,17 +6,17 @@
 # `a-b`, comma separated. This reads the list the way a person would, without
 # the primitive under test.
 pure expand_cpu_list(text: Str) -> List[Int] {
-  var cpus = []
+  let cpus = collect {
+    for part in text.trim().split(",") {
+      let ends = part.split("-")
+      let first = ends[0].parse_int() ?? 0
+      let last = if ends.len() > 1 { ends[1].parse_int() ?? first } else { first }
+      var at = first
 
-  for part in text.trim().split(",") {
-    let ends = part.split("-")
-    let first = ends[0].parse_int() ?? 0
-    let last = if ends.len() > 1 { ends[1].parse_int() ?? first } else { first }
-    var at = first
-
-    while at <= last {
-      cpus += [at]
-      at += 1
+      while at <= last {
+        yield at
+        at += 1
+      }
     }
   }
 

@@ -37,25 +37,26 @@ export pure split(data: Bytes, strip_cr: Bool) -> Source {
   let open = data.byte_at(size - 1) != 10
   let parts = data.lines()
   return {lines: parts, open: false} when ! open and ! (b"\r" in data)
-  var lines = []
   var at = 0
   let count = parts.len()
   var index = 0
-  while index < count {
-    let part = parts[index]
-    if open and index == count - 1 {
-      lines += [data.slice(at)]
-      break
+  let lines = collect {
+    while index < count {
+      let part = parts[index]
+      if open and index == count - 1 {
+        yield data.slice(at)
+        break
+      }
+      let end = at + part.len()
+      if data.byte_at(end) == 13 {
+        yield if strip_cr { part } else { bytes.concat([part, b"\r"]) }
+        at = end + 2
+      } else {
+        yield part
+        at = end + 1
+      }
+      index += 1
     }
-    let end = at + part.len()
-    if data.byte_at(end) == 13 {
-      lines += [if strip_cr { part } else { bytes.concat([part, b"\r"]) }]
-      at = end + 2
-    } else {
-      lines += [part]
-      at = end + 1
-    }
-    index += 1
   }
   {lines: lines, open: open}
 }
@@ -119,31 +120,32 @@ pure line_key(line: Bytes, rules: Rules) -> Bytes {
     if start > 0 { chunks += [text[start..text.len()]]; text = bytes.concat(chunks) }
   }
   if rules.all_space or rules.space_change or rules.trailing_space {
-    var chunks = []
     var start = 0
     var index = 0
     let size = text.len()
-    while index < size {
-      if is_space(text.byte_at(index) ?? 0) {
-        var end = index
-        while end < size and is_space(text.byte_at(end) ?? 0) { end += 1 }
-        if rules.all_space {
-          chunks += [text[start..index]]
-        } else if rules.space_change {
-          chunks += [text[start..index]]
-          if end < size { chunks += [b" "] }
-        } else if end < size {
-          chunks += [text[start..end]]
+    let chunks = collect {
+      while index < size {
+        if is_space(text.byte_at(index) ?? 0) {
+          var end = index
+          while end < size and is_space(text.byte_at(end) ?? 0) { end += 1 }
+          if rules.all_space {
+            yield text[start..index]
+          } else if rules.space_change {
+            yield text[start..index]
+            if end < size { yield b" " }
+          } else if end < size {
+            yield text[start..end]
+          } else {
+            yield text[start..index]
+          }
+          start = end
+          index = end
         } else {
-          chunks += [text[start..index]]
+          index += 1
         }
-        start = end
-        index = end
-      } else {
-        index += 1
       }
+      if start < size { yield text[start..size] }
     }
-    if start < size { chunks += [text[start..size]] }
     text = bytes.concat(chunks)
   }
   if rules.ignore_case {
@@ -171,18 +173,19 @@ pure classify(source: Source, from: Int, to: Int, rules: Rules, plain: Bool, ids
   var table = ids
   var open_table = open_ids
   var counter = next
-  var classes = []
   let last = source.lines.len() - 1
-  for index in range(from, to) {
-    let line = if plain { source.lines[index] } else { line_key(source.lines[index], rules) }
-    let distinct = source.open and index == last and !newline_is_whitespace(rules)
-    var found = (if distinct { open_table.get(line) } else { table.get(line) }) ?? 0
-    if found == 0 {
-      counter += 1
-      found = counter
-      if distinct { open_table[line] = counter } else { table[line] = counter }
+  let classes = collect {
+    for index in range(from, to) {
+      let line = if plain { source.lines[index] } else { line_key(source.lines[index], rules) }
+      let distinct = source.open and index == last and !newline_is_whitespace(rules)
+      var found = (if distinct { open_table.get(line) } else { table.get(line) }) ?? 0
+      if found == 0 {
+        counter += 1
+        found = counter
+        if distinct { open_table[line] = counter } else { table[line] = counter }
+      }
+      yield found
     }
-    classes += [found]
   }
   {classes: classes, ids: table, open_ids: open_table, next: counter}
 }
@@ -681,19 +684,20 @@ export pure script(first: Source, second: Source, rules: Rules) -> List[Change] 
   }
   changed0 = shift_boundaries(left.classes, changed0, changed1)
   changed1 = shift_boundaries(right.classes, changed1, changed0)
-  var changes: List[Change] = []
   var i0 = 0
   var i1 = 0
-  while i0 < m0 or i1 < m1 {
-    if (i0 < m0 and changed0[i0 + 1] != 0) or (i1 < m1 and changed1[i1 + 1] != 0) {
-      let from0 = i0
-      let from1 = i1
-      while i0 < m0 and changed0[i0 + 1] != 0 { i0 += 1 }
-      while i1 < m1 and changed1[i1 + 1] != 0 { i1 += 1 }
-      changes += [{line0: start + from0, line1: start + from1, deleted: i0 - from0, inserted: i1 - from1}]
-    } else {
-      i0 += 1
-      i1 += 1
+  let changes: List[Change] = collect {
+    while i0 < m0 or i1 < m1 {
+      if (i0 < m0 and changed0[i0 + 1] != 0) or (i1 < m1 and changed1[i1 + 1] != 0) {
+        let from0 = i0
+        let from1 = i1
+        while i0 < m0 and changed0[i0 + 1] != 0 { i0 += 1 }
+        while i1 < m1 and changed1[i1 + 1] != 0 { i1 += 1 }
+        yield {line0: start + from0, line1: start + from1, deleted: i0 - from0, inserted: i1 - from1}
+      } else {
+        i0 += 1
+        i1 += 1
+      }
     }
   }
   changes

@@ -92,12 +92,13 @@ export pure character(data: Bytes, at: Int) -> Character {
 
 ## Read operands in order and retain successful input after a read error.
 export proc read(paths: List[Str]) -> Input {
-  var chunks = []
   var failed = false
-  for name in if paths.is_empty() { ["-"] } else { paths } {
-    match gnu.read_operand(name) {
-      Ok(data) => { chunks += [data] }
-      Err(failure) => { gnu.name_error(name, failure); failed = true }
+  let chunks = collect {
+    for name in if paths.is_empty() { ["-"] } else { paths } {
+      match gnu.read_operand(name) {
+        Ok(data) => { yield data }
+        Err(failure) => { gnu.name_error(name, failure); failed = true }
+      }
     }
   }
   {data: bytes.concat(chunks), failed: failed}
@@ -116,13 +117,14 @@ export proc name_error_bytes(name: Bytes, failure: Error) [process, env] {
 
 ## Read the parsed path operands without decoding their original bytes.
 export proc read_arguments(arguments: RawArguments, paths: List[Str]) -> Input {
-  var chunks = []
   var failed = false
-  for value in if paths.is_empty() { ["-"] } else { paths } {
-    let name = argument_bytes(arguments, value)
-    match read_operand_bytes(name) {
-      Ok(data) => { chunks += [data] }
-      Err(failure) => { name_error_bytes(name, failure); failed = true }
+  let chunks = collect {
+    for value in if paths.is_empty() { ["-"] } else { paths } {
+      let name = argument_bytes(arguments, value)
+      match read_operand_bytes(name) {
+        Ok(data) => { yield data }
+        Err(failure) => { name_error_bytes(name, failure); failed = true }
+      }
     }
   }
   {data: bytes.concat(chunks), failed: failed}
@@ -255,23 +257,34 @@ export proc expand(data: Bytes, spec: Tabs, initial = false, tab_byte = 9) -> By
   var column = 0
   var leading = true
   var held = 0
-  var out = []
   var at = 0
-  while at < data.len() {
-    let unit = if by_bytes { {size: 1, width: 1} } else { character(data, at) }
-    let value = data.byte_at(at) ?? 0
-    if value == tab_byte or value == 9 {
-      let stop = if value == 9 and tab_byte != 9 { column + 8 - column % 8 } else { next_stop(column, spec) }
-      let width = if stop < 0 { 1 } else { stop - column }
-      if leading or ! initial {
-        out += [data[held..at], bytes.from_text(padding(width))]
-        held = at + 1
+  let out = collect {
+    while at < data.len() {
+      let unit = if by_bytes { {size: 1, width: 1} } else { character(data, at) }
+      let value = data.byte_at(at) ?? 0
+      if value == tab_byte or value == 9 {
+        let stop = if value == 9 and tab_byte != 9 { column + 8 - column % 8 } else { next_stop(column, spec) }
+        let width = if stop < 0 { 1 } else { stop - column }
+        if leading or ! initial {
+          yield @[data[held..at], bytes.from_text(padding(width))]
+          held = at + 1
+        }
+
+        column += width
+      } else {
+        if value == 10 {
+          column = 0
+          leading = true
+        } else if value == 8 {
+          if column > 0 { column -= 1 }
+        } else {
+          column += unit.width
+          if value != 32 { leading = false }
+        }
       }
-      column += width
-    } else {
-      if value == 10 { column = 0; leading = true } else if value == 8 { if column > 0 { column -= 1 } } else { column += unit.width; if value != 32 { leading = false } }
+
+      at += unit.size
     }
-    at += unit.size
   }
   bytes.concat([@out, data[held..]])
 }

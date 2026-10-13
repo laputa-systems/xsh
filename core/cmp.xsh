@@ -232,26 +232,27 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
   if opts.files.len() > 4 { trouble(f"extra operand {gnu.quote_value(opts.files[4])}") }
 
   # Open phase: a missing or unreadable file ends the run at the first one.
-  var sources: List[tio.Source] = []
-  for operand in [left, right] {
-    if operand == "" {
-      if !quiet { gnu.error("'': No such file or directory") }
-      exit 2
-    }
-    let found = tio.open_source(operand)
-    if let Err(failure) = found {
-      if !quiet { gnu.name_error(operand, failure) }
-      exit 2
-    }
-    let source = found ?? {name: operand, path: p"/dev/null", mode: "whole", kind: 0, size: 0}
-    if source.mode != "stdin" and source.kind != 4 {
-      let check = bytes.read_at(source.path, 0, 0)
-      if let Err(failure) = check {
+  let sources: List[tio.Source] = collect {
+    for operand in [left, right] {
+      if operand == "" {
+        if !quiet { gnu.error("'': No such file or directory") }
+        exit 2
+      }
+      let found = tio.open_source(operand)
+      if let Err(failure) = found {
         if !quiet { gnu.name_error(operand, failure) }
         exit 2
       }
+      let source = found ?? {name: operand, path: p"/dev/null", mode: "whole", kind: 0, size: 0}
+      if source.mode != "stdin" and source.kind != 4 {
+        let check = bytes.read_at(source.path, 0, 0)
+        if let Err(failure) = check {
+          if !quiet { gnu.name_error(operand, failure) }
+          exit 2
+        }
+      }
+      yield source
     }
-    sources += [source]
   }
   let first = sources[0]
   let second = sources[1]
@@ -302,16 +303,17 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
       different = true
       if quiet { exit 1 }
       if listed {
-        var rows = []
-        for index in range(shared) {
-          let av = head_a.byte_at(index) ?? 0
-          let bv = head_b.byte_at(index) ?? 0
-          continue when av == bv
-          let number = diffutils.pad(f"{offset + index + 1}", width)
-          if opts.print_bytes {
-            rows += [f"{number} {diffutils.octal(av)} {diffutils.pad_right(diffutils.display_byte(av), 4)} {diffutils.octal(bv)} {diffutils.display_byte(bv)}"]
-          } else {
-            rows += [f"{number} {diffutils.octal(av)} {diffutils.octal(bv)}"]
+        let rows = collect {
+          for index in range(shared) {
+            let av = head_a.byte_at(index) ?? 0
+            let bv = head_b.byte_at(index) ?? 0
+            continue when av == bv
+            let number = diffutils.pad(f"{offset + index + 1}", width)
+            if opts.print_bytes {
+              yield f"{number} {diffutils.octal(av)} {diffutils.pad_right(diffutils.display_byte(av), 4)} {diffutils.octal(bv)} {diffutils.display_byte(bv)}"
+            } else {
+              yield f"{number} {diffutils.octal(av)} {diffutils.octal(bv)}"
+            }
           }
         }
         gnu.write_text(rows.join("\n") + "\n")

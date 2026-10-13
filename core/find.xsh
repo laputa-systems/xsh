@@ -681,8 +681,9 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
     "exec" | "execdir" | "ok" | "okdir" => {
       let in_directory = node.kind in ["execdir","okdir"]
       let value = if in_directory { dot_name(raw)?.bytes() } else { raw }
-      var words = []
-      for word in node.argv { words += [replace_marker(gnu.argument_bytes(word, plan.raw), value) as Path] }
+      let words = collect {
+        for word in node.argv { yield replace_marker(gnu.argument_bytes(word, plan.raw), value) as Path }
+      }
       var proceed = true
       if node.kind in ["ok","okdir"] {
         io.write_stderr(f"< {node.argv[0]} ... {raw.utf8() ?? gnu.quote_bytes(raw)} > ? ")
@@ -776,12 +777,13 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
   for index in range(plan.nodes.len()) {
     let node = plan.nodes[index]
     continue when node.kind not in kinds
-    var initial = []
     var initial_size = 0
-    for word in node.argv[..node.argv.len() - 1] {
-      let bytes_of_word = gnu.argument_bytes(word, plan.raw)
-      initial += [bytes_of_word as Path]
-      initial_size += bytes_of_word.len() + 1
+    let initial = collect {
+      for word in node.argv[..node.argv.len() - 1] {
+        let bytes_of_word = gnu.argument_bytes(word, plan.raw)
+        yield bytes_of_word as Path
+        initial_size += bytes_of_word.len() + 1
+      }
     }
     var batch = []
     var directory = null
@@ -918,8 +920,9 @@ proc main(...operands: List[Bytes]) {
       Ok(any_failed) => { failed = failed or any_failed }
       Err(failure) => { gnu.error(failure.message); exit 1 }
     }
-    var kept: List[Deferred] = []
-    for item in deferred { if plan.nodes[item.node].kind != "execdir+" { kept += [item] } }
+    let kept: List[Deferred] = collect {
+      for item in deferred { if plan.nodes[item.node].kind != "execdir+" { yield item } }
+    }
     deferred = kept
     break when quit
   }

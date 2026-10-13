@@ -154,21 +154,23 @@ const DIGITS = "0123456789abcdef"
 
 ## Lowercase hexadecimal text of the bytes.
 export pure hex(data: Bytes) -> Str {
-  var parts = []
-  for at in range(data.len()) {
-    let byte = data.byte_at(at) ?? 0
-    parts += [DIGITS.byte_slice(byte / 16, 1), DIGITS.byte_slice(byte % 16, 1)]
+  let parts = collect {
+    for at in range(data.len()) {
+      let byte = data.byte_at(at) ?? 0
+      yield @[DIGITS.byte_slice(byte / 16, 1), DIGITS.byte_slice(byte % 16, 1)]
+    }
   }
   parts.join("")
 }
 
 ## The bytes that `hex` encoded.
 export pure unhex(text: Str) -> Bytes {
-  var values = []
   var at = 0
-  while at + 1 < text.byte_len() {
-    values += [(DIGITS.find(text.byte_slice(at, 1)) ?? 0) * 16 + (DIGITS.find(text.byte_slice(at + 1, 1)) ?? 0)]
-    at += 2
+  let values = collect {
+    while at + 1 < text.byte_len() {
+      yield (DIGITS.find(text.byte_slice(at, 1)) ?? 0) * 16 + (DIGITS.find(text.byte_slice(at + 1, 1)) ?? 0)
+      at += 2
+    }
   }
   bytes.from_ints(values) ?? b""
 }
@@ -240,11 +242,12 @@ export pure normalize_ls(data: Bytes) -> Bytes {
 
 # Paths below `directory` relative to the directory `strip` bytes up.
 proc listing(directory: Path, strip: Int) [fs, error] -> Result[List[Bytes]] {
-  var names = []
-  for entry in fs.children(directory)? {
-    let full = entry.path.bytes()
-    names += [full[strip..]]
-    if entry.kind == "dir" { names += listing(entry.path, strip)? }
+  let names = collect {
+    for entry in fs.children(directory)? {
+      let full = entry.path.bytes()
+      yield full[strip..]
+      if entry.kind == "dir" { yield @listing(entry.path, strip)? }
+    }
   }
   Ok(names)
 }
@@ -293,8 +296,9 @@ export proc invoke(xsh_bin: Path, script: Path, root: Path, work: Path, c: Case)
     if cap.exists() { tail += [b"cap:\n", cap.read_bytes()?] }
     var names = ["scratch"] |> map { |name| bytes.from_text(name) } |> collect()
     names += listing(scratch, root.bytes().len() + 1)?
-    var keyed = []
-    for name in names { keyed += [hex(name)] }
+    let keyed = collect {
+      for name in names { yield hex(name) }
+    }
     let ordered = keyed |> sort() |> collect()
     for key in ordered { tail += [unhex(key), b"\n"] }
     stdout = bytes.concat([stdout] + tail)
@@ -326,12 +330,13 @@ export pure same_output(c: Case, expected: Bytes, actual: Bytes) -> Bool {
 
 # Printable rendering of output for failure messages.
 pure show(data: Bytes) -> Str {
-  var parts = []
-  for at in range(data.len()) {
-    let byte = data.byte_at(at) ?? 0
-    if byte == 10 { parts += ["\\n"] } else if byte == 9 { parts += ["\\t"] } else if byte >= 32 and byte < 127 {
-      parts += [(bytes.from_ints([byte]) ?? b"").utf8() ?? "?"]
-    } else { parts += [f"\\x{DIGITS.byte_slice(byte / 16, 1)}{DIGITS.byte_slice(byte % 16, 1)}"] }
+  let parts = collect {
+    for at in range(data.len()) {
+      let byte = data.byte_at(at) ?? 0
+      if byte == 10 { yield "\\n" } else if byte == 9 { yield "\\t" } else if byte >= 32 and byte < 127 {
+        yield (bytes.from_ints([byte]) ?? b"").utf8() ?? "?"
+      } else { yield f"\\x{DIGITS.byte_slice(byte / 16, 1)}{DIGITS.byte_slice(byte % 16, 1)}" }
+    }
   }
   f"\"{parts.join("")}\""
 }
@@ -346,22 +351,33 @@ export type Stored = {name: Str, flags: Str, args: List[Str], input: Str, input_
 ## matches.
 export proc run_corpus(xsh_bin: Path, script: Path, corpus: Path, root: Path, work: Path, part: Int, parts: Int) [fs, process, time, error] -> Result[List[Str], Error] {
   let identity = unix.id()?
-  var failures = []
   var position = -1
-  for line in corpus.read_text()?.split("\n") {
-    continue when line == ""
-    position += 1
-    continue when position % parts != part
-    let stored = json.decode(line)?.require(Stored)?
-    let c: Case = {name: stored.name, flags: stored.flags, input: stored_bytes(stored.input, stored.input_hex), args: stored.args}
-    continue when "n" in c.flags and identity.euid == 0
-    let seen = invoke(xsh_bin, script, root, work, c)?
-    let status = stored.status
-    let expected_out = stored_bytes(resolve_ids(stored.stdout, identity.uid, identity.gid), stored.stdout_hex)
-    let expected_err = stored_bytes(stored.stderr, stored.stderr_hex)
-    if seen.status != status { failures += [f"{c.name}: exit {seen.status}, expected {status}"] }
-    if ! same_output(c, expected_out, seen.stdout) { failures += [f"{c.name}: stdout {show(seen.stdout)} expected {show(expected_out)}"] }
-    if ! same_errors(c, expected_err, seen.stderr) { failures += [f"{c.name}: stderr {show(seen.stderr)} expected {show(expected_err)}"] }
+  let failures = collect {
+    for line in corpus.read_text()?.split("\n") {
+      continue when line == ""
+      position += 1
+      continue when position % parts != part
+      let stored = json.decode(line)?.require(Stored)?
+      let c: Case = {
+        name: stored.name,
+        flags: stored.flags,
+        input: stored_bytes(stored.input, stored.input_hex),
+        args: stored.args,
+      }
+      continue when "n" in c.flags and identity.euid == 0
+      let seen = invoke(xsh_bin, script, root, work, c)?
+      let status = stored.status
+      let expected_out = stored_bytes(resolve_ids(stored.stdout, identity.uid, identity.gid), stored.stdout_hex)
+      let expected_err = stored_bytes(stored.stderr, stored.stderr_hex)
+      if seen.status != status { yield f"{c.name}: exit {seen.status}, expected {status}" }
+      if ! same_output(c, expected_out, seen.stdout) {
+        yield f"{c.name}: stdout {show(seen.stdout)} expected {show(expected_out)}"
+      }
+
+      if ! same_errors(c, expected_err, seen.stderr) {
+        yield f"{c.name}: stderr {show(seen.stderr)} expected {show(expected_err)}"
+      }
+    }
   }
   Ok(failures)
 }

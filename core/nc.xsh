@@ -447,11 +447,12 @@ proc lookup(host: Str, opts: Options) [net] -> Lookup {
   match dns.resolve_host(host) {
     Err(failure) => return {rows: [], problem: resolver_reason(failure.message)}
     Ok(rows) => {
-      var usable: List[Address] = []
-      for row in rows {
-        continue when opts.family == "inet" and row.family != "ipv4"
-        continue when opts.family == "inet6" and row.family != "ipv6"
-        usable += [{addr: row.addr, family: row.family, name: row.name}]
+      let usable: List[Address] = collect {
+        for row in rows {
+          continue when opts.family == "inet" and row.family != "ipv4"
+          continue when opts.family == "inet6" and row.family != "ipv6"
+          yield {addr: row.addr, family: row.family, name: row.name}
+        }
       }
       return {rows: [], problem: "Name has no usable address"} when usable.is_empty()
       return {rows: usable, problem: ""}
@@ -632,18 +633,19 @@ proc write_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
 # -C: every bare LF becomes CR LF. `after_cr` carries a chunk's final byte.
 pure add_carriage_returns(data: Bytes, after_cr: Bool) -> Bytes {
   return data when data.count_lines() == 0
-  var pieces = []
   var start = 0
   var previous_cr = after_cr
-  for at in range(data.len()) {
-    let byte = data.byte_at(at) ?? 0
-    if byte == 10 and ! previous_cr {
-      pieces += [data.slice(start, at - start), b"\r"]
-      start = at
+  let pieces = collect {
+    for at in range(data.len()) {
+      let byte = data.byte_at(at) ?? 0
+      if byte == 10 and ! previous_cr {
+        yield @[data.slice(start, at - start), b"\r"]
+        start = at
+      }
+      previous_cr = byte == 13
     }
-    previous_cr = byte == 13
+    yield data.slice(start)
   }
-  pieces += [data.slice(start)]
   bytes.concat(pieces)
 }
 
@@ -714,9 +716,10 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
       }
     }
 
-    var wanted = []
-    if net_in { wanted += ["readable"] }
-    if ! pending.is_empty() and net_out { wanted += ["writable"] }
+    let wanted = collect {
+      if net_in { yield "readable" }
+      if ! pending.is_empty() and net_out { yield "writable" }
+    }
     var events = []
     if ! wanted.is_empty() {
       events = unix.poll_fd(fd, wanted, if progressed { 0 } else { WAIT_SLICE_MS }) ?? []
@@ -886,9 +889,10 @@ proc listen_addresses(host: Str?, opts: Options) [net, process, io] -> List[Addr
     }
     return found.rows
   }
-  var rows: List[Address] = []
-  if opts.family != "inet6" { rows += [{addr: "0.0.0.0", family: "ipv4", name: ""}] }
-  if opts.family != "inet" { rows += [{addr: "::", family: "ipv6", name: ""}] }
+  let rows: List[Address] = collect {
+    if opts.family != "inet6" { yield {addr: "0.0.0.0", family: "ipv4", name: ""} }
+    if opts.family != "inet" { yield {addr: "::", family: "ipv6", name: ""} }
+  }
   rows
 }
 

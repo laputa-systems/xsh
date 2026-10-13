@@ -765,9 +765,10 @@ test test_uu_ln_force_replace_same_inode_leaves_no_temp_file { |ctx|
   uu.touch(s, "a")
   uu.hard_link(s, "a", "b")
   uu.succeeds(uu.invoke(s, "ln", ["--force", "a", "b"])?)
-  var leftovers = []
-  for entry in fs.children(s.root)? {
-    if entry.name not in ["a", "b"] { leftovers += [entry.name] }
+  let leftovers = collect {
+    for entry in fs.children(s.root)? {
+      if entry.name not in ["a", "b"] { yield entry.name }
+    }
   }
   assert leftovers.is_empty()
 }
@@ -794,8 +795,9 @@ test test_uu_ln_symlink_target_dir_non_utf8_source_name { |ctx|
   let run1 = uu.invoke_paths(s, "ln", [p"-s", p"-t", Path(target_dir), source_bytes as Path])?
   uu.succeeds(run1)
   uu.no_stderr(run1)
-  var entries = []
-  for entry in fs.children(uu.at(s, target_dir))? { entries += [entry.path] }
+  let entries = collect {
+    for entry in fs.children(uu.at(s, target_dir))? { yield entry.path }
+  }
   assert entries.len() == 1
   assert entries[0].components()[-1].bytes() == source_bytes
   let created_link = uu.at_bytes(s, bytes.concat([bytes.from_text(target_dir), b"/", source_bytes]))?

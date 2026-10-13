@@ -109,55 +109,391 @@ test test_gnu_sort_sort_continue_log { |ctx|
 # origin: gnu sort/sort-debug-keys.log
 test test_gnu_sort_sort_debug_keys_log { |ctx|
   let s = uu.scene(ctx)?
-  var failures = []
-  for item in [
-    {args: ["-s", "-k2n", "--debug"], input: "1\n\n44\n33\n2\n", expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1.3n", "--debug"], input: "1\n\n44\n33\n2\n", expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1n", "--debug"], input: "1\n\n44\n33\n2\n", expected: "\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n", strip_nul: false},
-    {args: ["-s", "-k2g", "--debug"], input: "1\t2\n2\t\n3\t1\n", expected: "2>\n  ^ no match for key\n3>1\n  _\n1>2\n  _\n", strip_nul: false},
-    {args: ["-s", "-k2h", "--debug"], input: "1\n\n44\n33\n2\n", expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1.3h", "--debug"], input: "1\n\n44\n33\n2\n", expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1h", "--debug"], input: "1\n\n44\n33\n2\n", expected: "\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n", strip_nul: false},
-    {args: ["-s", "-k2g", "--debug"], input: "1\t2\n2\t\n3\t1\n", expected: "2>\n  ^ no match for key\n3>1\n  _\n1>2\n  _\n", strip_nul: false},
-    {args: ["-s", "-k2g", "--debug"], input: "1\n\n44\n33\n2\n", expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1.3g", "--debug"], input: "1\n\n44\n33\n2\n", expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1g", "--debug"], input: "1\n\n44\n33\n2\n", expected: "\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n", strip_nul: false},
-    {args: ["-s", "-k2g", "--debug"], input: "1\t2\n2\t\n3\t1\n", expected: "2>\n  ^ no match for key\n3>1\n  _\n1>2\n  _\n", strip_nul: false},
-    {args: ["-s", "-k1M", "--debug"], input: "FEB\n\nJAN\n", expected: "\n^ no match for key\nJAN\n___\nFEB\n___\n", strip_nul: false},
-    {args: ["-s", "-k2,2M", "--debug"], input: "FEB\n\nJAN\n", expected: "FEB\n   ^ no match for key\n\n^ no match for key\nJAN\n   ^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1M", "--debug"], input: "FEB\nJAZZ\n\nJAN\n", expected: "JAZZ\n^ no match for key\n\n^ no match for key\nJAN\n___\nFEB\n___\n", strip_nul: false},
-    {args: ["-s", "-k2,2M", "--debug"], input: "1\tFEB\n2\tJAZZ\n3\t\n4\tJAN\n", expected: "2>JAZZ\n  ^ no match for key\n3>\n  ^ no match for key\n4>JAN\n  ___\n1>FEB\n  ___\n", strip_nul: false},
-    {args: ["-s", "-k1M", "--debug"], input: "FEB\nJANZ\n\nJAN\n", expected: "\n^ no match for key\nJANZ\n___\nJAN\n___\nFEB\n___\n", strip_nul: false},
-    {args: ["-s", "-k2,2M", "--debug"], input: "1\tFEB\n2\tJANZ\n3\t\n4\tJAN\n", expected: "3>\n  ^ no match for key\n2>JANZ\n  ___\n4>JAN\n  ___\n1>FEB\n  ___\n", strip_nul: false},
-    {args: ["-s", "-g", "--debug"], input: " 1.2ignore\n 1.1e4ignore\n", expected: " 1.2ignore\n ___\n 1.1e4ignore\n _____\n", strip_nul: false},
-    {args: ["-s", "-d", "--debug"], input: "\tb\n\t\ta\n", expected: ">>a\n___\n>b\n__\n", strip_nul: false},
-    {args: ["-s", "-k2,2", "--debug"], input: "a\n\n", expected: "a\n ^ no match for key\n\n^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1", "--debug"], input: "b\na\n", expected: "a\n_\nb\n_\n", strip_nul: false},
-    {args: ["-s", "--debug", "-k1,1h"], input: "-0\n1\n-2\n--Mi-1\n-3\n-0\n", expected: "-3\n__\n-2\n__\n-0\n__\n--Mi-1\n^ no match for key\n-0\n__\n1\n_\n", strip_nul: false},
-    {args: ["-b", "--debug"], input: " 1\n1\n", expected: " 1\n _\n__\n1\n_\n_\n", strip_nul: false},
-    {args: ["-sb", "--debug"], input: " 1\n1\n", expected: " 1\n _\n1\n_\n", strip_nul: false},
-    {args: ["--debug"], input: " 1\n1\n", expected: " 1\n__\n1\n_\n", strip_nul: false},
-    {args: ["-s", "-k1n", "--debug"], input: "2,5\n2.4\n", expected: "2,5\n_\n2.4\n___\n", strip_nul: false},
-    {args: ["-s", "-k1n", "--debug"], input: "2.,,3\n2.4\n", expected: "2.,,3\n__\n2.4\n___\n", strip_nul: false},
-    {args: ["-s", "-k1n", "--debug"], input: "2,,3\n2.4\n", expected: "2,,3\n_\n2.4\n___\n", strip_nul: false},
-    {args: ["-s", "-n", "-z", "--debug"], input: "1a\02b\0", expected: "1a\n_\n2b\n_\n", strip_nul: false},
-    {args: ["-s", "-k2b,2", "--debug"], input: "\0\ta\n", expected: ">a\n _\n", strip_nul: true},
-    {args: ["-s", "-k2.4b,2.3n", "--debug"], input: "A\tchr10\nB\tchr1\n", expected: "A>chr10\n     ^ no match for key\nB>chr1\n     ^ no match for key\n", strip_nul: false},
-    {args: ["-s", "-k1.2b", "--debug"], input: "1 2\n1 3\n", expected: "1 2\n __\n1 3\n __\n", strip_nul: false},
-  ] {
-    let r = uu.invoke(s, "sort", item.args, stdin: bytes.from_text(item.input))?
-    let actual = if item.strip_nul { r.stdout.utf8()?.replace("\0", with: "") } else { r.stdout as Str }
-    if actual != item.expected { failures += [f"{item.args.join(" ")}: {actual} expected {item.expected}"] }
-  }
-  for item in [
-    {args: ["--debug", "-k2g", "-k1b,1"], locale: "C", input: "   1²---++3   1,234  Mi\n", expected: "   1²---++3   1,234  Mi\n               _\n   _________\n________________________\n"},
-    {args: ["--debug", "-k2g", "-k1b,1"], locale: "fr_FR.UTF-8", input: "   1²---++3   1,234  Mi\n", expected: "   1²---++3   1,234  Mi\n              _____\n   ________\n_______________________\n"},
-    {args: ["--debug", "-k1,1n", "-k1,1g", "-k1,1h", "-k2,2n", "-k2,2g", "-k2,2h", "-k3,3n", "-k3,3g", "-k3,3h"], locale: "fr_FR.UTF-8", input: "+1234 1234Gi 1,234M\n", expected: "+1234 1234Gi 1,234M\n^ no match for key\n_____\n^ no match for key\n      ____\n      ____\n      _____\n             _____\n             _____\n             ______\n___________________\n"},
-  ] {
-    let r = uu.invoke(s, "sort", item.args, stdin: bytes.from_text(item.input), vars: {LC_ALL: item.locale, LC_MESSAGES: "C"})?
-    let normalize = regex.compile("(?m)^\\^ .*\\n")?
-    let actual = normalize.replace(r.stdout as Str, with: "^ no match for key\n")
-    if actual != item.expected { failures += [f"{item.locale} {item.args.join(" ")}: {actual} expected {item.expected}"] }
+  let failures = collect {
+    for item in [
+      {
+        args: [
+          "-s",
+          "-k2n",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1.3n",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1n",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2g",
+          "--debug",
+        ],
+        input: "1\t2\n2\t\n3\t1\n",
+        expected: "2>\n  ^ no match for key\n3>1\n  _\n1>2\n  _\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2h",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1.3h",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1h",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2g",
+          "--debug",
+        ],
+        input: "1\t2\n2\t\n3\t1\n",
+        expected: "2>\n  ^ no match for key\n3>1\n  _\n1>2\n  _\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2g",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1.3g",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1g",
+          "--debug",
+        ],
+        input: "1\n\n44\n33\n2\n",
+        expected: "\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2g",
+          "--debug",
+        ],
+        input: "1\t2\n2\t\n3\t1\n",
+        expected: "2>\n  ^ no match for key\n3>1\n  _\n1>2\n  _\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1M",
+          "--debug",
+        ],
+        input: "FEB\n\nJAN\n",
+        expected: "\n^ no match for key\nJAN\n___\nFEB\n___\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2,2M",
+          "--debug",
+        ],
+        input: "FEB\n\nJAN\n",
+        expected: "FEB\n   ^ no match for key\n\n^ no match for key\nJAN\n   ^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1M",
+          "--debug",
+        ],
+        input: "FEB\nJAZZ\n\nJAN\n",
+        expected: "JAZZ\n^ no match for key\n\n^ no match for key\nJAN\n___\nFEB\n___\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2,2M",
+          "--debug",
+        ],
+        input: "1\tFEB\n2\tJAZZ\n3\t\n4\tJAN\n",
+        expected: "2>JAZZ\n  ^ no match for key\n3>\n  ^ no match for key\n4>JAN\n  ___\n1>FEB\n  ___\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1M",
+          "--debug",
+        ],
+        input: "FEB\nJANZ\n\nJAN\n",
+        expected: "\n^ no match for key\nJANZ\n___\nJAN\n___\nFEB\n___\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2,2M",
+          "--debug",
+        ],
+        input: "1\tFEB\n2\tJANZ\n3\t\n4\tJAN\n",
+        expected: "3>\n  ^ no match for key\n2>JANZ\n  ___\n4>JAN\n  ___\n1>FEB\n  ___\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-g",
+          "--debug",
+        ],
+        input: " 1.2ignore\n 1.1e4ignore\n",
+        expected: " 1.2ignore\n ___\n 1.1e4ignore\n _____\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-d",
+          "--debug",
+        ],
+        input: "\tb\n\t\ta\n",
+        expected: ">>a\n___\n>b\n__\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2,2",
+          "--debug",
+        ],
+        input: "a\n\n",
+        expected: "a\n ^ no match for key\n\n^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1",
+          "--debug",
+        ],
+        input: "b\na\n",
+        expected: "a\n_\nb\n_\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "--debug",
+          "-k1,1h",
+        ],
+        input: "-0\n1\n-2\n--Mi-1\n-3\n-0\n",
+        expected: "-3\n__\n-2\n__\n-0\n__\n--Mi-1\n^ no match for key\n-0\n__\n1\n_\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-b",
+          "--debug",
+        ],
+        input: " 1\n1\n",
+        expected: " 1\n _\n__\n1\n_\n_\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-sb",
+          "--debug",
+        ],
+        input: " 1\n1\n",
+        expected: " 1\n _\n1\n_\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "--debug",
+        ],
+        input: " 1\n1\n",
+        expected: " 1\n__\n1\n_\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1n",
+          "--debug",
+        ],
+        input: "2,5\n2.4\n",
+        expected: "2,5\n_\n2.4\n___\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1n",
+          "--debug",
+        ],
+        input: "2.,,3\n2.4\n",
+        expected: "2.,,3\n__\n2.4\n___\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1n",
+          "--debug",
+        ],
+        input: "2,,3\n2.4\n",
+        expected: "2,,3\n_\n2.4\n___\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-n",
+          "-z",
+          "--debug",
+        ],
+        input: "1a\02b\0",
+        expected: "1a\n_\n2b\n_\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k2b,2",
+          "--debug",
+        ],
+        input: "\0\ta\n",
+        expected: ">a\n _\n",
+        strip_nul: true,
+      },
+      {
+        args: [
+          "-s",
+          "-k2.4b,2.3n",
+          "--debug",
+        ],
+        input: "A\tchr10\nB\tchr1\n",
+        expected: "A>chr10\n     ^ no match for key\nB>chr1\n     ^ no match for key\n",
+        strip_nul: false,
+      },
+      {
+        args: [
+          "-s",
+          "-k1.2b",
+          "--debug",
+        ],
+        input: "1 2\n1 3\n",
+        expected: "1 2\n __\n1 3\n __\n",
+        strip_nul: false,
+      },
+    ] {
+      let r = uu.invoke(s, "sort", item.args, stdin: bytes.from_text(item.input))?
+      let actual = if item.strip_nul { r.stdout.utf8()?.replace("\0", with: "") } else { r.stdout as Str }
+      if actual != item.expected { yield f"{item.args.join(" ")}: {actual} expected {item.expected}" }
+    }
+
+    for item in [
+      {
+        args: [
+          "--debug",
+          "-k2g",
+          "-k1b,1",
+        ],
+        locale: "C",
+        input: "   1²---++3   1,234  Mi\n",
+        expected: "   1²---++3   1,234  Mi\n               _\n   _________\n________________________\n",
+      },
+      {
+        args: [
+          "--debug",
+          "-k2g",
+          "-k1b,1",
+        ],
+        locale: "fr_FR.UTF-8",
+        input: "   1²---++3   1,234  Mi\n",
+        expected: "   1²---++3   1,234  Mi\n              _____\n   ________\n_______________________\n",
+      },
+      {
+        args: [
+          "--debug",
+          "-k1,1n",
+          "-k1,1g",
+          "-k1,1h",
+          "-k2,2n",
+          "-k2,2g",
+          "-k2,2h",
+          "-k3,3n",
+          "-k3,3g",
+          "-k3,3h",
+        ],
+        locale: "fr_FR.UTF-8",
+        input: "+1234 1234Gi 1,234M\n",
+        expected: "+1234 1234Gi 1,234M\n^ no match for key\n_____\n^ no match for key\n      ____\n      ____\n      _____\n             _____\n             _____\n             ______\n___________________\n",
+      },
+    ] {
+      let r = uu.invoke(
+        s,
+        "sort",
+        item.args,
+        stdin: bytes.from_text(item.input),
+        vars: {LC_ALL: item.locale, LC_MESSAGES: "C"},
+      )?
+      let normalize = regex.compile("(?m)^\\^ .*\\n")?
+      let actual = normalize.replace(r.stdout as Str, with: "^ no match for key\n")
+      if actual != item.expected { yield f"{item.locale} {item.args.join(" ")}: {actual} expected {item.expected}" }
+    }
   }
   assert failures.is_empty(), failures.join("\n")
 }
@@ -275,36 +611,48 @@ test test_gnu_sort_sort_float_log { |ctx|
 # origin: gnu sort/sort-locale.log
 test test_gnu_sort_sort_locale_log { |ctx|
   let s = uu.scene(ctx)?
-  var failures = []
-  for setting in ["LC_ALL", "LC_COLLATE"] {
-    for item in [
-      {locale: "en_US.iso8859-1", left: b"a_a", right: b"a b"},
-      {locale: "en_US.iso8859-1", left: b"aaa", right: b"BBB"},
-      {locale: "en_US.iso8859-1", left: b"aa\xe9", right: b"aaf"},
-      {locale: "fr_FR.UTF-8", left: bytes.from_text("aaé"), right: b"aaf"},
-      {locale: "fr_FR.UTF-8", left: bytes.from_text("aéY"), right: b"ae\xcc\x81Z"},
-      {locale: "fr_FR.UTF-8", left: b"file1", right: b"file-2"},
-    ] {
-      let vars: Record = if setting == "LC_ALL" { {LC_ALL: item.locale} } else { {LC_ALL: "", LC_COLLATE: item.locale} }
-      let left = item.left as Path
-      let right = item.right as Path
-      uu.at_bytes(s, item.left)?.write("")
-      uu.at_bytes(s, item.right)?.write("")
-      let input = bytes.concat([item.left, b"\n", item.right, b"\n"])
-      let sorted = uu.invoke(s, "sort", [], stdin: input, vars: vars)?
-      let listed = uu.invoke_paths(s, "ls", [p"-1", left, right], vars: vars)?
-      uu.succeeds(sorted)
-      uu.succeeds(listed)
-      let locale_expected = pair_bytes(item.left, item.right, bash_path_precedes(s, left, right, vars)?)
-      let c_expected = pair_bytes(item.left, item.right, bash_path_precedes(s, left, right, {LC_ALL: "C"})?)
-      if sorted.stdout != locale_expected { failures += [f"{setting}={item.locale}: sort {byte_values(sorted.stdout)} expected {byte_values(locale_expected)}"] }
-      if listed.stdout != locale_expected { failures += [f"{setting}={item.locale}: ls {byte_values(listed.stdout)} expected {byte_values(locale_expected)}"] }
-      if sorted.stdout != listed.stdout { failures += [f"{setting}={item.locale}: sort differs from ls"] }
-      if locale_expected != c_expected and sorted.stdout == c_expected {
-        failures += [f"{setting}={item.locale}: pair does not differ from C ordering"]
+  let failures = collect {
+    for setting in ["LC_ALL", "LC_COLLATE"] {
+      for item in [
+        {locale: "en_US.iso8859-1", left: b"a_a", right: b"a b"},
+        {locale: "en_US.iso8859-1", left: b"aaa", right: b"BBB"},
+        {locale: "en_US.iso8859-1", left: b"aa\xe9", right: b"aaf"},
+        {locale: "fr_FR.UTF-8", left: bytes.from_text("aaé"), right: b"aaf"},
+        {locale: "fr_FR.UTF-8", left: bytes.from_text("aéY"), right: b"ae\xcc\x81Z"},
+        {locale: "fr_FR.UTF-8", left: b"file1", right: b"file-2"},
+      ] {
+        let vars: Record = if setting == "LC_ALL" {
+          {LC_ALL: item.locale}
+        } else {
+          {LC_ALL: "", LC_COLLATE: item.locale}
+        }
+        let left = item.left as Path
+        let right = item.right as Path
+        uu.at_bytes(s, item.left)?.write("")
+        uu.at_bytes(s, item.right)?.write("")
+        let input = bytes.concat([item.left, b"\n", item.right, b"\n"])
+        let sorted = uu.invoke(s, "sort", [], stdin: input, vars: vars)?
+        let listed = uu.invoke_paths(s, "ls", [p"-1", left, right], vars: vars)?
+        uu.succeeds(sorted)
+        uu.succeeds(listed)
+        let locale_expected = pair_bytes(item.left, item.right, bash_path_precedes(s, left, right, vars)?)
+        let c_expected = pair_bytes(item.left, item.right, bash_path_precedes(s, left, right, {LC_ALL: "C"})?)
+        if sorted.stdout != locale_expected {
+          yield f"{setting}={item.locale}: sort {byte_values(sorted.stdout)} expected {byte_values(locale_expected)}"
+        }
+
+        if listed.stdout != locale_expected {
+          yield f"{setting}={item.locale}: ls {byte_values(listed.stdout)} expected {byte_values(locale_expected)}"
+        }
+
+        if sorted.stdout != listed.stdout { yield f"{setting}={item.locale}: sort differs from ls" }
+        if locale_expected != c_expected and sorted.stdout == c_expected {
+          yield f"{setting}={item.locale}: pair does not differ from C ordering"
+        }
+
+        uu.at_bytes(s, item.left)?.remove()
+        uu.at_bytes(s, item.right)?.remove()
       }
-      uu.at_bytes(s, item.left)?.remove()
-      uu.at_bytes(s, item.right)?.remove()
     }
   }
   uu.write_bytes(s, "in", bytes.from_text("aaé\naaf\nAAF\n"))

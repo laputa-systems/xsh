@@ -114,18 +114,19 @@ export const EMPTY_HUNK: Hunk = {
 ## when the data does not end in a line break. Lone carriage returns stay in
 ## the line.
 export pure split_lines(data: Bytes) -> List[Bytes] {
-  var output = []
   var at = 0
   let total = data.len()
-  for chunk in data.lines() {
-    var end = at + chunk.len()
-    if end < total {
-      if data.byte_at(end) == 10 { end += 1 } else if data.byte_at(end) == 13 {
-        end += if end + 1 < total and data.byte_at(end + 1) == 10 { 2 } else { 1 }
+  let output = collect {
+    for chunk in data.lines() {
+      var end = at + chunk.len()
+      if end < total {
+        if data.byte_at(end) == 10 { end += 1 } else if data.byte_at(end) == 13 {
+          end += if end + 1 < total and data.byte_at(end + 1) == 10 { 2 } else { 1 }
+        }
       }
+      yield data[at..end]
+      at = end
     }
-    output += [data[at..end]]
-    at = end
   }
   output
 }
@@ -157,28 +158,58 @@ pure number(text: Str) -> Int {
 
 pure unquote(text: Str) -> HeaderName {
   let raw = bytes.from_text(text)
-  var output = []
   var index = 1
   let size = raw.len()
-  while index < size {
-    let byte = raw.byte_at(index) ?? 0
-    if byte == 34 { index += 1; break }
-    if byte == 92 and index + 1 < size {
-      let next = raw.byte_at(index + 1) ?? 0
-      index += 2
-      if next == 110 { output += [10] } else if next == 116 { output += [9] } else if next == 114 { output += [13] } else if next == 97 { output += [7] } else if next == 98 { output += [8] } else if next == 102 { output += [12] } else if next == 118 { output += [11] } else if next >= 48 and next <= 55 {
-        var value = next - 48
-        var digits = 1
-        while digits < 3 and index < size {
-          let more = raw.byte_at(index) ?? 0
-          if more >= 48 and more <= 55 { value = value * 8 + more - 48; index += 1; digits += 1 } else { break }
+  let output = collect {
+    while index < size {
+      let byte = raw.byte_at(index) ?? 0
+      if byte == 34 {
+        index += 1
+        break
+      }
+
+      if byte == 92 and index + 1 < size {
+        let next = raw.byte_at(index + 1) ?? 0
+        index += 2
+        if next == 110 {
+          yield 10
+        } else if next == 116 {
+          yield 9
+        } else if next == 114 {
+          yield 13
+        } else if next == 97 {
+          yield 7
+        } else if next == 98 {
+          yield 8
+        } else if next == 102 {
+          yield 12
+        } else if next == 118 {
+          yield 11
+        } else if next >= 48 and next <= 55 {
+          var value = next - 48
+          var digits = 1
+          while digits < 3 and index < size {
+            let more = raw.byte_at(index) ?? 0
+            if more >= 48 and more <= 55 {
+              value = value * 8 + more - 48
+              index += 1
+              digits += 1
+            } else {
+              break
+            }
+          }
+
+          yield value % 256
+        } else {
+          yield next
         }
-        output += [value % 256]
-      } else { output += [next] }
-      continue
+
+        continue
+      }
+
+      yield byte
+      index += 1
     }
-    output += [byte]
-    index += 1
   }
   let name = (bytes.from_ints(output) ?? b"").utf8() ?? ""
   let rest = (raw[index..].utf8() ?? "").trim()
@@ -310,15 +341,16 @@ pure read_git_header(lines: List[Bytes], at: Int) -> GitRead {
 ## The lines from `from` on with up to `width` leading blanks removed from
 ## each, which is how an indented patch is read.
 export pure deindent(lines: List[Bytes], from: Int, width: Int) -> List[Bytes] {
-  var output = []
-  for index in range(lines.len()) {
-    var line = lines[index]
-    if index >= from {
-      var cut = 0
-      while cut < width and cut < line.len() and (line.byte_at(cut) == 32 or line.byte_at(cut) == 9) { cut += 1 }
-      line = line[cut..]
+  let output = collect {
+    for index in range(lines.len()) {
+      var line = lines[index]
+      if index >= from {
+        var cut = 0
+        while cut < width and cut < line.len() and (line.byte_at(cut) == 32 or line.byte_at(cut) == 9) { cut += 1 }
+        line = line[cut..]
+      }
+      yield line
     }
-    output += [line]
   }
   output
 }

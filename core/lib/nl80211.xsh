@@ -340,14 +340,15 @@ export proc attr_nested(kind: Int, children: List[Bytes]) [error] -> Result[Byte
 ## nesting and byte-order flag bits are dropped from each kind, and a
 ## truncated trailing attribute ends the list.
 export pure parse_attrs(payload: Bytes, start: Int) -> List[Attr] {
-  var found: List[Attr] = []
   var offset = start
-  while offset + 4 <= payload.len() {
-    let length = uint(payload.slice(offset, 2))
-    let kind = uint(payload.slice(offset + 2, 2)).bit_and(NLA_TYPE_MASK)
-    break when length < 4 or offset + length > payload.len()
-    found += [{kind: kind, data: payload.slice(offset + 4, length - 4)}]
-    offset += (length + 3) / 4 * 4
+  let found: List[Attr] = collect {
+    while offset + 4 <= payload.len() {
+      let length = uint(payload.slice(offset, 2))
+      let kind = uint(payload.slice(offset + 2, 2)).bit_and(NLA_TYPE_MASK)
+      break when length < 4 or offset + length > payload.len()
+      yield {kind: kind, data: payload.slice(offset + 4, length - 4)}
+      offset += (length + 3) / 4 * 4
+    }
   }
   found
 }
@@ -429,9 +430,10 @@ export pure c_hex(value: Int) -> Str {
 
 ## A MAC address as six colon-separated lowercase hex pairs.
 export pure mac_text(data: Bytes) -> Str {
-  var parts = []
-  for index in range(data.len()) {
-    parts += [hex(data.byte_at(index) ?? 0, 2)]
+  let parts = collect {
+    for index in range(data.len()) {
+      yield hex(data.byte_at(index) ?? 0, 2)
+    }
   }
   parts.join(":")
 }
@@ -440,12 +442,13 @@ export pure mac_text(data: Bytes) -> Str {
 export pure parse_mac(text: Str) -> Bytes? {
   let parts = text.split(":")
   return null when parts.len() != 6
-  var values = []
-  for part in parts {
-    return null when part.byte_len() != 2 or ! rx"^[0-9A-Fa-f]{2}$".matches(part)
-    let value = ("0x" + part).parse_int() ?? -1
-    return null when value < 0
-    values += [value]
+  let values = collect {
+    for part in parts {
+      return null when part.byte_len() != 2 or ! rx"^[0-9A-Fa-f]{2}$".matches(part)
+      let value = ("0x" + part).parse_int() ?? -1
+      return null when value < 0
+      yield value
+    }
   }
   if let Ok(packed) = bytes.from_ints(values) {
     return packed
@@ -475,9 +478,10 @@ export pure ssid_text(data: Bytes) -> Str {
 
 ## Space-separated lowercase hex of `data`.
 export pure hex_bytes(data: Bytes) -> Str {
-  var parts = []
-  for index in range(data.len()) {
-    parts += [hex(data.byte_at(index) ?? 0, 2)]
+  let parts = collect {
+    for index in range(data.len()) {
+      yield hex(data.byte_at(index) ?? 0, 2)
+    }
   }
   parts.join(" ")
 }
@@ -586,10 +590,11 @@ proc failure_to_iw(failure: Error) -> Error {
 }
 
 proc decode_messages(replies: List[LinuxNetlinkMessage]) -> List[Message] {
-  var out: List[Message] = []
-  for reply in replies {
-    if reply.payload.len() >= 4 {
-      out += [{cmd: reply.payload.byte_at(0) ?? 0, attrs: parse_attrs(reply.payload, 4)}]
+  let out: List[Message] = collect {
+    for reply in replies {
+      if reply.payload.len() >= 4 {
+        yield {cmd: reply.payload.byte_at(0) ?? 0, attrs: parse_attrs(reply.payload, 4)}
+      }
     }
   }
   out
@@ -664,13 +669,14 @@ export type Interface = {name: Str, index: Int, phy: Int}
 ## Every wireless interface the kernel knows.
 export proc interfaces(client: Client) [process, error] -> Result[List[Interface], Error] {
   let messages = request(client, CMD_GET_INTERFACE, [], dump: true)?
-  var found: List[Interface] = []
-  for message in messages {
-    let name = pick(message.attrs, ATTR_IFNAME)
-    let index = pick_uint(message.attrs, ATTR_IFINDEX)
-    let phy = pick_uint(message.attrs, ATTR_WIPHY)
-    if name != null and index != null {
-      found += [{name: cstring(name), index: index, phy: phy ?? -1}]
+  let found: List[Interface] = collect {
+    for message in messages {
+      let name = pick(message.attrs, ATTR_IFNAME)
+      let index = pick_uint(message.attrs, ATTR_IFINDEX)
+      let phy = pick_uint(message.attrs, ATTR_WIPHY)
+      if name != null and index != null {
+        yield {name: cstring(name), index: index, phy: phy ?? -1}
+      }
     }
   }
   found
@@ -864,14 +870,15 @@ const CAPABILITY_NAMES = [
 type InformationElement = {id: Int, data: Bytes}
 
 pure split_elements(data: Bytes) -> List[InformationElement] {
-  var found: List[InformationElement] = []
   var offset = 0
-  while offset + 2 <= data.len() {
-    let id = data.byte_at(offset) ?? 0
-    let length = data.byte_at(offset + 1) ?? 0
-    break when offset + 2 + length > data.len()
-    found += [{id: id, data: data.slice(offset + 2, length)}]
-    offset += 2 + length
+  let found: List[InformationElement] = collect {
+    while offset + 2 <= data.len() {
+      let id = data.byte_at(offset) ?? 0
+      let length = data.byte_at(offset + 1) ?? 0
+      break when offset + 2 + length > data.len()
+      yield {id: id, data: data.slice(offset + 2, length)}
+      offset += 2 + length
+    }
   }
   found
 }
@@ -1133,9 +1140,10 @@ pure vendor_lines(data: Bytes, unknown: Bool) -> List[Str] {
 
 ## The element lines of a raw information-element block.
 export pure element_block(data: Bytes, unknown: Bool) -> List[Str] {
-  var lines = []
-  for element in split_elements(data) {
-    lines += element_lines(element, unknown)
+  let lines = collect {
+    for element in split_elements(data) {
+      yield @element_lines(element, unknown)
+    }
   }
   lines
 }
@@ -1296,9 +1304,10 @@ pure yes_no(value: Bool) -> Str {
 # empty string when the kernel sent no chain data.
 pure chain_signals(chains: Bytes?) -> Str {
   return "" when chains == null
-  var values = []
-  for chain in parse_attrs(chains, 0) {
-    values += [f"{signed8(uint(chain.data))}"]
+  let values = collect {
+    for chain in parse_attrs(chains, 0) {
+      yield f"{signed8(uint(chain.data))}"
+    }
   }
   "[" + values.join(", ") + "] "
 }
@@ -1540,15 +1549,16 @@ export pure link_lines(message: Message) -> List[Str] {
   let parameters = pick(info, STA_BSS_PARAM)
   if parameters != null {
     let fields = parse_attrs(parameters, 0)
-    var flags = []
-    if pick(fields, BSS_PARAM_CTS_PROT) != null {
-      flags += ["CTS-protection"]
-    }
-    if pick(fields, BSS_PARAM_SHORT_PREAMBLE) != null {
-      flags += ["short-preamble"]
-    }
-    if pick(fields, BSS_PARAM_SHORT_SLOT_TIME) != null {
-      flags += ["short-slot-time"]
+    let flags = collect {
+      if pick(fields, BSS_PARAM_CTS_PROT) != null {
+        yield "CTS-protection"
+      }
+      if pick(fields, BSS_PARAM_SHORT_PREAMBLE) != null {
+        yield "short-preamble"
+      }
+      if pick(fields, BSS_PARAM_SHORT_SLOT_TIME) != null {
+        yield "short-slot-time"
+      }
     }
     lines += ["\tbss flags: " + flags.join(" ")]
     let dtim = pick_uint(fields, BSS_PARAM_DTIM_PERIOD)
@@ -1608,12 +1618,13 @@ pure frequency_lines(freqs: Bytes) -> List[Str] {
       let tenths = (power + 5) / 10
       text += f" ({tenths / 10}.{tenths % 10} dBm)"
     }
-    var restrictions = []
-    if pick(fields, FREQ_NO_IR) != null {
-      restrictions += ["no IR"]
-    }
-    if pick(fields, FREQ_RADAR) != null {
-      restrictions += ["radar detection"]
+    let restrictions = collect {
+      if pick(fields, FREQ_NO_IR) != null {
+        yield "no IR"
+      }
+      if pick(fields, FREQ_RADAR) != null {
+        yield "radar detection"
+      }
     }
     if ! restrictions.is_empty() {
       text += " (" + restrictions.join(", ") + ")"
@@ -1624,16 +1635,17 @@ pure frequency_lines(freqs: Bytes) -> List[Str] {
 }
 
 pure bitrate_lines(rates: Bytes) -> List[Str] {
-  var lines = []
-  for item in parse_attrs(rates, 0) {
-    let fields = parse_attrs(item.data, 0)
-    let rate = pick_uint(fields, 1)
-    continue when rate == null
-    var text = f"\t\t\t* {rate / 10}.{rate % 10} Mbps"
-    if pick(fields, 2) != null {
-      text += " (short preamble supported)"
+  let lines = collect {
+    for item in parse_attrs(rates, 0) {
+      let fields = parse_attrs(item.data, 0)
+      let rate = pick_uint(fields, 1)
+      continue when rate == null
+      var text = f"\t\t\t* {rate / 10}.{rate % 10} Mbps"
+      if pick(fields, 2) != null {
+        text += " (short preamble supported)"
+      }
+      yield text
     }
-    lines += [text]
   }
   lines
 }
@@ -1685,19 +1697,20 @@ pure ht_capability_lines(cap: Int) -> List[Str] {
 # The set bits of a 77-bit MCS bitmap as ` 0-7, 32`: runs of consecutive
 # indexes are written as ranges.
 pure mcs_index_text(mcs: Bytes) -> Str {
-  var runs = []
   var start = -1
   var previous = -1
-  for index in range(78) {
-    let present = index < 77 and (mcs.byte_at(index / 8) ?? 0).bit_and([1, 2, 4, 8, 16, 32, 64, 128][index % 8]) != 0
-    if present {
-      if start < 0 {
-        start = index
+  let runs = collect {
+    for index in range(78) {
+      let present = index < 77 and (mcs.byte_at(index / 8) ?? 0).bit_and([1, 2, 4, 8, 16, 32, 64, 128][index % 8]) != 0
+      if present {
+        if start < 0 {
+          start = index
+        }
+        previous = index
+      } else if start >= 0 {
+        yield if previous == start { f"{start}" } else { f"{start}-{previous}" }
+        start = -1
       }
-      previous = index
-    } else if start >= 0 {
-      runs += [if previous == start { f"{start}" } else { f"{start}-{previous}" }]
-      start = -1
     }
   }
   " " + runs.join(", ")
@@ -1705,28 +1718,29 @@ pure mcs_index_text(mcs: Bytes) -> Str {
 
 # The HT MCS set: the receive data rate and the supported rate indexes.
 pure ht_mcs_lines(mcs: Bytes) -> List[Str] {
-  var lines = []
   let max_rate = (mcs.byte_at(10) ?? 0) + (mcs.byte_at(11) ?? 0).bit_and(3) * 256
   let tx_byte = mcs.byte_at(12) ?? 0
   let tx_defined = tx_byte.bit_and(1) != 0
   let tx_equal = tx_byte.bit_and(2) == 0
   let streams = tx_byte / 4 % 4 + 1
   let unequal = tx_byte.bit_and(16) != 0
-  if max_rate != 0 {
-    lines += [f"\t\tHT Max RX data rate: {max_rate} Mbps"]
-  }
-  if tx_defined {
-    if tx_equal {
-      lines += ["\t\tHT TX/RX MCS rate indexes supported:" + mcs_index_text(mcs)]
-    } else {
-      lines += ["\t\tHT RX MCS rate indexes supported:" + mcs_index_text(mcs)]
-      lines += [if unequal { "\t\tTX unequal modulation supported" } else { "\t\tTX unequal modulation not supported" }]
-      lines += [f"\t\tHT TX Max spatial streams: {streams}"]
-      lines += ["\t\tHT TX MCS rate indexes supported may differ"]
+  let lines = collect {
+    if max_rate != 0 {
+      yield f"\t\tHT Max RX data rate: {max_rate} Mbps"
     }
-  } else {
-    lines += ["\t\tHT RX MCS rate indexes supported:" + mcs_index_text(mcs)]
-    lines += ["\t\tHT TX MCS rate indexes are undefined"]
+    if tx_defined {
+      if tx_equal {
+        yield "\t\tHT TX/RX MCS rate indexes supported:" + mcs_index_text(mcs)
+      } else {
+        yield "\t\tHT RX MCS rate indexes supported:" + mcs_index_text(mcs)
+        yield if unequal { "\t\tTX unequal modulation supported" } else { "\t\tTX unequal modulation not supported" }
+        yield f"\t\tHT TX Max spatial streams: {streams}"
+        yield "\t\tHT TX MCS rate indexes supported may differ"
+      }
+    } else {
+      yield "\t\tHT RX MCS rate indexes supported:" + mcs_index_text(mcs)
+      yield "\t\tHT TX MCS rate indexes are undefined"
+    }
   }
   lines
 }
@@ -2121,24 +2135,26 @@ export type ScanRequest = {
 export proc scan_attrs(index: Int, scan: ScanRequest) [error] -> Result[List[Bytes], Error] {
   var attrs: List[Bytes] = [attr_u32(ATTR_IFINDEX, index)?]
   if ! scan.passive {
-    var entries = []
     var number = 0
-    if scan.ssids.is_empty() {
-      entries += [attr(number, b"")?]
-    } else {
-      for ssid in scan.ssids {
-        entries += [attr(number, bytes.from_text(ssid))?]
-        number += 1
+    let entries = collect {
+      if scan.ssids.is_empty() {
+        yield attr(number, b"")?
+      } else {
+        for ssid in scan.ssids {
+          yield attr(number, bytes.from_text(ssid))?
+          number += 1
+        }
       }
     }
     attrs += [attr_nested(ATTR_SCAN_SSIDS, entries)?]
   }
   if ! scan.freqs.is_empty() {
-    var entries = []
     var number = 0
-    for freq in scan.freqs {
-      entries += [attr_u32(number, freq)?]
-      number += 1
+    let entries = collect {
+      for freq in scan.freqs {
+        yield attr_u32(number, freq)?
+        number += 1
+      }
     }
     attrs += [attr_nested(ATTR_SCAN_FREQUENCIES, entries)?]
   }

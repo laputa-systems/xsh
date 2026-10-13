@@ -45,41 +45,48 @@ test test_gnu_id_zero_log { |ctx|
     let found = uu.invoke(s, "id", [candidate])?
     if found.status == 0 { accounts += [candidate] }
   }
-  var failures = []
-  for name in accounts + [""] {
-    let operands = if name == "" { [] } else { [name] }
-    for mode in ["g", "gr", "G", "Gr", "u", "ur"] {
-      for suffix in ["", "n"] {
-        let flag = "-" + mode + suffix
-        let plain = uu.invoke(s, "id", [flag].extend(operands))?
-        let zero = uu.invoke(s, "id", [flag + "z"].extend(operands))?
-        lookup_status(plain, suffix == "n")
-        lookup_status(zero, suffix == "n")
-        assert zero.stdout.len() >= 1, "zero output must include a terminator"
-        let restored = (zero.stdout[..-1] as Str + "\n").replace("\0", with: " ")
-        if plain.stdout != bytes.from_text(restored) { failures += [f"{flag}[z] {name}: terminator or separator differs"] }
+  let failures = collect {
+    for name in accounts + [""] {
+      let operands = if name == "" { [] } else { [name] }
+      for mode in ["g", "gr", "G", "Gr", "u", "ur"] {
+        for suffix in ["", "n"] {
+          let flag = "-" + mode + suffix
+          let plain = uu.invoke(s, "id", [flag].extend(operands))?
+          let zero = uu.invoke(s, "id", [flag + "z"].extend(operands))?
+          lookup_status(plain, suffix == "n")
+          lookup_status(zero, suffix == "n")
+          assert zero.stdout.len() >= 1, "zero output must include a terminator"
+          let restored = (zero.stdout[..-1] as Str + "\n").replace("\0", with: " ")
+          if plain.stdout != bytes.from_text(restored) { yield f"{flag}[z] {name}: terminator or separator differs" }
+        }
       }
     }
-  }
-  for mode in ["g", "gr", "u", "ur"] {
-    for suffix in ["", "n"] {
-      let flag = "-" + mode + suffix
-      let plain = uu.invoke(s, "id", [flag].extend(accounts))?
-      let zero = uu.invoke(s, "id", [flag + "z"].extend(accounts))?
-      lookup_status(plain, suffix == "n")
-      lookup_status(zero, suffix == "n")
-      if plain.stdout != bytes.from_text(zero.stdout.utf8()?.replace("\0", with: "\n")) { failures += [f"{flag}[z] multiple accounts: delimiter differs"] }
+
+    for mode in ["g", "gr", "u", "ur"] {
+      for suffix in ["", "n"] {
+        let flag = "-" + mode + suffix
+        let plain = uu.invoke(s, "id", [flag].extend(accounts))?
+        let zero = uu.invoke(s, "id", [flag + "z"].extend(accounts))?
+        lookup_status(plain, suffix == "n")
+        lookup_status(zero, suffix == "n")
+        if plain.stdout != bytes.from_text(zero.stdout.utf8()?.replace("\0", with: "\n")) {
+          yield f"{flag}[z] multiple accounts: delimiter differs"
+        }
+      }
     }
-  }
-  for mode in ["G", "Gr"] {
-    for suffix in ["", "n"] {
-      let flag = "-" + mode + suffix
-      let plain = uu.invoke(s, "id", [flag].extend(accounts))?
-      let zero = uu.invoke(s, "id", [flag + "z"].extend(accounts))?
-      lookup_status(plain, suffix == "n")
-      lookup_status(zero, suffix == "n")
-      let restored = (zero.stdout.utf8()?.replace("\0", with: " ") + "\n").replace("  ", with: "\n")
-      if bytes.concat([plain.stdout, b"\n"]) != bytes.from_text(restored) { failures += [f"{flag}[z] multiple accounts: group boundary differs"] }
+
+    for mode in ["G", "Gr"] {
+      for suffix in ["", "n"] {
+        let flag = "-" + mode + suffix
+        let plain = uu.invoke(s, "id", [flag].extend(accounts))?
+        let zero = uu.invoke(s, "id", [flag + "z"].extend(accounts))?
+        lookup_status(plain, suffix == "n")
+        lookup_status(zero, suffix == "n")
+        let restored = (zero.stdout.utf8()?.replace("\0", with: " ") + "\n").replace("  ", with: "\n")
+        if bytes.concat([plain.stdout, b"\n"]) != bytes.from_text(restored) {
+          yield f"{flag}[z] multiple accounts: group boundary differs"
+        }
+      }
     }
   }
   assert failures.is_empty(), failures.join("\n")

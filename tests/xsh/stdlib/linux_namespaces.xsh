@@ -135,15 +135,16 @@ for route in linux.routes()? {
   # A new namespace holds only a down loopback device, plus the fallback
   # tunnel devices that loaded tunnel modules create in every namespace.
   let fallback = ["tunl0", "gre0", "gretap0", "erspan0", "ip_vti0", "ip6_vti0", "sit0", "ip6tnl0", "ip6gre0"]
-  var inner = []
-  for line in out.read_text()?.lines() {
-    let fields = line.split(" ")
-    assert fields[0] == "interface", line
-    inner += [fields[1]]
-    if fields[1] == "lo" {
-      assert fields[2] == "LOOPBACK", f"the new loopback must be down: {line}"
-    } else {
-      assert fields[1] in fallback, f"{fields[1]} is not a device a new namespace creates"
+  let inner = collect {
+    for line in out.read_text()?.lines() {
+      let fields = line.split(" ")
+      assert fields[0] == "interface", line
+      yield fields[1]
+      if fields[1] == "lo" {
+        assert fields[2] == "LOOPBACK", f"the new loopback must be down: {line}"
+      } else {
+        assert fields[1] in fallback, f"{fields[1]} is not a device a new namespace creates"
+      }
     }
   }
   assert "lo" in inner

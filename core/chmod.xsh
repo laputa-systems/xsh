@@ -195,14 +195,15 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
 
 proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
   const invalid_mode_marker = b"\0chmod-mode\0"
-  var parsed_argv = []
   var invalid_mode = null
-  for word in argv {
-    let text = word.utf8() ?? ""
-    if invalid_mode == null and malformed_mode_option(text) and ! rx"^-[rwxXstugoa0-7,+-=]+$".matches(text) {
-      invalid_mode = word
-      parsed_argv += [invalid_mode_marker]
-    } else { parsed_argv += [word] }
+  let parsed_argv = collect {
+    for word in argv {
+      let text = word.utf8() ?? ""
+      if invalid_mode == null and malformed_mode_option(text) and ! rx"^-[rwxXstugoa0-7,+-=]+$".matches(text) {
+        invalid_mode = word
+        yield invalid_mode_marker
+      } else { yield word }
+    }
   }
   let opts = perm.options(parsed_argv, chmod: true)?
   if opts.help { gnu.help("Usage: chmod [OPTION]... MODE FILE...\n  -R, --recursive\n  -c, --changes\n  -v, --verbose\n  -f, --silent\n      --reference=RFILE\n      --preserve-root\n      --no-preserve-root\n      --help\n      --version"); return }

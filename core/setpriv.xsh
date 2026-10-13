@@ -142,40 +142,42 @@ pure cap_number(name: Str, last: Int) -> Int? {
 # Items are comma separated and each carries a `+` or `-`, as in util-linux.
 proc parse_caps(text: Str) [process, env, error] -> List[Edit] {
   let last = read_state().last_capability
-  var edits: List[Edit] = []
-  for item in text.split(",") {
-    if item == "" or ! (item.starts_with("+") or item.starts_with("-")) {
-      usage_fail("bad capability string")
-    }
-    let add = item.starts_with("+")
-    let name = item.byte_slice(1)
-    if name == "all" {
-      edits += [{add: add, all: true, cap: 0}]
-    } else if let number = cap_number(name, last) {
-      edits += [{add: add, all: false, cap: number}]
-    } else {
-      usage_fail(f"unknown capability \"{name}\"")
+  let edits: List[Edit] = collect {
+    for item in text.split(",") {
+      if item == "" or ! (item.starts_with("+") or item.starts_with("-")) {
+        usage_fail("bad capability string")
+      }
+      let add = item.starts_with("+")
+      let name = item.byte_slice(1)
+      if name == "all" {
+        yield {add: add, all: true, cap: 0}
+      } else if let number = cap_number(name, last) {
+        yield {add: add, all: false, cap: number}
+      } else {
+        usage_fail(f"unknown capability \"{name}\"")
+      }
     }
   }
   edits
 }
 
 proc parse_securebits(text: Str) [process, env, error] -> List[FlagEdit] {
-  var edits: List[FlagEdit] = []
-  for item in text.split(",") {
-    if item == "" or ! (item.starts_with("+") or item.starts_with("-")) {
-      usage_fail("bad securebits string")
+  let edits: List[FlagEdit] = collect {
+    for item in text.split(",") {
+      if item == "" or ! (item.starts_with("+") or item.starts_with("-")) {
+        usage_fail("bad securebits string")
+      }
+      let add = item.starts_with("+")
+      let name = item.byte_slice(1)
+      if name == "all" {
+        if add { usage_fail("+all securebits is not allowed") }
+      } else if name in ["keep_caps"] {
+        usage_fail("adjusting keep_caps does not make sense")
+      } else if ! (name in SECUREBIT_NAMES) {
+        usage_fail("unrecognized securebit")
+      }
+      yield {add: add, name: name}
     }
-    let add = item.starts_with("+")
-    let name = item.byte_slice(1)
-    if name == "all" {
-      if add { usage_fail("+all securebits is not allowed") }
-    } else if name in ["keep_caps"] {
-      usage_fail("adjusting keep_caps does not make sense")
-    } else if ! (name in SECUREBIT_NAMES) {
-      usage_fail("unrecognized securebit")
-    }
-    edits += [{add: add, name: name}]
   }
   edits
 }
@@ -205,16 +207,17 @@ proc parse_group(kind: Str, text: Str) [process, env, fs, error] -> Int {
 }
 
 proc parse_group_list(text: Str) [process, env, fs, error] -> List[Int] {
-  var ids = []
-  for item in text.split(",") {
-    var found = null
-    if rx"^[0-9]+$".matches(item) {
-      let number = item.parse_int() ?? -1
-      if number >= 0 and number < 4294967295 { found = number }
-    } else if item != "" {
-      if let Ok(entry) = group.lookup(item) { found = entry.gid }
+  let ids = collect {
+    for item in text.split(",") {
+      var found = null
+      if rx"^[0-9]+$".matches(item) {
+        let number = item.parse_int() ?? -1
+        if number >= 0 and number < 4294967295 { found = number }
+      } else if item != "" {
+        if let Ok(entry) = group.lookup(item) { found = entry.gid }
+      }
+      if let id = found { yield id } else { usage_fail(f"Invalid supplementary group id: '{item}'") }
     }
-    if let id = found { ids += [id] } else { usage_fail(f"Invalid supplementary group id: '{item}'") }
   }
   ids
 }

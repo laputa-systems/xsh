@@ -478,28 +478,45 @@ export pure capabilities_json(values: smart.SmartValues, page: Bytes) -> List[j.
 ## JSON members for the attribute table, with the power-on, cycle-count and
 ## temperature summaries smartctl reports beside it.
 export pure attributes_json(values: smart.SmartValues) -> List[j.Member] {
-  var table: List[j.Object] = []
-  for attribute in values.attributes {
-    let flags = attribute.flags
-    table += [j.object([
-      j.m("id", attribute.id),
-      j.m("name", attribute.name),
-      j.m("value", attribute.value),
-      j.m("worst", attribute.worst),
-      j.m("thresh", attribute.threshold ?? 0),
-      j.m("when_failed", if attribute.state == "failed_now" { "now" } else if attribute.state == "failed_past" { "past" } else { "" }),
-      j.m("flags", j.object([
-        j.m("value", flags),
-        j.m("string", flag_letters(flags)),
-        j.m("prefailure", smart.bit_set(flags, 0)),
-        j.m("updated_online", smart.bit_set(flags, 1)),
-        j.m("performance", smart.bit_set(flags, 2)),
-        j.m("error_rate", smart.bit_set(flags, 3)),
-        j.m("event_count", smart.bit_set(flags, 4)),
-        j.m("auto_keep", smart.bit_set(flags, 5)),
-      ])),
-      j.m("raw", j.object([j.m("value", attribute.raw_value), j.m("string", attribute.raw_text)])),
-    ])]
+  let table: List[j.Object] = collect {
+    for attribute in values.attributes {
+      let flags = attribute.flags
+      yield j.object(
+        [
+          j.m("id", attribute.id),
+          j.m("name", attribute.name),
+          j.m("value", attribute.value),
+          j.m("worst", attribute.worst),
+          j.m("thresh", attribute.threshold ?? 0),
+          j.m(
+            "when_failed",
+            if attribute.state == "failed_now" {
+              "now"
+            } else if attribute.state == "failed_past" {
+              "past"
+            } else {
+              ""
+            },
+          ),
+          j.m(
+            "flags",
+            j.object(
+              [
+                j.m("value", flags),
+                j.m("string", flag_letters(flags)),
+                j.m("prefailure", smart.bit_set(flags, 0)),
+                j.m("updated_online", smart.bit_set(flags, 1)),
+                j.m("performance", smart.bit_set(flags, 2)),
+                j.m("error_rate", smart.bit_set(flags, 3)),
+                j.m("event_count", smart.bit_set(flags, 4)),
+                j.m("auto_keep", smart.bit_set(flags, 5)),
+              ],
+            ),
+          ),
+          j.m("raw", j.object([j.m("value", attribute.raw_value), j.m("string", attribute.raw_text)])),
+        ],
+      )
+    }
   }
   var out: List[j.Member] = [j.m("ata_smart_attributes", j.object([j.m("revision", values.revision), j.m("table", table)]))]
   var temperature = null
@@ -519,20 +536,21 @@ export pure error_log_json(log: smart.ErrorLog) -> List[j.Member] {
     summary += [j.m("logged_count", log.entries.len())]
     var table: List[j.Object] = []
     for entry in log.entries {
-      var previous: List[j.Object] = []
-      for command in entry.commands {
-        previous += [j.object([
-          j.m("registers", j.object([
-            j.m("command", command.command),
-            j.m("features", command.features),
-            j.m("count", command.count),
-            j.m("lba", command.lba_high * 65536 + command.lba_mid * 256 + command.lba_low),
-            j.m("device", command.device),
-            j.m("device_control", command.device_control),
-          ])),
-          j.m("powerup_milliseconds", command.timestamp_ms),
-          j.m("command_name", smart.command_name(command.command, command.features)),
-        ])]
+      let previous: List[j.Object] = collect {
+        for command in entry.commands {
+          yield j.object([
+            j.m("registers", j.object([
+              j.m("command", command.command),
+              j.m("features", command.features),
+              j.m("count", command.count),
+              j.m("lba", command.lba_high * 65536 + command.lba_mid * 256 + command.lba_low),
+              j.m("device", command.device),
+              j.m("device_control", command.device_control),
+            ])),
+            j.m("powerup_milliseconds", command.timestamp_ms),
+            j.m("command_name", smart.command_name(command.command, command.features)),
+          ])
+        }
       }
       table += [j.object([
         j.m("error_number", entry.number),
@@ -583,15 +601,18 @@ export pure self_test_log_json(log: smart.SelfTestLog) -> List[j.Member] {
 
 ## JSON members for the selective self-test log.
 export pure selective_log_json(log: smart.SelectiveLog, exec_status: Int) -> List[j.Member] {
-  var table: List[j.Object] = []
-  for index in range(5) {
-    let span = log.spans[index]
-    let text = span_status(log, exec_status, index)
-    table += [j.object([
-      j.m("lba_min", span.start),
-      j.m("lba_max", span.end),
-      j.m("status", j.object([j.m("value", if text == "Not_testing" { 0 } else { exec_status / 16 }), j.m("string", text)])),
-    ])]
+  let table: List[j.Object] = collect {
+    for index in range(5) {
+      let span = log.spans[index]
+      let text = span_status(log, exec_status, index)
+      yield j.object(
+        [
+          j.m("lba_min", span.start),
+          j.m("lba_max", span.end),
+          j.m("status", j.object([j.m("value", if text == "Not_testing" { 0 } else { exec_status / 16 }), j.m("string", text)])),
+        ],
+      )
+    }
   }
   [j.m("ata_smart_selective_self_test_log", j.object([
     j.m("revision", log.revision),
@@ -603,16 +624,17 @@ export pure selective_log_json(log: smart.SelectiveLog, exec_status: Int) -> Lis
 
 ## JSON members for the SMART log directory.
 export pure directory_json(dir: smart.LogDirectory) -> List[j.Member] {
-  var table: List[j.Object] = []
-  for entry in dir.entries {
-    let described = smart.log_name(entry.address)
-    table += [j.object([
-      j.m("address", entry.address),
-      j.m("name", described.name),
-      j.m("read", true),
-      j.m("write", described.access == "R/W"),
-      j.m("smart_sectors", entry.sectors),
-    ])]
+  let table: List[j.Object] = collect {
+    for entry in dir.entries {
+      let described = smart.log_name(entry.address)
+      yield j.object([
+        j.m("address", entry.address),
+        j.m("name", described.name),
+        j.m("read", true),
+        j.m("write", described.access == "R/W"),
+        j.m("smart_sectors", entry.sectors),
+      ])
+    }
   }
   [j.m("ata_log_directory", j.object([
     j.m("smart_dir_version", dir.revision),

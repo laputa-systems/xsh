@@ -60,15 +60,17 @@ pure render_indented(value: Any, depth: Int) -> Str {
     items is List[Any] => {
       return "[]" when items.is_empty()
       let inner = indent(depth + 1)
-      var rows = []
-      for item in items { rows += [inner + render_indented(item, depth + 1)] }
+      let rows = collect {
+        for item in items { yield inner + render_indented(item, depth + 1) }
+      }
       "[\n" + rows.join(",\n") + "\n" + indent(depth) + "]"
     }
     node is Object => {
       return "{}" when node.members.is_empty()
       let inner = indent(depth + 1)
-      var rows = []
-      for entry in node.members { rows += [inner + quote(entry.key) + ": " + render_indented(entry.value, depth + 1)] }
+      let rows = collect {
+        for entry in node.members { yield inner + quote(entry.key) + ": " + render_indented(entry.value, depth + 1) }
+      }
       "{\n" + rows.join(",\n") + "\n" + indent(depth) + "}"
     }
     else => "null"

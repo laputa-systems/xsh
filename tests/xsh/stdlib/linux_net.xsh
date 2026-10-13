@@ -21,14 +21,15 @@ type Attribute = {kind: Int, data: Bytes}
 
 # Splits netlink attributes that follow a fixed header of `start` bytes.
 proc attributes(payload: Bytes, start: Int) [error] -> Result[List[Attribute]] {
-  var found: List[Attribute] = []
   var offset = start
-  while offset + 4 <= payload.len() {
-    let length = bytes.unpack_le(payload, 2, offset)?
-    let kind = bytes.unpack_le(payload, 2, offset + 2)?
-    break when length < 4 or offset + length > payload.len()
-    found += [{kind: kind, data: payload.slice(offset + 4, length - 4)}]
-    offset += (length + 3) / 4 * 4
+  let found: List[Attribute] = collect {
+    while offset + 4 <= payload.len() {
+      let length = bytes.unpack_le(payload, 2, offset)?
+      let kind = bytes.unpack_le(payload, 2, offset + 2)?
+      break when length < 4 or offset + length > payload.len()
+      yield {kind: kind, data: payload.slice(offset + 4, length - 4)}
+      offset += (length + 3) / 4 * 4
+    }
   }
   Ok(found)
 }
@@ -48,11 +49,12 @@ proc settled_dump() [process, error] -> Result[LinuxNetworkDump] {
 }
 
 proc interface_names(replies: List[LinuxNetlinkMessage]) [error] -> Result[List[Str]] {
-  var names = []
-  for reply in replies {
-    for attribute in attributes(reply.payload, 16)? {
-      if attribute.kind == 3 {
-        names += [attribute.data.slice(0, attribute.data.len() - 1) as Str]
+  let names = collect {
+    for reply in replies {
+      for attribute in attributes(reply.payload, 16)? {
+        if attribute.kind == 3 {
+          yield attribute.data.slice(0, attribute.data.len() - 1) as Str
+        }
       }
     }
   }
@@ -617,10 +619,11 @@ proc proc_route_address(word: Str) [error] -> Result[Str] {
   guard pairs.len() == 4 else {
     return Err(error.failure(f"malformed /proc/net/route address {word}"))
   }
-  var octets = []
-  for index in [3, 2, 1, 0] {
-    let value = f"0x{pairs[index]}" as Int
-    octets += [f"{value}"]
+  let octets = collect {
+    for index in [3, 2, 1, 0] {
+      let value = f"0x{pairs[index]}" as Int
+      yield f"{value}"
+    }
   }
   Ok(octets.join("."))
 }
@@ -647,20 +650,21 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
     test.skip("this kernel has no /proc/net/route")
     return
   }
-  var expected = []
   var header = true
-  for line in table.read_text()?.lines() {
-    if header {
-      header = false
-      continue
+  let expected = collect {
+    for line in table.read_text()?.lines() {
+      if header {
+        header = false
+        continue
+      }
+      let fields = [field.text for field in rx"\S+".find(line)]
+      continue when fields.len() < 8
+      let destination = proc_route_address(fields[1])?
+      let gateway = proc_route_address(fields[2])?
+      let prefix = mask_prefix(proc_route_address(fields[7])?)
+      let dst = if prefix == 0 { "default" } else { f"{destination}/{prefix}" }
+      yield f"{dst} {gateway} {fields[0]}"
     }
-    let fields = [field.text for field in rx"\S+".find(line)]
-    continue when fields.len() < 8
-    let destination = proc_route_address(fields[1])?
-    let gateway = proc_route_address(fields[2])?
-    let prefix = mask_prefix(proc_route_address(fields[7])?)
-    let dst = if prefix == 0 { "default" } else { f"{destination}/{prefix}" }
-    expected += [f"{dst} {gateway} {fields[0]}"]
   }
   let routes = linux.routes()? |> where .family == "inet" |> collect
   let actual = [f"{route.dst} {route.gateway} {route.dev}" for route in routes]
@@ -690,17 +694,26 @@ test test_interfaces_and_routes_agree_with_the_netlink_snapshot {
     }
   }
 
-  var expected = []
-  for route in dump.routes {
-    continue when route.table != 254 or (route.family != "inet" and route.family != "inet6")
-    continue when route.flags.bit_and(512) != 0
-    let unspecified = if route.family == "inet" { "0.0.0.0" } else { "::" }
-    let dst = if route.destination_prefix_length == 0 { "default" } else { f"{route.destination ?? unspecified}/{route.destination_prefix_length}" }
-    let hops = if route.nexthops.len() == 0 { [{gateway: route.gateway, ifindex: route.output_ifindex}] } else { [{gateway: hop.gateway, ifindex: hop.ifindex} for hop in route.nexthops] }
-    for hop in hops {
-      let named = [link.name ?? "" for link in dump.links if link.ifindex == (hop.ifindex ?? -1)]
-      let dev = if named.len() == 0 { "*" } else { named[0] }
-      expected += [f"{route.family} {dst} {hop.gateway ?? unspecified} {dev}"]
+  let expected = collect {
+    for route in dump.routes {
+      continue when route.table != 254 or (route.family != "inet" and route.family != "inet6")
+      continue when route.flags.bit_and(512) != 0
+      let unspecified = if route.family == "inet" { "0.0.0.0" } else { "::" }
+      let dst = if route.destination_prefix_length == 0 {
+        "default"
+      } else {
+        f"{route.destination ?? unspecified}/{route.destination_prefix_length}"
+      }
+      let hops = if route.nexthops.len() == 0 {
+        [{gateway: route.gateway, ifindex: route.output_ifindex}]
+      } else {
+        [{gateway: hop.gateway, ifindex: hop.ifindex} for hop in route.nexthops]
+      }
+      for hop in hops {
+        let named = [link.name ?? "" for link in dump.links if link.ifindex == (hop.ifindex ?? -1)]
+        let dev = if named.len() == 0 { "*" } else { named[0] }
+        yield f"{route.family} {dst} {hop.gateway ?? unspecified} {dev}"
+      }
     }
   }
   let routes = linux.routes()? |> collect

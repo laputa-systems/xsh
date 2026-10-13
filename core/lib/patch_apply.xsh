@@ -10,8 +10,9 @@ use patch_parse
 
 ## Canonical comparison forms of the input file lines, one per line.
 export pure keys(lines: List[Bytes], loose_space: Bool) -> List[Bytes] {
-  var output = []
-  for line in lines { output += [line_key(line, loose_space)] }
+  let output = collect {
+    for line in lines { yield line_key(line, loose_space) }
+  }
   output
 }
 
@@ -30,15 +31,16 @@ export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
   # Loose matching also ignores the line end: a final line without one
   # matches the same line with one.
   let content = if text.ends_with(b"\n") { text[0..text.len() - 1] } else { text }
-  var pieces = []
   var in_blanks = false
-  for byte in content {
-    if is_blank(byte) {
-      in_blanks = true
-    } else {
-      if in_blanks { pieces += [32] }
-      in_blanks = false
-      pieces += [byte]
+  let pieces = collect {
+    for byte in content {
+      if is_blank(byte) {
+        in_blanks = true
+      } else {
+        if in_blanks { yield 32 }
+        in_blanks = false
+        yield byte
+      }
     }
   }
   bytes.from_ints(pieces) ?? b""
@@ -46,9 +48,10 @@ export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
 
 ## The old-side lines of a hunk: its context and removed lines.
 export pure pattern(hunk: patch_parse.Hunk) -> List[Bytes] {
-  var output = []
-  for index in range(hunk.kinds.len()) {
-    if hunk.kinds[index] != 2 { output += [hunk.texts[index]] }
+  let output = collect {
+    for index in range(hunk.kinds.len()) {
+      if hunk.kinds[index] != 2 { yield hunk.texts[index] }
+    }
   }
   output
 }

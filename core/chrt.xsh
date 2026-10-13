@@ -137,10 +137,10 @@ proc task_ids(pid: Int) [process, error] -> List[Int]? {
   match process.threads(pid) {
     Ok(threads) => {
       let rows: List[ProcessThread] = threads |> collect
-      var ids = []
-
-      for row in rows {
-        ids += [row.thread_id]
+      let ids = collect {
+        for row in rows {
+          yield row.thread_id
+        }
       }
 
       if ids.is_empty() { null } else { ids |> sort }

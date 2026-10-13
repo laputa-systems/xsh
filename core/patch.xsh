@@ -936,7 +936,6 @@ proc make_backup(opts: Options, name: Str, exists: Bool, original: Bytes, mode: 
 
 proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reject_name: Str, strip: Int, cr_marked: Bool) [fs, io, process, env, error] -> Result[Unit, Error] {
   let as_context = if opts.reject_format != null { opts.reject_format == "context" } else { scan.kind != "unified" and scan.kind != "git" }
-  var parts = []
   let old_header = if outcome.reversed { scan.new_name } else { scan.old_name }
   let new_header = if outcome.reversed { scan.old_name } else { scan.new_name }
   var header_old = "/dev/null"
@@ -945,12 +944,14 @@ proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reje
     header_old = reject_name_of(old_header, strip) + (if old_header.stamp != "" { "\t" + old_header.stamp } else { "" })
     header_new = reject_name_of(new_header, strip) + (if new_header.stamp != "" { "\t" + new_header.stamp } else { "" })
   }
-  if as_context {
-    parts += [bytes.from_text(f"*** {header_old}\n--- {header_new}\n")]
-    for hunk in outcome.rejected { parts += [patch_reject.context_reject(hunk, scan.kind == "normal", cr_marked)] }
-  } else {
-    parts += [bytes.from_text(f"--- {header_old}\n+++ {header_new}\n")]
-    for hunk in outcome.rejected { parts += [patch_reject.unified_reject(hunk)] }
+  let parts = collect {
+    if as_context {
+      yield bytes.from_text(f"*** {header_old}\n--- {header_new}\n")
+      for hunk in outcome.rejected { yield patch_reject.context_reject(hunk, scan.kind == "normal", cr_marked) }
+    } else {
+      yield bytes.from_text(f"--- {header_old}\n+++ {header_new}\n")
+      for hunk in outcome.rejected { yield patch_reject.unified_reject(hunk) }
+    }
   }
   fp"{reject_name}".write(bytes.concat(parts))
 }

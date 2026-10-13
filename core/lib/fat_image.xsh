@@ -36,16 +36,19 @@ export proc table(image: Path, layout: geom.Layout) -> Result[Bytes, Error] { re
 ## Enumerate FAT32 root clusters, rejecting loops and invalid references.
 export pure root_offsets(layout: geom.Layout, table: Bytes) -> Result[List[Int], Error] {
   return Ok([geom.root_offset(layout)]) when layout.bits != 32
-  var offsets = []
   var seen: Map[Int, Bool] = {}
   var cluster = layout.root_cluster
-  while true {
-    guard geom.valid(layout, cluster) and cluster not in seen else { return Err(error.failure("invalid FAT32 root directory chain")) }
-    seen[cluster] = true
-    offsets += [geom.cluster_offset(layout, cluster)]
-    let next = geom.table_get(table, layout, cluster)?
-    break when next >= geom.eoc(layout) - 7
-    cluster = next
+  let offsets = collect {
+    while true {
+      guard geom.valid(layout, cluster) and cluster not in seen else {
+        return Err(error.failure("invalid FAT32 root directory chain"))
+      }
+      seen[cluster] = true
+      yield geom.cluster_offset(layout, cluster)
+      let next = geom.table_get(table, layout, cluster)?
+      break when next >= geom.eoc(layout) - 7
+      cluster = next
+    }
   }
   Ok(offsets)
 }

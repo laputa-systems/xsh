@@ -645,20 +645,21 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
   var eof = false
 
   while ! eof {
-    var parts = []
     var remaining = size
 
-    while remaining > 0 {
-      let count = if remaining < tio.CHUNK { remaining } else { tio.CHUNK }
-      let data = io.stdin_read(count)?
+    let parts = collect {
+      while remaining > 0 {
+        let count = if remaining < tio.CHUNK { remaining } else { tio.CHUNK }
+        let data = io.stdin_read(count)?
 
-      if data.is_empty() {
-        eof = true
-        break
+        if data.is_empty() {
+          eof = true
+          break
+        }
+
+        yield data
+        remaining -= data.len()
       }
-
-      parts += [data]
-      remaining -= data.len()
     }
 
     let piece = bytes.concat(parts)
@@ -908,11 +909,12 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
 proc read_input(name: Bytes, block_size: Int) [fs, process, error, io] -> Result[Bytes] {
   let fd = if name == b"-" { 0 } else { unix.open_fd(name as Path)? }
   defer { if fd != 0 { unix.close_fd(fd) } }
-  var parts = []
-  while true {
-    let part = unix.read_fd(fd, block_size)?
-    break when part.is_empty()
-    parts += [part]
+  let parts = collect {
+    while true {
+      let part = unix.read_fd(fd, block_size)?
+      break when part.is_empty()
+      yield part
+    }
   }
   Ok(bytes.concat(parts))
 }

@@ -80,13 +80,14 @@ proc main(...argv: List[Bytes]) {
   let delimiter = if single_delimiter_character { bytes.concat([delimiter_arg, b":"]) } else { delimiter_arg }
   let separator = text.argument_bytes(arguments, opts.separator)
   let separator_count = character_count(separator)
-  var lines = []
   var failed = false
   let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
-  for name in paths {
-    match text.read_operand_bytes(name) {
-      Ok(data) => { lines += text.records(data) }
-      Err(failure) => { text.name_error_bytes(name, failure); failed = true }
+  let lines = collect {
+    for name in paths {
+      match text.read_operand_bytes(name) {
+        Ok(data) => { yield @text.records(data) }
+        Err(failure) => { text.name_error_bytes(name, failure); failed = true }
+      }
     }
   }
   var value = start

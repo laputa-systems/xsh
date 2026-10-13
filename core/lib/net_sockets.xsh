@@ -145,14 +145,15 @@ type Attribute = {kind: Int, data: Bytes}
 # Splits the rtattr list that follows a fixed header of `start` bytes. The
 # type field's nested and byte-order flag bits are masked off.
 pure attributes(payload: Bytes, start: Int) -> List[Attribute] {
-  var found: List[Attribute] = []
   var offset = start
-  while offset + 4 <= payload.len() {
-    let length = bytes.unpack_le(payload, 2, offset) ?? 0
-    let kind = (bytes.unpack_le(payload, 2, offset + 2) ?? 0).bit_and(16383)
-    break when length < 4 or offset + length > payload.len()
-    found += [{kind: kind, data: payload.slice(offset + 4, length - 4)}]
-    offset += (length + 3) / 4 * 4
+  let found: List[Attribute] = collect {
+    while offset + 4 <= payload.len() {
+      let length = bytes.unpack_le(payload, 2, offset) ?? 0
+      let kind = (bytes.unpack_le(payload, 2, offset + 2) ?? 0).bit_and(16383)
+      break when length < 4 or offset + length > payload.len()
+      yield {kind: kind, data: payload.slice(offset + 4, length - 4)}
+      offset += (length + 3) / 4 * 4
+    }
   }
   found
 }
@@ -282,9 +283,10 @@ pure decode_unix(payload: Bytes) -> DiagSocket? {
   if let data = find_attribute(list, UNIX_DIAG_PEER) { peer = u32(data, 0) }
   var vfs: VfsIdentity? = null
   if let data = find_attribute(list, UNIX_DIAG_VFS) { vfs = {inode: u32(data, 0), device: u32(data, 4)} }
-  var pending = []
-  if let data = find_attribute(list, UNIX_DIAG_ICONS) {
-    for index in range(data.len() / 4) { pending += [u32(data, index * 4)] }
+  let pending = collect {
+    if let data = find_attribute(list, UNIX_DIAG_ICONS) {
+      for index in range(data.len() / 4) { yield u32(data, index * 4) }
+    }
   }
   var shutdown = null
   if let data = find_attribute(list, UNIX_DIAG_SHUTDOWN) { shutdown = data.byte_at(0) }
@@ -344,9 +346,10 @@ export proc collect_inet(nl: Int, family: Int, protocol: Int, states: Int, memor
 
     return Err(failure)
   }
-  var found: List[DiagSocket] = []
-  for reply in outcome? {
-    if let item = decode_inet(reply.payload, protocol) { found += [item] }
+  let found: List[DiagSocket] = collect {
+    for reply in outcome? {
+      if let item = decode_inet(reply.payload, protocol) { yield item }
+    }
   }
   Ok(found)
 }
@@ -368,9 +371,10 @@ export proc collect_unix(nl: Int, states: Int, memory: Bool, details: Bool) [pro
     ],
   )
   let replies = dump(nl, request)?
-  var found: List[DiagSocket] = []
-  for reply in replies {
-    if let item = decode_unix(reply.payload) { found += [item] }
+  let found: List[DiagSocket] = collect {
+    for reply in replies {
+      if let item = decode_unix(reply.payload) { yield item }
+    }
   }
   Ok(found)
 }
@@ -378,12 +382,13 @@ export proc collect_unix(nl: Int, states: Int, memory: Bool, details: Bool) [pro
 # Decodes the hex of a /proc/net address: each 32-bit word is printed in
 # host (little-endian) order.
 pure proc_address(text: Str, size: Int) -> Bytes {
-  var raw = []
-  for word in range(size / 4) {
-    let chunk = text.byte_slice(word * 8, length: 8)
-    for index in range(4) {
-      let at = (3 - index) * 2
-      raw += [f"0x{chunk.byte_slice(at, length: 2)}".parse_int() ?? 0]
+  let raw = collect {
+    for word in range(size / 4) {
+      let chunk = text.byte_slice(word * 8, length: 8)
+      for index in range(4) {
+        let at = (3 - index) * 2
+        yield f"0x{chunk.byte_slice(at, length: 2)}".parse_int() ?? 0
+      }
     }
   }
   bytes.from_ints(raw) ?? b""
@@ -394,34 +399,35 @@ pure proc_address(text: Str, size: Int) -> Bytes {
 # shutdown or cgroup attributes, so `detailed` is false and callers print no
 # extended text for them.
 proc collect_raw_proc(family: Int, states: Int) [fs, error] -> Result[List[DiagSocket], Error] {
-  var found: List[DiagSocket] = []
   let source = if family == AF_INET6 { fp"/proc/net/raw6" } else { fp"/proc/net/raw" }
   let size = if family == AF_INET6 { 16 } else { 4 }
   let content = source.read_text() ?? ""
   var first = true
-  for line in content.lines() {
-    if first {
-      first = false
-      continue
+  let found: List[DiagSocket] = collect {
+    for line in content.lines() {
+      if first {
+        first = false
+        continue
+      }
+      let fields = line.fields()
+      continue when fields.len() < 10
+      let local = fields[1].split(":")
+      let remote = fields[2].split(":")
+      let queues = fields[4].split(":")
+      continue when local.len() != 2 or remote.len() != 2 or queues.len() != 2
+      let state = f"0x{fields[3]}".parse_int() ?? 0
+      let bit = if state >= 0 and state < 12 { [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048][state] } else { 0 }
+      continue when states / bit % 2 != 1
+      yield {
+        netid: "raw", family: family, protocol: 0, state: state, timer: 0, retrans: 0, expires: 0,
+        recv_queue: f"0x{queues[1]}".parse_int() ?? 0, send_queue: f"0x{queues[0]}".parse_int() ?? 0,
+        local: proc_address(local[0], size), remote: proc_address(remote[0], size),
+        local_port: f"0x{local[1]}".parse_int() ?? 0, remote_port: f"0x{remote[1]}".parse_int() ?? 0,
+        ifindex: 0, uid: fields[7].parse_int() ?? 0, inode: fields[9].parse_int() ?? 0, cookie: "0",
+        name: null, memory: null, info: null, congestion: null, shutdown: null, v6only: null,
+        mark: null, cgroup_id: null, vfs: null, pending: [], detailed: false,
+      }
     }
-    let fields = line.fields()
-    continue when fields.len() < 10
-    let local = fields[1].split(":")
-    let remote = fields[2].split(":")
-    let queues = fields[4].split(":")
-    continue when local.len() != 2 or remote.len() != 2 or queues.len() != 2
-    let state = f"0x{fields[3]}".parse_int() ?? 0
-    let bit = if state >= 0 and state < 12 { [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048][state] } else { 0 }
-    continue when states / bit % 2 != 1
-    found += [{
-      netid: "raw", family: family, protocol: 0, state: state, timer: 0, retrans: 0, expires: 0,
-      recv_queue: f"0x{queues[1]}".parse_int() ?? 0, send_queue: f"0x{queues[0]}".parse_int() ?? 0,
-      local: proc_address(local[0], size), remote: proc_address(remote[0], size),
-      local_port: f"0x{local[1]}".parse_int() ?? 0, remote_port: f"0x{remote[1]}".parse_int() ?? 0,
-      ifindex: 0, uid: fields[7].parse_int() ?? 0, inode: fields[9].parse_int() ?? 0, cookie: "0",
-      name: null, memory: null, info: null, congestion: null, shutdown: null, v6only: null,
-      mark: null, cgroup_id: null, vfs: null, pending: [], detailed: false,
-    }]
   }
   Ok(found)
 }
@@ -554,14 +560,15 @@ export pure protocol_number(netid: Str) -> Int {
 ## Every descriptor that refers to a socket, in the order the reference tool
 ## prints owners: the last one found for an inode comes first.
 export proc owners() [process, error] -> Result[List[Owner], Error] {
-  var found: List[Owner] = []
   let table: List[ProcessEntry] = process.list()? |> sort-by .pid
-  for entry in table {
-    let files = linux.open_files(entry.pid)
-    if let Ok(list) = files {
-      for file in list {
-        if file.path.display().starts_with("socket:[") {
-          found += [{inode: file.inode, name: entry.command, pid: entry.pid, fd: file.fd}]
+  let found: List[Owner] = collect {
+    for entry in table {
+      let files = linux.open_files(entry.pid)
+      if let Ok(list) = files {
+        for file in list {
+          if file.path.display().starts_with("socket:[") {
+            yield {inode: file.inode, name: entry.command, pid: entry.pid, fd: file.fd}
+          }
         }
       }
     }
@@ -691,10 +698,11 @@ pure round_div(numerator: Int, denominator: Int) -> Int {
 ## `skmem:(r..,rb..)` text from a SKMEMINFO or MEMINFO attribute.
 export pure skmem_text(data: Bytes) -> Str {
   let names = ["r", "rb", "t", "tb", "f", "w", "o", "bl", "d"]
-  var parts = []
-  for index in range(names.len()) {
-    break when index * 4 + 4 > data.len()
-    parts += [f"{names[index]}{u32(data, index * 4)}"]
+  let parts = collect {
+    for index in range(names.len()) {
+      break when index * 4 + 4 > data.len()
+      yield f"{names[index]}{u32(data, index * 4)}"
+    }
   }
   f"skmem:({parts.join(",")})"
 }

@@ -227,8 +227,9 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
       }
       if matches.is_empty() { gnu.usage_error(f"unrecognized option '{arg}'") }
       if matches.len() > 1 {
-        var names = []
-        for candidate in matches { names += [f"'--{candidate.long}'"] }
+        let names = collect {
+          for candidate in matches { yield f"'--{candidate.long}'" }
+        }
         gnu.usage_error(f"option '--{name}' is ambiguous; possibilities: {names.join(" ")}")
       }
       let option = matches[0]
@@ -341,13 +342,14 @@ proc unrunnable(command: Str) [fs, process] -> Problem? {
 # Build the argument vector of one command line from the items of a batch:
 # the items follow the initial arguments, or replace the marker inside them.
 proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument], replace: Bool, marker: Bytes, max_chars: Int) [process, env, error] -> Result[List[Path], Error] {
-  var argv = []
-  for word in command {
-    let text = gnu.argument_bytes(word, raw)
-    let joined = if replace and ! items.is_empty() { substitute(text, marker, c_string(items[0].data)) } else { text }
-    argv += [joined as Path]
+  let argv = collect {
+    for word in command {
+      let text = gnu.argument_bytes(word, raw)
+      let joined = if replace and ! items.is_empty() { substitute(text, marker, c_string(items[0].data)) } else { text }
+      yield joined as Path
+    }
+    if ! replace { for item in items { yield c_string(item.data) as Path } }
   }
-  if ! replace { for item in items { argv += [c_string(item.data) as Path] } }
   var total = 0
   for word in argv {
     total += word.bytes().len() + 1
@@ -390,8 +392,9 @@ proc shell_quote(raw: Bytes) [env] -> Str {
 # Show the command line on standard error (-t) and, for -p, ask whether to
 # run it. Returns whether the command should run.
 proc announce(argv: List[Path], interactive: Bool) [io, process, env, error] -> Result[Bool, Error] {
-  var texts = []
-  for word in argv { texts += [shell_quote(word.bytes())] }
+  let texts = collect {
+    for word in argv { yield shell_quote(word.bytes()) }
+  }
   return ask(texts.join(" ")) when interactive
   eprint texts.join(" ")
   Ok(true)
@@ -505,8 +508,9 @@ proc main(...operands: List[Bytes]) {
           if too_large and cfg.exit_on_overflow and counted and ! too_many and ! too_many_lines { search.reject("argument list too long") }
           let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
           if command.is_empty() {
-            var chunks = []
-            for index in range(batch.len()) { if index > 0 { chunks += [b" "] }; chunks += [c_string(batch[index].data)] }
+            let chunks = collect {
+              for index in range(batch.len()) { if index > 0 { yield b" " }; yield c_string(batch[index].data) }
+            }
             gnu.write_bytes(bytes.concat(chunks + [b"\n"]))
           } else {
             if ! checked { checked = true; require_command(command[0]) }
@@ -540,8 +544,9 @@ proc main(...operands: List[Bytes]) {
     if (! stopped or marker_seen) and (! batch.is_empty() or (! any_input and ! cfg.no_run_if_empty and ! replace and failure == "")) {
       let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
       if command.is_empty() {
-        var chunks = []
-        for index in range(batch.len()) { if index > 0 { chunks += [b" "] }; chunks += [c_string(batch[index].data)] }
+        let chunks = collect {
+          for index in range(batch.len()) { if index > 0 { yield b" " }; yield c_string(batch[index].data) }
+        }
         gnu.write_bytes(bytes.concat(chunks + [b"\n"]))
       } else {
         if ! checked { checked = true; require_command(command[0]) }

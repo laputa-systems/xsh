@@ -146,11 +146,24 @@ type Outcome = {id: Str, status: Int, out: Str, err: Str}
 # would break the line format, `\xHH` for the rest.
 pure escape(data: Bytes) -> Str {
   let digits = "0123456789abcdef"
-  var pieces = []
-  for index in range(data.len()) {
-    let byte = data.byte_at(index) ?? 0
-    if byte == 92 { pieces += ["\\\\"] } else if byte == 10 { pieces += ["\\n"] } else if byte == 9 { pieces += ["\\t"] } else if byte == 13 { pieces += ["\\r"] } else if byte == 0 { pieces += ["\\0"] } else if byte >= 32 and byte < 127 { pieces += [data.slice(index, length: 1).utf8() ?? "?"] } else {
-      pieces += [f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"]
+  let pieces = collect {
+    for index in range(data.len()) {
+      let byte = data.byte_at(index) ?? 0
+      if byte == 92 {
+        yield "\\\\"
+      } else if byte == 10 {
+        yield "\\n"
+      } else if byte == 9 {
+        yield "\\t"
+      } else if byte == 13 {
+        yield "\\r"
+      } else if byte == 0 {
+        yield "\\0"
+      } else if byte >= 32 and byte < 127 {
+        yield data.slice(index, length: 1).utf8() ?? "?"
+      } else {
+        yield f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"
+      }
     }
   }
   pieces.join("")
@@ -167,22 +180,23 @@ pure ordered(text: Str, enabled: Bool) -> Str {
 
 proc load_cases(ctx: TestContext, family: Str) [fs, error] -> Result[List[Case]] {
   let source = fp"{ctx.core_dir}/tests/data/grep/cases.jsonl"
-  var cases: List[Case] = []
-  for line in source.read_lines()? {
-    let doc = json.decode(line)?
-    continue when json.get(doc, ["group"])?.require(Str)? != family
-    cases += [{
-      id: json.get(doc, ["id"])?.require(Str)?,
-      cmd: json.get(doc, ["cmd"])?.require(Str)?,
-      args: json.get(doc, ["args"])?.require(List[Str])?,
-      stdin: json.get(doc, ["stdin"])?.require(Str)?,
-      lc: json.get(doc, ["lc"])?.require(Str)?,
-      colors: json.get(doc, ["colors"])?.require(Str)?,
-      color: json.get(doc, ["color"])?.require(Str)?,
-      posixly: json.get(doc, ["posixly"])?.require(Bool)?,
-      sort: json.get(doc, ["sort"])?.require(Bool)?,
-      lstatus: json.get(doc, ["lstatus"])?.require(Bool)?,
-    }]
+  let cases: List[Case] = collect {
+    for line in source.read_lines()? {
+      let doc = json.decode(line)?
+      continue when json.get(doc, ["group"])?.require(Str)? != family
+      yield {
+        id: json.get(doc, ["id"])?.require(Str)?,
+        cmd: json.get(doc, ["cmd"])?.require(Str)?,
+        args: json.get(doc, ["args"])?.require(List[Str])?,
+        stdin: json.get(doc, ["stdin"])?.require(Str)?,
+        lc: json.get(doc, ["lc"])?.require(Str)?,
+        colors: json.get(doc, ["colors"])?.require(Str)?,
+        color: json.get(doc, ["color"])?.require(Str)?,
+        posixly: json.get(doc, ["posixly"])?.require(Bool)?,
+        sort: json.get(doc, ["sort"])?.require(Bool)?,
+        lstatus: json.get(doc, ["lstatus"])?.require(Bool)?,
+      }
+    }
   }
   Ok(cases)
 }
@@ -295,9 +309,10 @@ test test_grep_binary_detection_works_per_buffer { |ctx|
   let root = test.temp_dir(ctx, name: "grep-buffers")?
   let file = fp"{root}/input"
   let padding = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  var data = []
-  for index in range(1100) {
-    data += [bytes.from_text(f"line {index:05} match {padding.byte_slice(0, 82)}\n")]
+  let data = collect {
+    for index in range(1100) {
+      yield bytes.from_text(f"line {index:05} match {padding.byte_slice(0, 82)}\n")
+    }
   }
   file.write(bytes.concat(data + [b"tail\0 match\n"]))
   let ran = run.capture --bytes ${ctx.xsh_bin} fp"{ctx.core_dir}/grep.xsh" -- match $file

@@ -494,10 +494,12 @@ test test_sort_buffer_size_spills_sorted_runs { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var input_lines = []
-  var expected_lines = []
-  for index in range(400) { expected_lines += [f"{index:04} {payload}"] }
-  for index in range(400) { input_lines += [expected_lines[399 - index]] }
+  let expected_lines = collect {
+    for index in range(400) { yield f"{index:04} {payload}" }
+  }
+  let input_lines = collect {
+    for index in range(400) { yield expected_lines[399 - index] }
+  }
   let input = bytes.from_text(input_lines.join("\n") + "\n")
   let result = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin, "--", script, "-n", "-S", "1K", "-T", root], root,
@@ -514,8 +516,9 @@ test test_sort_sigint_removes_external_runs { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var lines = []
-  for index in range(30000) { lines += [f"{index:05} {payload}"] }
+  let lines = collect {
+    for index in range(30000) { yield f"{index:05} {payload}" }
+  }
   input.write(lines.join("\n") + "\n")
 
   let child = spawn run @(["/bin/sh", "-c", "error_file=$1; shift; exec \"$@\" 2>\"$error_file\"", "sort-test",
@@ -542,8 +545,9 @@ test test_sort_buffer_size_requires_temporary_directory_when_spilling { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var input_lines = []
-  for index in range(400) { input_lines += [f"{399 - index:04} {payload}"] }
+  let input_lines = collect {
+    for index in range(400) { yield f"{399 - index:04} {payload}" }
+  }
   let input = bytes.from_text(input_lines.join("\n") + "\n")
   let result = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin, "--", script, "-n", "-S1K", "-T", fp"{root}/missing"], root,
@@ -559,11 +563,12 @@ test test_sort_merge_batch_size_merges_multiple_passes { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let inputs = ["a\ng\n", "b\nh\n", "c\ni\n", "d\nj\n", "e\nk\n", "f\nl\n"]
-  var paths = []
-  for index in range(inputs.len()) {
-    let input_path = fp"{root}/input{index}"
-    input_path.write(inputs[index])
-    paths += [input_path.display()]
+  let paths = collect {
+    for index in range(inputs.len()) {
+      let input_path = fp"{root}/input{index}"
+      input_path.write(inputs[index])
+      yield input_path.display()
+    }
   }
   let result = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display(), "-m", "--batch-size=2"] + paths, root,
@@ -1866,13 +1871,15 @@ test test_sort_invalid_utf8_spill_and_merge_roundtrip { |ctx|
   let tail = bytes.from_text(["x" for _ in range(128)].join(""))
   let first = bytes.concat([b"a", high, tail])
   let second = bytes.concat([b"z", high, tail])
-  var input = []
-  var expected = []
-  for _ in range(260) {
-    input += [second, b"\n", first, b"\n"]
+  let input = collect {
+    for _ in range(260) {
+      yield @[second, b"\n", first, b"\n"]
+    }
   }
-  for _ in range(260) { expected += [first, b"\n"] }
-  for _ in range(260) { expected += [second, b"\n"] }
+  let expected = collect {
+    for _ in range(260) { yield @[first, b"\n"] }
+    for _ in range(260) { yield @[second, b"\n"] }
+  }
   let source = fp"{root}/source"
   source.write(bytes.concat(input))
   let spilled = process.run(process.command_argv(ctx.xsh_bin,

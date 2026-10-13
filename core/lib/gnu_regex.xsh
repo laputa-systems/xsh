@@ -666,12 +666,13 @@ pure generate(nodes: List[Node], idx: Int, icase: Bool, utf8: Bool, marks: Bool,
   }
   if node.kind == N_ALT {
     if node.kids.len() == 1 { return generate(nodes, node.kids[0], icase, utf8, marks, slot_base) }
-    var bodies: List[List[Inst]] = []
     var total = 0
-    for index in range(node.kids.len()) {
-      let body = generate(nodes, node.kids[index], icase, utf8, marks, slot_base)
-      bodies += [body]
-      total += body.len() + (if index < node.kids.len() - 1 { 2 } else { 0 })
+    let bodies: List[List[Inst]] = collect {
+      for index in range(node.kids.len()) {
+        let body = generate(nodes, node.kids[index], icase, utf8, marks, slot_base)
+        yield body
+        total += body.len() + (if index < node.kids.len() - 1 { 2 } else { 0 })
+      }
     }
     var out: List[Inst] = []
     for index in range(bodies.len()) {
@@ -689,18 +690,22 @@ pure generate(nodes: List[Node], idx: Int, icase: Bool, utf8: Bool, marks: Bool,
   let width = body.len()
   let copies = if node.b == -1 { node.a + 1 } else { node.b }
   return [{op: OP_TOO_BIG, x: 0, y: 0}] when width * copies > PROGRAM_LIMIT
-  var out: List[Inst] = []
-  for _ in range(node.a) { out += body }
-  if node.b == -1 {
-    if marks and nullable(nodes, kid) {
-      out += [{op: OP_SPLIT, x: 1, y: width + 4}, {op: OP_MARK, x: slot_base + idx, y: 0}] + body + [{op: OP_CHECK, x: slot_base + idx, y: 0}, {op: OP_JMP, x: -(width + 3), y: 0}]
+  let out: List[Inst] = collect {
+    for _ in range(node.a) { yield @body }
+    if node.b == -1 {
+      if marks and nullable(nodes, kid) {
+        yield @[{op: OP_SPLIT, x: 1, y: width + 4}, {op: OP_MARK, x: slot_base + idx, y: 0}] + body + [
+          {op: OP_CHECK, x: slot_base + idx, y: 0},
+          {op: OP_JMP, x: -(width + 3), y: 0},
+        ]
+      } else {
+        yield @[{op: OP_SPLIT, x: 1, y: width + 2}] + body + [{op: OP_JMP, x: -(width + 1), y: 0}]
+      }
     } else {
-      out += [{op: OP_SPLIT, x: 1, y: width + 2}] + body + [{op: OP_JMP, x: -(width + 1), y: 0}]
-    }
-  } else {
-    let optional = node.b - node.a
-    for step in range(optional) {
-      out += [{op: OP_SPLIT, x: 1, y: (optional - step) * (width + 1)}] + body
+      let optional = node.b - node.a
+      for step in range(optional) {
+        yield @[{op: OP_SPLIT, x: 1, y: (optional - step) * (width + 1)}] + body
+      }
     }
   }
   out
@@ -820,10 +825,11 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
   }
   var literal = null
   var native = null
-  var text = []
   var plain = true
-  for pc in range(ops.len() - 1) {
-    if ops[pc] == OP_CHAR and xs[pc] < 128 { text += [xs[pc]] } else { plain = false; break }
+  let text = collect {
+    for pc in range(ops.len() - 1) {
+      if ops[pc] == OP_CHAR and xs[pc] < 128 { yield xs[pc] } else { plain = false; break }
+    }
   }
   if plain and ! text.is_empty() {
     match bytes.from_ints(text) {
@@ -831,10 +837,11 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
         literal = data
         # The same bytes as a basic regular expression for the native
         # matcher, with its few special characters escaped.
-        var quoted = []
-        for byte in text {
-          if byte in [92, 91, 93, 46, 42, 94, 36] { quoted += [92] }
-          quoted += [byte]
+        let quoted = collect {
+          for byte in text {
+            if byte in [92, 91, 93, 46, 42, 94, 36] { yield 92 }
+            yield byte
+          }
         }
         match bytes.from_ints(quoted) {
           Ok(escaped) => native = bytes_text(escaped)
@@ -1216,10 +1223,11 @@ export pure alternation(programs: List[Program]) -> Str? {
   for program in programs {
     let literal = program.literal
     return null when literal == null or program.backrefs
-    var quoted = []
-    for byte in literal ?? b"" {
-      if byte in [92, 94, 36, 46, 91, 93, 124, 40, 41, 42, 43, 63, 123, 125] { quoted += [92] }
-      quoted += [byte]
+    let quoted = collect {
+      for byte in literal ?? b"" {
+        if byte in [92, 94, 36, 46, 91, 93, 124, 40, 41, 42, 43, 63, 123, 125] { yield 92 }
+        yield byte
+      }
     }
     match bytes.from_ints(quoted) {
       Ok(data) => { parts += [bytes_text(data) ?? ""] }
