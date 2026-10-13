@@ -765,7 +765,7 @@ test test_gnu_cp_sparse_to_pipe_log { |ctx|
 test test_gnu_cp_sparse_log { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "sparse")
-  uu.truncate(s, "sparse", 128 * 1024 + 1)
+  uu.truncate(s, "sparse", 128KiB + 1)
   copied(s, ["--reflink=never", "--sparse=always", "sparse", "copy"])
   assert fs.stat(uu.at(s, "copy"))?.blocks_512 <= fs.stat(uu.at(s, "sparse"))?.blocks_512
   for option in ["always", "never"] {

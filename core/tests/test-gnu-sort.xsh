@@ -62,9 +62,9 @@ test test_gnu_sort_sort_benchmark_random_log { |ctx|
 test test_gnu_sort_sort_buffer_size_log { |ctx|
   let s = uu.scene(ctx)?
   test.timeout(ctx, 1800s)
-  if system.memory()?.available <= 120 * 1024 * 1024 { test.skip("requires more than 120 MiB available memory"); return }
+  if system.memory()?.available <= 120MiB { test.skip("requires more than 120 MiB available memory"); return }
   let limit = process.rlimit("as")?
-  if limit.soft != null and limit.soft <= 120 * 1024 * 1024 { test.skip("requires more than 120 MiB virtual memory"); return }
+  if limit.soft != null and limit.soft <= 120MiB { test.skip("requires more than 120 MiB virtual memory"); return }
   let expected = sequence(1, 200000, 6)
   let reverse_input = [padded(200001 - number, 6) + "\n" for number in range(1, 200001)].join("")
   let directory = uu.at(s, "no-temp").display()

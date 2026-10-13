@@ -144,7 +144,7 @@ test test_btop_memory_source_keeps_overlapping_categories_as_raw_counters {
   assert observed.inactive.bytes == 35840000
   assert observed.dirty.bytes == 256000
   assert observed.writeback.bytes == 128000
-  assert observed.total.bytes == 100000 * 1024
+  assert observed.total.bytes == 100000KiB
 }
 
 test test_btop_memory_source_withholds_duplicate_fields {

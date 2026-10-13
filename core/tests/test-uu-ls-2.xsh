@@ -671,7 +671,7 @@ test test_uu_ls_ls_human_si { |ctx|
   uu.stdout_contains(r, " 1.0k ")
   
   }
-  uu.truncate(s, "test_human-1", 1000 + 1000 * 1024)
+  uu.truncate(s, "test_human-1", 1000 + 1000KiB)
   {
   let r = invoke(s, ["-hl", "test_human-1"])?
   uu.succeeds(r)
