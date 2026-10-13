@@ -2072,7 +2072,7 @@ proc write_temp_run(root: FsRoot, name: Str, contents: Bytes, compress: Str?) [f
 
 ## A plain file that was merged into can become a run only after compression; the plain copy is then removed.
 proc compress_temp_run(root: FsRoot, name: Str, plain: Path, compress: Str?) [fs, process, env, error] -> SortInput {
-  if let program = compress {
+  if compress != null {
     let stored = write_temp_run(root, name, plain.read_bytes()?, compress)
     plain.remove()
     stored
@@ -2512,14 +2512,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  var opts: SortOptions = {
+  var opts = SortOptions(
     ...parsed_args,
     general_numeric_keys: {},
     decimal_point: ".",
     thousands_separator: b"",
     months: [],
     debug_byte_columns: text.byte_columns(),
-  }
+  )
   if sort_needs_numeric_conventions(opts) {
     let conventions = system.locale_numeric_info(sort_locale_name("LC_NUMERIC"))?
     opts = {...opts, decimal_point: conventions.decimal_point as Str, thousands_separator: conventions.thousands_separator}

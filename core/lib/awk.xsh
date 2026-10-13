@@ -213,27 +213,24 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
     let start = at
     if byte == 34 {
       let found = escaped(source, at + 1, byte, mode != 2)
-      match found {
-        Ok(text) => {
-          for note in text.notes { notes += [f"{piece.label}:{line}: warning: {note}"] }
-          tokens += [TokText(text.content)]
-          at = text.at
+      if let Ok(text) = found {
+        for note in text.notes { notes += [f"{piece.label}:{line}: warning: {note}"] }
+        tokens += [TokText(text.content)]
+        at = text.at
+      } else {
+        # GNU awk names the line where the string was cut short, which is
+        # later than the opening quote when backslash-newline continued it;
+        # a backslash ending the text continues it over the newline appended.
+        var stop = start + 1
+        var continued = 0
+        while stop < source.len() and source.byte_at(stop) != 10 {
+          if source.byte_at(stop) == 92 {
+            if source.byte_at(stop + 1) == 10 { continued += 1 }
+            stop += 2
+          } else { stop += 1 }
         }
-        Err(_) => {
-          # GNU awk names the line where the string was cut short, which is
-          # later than the opening quote when backslash-newline continued it;
-          # a backslash ending the text continues it over the newline appended.
-          var stop = start + 1
-          var continued = 0
-          while stop < source.len() and source.byte_at(stop) != 10 {
-            if source.byte_at(stop) == 92 {
-              if source.byte_at(stop + 1) == 10 { continued += 1 }
-              stop += 2
-            } else { stop += 1 }
-          }
-          if stop >= source.len() and source.byte_at(source.len() - 1) == 92 { continued += 1 }
-          return Err(syntax_error(caret_error(piece, start, "unterminated string", continued)))
-        }
+        if stop >= source.len() and source.byte_at(source.len() - 1) == 92 { continued += 1 }
+        return Err(syntax_error(caret_error(piece, start, "unterminated string", continued)))
       }
       starts += [start]
       lines += [line]
@@ -473,7 +470,7 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
       }
     }
     if word in ["sub", "gsub"] and args.value.len() == 3 {
-      let changeable = match after.program.expressions[args.value[2]] { Variable(_) | Index(_, _) | Field(_) | Text(_) | Number(_) => true; else => false }
+      let changeable = after.program.expressions[args.value[2]] is (Variable(_) | Index(_, _) | Field(_) | Text(_) | Number(_))
       if ! changeable { return Err(syntax_error(caret_error(after.piece, after.starts[after.at - 1], f"{word} third parameter is not a changeable object"))) }
     }
     if word == "index" and args.value.len() == 2 and is_regex_literal(after.program, args.value[1]) {
@@ -1613,8 +1610,7 @@ pure code_point(character: Str) -> Int {
 pure make_alphabet(pattern: Str, subject: Str) -> Alphabet {
   var present = [false for _ in range(128)]
   let source = bytes.from_text(pattern + subject)
-  for index in range(source.len()) {
-    let byte = source.byte_at(index) ?? 0
+  for byte in source {
     if byte < 128 { present[byte] = true }
   }
   var free = [
@@ -2514,14 +2510,7 @@ pure compile_call(x: List[Expression], names: List[Str], call_name: Str, args: L
           Variable(variable) => {
             if is_array_position { spots += [array_spot(names, variable)] } else { plain += [at] }
           }
-          Index(_, _) => {
-            if call_name in ["typeof", "isarray"] and at == 0 {
-              let place = compile_place(x, names, args[at])?
-              ops += place.ops
-              spots += [place.spot]
-            } else { plain += [at] }
-          }
-          Field(_) => {
+          Index(_, _) | Field(_) => {
             if call_name in ["typeof", "isarray"] and at == 0 {
               let place = compile_place(x, names, args[at])?
               ops += place.ops

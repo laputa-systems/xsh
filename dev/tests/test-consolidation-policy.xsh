@@ -25,8 +25,8 @@ pure report(src_lines: Int, xsht_lines: Int, manual_payloads: Int, blanket_lines
   }
 }
 
-pure metric_value(report: metrics.Report, name: Str) -> Int {
-  let rows = report.metrics |> where .name == name |> collect
+pure metric_value(source_report: metrics.Report, name: Str) -> Int {
+  let rows = source_report.metrics |> where .name == name |> collect
   rows[0].value
 }
 

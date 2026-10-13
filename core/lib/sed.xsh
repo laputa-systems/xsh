@@ -804,9 +804,9 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       return Err(complain(chunk, at, "unexpected '}'")) when blocks.is_empty()
       if command.first != null { return Err(complain(chunk, at, "'}' doesn't want any addresses")) }
       at = end_of_command(chunk, at)?
-      let opened = blocks[-1]
+      let closed_block = blocks[-1]
       blocks = blocks[0..blocks.len() - 1]
-      commands[opened.index] = {...commands[opened.index], number: commands.len()}
+      commands[closed_block.index] = {...commands[closed_block.index], number: commands.len()}
       commands += [command]
       continue
     }
@@ -950,7 +950,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
         if ignore_case or multiline { return Err(complain(chunk, at, "cannot specify modifiers on empty regexp")) }
       } else {
         choice = compile_regex(pattern_text, options.extended, ignore_case, multiline and !options.null_data) ?? { |failure| return Err(complain(chunk, at, failure.message)) }
-        match choice { Explicit(spec) => groups = spec.groups, else => {} }
+        if let Explicit(spec) = choice { groups = spec.groups }
       }
       let nodes = parse_replacement(replacement_text)
       let highest = highest_group(nodes)

@@ -470,7 +470,7 @@ proc read_device(name: Str) [fs, io, error] -> Result[Bytes, Error] {
       yield chunk
       total += chunk.len()
       if total >= DEVICE_LIMIT {
-        return Err(DeviceError.TooLarge(message: "input is unbounded or too large to compare"))
+        return Err(DeviceError.TooLarge("input is unbounded or too large to compare"))
       }
     }
   }
