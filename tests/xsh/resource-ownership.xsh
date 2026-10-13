@@ -44,7 +44,7 @@ proc resource_fail_with_root() [fs, error] -> Result[FsRoot, ResourceRootError] 
   with root = fs.tempdir() {
     fail .Owned(root:)
   } else {
-    return Err(.Unavailable())
+    fail .Unavailable()
   }
 }
 
