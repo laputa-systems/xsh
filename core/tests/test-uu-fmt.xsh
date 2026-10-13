@@ -13,7 +13,7 @@ test test_uu_fmt_fmt_reflow_unicode { |ctx|
 # origin: uutils test_fmt::prefix_equal
 test test_uu_fmt_prefix_equal { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "prefixed-one-word-per-line.txt", "prefixed-one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "prefixed-one-word-per-line.txt", "prefixed-one-word-per-line.txt")
   for prefix_args in [
         
         ["-p", "="],
@@ -43,7 +43,7 @@ test test_uu_fmt_prefix_ignores_leading_whitespace_without_exact_prefix { |ctx|
 # origin: uutils test_fmt::prefix_minus
 test test_uu_fmt_prefix_minus { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "prefixed-one-word-per-line.txt", "prefixed-one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "prefixed-one-word-per-line.txt", "prefixed-one-word-per-line.txt")
   for prefix_args in [
         ["-p-"],
         ["-p", "-"],
@@ -63,7 +63,7 @@ test test_uu_fmt_prefix_minus { |ctx|
 # origin: uutils test_fmt::split_does_not_reflow
 test test_uu_fmt_split_does_not_reflow { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   for arg in ["-s", "-ss", "--split-only"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", arg])?
   uu.succeeds(r)
@@ -74,7 +74,7 @@ test test_uu_fmt_split_does_not_reflow { |ctx|
 # origin: uutils test_fmt::test_fmt
 test test_uu_fmt_fmt { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   let r = uu.invoke(s, "fmt", ["one-word-per-line.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "this is a file with one word per line\n")
@@ -83,7 +83,7 @@ test test_uu_fmt_fmt { |ctx|
 # origin: uutils test_fmt::test_fmt_goal_bigger_than_default_width_of_75
 test test_uu_fmt_fmt_goal_bigger_than_default_width_of_75 { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   # GNU reports a goal beyond the selected width as a width range error.
   for param in ["-g", "--goal"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", param, "76"])?
@@ -95,7 +95,7 @@ test test_uu_fmt_fmt_goal_bigger_than_default_width_of_75 { |ctx|
 # origin: uutils test_fmt::test_fmt_goal_only_defaults_width_to_goal_plus_ten
 test test_uu_fmt_fmt_goal_only_defaults_width_to_goal_plus_ten { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   for goal in [5, 10, 20, 30, 50, 65] {
     let widened = uu.invoke(s, "fmt", ["one-word-per-line.txt", "-w", f"{goal + 10}", "-g", f"{goal}"])?
     uu.succeeds(widened)
@@ -111,7 +111,7 @@ test test_uu_fmt_fmt_goal_only_defaults_width_to_goal_plus_ten { |ctx|
 # origin: uutils test_fmt::test_fmt_goal_too_big
 test test_uu_fmt_fmt_goal_too_big { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   # GNU reports a goal beyond the selected width as a width range error.
   for param in ["-g", "--goal"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", "--width=75", param, "76"])?
@@ -123,7 +123,7 @@ test test_uu_fmt_fmt_goal_too_big { |ctx|
 # origin: uutils test_fmt::test_fmt_goal_too_small_to_check_negative_minlength
 test test_uu_fmt_fmt_goal_too_small_to_check_negative_minlength { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   for param in ["-g", "--goal"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", "--width=75", param, "10"])?
   uu.succeeds(r)
@@ -134,7 +134,7 @@ test test_uu_fmt_fmt_goal_too_small_to_check_negative_minlength { |ctx|
 # origin: uutils test_fmt::test_fmt_invalid_goal
 test test_uu_fmt_fmt_invalid_goal { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   # GNU uses the same diagnostic name for goal and width validation.
   for param in ["-g", "--goal"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", param, "invalid"])?
@@ -146,7 +146,7 @@ test test_uu_fmt_fmt_invalid_goal { |ctx|
 # origin: uutils test_fmt::test_fmt_invalid_goal_override
 test test_uu_fmt_fmt_invalid_goal_override { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", "-g", "apple", "-g", "74"])?
   uu.succeeds(r)
   uu.stdout_is(r, "this is a file with one word per line\n")
@@ -155,7 +155,7 @@ test test_uu_fmt_fmt_invalid_goal_override { |ctx|
 # origin: uutils test_fmt::test_fmt_invalid_goal_width_priority
 test test_uu_fmt_fmt_invalid_goal_width_priority { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", "-g", "apple", "-w", "banana"])?
   uu.fails_with_code(r, 1)
   uu.no_stdout(r)
@@ -178,7 +178,7 @@ test test_uu_fmt_fmt_invalid_utf8 { |ctx|
 # origin: uutils test_fmt::test_fmt_invalid_width
 test test_uu_fmt_fmt_invalid_width { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   for param in ["-w", "--width"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", param, "invalid"])?
   uu.fails_with_code(r, 1)
@@ -213,7 +213,7 @@ test test_uu_fmt_fmt_non_existent_file { |ctx|
 test test_uu_fmt_fmt_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
-  filename.write(b"hello world this is a test")?
+  filename.write(b"hello world this is a test")
   let r = uu.invoke_paths(s, "fmt", [Path.parse_bytes(b"\xff\xfe")?])?
   uu.succeeds(r)
 }
@@ -221,7 +221,7 @@ test test_uu_fmt_fmt_non_utf8_paths { |ctx|
 # origin: uutils test_fmt::test_fmt_positional_width
 test test_uu_fmt_fmt_positional_width { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   let r = uu.invoke(s, "fmt", ["-10", "one-word-per-line.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "this is a\nfile with\none word\nper line\n")
@@ -230,7 +230,7 @@ test test_uu_fmt_fmt_positional_width { |ctx|
 # origin: uutils test_fmt::test_fmt_positional_width_not_first
 test test_uu_fmt_fmt_positional_width_not_first { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", "-10"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "fmt: invalid option -- 1; -WIDTH is recognized only when it is the first\noption; use -w N instead")
@@ -239,7 +239,7 @@ test test_uu_fmt_fmt_positional_width_not_first { |ctx|
 # origin: uutils test_fmt::test_fmt_set_goal_not_contain_width
 test test_uu_fmt_fmt_set_goal_not_contain_width { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   for param in ["-g", "--goal"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", param, "74"])?
   uu.succeeds(r)
@@ -260,7 +260,7 @@ test test_uu_fmt_fmt_unicode_whitespace_handling { |ctx|
 # origin: uutils test_fmt::test_fmt_width
 test test_uu_fmt_fmt_width { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   for param in ["-w", "--width"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", param, "10"])?
   uu.succeeds(r)
@@ -274,7 +274,7 @@ test test_uu_fmt_fmt_width { |ctx|
 # origin: uutils test_fmt::test_fmt_width_invalid
 test test_uu_fmt_fmt_width_invalid { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", "-w", "apple"])?
   uu.fails_with_code(r, 1)
   uu.no_stdout(r)
@@ -321,7 +321,7 @@ test test_uu_fmt_fmt_width_multiplication_overflow { |ctx|
 # origin: uutils test_fmt::test_fmt_width_not_valid_number
 test test_uu_fmt_fmt_width_not_valid_number { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   let r = uu.invoke(s, "fmt", ["-25x", "one-word-per-line.txt"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "fmt: invalid width: '25x'")
@@ -330,7 +330,7 @@ test test_uu_fmt_fmt_width_not_valid_number { |ctx|
 # origin: uutils test_fmt::test_fmt_width_too_big
 test test_uu_fmt_fmt_width_too_big { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   for param in ["-w", "--width"] {
         let r = uu.invoke(s, "fmt", ["one-word-per-line.txt", param, "2501"])?
   uu.fails_with_code(r, 1)
@@ -359,7 +359,7 @@ test test_uu_fmt_invalid_input { |ctx|
 # origin: uutils test_fmt::test_small_width
 test test_uu_fmt_small_width { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")?
+  uu.fixture(s, "fmt", "one-word-per-line.txt", "one-word-per-line.txt")
   for width in ["0", "1", "2", "3"] {
         for param in ["-w", "--width"] {
             let r = uu.invoke(s, "fmt", [param, width, "one-word-per-line.txt"])?

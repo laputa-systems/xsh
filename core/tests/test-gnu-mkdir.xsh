@@ -26,7 +26,7 @@ test test_gnu_mkdir_p_slashdot_log { |ctx|
 # origin: gnu mkdir/p-thru-slink.log
 test test_gnu_mkdir_p_thru_slink_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, ".", "slink")?
+  uu.symlink(s, ".", "slink")
   uu.succeeds(uu.invoke(s, "mkdir", ["-p", "slink/x"])?)
   assert uu.dir_exists(s, "x")?
 }
@@ -61,7 +61,7 @@ test test_gnu_mkdir_special_1_log { |ctx|
   uu.succeeds(uu.invoke(s, "mkdir", [mode, "t"])?)
   assert uu.dir_exists(s, "t")?
   assert uu.mode(s, "t")? == 0o1752
-  uu.at(s, "t").remove_dir()?
+  uu.at(s, "t").remove_dir()
   uu.fails_with_code(uu.invoke(s, "mkdir", [mode, "t/sub"])?, 1)
   uu.succeeds(uu.invoke(s, "mkdir", ["--parents", mode, "t/sub"])?)
   assert uu.dir_exists(s, "t/sub")?

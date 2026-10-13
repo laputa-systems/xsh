@@ -752,7 +752,7 @@ pure first_set(ops: List[Int], xs: List[Int], ys: List[Int], sets: List[CharSet]
 ## GNU grep's wording; the warnings GNU prints for the pattern are returned.
 export pure compile_one(pattern: Bytes, ere: Bool, icase: Bool, utf8: Bool) -> Result[Compiled, Error] {
   let parsed = parse(pattern, ere, icase, utf8)
-  if parsed.error != "" { search.reject(parsed.error)? }
+  if parsed.error != "" { search.reject(parsed.error) }
   build(parsed, icase, utf8, parsed.warnings, false, pattern, ere)
 }
 
@@ -808,7 +808,7 @@ pure native_atom(parsed: Parsed, idx: Int, icase: Bool) -> Bool {
 pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: Bool, source: Bytes, ere: Bool) -> Result[Compiled, Error] {
   let slot_base = 2 * (parsed.groups + 1)
   let code = generate(parsed.nodes, parsed.root, icase, utf8, parsed.backrefs, slot_base) + [{op: OP_MATCH, x: 0, y: 0}]
-  for inst in code { if inst.op == OP_TOO_BIG { search.reject("Regular expression too big")? } }
+  for inst in code { if inst.op == OP_TOO_BIG { search.reject("Regular expression too big") } }
   let ops = [inst.op for inst in code]
   let xs = [inst.x for inst in code]
   let ys = [inst.y for inst in code]

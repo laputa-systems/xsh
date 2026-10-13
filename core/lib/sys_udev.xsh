@@ -234,7 +234,7 @@ export proc load(root: FsRoot, devpath: Str) [fs, error] -> Result[Device?, Erro
   var link_priority = 0
   var initialized: Str? = null
   let record = database_name(subsystem, sysname, major, minor, ifindex)
-  if record != null and root.exists(fp"run/udev/data/{record}")? {
+  if record != null and root.exists(fp"run/udev/data/{record}") {
     for line in root.read_text(fp"run/udev/data/{record}")?.lines() {
       let text = line.byte_slice(2)
       if line.starts_with("S:") {

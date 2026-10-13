@@ -11,7 +11,7 @@ test test_uu_expand_invalid_arg { |ctx|
 # origin: uutils test_expand::test_with_tab
 test test_uu_expand_with_tab { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "with-tab.txt", "with-tab.txt")?
+  uu.fixture(s, "expand", "with-tab.txt", "with-tab.txt")
   let r = uu.invoke(s, "expand", ["with-tab.txt"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "        ")
@@ -21,7 +21,7 @@ test test_uu_expand_with_tab { |ctx|
 # origin: uutils test_expand::test_with_trailing_tab
 test test_uu_expand_with_trailing_tab { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "with-trailing-tab.txt", "with-trailing-tab.txt")?
+  uu.fixture(s, "expand", "with-trailing-tab.txt", "with-trailing-tab.txt")
   let r = uu.invoke(s, "expand", ["with-trailing-tab.txt"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "with tabs=>  ")
@@ -31,7 +31,7 @@ test test_uu_expand_with_trailing_tab { |ctx|
 # origin: uutils test_expand::test_with_trailing_tab_i
 test test_uu_expand_with_trailing_tab_i { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "with-trailing-tab.txt", "with-trailing-tab.txt")?
+  uu.fixture(s, "expand", "with-trailing-tab.txt", "with-trailing-tab.txt")
   let r = uu.invoke(s, "expand", ["with-trailing-tab.txt", "-i"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "        // with tabs=>\t")
@@ -40,7 +40,7 @@ test test_uu_expand_with_trailing_tab_i { |ctx|
 # origin: uutils test_expand::test_with_tab_size
 test test_uu_expand_with_tab_size { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "with-tab.txt", "with-tab.txt")?
+  uu.fixture(s, "expand", "with-tab.txt", "with-tab.txt")
   let r = uu.invoke(s, "expand", ["with-tab.txt", "--tabs=10"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "          ")
@@ -49,7 +49,7 @@ test test_uu_expand_with_tab_size { |ctx|
 # origin: uutils test_expand::test_with_space
 test test_uu_expand_with_space { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "with-spaces.txt", "with-spaces.txt")?
+  uu.fixture(s, "expand", "with-spaces.txt", "with-spaces.txt")
   let r = uu.invoke(s, "expand", ["with-spaces.txt"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "    return")
@@ -58,8 +58,8 @@ test test_uu_expand_with_space { |ctx|
 # origin: uutils test_expand::test_with_multiple_files
 test test_uu_expand_with_multiple_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "with-tab.txt", "with-tab.txt")?
-  uu.fixture(s, "expand", "with-spaces.txt", "with-spaces.txt")?
+  uu.fixture(s, "expand", "with-tab.txt", "with-tab.txt")
+  uu.fixture(s, "expand", "with-spaces.txt", "with-spaces.txt")
   let r = uu.invoke(s, "expand", ["with-spaces.txt", "with-tab.txt"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "    return")
@@ -277,7 +277,7 @@ test test_uu_expand_comma_with_plus_4 { |ctx|
 # origin: uutils test_expand::test_args_override
 test test_uu_expand_args_override { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "with-trailing-tab.txt", "with-trailing-tab.txt")?
+  uu.fixture(s, "expand", "with-trailing-tab.txt", "with-trailing-tab.txt")
   let r = uu.invoke(s, "expand", ["-i", "-i", "with-trailing-tab.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "// !note: file contains significant whitespace\n// * indentation uses <TAB> characters\nint main() {\n        // * next line has both a leading & trailing tab\n        // with tabs=>\t\n        return 0;\n}\n")
@@ -294,7 +294,7 @@ test test_uu_expand_expand_directory { |ctx|
 # origin: uutils test_expand::test_nonexisting_file
 test test_uu_expand_nonexisting_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "with-spaces.txt", "with-spaces.txt")?
+  uu.fixture(s, "expand", "with-spaces.txt", "with-spaces.txt")
   let r = uu.invoke(s, "expand", ["nonexistent", "with-spaces.txt"])?
   uu.fails(r)
   uu.stderr_contains(r, "expand: nonexistent: No such file or directory")
@@ -304,7 +304,7 @@ test test_uu_expand_nonexisting_file { |ctx|
 # origin: uutils test_expand::test_buffered_reads_new_line_no_tabs_in_first_chunk
 test test_uu_expand_buffered_reads_new_line_no_tabs_in_first_chunk { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "expand", "new_line_in_chunk.txt", "new_line_in_chunk.txt")?
+  uu.fixture(s, "expand", "new_line_in_chunk.txt", "new_line_in_chunk.txt")
   let r = uu.invoke(s, "expand", ["new_line_in_chunk.txt"])?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, fp"{ctx.core_dir}/tests/data/uutils/expand/new_line_in_chunk_expected.txt".read_bytes()?)
@@ -379,7 +379,7 @@ test test_uu_expand_tabs_with_too_large_size { |ctx|
 test test_uu_expand_expand_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
-  filename.write(b"hello\tworld\ntest\tline\n")?
+  filename.write(b"hello\tworld\ntest\tline\n")
   let r = uu.invoke_paths(s, "expand", [filename])?
   uu.succeeds(r)
   uu.stdout_is(r, "hello   world\ntest    line\n")

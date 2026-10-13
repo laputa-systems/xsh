@@ -3,8 +3,8 @@ type NumberCase = {args: List[Str], input: Bytes, output: Str}
 use support.uu
 
 proc missing_between_files(s: uu.Scene) [fs, process, env, error] {
-  uu.write(s, "file1", "a\n")?
-  uu.write(s, "file2", "b\n")?
+  uu.write(s, "file1", "a\n")
+  uu.write(s, "file2", "b\n")
   let r = uu.invoke(s, "nl", ["file1", "missing", "file2"])?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "     1\ta\n     2\tb\n")
@@ -32,7 +32,7 @@ test test_gnu_nl_multibyte_log { |ctx|
   ]
   for c in cases {
     let input = bytes.concat([c.section, c.section, c.section, b"\na\n", c.section, c.section, b"\nb\n", c.section, b"\nc\n"])
-    uu.write_bytes(s, "inp", input)?
+    uu.write_bytes(s, "inp", input)
     let args = [p"-p", p"-ha", p"-fa", p"-d", Path.parse_bytes(c.argument)?]
     let vars = {LC_ALL: "fr_FR.utf-8", LANGUAGE: "C"}
     let words = uu.argv(s, "nl", args, vars)?
@@ -61,7 +61,7 @@ test test_gnu_nl_nl_log { |ctx|
     uu.succeeds(r)
     uu.stdout_only(r, c.output)
   }
-  uu.write(s, "in.txt", "\\:\\:\\:\na\n\\:\\:\nb\n\\:\nc\n")?
+  uu.write(s, "in.txt", "\\:\\:\\:\na\n\\:\\:\nb\n\\:\nc\n")
   for no_reset in [false, true] {
     let args = if no_reset { ["-p", "-ha", "-fa", "in.txt"] } else { ["-ha", "-fa", "in.txt"] }
     let r = uu.invoke(s, "nl", args)?
@@ -70,27 +70,27 @@ test test_gnu_nl_nl_log { |ctx|
     uu.stdout_only(r, expected)
   }
   uu.fails_with_code(uu.invoke(s, "nl", ["-v9223372036854775808", "/dev/null"])?, 1)
-  uu.write(s, "in.txt", "a\n\\:\\:\nb\n")?
+  uu.write(s, "in.txt", "a\n\\:\\:\nb\n")
   let reset_max = uu.invoke(s, "nl", ["-v9223372036854775807", "in.txt"])?
   uu.succeeds(reset_max)
   uu.stdout_only(reset_max, "9223372036854775807\ta\n\n9223372036854775807\tb\n")
   uu.fails_with_code(uu.invoke(s, "nl", ["-p", "-v9223372036854775807", "in.txt"])?, 1)
   uu.fails_with_code(uu.invoke(s, "nl", ["-i-9223372036854775809", "/dev/null"])?, 1)
-  uu.write(s, "in.txt", "a\nb\n")?
+  uu.write(s, "in.txt", "a\nb\n")
   let negative = uu.invoke(s, "nl", ["-v9223372036854775807", "-i-9223372036854775808", "in.txt"])?
   uu.succeeds(negative)
   uu.stdout_only(negative, "9223372036854775807\ta\n    -1\tb\n")
-  uu.write(s, "in.txt", "a\nb\nc\n")?
+  uu.write(s, "in.txt", "a\nb\nc\n")
   uu.fails_with_code(uu.invoke(s, "nl", ["-v9223372036854775807", "-i-9223372036854775808", "in.txt"])?, 1)
-  uu.write(s, "in.txt", "a\n\\:\\:\nc\n")?
+  uu.write(s, "in.txt", "a\n\\:\\:\nc\n")
   let disabled = uu.invoke(s, "nl", ["-d", "", "in.txt"])?
   uu.succeeds(disabled)
   uu.stdout_only(disabled, "     1\ta\n     2\t\\:\\:\n     3\tc\n")
-  uu.write(s, "in.txt", "a\nfoofoo\nc\n")?
+  uu.write(s, "in.txt", "a\nfoofoo\nc\n")
   let long_delimiter = uu.invoke(s, "nl", ["-d", "foo", "in.txt"])?
   uu.succeeds(long_delimiter)
   uu.stdout_only(long_delimiter, "     1\ta\n\n     1\tc\n")
-  uu.write(s, "in.txt", "a\nx:x:\nc\n")?
+  uu.write(s, "in.txt", "a\nx:x:\nc\n")
   let short_delimiter = uu.invoke(s, "nl", ["-d", "x", "in.txt"])?
   uu.succeeds(short_delimiter)
   uu.stdout_only(short_delimiter, "     1\ta\n\n     1\tc\n")

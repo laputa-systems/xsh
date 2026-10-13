@@ -104,7 +104,7 @@ test test_cmp_recorded_cases_match_gnu_cmp { |ctx|
   let root = test.temp_dir(ctx, name: "cmp-recorded")?
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/cmp/fixtures", fp"{root}/fx")?
   # A non-ASCII name is created here instead of being stored.
-  fp"{root}/fx/caf\u{e9}".write("x\n")?
+  fp"{root}/fx/caf\u{e9}".write("x\n")
   let all = load(fp"{ctx.core_dir}/tests/data/cmp/cases.txt")?
   assert !all.is_empty()
   let verdicts = all |> par-map(jobs: 8) { |item| check(ctx, fp"{root}/fx", item) } |> collect()
@@ -157,8 +157,8 @@ test test_cmp_eof_is_difference_and_io_errors_are_trouble { |ctx|
 
 test test_cmp_directory_operand_is_a_read_error { |ctx|
   let root = test.temp_dir(ctx, name: "cmp-dir")?
-  fp"{root}/d".mkdir()?
-  fp"{root}/f".write("x\n")?
+  fp"{root}/d".mkdir()
+  fp"{root}/f".write("x\n")
   let result = invoke(ctx, ["d", "f"], cwd: root)?
   assert result.status == 2
   assert result.stderr.utf8()? == "cmp: d: Is a directory\n", result.stderr.utf8()?
@@ -172,9 +172,9 @@ test test_cmp_unreadable_file_is_trouble_unless_silent { |ctx|
   }
   let root = test.temp_dir(ctx, name: "cmp-unreadable")?
   let secret = fp"{root}/secret"
-  secret.write("x\n")?
-  secret.chmod(0o000)?
-  fp"{root}/ok".write("x\n")?
+  secret.write("x\n")
+  secret.chmod(0o000)
+  fp"{root}/ok".write("x\n")
   let loud = invoke(ctx, ["secret", "ok"], cwd: root)?
   assert loud.status == 2
   assert loud.stderr.utf8()? == "cmp: secret: Permission denied\n", loud.stderr.utf8()?

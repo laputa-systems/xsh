@@ -70,7 +70,7 @@ proc main(...argv: List[Str]) {
   var failed = false
   for name in if opts.paths.is_empty() { ["-"] } else { opts.paths } {
     guard let source = text.open_source(name) else { |failure| gnu.name_error(name, failure); failed = true; continue }
-    defer text.close_source(source)?
+    defer text.close_source(source)
     var state: FoldState = {held: b"", column: 0, at: 0, blank: -1, pending: 0}
     loop {
       guard let chunk = text.read_source(source) else { |failure|

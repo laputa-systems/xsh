@@ -160,7 +160,7 @@ test test_csplit_operand_and_format_errors { |ctx|
 }
 
 test test_csplit_stdout_write_error { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "csplit")?
   fp"{root}/n".write(numbers(1, 5))
@@ -238,11 +238,11 @@ test test_csplit_non_utf8_operand_names_the_file_by_bytes { |ctx|
 }
 
 test test_csplit_write_error_removes_the_file_it_opened { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "csplit-full-file")?
   fp"{root}/n".write(numbers(1, 3))
-  fs.symlink(p"/dev/full", fp"{root}/xx01")?
+  fs.symlink(p"/dev/full", fp"{root}/xx01")
 
   let failed = csplit_run(ctx, root, ["n", "1"])?
   assert failed.status == 1
@@ -254,7 +254,7 @@ test test_csplit_write_error_removes_the_file_it_opened { |ctx|
 test test_csplit_directory_in_the_way_is_not_removed { |ctx|
   let root = test.temp_dir(ctx, name: "csplit-directory")?
   fp"{root}/n".write(numbers(1, 3))
-  fp"{root}/xx01".mkdir()?
+  fp"{root}/xx01".mkdir()
 
   let failed = csplit_run(ctx, root, ["n", "1"])?
   assert failed.status == 1

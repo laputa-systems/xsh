@@ -476,15 +476,15 @@ proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process,
   let ip_level = if s.v6 { c.SOL_IPV6 } else { c.SOL_IP }
 
   if s.debug {
-    socket_option(fd, c.SOL_SOCKET, c.SO_DEBUG, 1, "SO_DEBUG")?
+    socket_option(fd, c.SOL_SOCKET, c.SO_DEBUG, 1, "SO_DEBUG")
   }
 
   if s.bypass {
-    socket_option(fd, c.SOL_SOCKET, c.SO_DONTROUTE, 1, "SO_DONTROUTE")?
+    socket_option(fd, c.SOL_SOCKET, c.SO_DONTROUTE, 1, "SO_DONTROUTE")
   }
 
   if let mark = s.fwmark {
-    socket_option(fd, c.SOL_SOCKET, c.SO_MARK, mark, "SO_MARK")?
+    socket_option(fd, c.SOL_SOCKET, c.SO_MARK, mark, "SO_MARK")
   }
 
   if let name = s.interface {
@@ -496,14 +496,14 @@ proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process,
   }
 
   if let tos = s.tos {
-    socket_option(fd, ip_level, if s.v6 { c.IPV6_TCLASS } else { c.IP_TOS }, tos, "IP_TOS")?
+    socket_option(fd, ip_level, if s.v6 { c.IPV6_TCLASS } else { c.IP_TOS }, tos, "IP_TOS")
   }
 
   if s.dont_fragment {
     if s.v6 {
-      socket_option(fd, c.SOL_IPV6, c.IPV6_DONTFRAG, 1, "IPV6_DONTFRAG")?
+      socket_option(fd, c.SOL_IPV6, c.IPV6_DONTFRAG, 1, "IPV6_DONTFRAG")
     } else {
-      socket_option(fd, c.SOL_IP, c.IP_MTU_DISCOVER, c.IP_PMTUDISC_DO, "IP_MTU_DISCOVER")?
+      socket_option(fd, c.SOL_IP, c.IP_MTU_DISCOVER, c.IP_PMTUDISC_DO, "IP_MTU_DISCOVER")
     }
   }
 
@@ -513,14 +513,14 @@ proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process,
     }
   }
 
-  socket_option(fd, c.SOL_SOCKET, c.SO_TIMESTAMPNS, 1, "SO_TIMESTAMPNS")?
+  socket_option(fd, c.SOL_SOCKET, c.SO_TIMESTAMPNS, 1, "SO_TIMESTAMPNS")
 
   if recverr {
-    socket_option(fd, ip_level, if s.v6 { c.IPV6_RECVERR } else { c.IP_RECVERR }, 1, "IP_RECVERR")?
+    socket_option(fd, ip_level, if s.v6 { c.IPV6_RECVERR } else { c.IP_RECVERR }, 1, "IP_RECVERR")
   }
 
   if s.source_port != 0 {
-    socket_option(fd, c.SOL_SOCKET, c.SO_REUSEADDR, 1, "SO_REUSEADDR")?
+    socket_option(fd, c.SOL_SOCKET, c.SO_REUSEADDR, 1, "SO_REUSEADDR")
   }
 
   if s.source != null or s.source_port != 0 {
@@ -599,8 +599,8 @@ proc read_queue(s: Settings, fd: Int) [process, net, error] -> Result[Queued?] {
 # One UDP probe. The kernel queues the ICMP answer on the socket's error
 # queue; the destination port of the quoted datagram names the probe.
 proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms: Int) [process, net, time, error] -> Result[Reply?] {
-  set_ttl(s, fd, ttl)?
-  connect_target(s, fd, port)?
+  set_ttl(s, fd, ttl)
+  connect_target(s, fd, port)
 
   let start = stamp_ns(clock)
 
@@ -664,8 +664,8 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
 
   defer unix.close_fd(fd)
 
-  set_ttl(s, fd, ttl)?
-  connect_target(s, fd, 0)?
+  set_ttl(s, fd, ttl)
+  connect_target(s, fd, 0)
 
   let start = stamp_ns(clock)
   let request = echo_request(s.v6, seq, 0, false, pattern(s.payload_len))
@@ -742,7 +742,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
   let c = linux.net_constants()
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: 0}
 
-  set_ttl(s, fd, ttl)?
+  set_ttl(s, fd, ttl)
 
   let start = stamp_ns(clock)
   let request = echo_request(s.v6, seq, ident, ! s.v6, pattern(s.payload_len))
@@ -810,7 +810,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
 
   defer unix.close_fd(fd)
 
-  set_ttl(s, fd, ttl)?
+  set_ttl(s, fd, ttl)
 
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: port}
   let start = stamp_ns(clock)
@@ -930,7 +930,7 @@ proc pick_icmp_sockets(s: Settings) [process, net, error] -> Result[Str] {
   if s.icmp_sockets != "raw" {
     match linux.socket(if s.v6 { c.AF_INET6 } else { c.AF_INET }, c.SOCK_DGRAM, protocol) {
       Ok(fd) => {
-        unix.close_fd(fd)?
+        unix.close_fd(fd)
 
         return Ok("dgram")
       }
@@ -967,7 +967,7 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
         let idle = time.now() - last_send
 
         if idle < s.send_wait_ms {
-          time.sleep(time.millis(s.send_wait_ms - idle))?
+          time.sleep(time.millis(s.send_wait_ms - idle))
         }
       }
 
@@ -1029,11 +1029,11 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
   gnu.write_text("\n")
 
   if udp_fd >= 0 {
-    unix.close_fd(udp_fd)?
+    unix.close_fd(udp_fd)
   }
 
   if clock.fd >= 0 {
-    unix.close_fd(clock.fd)?
+    unix.close_fd(clock.fd)
   }
 
   Ok()

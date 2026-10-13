@@ -239,25 +239,25 @@ proc check_group(ctx: TestContext, family: Str) [fs, process, error] {
   assert failures.is_empty(), f"{failures.len()} of {cases.len()} differ:\n{failures.join("\n")}"
 }
 
-test test_grep_differential_basic_selection_and_modes { |ctx| check_group(ctx, "basic")? }
-test test_grep_differential_basic_regular_expressions { |ctx| check_group(ctx, "bre")? }
-test test_grep_differential_extended_regular_expressions { |ctx| check_group(ctx, "ere")? }
-test test_grep_differential_fixed_words_lines_and_case { |ctx| check_group(ctx, "rxo")? }
-test test_grep_differential_input_shapes_and_binary_files { |ctx| check_group(ctx, "in")? }
-test test_grep_differential_binary_detection_details { |ctx| check_group(ctx, "bin")? }
-test test_grep_differential_locales_and_multibyte_text { |ctx| check_group(ctx, "loc")? }
-test test_grep_differential_context_and_separators { |ctx| check_group(ctx, "ctx")? }
-test test_grep_differential_operands_stdin_and_exit_status { |ctx| check_group(ctx, "files")? }
-test test_grep_differential_recursion_and_file_filters { |ctx| check_group(ctx, "rec")? }
-test test_grep_differential_color_output { |ctx| check_group(ctx, "color")? }
-test test_grep_differential_grep_colors_capabilities { |ctx| check_group(ctx, "colors")? }
-test test_grep_differential_option_parsing_and_diagnostics { |ctx| check_group(ctx, "opt")? }
-test test_grep_differential_exit_statuses { |ctx| check_group(ctx, "exit")? }
-test test_grep_differential_null_data_records { |ctx| check_group(ctx, "z")? }
-test test_grep_differential_egrep_wrapper { |ctx| check_group(ctx, "egrep")? }
-test test_grep_differential_fgrep_wrapper { |ctx| check_group(ctx, "fgrep")? }
-test test_grep_differential_operand_names_and_filters { |ctx| check_group(ctx, "names")? }
-test test_grep_differential_generated_expressions { |ctx| check_group(ctx, "fz")? }
+test test_grep_differential_basic_selection_and_modes { |ctx| check_group(ctx, "basic") }
+test test_grep_differential_basic_regular_expressions { |ctx| check_group(ctx, "bre") }
+test test_grep_differential_extended_regular_expressions { |ctx| check_group(ctx, "ere") }
+test test_grep_differential_fixed_words_lines_and_case { |ctx| check_group(ctx, "rxo") }
+test test_grep_differential_input_shapes_and_binary_files { |ctx| check_group(ctx, "in") }
+test test_grep_differential_binary_detection_details { |ctx| check_group(ctx, "bin") }
+test test_grep_differential_locales_and_multibyte_text { |ctx| check_group(ctx, "loc") }
+test test_grep_differential_context_and_separators { |ctx| check_group(ctx, "ctx") }
+test test_grep_differential_operands_stdin_and_exit_status { |ctx| check_group(ctx, "files") }
+test test_grep_differential_recursion_and_file_filters { |ctx| check_group(ctx, "rec") }
+test test_grep_differential_color_output { |ctx| check_group(ctx, "color") }
+test test_grep_differential_grep_colors_capabilities { |ctx| check_group(ctx, "colors") }
+test test_grep_differential_option_parsing_and_diagnostics { |ctx| check_group(ctx, "opt") }
+test test_grep_differential_exit_statuses { |ctx| check_group(ctx, "exit") }
+test test_grep_differential_null_data_records { |ctx| check_group(ctx, "z") }
+test test_grep_differential_egrep_wrapper { |ctx| check_group(ctx, "egrep") }
+test test_grep_differential_fgrep_wrapper { |ctx| check_group(ctx, "fgrep") }
+test test_grep_differential_operand_names_and_filters { |ctx| check_group(ctx, "names") }
+test test_grep_differential_generated_expressions { |ctx| check_group(ctx, "fz") }
 
 test test_grep_perl_regexp_is_refused_explicitly { |ctx|
   let root = test.temp_dir(ctx, name: "grep-perl")?
@@ -275,7 +275,7 @@ test test_grep_unreadable_file_is_reported_and_the_search_goes_on { |ctx|
   let open = fp"{root}/open"
   closed.write("needle\n")
   open.write("needle\n")
-  closed.chmod(0o000)?
+  closed.chmod(0o000)
   if closed.read_bytes() is Ok(_) { return }
   let ran = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/grep.xsh" -- needle $closed $open
   assert ran.status.exited_with(2)

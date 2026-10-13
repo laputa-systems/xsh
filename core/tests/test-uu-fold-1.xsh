@@ -6,40 +6,40 @@ use support.uu as uu
 # origin: uutils test_fold::test_40_column_hard_cutoff
 test test_uu_fold_40_column_hard_cutoff { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "lorem_ipsum.txt", "lorem_ipsum.txt")?
+  uu.fixture(s, "fold", "lorem_ipsum.txt", "lorem_ipsum.txt")
   let r1 = uu.invoke(s, "fold", ["-w", "40", "lorem_ipsum.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "fold", "lorem_ipsum_40_column_hard.expected", "lorem_ipsum_40_column_hard.expected")?
+  uu.fixture(s, "fold", "lorem_ipsum_40_column_hard.expected", "lorem_ipsum_40_column_hard.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "lorem_ipsum_40_column_hard.expected")?)
 }
 
 # origin: uutils test_fold::test_40_column_word_boundary
 test test_uu_fold_40_column_word_boundary { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "lorem_ipsum.txt", "lorem_ipsum.txt")?
+  uu.fixture(s, "fold", "lorem_ipsum.txt", "lorem_ipsum.txt")
   let r1 = uu.invoke(s, "fold", ["-s", "-w", "40", "lorem_ipsum.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "fold", "lorem_ipsum_40_column_word.expected", "lorem_ipsum_40_column_word.expected")?
+  uu.fixture(s, "fold", "lorem_ipsum_40_column_word.expected", "lorem_ipsum_40_column_word.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "lorem_ipsum_40_column_word.expected")?)
 }
 
 # origin: uutils test_fold::test_all_tab_advances_at_non_utf8_character
 test test_uu_fold_all_tab_advances_at_non_utf8_character { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "non_utf8_tab_stops.input", "non_utf8_tab_stops.input")?
+  uu.fixture(s, "fold", "non_utf8_tab_stops.input", "non_utf8_tab_stops.input")
   let r1 = uu.invoke(s, "fold", ["-w16", "non_utf8_tab_stops.input"])?
   uu.succeeds(r1)
-  uu.fixture(s, "fold", "non_utf8_tab_stops_w16.expected", "non_utf8_tab_stops_w16.expected")?
+  uu.fixture(s, "fold", "non_utf8_tab_stops_w16.expected", "non_utf8_tab_stops_w16.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "non_utf8_tab_stops_w16.expected")?)
 }
 
 # origin: uutils test_fold::test_all_tabs_should_advance_to_next_tab_stops
 test test_uu_fold_all_tabs_should_advance_to_next_tab_stops { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "tab_stops.input", "tab_stops.input")?
+  uu.fixture(s, "fold", "tab_stops.input", "tab_stops.input")
   let r1 = uu.invoke(s, "fold", ["-w16", "tab_stops.input"])?
   uu.succeeds(r1)
-  uu.fixture(s, "fold", "tab_stops_w16.expected", "tab_stops_w16.expected")?
+  uu.fixture(s, "fold", "tab_stops_w16.expected", "tab_stops_w16.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "tab_stops_w16.expected")?)
 }
 
@@ -86,10 +86,10 @@ test test_uu_fold_backspaced_char_should_be_preserved { |ctx|
 # origin: uutils test_fold::test_byte_break_at_non_utf8_character
 test test_uu_fold_byte_break_at_non_utf8_character { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "non_utf8.input", "non_utf8.input")?
+  uu.fixture(s, "fold", "non_utf8.input", "non_utf8.input")
   let r1 = uu.invoke(s, "fold", ["-b", "-s", "-w", "40", "non_utf8.input"])?
   uu.succeeds(r1)
-  uu.fixture(s, "fold", "non_utf8.expected", "non_utf8.expected")?
+  uu.fixture(s, "fold", "non_utf8.expected", "non_utf8.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "non_utf8.expected")?)
 }
 
@@ -356,20 +356,20 @@ test test_uu_fold_dash_operand_reads_stdin { |ctx|
 # origin: uutils test_fold::test_default_80_column_wrap
 test test_uu_fold_default_80_column_wrap { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "lorem_ipsum.txt", "lorem_ipsum.txt")?
+  uu.fixture(s, "fold", "lorem_ipsum.txt", "lorem_ipsum.txt")
   let r1 = uu.invoke(s, "fold", ["lorem_ipsum.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "fold", "lorem_ipsum_80_column.expected", "lorem_ipsum_80_column.expected")?
+  uu.fixture(s, "fold", "lorem_ipsum_80_column.expected", "lorem_ipsum_80_column.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "lorem_ipsum_80_column.expected")?)
 }
 
 # origin: uutils test_fold::test_default_wrap_with_newlines
 test test_uu_fold_default_wrap_with_newlines { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "lorem_ipsum_new_line.txt", "lorem_ipsum_new_line.txt")?
+  uu.fixture(s, "fold", "lorem_ipsum_new_line.txt", "lorem_ipsum_new_line.txt")
   let r1 = uu.invoke(s, "fold", ["lorem_ipsum_new_line.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "fold", "lorem_ipsum_new_line_80_column.expected", "lorem_ipsum_new_line_80_column.expected")?
+  uu.fixture(s, "fold", "lorem_ipsum_new_line_80_column.expected", "lorem_ipsum_new_line_80_column.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "lorem_ipsum_new_line_80_column.expected")?)
 }
 
@@ -487,7 +487,7 @@ test test_uu_fold_invalid_arg { |ctx|
 # origin: uutils test_fold::test_obsolete_syntax
 test test_uu_fold_obsolete_syntax { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "space_separated_words.txt", "space_separated_words.txt")?
+  uu.fixture(s, "fold", "space_separated_words.txt", "space_separated_words.txt")
   let r1 = uu.invoke(s, "fold", ["-5", "-s", "space_separated_words.txt"])?
   uu.succeeds(r1)
   uu.stdout_is(r1, "test1\n \ntest2\n \ntest3\n \ntest4\n \ntest5\n \ntest6\n ")
@@ -577,10 +577,10 @@ test test_uu_fold_bytewise_read_from_pseudo_device { |ctx|
   let err = uu.at(s, "error")
   let plan = uu.command(s, "fold", ["-b", "/dev/zero"], stdout: out, stderr: err)?
   let child = spawn plan?
-  defer child.cancel(signal: "KILL", kill_after: 0ms)?
-  time.sleep(100ms)?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)
+  time.sleep(100ms)
   assert process.wait_timeout([child], 0ms)? == null
-  process.kill(child.pid, signal: "KILL")?
+  process.kill(child.pid, signal: "KILL")
   let done = process.wait_timeout([child], 2s)?
   assert done != null
   assert b"\x00\x0a" in out.read_bytes()?
@@ -638,8 +638,8 @@ test test_uu_fold_combining_characters_nfd { |ctx|
 # origin: uutils test_fold::test_continue_after_missing_file
 test test_uu_fold_continue_after_missing_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "first.txt", "hello\n")?
-  uu.write(s, "third.txt", "world\n")?
+  uu.write(s, "first.txt", "hello\n")
+  uu.write(s, "third.txt", "world\n")
   let r1 = uu.invoke(s, "fold", ["first.txt", "absent.txt", "third.txt"])?
   uu.fails_with_code(r1, 1)
   uu.stdout_is(r1, "hello\nworld\n")
@@ -725,7 +725,7 @@ test test_uu_fold_multiple_wide_characters_in_column_mode { |ctx|
 # origin: uutils test_fold::test_negative_width_as_separate_value
 test test_uu_fold_negative_width_as_separate_value { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "lorem_ipsum.txt", "lorem_ipsum.txt")?
+  uu.fixture(s, "fold", "lorem_ipsum.txt", "lorem_ipsum.txt")
   let r1 = uu.invoke(s, "fold", ["-w", "-1", "lorem_ipsum.txt"])?
   uu.fails_with_code(r1, 1)
   uu.stderr_is(r1, "fold: invalid number of columns: '-1'\n")

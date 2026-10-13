@@ -5,7 +5,7 @@ use support.uu as uu
 # origin: uutils test_cp::test_cp_sparse_always_reflink_always
 test test_uu_cp_cp_sparse_always_reflink_always { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src_file1")?
+  uu.touch(s, "src_file1")
   let r = uu.invoke(s, "cp", ["--sparse=always", "--reflink=always", "src_file1", "dst_file"])?
   uu.fails(r)
 }
@@ -13,7 +13,7 @@ test test_uu_cp_cp_sparse_always_reflink_always { |ctx|
 # origin: uutils test_cp::test_cp_sparse_never_reflink_always
 test test_uu_cp_cp_sparse_never_reflink_always { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src_file1")?
+  uu.touch(s, "src_file1")
   let r = uu.invoke(s, "cp", ["--sparse=never", "--reflink=always", "src_file1", "dst_file"])?
   uu.fails(r)
 }
@@ -21,7 +21,7 @@ test test_uu_cp_cp_sparse_never_reflink_always { |ctx|
 # origin: uutils test_cp::test_cp_sparse_invalid_option
 test test_uu_cp_cp_sparse_invalid_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src_file1")?
+  uu.touch(s, "src_file1")
   let r = uu.invoke(s, "cp", ["--sparse=invalid", "src_file1", "dst_file"])?
   uu.fails(r)
 }
@@ -31,7 +31,7 @@ test test_uu_cp_cp_sparse_always_empty { |ctx|
   for argument in ["--sparse=always", "--sparse=alway", "--sparse=al"] {
     let s = uu.scene(ctx)?
     let buf = bytes.zero(16384)?
-    uu.write_bytes(s, "src_file1", buf)?
+    uu.write_bytes(s, "src_file1", buf)
     let r = uu.invoke(s, "cp", [argument, "src_file1", "dst_file_sparse"])?
     uu.succeeds(r)
     assert uu.read(s, "dst_file_sparse")? == buf
@@ -43,7 +43,7 @@ test test_uu_cp_cp_sparse_always_empty { |ctx|
 test test_uu_cp_cp_sparse_always_non_empty { |ctx|
   let s = uu.scene(ctx)?
   let buf = bytes.concat([bytes.zero(21846)?, b"x", bytes.zero(21845)?, b"x", bytes.zero(21846)?])
-  uu.write_bytes(s, "src_file1", buf)?
+  uu.write_bytes(s, "src_file1", buf)
   let r = uu.invoke(s, "cp", ["--sparse=always", "src_file1", "dst_file_sparse"])?
   uu.succeeds(r)
   let metadata = fs.stat(uu.at(s, "dst_file_sparse"))?
@@ -55,7 +55,7 @@ test test_uu_cp_cp_sparse_always_non_empty { |ctx|
 test test_uu_cp_cp_sparse_never_empty { |ctx|
   let s = uu.scene(ctx)?
   let buf = bytes.zero(16384)?
-  uu.write_bytes(s, "src_file1", buf)?
+  uu.write_bytes(s, "src_file1", buf)
   let r = uu.invoke(s, "cp", ["--sparse=never", "src_file1", "dst_file_non_sparse"])?
   uu.succeeds(r)
   assert uu.read(s, "dst_file_non_sparse")? == buf
@@ -73,7 +73,7 @@ test test_uu_cp_cp_stream_to_full { |ctx|
 # origin: uutils test_cp::test_cp_strip_trailing_slashes
 test test_uu_cp_cp_strip_trailing_slashes { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")?
+  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
   let r = uu.invoke(s, "cp", ["--strip-trailing-slashes", "hello_world.txt/", "copy_of_hello_world.txt"])?
   uu.fails_with_code(r, 1)
   uu.stderr_only(r, "cp: cannot stat 'hello_world.txt/': Not a directory\n")
@@ -83,8 +83,8 @@ test test_uu_cp_cp_strip_trailing_slashes { |ctx|
 # origin: uutils test_cp::test_cp_symbolic_link_loop
 test test_uu_cp_cp_symbolic_link_loop { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, uu.at(s, "loop").display(), "loop")?
-  uu.touch(s, "f")?
+  uu.symlink(s, uu.at(s, "loop").display(), "loop")
+  uu.touch(s, "f")
   let r = uu.invoke(s, "cp", ["-f", "f", "loop"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -94,8 +94,8 @@ test test_uu_cp_cp_symbolic_link_loop { |ctx|
 # origin: uutils test_cp::test_remove_destination_symbolic_link_loop
 test test_uu_cp_remove_destination_symbolic_link_loop { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, uu.at(s, "loop").display(), "loop")?
-  uu.touch(s, "f")?
+  uu.symlink(s, uu.at(s, "loop").display(), "loop")
+  uu.touch(s, "f")
   let r = uu.invoke(s, "cp", ["--remove-destination", "f", "loop"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -105,12 +105,12 @@ test test_uu_cp_remove_destination_symbolic_link_loop { |ctx|
 # origin: uutils test_cp::test_cp_symlink_overwrite_detection
 test test_uu_cp_cp_symlink_overwrite_detection { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "good")?
-  uu.mkdir(s, "tmp")?
-  uu.write(s, "README", "file1")?
-  uu.write(s, "good/README", "file2")?
-  uu.symlink(s, uu.at(s, "tmp/foo").display(), "tmp/README")?
-  uu.touch(s, "tmp/foo")?
+  uu.mkdir(s, "good")
+  uu.mkdir(s, "tmp")
+  uu.write(s, "README", "file1")
+  uu.write(s, "good/README", "file2")
+  uu.symlink(s, uu.at(s, "tmp/foo").display(), "tmp/README")
+  uu.touch(s, "tmp/foo")
   let r = uu.invoke(s, "cp", ["README", "good/README", "tmp"])?
   uu.fails(r)
   uu.stderr_only(r, "cp: will not copy 'good/README' through just-created symlink 'tmp/README'\n")
@@ -120,10 +120,10 @@ test test_uu_cp_cp_symlink_overwrite_detection { |ctx|
 # origin: uutils test_cp::test_cp_symlink_permissions
 test test_uu_cp_cp_symlink_permissions { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.set_mode(s, "a", 0o700)?
-  uu.symlink(s, uu.at(s, "a").display(), "symlink")?
-  uu.mkdir(s, "dest")?
+  uu.touch(s, "a")
+  uu.set_mode(s, "a", 0o700)
+  uu.symlink(s, uu.at(s, "a").display(), "symlink")
+  uu.mkdir(s, "dest")
   let r = uu.invoke(s, "cp", ["--preserve", "symlink", "dest"])?
   uu.succeeds(r)
   assert fs.stat(uu.at(s, "a"))?.mode == fs.stat(uu.at(s, "dest/symlink"))?.mode
@@ -132,8 +132,8 @@ test test_uu_cp_cp_symlink_permissions { |ctx|
 # origin: uutils test_cp::test_cp_target_directory_is_file
 test test_uu_cp_cp_target_directory_is_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")?
-  uu.fixture(s, "cp", "how_are_you.txt", "how_are_you.txt")?
+  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
+  uu.fixture(s, "cp", "how_are_you.txt", "how_are_you.txt")
   let r = uu.invoke(s, "cp", ["-t", "how_are_you.txt", "hello_world.txt"])?
   uu.fails(r)
   uu.stderr_contains(r, "target directory 'how_are_you.txt': Not a directory")
@@ -142,7 +142,7 @@ test test_uu_cp_cp_target_directory_is_file { |ctx|
 # origin: uutils test_cp::test_cp_target_file_dev_null
 test test_uu_cp_cp_target_file_dev_null { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_cp_target_file_file_i2")?
+  uu.touch(s, "test_cp_target_file_file_i2")
   let r = uu.invoke(s, "cp", ["/dev/null", "test_cp_target_file_file_i2"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -152,9 +152,9 @@ test test_uu_cp_cp_target_file_dev_null { |ctx|
 # origin: uutils test_cp::test_cp_to_existing_file_permissions
 test test_uu_cp_cp_to_existing_file_permissions { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src")?
-  uu.touch(s, "dst")?
-  uu.set_mode(s, "src", uu.mode(s, "src")?.clear_bits(0o222))?
+  uu.touch(s, "src")
+  uu.touch(s, "dst")
+  uu.set_mode(s, "src", uu.mode(s, "src")?.clear_bits(0o222))
   let before = uu.mode(s, "dst")?
   let r = uu.invoke(s, "cp", ["src", "dst"])?
   uu.succeeds(r)
@@ -164,8 +164,8 @@ test test_uu_cp_cp_to_existing_file_permissions { |ctx|
 # origin: uutils test_cp::test_cp_update_none_interactive_prompt_no
 test test_uu_cp_cp_update_none_interactive_prompt_no { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "old", "old content")?
-  uu.write(s, "new", "new content")?
+  uu.write(s, "old", "old content")
+  uu.write(s, "new", "new content")
   let r = uu.invoke(s, "cp", ["-i", "--update=none", "new", "old"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -178,9 +178,9 @@ test test_uu_cp_cp_update_none_interactive_prompt_no { |ctx|
 # origin: uutils test_cp::test_cp_verbose_preserved_link_to_dir
 test test_uu_cp_cp_verbose_preserved_link_to_dir { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.hard_link(s, "file", "hardlink")?
-  uu.mkdir(s, "dir")?
+  uu.touch(s, "file")
+  uu.hard_link(s, "file", "hardlink")
+  uu.mkdir(s, "dir")
   let r = uu.invoke(s, "cp", ["-d", "--verbose", "file", "hardlink", "dir"])?
   uu.succeeds(r)
   uu.stdout_is(r, "'file' -> 'dir/file'\n'hardlink' -> 'dir/hardlink'\n")
@@ -194,7 +194,7 @@ test test_uu_cp_cp_verbose_preserved_link_to_dir { |ctx|
 # origin: uutils test_cp::test_cp_verbose_write_error_is_reported
 test test_uu_cp_cp_verbose_write_error_is_reported { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "source_file")?
+  uu.touch(s, "source_file")
   let r = uu.invoke(s, "cp", ["--verbose", "source_file", "dest_file"], stdout: p"/dev/full")?
   uu.fails(r)
   uu.stderr_is(r, "cp: write error: No space left on device\n")
@@ -204,10 +204,10 @@ test test_uu_cp_cp_verbose_write_error_is_reported { |ctx|
 # origin: uutils test_cp::test_cp_with_dirs
 test test_uu_cp_cp_with_dirs { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")?
-  uu.mkdir(s, "hello_dir")?
-  uu.mkdir(s, "hello_dir_with_file")?
-  uu.fixture(s, "cp", "hello_dir_with_file/hello_world.txt", "hello_dir_with_file/hello_world.txt")?
+  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
+  uu.mkdir(s, "hello_dir")
+  uu.mkdir(s, "hello_dir_with_file")
+  uu.fixture(s, "cp", "hello_dir_with_file/hello_world.txt", "hello_dir_with_file/hello_world.txt")
   let r = uu.invoke(s, "cp", ["hello_world.txt", "hello_dir/"])?
   uu.succeeds(r)
   uu.file_is(s, "hello_dir/hello_world.txt", "Hello, World!\n")
@@ -219,8 +219,8 @@ test test_uu_cp_cp_with_dirs { |ctx|
 # origin: uutils test_cp::test_cp_with_dirs_t
 test test_uu_cp_cp_with_dirs_t { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")?
-  uu.mkdir(s, "hello_dir")?
+  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
+  uu.mkdir(s, "hello_dir")
   let r = uu.invoke(s, "cp", ["-t", "hello_dir/", "hello_world.txt"])?
   uu.succeeds(r)
   uu.file_is(s, "hello_dir/hello_world.txt", "Hello, World!\n")
@@ -229,10 +229,10 @@ test test_uu_cp_cp_with_dirs_t { |ctx|
 # origin: uutils test_cp::test_cp_with_options_backup_and_rem_when_dest_is_symlink
 test test_uu_cp_cp_with_options_backup_and_rem_when_dest_is_symlink { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file", "xyz")?
-  uu.mkdir(s, "inner_dir")?
-  uu.write(s, "inner_dir/inner_file", "abc")?
-  uu.symlink(s, "inner_file", "inner_dir/sl")?
+  uu.write(s, "file", "xyz")
+  uu.mkdir(s, "inner_dir")
+  uu.write(s, "inner_dir/inner_file", "abc")
+  uu.symlink(s, "inner_file", "inner_dir/sl")
   let r = uu.invoke(s, "cp", ["-b", "--rem", "file", "inner_dir/sl"])?
   uu.succeeds(r)
   assert uu.file_exists(s, "inner_dir/inner_file")?
@@ -265,8 +265,8 @@ test test_uu_cp_cp_zero_sized_virtual_file_contents { |ctx|
 # origin: uutils test_cp::test_dir_recursive_copy
 test test_uu_cp_dir_recursive_copy { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "parent1/child")?
-  uu.mkdir(s, "parent2/child1/child2/child3")?
+  uu.mkdir(s, "parent1/child")
+  uu.mkdir(s, "parent2/child1/child2/child3")
   for pair in [["parent1", "parent1"], ["parent1", "parent1/child"]] {
     let r = uu.invoke(s, "cp", ["-R"].extend(pair))?
     uu.fails(r)
@@ -282,8 +282,8 @@ test test_uu_cp_dir_recursive_copy { |ctx|
 # origin: uutils test_cp::test_hard_link_file
 test test_uu_cp_hard_link_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src")?
-  uu.touch(s, "dest")?
+  uu.touch(s, "src")
+  uu.touch(s, "dest")
   let r = uu.invoke(s, "cp", ["-f", "--link", "src", "dest"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -293,8 +293,8 @@ test test_uu_cp_hard_link_file { |ctx|
 # origin: uutils test_cp::test_no_preserve_mode_with_later_preserve
 test test_uu_cp_no_preserve_mode_with_later_preserve { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src")?
-  uu.set_mode(s, "src", 0o755)?
+  uu.touch(s, "src")
+  uu.set_mode(s, "src", 0o755)
   let r = uu.invoke(s, "cp", ["--no-preserve=mode", "src", "dst1"])?
   uu.succeeds(r)
   let first = uu.mode(s, "dst1")?.bit_and(0o777)
@@ -315,7 +315,7 @@ test test_uu_cp_no_preserve_mode_with_later_preserve { |ctx|
 test test_uu_cp_non_utf8_src { |ctx|
   let s = uu.scene(ctx)?
   let src = uu.at_bytes(s, b"\xff\xffsrc")?
-  src.write("")?
+  src.write("")
   let r = uu.invoke_paths(s, "cp", [Path.parse_bytes(b"\xff\xffsrc")?, p"dest"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -325,7 +325,7 @@ test test_uu_cp_non_utf8_src { |ctx|
 # origin: uutils test_cp::test_non_utf8_dest
 test test_uu_cp_non_utf8_dest { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")?
+  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
   let name = Path.parse_bytes(b"\xff\xffdest")?
   let r = uu.invoke_paths(s, "cp", [p"hello_world.txt", name])?
   uu.succeeds(r)
@@ -336,8 +336,8 @@ test test_uu_cp_non_utf8_dest { |ctx|
 # origin: uutils test_cp::test_non_utf8_target
 test test_uu_cp_non_utf8_target { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")?
-  uu.at_bytes(s, b"\xff\xffdest")?.mkdir()?
+  uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
+  uu.at_bytes(s, b"\xff\xffdest")?.mkdir()
   let r = uu.invoke_paths(s, "cp", [p"-t", Path.parse_bytes(b"\xff\xffdest")?, p"hello_world.txt"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -348,8 +348,8 @@ test test_uu_cp_non_utf8_target { |ctx|
 test test_uu_cp_preserve_attrs_overriding_1 { |ctx|
   for flag in ["-d", "-a"] {
     let s = uu.scene(ctx)?
-    uu.touch(s, "file")?
-    uu.symlink(s, uu.at(s, "file").display(), "symlink")?
+    uu.touch(s, "file")
+    uu.symlink(s, uu.at(s, "file").display(), "symlink")
     uu.succeeds(uu.invoke(s, "cp", [flag, "--no-preserve=all", "symlink", "dest"])?)
     assert uu.is_symlink(s, "dest")?
   }
@@ -365,10 +365,10 @@ test test_uu_cp_preserve_attrs_overriding_2 { |ctx|
     ["-r", "--preserve", "--no-preserve=link"]
   ] {
     let s = uu.scene(ctx)?
-    uu.mkdir(s, "folder")?
-    uu.touch(s, "folder/file1")?
-    uu.set_mode(s, "folder/file1", 0o775)?
-    uu.hard_link(s, "folder/file1", "folder/file2")?
+    uu.mkdir(s, "folder")
+    uu.touch(s, "folder/file1")
+    uu.set_mode(s, "folder/file1", 0o775)
+    uu.hard_link(s, "folder/file1", "folder/file2")
     let before = fs.stat(uu.at(s, "folder/file1"))?
     uu.succeeds(uu.invoke(s, "cp", args.extend(["folder", "dest"]))?)
     let first = fs.stat(uu.at(s, "dest/file1"))?
@@ -382,11 +382,11 @@ test test_uu_cp_preserve_attrs_overriding_2 { |ctx|
 # origin: uutils test_cp::test_preserve_hardlink_attributes_in_directory
 test test_uu_cp_preserve_hardlink_attributes_in_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "src")?
-  uu.touch(s, "src/f")?
-  uu.hard_link(s, "src/f", "src/link")?
-  uu.mkdir(s, "dest/src")?
-  uu.touch(s, "dest/src/f")?
+  uu.mkdir(s, "src")
+  uu.touch(s, "src/f")
+  uu.hard_link(s, "src/f", "src/link")
+  uu.mkdir(s, "dest/src")
+  uu.touch(s, "dest/src/f")
   let r = uu.invoke(s, "cp", ["-a", "src", "dest"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -396,8 +396,8 @@ test test_uu_cp_preserve_hardlink_attributes_in_directory { |ctx|
 # origin: uutils test_cp::test_preserve_mode
 test test_uu_cp_preserve_mode { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.set_mode(s, "file", 0o7777)?
+  uu.touch(s, "file")
+  uu.set_mode(s, "file", 0o7777)
   let r = uu.invoke(s, "cp", ["file", "dest", "-p"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -407,8 +407,8 @@ test test_uu_cp_preserve_mode { |ctx|
 # origin: uutils test_cp::test_reflink_never_sparse_always
 test test_uu_cp_reflink_never_sparse_always { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src")?
-  uu.truncate(s, "src", 1048576)?
+  uu.touch(s, "src")
+  uu.truncate(s, "src", 1048576)
   let r = uu.invoke(s, "cp", ["--reflink=never", "--sparse=always", "src", "dest"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -419,8 +419,8 @@ test test_uu_cp_reflink_never_sparse_always { |ctx|
 # origin: uutils test_cp::test_remove_destination_with_destination_being_a_hardlink_to_source
 test test_uu_cp_remove_destination_with_destination_being_a_hardlink_to_source { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.hard_link(s, "file", "hardlink")?
+  uu.touch(s, "file")
+  uu.hard_link(s, "file", "hardlink")
   let r = uu.invoke(s, "cp", ["--remove-destination", "file", "hardlink"])?
   uu.succeeds(r)
   assert ! uu.is_symlink(s, "hardlink")?
@@ -431,8 +431,8 @@ test test_uu_cp_remove_destination_with_destination_being_a_hardlink_to_source {
 # origin: uutils test_cp::test_remove_destination_with_destination_being_a_symlink_to_source
 test test_uu_cp_remove_destination_with_destination_being_a_symlink_to_source { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.symlink(s, uu.at(s, "file").display(), "symlink")?
+  uu.touch(s, "file")
+  uu.symlink(s, uu.at(s, "file").display(), "symlink")
   let r = uu.invoke(s, "cp", ["--remove-destination", "file", "symlink"])?
   uu.succeeds(r)
   assert ! uu.is_symlink(s, "symlink")?
@@ -443,7 +443,7 @@ test test_uu_cp_remove_destination_with_destination_being_a_symlink_to_source { 
 # origin: uutils test_cp::test_remove_destination_with_destination_being_relative_path_of_source
 test test_uu_cp_remove_destination_with_destination_being_relative_path_of_source { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "hello")?
+  uu.write(s, "a", "hello")
   let r = uu.invoke(s, "cp", ["--remove-destination", "a", "./a"])?
   uu.fails(r)
   uu.stderr_contains(r, "are the same file")
@@ -454,7 +454,7 @@ test test_uu_cp_remove_destination_with_destination_being_relative_path_of_sourc
 # origin: uutils test_cp::test_same_file_backup
 test test_uu_cp_same_file_backup { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "f")?
+  uu.touch(s, "f")
   let r = uu.invoke(s, "cp", ["--backup", "f", "f"])?
   uu.fails(r)
   uu.stderr_only(r, "cp: 'f' and 'f' are the same file\n")
@@ -464,7 +464,7 @@ test test_uu_cp_same_file_backup { |ctx|
 # origin: uutils test_cp::test_same_file_force
 test test_uu_cp_same_file_force { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "f")?
+  uu.touch(s, "f")
   let r = uu.invoke(s, "cp", ["--force", "f", "f"])?
   uu.fails(r)
   uu.stderr_only(r, "cp: 'f' and 'f' are the same file\n")
@@ -474,7 +474,7 @@ test test_uu_cp_same_file_force { |ctx|
 # origin: uutils test_cp::test_same_file_force_backup
 test test_uu_cp_same_file_force_backup { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "f")?
+  uu.touch(s, "f")
   let r = uu.invoke(s, "cp", ["--force", "--backup", "f", "f"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -484,8 +484,8 @@ test test_uu_cp_same_file_force_backup { |ctx|
 # origin: uutils test_cp::test_src_base_dot
 test test_uu_cp_src_base_dot { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "x")?
-  uu.mkdir(s, "y")?
+  uu.mkdir(s, "x")
+  uu.mkdir(s, "y")
   let nested = {...s, root: uu.at(s, "y")}
   let r = uu.invoke(nested, "cp", ["--verbose", "-r", "../x/.", "."])?
   uu.succeeds(r)
@@ -496,8 +496,8 @@ test test_uu_cp_src_base_dot { |ctx|
 # origin: uutils test_cp::test_symbolic_link_file
 test test_uu_cp_symbolic_link_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src")?
-  uu.touch(s, "dest")?
+  uu.touch(s, "src")
+  uu.touch(s, "dest")
   let r = uu.invoke(s, "cp", ["-f", "--symbolic-link", "src", "dest"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -507,10 +507,10 @@ test test_uu_cp_symbolic_link_file { |ctx|
 # origin: uutils test_cp::test_symlink_mode_overwrite
 test test_uu_cp_symlink_mode_overwrite { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.mkdir(s, "b")?
-  uu.write(s, "a/t", "hello")?
-  uu.write(s, "b/t", "hello")?
+  uu.mkdir(s, "a")
+  uu.mkdir(s, "b")
+  uu.write(s, "a/t", "hello")
+  uu.write(s, "b/t", "hello")
   let r = uu.invoke(s, "cp", ["-s", "a/t", "b/t", "."])?
   uu.fails(r)
   uu.stderr_only(r, "cp: will not overwrite just-created './t' with 'b/t'\n")
@@ -520,8 +520,8 @@ test test_uu_cp_symlink_mode_overwrite { |ctx|
 # origin: uutils test_cp::test_cp_umask_stripping_owner_write_bit
 test test_uu_cp_cp_umask_stripping_owner_write_bit { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input.txt", "copied through the first fd\n")?
-  uu.set_mode(s, "input.txt", 0o664)?
+  uu.write(s, "input.txt", "copied through the first fd\n")
+  uu.set_mode(s, "input.txt", 0o664)
   let r = uu.invoke(s, "cp", ["input.txt", "output.txt"], umask: 0o333)?
   uu.succeeds(r)
   uu.no_output(r)
@@ -533,8 +533,8 @@ test test_uu_cp_cp_umask_stripping_owner_write_bit { |ctx|
 test test_uu_cp_cp_umask_stripping_owner_write_bit_reflink_never { |ctx|
   for sparse in ["--sparse=auto", "--sparse=always"] {
     let s = uu.scene(ctx)?
-    uu.write(s, "input.txt", "written while still writable\n")?
-    uu.set_mode(s, "input.txt", 0o664)?
+    uu.write(s, "input.txt", "written while still writable\n")
+    uu.set_mode(s, "input.txt", 0o664)
     let r = uu.invoke(s, "cp", ["--reflink=never", sparse, "input.txt", "output.txt"], umask: 0o333)?
     uu.succeeds(r)
     uu.no_output(r)
@@ -546,8 +546,8 @@ test test_uu_cp_cp_umask_stripping_owner_write_bit_reflink_never { |ctx|
 # origin: uutils test_cp::test_no_preserve_mode
 test test_uu_cp_no_preserve_mode { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.set_mode(s, "file", 0o7777)?
+  uu.touch(s, "file")
+  uu.set_mode(s, "file", 0o7777)
   let r = uu.invoke(s, "cp", ["file", "dest"], umask: 0o022)?
   uu.succeeds(r)
   uu.no_output(r)
@@ -558,18 +558,18 @@ test test_uu_cp_no_preserve_mode { |ctx|
 test test_uu_cp_dir_perm_race_with_preserve_mode_and_ownership { |ctx|
   for attr in ["mode", "ownership"] {
     let s = uu.scene(ctx)?
-    uu.mkdir(s, "src")?
-    uu.mkdir(s, "dest")?
-    uu.set_mode(s, "src", 0o775)?
-    uu.set_mode(s, "dest", 0o2775)?
-    uu.mkfifo(s, "src/fifo")?
+    uu.mkdir(s, "src")
+    uu.mkdir(s, "dest")
+    uu.set_mode(s, "src", 0o775)
+    uu.set_mode(s, "dest", 0o2775)
+    uu.mkfifo(s, "src/fifo")
     let plan = uu.command(s, "cp", [f"--preserve={attr}", "-R", "--copy-contents", "--parents", "src", "dest"], umask: 0)?
     let child = spawn plan?
     defer child.cancel(signal: "TERM", kill_after: 0ms)
     let start = time.now()
-    while ! uu.exists(s, "dest/src")? {
+    while ! uu.exists(s, "dest/src") {
       assert time.now() - start < 10000000000, "timed out: cp took too long to create destination directory"
-      time.sleep(100ms)?
+      time.sleep(100ms)
     }
     let observed = fs.stat(uu.at(s, "dest/src"))?.mode
     let mask = if attr == "mode" { 0o022 } else { 0o077 }
@@ -586,15 +586,15 @@ test test_uu_cp_dir_perm_race_with_preserve_mode_and_ownership { |ctx|
 # origin: uutils test_cp::test_cp_xattr_enotsup_handling
 test test_uu_cp_cp_xattr_enotsup_handling { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "src", "x")?
+  uu.write(s, "src", "x")
   if fs.xattr_set(uu.at(s, "src"), "user.t", b"v") is Err(_) {
     test.skip("source filesystem does not support user xattrs")
     return
   }
-  if ! p"/dev/shm".exists()? { test.skip("/dev/shm is unavailable"); return }
+  if ! p"/dev/shm".exists() { test.skip("/dev/shm is unavailable"); return }
   let base = s.root.basename()
   let probe = fp"/dev/shm/xattr_test_probe_{base}"
-  probe.write("test")?
+  probe.write("test")
   defer probe.remove(missing_ok: true)
   if fs.xattr_set(probe, "user.t", b"v") is Ok(_) {
     test.skip("/dev/shm supports xattrs on this system")
@@ -633,7 +633,7 @@ test test_uu_cp_cp_xattr_failure_keeps_dest_contents { |ctx|
   let huge = bytes.from_ints([121 for _ in range(9100)])?
   let source_accepts = fs.xattr_set(source, "user.huge", huge) is Ok(_)
   let probe = fp"{destination}/probe"
-  probe.write("x")?
+  probe.write("x")
   let destination_rejects = fs.xattr_set(probe, "user.huge", huge) is Err(_)
   if ! source_accepts or ! destination_rejects {
     test.skip("filesystem combination cannot produce xattr failure")
@@ -644,7 +644,7 @@ test test_uu_cp_cp_xattr_failure_keeps_dest_contents { |ctx|
   uu.fails(r)
   uu.stderr_contains(r, "setting attribute")
   assert target.read_text()? == "kept content"
-  source.chmod(0o444)?
+  source.chmod(0o444)
   let readonly = fp"{destination}/out_ro"
   let r2 = uu.invoke(s, "cp", ["--preserve=xattr", source.display(), readonly.display()])?
   uu.fails(r2)

@@ -65,7 +65,7 @@ export pure decode(data: Bytes, default = false) -> Result[List[Entry], Error] {
   }
   # Default records are validated as a complete standalone ACL.
   let validation = collect { for entry in entries { yield {tag: entry.tag, id: entry.id, permissions: entry.permissions, default: false, conditional_execute: false} } }
-  validate(validation)?
+  validate(validation)
   entries
 }
 
@@ -74,7 +74,7 @@ export pure encode(entries: List[Entry]) -> Result[Bytes, Error] {
   for entry in entries { return Err(AclError.Invalid("conditional execute requires inode mode resolution")) when entry.conditional_execute }
   for entry in entries { return Err(AclError.Invalid("cannot encode mixed access and default ACLs")) when entry.default != entries[0].default }
   let validation = collect { for entry in entries { yield {tag: entry.tag, id: entry.id, permissions: entry.permissions, default: false, conditional_execute: false} } }
-  validate(validation)?
+  validate(validation)
   var chunks: List[Bytes] = [bytes.pack_le(2, 4)?]
   for entry in canonical(entries) { chunks += [bytes.pack_le(tag_number(entry.tag), 2)?, bytes.pack_le(entry.permissions, 2)?, bytes.pack_le(entry.id ?? 4294967295, 4)?] }
   bytes.concat(chunks)
@@ -149,7 +149,7 @@ export pure calculate_mask(entries: List[Entry], force = false) -> List[Entry] {
 
 ## Project an access ACL onto owner, masked group, and other mode bits.
 export pure mode(entries: List[Entry]) -> Result[Int, Error] {
-  validate(entries)?
+  validate(entries)
   var owner = 0; var group_bits = 0; var other = 0; var mask: Int? = null
   for entry in entries {
     continue when entry.default
@@ -176,15 +176,15 @@ export proc read(target: Path) [fs, error] -> Result[List[Entry], Error] {
 
 ## Validate both records and the directory constraint before making any syscall.
 export proc store(target: Path, entries: List[Entry]) [fs, error] -> Result[Unit, Error] {
-  validate(entries)?
+  validate(entries)
   let stat = fs.stat(target, follow_symlinks: true)?
   let access = collect { for entry in entries { yield entry when ! entry.default } }
   let defaults = collect { for entry in entries { yield entry when entry.default } }
   return Err(AclError.Invalid("only directories can have a default ACL")) when ! defaults.is_empty() and stat.kind != "dir"
   let payload = encode(access)?
   let default_payload = if defaults.is_empty() { b"" } else { encode(defaults)? }
-  fs.xattr_set(target, "system.posix_acl_access", payload)?
-  if ! defaults.is_empty() { fs.xattr_set(target, "system.posix_acl_default", default_payload)? } else if "system.posix_acl_default" in fs.xattr_list(target)? { fs.xattr_remove(target, "system.posix_acl_default")? }
+  fs.xattr_set(target, "system.posix_acl_access", payload)
+  if ! defaults.is_empty() { fs.xattr_set(target, "system.posix_acl_default", default_payload) } else if "system.posix_acl_default" in fs.xattr_list(target)? { fs.xattr_remove(target, "system.posix_acl_default") }
   Ok()
 }
 

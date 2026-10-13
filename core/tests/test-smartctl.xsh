@@ -274,7 +274,7 @@ proc smartctl(ctx: TestContext, lines: List[Any], args: List[Str]) [fs, process,
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(lines)?)
   fp"{root}/device".write(b"")
-  test.linux_fake(ctx, {storage_fixture: fixture, log: fp"{root}/calls.log"})?
+  test.linux_fake(ctx, {storage_fixture: fixture, log: fp"{root}/calls.log"})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   var argv = args
   argv += [fp"{root}/device".display()]
@@ -449,7 +449,7 @@ proc smartctl_logged(ctx: TestContext, lines: List[Any], args: List[Str]) [fs, p
   fixture.write(json.encode_lines(lines)?)
   fp"{root}/device".write(b"")
   log.write("")
-  test.linux_fake(ctx, {storage_fixture: fixture, log: log})?
+  test.linux_fake(ctx, {storage_fixture: fixture, log: log})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   var argv = args
   argv += [fp"{root}/device".display()]
@@ -835,7 +835,7 @@ test test_auto_detection_uses_inquiry_to_find_sat { |ctx|
   lines += [inquiry]
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(lines)?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let out = test.run_script(ctx, source, ["-i", "-j", device.display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
   assert out.status == 0, out.stderr
@@ -850,7 +850,7 @@ test test_nvme_info_health_attributes_and_logs { |ctx|
   fp"{nvme_device}/nvme0".write(b"")
   let fixture = fp"{nvme_device}/fixture.jsonl"
   fixture.write(json.encode_lines(nvme_fixture())?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let out = test.run_script(ctx, source, ["-a", fp"{nvme_device}/nvme0".display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
   # Two logged errors set the error-log bit.
@@ -892,7 +892,7 @@ test test_nvme_json_and_failed_health { |ctx|
   lines[3] = nvme_line(2, 4294967295, 127 * 65536 + 2, nvme_health_page(4))
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(lines)?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let out = test.run_script(ctx, source, ["-j", "-i", "-H", "-A", fp"{root}/nvme0".display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
   assert out.status == 8, out.stderr
@@ -911,7 +911,7 @@ test test_nvme_self_test_commands { |ctx|
   fp"{root}/nvme0".write(b"")
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(nvme_fixture())?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let scope = {XSH_MODULE_PATH: ctx.core_dir.display()}
   let short = test.run_script(ctx, source, ["-t", "short", fp"{root}/nvme0".display()], scope, b"", "smartctl")?
@@ -1108,7 +1108,7 @@ test test_nvme_namespace_id_is_hexadecimal { |ctx|
   var lines = nvme_fixture()
   lines += [nvme_line(6, 2, 0, nvme_namespace_page())]
   fixture.write(json.encode_lines(lines)?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let scope = {XSH_MODULE_PATH: ctx.core_dir.display()}
   let named = test.run_script(ctx, source, ["-d", "nvme,0x2", "-i", fp"{root}/nvme0".display()], scope, b"", "smartctl")?
@@ -1124,7 +1124,7 @@ test test_nvme_rejects_logs_it_does_not_have { |ctx|
   fp"{root}/nvme0".write(b"")
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(nvme_fixture())?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let scope = {XSH_MODULE_PATH: ctx.core_dir.display()}
   for option in [["-l", "directory"], ["-l", "selective"], ["-s", "on"]] {
@@ -1174,7 +1174,7 @@ test test_nvme_noserial_omits_serial_and_eui { |ctx|
   fp"{root}/nvme0".write(b"")
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(nvme_fixture())?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let out = test.run_script(ctx, source, ["-q", "noserial", "-i", fp"{root}/nvme0".display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
   assert out.status == 0, out.stderr

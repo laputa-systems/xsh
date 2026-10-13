@@ -94,9 +94,9 @@ proc locale_available(s: uu.Scene, name: Str) [fs, process, error] -> Result[Boo
 # origin: uutils test_ls::test_ls_deref_command_line_dir
 test test_uu_ls_ls_deref_command_line_dir { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some_dir")?
-  uu.touch(s, "some_dir/nested_file")?
-  uu.symlink(s, uu.at(s, "some_dir").display(), "sym_dir")?
+  uu.mkdir(s, "some_dir")
+  uu.touch(s, "some_dir/nested_file")
+  uu.symlink(s, uu.at(s, "some_dir").display(), "sym_dir")
   {
   let r = invoke(s, ["sym_dir"])?
   uu.succeeds(r)
@@ -186,8 +186,8 @@ test test_uu_ls_ls_deref_command_line_dir { |ctx|
 # origin: uutils test_ls::test_ls_dereference_looped_symlinks_recursive
 test test_uu_ls_ls_dereference_looped_symlinks_recursive { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "loop")?
-  uu.symlink(s, "../loop", "loop/sub")?
+  uu.mkdir(s, "loop")
+  uu.symlink(s, "../loop", "loop/sub")
   let r = invoke(s, ["-RL", "loop"])?
   uu.fails_with_code(r, 2)
   uu.stderr_contains(r, "not listing already-listed directory")
@@ -196,7 +196,7 @@ test test_uu_ls_ls_dereference_looped_symlinks_recursive { |ctx|
 # origin: uutils test_ls::test_ls_devices
 test test_uu_ls_ls_devices { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
+  uu.mkdir(s, "some-dir1")
   {
   let r = invoke_pipe(s, ["-al", "/dev/null"])?
   uu.succeeds(r)
@@ -217,9 +217,9 @@ test test_uu_ls_ls_devices { |ctx|
 # origin: uutils test_ls::test_ls_directory
 test test_uu_ls_ls_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some_dir")?
-  uu.touch(s, "some_dir/nested_file")?
-  uu.symlink(s, uu.at(s, "some_dir").display(), "sym_dir")?
+  uu.mkdir(s, "some_dir")
+  uu.touch(s, "some_dir/nested_file")
+  uu.symlink(s, uu.at(s, "some_dir").display(), "sym_dir")
   {
   let r = invoke(s, ["some_dir"])?
   uu.succeeds(r)
@@ -243,8 +243,8 @@ test test_uu_ls_ls_directory { |ctx|
 # origin: uutils test_ls::test_ls_directory_dangling_symlink_uses_ln_when_or_blank
 test test_uu_ls_ls_directory_dangling_symlink_uses_ln_when_or_blank { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.symlink(s, uu.at(s, "nowhere").display(), "dir/entry")?
+  uu.mkdir(s, "dir")
+  uu.symlink(s, uu.at(s, "nowhere").display(), "dir/entry")
   let r = invoke(s, ["--color=always", "dir"], vars: {LS_COLORS: "ln=1;36:or=:"})?
   uu.succeeds(r)
   uu.stdout_contains(r, "\x1b[0m\x1b[1;36mentry\x1b[0m")
@@ -253,7 +253,7 @@ test test_uu_ls_ls_directory_dangling_symlink_uses_ln_when_or_blank { |ctx|
 # origin: uutils test_ls::test_ls_dired_and_zero_are_incompatible
 test test_uu_ls_ls_dired_and_zero_are_incompatible { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   {
   let r = invoke(s, ["--dired", "-l", "--zero"])?
   uu.fails_with_code(r, 2)
@@ -271,12 +271,12 @@ test test_uu_ls_ls_dired_and_zero_are_incompatible { |ctx|
 # origin: uutils test_ls::test_ls_dired_complex
 test test_uu_ls_ls_dired_complex { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.mkdir(s, "d/d")?
-  uu.touch(s, "d/a1")?
-  uu.touch(s, "d/a22")?
-  uu.touch(s, "d/a333")?
-  uu.touch(s, "d/a4444")?
+  uu.mkdir(s, "d")
+  uu.mkdir(s, "d/d")
+  uu.touch(s, "d/a1")
+  uu.touch(s, "d/a22")
+  uu.touch(s, "d/a333")
+  uu.touch(s, "d/a4444")
   let r = invoke(s, ["--dired", "-l", "d"])?
   uu.succeeds(r)
   if uu.size(s, "d/d")? == 4096 { uu.stdout_contains(r, "  total 4") }
@@ -286,7 +286,7 @@ test test_uu_ls_ls_dired_complex { |ctx|
 # origin: uutils test_ls::test_ls_dired_format_precedence_is_positional
 test test_uu_ls_ls_dired_format_precedence_is_positional { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   for format in ["-C", "--format=single-column"] {
     let r = invoke(s, ["--dired", format, "a"])?
     uu.succeeds(r)
@@ -302,20 +302,20 @@ test test_uu_ls_ls_dired_format_precedence_is_positional { |ctx|
 # origin: uutils test_ls::test_ls_dired_hyperlink
 test test_uu_ls_ls_dired_hyperlink { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.touch(s, "dir/a")?
+  uu.mkdir(s, "dir")
+  uu.touch(s, "dir/a")
   {
   let r = invoke(s, ["--dired", "--hyperlink", "-R"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "file://")
   uu.stdout_contains(r, "-rw")
-  stdout_lacks(r, "//DIRED//")?
+  stdout_lacks(r, "//DIRED//")
   
   }
   {
   let r = invoke(s, ["--hyperlink", "--dired", "-R"])?
   uu.succeeds(r)
-  stdout_lacks(r, "file://")?
+  stdout_lacks(r, "file://")
   uu.stdout_contains(r, "//DIRED//")
   
   }
@@ -327,7 +327,7 @@ test test_uu_ls_ls_dired_implies_long { |ctx|
   {
   let r = invoke(s, ["--dired"])?
   uu.succeeds(r)
-  stdout_lacks(r, "//DIRED//")?
+  stdout_lacks(r, "//DIRED//")
   uu.stdout_contains(r, "  total 0")
   uu.stdout_contains(r, "//DIRED-OPTIONS// --quoting-style")
   
@@ -337,9 +337,9 @@ test test_uu_ls_ls_dired_implies_long { |ctx|
 # origin: uutils test_ls::test_ls_dired_leading_info_offsets
 test test_uu_ls_ls_dired_leading_info_offsets { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "bay")?
-  uu.touch(s, "bay/quill")?
-  uu.touch(s, "bay/parchment")?
+  uu.mkdir(s, "bay")
+  uu.touch(s, "bay/quill")
+  uu.touch(s, "bay/parchment")
   for leading in [["-i"], ["-s"], ["-i", "-s"]] {
     let args = ["--dired", "-l", "--quoting-style=literal"].extend(leading).extend(["bay"])
     let r = invoke(s, args)?
@@ -351,7 +351,7 @@ test test_uu_ls_ls_dired_leading_info_offsets { |ctx|
 # origin: uutils test_ls::test_ls_dired_lookalike_operand
 test test_uu_ls_ls_dired_lookalike_operand { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "-D")?
+  uu.touch(s, "-D")
   {
   let r = invoke(s, ["--zero", "--", "-D"])?
   uu.succeeds(r)
@@ -363,11 +363,11 @@ test test_uu_ls_ls_dired_lookalike_operand { |ctx|
 # origin: uutils test_ls::test_ls_dired_name_boundaries
 test test_uu_ls_ls_dired_name_boundaries { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.mkdir(s, "d/sub")?
-  uu.touch(s, "d/target")?
-  uu.touch(s, "d/with space")?
-  uu.symlink(s, "target", "d/link")?
+  uu.mkdir(s, "d")
+  uu.mkdir(s, "d/sub")
+  uu.touch(s, "d/target")
+  uu.touch(s, "d/with space")
+  uu.symlink(s, "target", "d/link")
   for case in [
     {args: ["--quoting-style=literal", "--color=always"], names: ["link", "sub", "target", "with space"]},
     {args: ["--quoting-style=literal", "-F", "--color=never"], names: ["link", "sub", "target", "with space"]},
@@ -383,9 +383,9 @@ test test_uu_ls_ls_dired_name_boundaries { |ctx|
 # origin: uutils test_ls::test_ls_dired_normal_style_offsets
 test test_uu_ls_ls_dired_normal_style_offsets { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.mkdir(s, "d/box")?
-  uu.touch(s, "d/note")?
+  uu.mkdir(s, "d")
+  uu.mkdir(s, "d/box")
+  uu.touch(s, "d/note")
   let r = invoke(s, ["--dired", "-l", "--quoting-style=literal", "--color=always", "d"], vars: {LS_COLORS: "no=35:di=36"})?
   uu.succeeds(r)
   assert r.stdout.utf8()?.starts_with("  total 0\n")
@@ -398,10 +398,10 @@ test test_uu_ls_ls_dired_normal_style_offsets { |ctx|
 # origin: uutils test_ls::test_ls_dired_offsets_follow_quoted_dir_headers
 test test_uu_ls_ls_dired_offsets_follow_quoted_dir_headers { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a b")?
-  uu.mkdir(s, "it's")?
-  uu.touch(s, "a b/x")?
-  uu.touch(s, "it's/y")?
+  uu.mkdir(s, "a b")
+  uu.mkdir(s, "it's")
+  uu.touch(s, "a b/x")
+  uu.touch(s, "it's/y")
   let r = invoke(s, ["--dired", "-R", "--quoting-style=shell-escape", "a b", "it's"])?
   uu.succeeds(r)
   assert offset_names(r.stdout, "//DIRED//")? == ["x", "y"]
@@ -411,12 +411,12 @@ test test_uu_ls_ls_dired_offsets_follow_quoted_dir_headers { |ctx|
 # origin: uutils test_ls::test_ls_dired_order_format
 test test_uu_ls_ls_dired_order_format { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.touch(s, "dir/a")?
+  uu.mkdir(s, "dir")
+  uu.touch(s, "dir/a")
   {
   let r = invoke(s, ["--dired", "--format=vertical", "-R"])?
   uu.succeeds(r)
-  stdout_lacks(r, "//DIRED//")?
+  stdout_lacks(r, "//DIRED//")
   
   }
   {
@@ -430,8 +430,8 @@ test test_uu_ls_ls_dired_order_format { |ctx|
 # origin: uutils test_ls::test_ls_dired_outputs_parent_offset
 test test_uu_ls_ls_dired_outputs_parent_offset { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.mkdir(s, "dir/a")?
+  uu.mkdir(s, "dir")
+  uu.mkdir(s, "dir/a")
   {
   let r = invoke(s, ["--dired", "dir", "-R"])?
   uu.succeeds(r)
@@ -443,8 +443,8 @@ test test_uu_ls_ls_dired_outputs_parent_offset { |ctx|
 # origin: uutils test_ls::test_ls_dired_outputs_same_date_time_format
 test test_uu_ls_ls_dired_outputs_same_date_time_format { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.mkdir(s, "dir/a")?
+  uu.mkdir(s, "dir")
+  uu.mkdir(s, "dir/a")
   let long = invoke(s, ["-l", "dir"])?
   uu.succeeds(long)
   let listing_line = long.stdout.utf8()?.split("\n")[1]
@@ -456,7 +456,7 @@ test test_uu_ls_ls_dired_outputs_same_date_time_format { |ctx|
 # origin: uutils test_ls::test_ls_dired_position_vs_hyperlink
 test test_uu_ls_ls_dired_position_vs_hyperlink { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   {
   let r = invoke(s, ["-C", "--dired", "--hyperlink=never", "a"])?
   uu.succeeds(r)
@@ -468,7 +468,7 @@ test test_uu_ls_ls_dired_position_vs_hyperlink { |ctx|
   uu.succeeds(r)
   assert rx"^-([r-][w-][xt-]){3}".matches(r.stdout.utf8()?)
   uu.stdout_contains(r, "file://")
-  stdout_lacks(r, "//DIRED//")?
+  stdout_lacks(r, "//DIRED//")
   
   }
 }
@@ -476,7 +476,7 @@ test test_uu_ls_ls_dired_position_vs_hyperlink { |ctx|
 # origin: uutils test_ls::test_ls_dired_quoting_style_name
 test test_uu_ls_ls_dired_quoting_style_name { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   for style in ["literal", "shell", "shell-always", "shell-escape", "shell-escape-always", "c", "escape", "locale", "clocale"] {
     let r = invoke(s, ["-l", "--dired", f"--quoting-style={style}", "dir"], vars: {LC_ALL: "C"})?
     uu.succeeds(r)
@@ -495,7 +495,7 @@ test test_uu_ls_ls_dired_recursive { |ctx|
   {
   let r = invoke(s, ["--dired", "-l", "-R"])?
   uu.succeeds(r)
-  stdout_lacks(r, "//DIRED//")?
+  stdout_lacks(r, "//DIRED//")
   uu.stdout_contains(r, "  total 0")
   uu.stdout_contains(r, "//SUBDIRED// 2 3")
   uu.stdout_contains(r, "//DIRED-OPTIONS// --quoting-style")
@@ -506,13 +506,13 @@ test test_uu_ls_ls_dired_recursive { |ctx|
 # origin: uutils test_ls::test_ls_dired_recursive_multiple
 test test_uu_ls_ls_dired_recursive_multiple { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.mkdir(s, "d/d1")?
-  uu.mkdir(s, "d/d2")?
-  uu.touch(s, "d/d2/a")?
-  uu.touch(s, "d/d2/c2")?
-  uu.touch(s, "d/d1/f1")?
-  uu.touch(s, "d/d1/file-long")?
+  uu.mkdir(s, "d")
+  uu.mkdir(s, "d/d1")
+  uu.mkdir(s, "d/d2")
+  uu.touch(s, "d/d2/a")
+  uu.touch(s, "d/d2/c2")
+  uu.touch(s, "d/d1/f1")
+  uu.touch(s, "d/d1/file-long")
   let r = invoke(s, ["--dired", "-l", "-R", "d"])?
   uu.succeeds(r)
   assert offset_names(r.stdout, "//DIRED//", trim: true)? == ["d1", "d2", "f1", "file-long", "a", "c2"]
@@ -527,8 +527,8 @@ test test_uu_ls_ls_dired_simple { |ctx|
   uu.stdout_contains(r, "  total 0")
   
   }
-  uu.mkdir(s, "d")?
-  uu.touch(s, "d/a1")?
+  uu.mkdir(s, "d")
+  uu.touch(s, "d/a1")
   let r = invoke(s, ["--dired", "-l", "d"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "  total 0")
@@ -538,10 +538,10 @@ test test_uu_ls_ls_dired_simple { |ctx|
 # origin: uutils test_ls::test_ls_dired_subdired_multiple_dirs_non_recursive
 test test_uu_ls_ls_dired_subdired_multiple_dirs_non_recursive { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.mkdir(s, "dir2")?
-  uu.touch(s, "dir1/a")?
-  uu.touch(s, "dir2/b")?
+  uu.mkdir(s, "dir1")
+  uu.mkdir(s, "dir2")
+  uu.touch(s, "dir1/a")
+  uu.touch(s, "dir2/b")
   let r = invoke(s, ["--dired", "dir1", "dir2"])?
   uu.succeeds(r)
   assert offset_names(r.stdout, "//SUBDIRED//", trim: true)? == ["dir1", "dir2"]
@@ -550,9 +550,9 @@ test test_uu_ls_ls_dired_subdired_multiple_dirs_non_recursive { |ctx|
 # origin: uutils test_ls::test_ls_dired_symlink_name_only
 test test_uu_ls_ls_dired_symlink_name_only { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.touch(s, "d/target")?
-  uu.symlink(s, "target", "d/link")?
+  uu.mkdir(s, "d")
+  uu.touch(s, "d/target")
+  uu.symlink(s, "target", "d/link")
   let r = invoke(s, ["--dired", "-l", "--color=never", "d"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "link -> target")
@@ -562,8 +562,8 @@ test test_uu_ls_ls_dired_symlink_name_only { |ctx|
 # origin: uutils test_ls::test_ls_dired_terminal_keeps_default_quoting
 test test_uu_ls_ls_dired_terminal_keeps_default_quoting { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a b")?
-  uu.touch(s, "a b/x")?
+  uu.mkdir(s, "a b")
+  uu.touch(s, "a b/x")
   let r = invoke(s, ["--dired", "-R", "a b"], terminal: true)?
   uu.succeeds(r)
   let normalized = bytes.from_text(r.stdout.utf8()?.replace("\r\n", with: "\n"))
@@ -575,12 +575,12 @@ test test_uu_ls_ls_dired_terminal_keeps_default_quoting { |ctx|
 # origin: uutils test_ls::test_ls_files_dirs
 test test_uu_ls_ls_files_dirs { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.mkdir(s, "a/b")?
-  uu.mkdir(s, "a/b/c")?
-  uu.mkdir(s, "z")?
-  uu.touch(s, "a/a")?
-  uu.touch(s, "a/b/b")?
+  uu.mkdir(s, "a")
+  uu.mkdir(s, "a/b")
+  uu.mkdir(s, "a/b/c")
+  uu.mkdir(s, "z")
+  uu.touch(s, "a/a")
+  uu.touch(s, "a/b/b")
   {
   let r = invoke(s, ["a"])?
   uu.succeeds(r)
@@ -615,9 +615,9 @@ test test_uu_ls_ls_files_dirs { |ctx|
 test test_uu_ls_ls_group_directories_first { |ctx|
   let s = uu.scene(ctx)?
   let files = ["abc", "anotherFile", "file1", "file2", "xxx", "zzz"]
-  for index in range(files.len()) { uu.write(s, files[index], ["a" for _ in range(index)].join(""))? }
+  for index in range(files.len()) { uu.write(s, files[index], ["a" for _ in range(index)].join("")) }
   let dirs = ["aaa", "bbb", "ccc", "yyy"]
-  for directory in dirs { uu.mkdir(s, directory)? }
+  for directory in dirs { uu.mkdir(s, directory) }
   let dots = [".", ".."]
   {
     let r = invoke(s, ["-1a", "--group-directories-first"])?
@@ -656,8 +656,8 @@ test test_uu_ls_ls_help { |ctx|
 # origin: uutils test_ls::test_ls_human_si
 test test_uu_ls_ls_human_si { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_human-1")?
-  uu.truncate(s, "test_human-1", 1000)?
+  uu.touch(s, "test_human-1")
+  uu.truncate(s, "test_human-1", 1000)
   {
   let r = invoke(s, ["-hl", "test_human-1"])?
   uu.succeeds(r)
@@ -670,7 +670,7 @@ test test_uu_ls_ls_human_si { |ctx|
   uu.stdout_contains(r, " 1.0k ")
   
   }
-  uu.truncate(s, "test_human-1", 1000 + 1000 * 1024)?
+  uu.truncate(s, "test_human-1", 1000 + 1000 * 1024)
   {
   let r = invoke(s, ["-hl", "test_human-1"])?
   uu.succeeds(r)
@@ -683,8 +683,8 @@ test test_uu_ls_ls_human_si { |ctx|
   uu.stdout_contains(r, " 1.1M ")
   
   }
-  uu.touch(s, "test-human-2")?
-  uu.truncate(s, "test-human-2", 12300 * 1024)?
+  uu.touch(s, "test-human-2")
+  uu.truncate(s, "test-human-2", 12300 * 1024)
   {
   let r = invoke(s, ["-hl", "test-human-2"])?
   uu.succeeds(r)
@@ -697,8 +697,8 @@ test test_uu_ls_ls_human_si { |ctx|
   uu.stdout_contains(r, " 13M ")
   
   }
-  uu.touch(s, "test-human-3")?
-  uu.truncate(s, "test-human-3", 9999)?
+  uu.touch(s, "test-human-3")
+  uu.truncate(s, "test-human-3", 9999)
   {
   let r = invoke(s, ["-hl", "test-human-3"])?
   uu.succeeds(r)
@@ -716,7 +716,7 @@ test test_uu_ls_ls_human_si { |ctx|
 # origin: uutils test_ls::test_ls_hyperlink
 test test_uu_ls_ls_hyperlink { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a.txt")?
+  uu.touch(s, "a.txt")
   for option in ["--hyperlink", "--hyperlink=always"] {
     let r = invoke(s, [option])?
     uu.succeeds(r)
@@ -733,8 +733,8 @@ test test_uu_ls_ls_hyperlink { |ctx|
 # origin: uutils test_ls::test_ls_hyperlink_dirs
 test test_uu_ls_ls_hyperlink_dirs { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.mkdir(s, "b")?
+  uu.mkdir(s, "a")
+  uu.mkdir(s, "b")
   let r = invoke(s, ["--hyperlink", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "\x1b]8;;file://")
@@ -747,10 +747,10 @@ test test_uu_ls_ls_hyperlink_dirs { |ctx|
 # origin: uutils test_ls::test_ls_hyperlink_encode_link
 test test_uu_ls_ls_hyperlink_encode_link { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "back\\slash")?
-  uu.touch(s, "ques?tion")?
-  uu.touch(s, "encoded%3Fquestion")?
-  uu.touch(s, "sp ace")?
+  uu.touch(s, "back\\slash")
+  uu.touch(s, "ques?tion")
+  uu.touch(s, "encoded%3Fquestion")
+  uu.touch(s, "sp ace")
   let r = invoke(s, ["--hyperlink"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "back%5cslash\x1b\\back\\slash\x1b]8;;\x1b\\")
@@ -762,8 +762,8 @@ test test_uu_ls_ls_hyperlink_encode_link { |ctx|
 # origin: uutils test_ls::test_ls_hyperlink_recursive_dirs
 test test_uu_ls_ls_hyperlink_recursive_dirs { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.mkdir(s, "a/b")?
+  uu.mkdir(s, "a")
+  uu.mkdir(s, "a/b")
   let r = invoke(s, ["--hyperlink", "--recursive", "a"])?
   uu.succeeds(r)
   let lines = r.stdout.utf8()?.lines()
@@ -779,9 +779,9 @@ test test_uu_ls_ls_hyperlink_recursive_dirs { |ctx|
 # origin: uutils test_ls::test_ls_hyperlink_utf8_encoding
 test test_uu_ls_ls_hyperlink_utf8_encoding { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "café.txt")?
-  uu.touch(s, "file:with:colons.txt")?
-  uu.touch(s, "file with spaces.txt")?
+  uu.touch(s, "café.txt")
+  uu.touch(s, "file:with:colons.txt")
+  uu.touch(s, "file with spaces.txt")
   let r = invoke(s, ["--hyperlink"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "caf%c3%a9.txt")
@@ -809,10 +809,10 @@ test test_uu_ls_ls_i { |ctx|
 # origin: uutils test_ls::test_ls_ignore_backups
 test test_uu_ls_ls_ignore_backups { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "somefile")?
-  uu.touch(s, "somebackup~")?
-  uu.touch(s, ".somehiddenfile")?
-  uu.touch(s, ".somehiddenbackup~")?
+  uu.touch(s, "somefile")
+  uu.touch(s, "somebackup~")
+  uu.touch(s, ".somehiddenfile")
+  uu.touch(s, ".somehiddenbackup~")
   {
   let r = invoke(s, ["-B"])?
   uu.succeeds(r)
@@ -830,8 +830,8 @@ test test_uu_ls_ls_ignore_backups { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, ".somehiddenfile")
   uu.stdout_contains(r, "somefile")
-  stdout_lacks(r, "somebackup")?
-  stdout_lacks(r, ".somehiddenbackup~")?
+  stdout_lacks(r, "somebackup")
+  stdout_lacks(r, ".somehiddenbackup~")
   
   }
   {
@@ -839,8 +839,8 @@ test test_uu_ls_ls_ignore_backups { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, ".somehiddenfile")
   uu.stdout_contains(r, "somefile")
-  stdout_lacks(r, "somebackup")?
-  stdout_lacks(r, ".somehiddenbackup~")?
+  stdout_lacks(r, "somebackup")
+  stdout_lacks(r, ".somehiddenbackup~")
   
   }
 }
@@ -848,8 +848,8 @@ test test_uu_ls_ls_ignore_backups { |ctx|
 # origin: uutils test_ls::test_ls_ignore_explicit_period
 test test_uu_ls_ls_ignore_explicit_period { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, ".hidden.yml")?
-  uu.touch(s, "regular.yml")?
+  uu.touch(s, ".hidden.yml")
+  uu.touch(s, "regular.yml")
   {
   let r = invoke(s, ["-a", "--ignore", "?hidden.yml"])?
   uu.succeeds(r)
@@ -861,13 +861,13 @@ test test_uu_ls_ls_ignore_explicit_period { |ctx|
   let r = invoke(s, ["-a", "--ignore", "*.yml"])?
   uu.succeeds(r)
   uu.stdout_contains(r, ".hidden.yml")
-  stdout_lacks(r, "regular.yml")?
+  stdout_lacks(r, "regular.yml")
   
   }
   {
   let r = invoke(s, ["-a", "--ignore", ".*.yml"])?
   uu.succeeds(r)
-  stdout_lacks(r, ".hidden.yml")?
+  stdout_lacks(r, ".hidden.yml")
   uu.stdout_contains(r, "regular.yml")
   
   }
@@ -876,20 +876,20 @@ test test_uu_ls_ls_ignore_explicit_period { |ctx|
 # origin: uutils test_ls::test_ls_ignore_negation
 test test_uu_ls_ls_ignore_negation { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "apple")?
-  uu.touch(s, "boy")?
+  uu.touch(s, "apple")
+  uu.touch(s, "boy")
   {
   let r = invoke(s, ["--ignore", "[!a]*"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "apple")
-  stdout_lacks(r, "boy")?
+  stdout_lacks(r, "boy")
   
   }
   {
   let r = invoke(s, ["--ignore", "[^a]*"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "apple")
-  stdout_lacks(r, "boy")?
+  stdout_lacks(r, "boy")
   
   }
 }
@@ -897,12 +897,12 @@ test test_uu_ls_ls_ignore_negation { |ctx|
 # origin: uutils test_ls::test_ls_indicator_style
 test test_uu_ls_ls_indicator_style { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "directory")?
-  uu.touch(s, "link-src")?
-  uu.symlink(s, uu.at(s, "link-src").display(), "link-dest.link")?
+  uu.mkdir(s, "directory")
+  uu.touch(s, "link-src")
+  uu.symlink(s, uu.at(s, "link-src").display(), "link-dest.link")
   assert uu.dir_exists(s, "directory")?
   assert uu.is_symlink(s, "link-dest.link")?
-  uu.mkfifo(s, "named-pipe.fifo")?
+  uu.mkfifo(s, "named-pipe.fifo")
   assert fs.stat(uu.at(s, "named-pipe.fifo"))?.kind == "fifo"
   for option in ["--indicator-style=classify", "--ind=classify", "--indicator-style=clas", "--indicator-style=c", "--indicator-style=file-type", "--ind=file-type", "--indicator-style=slash", "--ind=slash", "--classify", "--classify=always", "--classify=alway", "--classify=al", "--classify=yes", "--classify=force", "--class", "--file-type", "--file", "-p"] {
     let r = invoke(s, [option])?
@@ -912,9 +912,9 @@ test test_uu_ls_ls_indicator_style { |ctx|
   for option in ["--indicator-style=none", "--indicator-style=n", "--ind=none", "--classify=none", "--classify=never", "--classify=non", "--classify=no", "--classify=n"] {
     let r = invoke(s, [option])?
     uu.succeeds(r)
-    stdout_lacks(r, "/")?
-    stdout_lacks(r, "@")?
-    stdout_lacks(r, "|")?
+    stdout_lacks(r, "/")
+    stdout_lacks(r, "@")
+    stdout_lacks(r, "|")
   }
   for option in ["classify", "file-type"] {
     let r = invoke(s, [f"--indicator-style={option}"])?
@@ -926,7 +926,7 @@ test test_uu_ls_ls_indicator_style { |ctx|
   let constants = linux.net_constants()
   let socket = linux.socket(constants.AF_UNIX, constants.SOCK_STREAM)?
   defer unix.close_fd(socket)
-  linux.bind(socket, {family: "unix", address: fp"{sockets}/sock".display()})?
+  linux.bind(socket, {family: "unix", address: fp"{sockets}/sock".display()})
   let r = invoke(s, [sockets.display(), "--indicator-style=classify"])?
   uu.succeeds(r)
   uu.stdout_only(r, "sock=\n")
@@ -935,61 +935,61 @@ test test_uu_ls_ls_indicator_style { |ctx|
 # origin: uutils test_ls::test_ls_indicator_style_filetype_symlink_target_long
 test test_uu_ls_ls_indicator_style_filetype_symlink_target_long { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   assert uu.dir_exists(s, "dir")?
-  uu.symlink(s, "dir", "dir_link")?
+  uu.symlink(s, "dir", "dir_link")
   assert uu.is_symlink(s, "dir_link")?
   let r = invoke(s, ["--file-type", "-l", "dir_link"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "dir_link -> dir/")
-  stdout_lacks(r, "dir_link/")?
+  stdout_lacks(r, "dir_link/")
 }
 
 # origin: uutils test_ls::test_ls_indicator_style_filetype_symlink_to_executable_target_long
 test test_uu_ls_ls_indicator_style_filetype_symlink_to_executable_target_long { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "exec_target")?
-  uu.set_mode(s, "exec_target", 0o755)?
-  uu.symlink(s, "exec_target", "link")?
+  uu.touch(s, "exec_target")
+  uu.set_mode(s, "exec_target", 0o755)
+  uu.symlink(s, "exec_target", "link")
   assert uu.is_symlink(s, "link")?
   let r = invoke(s, ["--file-type", "-l", "link"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "link -> exec_target")
-  stdout_lacks(r, "exec_target*")?
+  stdout_lacks(r, "exec_target*")
 }
 
 # origin: uutils test_ls::test_ls_indicator_style_slash_symlink_target_long
 test test_uu_ls_ls_indicator_style_slash_symlink_target_long { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   assert uu.dir_exists(s, "dir")?
-  uu.symlink(s, "dir", "dir_link")?
+  uu.symlink(s, "dir", "dir_link")
   assert uu.is_symlink(s, "dir_link")?
   let r = invoke(s, ["-lp", "dir_link"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "dir_link -> dir\n")
-  stdout_lacks(r, "dir_link/")?
-  stdout_lacks(r, "-> dir/")?
+  stdout_lacks(r, "dir_link/")
+  stdout_lacks(r, "-> dir/")
 }
 
 # origin: uutils test_ls::test_ls_indicator_style_symlink_target_long
 test test_uu_ls_ls_indicator_style_symlink_target_long { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.symlink(s, uu.at(s, "dir").display(), "dir_link")?
+  uu.mkdir(s, "dir")
+  uu.symlink(s, uu.at(s, "dir").display(), "dir_link")
   assert uu.dir_exists(s, "dir")?
   assert uu.is_symlink(s, "dir_link")?
   let r = invoke(s, ["--classify", "-l", "dir_link"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "dir_link -> ")
-  stdout_lacks(r, "dir_link@ -> ")?
+  stdout_lacks(r, "dir_link@ -> ")
   uu.stdout_contains(r, "/dir/")
 }
 
 # origin: uutils test_ls::test_ls_inode
 test test_uu_ls_ls_inode { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_inode")?
+  uu.touch(s, "test_inode")
   let short_pattern = rx" *(\d+) test_inode"
   let long_pattern = rx" *(\d+) [-bcdlpsDx]([r-][w-][xt-]){3}[.+]? +\d .+ test_inode"
   let short = invoke(s, ["test_inode", "-i"])?
@@ -999,7 +999,7 @@ test test_uu_ls_ls_inode { |ctx|
   let plain = invoke(s, ["test_inode"])?
   uu.succeeds(plain)
   assert !short_pattern.matches(plain.stdout.utf8()?)
-  stdout_lacks(plain, short_inode)?
+  stdout_lacks(plain, short_inode)
   let long = invoke(s, ["-li", "test_inode"])?
   uu.succeeds(long)
   assert long_pattern.matches(long.stdout.utf8()?)
@@ -1007,7 +1007,7 @@ test test_uu_ls_ls_inode { |ctx|
   let without = invoke(s, ["-l", "test_inode"])?
   uu.succeeds(without)
   assert !long_pattern.matches(without.stdout.utf8()?)
-  stdout_lacks(without, long_inode)?
+  stdout_lacks(without, long_inode)
   assert short_inode == long_inode
 }
 
@@ -1033,7 +1033,7 @@ test test_uu_ls_ls_invalid_block_size { |ctx|
 # origin: uutils test_ls::test_ls_invalid_block_size_in_env_var
 test test_uu_ls_ls_invalid_block_size_in_env_var { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file", ["\0" for _ in range(1024)].join(""))?
+  uu.write(s, "file", ["\0" for _ in range(1024)].join(""))
   for variable in ["LS_BLOCK_SIZE", "BLOCK_SIZE"] {
     let r = if variable == "LS_BLOCK_SIZE" { invoke(s, ["-og"], vars: {LS_BLOCK_SIZE: "invalid"})? } else { invoke(s, ["-og"], vars: {BLOCK_SIZE: "invalid"})? }
     uu.succeeds(r)
@@ -1051,7 +1051,7 @@ test test_uu_ls_ls_invalid_block_size_in_env_var { |ctx|
 # origin: uutils test_ls::test_ls_invalid_quoting_style_env_var_non_utf8
 test test_uu_ls_ls_invalid_quoting_style_env_var_non_utf8 { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "alpha")?
+  uu.touch(s, "alpha")
   let r = invoke(s, ["alpha"], vars: {QUOTING_STYLE: Path.parse_bytes(b"\xff")?})?
   uu.succeeds(r)
   uu.stdout_is(r, "alpha\n")
@@ -1061,7 +1061,7 @@ test test_uu_ls_ls_invalid_quoting_style_env_var_non_utf8 { |ctx|
 # origin: uutils test_ls::test_ls_invalid_quoting_style_env_var_warns
 test test_uu_ls_ls_invalid_quoting_style_env_var_warns { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "alpha")?
+  uu.touch(s, "alpha")
   {
   let r = invoke(s, ["alpha"], vars: {QUOTING_STYLE: "not-a-style"})?
   uu.succeeds(r)
@@ -1074,8 +1074,8 @@ test test_uu_ls_ls_invalid_quoting_style_env_var_warns { |ctx|
 # origin: uutils test_ls::test_ls_invalid_quoting_style_env_var_with_unwritable_stderr
 test test_uu_ls_ls_invalid_quoting_style_env_var_with_unwritable_stderr { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "zeta")?
-  uu.touch(s, "alpha")?
+  uu.touch(s, "zeta")
+  uu.touch(s, "alpha")
   let r = invoke(s, [], vars: {QUOTING_STYLE: "not-a-style"}, stderr: p"/dev/full")?
   uu.fails_with_code(r, 2)
   uu.stdout_is(r, "alpha\nzeta\n")
@@ -1084,13 +1084,13 @@ test test_uu_ls_ls_invalid_quoting_style_env_var_with_unwritable_stderr { |ctx|
 # origin: uutils test_ls::test_ls_io_errors
 test test_uu_ls_ls_io_errors { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
-  uu.mkdir(s, "some-dir2")?
-  uu.mkdir(s, "some-dir3")?
-  uu.mkdir(s, "some-dir3/some-dir4")?
-  uu.mkdir(s, "some-dir4")?
-  uu.symlink(s, uu.at(s, "does_not_exist").display(), "some-dir2/dangle")?
-  uu.set_mode(s, "some-dir1", 0o000)?
+  uu.mkdir(s, "some-dir1")
+  uu.mkdir(s, "some-dir2")
+  uu.mkdir(s, "some-dir3")
+  uu.mkdir(s, "some-dir3/some-dir4")
+  uu.mkdir(s, "some-dir4")
+  uu.symlink(s, uu.at(s, "does_not_exist").display(), "some-dir2/dangle")
+  uu.set_mode(s, "some-dir1", 0o000)
   defer uu.set_mode(s, "some-dir1", 0o700)
   {
   let r = invoke(s, ["-1", "some-dir1"])?
@@ -1107,7 +1107,7 @@ test test_uu_ls_ls_io_errors { |ctx|
   uu.stdout_contains(r, "? dangle")
   
   }
-  uu.set_mode(s, "some-dir3/some-dir4", 0o000)?
+  uu.set_mode(s, "some-dir3/some-dir4", 0o000)
   defer uu.set_mode(s, "some-dir3/some-dir4", 0o700)
   {
   let r = invoke(s, ["-laR", "some-dir3"])?
@@ -1121,10 +1121,10 @@ test test_uu_ls_ls_io_errors { |ctx|
   {
   let r = invoke(s, ["-iRL", "some-dir2"])?
   uu.fails(r)
-  stderr_lacks(r, "ls: cannot access 'some-dir2/dangle': No such file or directory\nls: cannot access 'some-dir2/dangle': No such file or directory")?
+  stderr_lacks(r, "ls: cannot access 'some-dir2/dangle': No such file or directory\nls: cannot access 'some-dir2/dangle': No such file or directory")
   
   }
-  uu.touch(s, "some-dir4/bad-fd.txt")?
+  uu.touch(s, "some-dir4/bad-fd.txt")
   # The inherited descriptor owns a regular file on this Linux test environment.
   for option in ["-alR", "-RiL", "-alL"] {
     let r = invoke_fd(s, [option, "/dev/fd/3"], uu.at(s, "some-dir4/bad-fd.txt"))?
@@ -1135,7 +1135,7 @@ test test_uu_ls_ls_io_errors { |ctx|
 # origin: uutils test_ls::test_ls_long
 test test_uu_ls_ls_long { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test-long")?
+  uu.touch(s, "test-long")
   for option in ["-l", "--long", "--format=long", "--format=lon", "--for=long", "--format=verbose", "--for=verbose"] {
     let r = invoke(s, [option, "test-long"])?
     if option == "--long" {
@@ -1151,7 +1151,7 @@ test test_uu_ls_ls_long { |ctx|
 # origin: uutils test_ls::test_ls_long_ctime
 test test_uu_ls_ls_long_ctime { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test-long-ctime-1")?
+  uu.touch(s, "test-long-ctime-1")
   for option in ["-c", "--time=ctime", "--time=status"] {
     let r = invoke(s, ["-l", option])?
     uu.succeeds(r)
@@ -1162,8 +1162,8 @@ test test_uu_ls_ls_long_ctime { |ctx|
 # origin: uutils test_ls::test_ls_long_dangling_symlink_color
 test test_uu_ls_ls_long_dangling_symlink_color { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.symlink(s, uu.at(s, "foo").display(), "dir1/dangling_symlink")?
+  uu.mkdir(s, "dir1")
+  uu.symlink(s, uu.at(s, "foo").display(), "dir1/dangling_symlink")
   let r = invoke(s, ["-l", "--color=always", "dir1/dangling_symlink"], vars: {LS_COLORS: "ln=target:or=40:mi=34"})?
   uu.succeeds(r)
   let name = rx"(?:\x1b\[[0-9;]*m)*\x1b\[([0-9;]*)mdir1/dangling_symlink\x1b\[0m".captures(r.stdout.utf8()?)
@@ -1175,9 +1175,9 @@ test test_uu_ls_ls_long_dangling_symlink_color { |ctx|
 # origin: uutils test_ls::test_ls_long_format
 test test_uu_ls_ls_long_format { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "test-long-dir")?
-  uu.mkdir(s, "test-long-dir/test-long-dir")?
-  uu.touch(s, "test-long-dir/test-long-file")?
+  uu.mkdir(s, "test-long-dir")
+  uu.mkdir(s, "test-long-dir/test-long-dir")
+  uu.touch(s, "test-long-dir/test-long-file")
   for option in ["-l", "--long", "--format=long", "--format=lon", "--for=long", "--format=verbose", "--for=verbose"] {
     let r = invoke(s, [option, "test-long-dir"])?
     if option == "--long" {
@@ -1196,7 +1196,7 @@ test test_uu_ls_ls_long_format { |ctx|
 # origin: uutils test_ls::test_ls_long_formats
 test test_uu_ls_ls_long_formats { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test-long-formats")?
+  uu.touch(s, "test-long-formats")
   {
   let r = invoke(s, ["-l", "--author", "test-long-formats"])?
   uu.succeeds(r)
@@ -1247,9 +1247,9 @@ test test_uu_ls_ls_long_formats { |ctx|
 # origin: uutils test_ls::test_ls_long_padding_of_size_column_with_multiple_files
 test test_uu_ls_ls_long_padding_of_size_column_with_multiple_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.touch(s, "dir/a")?
-  uu.touch(s, "dir/b")?
+  uu.mkdir(s, "dir")
+  uu.touch(s, "dir/a")
+  uu.touch(s, "dir/b")
   {
   let r = invoke(s, [])?
   
@@ -1258,7 +1258,7 @@ test test_uu_ls_ls_long_padding_of_size_column_with_multiple_files { |ctx|
   let r = invoke(s, ["-l", "dir"])?
   uu.succeeds(r)
   uu.stdout_contains(r, " 0 ")
-  stdout_lacks(r, "  0 ")?
+  stdout_lacks(r, "  0 ")
   
   }
 }
@@ -1266,15 +1266,15 @@ test test_uu_ls_ls_long_padding_of_size_column_with_multiple_files { |ctx|
 # origin: uutils test_ls::test_ls_long_self_referential_dir_lists_contents
 test test_uu_ls_ls_long_self_referential_dir_lists_contents { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "real")?
-  uu.touch(s, "real/inside")?
-  uu.symlink(s, uu.at(s, "real").display(), "link")?
+  uu.mkdir(s, "real")
+  uu.touch(s, "real/inside")
+  uu.symlink(s, uu.at(s, "real").display(), "link")
   let cwd = {ctx: ctx, root: uu.at(s, "link")}
   {
   let r = invoke(cwd, ["-l"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "inside")
-  stdout_lacks(r, "-> ")?
+  stdout_lacks(r, "-> ")
   
   }
   {
@@ -1288,10 +1288,10 @@ test test_uu_ls_ls_long_self_referential_dir_lists_contents { |ctx|
 # origin: uutils test_ls::test_ls_long_stat_failure_is_reported
 test test_uu_ls_ls_long_stat_failure_is_reported { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.touch(s, "dir/file")?
-  uu.symlink(s, "/", "dir/link")?
-  uu.set_mode(s, "dir", 0o600)?
+  uu.mkdir(s, "dir")
+  uu.touch(s, "dir/file")
+  uu.symlink(s, "/", "dir/link")
+  uu.set_mode(s, "dir", 0o600)
   defer uu.set_mode(s, "dir", 0o700)
   let r = invoke(s, ["-l", "dir"])?
   uu.fails_with_code(r, 1)
@@ -1299,14 +1299,14 @@ test test_uu_ls_ls_long_stat_failure_is_reported { |ctx|
   uu.stdout_contains(r, "? link")
   uu.stderr_contains(r, "cannot access 'dir/file': Permission denied")
   uu.stderr_contains(r, "cannot access 'dir/link': Permission denied")
-  uu.set_mode(s, "dir", 0o700)?
+  uu.set_mode(s, "dir", 0o700)
 }
 
 # origin: uutils test_ls::test_ls_long_total_size
 test test_uu_ls_ls_long_total_size { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "test-long", "1")?
-  uu.write(s, "test-long2", "2")?
+  uu.write(s, "test-long", "1")
+  uu.write(s, "test-long2", "2")
   for option in ["-l", "--long", "--format=long", "--format=lon", "--for=long", "--format=verbose", "--for=verbose"] {
     let r = invoke(s, [option])?
     if option == "--long" {
@@ -1352,8 +1352,8 @@ test test_uu_ls_ls_multiple_a_A { |ctx|
   {
   let r = invoke(s, ["-A", "-A"])?
   uu.succeeds(r)
-  stdout_lacks(r, ".")?
-  stdout_lacks(r, "..")?
+  stdout_lacks(r, ".")
+  stdout_lacks(r, "..")
   
   }
 }
@@ -1371,17 +1371,17 @@ test test_uu_ls_ls_non_existing { |ctx|
 # origin: uutils test_ls::test_ls_non_utf8_hidden
 test test_uu_ls_ls_non_utf8_hidden { |ctx|
   let s = uu.scene(ctx)?
-  uu.at_bytes(s, b".hidden\x80")?.write("")?
+  uu.at_bytes(s, b".hidden\x80")?.write("")
   let r = invoke(s, [])?
   uu.succeeds(r)
-  stdout_lacks(r, ".hidden")?
+  stdout_lacks(r, ".hidden")
 }
 
 # origin: uutils test_ls::test_ls_oneline
 test test_uu_ls_ls_oneline { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test-oneline-1")?
-  uu.touch(s, "test-oneline-2")?
+  uu.touch(s, "test-oneline-1")
+  uu.touch(s, "test-oneline-2")
   for option in ["-1", "--format=single-column"] {
     let r = invoke(s, [option])?
     uu.succeeds(r)
@@ -1392,9 +1392,9 @@ test test_uu_ls_ls_oneline { |ctx|
 # origin: uutils test_ls::test_ls_only_dirs_formatting
 test test_uu_ls_ls_only_dirs_formatting { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
-  uu.mkdir(s, "some-dir2")?
-  uu.mkdir(s, "some-dir3")?
+  uu.mkdir(s, "some-dir1")
+  uu.mkdir(s, "some-dir2")
+  uu.mkdir(s, "some-dir3")
   let r = invoke(s, ["-1", "-R"])?
   uu.succeeds(r)
   uu.stdout_only(r, ".:\nsome-dir1\nsome-dir2\nsome-dir3\n\n./some-dir1:\n\n./some-dir2:\n\n./some-dir3:\n")
@@ -1406,8 +1406,8 @@ test test_uu_ls_ls_order_mtime { |ctx|
   # Explicit nanoseconds retain the upstream strict creation-time ordering.
   var stamp = time.now() * 1000000
   for name in ["test-3", "test-4", "test-1", "test-2"] {
-    uu.touch(s, name)?
-    fs.set_times(uu.at(s, name), mtime_ns: stamp)?
+    uu.touch(s, name)
+    fs.set_times(uu.at(s, name), mtime_ns: stamp)
     stamp += 1
   }
   {
@@ -1416,8 +1416,8 @@ test test_uu_ls_ls_order_mtime { |ctx|
   uu.stdout_only(r, "test-2\ntest-1\ntest-4\ntest-3\n")
   
   }
-  fs.set_times(uu.at(s, "test-3"), mtime_ns: stamp)?
-  fs.set_times(uu.at(s, "test-4"), mtime_ns: stamp + 1)?
+  fs.set_times(uu.at(s, "test-3"), mtime_ns: stamp)
+  fs.set_times(uu.at(s, "test-4"), mtime_ns: stamp + 1)
   let r = invoke(s, ["-t", "--time=mtime"])?
   uu.succeeds(r)
   uu.stdout_only(r, "test-4\ntest-3\ntest-2\ntest-1\n")
@@ -1426,7 +1426,7 @@ test test_uu_ls_ls_order_mtime { |ctx|
 # origin: uutils test_ls::test_ls_order_size
 test test_uu_ls_ls_order_size { |ctx|
   let s = uu.scene(ctx)?
-  for index in range(1, 5) { uu.write(s, f"test-{index}", [f"{index}" for _ in range(index)].join(""))? }
+  for index in range(1, 5) { uu.write(s, f"test-{index}", [f"{index}" for _ in range(index)].join("")) }
   uu.succeeds(invoke(s, ["-al"])?)
   for args in [["-S"], ["-S", "-r"], ["--sort=size"], ["--sort=siz"], ["--sort=s"], ["--sort=size", "-r"]] {
     let r = invoke(s, args)?
@@ -1439,12 +1439,12 @@ test test_uu_ls_ls_order_size { |ctx|
 test test_uu_ls_ls_order_time { |ctx|
   let s = uu.scene(ctx)?
   for index in range(1, 5) {
-    uu.write(s, f"test-{index}", [f"{index}" for _ in range(index)].join(""))?
-    time.sleep(100ms)?
+    uu.write(s, f"test-{index}", [f"{index}" for _ in range(index)].join(""))
+    time.sleep(100ms)
   }
   let accessed = uu.read(s, "test-3")?
   let mode = uu.mode(s, "test-2")?
-  uu.set_mode(s, "test-2", mode)?
+  uu.set_mode(s, "test-2", mode)
   uu.succeeds(invoke(s, ["-al"])?)
   for args in [["-t"], ["--sort=time"], ["-tr"], ["--sort=time", "-r"]] {
     let r = invoke(s, args)?
@@ -1478,8 +1478,8 @@ test test_uu_ls_ls_order_time { |ctx|
 test test_uu_ls_ls_order_time_breaks_ties_by_name { |ctx|
   let s = uu.scene(ctx)?
   let names = ["zulu", "alpha", "Mike", "bravo"]
-  for name in names { uu.write(s, name, "x")? }
-  for name in names { fs.set_times(uu.at(s, name), atime_ns: 1700000000000000000, mtime_ns: 1700000000000000000)? }
+  for name in names { uu.write(s, name, "x") }
+  for name in names { fs.set_times(uu.at(s, name), atime_ns: 1700000000000000000, mtime_ns: 1700000000000000000) }
   {
   let r = invoke(s, ["-t"], vars: {LC_ALL: "C"})?
   uu.succeeds(r)
@@ -1490,7 +1490,7 @@ test test_uu_ls_ls_order_time_breaks_ties_by_name { |ctx|
   uu.succeeds(r)
   uu.stdout_only(r, "zulu\nbravo\nalpha\nMike\n")
   }
-  if locale_available(s, "en_US.UTF-8")? {
+  if locale_available(s, "en_US.UTF-8") {
   let r = invoke(s, ["-t"], vars: {LC_ALL: "en_US.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_only(r, "alpha\nbravo\nMike\nzulu\n")
@@ -1500,12 +1500,12 @@ test test_uu_ls_ls_order_time_breaks_ties_by_name { |ctx|
 # origin: uutils test_ls::test_ls_ordering
 test test_uu_ls_ls_ordering { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
-  uu.mkdir(s, "some-dir2")?
-  uu.mkdir(s, "some-dir3")?
-  uu.mkdir(s, "some-dir4")?
-  uu.mkdir(s, "some-dir5")?
-  uu.mkdir(s, "some-dir6")?
+  uu.mkdir(s, "some-dir1")
+  uu.mkdir(s, "some-dir2")
+  uu.mkdir(s, "some-dir3")
+  uu.mkdir(s, "some-dir4")
+  uu.mkdir(s, "some-dir5")
+  uu.mkdir(s, "some-dir6")
   {
   let r = invoke(s, ["-Rl"])?
   uu.succeeds(r)
@@ -1517,9 +1517,9 @@ test test_uu_ls_ls_ordering { |ctx|
 # origin: uutils test_ls::test_ls_path
 test test_uu_ls_ls_path { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.touch(s, "file1")?
-  uu.touch(s, "dir/file2")?
+  uu.mkdir(s, "dir")
+  uu.touch(s, "file1")
+  uu.touch(s, "dir/file2")
   {
   let r = invoke(s, ["dir/file2"])?
   uu.succeeds(r)
@@ -1550,10 +1550,10 @@ test test_uu_ls_ls_path { |ctx|
 # origin: uutils test_ls::test_ls_perm_io_errors
 test test_uu_ls_ls_perm_io_errors { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.touch(s, "d/f")?
-  uu.symlink(s, "/", "d/s")?
-  uu.set_mode(s, "d", 0o600)?
+  uu.mkdir(s, "d")
+  uu.touch(s, "d/f")
+  uu.symlink(s, "/", "d/s")
+  uu.set_mode(s, "d", 0o600)
   defer uu.set_mode(s, "d", 0o700)
   let r = invoke(s, ["-l", "d"])?
   uu.fails_with_code(r, 1)
@@ -1569,7 +1569,7 @@ test test_uu_ls_ls_proc_self_fd_no_errors { |ctx|
   {
   let r = invoke(s, ["-l", "/proc/self/fd"])?
   uu.succeeds(r)
-  stderr_lacks(r, "cannot access")?
+  stderr_lacks(r, "cannot access")
   
   }
 }
@@ -1577,7 +1577,7 @@ test test_uu_ls_ls_proc_self_fd_no_errors { |ctx|
 # origin: uutils test_ls::test_ls_quoting
 test test_uu_ls_ls_quoting { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "'need quoting'", "symlink")?
+  uu.symlink(s, "'need quoting'", "symlink")
   {
   let r = invoke(s, ["-l", "--quoting-style=shell-escape", "symlink"])?
   uu.succeeds(r)
@@ -1589,7 +1589,7 @@ test test_uu_ls_ls_quoting { |ctx|
 # origin: uutils test_ls::test_ls_quoting_and_color
 test test_uu_ls_ls_quoting_and_color { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "one two")?
+  uu.touch(s, "one two")
   {
   let r = invoke(s, ["--color", "one two"])?
   uu.succeeds(r)
@@ -1607,7 +1607,7 @@ test test_uu_ls_ls_quoting_and_color { |ctx|
 # origin: uutils test_ls::test_ls_quoting_color
 test test_uu_ls_ls_quoting_color { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "'need quoting'", "symlink")?
+  uu.symlink(s, "'need quoting'", "symlink")
   {
   let r = invoke(s, ["-l", "--quoting-style=shell-escape", "--color=auto", "symlink"])?
   uu.succeeds(r)
@@ -1619,10 +1619,10 @@ test test_uu_ls_ls_quoting_color { |ctx|
 # origin: uutils test_ls::test_ls_quoting_style
 test test_uu_ls_ls_quoting_style { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "one two")?
-  uu.touch(s, "one")?
-  uu.touch(s, "one\ntwo")?
-  uu.touch(s, "one\\two")?
+  uu.touch(s, "one two")
+  uu.touch(s, "one")
+  uu.touch(s, "one\ntwo")
+  uu.touch(s, "one\\two")
   {
   let r = invoke(s, ["--hide-control-chars", "one\ntwo"])?
   uu.succeeds(r)
@@ -1653,7 +1653,7 @@ test test_uu_ls_ls_quoting_style { |ctx|
     uu.stdout_only(r, f"{case.output}\n")
   }
   
-  uu.touch(s, "one\n&two")?
+  uu.touch(s, "one\n&two")
   
   for case in [{option: "--quoting-style=shell-escape", output: "'one'$'\\n''&two'"}, {option: "--quoting-style=shell-escape-always", output: "'one'$'\\n''&two'"}] {
     let r = invoke(s, ["--hide-control-chars", case.option, "one\n&two"])?
@@ -1695,8 +1695,8 @@ test test_uu_ls_ls_quoting_style { |ctx|
 # origin: uutils test_ls::test_ls_quoting_style_arg_overrides_env_var
 test test_uu_ls_ls_quoting_style_arg_overrides_env_var { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo-1")?
-  uu.touch(s, "bar-2")?
+  uu.touch(s, "foo-1")
+  uu.touch(s, "bar-2")
   for case in [{option: "--quoting-style=literal", output: "foo-1"}, {option: "-N", output: "foo-1"}, {option: "--quoting-style=escape", output: "foo-1"}, {option: "-b", output: "foo-1"}, {option: "--quoting-style=shell-escape", output: "foo-1"}, {option: "--quoting-style=shell-escape-always", output: "'foo-1'"}, {option: "--quoting-style=shell", output: "foo-1"}, {option: "--quoting-style=shell-always", output: "'foo-1'"}] {
     let r = invoke(s, ["--hide-control-chars", case.option, "foo-1"], vars: {QUOTING_STYLE: "c"})?
     uu.succeeds(r)
@@ -1712,8 +1712,8 @@ test test_uu_ls_ls_quoting_style_arg_overrides_env_var { |ctx|
 # origin: uutils test_ls::test_ls_quoting_style_env_var_default
 test test_uu_ls_ls_quoting_style_env_var_default { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo-1")?
-  uu.touch(s, "bar-2")?
+  uu.touch(s, "foo-1")
+  uu.touch(s, "bar-2")
   {
   let r = invoke(s, [], vars: {QUOTING_STYLE: "c"})?
   uu.succeeds(r)

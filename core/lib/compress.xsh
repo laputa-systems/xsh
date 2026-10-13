@@ -663,7 +663,7 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
     }
   }
   if joined.is_empty() { return status }
-  fp"{output}".write_atomic(bytes.concat(joined))?
+  fp"{output}".write_atomic(bytes.concat(joined))
   if ! keep {
     for name in consumed {
       if let Err(failure) = fp"{name}".remove(missing_ok: false) {

@@ -88,8 +88,8 @@ test nohup_launch_diagnostic_uses_original_error_terminal { |ctx|
   let out = fp"{root}/stdout"
   let script = fp"{ctx.core_dir}/nohup.xsh"
   let invalid_interpreter = fp"{root}/invalid-interpreter"
-  invalid_interpreter.write("#!/nonexistent/xsh-interpreter\n")?
-  invalid_interpreter.chmod(0o700)?
+  invalid_interpreter.write("#!/nonexistent/xsh-interpreter\n")
+  invalid_interpreter.chmod(0o700)
   for command in [p"/nonexistent/xsh-command", invalid_interpreter] {
     let plan = process.command_argv(ctx.xsh_bin,
       [ctx.xsh_bin, script, command], root,

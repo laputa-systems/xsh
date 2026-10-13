@@ -94,11 +94,11 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   # GNU backs up a destination that names the source before making a symbolic
   # link, so the link may name its own destination. A hard link to itself is refused.
   let self_symlink_with_backup = opts.symbolic and backup != "none"
-  if existing and replacing and ! self_symlink_with_backup and same_destination(source, target, opts.symbolic)? {
+  if existing and replacing and ! self_symlink_with_backup and same_destination(source, target, opts.symbolic) {
     gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
     exit 1
   }
-  if existing and policy == "interactive" and ! files.confirm(target, "replace")? { return false }
+  if existing and policy == "interactive" and ! files.confirm(target, "replace") { return false }
   var saved: Path? = null
   if existing and backup != "none" {
     saved = files.backup_name(target, backup, opts.suffix ?? "~")?
@@ -106,7 +106,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
       target.rename(to: saved, overwrite: true)
       # rename(2) does nothing when the destination and the backup name are one hard
       # link, so the original name is removed here as GNU does before linking.
-      if files.present(target)? { target.remove() }
+      if files.present(target) { target.remove() }
       existing = false
     }
   }

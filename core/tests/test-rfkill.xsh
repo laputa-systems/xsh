@@ -18,7 +18,7 @@ test test_rfkill_block_uses_fake_native_operation { |ctx|
   let devices: List[LinuxRfkill] = [{id: 7, name: "phy7", type: "wlan", soft_blocked: false, hard_blocked: false}]
   let log = test.temp_path(ctx, name: "rfkill.jsonl")
   test.linux_fake(ctx, {log: log})
-  hardware.rfkill_set(devices, ["7"], true)?
+  hardware.rfkill_set(devices, ["7"], true)
   assert "\"op\":\"rfkill_block\"" in log.read_text()?
   assert "\"id\":\"7\"" in log.read_text()?
 }

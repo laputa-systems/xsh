@@ -553,8 +553,8 @@ pure hex_long_double(text: Str, precision: Int?, alternate: Bool) -> Str {
 
 proc character_warning(warning: Bytes) [process, env, io, error] {
   return when env.get("POSIXLY_CORRECT") is Ok(_)
-  io.write_stderr_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: warning: "), warning, b": character(s) following character constant have been ignored\n"]))?
-  io.flush_stderr()?
+  io.write_stderr_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: warning: "), warning, b": character(s) following character constant have been ignored\n"]))
+  io.flush_stderr()
 }
 
 proc shell_quote(data: Bytes) [env] -> Str {

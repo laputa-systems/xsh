@@ -337,7 +337,7 @@ unix.exec_env(command, environment)?
 }
 
 test test_unix_exec_env_blocks_the_named_signals { |ctx|
-  if ! p"/proc/self/status".exists()? {
+  if ! p"/proc/self/status".exists() {
     test.skip("the host has no /proc/self/status")
   }
 

@@ -97,8 +97,8 @@ use core.lib.findutils_fixture as fixture
 proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] -> Result[Unit, Error] {
   let root = test.temp_dir(ctx, name: f"xargs-corpus-{part}")?
   let work = test.temp_dir(ctx, name: f"xargs-corpus-out-{part}")?
-  fixture.build(root)?
-  fixture.build_hostile(root)?
+  fixture.build(root)
+  fixture.build_hostile(root)
   defer fixture.restore(root)
   let corpus = fp"{ctx.core_dir}/tests/data/findutils/xargs.jsonl"
   let failures = fixture.run_corpus(ctx.xsh_bin, fp"{ctx.core_dir}/xargs.xsh", corpus, root, work, part, 4)?
@@ -106,17 +106,17 @@ proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] -> Resu
   Ok()
 }
 
-test test_xargs_matches_recorded_gnu_output_0 { |ctx| check_share(ctx, 0)? }
-test test_xargs_matches_recorded_gnu_output_1 { |ctx| check_share(ctx, 1)? }
-test test_xargs_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2)? }
-test test_xargs_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3)? }
+test test_xargs_matches_recorded_gnu_output_0 { |ctx| check_share(ctx, 0) }
+test test_xargs_matches_recorded_gnu_output_1 { |ctx| check_share(ctx, 1) }
+test test_xargs_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2) }
+test test_xargs_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3) }
 
 # A command word and an -a file name that are not valid UTF-8 reach the
 # command unchanged.
 test test_xargs_accepts_non_utf8_command_and_file { |ctx|
   let root = test.temp_dir(ctx, name: "xargs-raw-operands")?
   let list = Path.parse_bytes(bytes.concat([root.bytes(), b"/l\xff"]))?
-  list.write("one two\n")?
+  list.write("one two\n")
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/xargs.xsh"

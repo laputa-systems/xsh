@@ -5,7 +5,7 @@ use support.uu as uu
 proc checksum_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
   for name in ["input.txt", "sha512.expected", "sha512.checkfile"] {
-    uu.fixture(s, "sha512sum", name, name)?
+    uu.fixture(s, "sha512sum", name, name)
   }
   Ok(s)
 }
@@ -22,8 +22,8 @@ test test_uu_sha512sum_sha512_check { |ctx|
 # origin: uutils test_sha512sum::sha512::test_missing_file
 test test_uu_sha512sum_sha512_missing_file { |ctx|
   let s = checksum_scene(ctx)?
-  uu.write(s, "a", "file1\n")?
-  uu.write(s, "c", "file3\n")?
+  uu.write(s, "a", "file1\n")
+  uu.write(s, "c", "file3\n")
   let r = uu.invoke(s, "sha512sum", ["a", "b", "c"])?
   uu.fails(r)
   uu.stdout_contains(r, "a\n")
@@ -54,7 +54,7 @@ test test_uu_sha512sum_sha512_stdin { |ctx|
 # origin: uutils test_sha512sum::sha512::test_stdin_with_dash_directory
 test test_uu_sha512sum_sha512_stdin_with_dash_directory { |ctx|
   let s = checksum_scene(ctx)?
-  uu.mkdir(s, "-")?
+  uu.mkdir(s, "-")
   let expected = uu.read_text(s, "sha512.expected")?
   let r = uu.invoke(s, "sha512sum", [], stdin: uu.read(s, "input.txt")?)?
   uu.succeeds(r)

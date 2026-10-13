@@ -146,7 +146,7 @@ proc fixture(ctx: TestContext, name: Str, lines: List[Record]) [fs, error] -> Re
 proc run_iw(ctx: TestContext, name: Str, lines: List[Record], argv: List[Str]) [fs, process, error] -> Result[IwRun, Error] {
   let recorded = fixture(ctx, name, lines)?
   let log = test.temp_file(ctx, name: f"{name}.log", contents: b"")?
-  test.linux_fake(ctx, {netlink_fixture: recorded, log: log})?
+  test.linux_fake(ctx, {netlink_fixture: recorded, log: log})
   let source = fp"{ctx.core_dir}/iw.xsh".read_text()?
   let ran = test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir}, b"", "iw")?
   {success: ran.success, status: ran.status, stdout: ran.stdout, stderr: ran.stderr, calls: log.read_text()?}

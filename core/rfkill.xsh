@@ -18,7 +18,7 @@ proc inventory(opts: Options) -> Result[Unit] {
   let devices = linux.rfkill_list()?.collect() |> sort-by .id
   let selected = hardware.rfkill_select(devices, selectors)?
   if command == "block" or command == "unblock" {
-    hardware.rfkill_set(devices, selectors, command == "block")?
+    hardware.rfkill_set(devices, selectors, command == "block")
     return
   }
   if command == "list" and ! opts.json and ! opts.raw and opts.output == null and ! opts.output_all and ! opts.noheadings {

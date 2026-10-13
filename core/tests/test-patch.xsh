@@ -113,10 +113,10 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   let work = test.temp_dir(ctx, name: "patch-case")?
   # A case with no starting files has no `in` directory: git cannot keep an
   # empty directory, so the tree is created empty instead of copied.
-  if fp"{root}/in".exists()? {
+  if fp"{root}/in".exists() {
     let _ = fs.copy_tree(fp"{root}/in", fp"{work}/w", parents: true)?
   } else {
-    fp"{work}/w".mkdir()?
+    fp"{work}/w".mkdir()
   }
   # Stored names are percent-encoded; restore them, deepest first.
   var encoded: List[Str] = []
@@ -131,7 +131,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     let at = old.find("/w/") ?? 0
     let decoded_tail = decode_name(old.byte_slice(at + 3))
     let parent = fp"{work}/w"
-    fp"{old}".rename(to: Path.parse_bytes(bytes.concat([parent.bytes(), b"/", decoded_tail]))?)?
+    fp"{old}".rename(to: Path.parse_bytes(bytes.concat([parent.bytes(), b"/", decoded_tail]))?)
   }
   # Empty directories are not kept by git either. Every directory of the
   # recorded final tree is created up front: GNU patch makes missing parents
@@ -140,27 +140,27 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   for row in fp"{root}/out/manifest".read_text()?.lines() {
     if row.starts_with("d ") {
       let relative = row.byte_slice(4)
-      if relative != "" and relative != "." and !fp"{work}/w/{relative}".exists()? { fp"{work}/w/{relative}".mkdir()? }
+      if relative != "" and relative != "." and !fp"{work}/w/{relative}".exists() { fp"{work}/w/{relative}".mkdir() }
     }
   }
   var mtimes: List[Str] = []
-  if fp"{root}/mtimes".exists()? { mtimes = fp"{root}/mtimes".read_text()?.lines().collect() }
-  if fp"{root}/setup".exists()? {
+  if fp"{root}/mtimes".exists() { mtimes = fp"{root}/mtimes".read_text()?.lines().collect() }
+  if fp"{root}/setup".exists() {
     for line in fp"{root}/setup".read_text()?.lines() {
       let words = line.split(" ")
-      if words[0] == "chmod" { fp"{work}/w/{words[2]}".chmod(octal(words[1]))? }
+      if words[0] == "chmod" { fp"{work}/w/{words[2]}".chmod(octal(words[1])) }
       if words[0] == "touch" {
         let seconds = words[1].parse_int()?
-        fs.set_times(fp"{work}/w/{words[2]}", atime_sec: seconds, mtime_sec: seconds)?
+        fs.set_times(fp"{work}/w/{words[2]}", atime_sec: seconds, mtime_sec: seconds)
       }
     }
   }
   var arguments: List[Str] = []
-  if fp"{root}/args".exists()? { arguments = fp"{root}/args".read_text()?.lines().collect() }
+  if fp"{root}/args".exists() { arguments = fp"{root}/args".read_text()?.lines().collect() }
   var input = b""
-  if fp"{root}/stdin".exists()? { input = fp"{root}/stdin".read_bytes()? }
+  if fp"{root}/stdin".exists() { input = fp"{root}/stdin".read_bytes()? }
   var recorded_env = ""
-  if fp"{root}/env".exists()? { recorded_env = fp"{root}/env".read_text()? }
+  if fp"{root}/env".exists() { recorded_env = fp"{root}/env".read_text()? }
   var vars: Record = {LC_ALL: "C", TERM: "xterm"}
   if recorded_env.starts_with("PATCH_VERSION_CONTROL=") {
     vars = {LC_ALL: "C", TERM: "xterm", PATCH_VERSION_CONTROL: recorded_env.byte_slice(22).trim()}
@@ -204,7 +204,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     if stamp >= 0 { relative = relative.byte_slice(0, stamp) }
     let encoded_name = encode_name(relative)
     let stored = fp"{root}/out/tree/{encoded_name}"
-    let wanted = if stored.exists()? { stored.read_bytes()? } else { fp"{root}/in/{encoded_name}".read_bytes()? }
+    let wanted = if stored.exists() { stored.read_bytes()? } else { fp"{root}/in/{encoded_name}".read_bytes()? }
     let actual = fp"{work}/w/{relative}".read_bytes()?
     if actual != wanted {
       problems += [f"{name}: content of {relative} differs\n--- expected\n{wanted.utf8() ?? "(binary)"}--- actual\n{actual.utf8() ?? "(binary)"}"]
@@ -214,7 +214,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   for row in expected_manifest {
     if row.starts_with("d ") {
       let relative = row.byte_slice(4)
-      if fp"{work}/w/{relative}".exists()? { fp"{work}/w/{relative}".chmod(493)? }
+      if fp"{work}/w/{relative}".exists() { fp"{work}/w/{relative}".chmod(493) }
     }
   }
   Ok(problems)
@@ -236,7 +236,7 @@ proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, err
   for index in range(ordered.len()) {
     if index % shards != shard { continue }
     let name = ordered[index]
-    if !fp"{corpus}/{name}/out/status".exists()? { continue }
+    if !fp"{corpus}/{name}/out/status".exists() { continue }
     count += 1
     problems += check_case(ctx, fp"{corpus}/{name}")?
   }
@@ -245,14 +245,14 @@ proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, err
   Ok()
 }
 
-test test_patch_recorded_results_shard_0 { |ctx| run_shard(ctx, 0, 8)? }
-test test_patch_recorded_results_shard_1 { |ctx| run_shard(ctx, 1, 8)? }
-test test_patch_recorded_results_shard_2 { |ctx| run_shard(ctx, 2, 8)? }
-test test_patch_recorded_results_shard_3 { |ctx| run_shard(ctx, 3, 8)? }
-test test_patch_recorded_results_shard_4 { |ctx| run_shard(ctx, 4, 8)? }
-test test_patch_recorded_results_shard_5 { |ctx| run_shard(ctx, 5, 8)? }
-test test_patch_recorded_results_shard_6 { |ctx| run_shard(ctx, 6, 8)? }
-test test_patch_recorded_results_shard_7 { |ctx| run_shard(ctx, 7, 8)? }
+test test_patch_recorded_results_shard_0 { |ctx| run_shard(ctx, 0, 8) }
+test test_patch_recorded_results_shard_1 { |ctx| run_shard(ctx, 1, 8) }
+test test_patch_recorded_results_shard_2 { |ctx| run_shard(ctx, 2, 8) }
+test test_patch_recorded_results_shard_3 { |ctx| run_shard(ctx, 3, 8) }
+test test_patch_recorded_results_shard_4 { |ctx| run_shard(ctx, 4, 8) }
+test test_patch_recorded_results_shard_5 { |ctx| run_shard(ctx, 5, 8) }
+test test_patch_recorded_results_shard_6 { |ctx| run_shard(ctx, 6, 8) }
+test test_patch_recorded_results_shard_7 { |ctx| run_shard(ctx, 7, 8) }
 
 # GNU patch prints its own copyright banner; the applets here announce
 # themselves with the project's common version line instead.

@@ -174,7 +174,7 @@ test test_ls_reports_missing_operands_with_status_2 { |ctx|
 
 test test_ls_stats_proc_fd_entries_while_directory_is_open { |ctx|
   let work = sandbox(ctx)?
-  if ! p"/proc/self/fd".is_dir()? { test.skip("requires procfs") }
+  if ! p"/proc/self/fd".is_dir() { test.skip("requires procfs") }
 
   let result = ls_in(ctx, work, ["-l", "/proc/self/fd"])?
   assert result.status == 0, result.err
@@ -889,7 +889,7 @@ test test_ls_capability_colors_precede_executables_and_suffixes { |ctx|
   let disabled = ls_in(ctx, work, ["--color=always", "cap.txt"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "ca=00:ex=32:*.txt=31"})?
   assert "\u{1b}[32mcap.txt" in disabled.text, disabled.text
   for text in ["cap_net_bind_service=i", ""] {
-    fs.xattr_set(file, "security.capability", capability.encode(capability.parse(text)?)?)?
+    fs.xattr_set(file, "security.capability", capability.encode(capability.parse(text)?)?)
     let record = ls_in(ctx, work, ["--color=always", "cap.txt"], vars)?
     assert "\u{1b}[30;41mcap.txt" in record.text, record.text
   }

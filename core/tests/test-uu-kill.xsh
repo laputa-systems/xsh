@@ -245,7 +245,7 @@ test test_uu_kill_kill_with_default_signal { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", [f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 15)?
+  signaled(child, 15)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_number_old_form
@@ -254,7 +254,7 @@ test test_uu_kill_kill_with_signal_number_old_form { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-9", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 9)?
+  signaled(child, 9)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_prefixed_name_old_form
@@ -263,7 +263,7 @@ test test_uu_kill_kill_with_signal_prefixed_name_old_form { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-SIGKILL", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 9)?
+  signaled(child, 9)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_number_new_form
@@ -272,7 +272,7 @@ test test_uu_kill_kill_with_signal_number_new_form { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-s", "9", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 9)?
+  signaled(child, 9)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_name_new_form
@@ -281,7 +281,7 @@ test test_uu_kill_kill_with_signal_name_new_form { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-s", "KILL", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 9)?
+  signaled(child, 9)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_name_new_form_ignore_case
@@ -290,7 +290,7 @@ test test_uu_kill_kill_with_signal_name_new_form_ignore_case { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-s", "KiLl", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 9)?
+  signaled(child, 9)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_prefixed_name_new_form
@@ -299,7 +299,7 @@ test test_uu_kill_kill_with_signal_prefixed_name_new_form { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-s", "SIGKILL", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 9)?
+  signaled(child, 9)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_prefixed_name_new_form_ignore_case
@@ -308,7 +308,7 @@ test test_uu_kill_kill_with_signal_prefixed_name_new_form_ignore_case { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-s", "SiGKiLl", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 9)?
+  signaled(child, 9)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_number_hidden_compatibility_option
@@ -317,7 +317,7 @@ test test_uu_kill_kill_with_signal_number_hidden_compatibility_option { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-n", "9", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 9)?
+  signaled(child, 9)
 }
 
 # origin: uutils test_kill::test_kill_with_signal_name_old_form
@@ -327,7 +327,7 @@ test test_uu_kill_kill_with_signal_name_old_form { |ctx|
     let child = target()?
     let r = uu.invoke(s, "kill", [arg, f"{child.pid}"])?
     uu.succeeds(r)
-    signaled(child, 9)?
+    signaled(child, 9)
   }
 }
 
@@ -518,11 +518,11 @@ test test_uu_kill_kill_signal_zero_current_process_group { |ctx|
 test test_uu_kill_kill_realtime_signal { |ctx|
   let s = uu.scene(ctx)?
   let rtmin = realtime_bound("RTMIN")?
-  if ignored(rtmin)? { test.skip("the real-time signal is inherited as ignored") }
+  if ignored(rtmin) { test.skip("the real-time signal is inherited as ignored") }
   let child = target()?
   let r = uu.invoke(s, "kill", ["-s", "RTMIN", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, rtmin)?
+  signaled(child, rtmin)
 }
 
 # origin: uutils test_kill::test_kill_with_rtmax_offset
@@ -530,11 +530,11 @@ test test_uu_kill_kill_with_rtmax_offset { |ctx|
   let s = uu.scene(ctx)?
   let rtmax = realtime_bound("RTMAX")?
   let number = rtmax - 7
-  if ignored(number)? { test.skip("the real-time signal is inherited as ignored") }
+  if ignored(number) { test.skip("the real-time signal is inherited as ignored") }
   let child = target()?
   let r = uu.invoke(s, "kill", ["-s", "SIGRTMAX-7", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, number)?
+  signaled(child, number)
 }
 
 # origin: uutils test_kill::test_kill_with_rtmin_offset
@@ -542,11 +542,11 @@ test test_uu_kill_kill_with_rtmin_offset { |ctx|
   let s = uu.scene(ctx)?
   let rtmin = realtime_bound("RTMIN")?
   let number = rtmin + 7
-  if ignored(number)? { test.skip("the real-time signal is inherited as ignored") }
+  if ignored(number) { test.skip("the real-time signal is inherited as ignored") }
   let child = target()?
   let r = uu.invoke(s, "kill", ["-s", "SIGRTMIN+7", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, number)?
+  signaled(child, number)
 }
 
 # Encoded process statuses also select a signal for the old-form option.
@@ -555,5 +555,5 @@ test test_uu_kill_encoded_signal_status { |ctx|
   let child = target()?
   let r = uu.invoke(s, "kill", ["-129", f"{child.pid}"])?
   uu.succeeds(r)
-  signaled(child, 1)?
+  signaled(child, 1)
 }

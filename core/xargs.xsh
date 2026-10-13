@@ -351,9 +351,9 @@ proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument
   var total = 0
   for word in argv {
     total += word.bytes().len() + 1
-    if replace and word.bytes().len() + 1 >= max_chars { search.reject("command too long")? }
+    if replace and word.bytes().len() + 1 >= max_chars { search.reject("command too long") }
   }
-  if replace and total > max_chars { search.reject("argument list too long")? }
+  if replace and total > max_chars { search.reject("argument list too long") }
   Ok(argv)
 }
 
@@ -399,14 +399,14 @@ proc announce(argv: List[Path], interactive: Bool) [io, process, env, error] -> 
 
 # Read the answer to a -p prompt from the terminal.
 proc ask(command_line: Str) [io, process, env, error] -> Result[Bool, Error] {
-  io.write_stderr(command_line)?
-  io.flush_stderr()?
+  io.write_stderr(command_line)
+  io.flush_stderr()
   let descriptor = match unix.open_fd(p"/dev/tty") {
     Ok(opened) => opened
     Err(failure) => { gnu.error(f"failed to open /dev/tty for reading: {gnu.strerror(failure)}"); exit 1 }
   }
-  io.write_stderr("?...")?
-  io.flush_stderr()?
+  io.write_stderr("?...")
+  io.flush_stderr()
   var answer = ""
   while true {
     let chunk = unix.read_fd(descriptor, 1)?
@@ -415,7 +415,7 @@ proc ask(command_line: Str) [io, process, env, error] -> Result[Bool, Error] {
     if letter == "\n" { break }
     answer = f"{answer}{letter}"
   }
-  unix.close_fd(descriptor)?
+  unix.close_fd(descriptor)
   Ok(answer.starts_with("y") or answer.starts_with("Y"))
 }
 
@@ -502,7 +502,7 @@ proc main(...operands: List[Bytes]) {
         let too_many_lines = (cfg.max_lines > 0 or replace) and ! batch.is_empty() and item.line != previous_line and (replace or batch_lines >= cfg.max_lines)
         let too_large = size + length + 1 > cfg.max_chars
         if ! batch.is_empty() and (too_many or too_many_lines or too_large) {
-          if too_large and cfg.exit_on_overflow and counted and ! too_many and ! too_many_lines { search.reject("argument list too long")? }
+          if too_large and cfg.exit_on_overflow and counted and ! too_many and ! too_many_lines { search.reject("argument list too long") }
           let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
           if command.is_empty() {
             var chunks: List[Bytes] = []

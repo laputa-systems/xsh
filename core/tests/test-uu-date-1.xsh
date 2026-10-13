@@ -193,7 +193,7 @@ test test_uu_date_date_debug_with_flags { |ctx|
 # origin: uutils test_date::test_date_debug_with_multiple_inputs
 test test_uu_date_date_debug_with_multiple_inputs { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "debug_test_file", "2005-01-01\n2006-02-02\n")?
+  uu.write(s, "debug_test_file", "2005-01-01\n2006-02-02\n")
   {
   let r = uu.invoke(s, "date", ["--debug", "-f", "debug_test_file", "+%Y"], vars: {TZ: "UTC"})?
   uu.succeeds(r)
@@ -314,7 +314,7 @@ test test_uu_date_date_error_echoes_input_verbatim { |ctx|
 # origin: uutils test_date::test_date_ethiopian_locale_calendar
 test test_uu_date_date_ethiopian_locale_calendar { |ctx|
   let s = uu.scene(ctx)?
-  if ! locale_available("am_ET.UTF-8")? { return }
+  if ! locale_available("am_ET.UTF-8") { return }
   let r = uu.invoke(s, "date", ["+%Y"], vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   let current_year = r.stdout.utf8()?.trim().parse_int()?
@@ -353,7 +353,7 @@ test test_uu_date_date_explicit_format_overrides_locale { |ctx|
 # origin: uutils test_date::test_date_file_invalid_utf8_line
 test test_uu_date_date_file_invalid_utf8_line { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "test_date_file_invalid_utf8", b"Hello\xffx\n")?
+  uu.write_bytes(s, "test_date_file_invalid_utf8", b"Hello\xffx\n")
   let r = uu.invoke(s, "date", ["-u", "-f", "test_date_file_invalid_utf8"])?
   uu.fails_with_code(r, 1)
   uu.no_stdout(r)
@@ -363,7 +363,7 @@ test test_uu_date_date_file_invalid_utf8_line { |ctx|
 # origin: uutils test_date::test_date_file_invalid_utf8_line_continues
 test test_uu_date_date_file_invalid_utf8_line_continues { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "test_date_file_mixed_invalid_utf8", b"2024-01-15 12:00:00\nHello\xffx\n2024-01-16 13:00:00\n")?
+  uu.write_bytes(s, "test_date_file_mixed_invalid_utf8", b"2024-01-15 12:00:00\nHello\xffx\n2024-01-16 13:00:00\n")
   let r = uu.invoke(s, "date", ["-u", "-f", "test_date_file_mixed_invalid_utf8"])?
   uu.fails_with_code(r, 1)
   uu.stdout_contains(r, "Mon Jan 15 12:00:00 UTC 2024")
@@ -393,7 +393,7 @@ test test_uu_date_date_for_dir_as_file { |ctx|
 # origin: uutils test_date::test_date_for_empty_file
 test test_uu_date_date_for_empty_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_date_for_file")?
+  uu.touch(s, "test_date_for_file")
   let r = uu.invoke(s, "date", ["--file", "test_date_for_file"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -402,8 +402,8 @@ test test_uu_date_date_for_empty_file { |ctx|
 # origin: uutils test_date::test_date_for_file_mtime
 test test_uu_date_date_for_file_mtime { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "reference_file")?
-  fs.set_times(uu.at(s, "reference_file"), mtime_sec: 1234)?
+  uu.touch(s, "reference_file")
+  fs.set_times(uu.at(s, "reference_file"), mtime_sec: 1234)
   let r = uu.invoke(s, "date", ["--reference", "reference_file", "+%s"])?
   uu.succeeds(r)
   uu.stdout_only(r, "1234\n")
@@ -413,7 +413,7 @@ test test_uu_date_date_for_file_mtime { |ctx|
 test test_uu_date_date_for_file_with_non_utf8_path { |ctx|
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"file_\xff\xfe.txt")?
-  file.write("")?
+  file.write("")
   let r = uu.invoke_paths(s, "date", [p"--file", file])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -422,8 +422,8 @@ test test_uu_date_date_for_file_with_non_utf8_path { |ctx|
 # origin: uutils test_date::test_date_for_no_permission_file
 test test_uu_date_date_for_no_permission_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file-no-perm-1")?
-  uu.set_mode(s, "file-no-perm-1", 0o222)?
+  uu.touch(s, "file-no-perm-1")
+  uu.set_mode(s, "file-no-perm-1", 0o222)
   let r = uu.invoke(s, "date", ["--file", "file-no-perm-1"])?
   uu.fails(r)
   uu.stderr_only(r, "date: file-no-perm-1: Permission denied\n")
@@ -860,7 +860,7 @@ test test_uu_date_date_invalid_utf8_byte_rejected { |ctx|
 # origin: uutils test_date::test_date_iranian_locale_solar_hijri_calendar
 test test_uu_date_date_iranian_locale_solar_hijri_calendar { |ctx|
   let s = uu.scene(ctx)?
-  if ! locale_available("fa_IR.UTF-8")? { return }
+  if ! locale_available("fa_IR.UTF-8") { return }
   let r = uu.invoke(s, "date", ["+%Y"], vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   let current_year = r.stdout.utf8()?.trim().parse_int()?
@@ -996,7 +996,7 @@ test test_uu_date_date_locale_hour_en_us { |ctx|
 # origin: uutils test_date::test_date_locale_hu_hungarian
 test test_uu_date_date_locale_hu_hungarian { |ctx|
   let s = uu.scene(ctx)?
-  if ! locale_available("hu_HU.UTF-8")? { return }
+  if ! locale_available("hu_HU.UTF-8") { return }
   let r = uu.invoke(s, "date", ["-d", "2025-12-14T13:00:00", "+%Y. %b %-e., %A, %H:%M:%S %Z"], vars: {LC_ALL: "hu_HU.UTF-8", TZ: "UTC"})?
   uu.succeeds(r)
   uu.stdout_is(r, "2025. dec 14., vasárnap, 13:00:00 UTC\n")
@@ -1222,8 +1222,8 @@ test test_uu_date_date_month_subtraction_keeps_day { |ctx|
 # origin: uutils test_date::test_date_multiple_files
 test test_uu_date_date_multiple_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "2022-02-22")?
-  uu.write(s, "b", "1999-09-19")?
+  uu.write(s, "a", "2022-02-22")
+  uu.write(s, "b", "1999-09-19")
   for item in [{first: "a", last: "b", expected: "Sun Sep 19 00:00:00 UTC 1999\n"}, {first: "b", last: "a", expected: "Tue Feb 22 00:00:00 UTC 2022\n"}] {
     let r = uu.invoke(s, "date", ["-u", "--file", item.first, "--file", item.last])?
     uu.succeeds(r)
@@ -1234,10 +1234,10 @@ test test_uu_date_date_multiple_files { |ctx|
 # origin: uutils test_date::test_date_multiple_references
 test test_uu_date_date_multiple_references { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.touch(s, "b")?
-  fs.set_times(uu.at(s, "a"), mtime_sec: 1111)?
-  fs.set_times(uu.at(s, "b"), mtime_sec: 2222)?
+  uu.touch(s, "a")
+  uu.touch(s, "b")
+  fs.set_times(uu.at(s, "a"), mtime_sec: 1111)
+  fs.set_times(uu.at(s, "b"), mtime_sec: 2222)
   for item in [{first: "a", last: "b", expected: "2222\n"}, {first: "b", last: "a", expected: "1111\n"}] {
     let r = uu.invoke(s, "date", ["--reference", item.first, "--reference", item.last, "+%s"])?
     uu.succeeds(r)

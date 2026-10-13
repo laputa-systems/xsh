@@ -73,7 +73,7 @@ test test_mktemp_non_utf8_template_is_preserved { |ctx|
 test test_mktemp_non_utf8_tmpdir_paths { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-tmpdir-bytes")?
   let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/dir_\xff\xfe"]))?
-  directory.mkdir(parents: false)?
+  directory.mkdir(parents: false)
   let short_args: List[Union[Str, Path]] = ["-p", directory]
   let short = run_applet_paths(ctx, root, short_args)?
   assert short.status == 0, short.stderr
@@ -103,7 +103,7 @@ test test_mktemp_non_utf8_suffix { |ctx|
 test test_mktemp_creates_directory_under_non_utf8_tmpdir { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-dir-bytes")?
   let parent = Path.parse_bytes(bytes.concat([root.bytes(), b"/parent_\xff\xfe"]))?
-  parent.mkdir(parents: false)?
+  parent.mkdir(parents: false)
   let args: List[Union[Str, Path]] = ["-d", "-p", parent]
   let result = run_applet_paths(ctx, root, args)?
   assert result.status == 0, result.stderr
@@ -131,7 +131,7 @@ test test_mktemp_tmpdir_aliases_obey_command_line_order { |ctx|
 # Command file sinks persist captured output; descriptor redirection keeps the
 # special device intact and makes the child observe the write failure itself.
 test test_mktemp_failed_stdout_removes_created_entry { |ctx|
-  guard p"/dev/full".exists()? else { test.skip("requires the full device"); return }
+  guard p"/dev/full".exists() else { test.skip("requires the full device"); return }
   for directory in [false, true] {
     let root = test.temp_dir(ctx, name: "mktemp-write-failure")?
     let script = fp"{ctx.core_dir}/mktemp.xsh"

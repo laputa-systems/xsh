@@ -78,7 +78,7 @@ proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, pa
     }
     let parent = lexical_parent(target)
     if parent != "" and parent != target {
-      create_directory(parent, true, null, verbose, parent_mode)?
+      create_directory(parent, true, null, verbose, parent_mode)
     }
   }
   if let Err(failure) = target.mkdir(parents: false) {
@@ -89,9 +89,9 @@ proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, pa
     }
     return Err(failure)
   }
-  if let desired = mode { target.chmod(desired)? } else if parent_mode != 0 {
+  if let desired = mode { target.chmod(desired) } else if parent_mode != 0 {
     let inherited = target.metadata()?.mode.bit_and(0o7777)
-    if inherited.bit_and(parent_mode) != parent_mode { target.chmod(inherited.bit_or(parent_mode))? }
+    if inherited.bit_and(parent_mode) != parent_mode { target.chmod(inherited.bit_or(parent_mode)) }
   }
   if verbose { gnu.write_text(f"mkdir: created directory {gnu.quote(target.display())}\n") }
 }

@@ -6,8 +6,8 @@ proc fast(args: List[Str], mode: List[Str]) -> List[Str] {
   mode.extend(["-s.1", "--max-unchanged-stats=1"]).extend(args)
 }
 proc following(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[ProcessHandle, Error] {
-  uu.touch(s, "out")?
-  uu.touch(s, "err")?
+  uu.touch(s, "out")
+  uu.touch(s, "err")
   let plan = uu.command(s, "tail", args, stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 60s)?
   Ok(spawn plan?)
 }
@@ -15,7 +15,7 @@ proc seen(s: uu.Scene, file: Str, needle: Str, attempts: Int = 7) [fs, process, 
   var delay = 100ms
   for _ in range(attempts) {
     if needle in uu.read_text(s, file)? { return }
-    time.sleep(delay)?
+    time.sleep(delay)
     delay = delay * 2
   }
   assert needle in uu.read_text(s, file)?, f"{file} lacks {needle}: {uu.read_text(s, file)?}"
@@ -23,7 +23,7 @@ proc seen(s: uu.Scene, file: Str, needle: Str, attempts: Int = 7) [fs, process, 
 proc live(child: ProcessHandle) [process, error] {
   assert process.wait_timeout([child], 0ms)? == null, "follower exited"
 }
-proc stop(child: ProcessHandle) [process, error] { child.cancel(signal: "KILL", kill_after: 0ms)? }
+proc stop(child: ProcessHandle) [process, error] { child.cancel(signal: "KILL", kill_after: 0ms) }
 proc sequence(first: Int, last: Int) -> Str { [f"{n}\n" for n in range(first, last + 1)].join("") }
 
 # origin: gnu tail/F-headers.log
@@ -33,9 +33,9 @@ test test_gnu_tail_F_headers_log { |ctx|
     let child = following(s, fast(["-F", "a", "b"], mode))?
     defer stop(child)
     seen(s, "err", "cannot open 'b'")
-    uu.write(s, "a", "x\n")?
+    uu.write(s, "a", "x\n")
     seen(s, "out", "==> a <==")
-    uu.write(s, "b", "y\n")?
+    uu.write(s, "b", "y\n")
     seen(s, "out", "==> b <==")
   }
 }
@@ -46,8 +46,8 @@ test test_gnu_tail_F_vs_missing_log { |ctx|
     let child = following(s, fast(["-F", "missing/file"], mode))?
     defer stop(child)
     seen(s, "err", "cannot open")
-    uu.mkdir(s, "missing")?
-    uu.write(s, "missing/file", "x\n")?
+    uu.mkdir(s, "missing")
+    uu.write(s, "missing/file", "x\n")
     seen(s, "err", "has appeared")
   }
 }
@@ -55,22 +55,22 @@ test test_gnu_tail_F_vs_missing_log { |ctx|
 test test_gnu_tail_F_vs_rename_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
-    uu.touch(s, "a")?
-    uu.touch(s, "b")?
+    uu.touch(s, "a")
+    uu.touch(s, "b")
     let child = following(s, fast(["-F", "a", "b"], mode))?
     defer stop(child)
-    uu.write(s, "a", "x\n")?
+    uu.write(s, "a", "x\n")
     seen(s, "out", "==> a <==\nx\n")
-    uu.at(s, "a").rename(to: uu.at(s, "b"), overwrite: true)?
+    uu.at(s, "a").rename(to: uu.at(s, "b"), overwrite: true)
     seen(s, "err", "inaccessible")
     seen(s, "err", "replaced")
     seen(s, "out", "==> b <==\nx\n")
-    uu.write(s, "a", "x2\n")?
+    uu.write(s, "a", "x2\n")
     seen(s, "err", "has appeared")
     seen(s, "out", "==> a <==\nx2\n")
-    uu.append(s, "b", "y\n")?
+    uu.append(s, "b", "y\n")
     seen(s, "out", "==> b <==\ny\n")
-    uu.append(s, "a", "z\n")?
+    uu.append(s, "a", "z\n")
     seen(s, "out", "==> a <==\nz\n")
   }
 }
@@ -79,12 +79,12 @@ test test_gnu_tail_F_vs_rename_log { |ctx|
 test test_gnu_tail_assert_2_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
-    uu.touch(s, "a")?
+    uu.touch(s, "a")
     let child = following(s, fast(["-F", "a", "foo"], mode))?
     defer stop(child)
-    uu.write(s, "a", "x\n")?
+    uu.write(s, "a", "x\n")
     seen(s, "out", "x\n")
-    uu.write(s, "foo", "ok ok ok\n")?
+    uu.write(s, "foo", "ok ok ok\n")
     seen(s, "out", "ok ok ok\n")
   }
 }
@@ -93,15 +93,15 @@ test test_gnu_tail_assert_2_log { |ctx|
 test test_gnu_tail_assert_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
-    uu.touch(s, "a")?
-    uu.touch(s, "foo")?
+    uu.touch(s, "a")
+    uu.touch(s, "foo")
     let child = following(s, fast(["--follow=name", "a", "foo"], mode))?
     defer stop(child)
-    uu.write(s, "a", "x\n")?
+    uu.write(s, "a", "x\n")
     seen(s, "out", "x\n")
-    uu.remove(s, "foo")?
+    uu.remove(s, "foo")
     seen(s, "err", "No such file")
-    uu.write(s, "foo", "ok ok ok\n")?
+    uu.write(s, "foo", "ok ok ok\n")
     seen(s, "out", "ok ok ok\n")
   }
 }
@@ -110,13 +110,13 @@ test test_gnu_tail_assert_log { |ctx|
 test test_gnu_tail_descriptor_vs_rename_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
-    uu.touch(s, "a")?
+    uu.touch(s, "a")
     let child = following(s, fast(["-f", "a"], mode))?
     defer stop(child)
-    uu.write(s, "a", "x\n")?
+    uu.write(s, "a", "x\n")
     seen(s, "out", "x\n")
-    uu.at(s, "a").rename(to: uu.at(s, "b"), overwrite: true)?
-    uu.append(s, "b", "y\n")?
+    uu.at(s, "a").rename(to: uu.at(s, "b"), overwrite: true)
+    uu.append(s, "b", "y\n")
     seen(s, "out", "y\n")
   }
 }
@@ -124,12 +124,12 @@ test test_gnu_tail_descriptor_vs_rename_log { |ctx|
 test test_gnu_tail_follow_symlink_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
-    uu.touch(s, "file")?
-    uu.symlink(s, "file", "link")?
+    uu.touch(s, "file")
+    uu.symlink(s, "file", "link")
     let child = following(s, fast(["-f", "link"], mode))?
     defer stop(child)
     for letter in ["a", "b", "c"] {
-      uu.append(s, "file", f"{letter}\n")?
+      uu.append(s, "file", f"{letter}\n")
       seen(s, "out", f"{letter}\n")
     }
     assert uu.read(s, "out")? == uu.read(s, "file")?
@@ -139,7 +139,7 @@ test test_gnu_tail_follow_symlink_log { |ctx|
 # origin: gnu tail/flush-initial.log
 test test_gnu_tail_flush_initial_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "line\n")?
+  uu.write(s, "in", "line\n")
   let child = following(s, fast(["-f", "in"], []))?
   defer stop(child)
   seen(s, "out", "line\n", 5)
@@ -149,11 +149,11 @@ test test_gnu_tail_truncate_log { |ctx|
   for follow in ["-f", "-F"] {
     for mode in modes() {
       let s = uu.scene(ctx)?
-      uu.write(s, "f", sequence(1, 10))?
+      uu.write(s, "f", sequence(1, 10))
       let child = following(s, fast([follow, "f"], mode))?
       defer stop(child)
       seen(s, "out", "10\n")
-      uu.write(s, "f", sequence(11, 15))?
+      uu.write(s, "f", sequence(11, 15))
       seen(s, "out", "15\n")
     }
   }
@@ -163,14 +163,14 @@ test test_gnu_tail_inotify_hash_abuse_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
     let names = [f"{n}" for n in range(1, 10)]
-    for name in names { uu.touch(s, name)? }
+    for name in names { uu.touch(s, name) }
     let child = following(s, fast(["-qF"].extend(names), mode))?
     defer stop(child)
-    uu.write(s, "9", "x\n")?
+    uu.write(s, "9", "x\n")
     seen(s, "out", "x\n")
-    uu.rename(s, "1", "f")?
+    uu.rename(s, "1", "f")
     seen(s, "err", "inaccessible")
-    uu.write(s, "1", "a\n")?
+    uu.write(s, "1", "a\n")
     seen(s, "err", "has appeared", 6)
     live(child)
   }
@@ -179,13 +179,13 @@ test test_gnu_tail_inotify_hash_abuse_log { |ctx|
 test test_gnu_tail_inotify_hash_abuse2_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
-    uu.touch(s, "f")?
+    uu.touch(s, "f")
     let child = following(s, fast(["-F", "f"], mode))?
     defer stop(child)
     for _ in range(200) {
       live(child)
-      uu.touch(s, "g")?
-      uu.at(s, "g").rename(to: uu.at(s, "f"), overwrite: true)?
+      uu.touch(s, "g")
+      uu.at(s, "g").rename(to: uu.at(s, "f"), overwrite: true)
     }
     live(child)
   }
@@ -194,22 +194,22 @@ test test_gnu_tail_inotify_hash_abuse2_log { |ctx|
 test test_gnu_tail_inotify_rotate_log { |ctx|
   for _ in range(50) {
     let s = uu.scene(ctx)?
-    uu.touch(s, "k")?
-    uu.touch(s, "x")?
+    uu.touch(s, "k")
+    uu.touch(s, "x")
     let child = following(s, fast(["-F", "k"], []))?
     defer stop(child)
-    uu.write(s, "k", "tailed\n")?
+    uu.write(s, "k", "tailed\n")
     seen(s, "out", "tailed", 8)
-    uu.at(s, "x").rename(to: uu.at(s, "k"), overwrite: true)?
+    uu.at(s, "x").rename(to: uu.at(s, "k"), overwrite: true)
     seen(s, "err", "tail:", 8)
-    uu.append(s, "k", "ok\n")?
+    uu.append(s, "k", "ok\n")
     seen(s, "out", "ok", 8)
   }
 }
 # origin: gnu tail/basic-seek.log
 test test_gnu_tail_basic_seek_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file.in", ["=================================\n" for _ in range(1024)].join(""))?
+  uu.write(s, "file.in", ["=================================\n" for _ in range(1024)].join(""))
   let r = uu.invoke(s, "tail", ["-n200", "file.in"])?
   uu.succeeds(r)
   assert r.stdout.utf8()?.split("\n").len() == 201
@@ -217,7 +217,7 @@ test test_gnu_tail_basic_seek_log { |ctx|
 # origin: gnu tail/big-4gb.log
 test test_gnu_tail_big_4gb_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "big", "abcdefgh")?
+  uu.write(s, "big", "abcdefgh")
   assert bytes.write_at(uu.at(s, "big"), 4294967288, b"87654321")? == 8
   let r = uu.invoke(s, "tail", ["-c1", "big"])?
   uu.succeeds(r)
@@ -226,21 +226,21 @@ test test_gnu_tail_big_4gb_log { |ctx|
 # origin: gnu tail/quote-headers.log
 test test_gnu_tail_quote_headers_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "\n")?
-  uu.touch(s, "normal")?
+  uu.touch(s, "\n")
+  uu.touch(s, "normal")
   let r = uu.invoke(s, "tail", ["-n1", "\n", "normal"])?
   uu.succeeds(r)
   uu.stdout_is(r, "==> ''$'\\n' <==\n\n==> normal <==\n")
 }
 # origin: gnu tail/proc-ksyms.log
 test test_gnu_tail_proc_ksyms_log { |ctx|
-  if !p"/proc/ksyms".exists()? { return }
+  if !p"/proc/ksyms".exists() { return }
   let s = uu.scene(ctx)?
   uu.succeeds(uu.invoke(s, "tail", ["/proc/ksyms"] )?)
 }
 # origin: gnu tail/tail-sysfs.log
 test test_gnu_tail_tail_sysfs_log { |ctx|
-  if !p"/sys/kernel/profiling".exists()? { return }
+  if !p"/sys/kernel/profiling".exists() { return }
   let s = uu.scene(ctx)?
   let expected = p"/sys/kernel/profiling".read_bytes()?
   for arg in ["-n1", "-c2"] {
@@ -253,8 +253,8 @@ test test_gnu_tail_tail_sysfs_log { |ctx|
 test test_gnu_tail_tail_c_log { |ctx|
   let s = uu.scene(ctx)?
   for name in ["/proc/version", "/sys/kernel/profiling"] {
-    if Path(name).exists()? {
-      uu.write_bytes(s, "copy", Path(name).read_bytes()?)?
+    if Path(name).exists() {
+      uu.write_bytes(s, "copy", Path(name).read_bytes()?)
       let expected = uu.invoke(s, "tail", ["-c", "-1", "copy"])?
       uu.succeeds(expected)
       let actual = uu.invoke(s, "tail", ["-c", "-1", name])?
@@ -268,7 +268,7 @@ test test_gnu_tail_tail_c_log { |ctx|
   let zero = uu.invoke(s, "tail", ["-c", "4096", "/dev/zero"], timeout: 10s)?
   uu.succeeds(zero)
   uu.stdout_is_bytes(zero, bytes.concat([b"\0" for _ in range(4096)]))
-  if p"/dev/urandom".exists()? { uu.succeeds(uu.invoke(s, "tail", ["-c", "4096", "/dev/urandom"], timeout: 10s)?) }
+  if p"/dev/urandom".exists() { uu.succeeds(uu.invoke(s, "tail", ["-c", "4096", "/dev/urandom"], timeout: 10s)?) }
 }
 
 proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = null, timeout: Duration = 10s) [fs, process, env, error] -> Result[uu.Ran, Error] {
@@ -289,7 +289,7 @@ proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = nu
 # origin: gnu tail/start-middle.log
 test test_gnu_tail_start_middle_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "k", "1\n2\n")?
+  uu.write(s, "k", "1\n2\n")
   let r = wrapped(s, [p"sh", p"-c", p"dd bs=1 count=2 of=/dev/null 2>/dev/null; exec \"$@\"", p"positioned"], [], uu.at(s, "k"))?
   uu.succeeds(r)
   uu.stdout_is(r, "2\n")
@@ -304,7 +304,7 @@ test test_gnu_tail_inotify_only_regular_log { |ctx|
 # origin: gnu tail/debug.log
 test test_gnu_tail_debug_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file.debug")?
+  uu.touch(s, "file.debug")
   let probe = wrapped(s, [p"timeout", p".1", p"strace", p"-e", p"trace=inotify_add_watch", p"-o", p"strace.out"], ["-F", "file.debug"])?
   uu.fails_with_code(probe, 124)
   var cases: List[DebugCase] = [
@@ -327,8 +327,8 @@ test test_gnu_tail_debug_log { |ctx|
 test test_gnu_tail_pid_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
-    uu.touch(s, "empty")?
-    uu.touch(s, "here")?
+    uu.touch(s, "empty")
+    uu.touch(s, "here")
     let child = following(s, ["-f"].extend(mode).extend(["here"]))?
     defer stop(child)
     for pids in [[f"--pid={child.pid}"], ["--pid=2147483647", f"--pid={child.pid}"]] {
@@ -346,10 +346,10 @@ test test_gnu_tail_pid_log { |ctx|
 # origin: gnu tail/tail-n0f.log
 test test_gnu_tail_tail_n0f_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "empty")?
-  uu.write(s, "nonempty", "anything\n")?
-  uu.touch(s, "unreadable")?
-  uu.set_mode(s, "unreadable", 0)?
+  uu.touch(s, "empty")
+  uu.write(s, "nonempty", "anything\n")
+  uu.touch(s, "unreadable")
+  uu.set_mode(s, "unreadable", 0)
   for unit in ["c", "n"] { uu.succeeds(uu.invoke(s, "tail", [f"-{unit}0", "unreadable"])?) }
   for mode in modes() {
     for file in ["empty", "nonempty"] {
@@ -359,7 +359,7 @@ test test_gnu_tail_tail_n0f_log { |ctx|
         var sleeping = false
         var delay = 100ms
         for _ in range(4) {
-          time.sleep(delay)?
+          time.sleep(delay)
           let state = fp"/proc/{child.pid}/status".read_text()?
           if "State:\tS" in state { sleeping = true; break }
           delay = delay * 2
@@ -372,7 +372,7 @@ test test_gnu_tail_tail_n0f_log { |ctx|
 # origin: gnu tail/pipe-f2.log
 test test_gnu_tail_pipe_f2_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "fifo")?
+  uu.mkfifo(s, "fifo")
   let writer = spawn process.command_argv("sh", ["sh", "-c", "printf '1\\n' > fifo"], s.root)?
   defer stop(writer)
   let child = following(s, fast(["-f", "fifo"], []))?
@@ -384,7 +384,7 @@ test test_gnu_tail_pipe_f2_log { |ctx|
 # origin: gnu tail/pid-pipe.log
 test test_gnu_tail_pid_pipe_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "fifo")?
+  uu.mkfifo(s, "fifo")
   for opened in [false, true] {
     if opened {
       let writer = spawn process.command_argv("sh", ["sh", "-c", "exec 3>fifo; touch writer-ready; sleep 20"], s.root)?
@@ -394,8 +394,8 @@ test test_gnu_tail_pid_pipe_log { |ctx|
       var ready = false
       var delay = 100ms
       for _ in range(7) {
-        if uu.exists(s, "writer-ready")? { ready = true; break }
-        time.sleep(delay)?
+        if uu.exists(s, "writer-ready") { ready = true; break }
+        time.sleep(delay)
         delay = delay * 2
       }
       assert ready
@@ -432,26 +432,26 @@ proc line_count(s: uu.Scene, expected: Int) [fs, error] {
 # origin: gnu tail/symlink.log
 test test_gnu_tail_symlink_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "target", "symlink")?
+  uu.symlink(s, "target", "symlink")
   let first = following(s, fast(["-F", "symlink"], []))?
   defer stop(first)
   seen(s, "err", "cannot open", 6)
-  uu.write(s, "target", "X\n")?
+  uu.write(s, "target", "X\n")
   seen(s, "err", "has appeared", 6)
   seen(s, "out", "X\n", 6)
   stop(first)
   line_count(s, 3)
-  uu.remove(s, "target")?
-  uu.remove(s, "symlink")?
-  uu.write(s, "target1", "X1\n")?
-  uu.symlink(s, "target1", "symlink")?
+  uu.remove(s, "target")
+  uu.remove(s, "symlink")
+  uu.write(s, "target1", "X1\n")
+  uu.symlink(s, "target1", "symlink")
   let second = following(s, fast(["-F", "symlink"], []))?
   defer stop(second)
   seen(s, "out", "X1\n", 6)
-  uu.remove(s, "symlink")?
-  uu.symlink(s, "target2", "symlink")?
+  uu.remove(s, "symlink")
+  uu.symlink(s, "target2", "symlink")
   seen(s, "err", "become inacce", 6)
-  uu.write(s, "target2", "X2\n")?
+  uu.write(s, "target2", "X2\n")
   seen(s, "err", "has appeared", 6)
   seen(s, "out", "X2\n", 6)
   stop(second)
@@ -460,7 +460,7 @@ test test_gnu_tail_symlink_log { |ctx|
 # origin: gnu tail/retry.log
 test test_gnu_tail_retry_log { |ctx|
   let initial = uu.scene(ctx)?
-  uu.touch(initial, "file")?
+  uu.touch(initial, "file")
   let existing = uu.invoke(initial, "tail", ["--retry", "file"])?
   uu.succeeds(existing)
   uu.stderr_contains(existing, "tail: warning: --retry ignored")
@@ -476,11 +476,11 @@ test test_gnu_tail_retry_log { |ctx|
       defer stop(child)
       seen(s, "err", "cannot open", 6)
       if follow == "descriptor" { seen(s, "err", "retry only effective for the initial open", 6) }
-      uu.write(s, "missing", if follow == "name" { "X\n" } else { "X1\n" })?
+      uu.write(s, "missing", if follow == "name" { "X\n" } else { "X1\n" })
       seen(s, "err", "has appeared", 6)
       seen(s, "out", if follow == "name" { "X\n" } else { "X1\n" }, 6)
       if follow == "descriptor" {
-        uu.write(s, "missing", "X\n")?
+        uu.write(s, "missing", "X\n")
         seen(s, "err", "file truncated", 6)
         seen(s, "out", "X\n", 6)
       }
@@ -493,7 +493,7 @@ test test_gnu_tail_retry_log { |ctx|
     defer stop(follower)
     seen(directory, "err", "cannot open", 6)
     seen(directory, "err", "retry only effective for the initial open", 6)
-    uu.mkdir(directory, "missing")?
+    uu.mkdir(directory, "missing")
     seen(directory, "err", "replaced with an untailable file", 6)
     seen(directory, "err", "no files remaining", 6)
     let finished = process.wait_timeout([follower], 10s)?
@@ -502,14 +502,14 @@ test test_gnu_tail_retry_log { |ctx|
     line_count(directory, 4)
 
     let mixed = uu.scene(ctx)?
-    uu.touch(mixed, "existing")?
+    uu.touch(mixed, "existing")
     let child = following(mixed, fast(["--follow=descriptor", "missing", "existing"], mode))?
     defer stop(child)
     seen(mixed, "err", "cannot open", 6)
     seen(mixed, "out", "==> existing <==", 6)
     line_count(mixed, 2)
-    uu.write(mixed, "missing", "Y\n")?
-    uu.write(mixed, "existing", "X\n")?
+    uu.write(mixed, "missing", "Y\n")
+    uu.write(mixed, "existing", "X\n")
     seen(mixed, "out", "X\n", 6)
     line_count(mixed, 3)
     assert !("Y\n" in uu.read_text(mixed, "out")?)
@@ -523,13 +523,13 @@ test test_gnu_tail_retry_log { |ctx|
       assert r.stderr.utf8()?.split("\n").len() == 3
     }
     let untailable = uu.scene(ctx)?
-    uu.mkdir(untailable, "untailable")?
+    uu.mkdir(untailable, "untailable")
     let directory_child = following(untailable, fast(["-F", "untailable"], mode))?
     defer stop(directory_child)
     seen(untailable, "err", "cannot follow", 6)
     line_count(untailable, 2)
-    uu.remove(untailable, "untailable")?
-    uu.write(untailable, "untailable", "foo\n")?
+    uu.remove(untailable, "untailable")
+    uu.write(untailable, "untailable", "foo\n")
     seen(untailable, "out", "foo", 6)
     let diagnostics = uu.read_text(untailable, "err")?
     assert "become accessible" in diagnostics or "has appeared" in diagnostics
@@ -542,9 +542,9 @@ test test_gnu_tail_retry_log { |ctx|
 test test_gnu_tail_wait_log { |ctx|
   for mode in modes() {
     let s = uu.scene(ctx)?
-    uu.touch(s, "here")?
-    uu.touch(s, "unreadable")?
-    uu.set_mode(s, "unreadable", 0o222)?
+    uu.touch(s, "here")
+    uu.touch(s, "unreadable")
+    uu.set_mode(s, "unreadable", 0o222)
     for file in ["not_here", "unreadable"] {
       let r = wrapped(s, [p"timeout", p"10"], fast(["-f", file], mode))?
       assert r.status != 124
@@ -617,7 +617,7 @@ test test_gnu_tail_tail_log { |ctx|
   ]
   for case in cases {
     let s = uu.scene(ctx)?
-    uu.write(s, "input", case.input)?
+    uu.write(s, "input", case.input)
     let vars: Record = if case.name.starts_with("minus-") { {_POSIX2_VERSION: "199209"} } else if case.name == "err-6" or case.name == "c-2" { {_POSIX2_VERSION: "200112"} } else if case.name.starts_with("obs-plus-") { {_POSIX2_VERSION: "200809"} } else if case.name.starts_with("f-pipe-") { {POSIXLY_CORRECT: "1"} } else { {} }
     for transport in ["file", "redirect", "pipe"] {
       if case.name.starts_with("f-") and transport != "pipe" { continue }

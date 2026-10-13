@@ -12,10 +12,10 @@ proc invoke(s: uu.Scene, args: List[Str], stdin: Bytes = b"", vars: Record = {})
 
 proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "subdir/deeper/deeper_dir")?
-  uu.mkdir(s, "subdir/links")?
+  uu.mkdir(s, "subdir/deeper/deeper_dir")
+  uu.mkdir(s, "subdir/links")
   for name in ["empty.txt", "words.txt", "subdir/deeper/words.txt", "subdir/deeper/deeper_dir/deeper_words.txt", "subdir/links/subwords.txt", "subdir/links/subwords2.txt"] {
-    uu.fixture(s, "du", name, name)?
+    uu.fixture(s, "du", name, name)
   }
   Ok(s)
 }
@@ -66,10 +66,10 @@ test test_uu_du_all_summarize { |ctx|
 # origin: uutils test_du::test_du_bind_mount_simulation
 test test_uu_du_du_bind_mount_simulation { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "mount_test/subdir")?
-  uu.write(s, "mount_test/file1.txt", "content1")?
-  uu.write(s, "mount_test/subdir/file2.txt", "content2")?
-  uu.symlink(s, uu.at(s, "../mount_test").display(), "mount_test/subdir/cycle_link")?
+  uu.mkdir(s, "mount_test/subdir")
+  uu.write(s, "mount_test/file1.txt", "content1")
+  uu.write(s, "mount_test/subdir/file2.txt", "content2")
+  uu.symlink(s, uu.at(s, "../mount_test").display(), "mount_test/subdir/cycle_link")
   let r1 = invoke(s, ["mount_test"])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "mount_test/subdir")
@@ -80,9 +80,9 @@ test test_uu_du_du_bind_mount_simulation { |ctx|
 # origin: uutils test_du::test_du_complex_exclude_patterns
 test test_uu_du_du_complex_exclude_patterns { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "azerty/xcwww/azeaze")?
-  uu.mkdir(s, "azerty/xcwww/qzerty")?
-  uu.mkdir(s, "azerty/xcwww/amazing")?
+  uu.mkdir(s, "azerty/xcwww/azeaze")
+  uu.mkdir(s, "azerty/xcwww/qzerty")
+  uu.mkdir(s, "azerty/xcwww/amazing")
   let r1 = invoke(s, ["--exclude=azerty/*/[^q]*", "azerty"])?
   uu.succeeds(r1)
   assert !("amazing" in r1.stdout.utf8()?)
@@ -109,9 +109,9 @@ test test_uu_du_du_exclude_from_nonexistent_file { |ctx|
 # origin: uutils test_du::test_du_exclude_several_components
 test test_uu_du_du_exclude_several_components { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a/b/c")?
-  uu.mkdir(s, "a/x/y")?
-  uu.mkdir(s, "a/u/y")?
+  uu.mkdir(s, "a/b/c")
+  uu.mkdir(s, "a/x/y")
+  uu.mkdir(s, "a/u/y")
   let r1 = invoke(s, ["--exclude=a/u", "--exclude=a/b", "a"])?
   uu.succeeds(r1)
   assert !("a/u" in r1.stdout.utf8()?)
@@ -121,11 +121,11 @@ test test_uu_du_du_exclude_several_components { |ctx|
 # origin: uutils test_du::test_du_files0_from
 test test_uu_du_du_files0_from { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "testfile1", "content1")?
-  uu.write(s, "testfile2", "content2")?
-  uu.mkdir(s, "testdir")?
-  uu.write(s, "testdir/testfile3", "content3")?
-  uu.write(s, "filelist", "testfile1\x00testfile2\x00testdir\x00")?
+  uu.write(s, "testfile1", "content1")
+  uu.write(s, "testfile2", "content2")
+  uu.mkdir(s, "testdir")
+  uu.write(s, "testdir/testfile3", "content3")
+  uu.write(s, "filelist", "testfile1\x00testfile2\x00testdir\x00")
   let r1 = invoke(s, ["--files0-from=filelist"])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "testfile1")
@@ -137,8 +137,8 @@ test test_uu_du_du_files0_from { |ctx|
 test test_uu_du_du_files0_from_duplicate_file_names_with_count_links { |ctx|
   let s = scene(ctx)?
   let file = "testfile"
-  uu.touch(s, file)?
-  uu.write(s, "filelist", f"{file}\x00{file}\x00")?
+  uu.touch(s, file)
+  uu.write(s, "filelist", f"{file}\x00{file}\x00")
   let r1 = invoke(s, ["-l", "--files0-from=filelist"])?
   uu.succeeds(r1)
   uu.stdout_is(r1, f"0\t{file}\n0\t{file}\n")
@@ -148,8 +148,8 @@ test test_uu_du_du_files0_from_duplicate_file_names_with_count_links { |ctx|
 test test_uu_du_du_files0_from_ignore_duplicate_file_names { |ctx|
   let s = scene(ctx)?
   let file = "testfile"
-  uu.touch(s, file)?
-  uu.write(s, "filelist", f"{file}\x00{file}\x00")?
+  uu.touch(s, file)
+  uu.write(s, "filelist", f"{file}\x00{file}\x00")
   let r1 = invoke(s, ["--files0-from=filelist"])?
   uu.succeeds(r1)
   uu.stdout_is(r1, f"0\t{file}\n")
@@ -158,7 +158,7 @@ test test_uu_du_du_files0_from_ignore_duplicate_file_names { |ctx|
 # origin: uutils test_du::test_du_files0_from_missing_file_listed_twice
 test test_uu_du_du_files0_from_missing_file_listed_twice { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "filelist", "missing\x00missing\x00")?
+  uu.write(s, "filelist", "missing\x00missing\x00")
   let r1 = invoke(s, ["--files0-from=filelist"])?
   uu.fails_with_code(r1, 1)
   uu.stderr_only(r1, "du: cannot access 'missing': No such file or directory\ndu: cannot access 'missing': No such file or directory\n")
@@ -168,8 +168,8 @@ test test_uu_du_du_files0_from_missing_file_listed_twice { |ctx|
 test test_uu_du_du_files0_from_stdin { |ctx|
   let s = scene(ctx)?
   let input = "testfile1\x00testfile2\x00"
-  uu.write(s, "testfile1", "content1")?
-  uu.write(s, "testfile2", "content2")?
+  uu.write(s, "testfile1", "content1")
+  uu.write(s, "testfile2", "content2")
   let r1 = invoke(s, ["--files0-from=-"], stdin: bytes.from_text(input))?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "testfile1")
@@ -181,7 +181,7 @@ test test_uu_du_du_files0_from_stdin_ignore_duplicate_file_names { |ctx|
   let s = scene(ctx)?
   let file = "testfile"
   let input = f"{file}\x00{file}"
-  uu.touch(s, file)?
+  uu.touch(s, file)
   let r1 = invoke(s, ["--files0-from=-"], stdin: bytes.from_text(input))?
   uu.succeeds(r1)
   uu.stdout_is(r1, f"0\t{file}\n")
@@ -207,8 +207,8 @@ test test_uu_du_du_files0_from_stdin_with_stdin_as_input { |ctx|
 # origin: uutils test_du::test_du_files0_from_with_invalid_zero_length_file_names
 test test_uu_du_du_files0_from_with_invalid_zero_length_file_names { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "testfile")?
-  uu.write(s, "filelist", "\x00testfile\x00\x00")?
+  uu.touch(s, "testfile")
+  uu.write(s, "filelist", "\x00testfile\x00\x00")
   let r1 = invoke(s, ["--files0-from=filelist"])?
   uu.fails_with_code(r1, 1)
   uu.stdout_contains(r1, "testfile")
@@ -227,9 +227,9 @@ test test_uu_du_du_h_flag_empty_file { |ctx|
 # origin: uutils test_du::test_du_hard_links_multiple_links_in_args
 test test_uu_du_du_hard_links_multiple_links_in_args { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.write(s, "dir1/file", "hello world")?
-  uu.hard_link(s, "dir1/file", "dir1/link")?
+  uu.mkdir(s, "dir1")
+  uu.write(s, "dir1/file", "hello world")
+  uu.hard_link(s, "dir1/file", "dir1/link")
   let r1 = invoke(s, ["dir1/file", "dir1/link"])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "dir1/file")
@@ -243,11 +243,11 @@ test test_uu_du_du_hard_links_multiple_links_in_args { |ctx|
 # origin: uutils test_du::test_du_inaccessible_directory
 test test_uu_du_du_inaccessible_directory { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.mkdir(s, "d/no-x")?
-  uu.mkdir(s, "d/no-x/y")?
-  uu.set_mode(s, "d/no-x", 0o600)?
-  defer uu.set_mode(s, "d/no-x", 0o755)?
+  uu.mkdir(s, "d")
+  uu.mkdir(s, "d/no-x")
+  uu.mkdir(s, "d/no-x/y")
+  uu.set_mode(s, "d/no-x", 0o600)
+  defer uu.set_mode(s, "d/no-x", 0o755)
   let r1 = invoke(s, ["d"])?
   uu.fails(r1)
   uu.stderr_contains(r1, "du: cannot access 'd/no-x/y': Permission denied")
@@ -275,11 +275,11 @@ test test_uu_du_du_invalid_threshold { |ctx|
 # origin: uutils test_du::test_du_long_symlink_chain
 test test_uu_du_du_long_symlink_chain { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "deep/level1/level2/level3/level4/level5")?
-  uu.write(s, "deep/level1/level2/level3/level4/level5/file.txt", "content")?
-  uu.symlink(s, uu.at(s, "deep/level1").display(), "link1")?
-  uu.symlink(s, uu.at(s, "link1/level2").display(), "link2")?
-  uu.symlink(s, uu.at(s, "link2/level3").display(), "link3")?
+  uu.mkdir(s, "deep/level1/level2/level3/level4/level5")
+  uu.write(s, "deep/level1/level2/level3/level4/level5/file.txt", "content")
+  uu.symlink(s, uu.at(s, "deep/level1").display(), "link1")
+  uu.symlink(s, uu.at(s, "link1/level2").display(), "link2")
+  uu.symlink(s, uu.at(s, "link2/level3").display(), "link3")
   let r1 = invoke(s, ["-L", "link3"])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "link3")
@@ -361,9 +361,9 @@ test test_uu_du_du_repeated_dereference_args { |ctx|
 # origin: uutils test_du::test_du_repeated_files0_from
 test test_uu_du_du_repeated_files0_from { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.write(s, "dir/file2", "xyz")?
-  uu.write(s, "./somefile", "dir\x00")?
+  uu.mkdir(s, "dir")
+  uu.write(s, "dir/file2", "xyz")
+  uu.write(s, "./somefile", "dir\x00")
   let r1 = invoke(s, ["-s", "--files0-from", "somefile", "--files0-from", "somefile"])?
   uu.succeeds(r1)
 }
@@ -378,10 +378,10 @@ test test_uu_du_du_repeated_h { |ctx|
 # origin: uutils test_du::test_block_override_b_still_has_apparent_size
 test test_uu_du_block_override_b_still_has_apparent_size { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "override_args_dir/nested_dir")?
+  uu.mkdir(s, "override_args_dir/nested_dir")
   for file in ["file", "file_2"] {
-    uu.touch(s, f"override_args_dir/nested_dir/{file}")?
-    uu.truncate(s, f"override_args_dir/nested_dir/{file}", 100000000)?
+    uu.touch(s, f"override_args_dir/nested_dir/{file}")
+    uu.truncate(s, f"override_args_dir/nested_dir/{file}", 100000000)
   }
   for pair in [
     {over: ["-b", "-m"], final: ["-m", "--apparent-size"]},
@@ -401,11 +401,11 @@ test test_uu_du_block_override_b_still_has_apparent_size { |ctx|
 # origin: uutils test_du::test_block_size_args_override
 test test_uu_du_block_size_args_override { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "override_args_dir/nested_dir")?
-  uu.mkdir(s, "override_args_dir/nested_dir_2")?
+  uu.mkdir(s, "override_args_dir/nested_dir")
+  uu.mkdir(s, "override_args_dir/nested_dir_2")
   for file in [{name: "nested_dir/file", size: 100000000}, {name: "nested_dir/file_2", size: 100000000}, {name: "nested_dir_2/file_3", size: 100000}, {name: "nested_dir_2/file_4", size: 100}] {
-    uu.touch(s, f"override_args_dir/{file.name}")?
-    uu.truncate(s, f"override_args_dir/{file.name}", file.size)?
+    uu.touch(s, f"override_args_dir/{file.name}")
+    uu.truncate(s, f"override_args_dir/{file.name}", file.size)
   }
   for pair in [
     {over: ["-sk", "-m"], final: ["-sm"]},
@@ -429,9 +429,9 @@ test test_uu_du_block_size_args_override { |ctx|
 # origin: uutils test_du::test_du_apparent_size
 test test_uu_du_du_apparent_size { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a/b")?
-  uu.write(s, "a/b/file1", "foo")?
-  uu.write(s, "a/b/file2", "foobar")?
+  uu.mkdir(s, "a/b")
+  uu.write(s, "a/b/file1", "foo")
+  uu.write(s, "a/b/file2", "foobar")
   let r = invoke(s, ["--apparent-size", "--all", "a"])?
   uu.succeeds(r)
   assert "1\ta/b/file2" in r.stdout.utf8()?.lines()
@@ -459,7 +459,7 @@ test test_uu_du_du_basics_subdir { |ctx|
 # origin: uutils test_du::test_du_blocksize_zero_do_not_panic
 test test_uu_du_du_blocksize_zero_do_not_panic { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "foo", "some content")?
+  uu.write(s, "foo", "some content")
   for size in ["0", "00", "000", "0x0", "0b0"] {
     let r = invoke(s, [f"-B{size}", "foo"])?
     uu.fails(r)
@@ -470,9 +470,9 @@ test test_uu_du_du_blocksize_zero_do_not_panic { |ctx|
 # origin: uutils test_du::test_du_bytes
 test test_uu_du_du_bytes { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a/b")?
-  uu.write(s, "a/b/file1", "foo")?
-  uu.write(s, "a/b/file2", "foobar")?
+  uu.mkdir(s, "a/b")
+  uu.write(s, "a/b/file1", "foo")
+  uu.write(s, "a/b/file2", "foobar")
   let r = invoke(s, ["--bytes", "--all", "a"])?
   uu.succeeds(r)
   assert "6\ta/b/file2" in r.stdout.utf8()?.lines()
@@ -484,9 +484,9 @@ test test_uu_du_du_bytes { |ctx|
 # origin: uutils test_du::test_du_count_links_hardlinks_separately
 test test_uu_du_du_count_links_hardlinks_separately { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.touch(s, "dir/file")?
-  uu.hard_link(s, "dir/file", "dir/hard_link")?
+  uu.mkdir(s, "dir")
+  uu.touch(s, "dir/file")
+  uu.hard_link(s, "dir/file", "dir/hard_link")
   let without = invoke(s, ["-b", "dir"])?
   uu.succeeds(without)
   let size_without = without.stdout.utf8()?.split("\t")[0].parse_int()?
@@ -508,9 +508,9 @@ test test_uu_du_du_d_flag { |ctx|
 # origin: uutils test_du::test_du_deduplicated_input_args
 test test_uu_du_du_deduplicated_input_args { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d/d")?
-  uu.touch(s, "d/f")?
-  uu.hard_link(s, "d/f", "d/h")?
+  uu.mkdir(s, "d/d")
+  uu.touch(s, "d/f")
+  uu.hard_link(s, "d/f", "d/h")
   let r = invoke(s, ["--inodes", "d", "d", "d"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -520,7 +520,7 @@ test test_uu_du_du_deduplicated_input_args { |ctx|
 # origin: uutils test_du::test_du_dereference
 test test_uu_du_du_dereference { |ctx|
   let s = scene(ctx)?
-  uu.symlink(s, uu.at(s, "subdir/deeper/deeper_dir").display(), "subdir/links/deeper_dir")?
+  uu.symlink(s, uu.at(s, "subdir/deeper/deeper_dir").display(), "subdir/links/deeper_dir")
   let r = invoke(s, ["-L", "subdir/links"])?
   uu.succeeds(r)
   uu.stdout_is(r, expected(s, "subdir/links", follow: true)?.lines.join(""))
@@ -529,8 +529,8 @@ test test_uu_du_du_dereference { |ctx|
 # origin: uutils test_du::test_du_env_block_size_hierarchy
 test test_uu_du_du_env_block_size_hierarchy { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.write(s, "a/file", "some content")?
+  uu.mkdir(s, "a")
+  uu.write(s, "a/file", "some content")
   let baseline = invoke(s, ["a", "--block-size=1"]) ?
   uu.succeeds(baseline)
   let r0 = invoke(s, ["a"], vars: {BLOCK_SIZE: "0", DU_BLOCK_SIZE: "1"})?
@@ -544,8 +544,8 @@ test test_uu_du_du_env_block_size_hierarchy { |ctx|
 # origin: uutils test_du::test_du_exclude
 test test_uu_du_du_exclude { |ctx|
   let s = scene(ctx)?
-  uu.symlink(s, uu.at(s, "subdir/deeper/deeper_dir").display(), "subdir/links/deeper_dir")?
-  uu.mkdir(s, "subdir/links")?
+  uu.symlink(s, uu.at(s, "subdir/deeper/deeper_dir").display(), "subdir/links/deeper_dir")
+  uu.mkdir(s, "subdir/links")
   let first = invoke(s, ["--exclude=subdir", "subdir/deeper/deeper_dir"])?
   uu.succeeds(first)
   uu.stdout_contains(first, "subdir/deeper/deeper_dir")
@@ -561,7 +561,7 @@ test test_uu_du_du_exclude { |ctx|
 # origin: uutils test_du::test_du_exclude_2
 test test_uu_du_du_exclude_2 { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "azerty/xcwww/azeaze")?
+  uu.mkdir(s, "azerty/xcwww/azeaze")
   let r = invoke(s, ["azerty"])?
   uu.succeeds(r)
   assert rx"(.*)azerty/xcwww/azeaze(.*)azerty/xcwww(.*)azerty".matches(r.stdout.utf8()?.replace("\n", with: "").trim())
@@ -576,11 +576,11 @@ test test_uu_du_du_exclude_2 { |ctx|
 # origin: uutils test_du::test_du_exclude_mix
 test test_uu_du_du_exclude_mix { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "file-ignore1", "azeaze")?
-  uu.write(s, "file-ignore2", "amaz?ng")?
-  uu.mkdir(s, "azerty/xcwww/azeaze")?
-  uu.mkdir(s, "azerty/xcwww/qzerty")?
-  uu.mkdir(s, "azerty/xcwww/amazing")?
+  uu.write(s, "file-ignore1", "azeaze")
+  uu.write(s, "file-ignore2", "amaz?ng")
+  uu.mkdir(s, "azerty/xcwww/azeaze")
+  uu.mkdir(s, "azerty/xcwww/qzerty")
+  uu.mkdir(s, "azerty/xcwww/amazing")
   let first = invoke(s, ["azerty"])?
   uu.succeeds(first)
   uu.stdout_contains(first, "azerty/xcwww/azeaze")
@@ -606,7 +606,7 @@ test test_uu_du_du_exclude_mix { |ctx|
 # origin: uutils test_du::test_du_files0_from_combined
 test test_uu_du_du_files0_from_combined { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   let r = invoke(s, ["--files0-from=-", "foo"])?
   uu.fails(r)
   uu.stderr_contains(r, "file operands cannot be combined with --files0-from")
@@ -615,7 +615,7 @@ test test_uu_du_du_files0_from_combined { |ctx|
 # origin: uutils test_du::test_du_files0_from_dir
 test test_uu_du_du_files0_from_dir { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   let r = invoke(s, ["--files0-from=dir"])?
   uu.fails(r)
   uu.stderr_is(r, "du: dir: read error: Is a directory\n")
@@ -626,8 +626,8 @@ test test_uu_du_du_h_locale_decimal_separator { |ctx|
   let s = scene(ctx)?
   for case in [{locale: "fr_FR.UTF-8", text: "8,4K"}, {locale: "C", text: "8.4K"}] {
     let each = scene(ctx)?
-    uu.touch(each, "test.txt")?
-    uu.truncate(each, "test.txt", 8500)?
+    uu.touch(each, "test.txt")
+    uu.truncate(each, "test.txt", 8500)
     let target = uu.at(each, "test.txt").display()
     let r = invoke(each, ["-h", "--apparent-size", target], vars: {LC_ALL: case.locale})?
     uu.succeeds(r)
@@ -640,8 +640,8 @@ test test_uu_du_du_h_precision { |ctx|
   let s = scene(ctx)?
   for case in [{size: 133456345, text: "128M"}, {size: 12582912, text: "12M"}, {size: 8500, text: "8.4K"}] {
     let each = scene(ctx)?
-    uu.touch(each, "test.txt")?
-    uu.truncate(each, "test.txt", case.size)?
+    uu.touch(each, "test.txt")
+    uu.truncate(each, "test.txt", case.size)
     let target = uu.at(each, "test.txt").display()
     let r = invoke(each, ["-h", "--apparent-size", target])?
     uu.succeeds(r)
@@ -652,7 +652,7 @@ test test_uu_du_du_h_precision { |ctx|
 # origin: uutils test_du::test_du_hard_link
 test test_uu_du_du_hard_link { |ctx|
   let s = scene(ctx)?
-  uu.hard_link(s, "subdir/links/subwords.txt", "subdir/links/sublink.txt")?
+  uu.hard_link(s, "subdir/links/subwords.txt", "subdir/links/sublink.txt")
   let r = invoke(s, ["subdir/links"])?
   uu.succeeds(r)
   uu.stdout_is(r, expected(s, "subdir/links")?.lines.join(""))
@@ -661,10 +661,10 @@ test test_uu_du_du_hard_link { |ctx|
 # origin: uutils test_du::test_du_hard_links_multiple_dirs_in_args
 test test_uu_du_du_hard_links_multiple_dirs_in_args { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.mkdir(s, "dir2")?
-  uu.write(s, "dir1/file", "hello world")?
-  uu.hard_link(s, "dir1/file", "dir2/link")?
+  uu.mkdir(s, "dir1")
+  uu.mkdir(s, "dir2")
+  uu.write(s, "dir1/file", "hello world")
+  uu.hard_link(s, "dir1/file", "dir2/link")
   let r = invoke(s, ["dir1", "dir2"])?
   uu.succeeds(r)
   let lines = r.stdout.utf8()?.lines()
@@ -695,7 +695,7 @@ test test_uu_du_du_inodes_basic { |ctx|
 # origin: uutils test_du::test_du_inodes_blocksize_ineffective
 test test_uu_du_du_inodes_blocksize_ineffective { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "test.txt")?
+  uu.touch(s, "test.txt")
   for method in ["-B3", "--block-size=3"] {
     let r = invoke(s, [method, "--inodes", "test.txt"])?
     uu.succeeds(r)
@@ -712,7 +712,7 @@ test test_uu_du_du_inodes_blocksize_ineffective { |ctx|
 # origin: uutils test_du::test_du_inodes_total_text
 test test_uu_du_du_inodes_total_text { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d/d")?
+  uu.mkdir(s, "d/d")
   let r = invoke(s, ["--inodes", "-c", "d"])?
   uu.succeeds(r)
   let lines = r.stdout.utf8()?.lines()
@@ -726,10 +726,10 @@ test test_uu_du_du_inodes_total_text { |ctx|
 # origin: uutils test_du::test_du_inodes_with_count_links
 test test_uu_du_du_inodes_with_count_links { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.touch(s, "dir/file")?
-  uu.hard_link(s, "dir/file", "dir/hard_link_a")?
-  uu.hard_link(s, "dir/file", "dir/hard_link_b")?
+  uu.mkdir(s, "dir")
+  uu.touch(s, "dir/file")
+  uu.hard_link(s, "dir/file", "dir/hard_link_a")
+  uu.hard_link(s, "dir/file", "dir/hard_link_b")
   let once = invoke(s, ["--inodes", "dir"])?
   uu.succeeds(once)
   uu.stdout_is(once, "2\tdir\n")
@@ -743,9 +743,9 @@ test test_uu_du_du_inodes_with_count_links { |ctx|
 # origin: uutils test_du::test_du_inodes_with_count_links_all
 test test_uu_du_du_inodes_with_count_links_all { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d/d")?
-  uu.touch(s, "d/f")?
-  uu.hard_link(s, "d/f", "d/h")?
+  uu.mkdir(s, "d/d")
+  uu.touch(s, "d/f")
+  uu.hard_link(s, "d/f", "d/h")
   let r = invoke(s, ["--inodes", "-al", "d"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -757,8 +757,8 @@ test test_uu_du_du_inodes_with_count_links_all { |ctx|
 # origin: uutils test_du::test_du_invalid_env_block_size_stops_lookup
 test test_uu_du_du_invalid_env_block_size_stops_lookup { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.write(s, "a/file", "some content")?
+  uu.mkdir(s, "a")
+  uu.write(s, "a/file", "some content")
   let baseline = invoke(s, ["a", "--block-size=1024"]) ?
   uu.succeeds(baseline)
   let r0 = invoke(s, ["a"], vars: {DU_BLOCK_SIZE: "invalid", BLOCK_SIZE: "1"})?
@@ -789,13 +789,13 @@ test test_uu_du_du_invalid_size { |ctx|
 test test_uu_du_du_long_path_safe_traversal { |ctx|
   let s = scene(ctx)?
   var deep = "long_path_test"
-  uu.mkdir(s, deep)?
+  uu.mkdir(s, deep)
   let name = ["a" for _ in range(100)].join("")
   for i in range(15) {
     deep = f"{deep}/{name}{i}"
-    uu.mkdir(s, deep)?
+    uu.mkdir(s, deep)
   }
-  uu.write(s, f"{deep}/test.txt", "test content")?
+  uu.write(s, f"{deep}/test.txt", "test content")
   let summary = invoke(s, ["-s", "long_path_test"])?
   uu.succeeds(summary)
   uu.stdout_contains(summary, "long_path_test")
@@ -807,7 +807,7 @@ test test_uu_du_du_long_path_safe_traversal { |ctx|
 # origin: uutils test_du::test_du_negative_max_depth_is_rejected
 test test_uu_du_du_negative_max_depth_is_rejected { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "deep/deeper")?
+  uu.mkdir(s, "deep/deeper")
   for depth in ["-7", "-1"] {
     let r = invoke(s, ["-d", depth, "deep"])?
     uu.fails_with_code(r, 1)
@@ -823,8 +823,8 @@ test test_uu_du_du_negative_max_depth_is_rejected { |ctx|
 # origin: uutils test_du::test_du_no_deduplicated_input_args
 test test_uu_du_du_no_deduplicated_input_args { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.touch(s, "d/d")?
+  uu.mkdir(s, "d")
+  uu.touch(s, "d/d")
   let r = invoke(s, ["--inodes", "-l", "d", "d", "d"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -834,8 +834,8 @@ test test_uu_du_du_no_deduplicated_input_args { |ctx|
 # origin: uutils test_du::test_du_no_dereference
 test test_uu_du_du_no_dereference { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a_dir")?
-  uu.symlink(s, uu.at(s, "a_dir").display(), "symlink")?
+  uu.mkdir(s, "a_dir")
+  uu.symlink(s, uu.at(s, "a_dir").display(), "symlink")
   for arg in ["-P", "--no-dereference"] {
     let first = invoke(s, [arg])?
     uu.succeeds(first)
@@ -854,9 +854,9 @@ test test_uu_du_du_no_dereference { |ctx|
 # origin: uutils test_du::test_du_no_exec_permission
 test test_uu_du_du_no_exec_permission { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d/no-x/y")?
-  uu.set_mode(s, "d/no-x", 0o600)?
-  defer uu.set_mode(s, "d/no-x", 0o755)?
+  uu.mkdir(s, "d/no-x/y")
+  uu.set_mode(s, "d/no-x", 0o600)
+  defer uu.set_mode(s, "d/no-x", 0o755)
   let r = invoke(s, ["d/no-x"])?
   uu.fails(r)
   uu.stderr_contains(r, "du: cannot access 'd/no-x/y': Permission denied")
@@ -865,9 +865,9 @@ test test_uu_du_du_no_exec_permission { |ctx|
 # origin: uutils test_du::test_du_no_permission
 test test_uu_du_du_no_permission { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "subdir/links")?
-  uu.set_mode(s, "subdir/links", 0o311)?
-  defer uu.set_mode(s, "subdir/links", 0o755)?
+  uu.mkdir(s, "subdir/links")
+  uu.set_mode(s, "subdir/links", 0o311)
+  defer uu.set_mode(s, "subdir/links", 0o755)
   let r = invoke(s, ["subdir/links"])?
   uu.fails(r)
   uu.stderr_contains(r, "du: cannot read directory 'subdir/links': Permission denied")
@@ -878,9 +878,9 @@ test test_uu_du_du_no_permission { |ctx|
 # origin: uutils test_du::test_du_one_file_system
 test test_uu_du_du_one_file_system { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "subdir/deeper/deeper_dir")?
-  uu.write(s, "subdir/deeper/deeper_dir/deeper_words.txt", "hello world")?
-  uu.write(s, "subdir/deeper/words.txt", "world")?
+  uu.mkdir(s, "subdir/deeper/deeper_dir")
+  uu.write(s, "subdir/deeper/deeper_dir/deeper_words.txt", "hello world")
+  uu.write(s, "subdir/deeper/words.txt", "world")
   let r = invoke(s, ["-x", "subdir/deeper"])?
   uu.succeeds(r)
   uu.stdout_is(r, expected(s, "subdir/deeper")?.lines.join(""))
@@ -889,8 +889,8 @@ test test_uu_du_du_one_file_system { |ctx|
 # origin: uutils test_du::test_du_posixly_correct_default
 test test_uu_du_du_posixly_correct_default { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.write(s, "a/file", "some content")?
+  uu.mkdir(s, "a")
+  uu.write(s, "a/file", "some content")
   let baseline = invoke(s, ["a", "--block-size=512"]) ?
   uu.succeeds(baseline)
   let r0 = invoke(s, ["a"], vars: {POSIXLY_CORRECT: "1"})?
@@ -901,9 +901,9 @@ test test_uu_du_du_posixly_correct_default { |ctx|
 # origin: uutils test_du::test_du_binary_block_size
 test test_uu_du_du_binary_block_size { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.touch(s, "a/file")?
-  uu.truncate(s, "a/file", 100000)?
+  uu.mkdir(s, "a")
+  uu.touch(s, "a/file")
+  uu.truncate(s, "a/file", 100000)
   for sizes in [{binary: "0b1", decimal: "1"}, {binary: "0b10100", decimal: "20"}, {binary: "0b1000000000", decimal: "512"}, {binary: "0b10K", decimal: "2K"}] {
     let decimal = invoke(s, ["a", f"--block-size={sizes.decimal}"])?
     let binary = invoke(s, ["a", f"--block-size={sizes.binary}"])?
@@ -916,7 +916,7 @@ test test_uu_du_du_binary_block_size { |ctx|
 # origin: uutils test_du::test_du_binary_edge_cases
 test test_uu_du_du_binary_edge_cases { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "foo", "test")?
+  uu.write(s, "foo", "test")
   let lower = invoke(s, ["-B0b", "foo"])?
   uu.fails(lower)
   uu.stderr_only(lower, "du: invalid -B argument '0b'\n")
@@ -931,9 +931,9 @@ test test_uu_du_du_binary_edge_cases { |ctx|
 # origin: uutils test_du::test_du_binary_env_block_size
 test test_uu_du_du_binary_env_block_size { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.touch(s, "a/file")?
-  uu.truncate(s, "a/file", 100000)?
+  uu.mkdir(s, "a")
+  uu.touch(s, "a/file")
+  uu.truncate(s, "a/file", 100000)
   let baseline = invoke(s, ["a", "--block-size=1024"])?
   let binary = invoke(s, ["a"], vars: {DU_BLOCK_SIZE: "0b10000000000"})?
   uu.succeeds(baseline)
@@ -944,10 +944,10 @@ test test_uu_du_du_binary_env_block_size { |ctx|
 # origin: uutils test_du::test_du_binary_threshold
 test test_uu_du_du_binary_threshold { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "subdir/links")?
-  uu.mkdir(s, "subdir/deeper/deeper_dir")?
-  uu.write(s, "subdir/links/bigfile.txt", ["x" for _ in range(10000)].join(""))?
-  uu.write(s, "subdir/deeper/deeper_dir/smallfile.txt", "small")?
+  uu.mkdir(s, "subdir/links")
+  uu.mkdir(s, "subdir/deeper/deeper_dir")
+  uu.write(s, "subdir/links/bigfile.txt", ["x" for _ in range(10000)].join(""))
+  uu.write(s, "subdir/deeper/deeper_dir/smallfile.txt", "small")
   let r = invoke(s, ["--apparent-size", "--threshold=0b10011100010000"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "links")
@@ -957,7 +957,7 @@ test test_uu_du_du_binary_threshold { |ctx|
 # origin: uutils test_du::test_du_exclude_invalid_syntax
 test test_uu_du_du_exclude_invalid_syntax { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "azerty/xcwww/azeaze")?
+  uu.mkdir(s, "azerty/xcwww/azeaze")
   let r = invoke(s, ["--exclude=a[ze", "azerty"])?
   uu.succeeds(r)
   uu.no_stderr(r)

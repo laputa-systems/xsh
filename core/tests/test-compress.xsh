@@ -1003,7 +1003,7 @@ pure seed_text() -> Bytes { b"hello hello hello hello\nworld\n" }
 proc seed(ctx: TestContext, label: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: label)?
   fp"{root}/plain".write(seed_text())
-  fp"{root}/d/e".mkdir(parents: true)?
+  fp"{root}/d/e".mkdir(parents: true)
   fp"{root}/d/a".write(b"aaaa aaaa\n")
   fp"{root}/d/e/b".write(b"bbbb\n")
   Ok(root)

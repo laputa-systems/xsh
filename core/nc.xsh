@@ -570,9 +570,9 @@ proc connect_bounded(fd: Int, target: Record, opts: Options) [net, process, erro
   if opts.timeout < 0 {
     return linux.connect(fd, target)
   }
-  linux.set_socket_timeout(fd, c.SO_SNDTIMEO, if opts.timeout == 0 { 1 } else { opts.timeout })?
+  linux.set_socket_timeout(fd, c.SO_SNDTIMEO, if opts.timeout == 0 { 1 } else { opts.timeout })
   let outcome = linux.connect(fd, target)
-  linux.set_socket_timeout(fd, c.SO_SNDTIMEO, 0)?
+  linux.set_socket_timeout(fd, c.SO_SNDTIMEO, 0)
   if let Err(failure) = outcome {
     if failure.errno == 115 {
       return Err(error.failure("Operation timed out"))
@@ -702,7 +702,7 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
               stdin_open = false
               if opts.quit >= 0 { timeout_ms = opts.quit * 1000 }
             } else {
-              if opts.interval > 0 { time.sleep(time.seconds(opts.interval))? }
+              if opts.interval > 0 { time.sleep(time.seconds(opts.interval)) }
               if opts.crlf {
                 pending = add_carriage_returns(data, after_cr)
                 after_cr = data.byte_at(data.len() - 1) == 13
@@ -727,7 +727,7 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
     if ! wanted.is_empty() {
       events = unix.poll_fd(fd, wanted, if progressed { 0 } else { WAIT_SLICE_MS }) ?? []
     } else if ! progressed {
-      time.sleep(time.millis(WAIT_SLICE_MS))?
+      time.sleep(time.millis(WAIT_SLICE_MS))
     }
 
     if "writable" in events and ! pending.is_empty() {
@@ -836,7 +836,7 @@ proc run_client(host: Str, port_specs: List[Str], opts: Options) [net, fs, proce
   var status = 1
   var first = true
   for port in ports {
-    if opts.interval > 0 and ! first { time.sleep(time.seconds(opts.interval))? }
+    if opts.interval > 0 and ! first { time.sleep(time.seconds(opts.interval)) }
     first = false
     let fd = connect_tcp_udp(host, port, opts)
     if fd < 0 { continue }

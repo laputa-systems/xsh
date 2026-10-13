@@ -5,7 +5,7 @@ use support.uu as uu
 proc split_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
   for name in ["separator_nul.txt", "noeof.txt", "ninetyonebytes.txt", "fivelines.txt", "onehundredlines.txt", "sixhundredfiftyonebytes.txt", "threebytes.txt", "separator_semicolon.txt", "twohundredfortyonebytes.txt", "asciilowercase.txt", "letters.txt"] {
-    uu.fixture(s, "split", name, name)?
+    uu.fixture(s, "split", name, name)
   }
   Ok(s)
 }
@@ -33,29 +33,29 @@ proc random_line_input(s: uu.Scene, name: Str, count: Int) [fs, error] -> Result
   }
   let alphanumerics = bytes.concat(letters)
   let lines = [bytes.concat([alphanumerics[line % 512 * 32..line % 512 * 32 + 32], b"\n"]) for line in range(count)]
-  uu.write_bytes(s, name, bytes.concat(lines))?
+  uu.write_bytes(s, name, bytes.concat(lines))
   Ok()
 }
 
 proc random_byte_input(s: uu.Scene, name: Str, count: Int) [fs, error] -> Result[Unit, Error] {
   let recorded = fp"{s.ctx.core_dir}/tests/data/uutils/split/seeded-123.bin".read_bytes()?
   assert count <= recorded.len()
-  uu.write_bytes(s, name, recorded[..count])?
+  uu.write_bytes(s, name, recorded[..count])
   Ok()
 }
 
 # Preserve the upstream stdout pipe when the output file resolves through /dev/stdout.
 proc split_to_stdout_pipe(s: uu.Scene, args: List[Str], input: Bytes) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let capture = test.temp_dir(s.ctx, name: "pipe-capture")?
-  defer capture.remove()?
+  defer capture.remove()
   let pipe = fp"{capture}/pipe"
-  fs.mkfifo(pipe, 0o600)?
+  fs.mkfifo(pipe, 0o600)
   let output = fp"{capture}/stdout"
   let errors = fp"{capture}/reader-errors"
   let cat = process.which("cat")?
   let plan = process.command_argv(cat, [cat, pipe], s.root, {}, b"", output, errors, timeout: 5s)
   let reader = spawn plan?
-  defer reader.cancel(kill_after: 100ms)?
+  defer reader.cancel(kill_after: 100ms)
   let r = uu.invoke(s, "split", args, stdin: input, stdout: pipe, timeout: 5s)?
   assert (wait reader?).exited_with(0)
   assert errors.read_bytes()? == b""
@@ -103,7 +103,7 @@ test test_uu_split_split_number_with_io_blksize { |ctx|
 # origin: uutils test_split::test_split_obs_lines_as_other_option_value
 test test_uu_split_split_obs_lines_as_other_option_value { |ctx|
   let s = split_scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let r0 = uu.invoke(s, "split", ["--lines", "-200", "file"])?
   uu.fails_with_code(r0, 1)
   uu.stderr_is(r0, "split: invalid number of lines: '-200'\n")
@@ -139,7 +139,7 @@ test test_uu_split_split_obs_lines_as_other_option_value { |ctx|
 # origin: uutils test_split::test_split_obs_lines_within_combined_with_number
 test test_uu_split_split_obs_lines_within_combined_with_number { |ctx|
   let s = split_scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let r0 = uu.invoke(s, "split", ["-3dxen", "4", "file"])?
   uu.fails_with_code(r0, 1)
   uu.stderr_contains(r0, "split: cannot split in more than one way\n")
@@ -151,7 +151,7 @@ test test_uu_split_split_obs_lines_within_combined_with_number { |ctx|
 # origin: uutils test_split::test_split_obs_lines_within_invalid_combined_shorts
 test test_uu_split_split_obs_lines_within_invalid_combined_shorts { |ctx|
   let s = split_scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let r0 = uu.invoke(s, "split", ["-2fb", "file"])?
   uu.fails_with_code(r0, 1)
   uu.stderr_is(r0, "split: invalid option -- 'f'\nTry 'split --help' for more information.\n")
@@ -405,7 +405,7 @@ test test_uu_split_verbose { |ctx|
 # origin: uutils test_split::test_split_multiple_obs_lines_within_combined
 test test_uu_split_split_multiple_obs_lines_within_combined { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "multiple-obs-lines", 400)?
+  random_line_input(s, "multiple-obs-lines", 400)
   let r = uu.invoke(s, "split", ["-d5000x", "-e200d", "multiple-obs-lines"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -417,7 +417,7 @@ test test_uu_split_split_multiple_obs_lines_within_combined { |ctx|
 # origin: uutils test_split::test_split_num_prefixed_chunks_by_lines
 test test_uu_split_split_num_prefixed_chunks_by_lines { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "split_num_prefixed_chunks_by_lines", 10000)?
+  random_line_input(s, "split_num_prefixed_chunks_by_lines", 10000)
   let r = uu.invoke(s, "split", ["-d", "-l", "1000", "split_num_prefixed_chunks_by_lines", "c"])?
   uu.succeeds(r)
   let files = matching_outputs(s, r"""c\d\d$""")?
@@ -428,7 +428,7 @@ test test_uu_split_split_num_prefixed_chunks_by_lines { |ctx|
 # origin: uutils test_split::test_split_numeric_prefixed_chunks_by_bytes
 test test_uu_split_split_numeric_prefixed_chunks_by_bytes { |ctx|
   let s = split_scene(ctx)?
-  random_byte_input(s, "split_num_prefixed_chunks_by_bytes", 10000)?
+  random_byte_input(s, "split_num_prefixed_chunks_by_bytes", 10000)
   let r = uu.invoke(s, "split", ["-d", "-b", "1000", "split_num_prefixed_chunks_by_bytes", "a"])?
   uu.succeeds(r)
   let files = matching_outputs(s, r"""a\d\d$""")?
@@ -440,7 +440,7 @@ test test_uu_split_split_numeric_prefixed_chunks_by_bytes { |ctx|
 # origin: uutils test_split::test_split_obs_lines_standalone
 test test_uu_split_split_obs_lines_standalone { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "obs-lines-standalone", 4)?
+  random_line_input(s, "obs-lines-standalone", 4)
   let r = uu.invoke(s, "split", ["-2", "obs-lines-standalone"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -452,7 +452,7 @@ test test_uu_split_split_obs_lines_standalone { |ctx|
 # origin: uutils test_split::test_split_obs_lines_standalone_overflow
 test test_uu_split_split_obs_lines_standalone_overflow { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "obs-lines-standalone", 4)?
+  random_line_input(s, "obs-lines-standalone", 4)
   let r = uu.invoke(s, "split", ["-99999999999999999991", "obs-lines-standalone"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -464,7 +464,7 @@ test test_uu_split_split_obs_lines_standalone_overflow { |ctx|
 # origin: uutils test_split::test_split_obs_lines_starts_combined_shorts
 test test_uu_split_split_obs_lines_starts_combined_shorts { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "obs-lines-starts-shorts", 400)?
+  random_line_input(s, "obs-lines-starts-shorts", 400)
   let r = uu.invoke(s, "split", ["-200xd", "obs-lines-starts-shorts"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -476,7 +476,7 @@ test test_uu_split_split_obs_lines_starts_combined_shorts { |ctx|
 # origin: uutils test_split::test_split_obs_lines_within_combined_shorts
 test test_uu_split_split_obs_lines_within_combined_shorts { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "obs-lines-within-shorts", 400)?
+  random_line_input(s, "obs-lines-within-shorts", 400)
   let r = uu.invoke(s, "split", ["-x200de", "obs-lines-within-shorts"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -488,7 +488,7 @@ test test_uu_split_split_obs_lines_within_combined_shorts { |ctx|
 # origin: uutils test_split::test_split_obs_lines_within_combined_shorts_tailing_suffix_length
 test test_uu_split_split_obs_lines_within_combined_shorts_tailing_suffix_length { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "obs-lines-combined-shorts-tailing-suffix-length", 1000)?
+  random_line_input(s, "obs-lines-combined-shorts-tailing-suffix-length", 1000)
   let r = uu.invoke(s, "split", ["-d200a4", "obs-lines-combined-shorts-tailing-suffix-length"])?
   uu.succeeds(r)
   let files = matching_outputs(s, r"""x\d\d\d\d$""")?
@@ -499,7 +499,7 @@ test test_uu_split_split_obs_lines_within_combined_shorts_tailing_suffix_length 
 # origin: uutils test_split::test_split_overflow_bytes_size
 test test_uu_split_split_overflow_bytes_size { |ctx|
   let s = split_scene(ctx)?
-  random_byte_input(s, "test_split_overflow_bytes_size", 1000)?
+  random_byte_input(s, "test_split_overflow_bytes_size", 1000)
   let r = uu.invoke(s, "split", ["-b", "1Y", "test_split_overflow_bytes_size"])?
   uu.succeeds(r)
   let files = matching_outputs(s, r"""x[[:alpha:]][[:alpha:]]$""")?
@@ -510,7 +510,7 @@ test test_uu_split_split_overflow_bytes_size { |ctx|
 # origin: uutils test_split::test_split_str_prefixed_chunks_by_bytes
 test test_uu_split_split_str_prefixed_chunks_by_bytes { |ctx|
   let s = split_scene(ctx)?
-  random_byte_input(s, "split_str_prefixed_chunks_by_bytes", 10000)?
+  random_byte_input(s, "split_str_prefixed_chunks_by_bytes", 10000)
   let r = uu.invoke(s, "split", ["-b", "1000", "split_str_prefixed_chunks_by_bytes", "b"])?
   uu.succeeds(r)
   let files = matching_outputs(s, r"""b[[:alpha:]][[:alpha:]]$""")?
@@ -522,7 +522,7 @@ test test_uu_split_split_str_prefixed_chunks_by_bytes { |ctx|
 # origin: uutils test_split::test_split_str_prefixed_chunks_by_lines
 test test_uu_split_split_str_prefixed_chunks_by_lines { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "split_str_prefixed_chunks_by_lines", 10000)?
+  random_line_input(s, "split_str_prefixed_chunks_by_lines", 10000)
   let r = uu.invoke(s, "split", ["-l", "1000", "split_str_prefixed_chunks_by_lines", "d"])?
   uu.succeeds(r)
   let files = matching_outputs(s, r"""d[[:alpha:]][[:alpha:]]$""")?
@@ -533,7 +533,7 @@ test test_uu_split_split_str_prefixed_chunks_by_lines { |ctx|
 # origin: uutils test_split::test_split_suffix_length_short_concatenated_with_value
 test test_uu_split_split_suffix_length_short_concatenated_with_value { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "split_num_prefixed_chunks_by_lines", 10000)?
+  random_line_input(s, "split_num_prefixed_chunks_by_lines", 10000)
   let r = uu.invoke(s, "split", ["-a4", "split_num_prefixed_chunks_by_lines"])?
   uu.succeeds(r)
   let files = matching_outputs(s, r"""x[[:alpha:]][[:alpha:]][[:alpha:]][[:alpha:]]$""")?
@@ -582,7 +582,7 @@ test test_uu_split_suffix_length_zero { |ctx|
 # origin: uutils test_split::test_split_to_non_seekable
 test test_uu_split_split_to_non_seekable { |ctx|
   let s = split_scene(ctx)?
-  uu.symlink(s, "/dev/stdout", "xaa")?
+  uu.symlink(s, "/dev/stdout", "xaa")
   let r = split_to_stdout_pipe(s, ["-"], b"string")?
   uu.succeeds(r)
   uu.stdout_is(r, "string")
@@ -592,7 +592,7 @@ test test_uu_split_split_to_non_seekable { |ctx|
 test test_uu_split_write_error_on_full_device { |ctx|
   let s = split_scene(ctx)?
   assert p"/dev/full".exists()?
-  uu.symlink(s, "/dev/full", "xaa")?
+  uu.symlink(s, "/dev/full", "xaa")
   let r = uu.invoke(s, "split", ["-b", "1"], stdin: b"uv")?
   uu.fails_with_code(r, 1)
   uu.no_stdout(r)
@@ -600,7 +600,7 @@ test test_uu_split_write_error_on_full_device { |ctx|
   assert uu.is_symlink(s, "xaa")?
   assert uu.read_link(s, "xaa")? == "/dev/full"
   let next = uu.at(s, "xab")
-  let file_exists = if next.exists()? { next.is_file()? } else { false }
+  let file_exists = if next.exists() { next.is_file()? } else { false }
   assert ! file_exists
 }
 
@@ -608,7 +608,7 @@ test test_uu_split_write_error_on_full_device { |ctx|
 test test_uu_split_split_non_utf8_paths { |ctx|
   let s = split_scene(ctx)?
   let file = uu.at_bytes(s, b"\xff\xfe")?
-  file.write(b"line1\nline2\nline3\nline4\nline5\n")?
+  file.write(b"line1\nline2\nline3\nline4\nline5\n")
   let r = uu.invoke_paths(s, "split", [Path.parse_bytes(b"\xff\xfe")?])?
   uu.succeeds(r)
   assert uu.exists(s, "xaa")?
@@ -617,7 +617,7 @@ test test_uu_split_split_non_utf8_paths { |ctx|
 # origin: uutils test_split::test_split_non_utf8_argument_unix
 test test_uu_split_split_non_utf8_argument_unix { |ctx|
   let s = split_scene(ctx)?
-  random_line_input(s, "test_split_non_utf8_argument", 2000)?
+  random_line_input(s, "test_split_non_utf8_argument", 2000)
   let r = uu.invoke_paths(s, "split", [p"--additional-suffix", Path.parse_bytes(b"fo\x80o")?, p"test_split_non_utf8_argument"])?
   uu.succeeds(r)
 }
@@ -625,9 +625,9 @@ test test_uu_split_split_non_utf8_argument_unix { |ctx|
 # origin: uutils test_split::test_split_non_utf8_prefix_is_byte_preserving
 test test_uu_split_split_non_utf8_prefix_is_byte_preserving { |ctx|
   let s = split_scene(ctx)?
-  uu.write(s, "input.txt", "AB")?
-  uu.write(s, "p�aa", "keep-aa")?
-  uu.write(s, "p�ab", "keep-ab")?
+  uu.write(s, "input.txt", "AB")
+  uu.write(s, "p�aa", "keep-aa")
+  uu.write(s, "p�ab", "keep-ab")
   let r = uu.invoke_paths(s, "split", [p"-b", p"1", p"input.txt", Path.parse_bytes(b"p\xff")?])?
   uu.succeeds(r)
   assert byte_named_outputs(s, b"p\xff")? == [b"p\xffaa", b"p\xffab"]
@@ -638,7 +638,7 @@ test test_uu_split_split_non_utf8_prefix_is_byte_preserving { |ctx|
 # origin: uutils test_split::test_split_non_utf8_additional_suffix_is_byte_preserving
 test test_uu_split_split_non_utf8_additional_suffix_is_byte_preserving { |ctx|
   let s = split_scene(ctx)?
-  uu.write(s, "input.txt", "AB")?
+  uu.write(s, "input.txt", "AB")
   let r = uu.invoke_paths(s, "split", [p"-b", p"1", p"input.txt", p"--additional-suffix", Path.parse_bytes(b"\xff\xfe")?])?
   uu.succeeds(r)
   assert byte_named_outputs(s, b"xa", b"\xff\xfe")? == [b"xaa\xff\xfe", b"xab\xff\xfe"]

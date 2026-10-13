@@ -6,7 +6,7 @@ pure piece_name(index: Int) -> Str {
 
 proc clear_pieces(s: uu.Scene) [fs, error] -> Result[Unit, Error] {
   for entry in fs.children(s.root)? {
-    if entry.name.starts_with("xx") { entry.path.remove()? }
+    if entry.name.starts_with("xx") { entry.path.remove() }
   }
   Ok()
 }
@@ -23,14 +23,14 @@ test test_gnu_csplit_csplit_1000_log { |ctx|
 
 # origin: gnu csplit/csplit-io-err.log
 test test_gnu_csplit_csplit_io_err_log { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
   let s = uu.scene(ctx)?
-  uu.symlink(s, "/dev/full", "xx01")?
+  uu.symlink(s, "/dev/full", "xx01")
   let full = uu.invoke(s, "csplit", ["-", "1"], stdin: b"1\n2\n")?
   uu.fails_with_code(full, 1)
   uu.stderr_is(full, "csplit: xx01: No space left on device\n")
   assert ! uu.exists(s, "xx01")?
-  uu.mkdir(s, "xx01")?
+  uu.mkdir(s, "xx01")
   let directory = uu.invoke(s, "csplit", ["-", "1"], stdin: b"1\n2\n")?
   uu.fails_with_code(directory, 1)
   assert uu.dir_exists(s, "xx01")?
@@ -57,7 +57,7 @@ test test_gnu_csplit_csplit_suppress_matched_log { |ctx|
     {args: ["--suppress-matched", "-q", "-", "2", "4", "6"], input: numbers, outputs: ["1\n", "3\n", "5\n", ""]},
     {args: ["--suppress-matched", "-zq", "-", "2", "4", "6"], input: numbers, outputs: ["1\n", "3\n", "5\n"]},
   ] {
-    clear_pieces(s)?
+    clear_pieces(s)
     let r = uu.invoke(s, "csplit", item.args, stdin: bytes.from_text(item.input))?
     uu.succeeds(r)
     uu.no_output(r)
@@ -69,18 +69,18 @@ test test_gnu_csplit_csplit_suppress_matched_log { |ctx|
 # origin: gnu csplit/csplit.log
 test test_gnu_csplit_csplit_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "a\n\n\n")?
+  uu.write(s, "in", "a\n\n\n")
   let blank = uu.invoke(s, "csplit", ["in", "/^$/", "2"])?
   uu.succeeds(blank)
   uu.stdout_is(blank, "2\n0\n2\n")
   uu.file_is(s, "xx02", "\n\n")
 
-  uu.write(s, "in", "\na\n")?
+  uu.write(s, "in", "\na\n")
   let negative = uu.invoke(s, "csplit", ["in", "/a/-1", "{*}"])?
   uu.succeeds(negative)
   uu.stdout_is(negative, "0\n3\n")
 
-  uu.write(s, "in", "\n")?
+  uu.write(s, "in", "\n")
   let repeated = uu.invoke(s, "csplit", ["in", "1", "1"])?
   uu.succeeds(repeated)
   uu.stdout_is(repeated, "0\n0\n1\n")
@@ -91,7 +91,7 @@ test test_gnu_csplit_csplit_log { |ctx|
   uu.stdout_only(suffix, "0\n1\n")
   uu.file_is(s, "xx   000", "")
   uu.file_is(s, "xx 0x001", "\n")
-  clear_pieces(s)?
+  clear_pieces(s)
 
   for item in [
     {args: ["in", "0"], error: "csplit: 0: line number must be greater than zero\n"},
@@ -102,25 +102,25 @@ test test_gnu_csplit_csplit_log { |ctx|
     uu.fails(r)
     uu.stderr_is(r, item.error)
   }
-  clear_pieces(s)?
+  clear_pieces(s)
 
   let padding = [" " for _ in range(8198)].join("")
   let input = "x" + padding + "x\nx\n" + padding + "x\nx\n"
-  uu.write(s, "in", input)?
+  uu.write(s, "in", input)
   let large = uu.invoke(s, "csplit", ["in", r"/x\{1\}/", "{*}"])?
   uu.succeeds(large)
   let names = fs.children(s.root)? |> where .name.starts_with("xx") |> map .name |> sort
   let pieces = bytes.concat([uu.read(s, name)? for name in names])
   assert pieces == bytes.from_text(input)
-  clear_pieces(s)?
+  clear_pieces(s)
 
   let empty = uu.invoke(s, "csplit", ["/dev/null", "1"])?
   uu.fails(empty)
   uu.stderr_is(empty, "csplit: '1': line number out of range\n")
   assert ! uu.exists(s, "xx00")?
-  clear_pieces(s)?
+  clear_pieces(s)
 
-  uu.write(s, "inp", "a\n")?
+  uu.write(s, "inp", "a\n")
   let empty_regex = uu.invoke(s, "csplit", ["inp", "//"])?
   uu.succeeds(empty_regex)
   uu.stdout_only(empty_regex, "0\n2\n")
@@ -128,7 +128,7 @@ test test_gnu_csplit_csplit_log { |ctx|
   uu.file_is(s, "xx01", "a\n")
 
   for options in [[], ["-k"]] {
-    clear_pieces(s)?
+    clear_pieces(s)
     let directory = uu.invoke(s, "csplit", options.extend([".", "/^a/"]))?
     uu.fails_with_code(directory, 1)
     uu.stdout_is(directory, "0\n")

@@ -715,21 +715,21 @@ proc settle(argv: List[Str]) [fs, env, process, io, time, error] -> Result[Unit,
   defer root.close()
   # A root caller first pings the daemon's control socket; without a daemon
   # nothing will ever drain the queue, so settle has nothing to wait for.
-  return when unix.id()?.euid == 0 and ! udev.daemon_present(root)?
+  return when unix.id()?.euid == 0 and ! udev.daemon_present(root)
 
   let deadline = time.now() + seconds * 1000
   while true {
     if let marker = opts.exit_if_exists {
-      return when fp"{marker}".exists()?
+      return when fp"{marker}".exists()
     }
 
-    return when ! udev.queue_pending(root)?
+    return when ! udev.queue_pending(root)
 
     if time.now() >= deadline {
       exit 1
     }
 
-    time.sleep(time.millis(50))?
+    time.sleep(time.millis(50))
   }
 }
 
@@ -892,11 +892,11 @@ proc main(...argv: List[Str]) {
   }
 
   match command {
-    "info" => info(arguments)?
-    "trigger" => trigger(arguments)?
-    "settle" => settle(arguments)?
-    "monitor" => monitor(arguments)?
-    "control" => control(arguments)?
+    "info" => info(arguments)
+    "trigger" => trigger(arguments)
+    "settle" => settle(arguments)
+    "monitor" => monitor(arguments)
+    "control" => control(arguments)
     "version" => gnu.write_text(f"{UDEV_VERSION}\n")
     "help" => gnu.help(TOP_HELP)
     "hwdb" | "test" | "test-builtin" => die(f"udevadm: command {gnu.quote(command)} is not supported: it needs the udev rules engine", 1)

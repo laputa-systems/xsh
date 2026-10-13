@@ -1080,7 +1080,7 @@ proc scan(options: Options) [fs, process, error] -> Session {
             let reply = scsi_read(fd, b"\x12\x00\x00\x00\x24\x00", 36)
             if reply.ok { ata_behind = scsi.is_ata(scsi.inquiry(reply.data)) } else { open_error = f"INQUIRY: {reply.message}" }
           }
-          unix.close_fd(fd)?
+          unix.close_fd(fd)
         }
         Err(failure) => { open_error = gnu.strerror(failure) }
       }

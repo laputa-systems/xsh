@@ -27,7 +27,7 @@ test test_bb_sed_sed_stdin_twice_7a1b962e { |ctx|
 # origin: busybox sed/sed subst+write
 test test_bb_sed_sed_subst_write_afa9dd89 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "thingy")?
+  uu.write(s, "input", "thingy")
   let r = uu.invoke(s, "sed", ["-e", "s/i/z/", "-e", "woutputw", "input", "-"], stdin: bytes.from_text("again"), timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_is(r, "thzngy\nagazn")
@@ -53,7 +53,7 @@ test test_bb_sed_sed_t_test_branch_d349ccbb { |ctx|
 # origin: busybox sed/sed trailing NUL
 test test_bb_sed_sed_trailing_NUL_eec140c3 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "a\0b\0")?
+  uu.write(s, "input", "a\0b\0")
   let r = uu.invoke(s, "sed", ["s/i/z/", "input", "-"], stdin: bytes.from_text("c"), timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_is(r, "a\0b\0\nc")

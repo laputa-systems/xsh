@@ -226,7 +226,7 @@ test test_uu_shuf_echo_invalid_unicode_in_arguments { |ctx|
 test test_uu_shuf_invalid_unicode_in_filename { |ctx|
   let s = uu.scene(ctx)?
   let name = uu.at_bytes(s, b"a\xffb")?
-  name.write("foo\n")?
+  name.write("foo\n")
   let r = uu.invoke_paths(s, "shuf", [Path.parse_bytes(b"a\xffb")?])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -534,7 +534,7 @@ test test_uu_shuf_zero_head_count_file_touch_output_positive_new { |ctx|
 # origin: uutils test_shuf::test_zero_head_count_file_touch_output_positive_existing
 test test_uu_shuf_zero_head_count_file_touch_output_positive_existing { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let r = uu.invoke(s, "shuf", ["-n0", "-o", "file"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -544,7 +544,7 @@ test test_uu_shuf_zero_head_count_file_touch_output_positive_existing { |ctx|
 # origin: uutils test_shuf::test_output_not_truncated_when_input_missing
 test test_uu_shuf_output_not_truncated_when_input_missing { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "out", "keep me\n")?
+  uu.write(s, "out", "keep me\n")
   let r = uu.invoke(s, "shuf", ["-o", "out", "does-not-exist"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "does-not-exist")
@@ -554,8 +554,8 @@ test test_uu_shuf_output_not_truncated_when_input_missing { |ctx|
 # origin: uutils test_shuf::test_output_not_truncated_when_random_source_missing
 test test_uu_shuf_output_not_truncated_when_random_source_missing { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "out", "keep me\n")?
-  uu.write(s, "in", "a\nb\nc\n")?
+  uu.write(s, "out", "keep me\n")
+  uu.write(s, "in", "a\nb\nc\n")
   let r = uu.invoke(s, "shuf", ["-o", "out", "--random-source=does-not-exist", "in"])?
   uu.fails_with_code(r, 1)
   uu.file_is(s, "out", "keep me\n")
@@ -564,7 +564,7 @@ test test_uu_shuf_output_not_truncated_when_random_source_missing { |ctx|
 # origin: uutils test_shuf::test_file_input
 test test_uu_shuf_file_input { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "shuf", "file_input.txt", "file_input.txt")?
+  uu.fixture(s, "shuf", "file_input.txt", "file_input.txt")
   let r = uu.invoke(s, "shuf", ["file_input.txt"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -583,7 +583,7 @@ test test_uu_shuf_shuf_multiple_input_line_count { |ctx|
 # origin: uutils test_shuf::test_head_count_does_not_overflow_file
 test test_uu_shuf_head_count_does_not_overflow_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input.txt", "hello\n")?
+  uu.write(s, "input.txt", "hello\n")
   let r = uu.invoke(s, "shuf", ["-n4294967296", "input.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "hello\n")
@@ -611,7 +611,7 @@ test test_uu_shuf_head_count_does_not_overflow_range { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_args_no_repeat
 test test_uu_shuf_gnu_compat_args_no_repeat { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "-e", "1", "2", "3", "4", "5", "6", "7"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -621,8 +621,8 @@ test test_uu_shuf_gnu_compat_args_no_repeat { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_from_stdin
 test test_uu_shuf_gnu_compat_from_stdin { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
-  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
+  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")
   let r = uu.invoke_from_path(s, "shuf", ["--random-source=random_bytes.bin"], stdin: uu.at(s, "input.txt"))?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -632,8 +632,8 @@ test test_uu_shuf_gnu_compat_from_stdin { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_from_file
 test test_uu_shuf_gnu_compat_from_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
-  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
+  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "input.txt"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -643,8 +643,8 @@ test test_uu_shuf_gnu_compat_from_file { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_limited_from_file
 test test_uu_shuf_gnu_compat_limited_from_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
-  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
+  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "-n5", "input.txt"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -654,7 +654,7 @@ test test_uu_shuf_gnu_compat_limited_from_file { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_range_no_repeat
 test test_uu_shuf_gnu_compat_range_no_repeat { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "-i1-10"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -664,7 +664,7 @@ test test_uu_shuf_gnu_compat_range_no_repeat { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_range_repeat
 test test_uu_shuf_gnu_compat_range_repeat { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xfb\x83\x8f\x21\x9b\x3c\x2d\xc5\x73\xa5\x58\x6c\x54\x2f\x59\xf8")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xfb\x83\x8f\x21\x9b\x3c\x2d\xc5\x73\xa5\x58\x6c\x54\x2f\x59\xf8")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "-r", "-i1-99"], timeout: 10s)?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "shuf: 'random_bytes.bin': end of file\n")

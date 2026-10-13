@@ -106,7 +106,7 @@ proc filesystem_output(target: Path, name: Str) [fs, error] -> Result[Str, Error
 
 # Capture a real pipe rather than changing the diagnostic descriptor to a file.
 proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  uu.mkfifo(s, "stderr-pipe")?
+  uu.mkfifo(s, "stderr-pipe")
   let captured = uu.at(s, "pipe-captured")
   let reader_plan = uu.command(s, "cat", ["stderr-pipe"], stdout: captured, stderr: uu.at(s, "reader-error"))?
   let reader = spawn reader_plan?
@@ -183,7 +183,7 @@ test test_uu_stat_printf_invalid_directive { |ctx|
 # origin: uutils test_stat::test_fs_default_format_quotes_name
 test test_uu_stat_fs_default_format_quotes_name { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a b")?
+  uu.touch(s, "a b")
   let r = uu.invoke(s, "stat", ["-f", "a b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "  File: 'a b'\n")
@@ -346,7 +346,7 @@ test test_uu_stat_printf { |ctx|
 # origin: uutils test_stat::test_pipe_fifo
 test test_uu_stat_pipe_fifo { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "FIFO")?
+  uu.mkfifo(s, "FIFO")
   let r = uu.invoke(s, "stat", ["FIFO"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -367,7 +367,7 @@ test test_uu_stat_stdin_pipe_fifo2 { |ctx|
 # origin: uutils test_stat::test_stdin_redirect
 test test_uu_stat_stdin_redirect { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "f")?
+  uu.touch(s, "f")
   let r = uu.invoke_from_path(s, "stat", ["-"], stdin: uu.at(s, "f"))?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -450,7 +450,7 @@ test test_uu_stat_invalid_directive_after_multibyte_char { |ctx|
 # origin: uutils test_stat::test_precision_splits_multibyte_char_in_value
 test test_uu_stat_precision_splits_multibyte_char_in_value { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "é")?
+  uu.touch(s, "é")
   let r = uu.invoke(s, "stat", ["-c", "%.1n", "é"])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"\xc3\n")
@@ -558,8 +558,8 @@ test test_uu_stat_timestamp_format { |ctx|
 # origin: uutils test_stat::test_timestamp_format_preserves_nanoseconds
 test test_uu_stat_timestamp_format_preserves_nanoseconds { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "timestamp")?
-  fs.set_times(uu.at(s, "timestamp"), atime_ns: 1755300000123456789, mtime_ns: 1755300000123456789)?
+  uu.touch(s, "timestamp")
+  fs.set_times(uu.at(s, "timestamp"), atime_ns: 1755300000123456789, mtime_ns: 1755300000123456789)
   let meta = fs.stat(uu.at(s, "timestamp"))?
   let expected = "1755300000.123456789 1755300000.123456789 " + time.format(meta.ctime_ns, "%s.%N", utc: true)? + "\n"
   let r = uu.invoke(s, "stat", ["-c", "%.9X %.9Y %.9Z", "timestamp"])?
@@ -570,8 +570,8 @@ test test_uu_stat_timestamp_format_preserves_nanoseconds { |ctx|
 # origin: uutils test_stat::test_timestamp_format_before_epoch
 test test_uu_stat_timestamp_format_before_epoch { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "timestamp")?
-  fs.set_times(uu.at(s, "timestamp"), atime_ns: -876543211, mtime_ns: -876543211)?
+  uu.touch(s, "timestamp")
+  fs.set_times(uu.at(s, "timestamp"), atime_ns: -876543211, mtime_ns: -876543211)
   let r = uu.invoke(s, "stat", ["-c", "%.1X %.3X %.9X %.1Y %.3Y %.9Y", "timestamp"])?
   uu.succeeds(r)
   uu.stdout_is(r, "-0.8 -0.876 -0.876543211 -0.8 -0.876 -0.876543211\n")
@@ -581,8 +581,8 @@ test test_uu_stat_timestamp_format_before_epoch { |ctx|
 # origin: uutils test_stat::test_timestamp_format_before_epoch_truncation
 test test_uu_stat_timestamp_format_before_epoch_truncation { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "fractional-time")?
-  fs.set_times(uu.at(s, "fractional-time"), atime_ns: -2234567891, mtime_ns: -2234567891)?
+  uu.touch(s, "fractional-time")
+  fs.set_times(uu.at(s, "fractional-time"), atime_ns: -2234567891, mtime_ns: -2234567891)
   let rX = uu.invoke(s, "stat", ["-c", "%X|%.0X|%.X|%.2X|%.6X|%.12X", "fractional-time"])?
   uu.succeeds(rX)
   uu.stdout_is(rX, "-3|-3|-2.234567891|-2.23|-2.234567|-2.234567891000\n")
@@ -596,9 +596,9 @@ test test_uu_stat_timestamp_format_before_epoch_truncation { |ctx|
 # origin: uutils test_stat::test_quoting_style_default
 test test_uu_stat_quoting_style_default { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "plain")?
-  uu.touch(s, "a b")?
-  uu.symlink(s, "plain", "link")?
+  uu.touch(s, "plain")
+  uu.touch(s, "a b")
+  uu.symlink(s, "plain", "link")
   let r = uu.invoke(s, "stat", ["-c", "%N", "plain", "a b", "link"])?
   uu.succeeds(r)
   uu.stdout_only(r, "plain\n'a b'\nlink -> plain\n")
@@ -610,8 +610,8 @@ test test_uu_stat_quoting_style_default { |ctx|
 # origin: uutils test_stat::test_quoted_name_directive
 test test_uu_stat_quoted_name_directive { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a b")?
-  uu.symlink(s, "a b", "link")?
+  uu.touch(s, "a b")
+  uu.symlink(s, "a b", "link")
   let r = uu.invoke(s, "stat", ["-c", "%Qn|%-6Qn|", "a b", "link"])?
   uu.succeeds(r)
   uu.stdout_only(r, "'a b'|'a b' |\nlink|link  |\n")
@@ -626,8 +626,8 @@ test test_uu_stat_quoted_name_directive { |ctx|
 # origin: uutils test_stat::test_quoting_style_env
 test test_uu_stat_quoting_style_env { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "it's")?
-  uu.touch(s, "tab\there")?
+  uu.touch(s, "it's")
+  uu.touch(s, "tab\there")
   let r0 = uu.invoke(s, "stat", ["-c", "%N", "it's", "tab\there"], vars: {QUOTING_STYLE: "literal"})?
   uu.succeeds(r0)
   uu.stdout_only(r0, "it's\ntab\there\n")
@@ -660,14 +660,14 @@ test test_uu_stat_quoting_style_env { |ctx|
 # origin: uutils test_stat::test_quoting_style_locale
 test test_uu_stat_quoting_style_locale { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "'")?
+  uu.touch(s, "'")
   let r = uu.invoke(s, "stat", ["-c", "%N", "'"], vars: {QUOTING_STYLE: "locale"})?
   uu.succeeds(r)
   uu.stdout_only(r, "'\\''\n")
   let default = uu.invoke(s, "stat", ["-c", "%N", "'"])?
   uu.succeeds(default)
   uu.stdout_only(default, "\"'\"\n")
-  uu.touch(s, "\"")?
+  uu.touch(s, "\"")
   let double = uu.invoke(s, "stat", ["-c", "%N", "\""])?
   uu.succeeds(double)
   uu.stdout_only(double, "'\"'\n")
@@ -676,19 +676,19 @@ test test_uu_stat_quoting_style_locale { |ctx|
 # origin: uutils test_stat::test_quoting_newline_in_filename
 test test_uu_stat_quoting_newline_in_filename { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test\nnewline")?
+  uu.touch(s, "test\nnewline")
   let r0 = uu.invoke(s, "stat", ["-c", "{\"name\":\"%N\"}", "test\nnewline"])?
   uu.succeeds(r0)
   uu.stdout_only(r0, "{\"name\":\"'test'$'\\n''newline'\"}\n")
-  uu.touch(s, "contiguous\n\nescape_characters")?
+  uu.touch(s, "contiguous\n\nescape_characters")
   let r1 = uu.invoke(s, "stat", ["-c", "%N", "contiguous\n\nescape_characters"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "'contiguous'$'\\n\\n''escape_characters'\n")
-  uu.touch(s, "multiple\nescape\ncharacters")?
+  uu.touch(s, "multiple\nescape\ncharacters")
   let r2 = uu.invoke(s, "stat", ["-c", "%N", "multiple\nescape\ncharacters"])?
   uu.succeeds(r2)
   uu.stdout_only(r2, "'multiple'$'\\n''escape'$'\\n''characters'\n")
-  uu.touch(s, "\t \n \r \u{0001}")?
+  uu.touch(s, "\t \n \r \u{0001}")
   let r3 = uu.invoke(s, "stat", ["-c", "%N", "\t \n \r \u{0001}"])?
   uu.succeeds(r3)
   uu.stdout_only(r3, "''$'\\t'' '$'\\n'' '$'\\r'' '$'\\001'\n")
@@ -697,9 +697,9 @@ test test_uu_stat_quoting_newline_in_filename { |ctx|
 # origin: uutils test_stat::test_quoting_style_invalid_env
 test test_uu_stat_quoting_style_invalid_env { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "baguette")?
-  uu.touch(s, "Croissant")?
-  uu.touch(s, "Escargot")?
+  uu.touch(s, "baguette")
+  uu.touch(s, "Croissant")
+  uu.touch(s, "Escargot")
   let r = uu.invoke(s, "stat", ["-c", "nom=[%N]", "baguette", "Croissant", "Escargot"], vars: {QUOTING_STYLE: "fromage"})?
   uu.succeeds(r)
   uu.stdout_is(r, "nom=[baguette]\nnom=[Croissant]\nnom=[Escargot]\n")

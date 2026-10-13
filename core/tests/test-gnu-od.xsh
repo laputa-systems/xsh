@@ -34,7 +34,7 @@ test test_gnu_od_big_w_log { |ctx|
 # origin: gnu od/od-N.log
 test test_gnu_od_od_N_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "abcdefg\n")?
+  uu.write(s, "in", "abcdefg\n")
   let one = uu.argv(s, "od", [p"-An", p"-N3", p"-c"])?
   let two = uu.argv(s, "od", [p"-An", p"-N3", p"-c"])?
   let left = ["\"" + r"$" + "{" + f"{index + 1}" + "}\"" for index in range(one.len())].join(" ")
@@ -93,11 +93,11 @@ test test_gnu_od_od_j_log { |ctx|
   let s = uu.scene(ctx)?
   uu.succeeds(uu.invoke(s, "od", ["-j1", "/dev/null"])?)
   let regular = bytes.from_ints([if n % 80 == 79 { 10 } else { 97 + n % 26 } for n in range(24756)])?
-  uu.write_bytes(s, "regular", regular)?
+  uu.write_bytes(s, "regular", regular)
   for name in ["regular", "/proc/version", "/sys/kernel/profiling"] {
     let file = if name == "regular" { uu.at(s, name) } else { Path(name) }
     if let Ok(data) = file.read_bytes() {
-      uu.write_bytes(s, "copy", data)?
+      uu.write_bytes(s, "copy", data)
       let expected = uu.invoke(s, "od", ["-An", name])?
       uu.succeeds(expected)
       let skipped = uu.invoke(s, "od", ["-An", "-j", f"{data.len()}", name, name])?
@@ -117,7 +117,7 @@ test test_gnu_od_od_multiple_t_log { |ctx|
   let s = uu.scene(ctx)?
   let input = [f"{n}\n" for n in range(1, 20)].join("")
   assert input.byte_len() == 48
-  uu.write(s, "in", input)?
+  uu.write(s, "in", input)
   let formats = ["a", "c", "dC", "dS", "dI", "dL", "oC", "oS", "oI", "oL", "uC", "uS", "uI", "uL", "xC", "xS", "xI", "xL", "fF", "fD"]
   for first in formats { for second in formats {
     let r = uu.invoke(s, "od", ["-An", f"-t{first}z", f"-t{second}z", "in"])?
@@ -131,7 +131,7 @@ test test_gnu_od_od_multiple_t_log { |ctx|
 test test_gnu_od_od_x8_log { |ctx|
   let s = uu.scene(ctx)?
   uu.succeeds(uu.invoke(s, "od", ["-t", "x8", "/dev/null"])?)
-  uu.write(s, "in", "abcdefgh")?
+  uu.write(s, "in", "abcdefgh")
   let wide = uu.invoke(s, "od", ["-An", "-t", "x8", "in"])?
   uu.succeeds(wide)
   let narrow = uu.invoke(s, "od", ["-An", "-t", "x1", "in"])?

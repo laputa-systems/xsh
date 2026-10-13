@@ -7,12 +7,12 @@ proc fixture_case(ctx: TestContext, name: Str, options: List[Str]) [fs, process,
   let expected = fp"{ctx.core_dir}/tests/data/uutils/sort/{name}.expected".read_bytes()?
   let debug_expected = fp"{ctx.core_dir}/tests/data/uutils/sort/{name}.expected.debug".read_bytes()?
   let plain_scene = uu.scene(ctx)?
-  uu.fixture(plain_scene, "sort", input, input)?
+  uu.fixture(plain_scene, "sort", input, input)
   let plain = uu.invoke(plain_scene, "sort", [input].extend(options), timeout: 5s)?
   uu.succeeds(plain)
   uu.stdout_is_bytes(plain, expected)
   let debug_scene = uu.scene(ctx)?
-  uu.fixture(debug_scene, "sort", input, input)?
+  uu.fixture(debug_scene, "sort", input, input)
   let debug = uu.invoke(debug_scene, "sort", [input, "--debug"].extend(options), timeout: 5s)?
   uu.succeeds(debug)
   uu.stdout_is_bytes(debug, debug_expected)
@@ -21,8 +21,8 @@ proc fixture_case(ctx: TestContext, name: Str, options: List[Str]) [fs, process,
 # origin: uutils test_sort::test_random_source_of_exactly_the_salt_length
 test test_uu_sort_random_source_of_exactly_the_salt_length { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "source", b"xxxxxxxxxxxxxxxx")?
-  uu.write(s, "input", "b\na\nc\n")?
+  uu.write_bytes(s, "source", b"xxxxxxxxxxxxxxxx")
+  uu.write(s, "input", "b\na\nc\n")
   let first = uu.invoke(s, "sort", ["-R", "--random-source=source", "input"], timeout: 5s)?
   uu.succeeds(first)
   let second = uu.invoke(s, "sort", ["-R", "--random-source=source", "input"], timeout: 5s)?
@@ -35,8 +35,8 @@ test test_uu_sort_random_source_of_exactly_the_salt_length { |ctx|
 test test_uu_sort_random_source_shorter_than_the_salt { |ctx|
   for length in [0, 1, 15] {
     let s = uu.scene(ctx)?
-    uu.write_bytes(s, "source", bytes.concat([b"x" for _ in range(length)]))?
-    uu.write(s, "input", "b\na\nc\n")?
+    uu.write_bytes(s, "source", bytes.concat([b"x" for _ in range(length)]))
+    uu.write(s, "input", "b\na\nc\n")
     let r = uu.invoke(s, "sort", ["-R", "--random-source=source", "input"], timeout: 5s)?
     uu.fails_with_code(r, 2)
     uu.no_stdout(r)
@@ -55,7 +55,7 @@ test test_uu_sort_same_output_flag_twice_ok { |ctx|
 # origin: uutils test_sort::test_same_sort_mode_twice
 test test_uu_sort_same_sort_mode_twice { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "empty.txt", "empty.txt")?
+  uu.fixture(s, "sort", "empty.txt", "empty.txt")
   uu.succeeds(uu.invoke(s, "sort", ["-k", "2n,2n", "empty.txt"], timeout: 5s)?)
 }
 
@@ -78,16 +78,16 @@ test test_uu_sort_separator_null { |ctx|
 # origin: uutils test_sort::test_sigpipe_panic
 test test_uu_sort_sigpipe_panic { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")?
-  uu.mkfifo(s, "stdout-pipe")?
+  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
+  uu.mkfifo(s, "stdout-pipe")
   let reader = unix.open_fd(uu.at(s, "stdout-pipe"), nonblock: true)?
   var reader_open = true
-  defer { if reader_open { unix.close_fd(reader)? } }
+  defer { if reader_open { unix.close_fd(reader) } }
   let errors = uu.at(s, "stderr")
   let command = uu.command(s, "sort", ["ext_sort.txt"], stdout: uu.at(s, "stdout-pipe"), stderr: errors, timeout: 5s)?
   let child = spawn command?
-  defer child.cancel(signal: "KILL", kill_after: 0ms)?
-  unix.close_fd(reader)?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)
+  unix.close_fd(reader)
   reader_open = false
   let _ = wait child?
   assert errors.read_bytes()? == b""
@@ -130,8 +130,8 @@ test test_uu_sort_sort_locale_punctuation { |ctx|
 test test_uu_sort_start_buffer { |ctx|
   let s = uu.scene(ctx)?
   let large = bytes.concat([b"b" for _ in range(8000)])
-  uu.write_bytes(s, "b", large)?
-  uu.write_bytes(s, "a", b"aaa")?
+  uu.write_bytes(s, "b", large)
+  uu.write_bytes(s, "a", b"aaa")
   let r = uu.invoke(s, "sort", ["b", "a"], timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, bytes.concat([b"aaa\n", large, b"\n"]))
@@ -149,8 +149,8 @@ test test_uu_sort_trailing_separator { |ctx|
 test test_uu_sort_unterminated_file_not_fused_across_chunk_boundary { |ctx|
   for buffer_size in ["1b", "2b", "3b", "4b", "5b", "6b", "7b", "8b", "16b"] {
     let s = uu.scene(ctx)?
-    uu.write(s, "first.txt", "a\nb\nc")?
-    uu.write(s, "second.txt", "z\n")?
+    uu.write(s, "first.txt", "a\nb\nc")
+    uu.write(s, "second.txt", "z\n")
     let r = uu.invoke(s, "sort", ["-S", buffer_size, "first.txt", "second.txt"], timeout: 5s)?
     uu.succeeds(r)
     uu.stdout_only(r, "a\nb\nc\nz\n")
@@ -176,7 +176,7 @@ test test_uu_sort_verifies_input_files { |ctx|
 # origin: uutils test_sort::test_verifies_input_files_without_opening_them
 test test_uu_sort_verifies_input_files_without_opening_them { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "FIFO")?
+  uu.mkfifo(s, "FIFO")
   let r = uu.invoke(s, "sort", ["FIFO", "nonexistent_file"], timeout: 5s)?
   uu.fails_with_code(r, 2)
   uu.stderr_only(r, "sort: cannot read: nonexistent_file: No such file or directory\n")
@@ -194,13 +194,13 @@ test test_uu_sort_verifies_out_file { |ctx|
 
 # origin: uutils test_sort::test_version
 test test_uu_sort_version { |ctx|
-  fixture_case(ctx, "version", ["-V"])?
+  fixture_case(ctx, "version", ["-V"])
 }
 
 # origin: uutils test_sort::test_version_empty_lines
 test test_uu_sort_version_empty_lines { |ctx|
-  fixture_case(ctx, "version-empty-lines", ["-V"])?
-  fixture_case(ctx, "version-empty-lines", ["--version-sort"])?
+  fixture_case(ctx, "version-empty-lines", ["-V"])
+  fixture_case(ctx, "version-empty-lines", ["--version-sort"])
 }
 
 # origin: uutils test_sort::test_version_sort_stable
@@ -223,7 +223,7 @@ test test_uu_sort_version_sort_unstable { |ctx|
 
 # origin: uutils test_sort::test_words_unique
 test test_uu_sort_words_unique { |ctx|
-  fixture_case(ctx, "words_unique", ["-u"])?
+  fixture_case(ctx, "words_unique", ["-u"])
 }
 
 # origin: uutils test_sort::test_wrong_args_exit_code
@@ -236,5 +236,5 @@ test test_uu_sort_wrong_args_exit_code { |ctx|
 
 # origin: uutils test_sort::test_zero_terminated
 test test_uu_sort_zero_terminated { |ctx|
-  fixture_case(ctx, "zero-terminated", ["-z"])?
+  fixture_case(ctx, "zero-terminated", ["-z"])
 }

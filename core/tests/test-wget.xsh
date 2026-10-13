@@ -132,15 +132,15 @@ proc start_server(ctx: TestContext) [fs, process, time, error] -> Result[Server?
   let root = test.temp_dir(ctx, name: "curl-server")?
   let script = fp"{root}/server.pl"
   let port_file = fp"{root}/port"
-  script.write(SERVER)?
+  script.write(SERVER)
   let handle = spawn run perl $script $port_file ?
   let started = time.now()
-  while !port_file.exists()? {
+  while !port_file.exists() {
     if time.now() - started > 5000 {
-      handle.cancel(signal: "KILL", kill_after: 0ms)?
+      handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure("the HTTP fixture did not start"))
     }
-    time.sleep(20ms)?
+    time.sleep(20ms)
   }
   let port = port_file.read_text()?.trim()
   Ok({base: f"http://127.0.0.1:{port}", handle: handle})
@@ -305,7 +305,7 @@ test test_wget_continue_resumes_a_partial_file { |ctx|
   defer fixture.handle.cancel(kill_after: 100ms)
 
   let root = test.temp_dir(ctx, name: "wget-resume")?
-  fp"{root}/range".write("abcdefghijklmnopqrstuvwxyzabcdefghijklmn")?
+  fp"{root}/range".write("abcdefghijklmnopqrstuvwxyzabcdefghijklmn")
   let result = wget(ctx, ["-c", f"{fixture.base}/range"], dir: root)?
   assert result.status == 0, result.stderr
   assert "awaiting response... 206 Partial Content\nLength: 100, 60 remaining [text/plain]\n" in result.stderr, result.stderr
@@ -393,7 +393,7 @@ test test_wget_input_file_lists_urls { |ctx|
   defer fixture.handle.cancel(kill_after: 100ms)
 
   let root = test.temp_dir(ctx, name: "wget-input")?
-  fp"{root}/urls".write(f"{fixture.base}/dir/one.txt\n{fixture.base}/dir/two.txt\n")?
+  fp"{root}/urls".write(f"{fixture.base}/dir/one.txt\n{fixture.base}/dir/two.txt\n")
   let result = wget(ctx, ["-q", "-i", "urls"], dir: root)?
   assert result.status == 0, result.stderr
   assert fp"{root}/one.txt".read_text()? == "named one.txt\n"
@@ -406,7 +406,7 @@ test test_wget_no_clobber_and_redirect_limit { |ctx|
   defer fixture.handle.cancel(kill_after: 100ms)
 
   let root = test.temp_dir(ctx, name: "wget-clobber")?
-  fp"{root}/ok".write("old\n")?
+  fp"{root}/ok".write("old\n")
   let kept = wget(ctx, ["-nc", f"{fixture.base}/ok"], dir: root)?
   assert kept.status == 0
   assert kept.stderr == "File 'ok' already there; not retrieving.\n\n", kept.stderr
@@ -515,7 +515,7 @@ proc start_tls_server(ctx: TestContext) [fs, process, time, error] -> Result[Tls
   guard authority.status.ok else { return Ok(null) }
   let leaf = run.capture --text openssl req -newkey rsa:2048 -nodes -keyout ${root}/leaf.key -out ${root}/leaf.csr -subj "/CN=localhost"
   guard leaf.status.ok else { return Ok(null) }
-  fp"{root}/ext.cnf".write("subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")?
+  fp"{root}/ext.cnf".write("subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")
   let signed = run.capture --text openssl x509 -req -in ${root}/leaf.csr -CA ${root}/ca.pem -CAkey ${root}/ca.key -CAcreateserial -out ${root}/leaf.pem -days 2 -extfile ${root}/ext.cnf
   guard signed.status.ok else { return Ok(null) }
 
@@ -526,9 +526,9 @@ proc start_tls_server(ctx: TestContext) [fs, process, time, error] -> Result[Tls
   while time.now() - started < 5000 {
     let probe = run.capture --text openssl s_client -connect $accept -brief < /dev/null
     if probe.status.ok { return Ok({url: f"https://{accept}/", ca: fp"{root}/ca.pem", handle: handle}) }
-    time.sleep(100ms)?
+    time.sleep(100ms)
   }
-  handle.cancel(signal: "KILL", kill_after: 0ms)?
+  handle.cancel(signal: "KILL", kill_after: 0ms)
   Ok(null)
 }
 

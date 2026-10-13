@@ -51,7 +51,7 @@ proc reporter(ctx: TestContext) [fs, process, error] -> Result[List[Str]] {
 }
 
 test test_ionice_without_arguments_prints_the_current_priority { |ctx|
-  process.set_io_priority(0, "best-effort", 5, "process")?
+  process.set_io_priority(0, "best-effort", 5, "process")
   let result = ionice_run(ctx, [])?
   assert result.status == 0, result.stderr
   assert result.stderr == ""

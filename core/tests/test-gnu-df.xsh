@@ -73,9 +73,9 @@ test test_gnu_df_total_verify_log { |ctx|
 test test_gnu_df_unreadable_log { |ctx|
   if unix.id()?.euid == 0 { test.skip("requires an unprivileged owner"); return }
   let s = uu.scene(ctx)?
-  uu.touch(s, "unreadable")?
-  uu.set_mode(s, "unreadable", 0o200)?
+  uu.touch(s, "unreadable")
+  uu.set_mode(s, "unreadable", 0o200)
   uu.succeeds(uu.invoke(s, "df", ["unreadable"])?)
-  uu.mkfifo(s, "fifo")?
+  uu.mkfifo(s, "fifo")
   uu.succeeds(uu.invoke(s, "df", ["fifo"], timeout: 10s)?)
 }

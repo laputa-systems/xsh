@@ -4,13 +4,13 @@ use support.uu
 test test_gnu_chown_deref_log { |ctx|
   let s = uu.scene(ctx)?
   let owner = user.current()?.name
-  uu.symlink(s, "no-such", "dangle")?
+  uu.symlink(s, "no-such", "dangle")
   let dangling = uu.invoke(s, "chown", ["--dereference", owner, "dangle"])?
   uu.fails(dangling)
   let strip = regex.compile(":[^:\n]*\n")?
   assert strip.replace(dangling.stderr.utf8()?, with: "\n") == "chown: cannot dereference 'dangle'\n"
-  uu.mkdir(s, "cyc/b/c")?
-  uu.symlink(s, uu.at(s, "cyc").display(), "cyc/b/c/d")?
+  uu.mkdir(s, "cyc/b/c")
+  uu.symlink(s, uu.at(s, "cyc").display(), "cyc/b/c/d")
   let cycle = uu.invoke(s, "chown", ["-vRL", owner, "cyc"], timeout: 10s)?
   uu.succeeds(cycle)
   let output = bytes.concat([cycle.stdout, cycle.stderr]).utf8()?
@@ -23,8 +23,8 @@ test test_gnu_chown_preserve_root_log { |ctx|
   let s = uu.scene(ctx)?
   let identity = unix.id()?
   if identity.euid == 0 { test.skip("requires an unprivileged owner"); return }
-  uu.mkdir(s, "d")?
-  uu.symlink(s, "/", "d/slink-to-root")?
+  uu.mkdir(s, "d")
+  uu.symlink(s, "/", "d/slink-to-root")
   for item in [
     {util: "chown", args: ["-R", "--preserve-root", "0", "/"]},
     {util: "chgrp", args: ["-R", "--preserve-root", "0", "/"]},

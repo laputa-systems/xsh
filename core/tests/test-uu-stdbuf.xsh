@@ -8,7 +8,7 @@ proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resu
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
   let fifo = fp"{captures}/pipe"
-  fs.mkfifo(fifo, 0o600)?
+  fs.mkfifo(fifo, 0o600)
   let words = uu.argv(s, "stdbuf", [Path(word) for word in args])?
   let argv = [p"/bin/sh", p"-c", Path(r"""fifo=$1; shift; cat "$fifo" >&2 & reader=$!; "$@" 2>"$fifo"; rc=$?; wait "$reader" || exit; exit "$rc"; """), p"stdbuf-pipe", fifo].extend(words)
   let status = process.run(process.command_argv(p"/bin/sh", argv, s.root, stdout: out, stderr: err, timeout: 5s))?.exit_code()?

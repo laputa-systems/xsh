@@ -135,6 +135,6 @@ export proc run_commands(argv: List[Str]) [fs, process, io, error] {
       transcript += f"2> {line}\n"
     }
     transcript += f"rc={captured.status.shell_code()?}\n"
-    io.write_stdout(transcript)?
+    io.write_stdout(transcript)
   }
 }

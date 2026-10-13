@@ -556,11 +556,11 @@ test test_ln_force_replaces_dangling_and_looping_symlinks_with_themselves { |ctx
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/ln.xsh"
   cd root {
-    p"loop".symlink(to: p"loop")?
+    p"loop".symlink(to: p"loop")
     run.text ${ctx.xsh_bin} $script -- -sf p"loop" p"loop"
     assert p"loop".readlink()? == p"loop"
 
-    p"dangle".symlink(to: p"missing")?
+    p"dangle".symlink(to: p"missing")
     run.text ${ctx.xsh_bin} $script -- -sf p"dangle" p"dangle"
     assert p"dangle".readlink()? == p"dangle"
   }
@@ -586,11 +586,11 @@ test test_ln_symbolic_replaces_a_link_to_the_source { |ctx|
   let script = fp"{ctx.core_dir}/ln.xsh"
   cd root {
     p"file1".write("one")
-    p"file2".symlink(to: p"file1")?
+    p"file2".symlink(to: p"file1")
     run.text ${ctx.xsh_bin} $script -- -srf p"file1" p"file2"
     assert p"file2".readlink()? == p"file1"
 
-    p"link".symlink(to: p"a")?
+    p"link".symlink(to: p"a")
     p"a".write("two")
     p"b".write("three")
     run.text ${ctx.xsh_bin} $script -- -sf p"b" p"link"
@@ -606,7 +606,7 @@ test test_ln_symbolic_same_file_only_for_the_same_entry { |ctx|
   cd root {
     p"a".write("data")
     fs.link(p"a", p"hard")
-    p"sl".symlink(to: p"a")?
+    p"sl".symlink(to: p"a")
     run.text ${ctx.xsh_bin} $script -- -sf p"a" p"hard"
     assert p"hard".readlink()? == p"a"
     run.text ${ctx.xsh_bin} $script -- -sf p"sl" p"sl"

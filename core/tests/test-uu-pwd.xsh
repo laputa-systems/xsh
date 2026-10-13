@@ -5,8 +5,8 @@ use support.uu as uu
 # The command starts through the alias while PWD retains that logical spelling.
 proc symlinked_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "subdir")?
-  uu.symlink(s, "subdir", "symdir")?
+  uu.mkdir(s, "subdir")
+  uu.symlink(s, "subdir", "symdir")
   Ok({ctx: ctx, root: uu.at(s, "symdir")})
 }
 

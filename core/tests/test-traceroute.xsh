@@ -24,7 +24,7 @@ proc open_udp(family: Str, address: Str, port: Int) [process, net, error] -> Res
   let c = linux.net_constants()
   let fd = linux.socket(if family == "inet6" { c.AF_INET6 } else { c.AF_INET }, c.SOCK_DGRAM)?
 
-  linux.bind(fd, {family: family, address: address, port: port})?
+  linux.bind(fd, {family: family, address: address, port: port})
 
   Ok(fd)
 }
@@ -64,7 +64,7 @@ test test_traceroute_default_udp_reaches_loopback_in_one_hop { |ctx|
   assert ran.stderr == ""
   assert lines.len() == 2, ran.stdout
   assert lines[0] == "traceroute to 127.0.0.1 (127.0.0.1), 30 hops max, 60 byte packets"
-  assert_hop(lines[1], 1, "127\\.0\\.0\\.1", 3)?
+  assert_hop(lines[1], 1, "127\\.0\\.0\\.1", 3)
   assert ran.stdout.ends_with("\n")
 }
 
@@ -76,7 +76,7 @@ test test_traceroute_prints_names_unless_numeric { |ctx|
   assert regex.compile("^ 1  [^ ]+ \\(127\\.0\\.0\\.1\\)  [0-9]+\\.[0-9]{3} ms$")?.matches(hop), hop
 
   let numeric = traceroute(ctx, ["-n", "-q1", "127.0.0.1"])?
-  assert_hop(numeric.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)?
+  assert_hop(numeric.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)
 }
 
 test test_traceroute_icmp_echo_reaches_loopback { |ctx|
@@ -91,18 +91,18 @@ test test_traceroute_icmp_echo_reaches_loopback { |ctx|
   let lines = ran.stdout.lines()
   assert lines[0] == "traceroute to 127.0.0.1 (127.0.0.1), 30 hops max, 60 byte packets"
   assert lines.len() == 2, ran.stdout
-  assert_hop(lines[1], 1, "127\\.0\\.0\\.1", 3)?
+  assert_hop(lines[1], 1, "127\\.0\\.0\\.1", 3)
 
   let by_module = traceroute(ctx, ["-M", "icmp", "-n", "-q1", "127.0.0.1"])?
   assert by_module.status == 0, by_module.stderr
-  assert_hop(by_module.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)?
+  assert_hop(by_module.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)
 }
 
 test test_traceroute_icmp_socket_choice_is_honored { |ctx|
   let datagram = traceroute(ctx, ["-I", "-O", "dgram", "-n", "-q1", "127.0.0.1"])?
 
   if datagram.status == 0 {
-    assert_hop(datagram.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)?
+    assert_hop(datagram.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)
   } else {
     assert datagram.stderr.find("socket:") != null, datagram.stderr
   }
@@ -110,7 +110,7 @@ test test_traceroute_icmp_socket_choice_is_honored { |ctx|
   let raw = traceroute(ctx, ["-I", "-O", "raw", "-n", "-q1", "127.0.0.1"])?
 
   if raw.status == 0 {
-    assert_hop(raw.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)?
+    assert_hop(raw.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)
   } else {
     assert raw.status == 1, raw.stderr
     assert raw.stderr.find("socket:") != null, raw.stderr
@@ -128,7 +128,7 @@ test test_traceroute_ipv6_loopback { |ctx|
       return
     }
     Ok(probe) => {
-      unix.close_fd(probe)?
+      unix.close_fd(probe)
     }
   }
 
@@ -137,12 +137,12 @@ test test_traceroute_ipv6_loopback { |ctx|
 
   assert ran.status == 0, ran.stderr
   assert lines[0] == "traceroute to ::1 (::1), 30 hops max, 80 byte packets"
-  assert_hop(lines[1], 1, "::1", 3)?
+  assert_hop(lines[1], 1, "::1", 3)
 
   let echo = traceroute(ctx, ["-6", "-I", "-n", "-q1", "::1"])?
 
   if echo.status == 0 {
-    assert_hop(echo.stdout.lines()[1], 1, "::1", 1)?
+    assert_hop(echo.stdout.lines()[1], 1, "::1", 1)
   } else {
     assert echo.stderr.find("socket:") != null, echo.stderr
   }
@@ -172,16 +172,16 @@ test test_traceroute_hop_range_and_probe_count { |ctx|
   assert ran.status == 0, ran.stderr
   assert lines.len() == 2, ran.stdout
   assert lines[0] == "traceroute to 127.0.0.1 (127.0.0.1), 3 hops max, 60 byte packets"
-  assert_hop(lines[1], 2, "127\\.0\\.0\\.1", 1)?
+  assert_hop(lines[1], 2, "127\\.0\\.0\\.1", 1)
 
   let long_form = traceroute(ctx, ["-n", "--queries=2", "--max-hops", "4", "--first=3", "127.0.0.1"])?
   assert long_form.status == 0, long_form.stderr
   assert long_form.stdout.lines()[0] == "traceroute to 127.0.0.1 (127.0.0.1), 4 hops max, 60 byte packets"
-  assert_hop(long_form.stdout.lines()[1], 3, "127\\.0\\.0\\.1", 2)?
+  assert_hop(long_form.stdout.lines()[1], 3, "127\\.0\\.0\\.1", 2)
 
   let ten = traceroute(ctx, ["-n", "-q10", "127.0.0.1"])?
   assert ten.status == 0, ten.stderr
-  assert_hop(ten.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 10)?
+  assert_hop(ten.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 10)
 }
 
 test test_traceroute_packet_length_sets_the_payload { |ctx|
@@ -242,12 +242,12 @@ test test_traceroute_applies_source_tos_ttl_and_port { |ctx|
   let c = linux.net_constants()
   let listener = open_udp("inet", "127.0.0.1", 0)?
   defer unix.close_fd(listener)
-  linux.setsockopt_int(listener, c.SOL_IP, c.IP_RECVTTL, 1)?
-  linux.setsockopt_int(listener, c.SOL_IP, c.IP_RECVTOS, 1)?
+  linux.setsockopt_int(listener, c.SOL_IP, c.IP_RECVTTL, 1)
+  linux.setsockopt_int(listener, c.SOL_IP, c.IP_RECVTOS, 1)
 
   let spare = open_udp("inet", "127.0.0.1", 0)?
   let source_port = local_port(spare)?
-  unix.close_fd(spare)?
+  unix.close_fd(spare)
 
   let ran = traceroute(
     ctx,
@@ -317,8 +317,8 @@ test test_traceroute_tcp_syn_reaches_open_and_closed_ports { |ctx|
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(server)
-  linux.bind(server, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(server, 4)?
+  linux.bind(server, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(server, 4)
   let open_port = linux.getsockname(server)?.port
 
   let ran = traceroute(ctx, ["-T", "-n", "-q2", "-p", f"{open_port}", "127.0.0.1"])?
@@ -332,16 +332,16 @@ test test_traceroute_tcp_syn_reaches_open_and_closed_ports { |ctx|
   }
 
   assert ran.stdout.lines()[0] == "traceroute to 127.0.0.1 (127.0.0.1), 30 hops max, 60 byte packets"
-  assert_hop(ran.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 2)?
+  assert_hop(ran.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 2)
 
   let spare = linux.socket(c.AF_INET, c.SOCK_STREAM)?
-  linux.bind(spare, {family: "inet", address: "127.0.0.1", port: 0})?
+  linux.bind(spare, {family: "inet", address: "127.0.0.1", port: 0})
   let closed_port = linux.getsockname(spare)?.port
-  unix.close_fd(spare)?
+  unix.close_fd(spare)
 
   let refused = traceroute(ctx, ["-T", "-n", "-q1", "-p", f"{closed_port}", "127.0.0.1"])?
   assert refused.status == 0, refused.stderr
-  assert_hop(refused.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)?
+  assert_hop(refused.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)
 
   let by_module = traceroute(ctx, ["-M", "tcp", "-n", "-q1", "-p", f"{open_port}", "127.0.0.1"])?
   assert by_module.status == 0, by_module.stderr
@@ -409,13 +409,13 @@ test test_traceroute_reports_socket_setup_failures_after_the_header { |ctx|
 
   let loopback = traceroute(ctx, ["-n", "-q1", "-i", "lo", "127.0.0.1"])?
   assert loopback.status == 0, loopback.stderr
-  assert_hop(loopback.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)?
+  assert_hop(loopback.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)
 }
 
 test test_traceroute_socket_flags_are_applied_or_refused_by_the_kernel { |ctx|
   let plain = traceroute(ctx, ["-n", "-q1", "-F", "-r", "127.0.0.1"])?
   assert plain.status == 0, plain.stderr
-  assert_hop(plain.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)?
+  assert_hop(plain.stdout.lines()[1], 1, "127\\.0\\.0\\.1", 1)
 
   let debug = traceroute(ctx, ["-n", "-q1", "-d", "127.0.0.1"])?
 

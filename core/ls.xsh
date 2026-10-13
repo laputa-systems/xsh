@@ -568,8 +568,8 @@ proc raw_option_failure(raw: Bytes) [process, env, io, error] {
   let hint = bytes.from_text(f"Try '{gnu.phrase()} --help' for more information.\n")
 
   if raw.starts_with(b"--") {
-    io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))?
-    io.flush_stderr()?
+    io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))
+    io.flush_stderr()
     exit 2
   }
 
@@ -578,20 +578,20 @@ proc raw_option_failure(raw: Bytes) [process, env, io, error] {
     let found = [opt for opt in OPTS if opt.short != "" and bytes.from_text(opt.short) == letter]
 
     if found.is_empty() {
-      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))?
-      io.flush_stderr()?
+      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))
+      io.flush_stderr()
       exit 2
     }
 
     if found[0].arg > 0 {
-      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))?
-      io.flush_stderr()?
+      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))
+      io.flush_stderr()
       exit 2
     }
   }
 
-  io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))?
-  io.flush_stderr()?
+  io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))
+  io.flush_stderr()
   exit 2
 }
 

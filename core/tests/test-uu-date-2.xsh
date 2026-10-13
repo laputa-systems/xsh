@@ -1080,7 +1080,7 @@ test test_uu_date_format_with_gb18030_bytes { |ctx|
 # origin: uutils test_date::test_date_parse_from_format
 test test_uu_date_date_parse_from_format { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file-with-dates", "2023-03-27 08:30:00\n2023-04-01 12:00:00\n2023-04-15 18:30:00")?
+  uu.write(s, "file-with-dates", "2023-03-27 08:30:00\n2023-04-01 12:00:00\n2023-04-15 18:30:00")
   let r = uu.invoke(s, "date", ["-f", uu.at(s, "file-with-dates").display(), "+%Y-%m-%d %H:%M:%S"])?
   uu.succeeds(r)
 }
@@ -1089,8 +1089,8 @@ test test_uu_date_date_parse_from_format { |ctx|
 test test_uu_date_date_reference_is_non_utf8_path { |ctx|
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"reference_\xff\xfe.txt")?
-  file.write("")?
-  fs.set_times(file, mtime_sec: 1234)?
+  file.write("")
+  fs.set_times(file, mtime_sec: 1234)
   let r = uu.invoke_paths(s, "date", [p"--reference", Path.parse_bytes(b"reference_\xff\xfe.txt")?, p"+%s"])?
   uu.succeeds(r)
   uu.stdout_only(r, "1234\n")
@@ -1257,7 +1257,7 @@ test test_uu_date_negative_offset { |ctx|
 # origin: uutils test_date::test_locale_names_for_several_dates_in_one_run
 test test_uu_date_locale_names_for_several_dates_in_one_run { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "dates", "2026-01-26\n2026-06-14\n2026-12-12\n")?
+  uu.write(s, "dates", "2026-01-26\n2026-06-14\n2026-12-12\n")
   let r = uu.invoke(s, "date", ["-f", "dates", "+%A %a %B %b"], vars: {"LC_ALL": "fr_FR.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "lundi lun. janvier janv.\ndimanche dim. juin juin\nsamedi sam. décembre déc.\n")

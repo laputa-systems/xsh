@@ -28,21 +28,21 @@ test test_json_record_keys_are_sorted_in_every_encoder { |ctx|
 }"""
 
   let compact_path = fp"{root}/compact.json"
-  json.write(compact_path, value)?
+  json.write(compact_path, value)
   assert compact_path.read_text()? == compact
   let reduced_path = fp"{root}/reduced.json"
-  json.write(reduced_path, reduced_value)?
+  json.write(reduced_path, reduced_value)
   assert reduced_path.read_text()? == compact
 
   let pretty_path = fp"{root}/pretty.json"
-  json.write(pretty_path, value, pretty: true)?
+  json.write(pretty_path, value, pretty: true)
   assert pretty_path.read_text()? == pretty
   let reduced_pretty_path = fp"{root}/reduced-pretty.json"
-  json.write(reduced_pretty_path, reduced_value, pretty: true)?
+  json.write(reduced_pretty_path, reduced_value, pretty: true)
   assert reduced_pretty_path.read_text()? == pretty
 
   let lines_path = fp"{root}/lines.jsonl"
-  json.write_lines(lines_path, [reduced_value])?
+  json.write_lines(lines_path, [reduced_value])
   assert lines_path.read_text()? == f"{compact}\n"
 }
 
@@ -58,7 +58,7 @@ test test_json_borrowed_encoding_keeps_scalars_sets_and_failures { |ctx|
   let members: Set[Str] = set.from(["z", "a"])
   assert json.encode(members)? == "[\"a\",\"z\"]"
   let set_path = fp"{root}/set.json"
-  json.write(set_path, members)?
+  json.write(set_path, members)
   assert set_path.read_text()? == "[\"a\",\"z\"]"
 
   let non_finite = 0.0 / 0.0

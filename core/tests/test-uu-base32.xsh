@@ -7,7 +7,7 @@ use support.uu as uu
 # origin: uutils test_base32::test_base32_encode_file
 test test_uu_base32_base32_encode_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "base32", "input-simple.txt", "input-simple.txt")?
+  uu.fixture(s, "base32", "input-simple.txt", "input-simple.txt")
   let r = uu.invoke(s, "base32", ["input-simple.txt"])?
   uu.succeeds(r)
   uu.stdout_only(r, "JBSWY3DPFQQFO33SNRSCCCQ=\n")
@@ -32,7 +32,7 @@ test test_uu_base32_base32_file_not_found { |ctx|
 # origin: uutils test_base32::test_base32_file_with_trailing_slash
 test test_uu_base32_base32_file_with_trailing_slash { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "b")?
+  uu.write(s, "a", "b")
   let r = uu.invoke(s, "base32", ["a/"])?
   uu.fails(r)
   uu.stderr_only(r, "base32: a/: Not a directory\n")

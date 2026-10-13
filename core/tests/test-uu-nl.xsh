@@ -30,7 +30,7 @@ test test_uu_nl_number_width_max_i32 { |ctx|
 # origin: uutils test_nl::test_padding_with_overflow
 test test_uu_nl_padding_with_overflow { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "nl", "simple.txt", "simple.txt")?
+  uu.fixture(s, "nl", "simple.txt", "simple.txt")
   let r = uu.invoke(s, "nl", ["-i", "1000", "-s", "x", "-n", "rz", "-w", "4", "simple.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "0001xL1\n1001xL2\n2001xL3\n3001xL4\n4001xL5\n5001xL6\n6001xL7\n7001xL8\n8001xL9\n9001xL10\n10001xL11\n11001xL12\n12001xL13\n13001xL14\n14001xL15\n")
@@ -40,7 +40,7 @@ test test_uu_nl_padding_with_overflow { |ctx|
 # origin: uutils test_nl::test_padding_without_overflow
 test test_uu_nl_padding_without_overflow { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "nl", "simple.txt", "simple.txt")?
+  uu.fixture(s, "nl", "simple.txt", "simple.txt")
   let r = uu.invoke(s, "nl", ["-i", "1000", "-s", "x", "-n", "rz", "simple.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "000001xL1\n001001xL2\n002001xL3\n003001xL4\n004001xL5\n005001xL6\n006001xL7\n007001xL8\n008001xL9\n009001xL10\n010001xL11\n011001xL12\n012001xL13\n013001xL14\n014001xL15\n")
@@ -405,9 +405,9 @@ test test_uu_nl_join_blank_lines_zero { |ctx|
 # origin: uutils test_nl::test_join_blank_lines_multiple_files
 test test_uu_nl_join_blank_lines_multiple_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a.txt", "\n\n")?
-  uu.write(s, "b.txt", "\n\n")?
-  uu.write(s, "c.txt", "\n\n")?
+  uu.write(s, "a.txt", "\n\n")
+  uu.write(s, "b.txt", "\n\n")
+  uu.write(s, "c.txt", "\n\n")
   let r0 = uu.invoke(s, "nl", ["-l3", "--body-numbering=a", "a.txt", "b.txt", "c.txt"])?
   uu.succeeds(r0)
   uu.stdout_is(r0, "       \n       \n     1\t\n       \n       \n     2\t\n")
@@ -421,9 +421,9 @@ test test_uu_nl_join_blank_lines_multiple_files { |ctx|
 # origin: uutils test_nl::test_default_body_numbering_multiple_files
 test test_uu_nl_default_body_numbering_multiple_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a.txt", "a")?
-  uu.write(s, "b.txt", "b")?
-  uu.write(s, "c.txt", "c")?
+  uu.write(s, "a.txt", "a")
+  uu.write(s, "b.txt", "b")
+  uu.write(s, "c.txt", "c")
   let r = uu.invoke(s, "nl", ["a.txt", "b.txt", "c.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "     1\ta\n     2\tb\n     3\tc\n")
@@ -433,8 +433,8 @@ test test_uu_nl_default_body_numbering_multiple_files { |ctx|
 # origin: uutils test_nl::test_default_body_numbering_multiple_files_and_stdin
 test test_uu_nl_default_body_numbering_multiple_files_and_stdin { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a.txt", "a")?
-  uu.write(s, "c.txt", "c")?
+  uu.write(s, "a.txt", "a")
+  uu.write(s, "c.txt", "c")
   let r = uu.invoke(s, "nl", ["a.txt", "-", "c.txt"], stdin: bytes.from_text("b"))?
   uu.succeeds(r)
   uu.stdout_is(r, "     1\ta\n     2\tb\n     3\tc\n")
@@ -444,8 +444,8 @@ test test_uu_nl_default_body_numbering_multiple_files_and_stdin { |ctx|
 # origin: uutils test_nl::test_default_body_numbering_multiple_files_with_non_existing_file
 test test_uu_nl_default_body_numbering_multiple_files_with_non_existing_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a.txt", "a")?
-  uu.write(s, "b.txt", "b")?
+  uu.write(s, "a.txt", "a")
+  uu.write(s, "b.txt", "b")
   let r = uu.invoke(s, "nl", ["a.txt", "non_existing", "b.txt"])?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "     1\ta\n     2\tb\n")
@@ -785,7 +785,7 @@ test test_uu_nl_number_separator_non_utf8 { |ctx|
 test test_uu_nl_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
-  filename.write(b"line 1\nline 2\nline 3\n")?
+  filename.write(b"line 1\nline 2\nline 3\n")
   let r = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"\xff\xfe")?])?
   uu.succeeds(r)
   uu.stdout_contains(r, "1\t")
@@ -796,7 +796,7 @@ test test_uu_nl_non_utf8_paths { |ctx|
 # origin: uutils test_nl::test_file_with_non_utf8_content
 test test_uu_nl_file_with_non_utf8_content { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "file", b"a\n\xff\xfe\nb")?
+  uu.write_bytes(s, "file", b"a\n\xff\xfe\nb")
   let r = uu.invoke(s, "nl", ["file"])?
   uu.succeeds(r)
 
@@ -814,8 +814,8 @@ test test_uu_nl_stdin_non_utf8_preserved { |ctx|
 # origin: uutils test_nl::test_directory_as_input
 test test_uu_nl_directory_as_input { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.write(s, "file", "aaa")?
+  uu.mkdir(s, "dir")
+  uu.write(s, "file", "aaa")
   let r = uu.invoke(s, "nl", ["dir", "file"])?
   uu.fails(r)
   uu.stderr_is(r, "nl: dir: Is a directory\n")
@@ -825,7 +825,7 @@ test test_uu_nl_directory_as_input { |ctx|
 # origin: uutils test_nl::test_no_skip_after_error
 test test_uu_nl_no_skip_after_error { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f", "hello")?
+  uu.write(s, "f", "hello")
   let r = uu.invoke(s, "nl", ["/proc/self/mem", "f"])?
   uu.fails(r)
   uu.stdout_is(r, "     1\thello\n")
@@ -835,12 +835,12 @@ test test_uu_nl_no_skip_after_error { |ctx|
 # origin: uutils test_nl::test_sections_and_styles
 test test_uu_nl_sections_and_styles { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "nl", "section.txt", "section.txt")?
+  uu.fixture(s, "nl", "section.txt", "section.txt")
   let r0 = uu.invoke(s, "nl", ["-s", "|", "-n", "ln", "-w", "3", "-b", "a", "-l", "5", "section.txt"])?
   uu.succeeds(r0)
   uu.stdout_is(r0, "\n    HEADER1\n    HEADER2\n\n1  |BODY1\n2  |BODY2\n\n    FOOTER1\n    FOOTER2\n\n    NEXTHEADER1\n    NEXTHEADER2\n\n1  |NEXTBODY1\n2  |NEXTBODY2\n\n    NEXTFOOTER1\n    NEXTFOOTER2\n")
 
-  uu.fixture(s, "nl", "joinblanklines.txt", "joinblanklines.txt")?
+  uu.fixture(s, "nl", "joinblanklines.txt", "joinblanklines.txt")
   let r1 = uu.invoke(s, "nl", ["-s", "|", "-n", "ln", "-w", "3", "-b", "a", "-l", "5", "joinblanklines.txt"])?
   uu.succeeds(r1)
   uu.stdout_is(r1, "1  |Nonempty\n2  |Nonempty\n3  |Followed by 10x empty\n    \n    \n    \n    \n4  |\n    \n    \n    \n    \n5  |\n6  |Followed by 5x empty\n    \n    \n    \n    \n7  |\n8  |Followed by 4x empty\n    \n    \n    \n    \n9  |Nonempty\n10 |Nonempty\n11 |Nonempty.\n")

@@ -10,7 +10,7 @@ proc fixture_case(ctx: TestContext, base: Str, options: List[Str]) [fs, process,
     for debug in [false, true] {
       let s = uu.scene(ctx)?
       let input = f"{base}.txt"
-      uu.fixture(s, "sort", input, input)?
+      uu.fixture(s, "sort", input, input)
       let args = [input].extend(if debug { ["--debug"] } else { [] }).extend([word for word in option.split(" ") if word != ""])
       let r = uu.invoke(s, "sort", args)?
       uu.succeeds(r)
@@ -162,7 +162,7 @@ test test_uu_sort_keys_with_options_blanks_start { |ctx|
 # origin: uutils test_sort::test_legacy_plus_minus_accepts_when_modern_posix2
 test test_uu_sort_legacy_plus_minus_accepts_when_modern_posix2 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input.txt", "aa\nbb\n")?
+  uu.write(s, "input.txt", "aa\nbb\n")
   let r = uu.invoke(s, "sort", ["+0.18446744073709551615R", "input.txt"], vars: {_POSIX2_VERSION: "200809"})?
   uu.succeeds(r)
   uu.stdout_is(r, "aa\nbb\n")
@@ -171,7 +171,7 @@ test test_uu_sort_legacy_plus_minus_accepts_when_modern_posix2 { |ctx|
 # origin: uutils test_sort::test_legacy_plus_minus_accepts_with_size_max
 test test_uu_sort_legacy_plus_minus_accepts_with_size_max { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input.txt", "aa\nbb\n")?
+  uu.write(s, "input.txt", "aa\nbb\n")
   let r = uu.invoke(s, "sort", ["+1", "-1.18446744073709551615R", "input.txt"], vars: {_POSIX2_VERSION: "200809"})?
   uu.succeeds(r)
   uu.stdout_is(r, "aa\nbb\n")
@@ -252,9 +252,9 @@ test test_uu_sort_locale_with_ignore_case_flag { |ctx|
 test test_uu_sort_merge_batch_size { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")?
+  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")
   let r = uu.invoke(s, "sort", ["--batch-size=2", "-m", "--unique", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_1.txt"], stdin: bytes.from_text(""), vars: {})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fixture_bytes(ctx, "merge_ints_interleaved.expected")?)
@@ -265,9 +265,9 @@ test test_uu_sort_merge_batch_size { |ctx|
 test test_uu_sort_merge_batch_size_with_limit { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")?
+  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")
   let r = limited(s, ["--batch-size=2", "-m", "--unique", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_1.txt"], 7)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fixture_bytes(ctx, "merge_ints_interleaved.expected")?)
@@ -278,7 +278,7 @@ test test_uu_sort_merge_batch_size_with_limit { |ctx|
 test test_uu_sort_merge_batches { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")?
+  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
   let r = uu.invoke(s, "sort", ["ext_sort.txt", "-n", "-S", "150b"], stdin: bytes.from_text(""), vars: {}, timeout: 120s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fixture_bytes(ctx, "ext_sort.expected")?)
@@ -289,7 +289,7 @@ test test_uu_sort_merge_batches { |ctx|
 test test_uu_sort_merge_empty_input { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "empty.txt", "empty.txt")?
+  uu.fixture(s, "sort", "empty.txt", "empty.txt")
   let r = uu.invoke(s, "sort", ["-m", "empty.txt"], stdin: bytes.from_text(""), vars: {})?
   uu.succeeds(r)
   uu.no_output(r)
@@ -299,7 +299,7 @@ test test_uu_sort_merge_empty_input { |ctx|
 # origin: uutils test_sort::test_merge_flush_error_is_reported
 test test_uu_sort_merge_flush_error_is_reported { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input.txt", "line\n")?
+  uu.write(s, "input.txt", "line\n")
   let r = uu.invoke(s, "sort", ["-m", "input.txt"], stdout: p"/dev/full")?
   uu.fails(r)
   uu.stderr_is(r, "sort: fflush failed: 'standard output': No space left on device\nsort: write error\n")
@@ -309,9 +309,9 @@ test test_uu_sort_merge_flush_error_is_reported { |ctx|
 test test_uu_sort_merge_interleaved { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")?
+  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")
   let r = uu.invoke(s, "sort", ["-m", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_3.txt"], stdin: bytes.from_text(""), vars: {})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fixture_bytes(ctx, "merge_ints_interleaved.expected")?)
@@ -322,7 +322,7 @@ test test_uu_sort_merge_interleaved { |ctx|
 test test_uu_sort_merge_more_files_than_fd_limit { |ctx|
   let s = uu.scene(ctx)?
   let names = [f"fdlimit_{padded(i, 2)}.txt" for i in range(40)]
-  for i in range(40) { uu.write(s, names[i], f"{padded(i, 2)}\n")? }
+  for i in range(40) { uu.write(s, names[i], f"{padded(i, 2)}\n") }
   let expected = [padded(i, 2) for i in range(40)].join("\n") + "\n"
   let args = ["-m"].extend(names)
   let r = limited(s, args, 24)?
@@ -333,8 +333,8 @@ test test_uu_sort_merge_more_files_than_fd_limit { |ctx|
 # origin: uutils test_sort::test_merge_output_file_is_truncated
 test test_uu_sort_merge_output_file_is_truncated { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "merged", "zzz-leftover-one\nzzz-leftover-two\nzzz-leftover-three\n")?
-  uu.write(s, "pears", "damson\nquince\n")?
+  uu.write(s, "merged", "zzz-leftover-one\nzzz-leftover-two\nzzz-leftover-three\n")
+  uu.write(s, "pears", "damson\nquince\n")
   let r = uu.invoke(s, "sort", ["-m", "-o", "merged", "pears"], stdin: bytes.from_text(""))?
   uu.succeeds(r)
   uu.no_output(r)
@@ -345,7 +345,7 @@ test test_uu_sort_merge_output_file_is_truncated { |ctx|
 test test_uu_sort_merge_preserves_long_lines { |ctx|
   let s = uu.scene(ctx)?
   let input = [[value for i in range(32000)].join("") for value in ["a", "b", "c"]].join("\n") + "\n"
-  uu.write(s, "long-lines.txt", input)?
+  uu.write(s, "long-lines.txt", input)
   let r = uu.invoke(s, "sort", ["-m", "long-lines.txt"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -358,9 +358,9 @@ test test_uu_sort_merge_preserves_long_lines { |ctx|
 test test_uu_sort_merge_reversed { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "merge_ints_reversed_1.txt", "merge_ints_reversed_1.txt")?
-  uu.fixture(s, "sort", "merge_ints_reversed_2.txt", "merge_ints_reversed_2.txt")?
-  uu.fixture(s, "sort", "merge_ints_reversed_3.txt", "merge_ints_reversed_3.txt")?
+  uu.fixture(s, "sort", "merge_ints_reversed_1.txt", "merge_ints_reversed_1.txt")
+  uu.fixture(s, "sort", "merge_ints_reversed_2.txt", "merge_ints_reversed_2.txt")
+  uu.fixture(s, "sort", "merge_ints_reversed_3.txt", "merge_ints_reversed_3.txt")
   let r = uu.invoke(s, "sort", ["-m", "--reverse", "merge_ints_reversed_1.txt", "merge_ints_reversed_2.txt", "merge_ints_reversed_3.txt"], stdin: bytes.from_text(""), vars: {})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fixture_bytes(ctx, "merge_ints_reversed.expected")?)
@@ -371,8 +371,8 @@ test test_uu_sort_merge_reversed { |ctx|
 test test_uu_sort_merge_stable { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "merge_stable_1.txt", "merge_stable_1.txt")?
-  uu.fixture(s, "sort", "merge_stable_2.txt", "merge_stable_2.txt")?
+  uu.fixture(s, "sort", "merge_stable_1.txt", "merge_stable_1.txt")
+  uu.fixture(s, "sort", "merge_stable_2.txt", "merge_stable_2.txt")
   let r = uu.invoke(s, "sort", ["-m", "--stable", "-n", "merge_stable_1.txt", "merge_stable_2.txt"], stdin: bytes.from_text(""), vars: {})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fixture_bytes(ctx, "merge_stable.expected")?)
@@ -383,9 +383,9 @@ test test_uu_sort_merge_stable { |ctx|
 test test_uu_sort_merge_unique { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")?
+  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")
   let r = uu.invoke(s, "sort", ["-m", "--unique", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_1.txt"], stdin: bytes.from_text(""), vars: {})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fixture_bytes(ctx, "merge_ints_interleaved.expected")?)
@@ -396,8 +396,8 @@ test test_uu_sort_merge_unique { |ctx|
 test test_uu_sort_merge_write_error_does_not_panic { |ctx|
   let s = uu.scene(ctx)?
   let input = [padded(line, 6) for line in range(100000)].join("\n") + "\n"
-  uu.write(s, "a.txt", input)?
-  uu.write(s, "b.txt", input)?
+  uu.write(s, "a.txt", input)
+  uu.write(s, "b.txt", input)
   for i in range(20) {
     let r = uu.invoke(s, "sort", ["-m", "a.txt", "b.txt"], stdout: p"/dev/full", timeout: 30s)?
     uu.fails(r)
@@ -445,7 +445,7 @@ test test_uu_sort_month_default2 { |ctx|
 # origin: uutils test_sort::test_month_sort_french_embedded_blanks
 test test_uu_sort_month_sort_french_embedded_blanks { |ctx|
   let s = uu.scene(ctx)?
-  if !locale_available(s, "fr_FR.UTF-8")? { test.skip("requested UTF-8 locale unavailable") }
+  if !locale_available(s, "fr_FR.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
   let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("juin\nav   ril\nmars\n"), vars: {"LC_ALL": "fr_FR.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "av   ril\nmars\njuin\n")
@@ -454,7 +454,7 @@ test test_uu_sort_month_sort_french_embedded_blanks { |ctx|
 # origin: uutils test_sort::test_month_sort_french_locale
 test test_uu_sort_month_sort_french_locale { |ctx|
   let s = uu.scene(ctx)?
-  if !locale_available(s, "fr_FR.UTF-8")? { test.skip("requested UTF-8 locale unavailable") }
+  if !locale_available(s, "fr_FR.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
   let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("mai\ndéc.\njanv.\njuin\nfévr.\nmars\navril\njuil.\naoût\nsept.\noct.\nnov.\n"), vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "janv.\nfévr.\nmars\navril\nmai\njuin\njuil.\naoût\nsept.\noct.\nnov.\ndéc.\n")
@@ -463,7 +463,7 @@ test test_uu_sort_month_sort_french_locale { |ctx|
 # origin: uutils test_sort::test_month_sort_hungarian_locale
 test test_uu_sort_month_sort_hungarian_locale { |ctx|
   let s = uu.scene(ctx)?
-  if !locale_available(s, "hu_HU.UTF-8")? { test.skip("requested UTF-8 locale unavailable") }
+  if !locale_available(s, "hu_HU.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
   let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("máj\ndec\njan\njún\nfebr\nmárc\nápr\njúl\naug\nszept\nokt\nnov\n"), vars: {LC_ALL: "hu_HU.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "jan\nfebr\nmárc\nápr\nmáj\njún\njúl\naug\nszept\nokt\nnov\ndec\n")
@@ -472,7 +472,7 @@ test test_uu_sort_month_sort_hungarian_locale { |ctx|
 # origin: uutils test_sort::test_month_sort_japanese_locale
 test test_uu_sort_month_sort_japanese_locale { |ctx|
   let s = uu.scene(ctx)?
-  if !locale_available(s, "ja_JP.UTF-8")? { test.skip("requested UTF-8 locale unavailable") }
+  if !locale_available(s, "ja_JP.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
   let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("5月\n12月\n1月\n6月\n2月\n3月\n4月\n7月\n8月\n9月\n10月\n11月\n"), vars: {LC_ALL: "ja_JP.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "1月\n2月\n3月\n4月\n5月\n6月\n7月\n8月\n9月\n10月\n11月\n12月\n")
@@ -497,7 +497,7 @@ test test_uu_sort_months_whitespace { |ctx|
 test test_uu_sort_more_files_than_fd_limit { |ctx|
   let s = uu.scene(ctx)?
   let names = [f"fdlimit_{padded(i, 2)}.txt" for i in range(40)]
-  for i in range(40) { uu.write(s, names[i], f"{padded(39 - i, 2)}\n")? }
+  for i in range(40) { uu.write(s, names[i], f"{padded(39 - i, 2)}\n") }
   let expected = [padded(i, 2) for i in range(40)].join("\n") + "\n"
   let args = [].extend(names)
   let r = limited(s, args, 24)?
@@ -519,8 +519,8 @@ test test_uu_sort_multiple_decimals_numeric { |ctx|
 test test_uu_sort_multiple_files { |ctx|
   {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "multiple_files1.txt", "multiple_files1.txt")?
-  uu.fixture(s, "sort", "multiple_files2.txt", "multiple_files2.txt")?
+  uu.fixture(s, "sort", "multiple_files1.txt", "multiple_files1.txt")
+  uu.fixture(s, "sort", "multiple_files2.txt", "multiple_files2.txt")
   let r = uu.invoke(s, "sort", ["-n", "multiple_files1.txt", "multiple_files2.txt"], stdin: bytes.from_text(""), vars: {})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fixture_bytes(ctx, "multiple_files.expected")?)
@@ -702,7 +702,7 @@ test test_uu_sort_output_device { |ctx|
 # origin: uutils test_sort::test_output_file_is_truncated
 test test_uu_sort_output_file_is_truncated { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "shrinking", "zzz-leftover-one\nzzz-leftover-two\nzzz-leftover-three\n")?
+  uu.write(s, "shrinking", "zzz-leftover-one\nzzz-leftover-two\nzzz-leftover-three\n")
   let r = uu.invoke(s, "sort", ["-o", "shrinking"], stdin: bytes.from_text("kiwi\napple\n"))?
   uu.succeeds(r)
   uu.no_output(r)
@@ -726,7 +726,7 @@ test test_uu_sort_output_file_with_leading_dash { |ctx|
 # origin: uutils test_sort::test_output_is_input
 test test_uu_sort_output_is_input { |ctx|
   let s = uu.scene(ctx)?
-  uu.append(s, "file", "a\nb\nc\n")?
+  uu.append(s, "file", "a\nb\nc\n")
   let r = uu.invoke(s, "sort", ["-m", "-u", "-o", "file", "file", "file", "file"])?
   uu.succeeds(r)
   uu.file_is(s, "file", "a\nb\nc\n")
@@ -766,7 +766,7 @@ test test_uu_sort_random_shuffle_contains_all_lines { |ctx|
   for option in ["-R"] {
     let s = uu.scene(ctx)?
     let file = "default_unsorted_ints.expected"
-    uu.fixture(s, "sort", file, file)?
+    uu.fixture(s, "sort", file, file)
     let expected = uu.read(s, file)?
     let r = uu.invoke(s, "sort", [option, file])?
     uu.succeeds(r)
@@ -783,7 +783,7 @@ test test_uu_sort_random_shuffle_len { |ctx|
   for option in ["-R"] {
     let s = uu.scene(ctx)?
     let file = "default_unsorted_ints.expected"
-    uu.fixture(s, "sort", file, file)?
+    uu.fixture(s, "sort", file, file)
     let expected = uu.read(s, file)?
     let r = uu.invoke(s, "sort", [option, file])?
     uu.succeeds(r)
@@ -798,7 +798,7 @@ test test_uu_sort_random_shuffle_two_runs_not_the_same { |ctx|
   for option in ["-R", "-k1,1R"] {
     let s = uu.scene(ctx)?
     let file = "default_unsorted_ints.expected"
-    uu.fixture(s, "sort", file, file)?
+    uu.fixture(s, "sort", file, file)
     let expected = uu.read(s, file)?
     let r = uu.invoke(s, "sort", [option, file])?
     uu.succeeds(r)
@@ -813,8 +813,8 @@ test test_uu_sort_random_shuffle_two_runs_not_the_same { |ctx|
 # origin: uutils test_sort::test_random_source_is_not_read_without_random_sort
 test test_uu_sort_random_source_is_not_read_without_random_sort { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "source", b"")?
-  uu.write(s, "input", "b\na\nc\n")?
+  uu.write_bytes(s, "source", b"")
+  uu.write(s, "input", "b\na\nc\n")
   let r = uu.invoke(s, "sort", ["--random-source=source", "input"])?
   uu.succeeds(r)
   uu.stdout_is(r, "a\nb\nc\n")

@@ -585,7 +585,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
         }
         log_verbose(options, "Retrying.\n\n")
         let wait_for = if attempt > 10 { 10 } else { attempt }
-        time.sleep(time.seconds(wait_for))?
+        time.sleep(time.seconds(wait_for))
         attempt += 1
         continue
       }

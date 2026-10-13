@@ -62,14 +62,14 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
     entries = collect { for entry in calculated { yield entry when (! entry.default and access_changed) or (entry.default and default_changed) } }.extend(collect { for entry in entries { yield entry when (! entry.default and ! access_changed) or (entry.default and ! default_changed) } })
     if mask_policy != "force" { entries = acl.merge(entries, explicit) }
   }
-  acl.validate(entries)?
+  acl.validate(entries)
   if testing {
     var access: List[Str] = []; var defaults: List[Str] = []
     for entry in acl.canonical(entries) { if entry.default { defaults += [acl.text(entry).replace("default:", with: "d:").replace("user:", with: "u:").replace("group:", with: "g:").replace("mask:", with: "m:").replace("other:", with: "o:")] } else { access += [acl.text(entry).replace("default:", with: "d:").replace("user:", with: "u:").replace("group:", with: "g:").replace("mask:", with: "m:").replace("other:", with: "o:")] } }
     gnu.write_text(target.display() + ": " + access.join(",") + "," + (if defaults.is_empty() { "*" } else { defaults.join(",") }) + "\n")
     return Ok()
   }
-  acl.store(target, entries)?
+  acl.store(target, entries)
   Ok()
 }
 
@@ -82,7 +82,7 @@ proc parse_restore(text: Str) [fs, error] -> Result[List[Restore], Error] {
     if line.starts_with("# file: ") {
       if let previous = name {
         let entries = acl.parse(lines.join("\n"))?
-        acl.validate(entries)?
+        acl.validate(entries)
         for default in [false, true] {
           let selected = collect { for entry in entries { yield entry when entry.default == default } }
           if ! selected.is_empty() { let encoded = acl.encode(selected)? }
@@ -105,9 +105,9 @@ proc parse_restore(text: Str) [fs, error] -> Result[List[Restore], Error] {
 }
 
 proc restore_record(target: Path, record: Restore) [fs, error] -> Result[Unit, Error] {
-  acl.store(target, record.entries)?
-  if record.uid != null or record.gid != null { fs.set_owner(target, uid: record.uid, gid: record.gid)? }
-  target.chmod(acl.mode(record.entries)? + record.special)?
+  acl.store(target, record.entries)
+  if record.uid != null or record.gid != null { fs.set_owner(target, uid: record.uid, gid: record.gid) }
+  target.chmod(acl.mode(record.entries)? + record.special)
   Ok()
 }
 

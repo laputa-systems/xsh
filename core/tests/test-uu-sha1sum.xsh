@@ -5,7 +5,7 @@ use support.uu as uu
 proc checksum_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
   for name in ["input.txt", "sha1.expected", "sha1.checkfile"] {
-    uu.fixture(s, "sha1sum", name, name)?
+    uu.fixture(s, "sha1sum", name, name)
   }
   Ok(s)
 }
@@ -22,8 +22,8 @@ test test_uu_sha1sum_sha1_check { |ctx|
 # origin: uutils test_sha1sum::sha1::test_missing_file
 test test_uu_sha1sum_sha1_missing_file { |ctx|
   let s = checksum_scene(ctx)?
-  uu.write(s, "a", "file1\n")?
-  uu.write(s, "c", "file3\n")?
+  uu.write(s, "a", "file1\n")
+  uu.write(s, "c", "file3\n")
   let r = uu.invoke(s, "sha1sum", ["a", "b", "c"])?
   uu.fails(r)
   uu.stdout_contains(r, "a\n")
@@ -54,7 +54,7 @@ test test_uu_sha1sum_sha1_stdin { |ctx|
 # origin: uutils test_sha1sum::sha1::test_stdin_with_dash_directory
 test test_uu_sha1sum_sha1_stdin_with_dash_directory { |ctx|
   let s = checksum_scene(ctx)?
-  uu.mkdir(s, "-")?
+  uu.mkdir(s, "-")
   let expected = uu.read_text(s, "sha1.expected")?
   let r = uu.invoke(s, "sha1sum", [], stdin: uu.read(s, "input.txt")?)?
   uu.succeeds(r)
@@ -75,9 +75,9 @@ test test_uu_sha1sum_sha1_zero { |ctx|
 # origin: uutils test_sha1sum::test_check_file_not_found_warning
 test test_uu_sha1sum_check_file_not_found_warning { |ctx|
   let s = checksum_scene(ctx)?
-  uu.write(s, "testf", "foobar\n")?
-  uu.write(s, "testf.sha1", "988881adc9fc3655077dc2d4d757d480b5ea0e11  testf\n")?
-  uu.remove(s, "testf")?
+  uu.write(s, "testf", "foobar\n")
+  uu.write(s, "testf.sha1", "988881adc9fc3655077dc2d4d757d480b5ea0e11  testf\n")
+  uu.remove(s, "testf")
   let r = uu.invoke(s, "sha1sum", ["-c", uu.at(s, "testf.sha1").display()])?
   uu.fails(r)
   uu.stdout_is(r, "testf: FAILED open or read\n")
@@ -87,8 +87,8 @@ test test_uu_sha1sum_check_file_not_found_warning { |ctx|
 # origin: uutils test_sha1sum::test_check_sha1
 test test_uu_sha1sum_check_sha1 { |ctx|
   let s = checksum_scene(ctx)?
-  uu.write(s, "testf", "foobar\n")?
-  uu.write(s, "testf.sha1", "988881adc9fc3655077dc2d4d757d480b5ea0e11  testf\n")?
+  uu.write(s, "testf", "foobar\n")
+  uu.write(s, "testf.sha1", "988881adc9fc3655077dc2d4d757d480b5ea0e11  testf\n")
   let r = uu.invoke(s, "sha1sum", ["-c", uu.at(s, "testf.sha1").display()])?
   uu.succeeds(r)
   uu.stdout_only(r, "testf: OK\n")

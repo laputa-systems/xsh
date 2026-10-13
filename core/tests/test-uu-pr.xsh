@@ -26,8 +26,8 @@ proc expected_during_run(s: uu.Scene, r: uu.Ran, fixture: Str, started: Int) [fs
 # origin: uutils test_pr::test_without_any_options
 test test_uu_pr_without_any_options { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   let r0 = uu.invoke(s, "pr", ["test_one_page.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_one_page.log.expected", "test_one_page.log")?)
@@ -36,8 +36,8 @@ test test_uu_pr_without_any_options { |ctx|
 # origin: uutils test_pr::test_with_numbering_option_with_number_width
 test test_uu_pr_with_numbering_option_with_number_width { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_num_page.log")?
-  uu.fixture(s, "pr", "test_num_page.log", "test_num_page.log")?
+  uu.remove(s, "test_num_page.log")
+  uu.fixture(s, "pr", "test_num_page.log", "test_num_page.log")
   let r0 = uu.invoke(s, "pr", ["-n", "2", "test_num_page.log"], stdin: b"")?
   uu.fails_with_code(r0, 1)
   uu.stderr_is(r0, "pr: 2: No such file or directory\n")
@@ -47,13 +47,13 @@ test test_uu_pr_with_numbering_option_with_number_width { |ctx|
 # origin: uutils test_pr::test_with_double_space_option
 test test_uu_pr_with_double_space_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   let r0 = uu.invoke(s, "pr", ["-d", "test_one_page.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_one_page_double_line.log.expected", "test_one_page.log")?)
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   let r1 = uu.invoke(s, "pr", ["--double-space", "test_one_page.log"], stdin: b"")?
   uu.succeeds(r1)
   uu.stdout_is_bytes(r1, expected_file(s, "test_one_page_double_line.log.expected", "test_one_page.log")?)
@@ -62,8 +62,8 @@ test test_uu_pr_with_double_space_option { |ctx|
 # origin: uutils test_pr::test_with_first_line_number_option
 test test_uu_pr_with_first_line_number_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   let r0 = uu.invoke(s, "pr", ["-N", "5", "-n", "test_one_page.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_one_page_first_line.log.expected", "test_one_page.log")?)
@@ -72,8 +72,8 @@ test test_uu_pr_with_first_line_number_option { |ctx|
 # origin: uutils test_pr::test_with_first_line_number_long_option
 test test_uu_pr_with_first_line_number_long_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   let r0 = uu.invoke(s, "pr", ["--first-line-number=5", "-n", "test_one_page.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_one_page_first_line.log.expected", "test_one_page.log")?)
@@ -82,8 +82,8 @@ test test_uu_pr_with_first_line_number_long_option { |ctx|
 # origin: uutils test_pr::test_with_number_option_with_custom_separator_char
 test test_uu_pr_with_number_option_with_custom_separator_char { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_num_page.log")?
-  uu.fixture(s, "pr", "test_num_page.log", "test_num_page.log")?
+  uu.remove(s, "test_num_page.log")
+  uu.fixture(s, "pr", "test_num_page.log", "test_num_page.log")
   let r0 = uu.invoke(s, "pr", ["-nc", "test_num_page.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_num_page_char.log.expected", "test_num_page.log")?)
@@ -92,8 +92,8 @@ test test_uu_pr_with_number_option_with_custom_separator_char { |ctx|
 # origin: uutils test_pr::test_with_number_option_with_custom_separator_char_and_width
 test test_uu_pr_with_number_option_with_custom_separator_char_and_width { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_num_page.log")?
-  uu.fixture(s, "pr", "test_num_page.log", "test_num_page.log")?
+  uu.remove(s, "test_num_page.log")
+  uu.fixture(s, "pr", "test_num_page.log", "test_num_page.log")
   let r0 = uu.invoke(s, "pr", ["-nc1", "test_num_page.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_num_page_char_one.log.expected", "test_num_page.log")?)
@@ -102,23 +102,23 @@ test test_uu_pr_with_number_option_with_custom_separator_char_and_width { |ctx|
 # origin: uutils test_pr::test_with_page_range
 test test_uu_pr_with_page_range { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r0 = uu.invoke(s, "pr", ["--pages=15", "test.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_page_range_1.log.expected", "test.log")?)
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r1 = uu.invoke(s, "pr", ["+15", "test.log"], stdin: b"")?
   uu.succeeds(r1)
   uu.stdout_is_bytes(r1, expected_file(s, "test_page_range_1.log.expected", "test.log")?)
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r2 = uu.invoke(s, "pr", ["--pages=15:17", "test.log"], stdin: b"")?
   uu.succeeds(r2)
   uu.stdout_is_bytes(r2, expected_file(s, "test_page_range_2.log.expected", "test.log")?)
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r3 = uu.invoke(s, "pr", ["+15:17", "test.log"], stdin: b"")?
   uu.succeeds(r3)
   uu.stdout_is_bytes(r3, expected_file(s, "test_page_range_2.log.expected", "test.log")?)
@@ -127,8 +127,8 @@ test test_uu_pr_with_page_range { |ctx|
 # origin: uutils test_pr::test_with_no_header_trailer_option
 test test_uu_pr_with_no_header_trailer_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   let r0 = uu.invoke(s, "pr", ["-t", "test_one_page.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_one_page_no_ht.log.expected", "test_one_page.log")?)
@@ -137,13 +137,13 @@ test test_uu_pr_with_no_header_trailer_option { |ctx|
 # origin: uutils test_pr::test_with_page_length_option
 test test_uu_pr_with_page_length_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r0 = uu.invoke(s, "pr", ["--pages=2:3", "-l", "100", "-n", "test.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "test_page_length.log.expected", "test.log")?)
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r1 = uu.invoke(s, "pr", ["--pages=2:3", "-l", "5", "-n", "test.log"], stdin: b"")?
   uu.succeeds(r1)
   uu.stdout_is_bytes(r1, expected_file(s, "test_page_length1.log.expected", "test.log")?)
@@ -152,8 +152,8 @@ test test_uu_pr_with_page_length_option { |ctx|
 # origin: uutils test_pr::test_with_stdin
 test test_uu_pr_with_stdin { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "stdin.log")?
-  uu.fixture(s, "pr", "stdin.log", "stdin.log")?
+  uu.remove(s, "stdin.log")
+  uu.fixture(s, "pr", "stdin.log", "stdin.log")
   let started0 = time.now()
   let r0 = uu.invoke(s, "pr", ["--pages=1:2", "-n", "-"], stdin: uu.read(s, "stdin.log")?)?
   uu.succeeds(r0)
@@ -163,13 +163,13 @@ test test_uu_pr_with_stdin { |ctx|
 # origin: uutils test_pr::test_with_columns
 test test_uu_pr_with_columns { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
   let r0 = uu.invoke(s, "pr", ["--pages=3:5", "-3", "-n", "column.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "gnu-column.log.expected", "column.log")?)
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
   let r1 = uu.invoke(s, "pr", ["--pages=3:5", "--columns=3", "-n", "column.log"], stdin: b"")?
   uu.succeeds(r1)
   uu.stdout_is_bytes(r1, expected_file(s, "gnu-column.log.expected", "column.log")?)
@@ -178,8 +178,8 @@ test test_uu_pr_with_columns { |ctx|
 # origin: uutils test_pr::test_with_columns_and_across_option
 test test_uu_pr_with_columns_and_across_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
   let r0 = uu.invoke(s, "pr", ["--pages=3:5", "--columns=3", "-a", "-n", "column.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "gnu-column_across.log.expected", "column.log")?)
@@ -188,13 +188,13 @@ test test_uu_pr_with_columns_and_across_option { |ctx|
 # origin: uutils test_pr::test_with_columns_across_option_and_column_separator
 test test_uu_pr_with_columns_across_option_and_column_separator { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
   let r0 = uu.invoke(s, "pr", ["--pages=3:5", "--columns=3", "-s|", "-a", "-n", "column.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "gnu-column_across_sep.log.expected", "column.log")?)
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
   let r1 = uu.invoke(s, "pr", ["--pages=3:5", "--columns=3", "-Sdivide", "-a", "-n", "column.log"], stdin: b"")?
   uu.succeeds(r1)
   uu.stdout_is_bytes(r1, expected_file(s, "gnu-column_across_sep1.log.expected", "column.log")?)
@@ -203,26 +203,26 @@ test test_uu_pr_with_columns_across_option_and_column_separator { |ctx|
 # origin: uutils test_pr::test_with_mpr
 test test_uu_pr_with_mpr { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
-  uu.remove(s, "hosts.log")?
-  uu.fixture(s, "pr", "hosts.log", "hosts.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
+  uu.remove(s, "hosts.log")
+  uu.fixture(s, "pr", "hosts.log", "hosts.log")
   let started0 = time.now()
   let r0 = uu.invoke(s, "pr", ["--pages=1:2", "-m", "-n", "column.log", "hosts.log"], stdin: b"")?
   uu.succeeds(r0)
   expected_during_run(s, r0, "gnu-mpr.log.expected", started0)
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
-  uu.remove(s, "hosts.log")?
-  uu.fixture(s, "pr", "hosts.log", "hosts.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
+  uu.remove(s, "hosts.log")
+  uu.fixture(s, "pr", "hosts.log", "hosts.log")
   let started1 = time.now()
   let r1 = uu.invoke(s, "pr", ["--pages=2:4", "-m", "-n", "column.log", "hosts.log"], stdin: b"")?
   uu.succeeds(r1)
   expected_during_run(s, r1, "gnu-mpr1.log.expected", started1)
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
-  uu.remove(s, "hosts.log")?
-  uu.fixture(s, "pr", "hosts.log", "hosts.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
+  uu.remove(s, "hosts.log")
+  uu.fixture(s, "pr", "hosts.log", "hosts.log")
   let started2 = time.now()
   let r2 = uu.invoke(s, "pr", ["--pages=1:2", "-l", "100", "-n", "-m", "column.log", "hosts.log", "column.log"], stdin: b"")?
   uu.succeeds(r2)
@@ -232,8 +232,8 @@ test test_uu_pr_with_mpr { |ctx|
 # origin: uutils test_pr::test_with_offset_space_option
 test test_uu_pr_with_offset_space_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
   let r0 = uu.invoke(s, "pr", ["-o", "5", "--pages=3:5", "--columns=3", "-a", "-n", "column.log"], stdin: b"")?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, expected_file(s, "gnu-column_spaces_across.log.expected", "column.log")?)
@@ -242,18 +242,18 @@ test test_uu_pr_with_offset_space_option { |ctx|
 # origin: uutils test_pr::test_with_join_lines_option
 test test_uu_pr_with_join_lines_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "hosts.log")?
-  uu.fixture(s, "pr", "hosts.log", "hosts.log")?
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "hosts.log")
+  uu.fixture(s, "pr", "hosts.log", "hosts.log")
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let started0 = time.now()
   let r0 = uu.invoke(s, "pr", ["+1:2", "-J", "-m", "hosts.log", "test.log"], stdin: b"")?
   uu.succeeds(r0)
   expected_during_run(s, r0, "gnu-joined.log.expected", started0)
-  uu.remove(s, "hosts.log")?
-  uu.fixture(s, "pr", "hosts.log", "hosts.log")?
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "hosts.log")
+  uu.fixture(s, "pr", "hosts.log", "hosts.log")
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let started1 = time.now()
   let r1 = uu.invoke(s, "pr", ["+1:2", "--join-lines", "-m", "hosts.log", "test.log"], stdin: b"")?
   uu.succeeds(r1)
@@ -271,8 +271,8 @@ test test_uu_pr_invalid_flag { |ctx|
 # origin: uutils test_pr::test_number_lines_empty_value_is_rejected
 test test_uu_pr_number_lines_empty_value_is_rejected { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   let r0 = uu.invoke(s, "pr", ["--number-lines=", "test_one_page.log"], stdin: bytes.from_text(""))?
   uu.fails_with_code(r0, 1)
   uu.stderr_contains(r0, "pr: '-n': Invalid argument: ''")
@@ -281,8 +281,8 @@ test test_uu_pr_number_lines_empty_value_is_rejected { |ctx|
 # origin: uutils test_pr::test_start_page_exceeds_page_count
 test test_uu_pr_start_page_exceeds_page_count { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "hosts.log")?
-  uu.fixture(s, "pr", "hosts.log", "hosts.log")?
+  uu.remove(s, "hosts.log")
+  uu.fixture(s, "pr", "hosts.log", "hosts.log")
   let r0 = uu.invoke(s, "pr", ["--pages=2", "hosts.log"], stdin: bytes.from_text(""))?
   uu.succeeds(r0)
   uu.stderr_only(r0, "pr: starting page number 2 exceeds page count 1\n")
@@ -291,8 +291,8 @@ test test_uu_pr_start_page_exceeds_page_count { |ctx|
 # origin: uutils test_pr::test_with_suppress_error_option
 test test_uu_pr_with_suppress_error_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_num_page.log")?
-  uu.fixture(s, "pr", "test_num_page.log", "test_num_page.log")?
+  uu.remove(s, "test_num_page.log")
+  uu.fixture(s, "pr", "test_num_page.log", "test_num_page.log")
   let r0 = uu.invoke(s, "pr", ["--pages=20:5", "-r", "test_num_page.log"], stdin: bytes.from_text(""))?
   uu.fails(r0)
   uu.no_stdout(r0)
@@ -454,13 +454,13 @@ test test_uu_pr_missing_file_error_message { |ctx|
 # origin: uutils test_pr::test_with_mpr_and_columns_options
 test test_uu_pr_with_mpr_and_columns_options { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
   let r0 = uu.invoke(s, "pr", ["--columns=2", "-m", "-n", "column.log"], stdin: bytes.from_text(""))?
   uu.fails(r0)
   uu.stderr_only(r0, "pr: cannot specify number of columns when printing in parallel\n")
-  uu.remove(s, "column.log")?
-  uu.fixture(s, "pr", "column.log", "column.log")?
+  uu.remove(s, "column.log")
+  uu.fixture(s, "pr", "column.log", "column.log")
   let r1 = uu.invoke(s, "pr", ["-a", "-m", "-n", "column.log"], stdin: bytes.from_text(""))?
   uu.fails(r1)
   uu.stderr_only(r1, "pr: cannot specify both printing across and printing in parallel\n")
@@ -469,18 +469,18 @@ test test_uu_pr_with_mpr_and_columns_options { |ctx|
 # origin: uutils test_pr::test_value_for_number_lines
 test test_uu_pr_value_for_number_lines { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r0 = uu.invoke(s, "pr", ["-n", "*5", "test.log"], stdin: bytes.from_text(""))?
   uu.fails_with_code(r0, 1)
   uu.stderr_contains(r0, "pr: '*5': No such file or directory")
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r1 = uu.invoke(s, "pr", ["-n", "a", "test.log"], stdin: bytes.from_text(""))?
   uu.fails_with_code(r1, 1)
   uu.stderr_contains(r1, "pr: a: No such file or directory")
-  uu.remove(s, "test.log")?
-  uu.fixture(s, "pr", "test.log", "test.log")?
+  uu.remove(s, "test.log")
+  uu.fixture(s, "pr", "test.log", "test.log")
   let r2 = uu.invoke(s, "pr", ["-n", "foo5.txt", "test.log"], stdin: bytes.from_text(""))?
   uu.fails(r2)
 }
@@ -488,16 +488,16 @@ test test_uu_pr_value_for_number_lines { |ctx|
 # origin: uutils test_pr::test_expand_tab_does_not_consume_next_argument
 test test_uu_pr_expand_tab_does_not_consume_next_argument { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "empty_test_file")?
-  uu.fixture(s, "pr", "empty_test_file", "empty_test_file")?
+  uu.remove(s, "empty_test_file")
+  uu.fixture(s, "pr", "empty_test_file", "empty_test_file")
   let r0 = uu.invoke(s, "pr", ["-e", "empty_test_file"], stdin: bytes.from_text(""))?
   uu.succeeds(r0)
-  uu.remove(s, "empty_test_file")?
-  uu.fixture(s, "pr", "empty_test_file", "empty_test_file")?
+  uu.remove(s, "empty_test_file")
+  uu.fixture(s, "pr", "empty_test_file", "empty_test_file")
   let r1 = uu.invoke(s, "pr", ["-ea", "empty_test_file"], stdin: bytes.from_text(""))?
   uu.succeeds(r1)
-  uu.remove(s, "empty_test_file")?
-  uu.fixture(s, "pr", "empty_test_file", "empty_test_file")?
+  uu.remove(s, "empty_test_file")
+  uu.fixture(s, "pr", "empty_test_file", "empty_test_file")
   let r2 = uu.invoke(s, "pr", ["-ea1", "empty_test_file"], stdin: bytes.from_text(""))?
   uu.succeeds(r2)
 }
@@ -516,8 +516,8 @@ test test_uu_pr_offset_invalid { |ctx|
 # origin: uutils test_pr::test_expand_tabs_multibyte_char_is_rejected
 test test_uu_pr_expand_tabs_multibyte_char_is_rejected { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   for arg in ["-e€", "-e€3"] {
     let r = uu.invoke(s, "pr", [arg, "test_one_page.log"])?
     uu.fails_with_code(r, 1)
@@ -528,8 +528,8 @@ test test_uu_pr_expand_tabs_multibyte_char_is_rejected { |ctx|
 # origin: uutils test_pr::test_number_lines_multibyte_separator_is_rejected
 test test_uu_pr_number_lines_multibyte_separator_is_rejected { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   for arg in ["-n€", "-n€5"] {
     let r = uu.invoke(s, "pr", [arg, "test_one_page.log"])?
     uu.fails_with_code(r, 1)
@@ -601,7 +601,7 @@ test test_uu_pr_large_number_width_does_not_panic { |ctx|
 test test_uu_pr_filename_ending_with_dash_number_is_not_an_option { |ctx|
   let s = uu.scene(ctx)?
   for name in ["a-0", "a-b-0", "a-3"] {
-    uu.write(s, name, "RUST-pr\n")?
+    uu.write(s, name, "RUST-pr\n")
     let r = uu.invoke(s, "pr", ["-t", name])?
     uu.succeeds(r)
     uu.stdout_contains(r, "RUST-pr")
@@ -612,7 +612,7 @@ test test_uu_pr_filename_ending_with_dash_number_is_not_an_option { |ctx|
 test test_uu_pr_double_dash_shields_filename_ending_with_dash_zero { |ctx|
   let s = uu.scene(ctx)?
   for name in ["a-0", "a-b-0"] {
-    uu.write(s, name, "RUST-pr\n")?
+    uu.write(s, name, "RUST-pr\n")
     let r = uu.invoke(s, "pr", ["-t", "--", name])?
     uu.succeeds(r)
     uu.stdout_contains(r, "RUST-pr\n")
@@ -622,7 +622,7 @@ test test_uu_pr_double_dash_shields_filename_ending_with_dash_zero { |ctx|
 # origin: uutils test_pr::test_double_dash_terminates_option_parsing
 test test_uu_pr_double_dash_terminates_option_parsing { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "-0", "RUST-pr\n")?
+  uu.write(s, "-0", "RUST-pr\n")
   let r = uu.invoke(s, "pr", ["-t", "--", "-0"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_contains(r, "RUST-pr")
@@ -631,7 +631,7 @@ test test_uu_pr_double_dash_terminates_option_parsing { |ctx|
 # origin: uutils test_pr::test_double_dash_shields_expand_tabs_filename
 test test_uu_pr_double_dash_shields_expand_tabs_filename { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "-e", "RUST-pr\n")?
+  uu.write(s, "-e", "RUST-pr\n")
   let r = uu.invoke(s, "pr", ["-t", "--", "-e"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_contains(r, "RUST-pr")
@@ -640,8 +640,8 @@ test test_uu_pr_double_dash_shields_expand_tabs_filename { |ctx|
 # origin: uutils test_pr::test_double_dash_shields_number_lines_filename
 test test_uu_pr_double_dash_shields_number_lines_filename { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "-n", "first\n")?
-  uu.write(s, "data", "second\n")?
+  uu.write(s, "-n", "first\n")
+  uu.write(s, "data", "second\n")
   let r = uu.invoke(s, "pr", ["-t", "--", "-n", "data"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_contains(r, "first")
@@ -702,8 +702,8 @@ test test_uu_pr_columns { |ctx|
 # origin: uutils test_pr::test_merge
 test test_uu_pr_merge { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f", "a\n")?
-  uu.write(s, "g", "b\n")?
+  uu.write(s, "f", "a\n")
+  uu.write(s, "g", "b\n")
   let r0 = uu.invoke(s, "pr", ["-m", "f", "g"], stdin: bytes.from_text(""))?
   uu.succeeds(r0)
   assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\t\t\t\t    b\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout.utf8()?)
@@ -712,8 +712,8 @@ test test_uu_pr_merge { |ctx|
 # origin: uutils test_pr::test_merge_one_long_one_short
 test test_uu_pr_merge_one_long_one_short { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f", "a\na\n")?
-  uu.write(s, "g", "b\n")?
+  uu.write(s, "f", "a\na\n")
+  uu.write(s, "g", "b\n")
   let r0 = uu.invoke(s, "pr", ["-l", "11", "-m", "f", "g"], stdin: bytes.from_text(""))?
   uu.succeeds(r0)
   assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\t\t\t\t    b\n\n\n\n\n\n\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 2\n\n\na\t\t\t\t    \n\n\n\n\n\n".matches(r0.stdout.utf8()?)
@@ -814,8 +814,8 @@ test test_uu_pr_columns_last_page { |ctx|
 # origin: uutils test_pr::test_header_formatting_with_custom_date_format
 test test_uu_pr_header_formatting_with_custom_date_format { |ctx|
   let s = uu.scene(ctx)?
-  uu.remove(s, "test_one_page.log")?
-  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")?
+  uu.remove(s, "test_one_page.log")
+  uu.fixture(s, "pr", "test_one_page.log", "test_one_page.log")
   let r = uu.invoke(s, "pr", ["-D", "+%Y-%m-%d %H:%M:%S %z (%Z)", "test_one_page.log"], stdin: b"")?
   uu.succeeds(r)
   let lines = r.stdout.utf8()?.lines().collect()

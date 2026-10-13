@@ -189,10 +189,10 @@ test test_core_archive_commands_preserve_arguments_and_resolve_adjacent_librarie
   let extracted = fp"{root}/extracted"
   archive.tar_extract(fp"{root}/dist/core-execution.tar.xz", extracted)
   let echo_argv = [ctx.xsh_bin.display(), fp"{extracted}/core/echo".display(), "--", "--", "-n"]
-  let echo_output = run.bytes @echo_argv ?
+  let echo_output = run.bytes @echo_argv
   assert echo_output == b"-- -n\n"
   let expr_argv = [ctx.xsh_bin.display(), fp"{extracted}/core/expr".display(), "--", "1", "+", "1"]
-  let expr_output = run.bytes @expr_argv ?
+  let expr_output = run.bytes @expr_argv
   assert expr_output == b"2\n"
 }
 

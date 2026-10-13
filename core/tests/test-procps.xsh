@@ -38,7 +38,7 @@ while ! release.exists()? { time.sleep(10ms) }
   # The marker is written after exec and interpreter naming; observing a process
   # row alone can catch a command name that changes during program startup.
   repeat 20 times {
-    break when ready.exists()?
+    break when ready.exists()
     time.sleep(10ms)
   }
   assert ready.exists()?, "owned child did not announce readiness"
@@ -173,7 +173,7 @@ type Sleeper = {name: Str, pid: Int, release: Path, child: ProcessHandle}
 proc start_sleeper(ctx: TestContext, tag: Str, token: Str = "", reading: Path? = null, appending: Path? = null) [fs, process, time, error] -> Result[Sleeper, Error] {
   let name = unique_name(ctx, tag)?
   let link = fp"{test.temp_dir(ctx, name: name)?}/{name}"
-  fs.symlink(ctx.xsh_bin, link)?
+  fs.symlink(ctx.xsh_bin, link)
   let ready = test.temp_path(ctx, name: f"{name}.ready")
   let release = test.temp_path(ctx, name: f"{name}.release")
   let script = test.temp_file(ctx, name: f"{name}.xsh", contents: bytes.from_text("""
@@ -192,7 +192,7 @@ repeat 1000 times {
     spawn run $link $script -- $ready $release $token ?
   }
   repeat 200 times {
-    break when ready.exists()?
+    break when ready.exists()
     time.sleep(10ms)
   }
   assert ready.exists()?, f"sleeper {name} did not announce readiness"
@@ -311,7 +311,7 @@ test test_pkill_reports_usage_and_selection_errors_with_distinct_statuses { |ctx
 test test_pkill_and_killall_never_select_their_own_process { |ctx|
   let name = unique_name(ctx, "s")?
   let link = fp"{test.temp_dir(ctx, name: name)?}/{name}"
-  fs.symlink(ctx.xsh_bin, link)?
+  fs.symlink(ctx.xsh_bin, link)
   let own = run.capture --text $link fp"{ctx.core_dir}/pkill.xsh" -- -x $name
   assert own.status.exited_with(1), "pkill matched its own process"
   let full = run.capture --text $link fp"{ctx.core_dir}/pkill.xsh" -- -f $name
@@ -483,14 +483,14 @@ test test_lsof_lists_a_regular_file_as_reg_while_tcp_time_wait_rows_exist { |ctx
   let c = linux.net_constants()
   let listener = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(listener)
-  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(listener, 1)?
+  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(listener, 1)
   let address = linux.getsockname(listener)?
   let client = linux.socket(c.AF_INET, c.SOCK_STREAM)?
-  linux.connect(client, address)?
+  linux.connect(client, address)
   let peer = linux.accept(listener)?
-  unix.close_fd(peer.fd)?
-  unix.close_fd(client)?
+  unix.close_fd(peer.fd)
+  unix.close_fd(client)
 
   let held = test.temp_file(ctx, name: "lsof-held.txt", contents: bytes.from_text("held"))?
   let holder = start_sleeper(ctx, "l", reading: held)?
@@ -507,8 +507,8 @@ test test_fuser_namespace_finds_the_owner_of_a_listening_port { |ctx|
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(server)
-  linux.bind(server, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(server, 1)?
+  linux.bind(server, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(server, 1)
   let port = linux.getsockname(server)?.port
   let me = f"{process.current_pid()?}"
   let named = fuser(ctx, ["-n", "tcp", f"{port}"])?
@@ -519,10 +519,10 @@ test test_fuser_namespace_finds_the_owner_of_a_listening_port { |ctx|
   assert suffix.status.exited_with(0) and me in suffix.stdout.fields()
   assert fuser(ctx, ["-n", "udp", f"{port}"])?.status.exited_with(1)
   let closed = linux.socket(c.AF_INET, c.SOCK_STREAM)?
-  linux.bind(closed, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(closed, 1)?
+  linux.bind(closed, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(closed, 1)
   let gone = linux.getsockname(closed)?.port
-  unix.close_fd(closed)?
+  unix.close_fd(closed)
   assert fuser(ctx, ["-n", "tcp", f"{gone}"])?.status.exited_with(1)
 }
 

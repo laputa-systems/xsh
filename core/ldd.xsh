@@ -8,7 +8,7 @@ type Options = {help: Bool, version: Bool, files: List[Str]}
 proc resolve_library(name: Str, origin: Path, search: Str) [fs, env, error, process] -> Result[Path?] {
   if name.find("/") != null {
     let target = fp"{name}"
-    return Ok(if target.exists()? { target } else { null })
+    return Ok(if target.exists() { target } else { null })
   }
   let environment = env.get_or("LD_LIBRARY_PATH", "") ?? ""
   let paths = (environment + ":" + search).split(":").extend(["/lib", "/usr/local/lib", "/usr/lib", "/lib64", "/usr/lib64", "/lib/aarch64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/lib/x86_64-linux-gnu", "/usr/lib/x86_64-linux-gnu"])
@@ -17,7 +17,7 @@ proc resolve_library(name: Str, origin: Path, search: Str) [fs, env, error, proc
     let expanded = directory.replace(r"${ORIGIN}", with: origin.display()).replace(r"$ORIGIN", with: origin.display())
     if expanded.find("$") != null { gnu.error(f"unsupported loader path expansion {gnu.quote(expanded)}"); return Ok(null) }
     let candidate = fp"{expanded}/{name}"
-    if candidate.exists()? { return Ok(candidate) }
+    if candidate.exists() { return Ok(candidate) }
   }
   Ok(null)
 }

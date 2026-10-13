@@ -106,7 +106,7 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
     if byte != 37 { text += [format[at..at + 1]]; at += 1; continue }
     let start = at
     at += 1
-    if at >= format.len() { search.reject("error: % at end of format string")? }
+    if at >= format.len() { search.reject("error: % at end of format string") }
     if format.byte_at(at) == 37 { text += [b"%"]; at += 1; continue }
     var flags = ""
     while at < format.len() and (format.byte_at(at) ?? 0) in [45, 43, 32, 35, 48] {
@@ -124,12 +124,12 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
         precision = precision * 10 + (format.byte_at(at) ?? 48) - 48; at += 1
       }
     }
-    if at >= format.len() { search.reject("error: % at end of format string")? }
+    if at >= format.len() { search.reject("error: % at end of format string") }
     let spec = (bytes.from_ints([format.byte_at(at) ?? 0]) ?? b"").utf8() ?? "?"
     at += 1
     var sub = ""
     if spec in ["A", "B", "C", "T"] {
-      if at >= format.len() { search.reject(f"error: %{spec} at end of format string")? }
+      if at >= format.len() { search.reject(f"error: %{spec} at end of format string") }
       sub = (bytes.from_ints([format.byte_at(at) ?? 0]) ?? b"").utf8() ?? "?"
       at += 1
     }
@@ -224,7 +224,7 @@ proc time_field(ns: Int, sub: Str) [time, error] -> Result[Str, Error] {
     "S" => Ok(f"{strftime(ns, "%S")?}.{fraction(ns)}")
     "T" | "X" => Ok(f"{strftime(ns, "%H:%M:")?}{strftime(ns, "%S")?}.{fraction(ns)}")
     "+" => Ok(f"{strftime(ns, "%Y-%m-%d+%H:%M:")?}{strftime(ns, "%S")?}.{fraction(ns)}")
-    "k" | "l" | "N" => { search.reject("memory exhausted")?; Ok("") }
+    "k" | "l" | "N" => { search.reject("memory exhausted"); Ok("") }
     _ => strftime(ns, f"%{sub}")
   }
 }

@@ -19,7 +19,7 @@ test test_bb_tsort_tsort_b49211a2 { |ctx|
 # origin: busybox tsort/tsort input
 test test_bb_tsort_tsort_input_cb257b29 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "a a\n")?
+  uu.write(s, "input", "a a\n")
   let r = uu.invoke(s, "tsort", ["input"])?
   uu.succeeds(r)
   uu.stdout_only(r, "a\n")
@@ -28,7 +28,7 @@ test test_bb_tsort_tsort_input_cb257b29 { |ctx|
 # origin: busybox tsort/tsort input (w/o eol)
 test test_bb_tsort_tsort_input_w_o_eol_45c76239 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "a a")?
+  uu.write(s, "input", "a a")
   let r = uu.invoke(s, "tsort", ["input"])?
   uu.succeeds(r)
   uu.stdout_only(r, "a\n")

@@ -186,7 +186,7 @@ proc dump_frames(
     for frame in frames {
       lines += [model.encode_wire_json(frame)?]
     }
-    fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))?
+    fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))
   }
   if let output_path = screen_path {
     var histories = graph_series.empty()
@@ -206,7 +206,7 @@ proc dump_frames(
       )?
       lines += [json.encode({at_ns: frame.at_ns, width: screen.width, height: screen.height, too_small: screen.too_small, lines: screen.lines}, pretty: false)?]
     }
-    fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))?
+    fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))
   }
   return
 }
@@ -221,7 +221,7 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
   let selected_observations = limited_observations(bundle.observations, count)
   let frames = replay.models(selected_observations)
   let session = terminal.begin_with(bundle.display)?
-  defer { terminal.finish(session)? }
+  defer { terminal.finish(session) }
   if frames.is_empty() {
     return
   }
@@ -268,7 +268,7 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
 
 proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit, Error] {
   let session = terminal.begin()?
-  defer { terminal.finish(session)? }
+  defer { terminal.finish(session) }
 
   let root = fs.open_root(/)?
   defer root.close()
@@ -430,11 +430,11 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
   if let bundle = opts.replay {
     let loaded = replay.load(Path(bundle))?
     if opts.headless {
-      headless_replay(loaded, count, opts.dump_model, opts.dump_screen)?
+      headless_replay(loaded, count, opts.dump_model, opts.dump_screen)
     } else {
-      interactive_replay(loaded, count)?
+      interactive_replay(loaded, count)
     }
   } else {
-    interactive_live(count)?
+    interactive_live(count)
   }
 }

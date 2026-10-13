@@ -17,6 +17,6 @@ test test_bb_sha256sum_sha256sum_original_aggregate { |ctx| checksum.check_origi
 # origin: busybox sha256sum/sha256sum -c EMPTY
 test test_bb_sha256sum_sha256sum_c_EMPTY_4cb981a2 { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "EMPTY")?
+  uu.touch(s, "EMPTY")
   uu.fails_with_code(uu.invoke(s, "sha256sum", ["-c", "EMPTY"])?, 1)
 }

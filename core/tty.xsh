@@ -34,7 +34,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   # The runtime ignores SIGPIPE for its own writes. Restore the caller's default
   # action so a closed reader terminates tty by signal; preserve an explicit ignore.
   if process.signal_action("PIPE")? == "default" {
-    process.set_signal_action("PIPE", "default")?
+    process.set_signal_action("PIPE", "default")
   }
 
   let opts: TtyOptions = cli.applet(

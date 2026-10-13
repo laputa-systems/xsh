@@ -39,7 +39,7 @@ proc main(...argv: List[Str]) [fs, process, io, error] {
   let self_pid = process.current_pid()?
   let snapshot: List[ProcessEntry] = process.list()? |> collect
   let files: List[LinuxOpenFile] = linux.open_files()? |> collect
-  if opts.verbose and ! opts.silent { io.write_stderr("                     USER        PID ACCESS COMMAND\n")? }
+  if opts.verbose and ! opts.silent { io.write_stderr("                     USER        PID ACCESS COMMAND\n") }
   var matched = false
   var failed = false
   for operand in opts.operands {
@@ -76,17 +76,17 @@ proc main(...argv: List[Str]) [fs, process, io, error] {
         let named = snapshot |> where .pid == pid |> collect
         table = table.push({pid: pid, command: if named.is_empty() { "?" } else { named[0].command }, user: if named.is_empty() { "(unknown)" } else { named[0].user }, access: access})
         letters = letters + plain_letters(access)
-        io.write_stdout(f"{pid:>6}")?
+        io.write_stdout(f"{pid:>6}")
       }
-      if table.is_empty() { io.write_stderr(f"{label}\n")? } else if opts.verbose {
+      if table.is_empty() { io.write_stderr(f"{label}\n") } else if opts.verbose {
         var first = true
         for holder in table {
-          io.write_stderr(f"{if first { label } else { "" }:<20} {holder.user:<8} {holder.pid:>6} {holder.access} {holder.command}\n")?
+          io.write_stderr(f"{if first { label } else { "" }:<20} {holder.user:<8} {holder.pid:>6} {holder.access} {holder.command}\n")
           first = false
         }
-      } else { io.write_stderr(f"{label:<20}{letters}\n")? }
-      io.flush_stdout()?
-      io.flush_stderr()?
+      } else { io.write_stderr(f"{label:<20}{letters}\n") }
+      io.flush_stdout()
+      io.flush_stderr()
     }
     if opts.kill {
       for pid in pids {

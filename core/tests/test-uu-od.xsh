@@ -7,7 +7,7 @@ const ALPHA_OUT = "0000000 061141 062143 063145 064147 065151 066153 067155 0701
 # Each upstream scene starts with these files, including operands that look like options.
 proc od_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
-  for name in ["-f", "0", "c", "x"] { uu.fixture(s, "od", name, name)? }
+  for name in ["-f", "0", "c", "x"] { uu.fixture(s, "od", name, name) }
   Ok(s)
 }
 
@@ -152,7 +152,7 @@ test test_uu_od_fh { |ctx|
 # origin: uutils test_od::test_file
 test test_uu_od_file { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "test", "abcdefghijklmnopqrstuvwxyz\n")?
+  uu.write(s, "test", "abcdefghijklmnopqrstuvwxyz\n")
   for arg in ["--endian=little", "--endian=littl", "--endian=l"] {
     let r = uu.invoke(s, "od", [arg, "test"])?
     uu.succeeds(r)
@@ -191,8 +191,8 @@ test test_uu_od_float16_compact { |ctx|
 # origin: uutils test_od::test_from_mixed
 test test_uu_od_from_mixed { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "test-1", "abcdefg")?
-  uu.write(s, "test-3", "qrstuvwxyz\n")?
+  uu.write(s, "test-1", "abcdefg")
+  uu.write(s, "test-3", "qrstuvwxyz\n")
   let r = uu.invoke(s, "od", ["--endian=little", "test-1", "-", "test-3"], stdin: b"hijklmnop")?
   uu.succeeds(r)
   uu.stdout_only(r, ALPHA_OUT)
@@ -298,7 +298,7 @@ test test_uu_od_invalid_width { |ctx|
 # origin: uutils test_od::test_is_a_directory
 test test_uu_od_is_a_directory { |ctx|
   let s = od_scene(ctx)?
-  uu.mkdir(s, "a")?
+  uu.mkdir(s, "a")
   let r1 = uu.invoke(s, "od", ["a"])?
   uu.fails_with_code(r1, 1)
   uu.stderr_is(r1, "od: a: Is a directory\n")
@@ -380,13 +380,13 @@ test test_uu_od_od_eintr_handling { |ctx|
   let s = od_scene(ctx)?
   let file = "test_eintr"
   let test_data = bytes.from_ints([72, 101, 108, 108, 111, 10])?
-  uu.write_bytes(s, file, test_data)?
+  uu.write_bytes(s, file, test_data)
   let r1 = uu.invoke(s, "od", [file, "-t", "c"])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
   uu.stdout_contains(r1, "H")
   let second_s = od_scene(ctx)?
-  uu.write_bytes(second_s, file, test_data)?
+  uu.write_bytes(second_s, file, test_data)
   let r2 = uu.invoke(second_s, "od", [file, "-j", "1", "-N", "3", "-t", "c"])?
   uu.succeeds(r2)
   uu.no_stderr(r2)
@@ -415,7 +415,7 @@ test test_uu_od_od_options_after_filename { |ctx|
   let s = od_scene(ctx)?
   let file = "test"
   let input = bytes.from_ints([104, 28, 187, 253])?
-  uu.write_bytes(s, file, input)?
+  uu.write_bytes(s, file, input)
   let r1 = uu.invoke(s, "od", [file, "-v", "-An", "-t", "x2", "--endian=little"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, " 1c68 fdbb\n")
@@ -485,7 +485,7 @@ test test_uu_od_skip_bytes { |ctx|
 # origin: uutils test_od::test_skip_bytes_consumes_single_input
 test test_uu_od_skip_bytes_consumes_single_input { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "g", "a")?
+  uu.write(s, "g", "a")
   let r = uu.invoke(s, "od", ["-c", "-j", "1", "-An", "g"])?
   uu.succeeds(r)
   uu.stdout_only(r, "")
@@ -494,9 +494,9 @@ test test_uu_od_skip_bytes_consumes_single_input { |ctx|
 # origin: uutils test_od::test_skip_bytes_consumes_three_inputs
 test test_uu_od_skip_bytes_consumes_three_inputs { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "g", "a")?
-  uu.write(s, "h", "b")?
-  uu.write(s, "i", "c")?
+  uu.write(s, "g", "a")
+  uu.write(s, "h", "b")
+  uu.write(s, "i", "c")
   let r = uu.invoke(s, "od", ["-c", "-j", "3", "-An", "g", "h", "i"])?
   uu.succeeds(r)
   uu.stdout_only(r, "")
@@ -505,8 +505,8 @@ test test_uu_od_skip_bytes_consumes_three_inputs { |ctx|
 # origin: uutils test_od::test_skip_bytes_consumes_two_inputs
 test test_uu_od_skip_bytes_consumes_two_inputs { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "g", "a")?
-  uu.write(s, "h", "b")?
+  uu.write(s, "g", "a")
+  uu.write(s, "h", "b")
   let r = uu.invoke(s, "od", ["-c", "-j", "2", "-An", "g", "h"])?
   uu.succeeds(r)
   uu.stdout_only(r, "")
@@ -535,8 +535,8 @@ test test_uu_od_skip_bytes_hex { |ctx|
 # origin: uutils test_od::test_skip_bytes_past_end_message
 test test_uu_od_skip_bytes_past_end_message { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "a", "abc")?
-  uu.write(s, "b", "de")?
+  uu.write(s, "a", "abc")
+  uu.write(s, "b", "de")
   let r1 = uu.invoke(s, "od", ["-j6", "a", "b"])?
   uu.fails_with_code(r1, 1)
   uu.no_stdout(r1)
@@ -546,7 +546,7 @@ test test_uu_od_skip_bytes_past_end_message { |ctx|
 # origin: uutils test_od::test_skip_bytes_past_end_no_offset
 test test_uu_od_skip_bytes_past_end_no_offset { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "f", "hello")?
+  uu.write(s, "f", "hello")
   let r1 = uu.invoke(s, "od", ["-j10", "f"])?
   uu.fails(r1)
   uu.no_stdout(r1)
@@ -563,10 +563,10 @@ test test_uu_od_skip_bytes_past_end_of_seekable_device { |ctx|
 # origin: uutils test_od::test_skip_bytes_prints_after_consuming_multiple_inputs
 test test_uu_od_skip_bytes_prints_after_consuming_multiple_inputs { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "g", "a")?
-  uu.write(s, "h", "b")?
-  uu.write(s, "i", "c")?
-  uu.write(s, "j", "d")?
+  uu.write(s, "g", "a")
+  uu.write(s, "h", "b")
+  uu.write(s, "i", "c")
+  uu.write(s, "j", "d")
   let r = uu.invoke(s, "od", ["-c", "-j", "3", "-An", "g", "h", "i", "j"])?
   uu.succeeds(r)
   uu.stdout_only(r, "   d\n")
@@ -577,7 +577,7 @@ test test_uu_od_skip_bytes_proc_file_without_seeking { |ctx|
   let s = od_scene(ctx)?
   let contents = p"/proc/version".read_bytes()?
   assert contents.len() > 0
-  uu.write(s, "after", "e")?
+  uu.write(s, "after", "e")
   let r = uu.invoke(s, "od", ["-An", "-c", "-j", f"{contents.len()}", "/proc/version", "after"])?
   uu.succeeds(r)
   uu.stdout_only(r, "   e\n")
@@ -700,8 +700,8 @@ test test_uu_od_traditional_with_skip_bytes_override { |ctx|
 # origin: uutils test_od::test_two_files
 test test_uu_od_two_files { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "test1", "abcdefghijklmnop")?
-  uu.write(s, "test2", "qrstuvwxyz\n")?
+  uu.write(s, "test1", "abcdefghijklmnop")
+  uu.write(s, "test2", "qrstuvwxyz\n")
   let r1 = uu.invoke(s, "od", ["--endian=little", "test1", "test2"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, ALPHA_OUT)
@@ -710,7 +710,7 @@ test test_uu_od_two_files { |ctx|
 # origin: uutils test_od::test_very_wide_ascii_output
 test test_uu_od_very_wide_ascii_output { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "data-a", "x")?
+  uu.write(s, "data-a", "x")
   let r1 = uu.invoke(s, "od", ["-a", "-w65537", "-An", "data-a"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "   x\n")
@@ -719,7 +719,7 @@ test test_uu_od_very_wide_ascii_output { |ctx|
 # origin: uutils test_od::test_very_wide_char_output
 test test_uu_od_very_wide_char_output { |ctx|
   let s = od_scene(ctx)?
-  uu.write(s, "data-c", "x")?
+  uu.write(s, "data-c", "x")
   let r1 = uu.invoke(s, "od", ["-c", "-w65537", "-An", "data-c"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "   x\n")
@@ -737,7 +737,7 @@ test test_uu_od_very_wide_hex_byte_ascii_dump { |ctx|
 # origin: uutils test_od::test_very_wide_hex_byte_output
 test test_uu_od_very_wide_hex_byte_output { |ctx|
   let s = od_scene(ctx)?
-  uu.write_bytes(s, "data-x", bytes.from_ints([66])?)?
+  uu.write_bytes(s, "data-x", bytes.from_ints([66])?)
   let r1 = uu.invoke(s, "od", ["-tx1", "-w65537", "-An", "data-x"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, " 42\n")

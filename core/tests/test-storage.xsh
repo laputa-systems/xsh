@@ -617,7 +617,7 @@ test test_storage_fstrim_names_missing_mountpoint_with_kernel_wording { |ctx|
 }
 
 test test_storage_fstrim_reports_filesystems_without_discard_support { |ctx|
-  guard p"/proc/self".exists()? else {
+  guard p"/proc/self".exists() else {
     test.skip("needs procfs, which has no discard ioctl")
     return
   }

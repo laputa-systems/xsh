@@ -346,25 +346,25 @@ proc describe_file(work: Path, name: Str) [fs, error] -> Result[Str] {
 # file, a read-only file, and a read-only directory.
 proc prepare_work(ctx: TestContext, work: Path) [fs, error] -> Result[Unit] {
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/sed/fixtures", work, overwrite: true)?
-  fp"{work}/link.txt".symlink(to: p"a.txt")?
-  fp"{work}/dangling".symlink(to: p"nowhere")?
-  fp"{work}/dirlink".symlink(to: p"d")?
-  fp"{work}/noaccess.txt".chmod(0o000)?
-  fp"{work}/ro.txt".chmod(0o444)?
-  fp"{work}/rodir".chmod(0o555)?
+  fp"{work}/link.txt".symlink(to: p"a.txt")
+  fp"{work}/dangling".symlink(to: p"nowhere")
+  fp"{work}/dirlink".symlink(to: p"d")
+  fp"{work}/noaccess.txt".chmod(0o000)
+  fp"{work}/ro.txt".chmod(0o444)
+  fp"{work}/rodir".chmod(0o555)
   Ok()
 }
 
 proc apply_setup(work: Path, command: Str) [fs, error] -> Result[Unit] {
   let words = command.split(" ")
   if words[0] == "mkdir" {
-    fp"{work}/{words[1]}".mkdir()?
+    fp"{work}/{words[1]}".mkdir()
   } else if words[0] == "ln" {
-    fp"{work}/{words[3]}".symlink(to: fp"{words[2]}")?
+    fp"{work}/{words[3]}".symlink(to: fp"{words[2]}")
   } else if words[0] == "chmod" {
     var mode = 0
     for digit in words[1].split("") { mode = mode * 8 + (digit.parse_int() ?? 0) }
-    fp"{work}/{words[2]}".chmod(mode)?
+    fp"{work}/{words[2]}".chmod(mode)
   } else {
     return Err(AssertionError.Failed(f"unknown setup command {command}"))
   }
@@ -372,8 +372,8 @@ proc apply_setup(work: Path, command: Str) [fs, error] -> Result[Unit] {
 }
 
 proc transcript(ctx: TestContext, row: CaseRow, work: Path, scratch: Path) [fs, process, error] -> Result[Str] {
-  prepare_work(ctx, work)?
-  for command in row.setup { apply_setup(work, command)? }
+  prepare_work(ctx, work)
+  for command in row.setup { apply_setup(work, command) }
   let out = fp"{scratch}/out"
   let err = fp"{scratch}/err"
   let input = if row.stdin == "" { p"/dev/null" } else { fp"{work}/{row.stdin}" }
@@ -447,59 +447,59 @@ proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] -
 }
 
 test sed_table_slice_01 { |ctx|
-  expect_groups(ctx, ["cmd-1", "passed-", "sub-2", "opt-info-"])?
+  expect_groups(ctx, ["cmd-1", "passed-", "sub-2", "opt-info-"])
 }
 
 test sed_table_slice_02 { |ctx|
-  expect_groups(ctx, ["cmd-2", "addr-err-", "esc-"])?
+  expect_groups(ctx, ["cmd-2", "addr-err-", "esc-"])
 }
 
 test sed_table_slice_03 { |ctx|
-  expect_groups(ctx, ["syn-1", "tail-", "ere-1", "opt-1"])?
+  expect_groups(ctx, ["syn-1", "tail-", "ere-1", "opt-1"])
 }
 
 test sed_table_slice_04 { |ctx|
-  expect_groups(ctx, ["addr-1", "syn-2", "script-"])?
+  expect_groups(ctx, ["addr-1", "syn-2", "script-"])
 }
 
 test sed_table_slice_05 { |ctx|
-  expect_groups(ctx, ["sub-1", "wrap-", "eval-", "queue-"])?
+  expect_groups(ctx, ["sub-1", "wrap-", "eval-", "queue-"])
 }
 
 test sed_table_slice_06 { |ctx|
-  expect_groups(ctx, ["cmd-0", "io-", "exit-"])?
+  expect_groups(ctx, ["cmd-0", "io-", "exit-"])
 }
 
 test sed_table_slice_07 { |ctx|
-  expect_groups(ctx, ["addr-0", "zero-", "rx-1"])?
+  expect_groups(ctx, ["addr-0", "zero-", "rx-1"])
 }
 
 test sed_table_slice_08 { |ctx|
-  expect_groups(ctx, ["rx-0", "sep-", "loc-"])?
+  expect_groups(ctx, ["rx-0", "sep-", "loc-"])
 }
 
 test sed_table_slice_09 { |ctx|
-  expect_groups(ctx, ["ip-0", "cli-0"])?
+  expect_groups(ctx, ["ip-0", "cli-0"])
 }
 
 test sed_table_slice_10 { |ctx|
-  expect_groups(ctx, ["syn-0", "cmd-3", "ip-1"])?
+  expect_groups(ctx, ["syn-0", "cmd-3", "ip-1"])
 }
 
 test sed_table_slice_11 { |ctx|
-  expect_groups(ctx, ["opt-0", "corner-0"])?
+  expect_groups(ctx, ["opt-0", "corner-0"])
 }
 
 test sed_table_slice_12 { |ctx|
-  expect_groups(ctx, ["sub-0", "addr-2"])?
+  expect_groups(ctx, ["sub-0", "addr-2"])
 }
 
 test sed_table_slice_13 { |ctx|
-  expect_groups(ctx, ["sub2-0", "addr-files-0"])?
+  expect_groups(ctx, ["sub2-0", "addr-files-0"])
 }
 
 test sed_table_slice_14 { |ctx|
-  expect_groups(ctx, ["ere-0", "mix-0"])?
+  expect_groups(ctx, ["ere-0", "mix-0"])
 }
 
 test sed_refused_options_fail_explicitly { |ctx|

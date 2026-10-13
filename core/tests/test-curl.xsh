@@ -134,15 +134,15 @@ proc start_server(ctx: TestContext) [fs, process, time, error] -> Result[Server?
   let root = test.temp_dir(ctx, name: "curl-server")?
   let script = fp"{root}/server.pl"
   let port_file = fp"{root}/port"
-  script.write(SERVER)?
+  script.write(SERVER)
   let handle = spawn run perl $script $port_file ?
   let started = time.now()
-  while !port_file.exists()? {
+  while !port_file.exists() {
     if time.now() - started > 5000 {
-      handle.cancel(signal: "KILL", kill_after: 0ms)?
+      handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure("the HTTP fixture did not start"))
     }
-    time.sleep(20ms)?
+    time.sleep(20ms)
   }
   let port = port_file.read_text()?.trim()
   Ok({base: f"http://127.0.0.1:{port}", handle: handle})
@@ -404,7 +404,7 @@ test test_curl_data_options_build_the_body { |ctx|
   assert "\nContent-Length: 7\n" in joined.stdout
 
   let root = test.temp_dir(ctx, name: "curl-data")?
-  fp"{root}/data.txt".write("line one\nline two\n")?
+  fp"{root}/data.txt".write("line one\nline two\n")
   let stripped = curl(ctx, ["-s", "-d", "@data.txt", f"{fixture.base}/echo"], dir: root)?
   assert stripped.stdout.ends_with("\n--\nline oneline two"), stripped.stdout
   let binary = curl(ctx, ["-s", "--data-binary", "@data.txt", f"{fixture.base}/echo"], dir: root)?
@@ -430,7 +430,7 @@ test test_curl_upload_file_uses_put { |ctx|
   defer fixture.handle.cancel(kill_after: 100ms)
 
   let root = test.temp_dir(ctx, name: "curl-upload")?
-  fp"{root}/payload.txt".write("uploaded bytes")?
+  fp"{root}/payload.txt".write("uploaded bytes")
   let result = curl(ctx, ["-s", "-T", "payload.txt", f"{fixture.base}/echo"], dir: root)?
   assert result.status == 0, result.stderr
   assert result.stdout.starts_with("PUT /echo\n"), result.stdout
@@ -706,7 +706,7 @@ test test_curl_ranges_and_resume { |ctx|
   assert "\nRange: bytes=0-4\n" in part.stdout, part.stdout
 
   let root = test.temp_dir(ctx, name: "curl-resume")?
-  fp"{root}/file.bin".write("abcdefghijklmnopqrst")?
+  fp"{root}/file.bin".write("abcdefghijklmnopqrst")
   let resumed = curl(ctx, ["-s", "-C", "-", "-o", "file.bin", f"{fixture.base}/range"], dir: root)?
   assert resumed.status == 0, resumed.stderr
   assert fp"{root}/file.bin".read_bytes()?.len() == 100
@@ -777,7 +777,7 @@ proc start_tls_server(ctx: TestContext) [fs, process, time, error] -> Result[Tls
   guard quiet.status.ok else { return Ok(null) }
   let leaf = run.capture --text openssl req -newkey rsa:2048 -nodes -keyout ${root}/leaf.key -out ${root}/leaf.csr -subj "/CN=localhost"
   guard leaf.status.ok else { return Ok(null) }
-  fp"{root}/ext.cnf".write("subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")?
+  fp"{root}/ext.cnf".write("subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")
   let signed = run.capture --text openssl x509 -req -in ${root}/leaf.csr -CA ${root}/ca.pem -CAkey ${root}/ca.key -CAcreateserial -out ${root}/leaf.pem -days 2 -extfile ${root}/ext.cnf
   guard signed.status.ok else { return Ok(null) }
 
@@ -789,9 +789,9 @@ proc start_tls_server(ctx: TestContext) [fs, process, time, error] -> Result[Tls
   while time.now() - started < 5000 {
     let probe = run.capture --text openssl s_client -connect $accept -brief < /dev/null
     if probe.status.ok { return Ok({url: f"https://{accept}/", ca: fp"{root}/ca.pem", handle: handle}) }
-    time.sleep(100ms)?
+    time.sleep(100ms)
   }
-  handle.cancel(signal: "KILL", kill_after: 0ms)?
+  handle.cancel(signal: "KILL", kill_after: 0ms)
   Ok(null)
 }
 

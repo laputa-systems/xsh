@@ -4,9 +4,9 @@ use support.uu as uu
 
 proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
-  for name in ["subdir", "subdir/deeper", "subdir/deeper/deeper_dir", "subdir/links"] { uu.mkdir(s, name)? }
+  for name in ["subdir", "subdir/deeper", "subdir/deeper/deeper_dir", "subdir/links"] { uu.mkdir(s, name) }
   for name in ["words.txt", "empty.txt", "subdir/deeper/words.txt", "subdir/deeper/deeper_dir/deeper_words.txt", "subdir/links/subwords.txt", "subdir/links/subwords2.txt"] {
-    uu.fixture(s, "du", name, name)?
+    uu.fixture(s, "du", name, name)
   }
   Ok(s)
 }
@@ -95,9 +95,9 @@ test test_uu_du_du_repeated_t { |ctx|
 # origin: uutils test_du::test_du_repeated_time
 test test_uu_du_du_repeated_time { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "date_test")?
-  fs.set_times(uu.at(s, "date_test"), atime_ns: 1431648000000000000)?
-  fs.set_times(uu.at(s, "date_test"), mtime_ns: 1466035200000000000)?
+  uu.touch(s, "date_test")
+  fs.set_times(uu.at(s, "date_test"), atime_ns: 1431648000000000000)
+  fs.set_times(uu.at(s, "date_test"), mtime_ns: 1466035200000000000)
   let r = invoke(s, ["--time", "date_test", "--time", "date_test"])?
   uu.succeeds(r)
   uu.stdout_only(r, "0\t2016-06-16 00:00\tdate_test\n")
@@ -106,9 +106,9 @@ test test_uu_du_du_repeated_time { |ctx|
 # origin: uutils test_du::test_du_repeated_time_style
 test test_uu_du_du_repeated_time_style { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "date_test")?
-  fs.set_times(uu.at(s, "date_test"), atime_ns: 1431648000000000000)?
-  fs.set_times(uu.at(s, "date_test"), mtime_ns: 1466035200000000000)?
+  uu.touch(s, "date_test")
+  fs.set_times(uu.at(s, "date_test"), atime_ns: 1431648000000000000)
+  fs.set_times(uu.at(s, "date_test"), mtime_ns: 1466035200000000000)
   let r = invoke(s, ["--time", "--time-style=full-iso", "--time-style=full-iso", "date_test"])?
   uu.succeeds(r)
   uu.stdout_only(r, "0\t2016-06-16 00:00:00.000000000 +0000\tdate_test\n")
@@ -125,14 +125,14 @@ test test_uu_du_du_repeated_x { |ctx|
 test test_uu_du_du_safe_traversal_with_symlinks { |ctx|
   let s = scene(ctx)?
   var deep = "symlink_test"
-  uu.mkdir(s, deep)?
+  uu.mkdir(s, deep)
   for index in range(8) {
     let name = f"{["b" for _ in range(50)].join("")}{index}"
     deep = f"{deep}/{name}"
-    uu.mkdir_all(s, deep)?
+    uu.mkdir_all(s, deep)
   }
-  uu.write(s, f"{deep}/target.txt", "target content")?
-  uu.symlink(s, uu.at(s, f"{deep}/target.txt").display(), "shallow_link.txt")?
+  uu.write(s, f"{deep}/target.txt", "target content")
+  uu.symlink(s, uu.at(s, f"{deep}/target.txt").display(), "shallow_link.txt")
   let followed = invoke(s, ["-L", "shallow_link.txt"])?
   uu.succeeds(followed)
   assert !followed.stdout.is_empty()
@@ -144,9 +144,9 @@ test test_uu_du_du_safe_traversal_with_symlinks { |ctx|
 # origin: uutils test_du::test_du_soft_link
 test test_uu_du_du_soft_link { |ctx|
   let s = scene(ctx)?
-  uu.mkdir_all(s, "subdir/links")?
-  uu.write(s, "subdir/links/subwords.txt", ["hello world\n" for _ in range(100)].join(""))?
-  uu.symlink(s, uu.at(s, "subdir/links/subwords.txt").display(), "subdir/links/sublink.txt")?
+  uu.mkdir_all(s, "subdir/links")
+  uu.write(s, "subdir/links/subwords.txt", ["hello world\n" for _ in range(100)].join(""))
+  uu.symlink(s, uu.at(s, "subdir/links/subwords.txt").display(), "subdir/links/sublink.txt")
   let r = invoke(s, ["subdir/links"])?
   uu.succeeds(r)
   # Linux compares allocated usage with the reference tool on the same filesystem.
@@ -160,9 +160,9 @@ test test_uu_du_du_soft_link { |ctx|
 # origin: uutils test_du::test_du_symlink_depth_tracking
 test test_uu_du_du_symlink_depth_tracking { |ctx|
   let s = scene(ctx)?
-  uu.mkdir_all(s, "chain/dir1/dir2/dir3")?
-  uu.write(s, "chain/dir1/dir2/dir3/file.txt", "content")?
-  uu.symlink(s, uu.at(s, "chain/dir1/dir2").display(), "shortcut")?
+  uu.mkdir_all(s, "chain/dir1/dir2/dir3")
+  uu.write(s, "chain/dir1/dir2/dir3/file.txt", "content")
+  uu.symlink(s, uu.at(s, "chain/dir1/dir2").display(), "shortcut")
   let r = invoke(s, ["-L", "shortcut"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "shortcut/dir3")
@@ -172,7 +172,7 @@ test test_uu_du_du_symlink_depth_tracking { |ctx|
 # origin: uutils test_du::test_du_symlink_fail
 test test_uu_du_du_symlink_fail { |ctx|
   let s = scene(ctx)?
-  uu.symlink(s, uu.at(s, "non-existing.txt").display(), "target.txt")?
+  uu.symlink(s, uu.at(s, "non-existing.txt").display(), "target.txt")
   let r = invoke(s, ["-L", "target.txt"])?
   uu.fails_with_code(r, 1)
 }
@@ -180,8 +180,8 @@ test test_uu_du_du_symlink_fail { |ctx|
 # origin: uutils test_du::test_du_symlink_multiple_fail
 test test_uu_du_du_symlink_multiple_fail { |ctx|
   let s = scene(ctx)?
-  uu.symlink(s, uu.at(s, "non-existing.txt").display(), "target.txt")?
-  uu.write(s, "file1", "azeaze")?
+  uu.symlink(s, uu.at(s, "non-existing.txt").display(), "target.txt")
+  uu.write(s, "file1", "azeaze")
   let r = invoke(s, ["-L", "target.txt", "file1"])?
   uu.fails_with_code(r, 1)
   uu.stdout_contains(r, "4\tfile1\n")
@@ -190,20 +190,20 @@ test test_uu_du_du_symlink_multiple_fail { |ctx|
 # origin: uutils test_du::test_du_symlink_self_reference
 test test_uu_du_du_symlink_self_reference { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "selfref")?
-  uu.symlink(s, uu.at(s, "selfref").display(), "selfref/self")?
+  uu.mkdir(s, "selfref")
+  uu.symlink(s, uu.at(s, "selfref").display(), "selfref/self")
   let r = invoke(s, ["-L", "selfref"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "selfref")
-  stdout_lacks(r, "selfref/self")?
+  stdout_lacks(r, "selfref/self")
 }
 
 # origin: uutils test_du::test_du_symlinks_multiple_links_in_args
 test test_uu_du_du_symlinks_multiple_links_in_args { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.write(s, "dir1/file", "hello world")?
-  uu.symlink(s, uu.at(s, "dir1/file").display(), "dir1/link")?
+  uu.mkdir(s, "dir1")
+  uu.write(s, "dir1/file", "hello world")
+  uu.symlink(s, uu.at(s, "dir1/file").display(), "dir1/link")
   let unfollowed = invoke(s, ["dir1/file", "dir1/link"])?
   uu.succeeds(unfollowed)
   uu.stdout_contains(unfollowed, "dir1/file")
@@ -211,23 +211,23 @@ test test_uu_du_du_symlinks_multiple_links_in_args { |ctx|
   let followed = invoke(s, ["-L", "dir1/file", "dir1/link"])?
   uu.succeeds(followed)
   uu.stdout_contains(followed, "dir1/file")
-  stdout_lacks(followed, "dir1/link")?
+  stdout_lacks(followed, "dir1/link")
 }
 
 # origin: uutils test_du::test_du_threshold
 test test_uu_du_du_threshold { |ctx|
   let s = scene(ctx)?
-  uu.mkdir_all(s, "subdir/links")?
-  uu.mkdir_all(s, "subdir/deeper/deeper_dir")?
-  uu.write(s, "subdir/links/bigfile.txt", ["x" for _ in range(10000)].join(""))?
-  uu.write(s, "subdir/deeper/deeper_dir/smallfile.txt", "small")?
+  uu.mkdir_all(s, "subdir/links")
+  uu.mkdir_all(s, "subdir/deeper/deeper_dir")
+  uu.write(s, "subdir/links/bigfile.txt", ["x" for _ in range(10000)].join(""))
+  uu.write(s, "subdir/deeper/deeper_dir/smallfile.txt", "small")
   let above = invoke(s, ["--apparent-size", "--threshold=10K"])?
   uu.succeeds(above)
   uu.stdout_contains(above, "links")
-  stdout_lacks(above, "deeper_dir")?
+  stdout_lacks(above, "deeper_dir")
   let below = invoke(s, ["--apparent-size", "--threshold=-10K"])?
   uu.succeeds(below)
-  stdout_lacks(below, "links")?
+  stdout_lacks(below, "links")
   uu.stdout_contains(below, "deeper_dir")
 }
 
@@ -259,9 +259,9 @@ test test_uu_du_du_threshold_with_leading_whitespace { |ctx|
 # origin: uutils test_du::test_du_time
 test test_uu_du_du_time { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "date_test")?
-  fs.set_times(uu.at(s, "date_test"), atime_ns: 1431648000000000000)?
-  fs.set_times(uu.at(s, "date_test"), mtime_ns: 1466035200000000000)?
+  uu.touch(s, "date_test")
+  fs.set_times(uu.at(s, "date_test"), atime_ns: 1431648000000000000)
+  fs.set_times(uu.at(s, "date_test"), mtime_ns: 1466035200000000000)
   {
   let r = invoke(s, ["--time", "date_test"])?
   uu.succeeds(r)
@@ -335,8 +335,8 @@ test test_uu_du_du_time { |ctx|
 # origin: uutils test_du::test_du_time_atime
 test test_uu_du_du_time_atime { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "f")?
-  fs.set_times(uu.at(s, "f"), atime_ns: 1640995200000000000)?
+  uu.touch(s, "f")
+  fs.set_times(uu.at(s, "f"), atime_ns: 1640995200000000000)
   let r = invoke(s, ["--time=atime", "f"])?
   uu.succeeds(r)
   uu.stdout_only(r, "0\t2022-01-01 00:00\tf\n")
@@ -345,12 +345,12 @@ test test_uu_du_du_time_atime { |ctx|
 # origin: uutils test_du::test_du_time_directory
 test test_uu_du_du_time_directory { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.touch(s, "d/old")?
-  fs.set_times(uu.at(s, "d/old"), mtime_ns: 1577836800000000000)?
-  uu.touch(s, "d/new")?
-  fs.set_times(uu.at(s, "d/new"), mtime_ns: 1672531200000000000)?
-  fs.set_times(uu.at(s, "d"), mtime_ns: 1546300800000000000)?
+  uu.mkdir(s, "d")
+  uu.touch(s, "d/old")
+  fs.set_times(uu.at(s, "d/old"), mtime_ns: 1577836800000000000)
+  uu.touch(s, "d/new")
+  fs.set_times(uu.at(s, "d/new"), mtime_ns: 1672531200000000000)
+  fs.set_times(uu.at(s, "d"), mtime_ns: 1546300800000000000)
   {
   let r = invoke(s, ["--time", "d/old"])?
   uu.succeeds(r)
@@ -372,13 +372,13 @@ test test_uu_du_du_time_directory { |ctx|
 # origin: uutils test_du::test_du_time_directory_nested
 test test_uu_du_du_time_directory_nested { |ctx|
   let s = scene(ctx)?
-  uu.mkdir_all(s, "d/sub")?
-  uu.touch(s, "d/old")?
-  fs.set_times(uu.at(s, "d/old"), mtime_ns: 1577836800000000000)?
-  uu.touch(s, "d/sub/new")?
-  fs.set_times(uu.at(s, "d/sub/new"), mtime_ns: 1672531200000000000)?
-  fs.set_times(uu.at(s, "d/sub"), mtime_ns: 1546300800000000000)?
-  fs.set_times(uu.at(s, "d"), mtime_ns: 1546300800000000000)?
+  uu.mkdir_all(s, "d/sub")
+  uu.touch(s, "d/old")
+  fs.set_times(uu.at(s, "d/old"), mtime_ns: 1577836800000000000)
+  uu.touch(s, "d/sub/new")
+  fs.set_times(uu.at(s, "d/sub/new"), mtime_ns: 1672531200000000000)
+  fs.set_times(uu.at(s, "d/sub"), mtime_ns: 1546300800000000000)
+  fs.set_times(uu.at(s, "d"), mtime_ns: 1546300800000000000)
   let r = invoke(s, ["--time", "-a", "d"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "2020-01-01 00:00\td/old\n")
@@ -390,7 +390,7 @@ test test_uu_du_du_time_directory_nested { |ctx|
 # origin: uutils test_du::test_du_time_style_empty
 test test_uu_du_du_time_style_empty { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
+  uu.mkdir(s, "a")
   {
   let r = invoke(s, ["--time", "--time-style=", "a"])?
   uu.fails_with_code(r, 1)
@@ -404,12 +404,12 @@ test test_uu_du_du_time_style_empty { |ctx|
 # origin: uutils test_du::test_du_time_unaffected_by_exclude
 test test_uu_du_du_time_unaffected_by_exclude { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.touch(s, "d/keep")?
-  uu.touch(s, "d/ignore")?
-  fs.set_times(uu.at(s, "d/keep"), mtime_ns: 1577836800000000000)?
-  fs.set_times(uu.at(s, "d/ignore"), mtime_ns: 1672531200000000000)?
-  fs.set_times(uu.at(s, "d"), mtime_ns: 1546300800000000000)?
+  uu.mkdir(s, "d")
+  uu.touch(s, "d/keep")
+  uu.touch(s, "d/ignore")
+  fs.set_times(uu.at(s, "d/keep"), mtime_ns: 1577836800000000000)
+  fs.set_times(uu.at(s, "d/ignore"), mtime_ns: 1672531200000000000)
+  fs.set_times(uu.at(s, "d"), mtime_ns: 1546300800000000000)
   let r = invoke(s, ["--time", "--exclude=ignore", "d"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "2020-01-01 00:00")
@@ -420,12 +420,12 @@ test test_uu_du_du_time_unaffected_by_exclude { |ctx|
 test test_uu_du_du_very_deep_directory { |ctx|
   let s = scene(ctx)?
   var current = "x"
-  uu.mkdir(s, current)?
+  uu.mkdir(s, current)
   for _ in range(10) {
     current = f"{current}/x"
-    uu.mkdir_all(s, current)?
+    uu.mkdir_all(s, current)
   }
-  uu.write(s, f"{current}/file.txt", "deep file")?
+  uu.write(s, f"{current}/file.txt", "deep file")
   let summarized = invoke(s, ["-s", "x"])?
   uu.succeeds(summarized)
   uu.stdout_contains(summarized, "x")
@@ -437,8 +437,8 @@ test test_uu_du_du_very_deep_directory { |ctx|
 # origin: uutils test_du::test_du_with_posixly_correct
 test test_uu_du_du_with_posixly_correct { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.write(s, "a/file", "some content")?
+  uu.mkdir(s, "a")
+  uu.write(s, "a/file", "some content")
   let expected = invoke(s, ["a", "--block-size=512"]) ?
   uu.succeeds(expected)
   {
@@ -451,8 +451,8 @@ test test_uu_du_du_with_posixly_correct { |ctx|
 # origin: uutils test_du::test_du_zero_env_block_size
 test test_uu_du_du_zero_env_block_size { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.write(s, "a/file", "some content")?
+  uu.mkdir(s, "a")
+  uu.write(s, "a/file", "some content")
   let expected = invoke(s, ["a", "--block-size=1024"]) ?
   uu.succeeds(expected)
   {
@@ -465,8 +465,8 @@ test test_uu_du_du_zero_env_block_size { |ctx|
 # origin: uutils test_du::test_du_zero_env_block_size_hierarchy
 test test_uu_du_du_zero_env_block_size_hierarchy { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "a")?
-  uu.write(s, "a/file", "some content")?
+  uu.mkdir(s, "a")
+  uu.write(s, "a/file", "some content")
   let expected = invoke(s, ["a", "--block-size=1024"]) ?
   uu.succeeds(expected)
   {
@@ -484,9 +484,9 @@ test test_uu_du_du_zero_env_block_size_hierarchy { |ctx|
 # origin: uutils test_du::test_human_size
 test test_uu_du_human_size { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "d")?
+  uu.mkdir(s, "d")
   let directory = uu.at(s, "d").display()
-  for index in range(1, 1024) { uu.touch(s, f"d/file{index}")? }
+  for index in range(1, 1024) { uu.touch(s, f"d/file{index}") }
   let r = invoke(s, ["--inodes", "-h", directory])?
   uu.succeeds(r)
   uu.stdout_contains(r, f"1.0K\t{directory}")
@@ -504,7 +504,7 @@ test test_uu_du_invalid_time_style { |ctx|
   let s = scene(ctx)?
   let r = invoke(s, ["-s", "--time-style=banana"])?
   uu.succeeds(r)
-  stdout_lacks(r, "du: invalid argument 'banana' for 'time style'")?
+  stdout_lacks(r, "du: invalid argument 'banana' for 'time style'")
 }
 
 # origin: uutils test_du::test_overriding_block_size_arg_with_invalid_value_still_errors

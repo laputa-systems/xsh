@@ -83,7 +83,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   let existing = files.present(target)?
   if existing {
     let old = fs.stat(target)?
-    if (metadata.dev == old.dev and metadata.ino == old.ino) or files.same_entry(source, target)? {
+    if (metadata.dev == old.dev and metadata.ino == old.ino) or files.same_entry(source, target) {
       gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
       exit 1
     }
@@ -99,15 +99,15 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
       old.mode.bit_and(0o7000) == 0 and (! opts.preserve or old.mtime_ns == metadata.mtime_ns) and
       old.uid == (uid ?? user.current()?.uid) and old.gid == (gid ?? group.current()?.gid) and
       (uid == null or old.uid == uid) and (gid == null or old.gid == gid) and
-      equal_contents(source, target, metadata.size)? { return Unchanged }
+      equal_contents(source, target, metadata.size) { return Unchanged }
   }
   var saved: Path? = null
   if existing { saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")? }
-  if saved != null and files.same_entry(saved, source)? {
+  if saved != null and files.same_entry(saved, source) {
     gnu.error(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source;  {gnu.quote_bytes(source.bytes())} not copied")
     exit 1
   }
-  if opts.parents { make_ancestors(target.parent(), opts.verbose)? }
+  if opts.parents { make_ancestors(target.parent(), opts.verbose) }
   let resolved_parent = match target.parent().resolve() {
     Ok(parent) => parent
     Err(failure) => {
@@ -210,10 +210,10 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
 # Intermediate directories keep the default mode the kernel gives new directories
 # (modified by the umask), not the installed mode, so -m never reaches them.
 proc make_ancestors(dest: Path, verbose = false) -> Result[Unit] {
-  if files.present(dest)? { return }
-  make_ancestors(dest.parent(), verbose)?
+  if files.present(dest) { return }
+  make_ancestors(dest.parent(), verbose)
   if let Err(failure) = dest.mkdir() {
-    if ! files.directory(dest, true)? { return Err(failure) }
+    if ! files.directory(dest, true) { return Err(failure) }
   }
   if verbose { print f"install: creating directory {gnu.quote_bytes(dest.bytes())}" }
 }
@@ -226,12 +226,12 @@ proc install_directory(raw: Path, opts: Options, mode: Int, uid: Int?, gid: Int?
   while raw_bytes.ends_with(b"/.") { raw_bytes = raw_bytes[..raw_bytes.len() - 2] }
   let dest = if raw_bytes.is_empty() { p"/" } else { Path.parse_bytes(raw_bytes)? }
   let existed = files.present(dest)?
-  make_ancestors(dest.parent(), opts.verbose)?
+  make_ancestors(dest.parent(), opts.verbose)
   dest.mkdir(parents: true)
   if let Err(failure) = fs.set_owner(dest, uid: uid, gid: gid, follow_symlinks: true) {
     # A new directory can inherit setgid from a setgid parent; a failed ownership
     # change must not leave special bits on the directory it created.
-    if ! existed { dest.chmod(0o700)? }
+    if ! existed { dest.chmod(0o700) }
     gnu.error(f"cannot change owner and permissions of {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}")
     return Failed
   }
@@ -363,7 +363,7 @@ proc main(...argv: List[Bytes]) {
       }
     }
   }
-  if opts.parents and target_directory != null { make_ancestors(dest, opts.verbose)? }
+  if opts.parents and target_directory != null { make_ancestors(dest, opts.verbose) }
   var is_dir = false
   if ! opts.no_target_directory {
     match files.directory(dest, true) {
@@ -385,7 +385,7 @@ proc main(...argv: List[Bytes]) {
       Err(failure) => { gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}"); exit 1 }
     }
   }
-  if dest.bytes().ends_with(b"/") and ! files.directory(dest, true)? {
+  if dest.bytes().ends_with(b"/") and ! files.directory(dest, true) {
     gnu.error(f"cannot create regular file {gnu.quote_bytes(dest.bytes())}: Not a directory")
     exit 1
   }
@@ -415,7 +415,7 @@ proc main(...argv: List[Bytes]) {
         if outcome == Failed { failed = true }
       }
       Err(failure) => {
-        if gnu.errno(failure) == 2 and ! files.present(source)? {
+        if gnu.errno(failure) == 2 and ! files.present(source) {
           gnu.error(f"cannot stat {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
         } else {
           gnu.error(f"cannot install {gnu.quote_bytes(source.bytes())} to {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")

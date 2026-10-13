@@ -781,7 +781,7 @@ proc wipefs(argv: List[Str]) {
     if erase {
       if "-n" not in args.flags {
         let native = [item.offset for item in selected if item.recognized]
-        if ! native.is_empty() { linux.wipe_block_signatures(fp"{name}", native)? }
+        if ! native.is_empty() { linux.wipe_block_signatures(fp"{name}", native) }
         for item in selected { if ! item.recognized { let _ = bytes.zero_at(fp"{name}", item.offset, item.magic.len())? } }
       }
       # A dry run reports the same text; the device is left untouched.
@@ -829,7 +829,7 @@ proc mount(argv: List[Str]) {
   if "-a" in args.flags {
     require_operands(args, 0, 0)
     if types != "" or ! options.is_empty() { unsupported("filtered or option-overridden mount --all") }
-    linux.mount_all()?
+    linux.mount_all()
     return
   }
   if args.operands.is_empty() {
@@ -839,14 +839,14 @@ proc mount(argv: List[Str]) {
     }
     return
   }
-  if args.operands.len() == 1 and "remount" in options { linux.mount("none", fp"{args.operands[0]}", fstype: types, options: options)?; return }
+  if args.operands.len() == 1 and "remount" in options { linux.mount("none", fp"{args.operands[0]}", fstype: types, options: options); return }
   require_operands(args, 2, 2)
   if "," in types { unsupported("multiple filesystem types for a direct mount") }
   if (types == "" or types == "auto") and ! ("bind" in options or "rbind" in options or "move" in options) {
     types = linux.blkid(fp"{args.operands[0]}")?.type
     if types == "" { gnu.usage_error("cannot identify filesystem type; specify --types") }
   }
-  linux.mount(args.operands[0], fp"{args.operands[1]}", fstype: types, options: options)?
+  linux.mount(args.operands[0], fp"{args.operands[1]}", fstype: types, options: options)
 }
 
 proc blkid(argv: List[Str]) {
@@ -881,7 +881,7 @@ proc losetup(argv: List[Str]) {
   if "-d" in args.flags {
     if ! [flag for flag in args.flags if flag != "-d"].is_empty() { gnu.usage_error("detach cannot be combined with other modes") }
     require_operands(args, 1, -1)
-    for device in args.operands { linux.loop_detach(fp"{device}")? }
+    for device in args.operands { linux.loop_detach(fp"{device}") }
     return
   }
   if "--show" in args.flags and "-f" not in args.flags { gnu.usage_error("--show requires --find") }
@@ -910,7 +910,7 @@ proc swap_command(command: Str, argv: List[Str]) {
   if "-a" in args.flags {
     require_operands(args, 0, 0)
     if ! args.values.is_empty() { unsupported("priority override with --all") }
-    if command == "swapon" { linux.swapon_all()? } else { linux.swapoff_all()? }
+    if command == "swapon" { linux.swapon_all() } else { linux.swapoff_all() }
     return
   }
   require_operands(args, 1, if command == "mkswap" { 1 } else { -1 })
@@ -921,8 +921,8 @@ proc swap_command(command: Str, argv: List[Str]) {
       let device = fp"{name}".resolve()?
       let metadata = fs.stat(device, follow_symlinks: true)?
       if metadata.kind not in ["file", "block"] { gnu.usage_error("swap target must be a regular file or block device") }
-      linux.mkswap(device)?
-    } else if command == "swapon" { linux.swapon(fp"{name}", priority: priority)? } else { linux.swapoff(fp"{name}")? }
+      linux.mkswap(device)
+    } else if command == "swapon" { linux.swapon(fp"{name}", priority: priority) } else { linux.swapoff(fp"{name}") }
   }
 }
 
@@ -931,7 +931,7 @@ proc umount(argv: List[Str]) {
   if "-a" in args.flags {
     require_operands(args, 0, 0)
     if "-l" in args.flags or "-f" in args.flags { unsupported("lazy or forced --all unmount") }
-    linux.umount_all(types: (args.values.get("-t") ?? "").split(",") |> where . != "")?
+    linux.umount_all(types: (args.values.get("-t") ?? "").split(",") |> where . != "")
     return
   }
   require_operands(args, 1, -1)
@@ -941,7 +941,7 @@ proc umount(argv: List[Str]) {
   for name in args.operands {
     # An unprivileged umount(2) reports EPERM before it looks the path up; a
     # path that does not exist is named as missing, as for a privileged caller.
-    if !fp"{name}".exists()? {
+    if !fp"{name}".exists() {
       gnu.error(f"{name}: No such file or directory")
       failed = true
       continue
@@ -960,7 +960,7 @@ proc blockdev(argv: List[Str]) {
   if args.flags.is_empty() { gnu.usage_error("missing block-device operation") }
   for name in args.operands {
     for operation in args.flags {
-      if operation == "--setro" or operation == "--setrw" { linux.blockdev_set_read_only(fp"{name}", operation == "--setro")? } else if operation == "--flushbufs" { linux.blockdev_flush(fp"{name}")? } else if operation == "--rereadpt" { linux.blockdev_reread_partition_table(fp"{name}")? } else {
+      if operation == "--setro" or operation == "--setrw" { linux.blockdev_set_read_only(fp"{name}", operation == "--setro") } else if operation == "--flushbufs" { linux.blockdev_flush(fp"{name}") } else if operation == "--rereadpt" { linux.blockdev_reread_partition_table(fp"{name}") } else {
         let info = linux.blockdev_info(fp"{name}")?
         let value: UInt = if operation == "--getsize64" { info.size_bytes } else if operation == "--getss" { info.logical_sector_bytes } else if operation == "--getpbsz" { info.physical_sector_bytes } else if operation == "--getro" { if info.read_only { 1 } else { 0 } } else { info.size_bytes / 512 }
         gnu.write_text(f"{value}\n")
@@ -1017,7 +1017,7 @@ proc fsfreeze(argv: List[Str]) {
   let freeze = "-f" in args.flags
   let thaw = "-u" in args.flags
   if freeze == thaw { gnu.usage_error("specify exactly one of --freeze and --unfreeze") }
-  linux.fsfreeze(fp"{args.operands[0]}", "-f" in args.flags)?
+  linux.fsfreeze(fp"{args.operands[0]}", "-f" in args.flags)
 }
 
 proc partprobe(argv: List[Str]) {
@@ -1150,7 +1150,7 @@ proc write_sfdisk(name: Str, args: Arguments) {
   if (label == "dos" and partitions.len() > 4) or partitions.len() > 128 { gnu.usage_error("too many primary partitions") }
   let table = {label: label, id: id, sector_size: sector_size, partitions: partitions}
   if "-n" in args.flags { gnu.write_text(json.encode(table, pretty: true)? + "\n"); return }
-  linux.write_partition_table(fp"{name}", table)?
+  linux.write_partition_table(fp"{name}", table)
 }
 
 # Sizes the way util-linux prints them: the largest binary unit that leaves a

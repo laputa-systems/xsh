@@ -115,7 +115,7 @@ proc main(...argv: List[Bytes]) {
   if opts.serial {
     for name in paths {
       guard let source = text.open_source_bytes(name) else { |failure| text.name_error_bytes(name, failure); failed = true; continue }
-      defer text.close_source(source)?
+      defer text.close_source(source)
       var reader: Reader = {source: source, buffer: b"", eof: false}
       var index = 0
       loop {
@@ -132,12 +132,12 @@ proc main(...argv: List[Bytes]) {
     for name in paths {
       guard let source = text.open_source_bytes(name) else { |failure|
         text.name_error_bytes(name, failure)
-        for reader in readers { text.close_source(reader.source)? }
+        for reader in readers { text.close_source(reader.source) }
         exit 1
       }
       readers += [{source: source, buffer: b"", eof: false}]
     }
-    defer { for reader in readers { text.close_source(reader.source)? } }
+    defer { for reader in readers { text.close_source(reader.source) } }
     var stdin: Reader = {source: text.Stdin, buffer: b"", eof: false}
     loop {
       var found = false

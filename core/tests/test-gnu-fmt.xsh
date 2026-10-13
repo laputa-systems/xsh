@@ -3,7 +3,7 @@ use support.uu
 # origin: gnu fmt/long-line.log
 test test_gnu_fmt_long_line_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", [" y" for _ in range(1015)].join("") + "\n")?
+  uu.write(s, "in", [" y" for _ in range(1015)].join("") + "\n")
   let line = [" y" for _ in range(35)].join("") + "\n"
   let expected = [line for _ in range(29)].join("")
   let r = uu.invoke(s, "fmt", ["-s", "in"])?
@@ -37,7 +37,7 @@ test test_gnu_fmt_width_log { |ctx|
 test test_gnu_fmt_goal_option_log { |ctx|
   let s = uu.scene(ctx)?
   let input = fp"{ctx.core_dir}/tests/data/gnu/fmt/goal-input.txt".read_bytes()?
-  uu.write_bytes(s, "base", input)?
+  uu.write_bytes(s, "base", input)
   let expected = fp"{ctx.core_dir}/tests/data/gnu/fmt/goal-output.txt".read_bytes()?
   let r = uu.invoke(s, "fmt", ["-g", "60", "-w", "72", "base"])?
   uu.succeeds(r)

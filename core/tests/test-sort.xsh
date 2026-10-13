@@ -527,10 +527,10 @@ test test_sort_sigint_removes_external_runs { |ctx|
       saw_run = true
       break
     }
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
   assert saw_run, "sort did not write its first spill run"
-  process.kill(child.pid, signal: "INT")?
+  process.kill(child.pid, signal: "INT")
   assert (wait child?).shell_code()? == 130
   assert stderr.read_text()?.is_empty(), "SIGINT emitted a cleanup diagnostic"
   assert ! (fs.files(root, hidden: true)? |> any .name.starts_with("run-")), "SIGINT left spill files behind"
@@ -1079,7 +1079,7 @@ test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
   let missing = fp"{root}/missing"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  fs.mkfifo(fifo, mode: 0o600)?
+  fs.mkfifo(fifo, mode: 0o600)
   let plan = process.command_argv(
     ctx.xsh_bin,
     [ctx.xsh_bin.display(), fp"{ctx.core_dir}/sort.xsh".display(), fifo.display(), missing.display()],
@@ -1830,7 +1830,7 @@ test test_sort_check_reports_invalid_record_bytes_verbatim { |ctx|
   let stderr = fp"{root}/stderr"
   let high = bytes.from_ints([255, 10, 128, 10])?
   let source = fp"{root}/input"
-  source.write(high)?
+  source.write(high)
   let result = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display(), "-c", "-s", source.display()], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
@@ -1874,7 +1874,7 @@ test test_sort_invalid_utf8_spill_and_merge_roundtrip { |ctx|
   for _ in range(260) { expected += [first, b"\n"] }
   for _ in range(260) { expected += [second, b"\n"] }
   let source = fp"{root}/source"
-  source.write(bytes.concat(input))?
+  source.write(bytes.concat(input))
   let spilled = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display(), "-S", "1K", source.display()], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
@@ -1883,10 +1883,10 @@ test test_sort_invalid_utf8_spill_and_merge_roundtrip { |ctx|
 
   let left = fp"{root}/left"
   let right = fp"{root}/right"
-  left.write(bytes.concat([first, b"\n", second, b"\n"]))?
+  left.write(bytes.concat([first, b"\n", second, b"\n"]))
   let third = bytes.concat([b"b", high, tail])
   let fourth = bytes.concat([b"y", high, tail])
-  right.write(bytes.concat([third, b"\n", fourth, b"\n"]))?
+  right.write(bytes.concat([third, b"\n", fourth, b"\n"]))
   let merged = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display(), "-m", left.display(), right.display()], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?

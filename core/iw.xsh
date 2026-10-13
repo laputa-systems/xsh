@@ -405,7 +405,7 @@ proc command_scan(client: nl.Client, target: Target, request: nl.ScanRequest, un
     guard let scan_group = groups.get("scan") else {
       return Err(nl.errno_failure(2))
     }
-    nl.subscribe(client, scan_group)?
+    nl.subscribe(client, scan_group)
   }
   let _ = nl.request(client, nl.CMD.trigger_scan, nl.scan_attrs(target.index, request)?)?
   if ! follow {
@@ -509,7 +509,7 @@ proc command_event(client: nl.Client, stamp: Str) -> Result[Int] {
   let groups = nl.multicast_groups(client)?
   for name in ["config", "scan", "regulatory", "mlme", "vendor", "nan"] {
     if let Ok(id) = groups.get(name) {
-      nl.subscribe(client, id)?
+      nl.subscribe(client, id)
     } else if name != "vendor" and name != "nan" {
       return Err(nl.errno_failure(2))
     }

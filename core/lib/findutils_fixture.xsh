@@ -12,9 +12,9 @@ export let EPOCH_NS = 1000000000000000000
 const SECOND = 1000000000
 
 proc put(target: Path, text: Str, mode: Int, mtime_ns: Int, atime_ns: Int? = null) [fs, error] {
-  target.write(text)?
-  target.chmod(mode)?
-  fs.set_times(target, atime_ns: atime_ns ?? mtime_ns, mtime_ns: mtime_ns)?
+  target.write(text)
+  target.chmod(mode)
+  fs.set_times(target, atime_ns: atime_ns ?? mtime_ns, mtime_ns: mtime_ns)
 }
 
 ## Recreate `recent` below the tree directory with ages at the middle of a
@@ -23,119 +23,119 @@ proc put(target: Path, text: Str, mode: Int, mtime_ns: Int, atime_ns: Int? = nul
 export proc build_recent(tree: Path) [fs, time, error] {
   let now = time.now() * 1000000
   let recent = fp"{tree}/recent"
-  recent.remove()?
-  recent.mkdir()?
-  put(fp"{recent}/m5", "r", 0o644, now - 330 * SECOND)?
-  put(fp"{recent}/h2", "r", 0o644, now - 9030 * SECOND)?
-  put(fp"{recent}/d3", "r", 0o644, now - 302400 * SECOND)?
-  put(fp"{recent}/d10", "r", 0o644, now - 907200 * SECOND)?
+  recent.remove()
+  recent.mkdir()
+  put(fp"{recent}/m5", "r", 0o644, now - 330 * SECOND)
+  put(fp"{recent}/h2", "r", 0o644, now - 9030 * SECOND)
+  put(fp"{recent}/d3", "r", 0o644, now - 302400 * SECOND)
+  put(fp"{recent}/d10", "r", 0o644, now - 907200 * SECOND)
 }
 
 ## Build the fixture tree named `name` below `root`.
 export proc build(root: Path, name: Str = "tree") [fs, time, error] {
   let tree = fp"{root}/{name}"
-  tree.mkdir()?
+  tree.mkdir()
   let T = EPOCH_NS
-  put(fp"{tree}/a.txt", "alpha\n", 0o644, T)?
-  put(fp"{tree}/B.TXT", "", 0o644, T + 86400 * SECOND)?
-  put(fp"{tree}/.hidden", "h", 0o644, T)?
-  put(fp"{tree}/exec.sh", "#!/bin/sh\n", 0o755, T)?
-  put(fp"{tree}/ro.txt", "ro", 0o444, T)?
-  put(fp"{tree}/secret", "s", 0o600, T)?
-  put(fp"{tree}/suid", "u", 0o4755, T)?
-  put(fp"{tree}/sgid", "g", 0o2755, T)?
-  put(fp"{tree}/hard1", "h\n", 0o644, T)?
-  fs.link(fp"{tree}/hard1", fp"{tree}/hard2")?
-  fs.mkfifo(fp"{tree}/fifo", 0o644)?
-  put(Path.parse_bytes(bytes.concat([tree.bytes(), b"/odd\nname"]))?, "n", 0o644, T)?
-  put(Path.parse_bytes(bytes.concat([tree.bytes(), b"/bad\xffname"]))?, "b", 0o644, T)?
-  fs.symlink(p"a.txt", fp"{tree}/link_a")?
-  fs.symlink(p"sub", fp"{tree}/link_dir")?
-  fs.symlink(p"nowhere", fp"{tree}/broken")?
+  put(fp"{tree}/a.txt", "alpha\n", 0o644, T)
+  put(fp"{tree}/B.TXT", "", 0o644, T + 86400 * SECOND)
+  put(fp"{tree}/.hidden", "h", 0o644, T)
+  put(fp"{tree}/exec.sh", "#!/bin/sh\n", 0o755, T)
+  put(fp"{tree}/ro.txt", "ro", 0o444, T)
+  put(fp"{tree}/secret", "s", 0o600, T)
+  put(fp"{tree}/suid", "u", 0o4755, T)
+  put(fp"{tree}/sgid", "g", 0o2755, T)
+  put(fp"{tree}/hard1", "h\n", 0o644, T)
+  fs.link(fp"{tree}/hard1", fp"{tree}/hard2")
+  fs.mkfifo(fp"{tree}/fifo", 0o644)
+  put(Path.parse_bytes(bytes.concat([tree.bytes(), b"/odd\nname"]))?, "n", 0o644, T)
+  put(Path.parse_bytes(bytes.concat([tree.bytes(), b"/bad\xffname"]))?, "b", 0o644, T)
+  fs.symlink(p"a.txt", fp"{tree}/link_a")
+  fs.symlink(p"sub", fp"{tree}/link_dir")
+  fs.symlink(p"nowhere", fp"{tree}/broken")
   for link in ["link_a", "link_dir", "broken"] {
-    fs.set_times(fp"{tree}/{link}", atime_ns: T, mtime_ns: T, follow_symlinks: false)?
+    fs.set_times(fp"{tree}/{link}", atime_ns: T, mtime_ns: T, follow_symlinks: false)
   }
-  fs.set_times(fp"{tree}/fifo", atime_ns: T, mtime_ns: T)?
+  fs.set_times(fp"{tree}/fifo", atime_ns: T, mtime_ns: T)
 
   let sub = fp"{tree}/sub"
-  sub.mkdir()?
-  put(fp"{sub}/c.log", "log\n", 0o644, T + 1000 * SECOND)?
-  fp"{sub}/deep/deeper".mkdir(parents: true)?
-  put(fp"{sub}/deep/d.txt", "deep\n", 0o644, T + 2000 * SECOND)?
-  put(fp"{sub}/deep/e.c", "int x;\n", 0o644, T + 3000 * SECOND)?
-  put(fp"{sub}/deep/deeper/f.txt", "ff", 0o644, T + 4000 * SECOND)?
-  fp"{tree}/with space".mkdir()?
-  put(fp"{tree}/with space/f g.txt", "fg", 0o644, T)?
-  fp"{tree}/empty_dir".mkdir()?
-  fp"{tree}/stick".mkdir()?
-  fp"{tree}/stick".chmod(0o1777)?
-  fp"{tree}/sizes".mkdir()?
+  sub.mkdir()
+  put(fp"{sub}/c.log", "log\n", 0o644, T + 1000 * SECOND)
+  fp"{sub}/deep/deeper".mkdir(parents: true)
+  put(fp"{sub}/deep/d.txt", "deep\n", 0o644, T + 2000 * SECOND)
+  put(fp"{sub}/deep/e.c", "int x;\n", 0o644, T + 3000 * SECOND)
+  put(fp"{sub}/deep/deeper/f.txt", "ff", 0o644, T + 4000 * SECOND)
+  fp"{tree}/with space".mkdir()
+  put(fp"{tree}/with space/f g.txt", "fg", 0o644, T)
+  fp"{tree}/empty_dir".mkdir()
+  fp"{tree}/stick".mkdir()
+  fp"{tree}/stick".chmod(0o1777)
+  fp"{tree}/sizes".mkdir()
   for size in [1, 511, 512, 513, 1024, 1025, 2049] {
     let sized = fp"{tree}/sizes/n{size}"
-    sized.write(bytes.zero(size) ?? b"")?
-    fs.set_times(sized, atime_ns: T, mtime_ns: T)?
+    sized.write(bytes.zero(size) ?? b"")
+    fs.set_times(sized, atime_ns: T, mtime_ns: T)
   }
-  fp"{tree}/chain/l1/l2/l3".mkdir(parents: true)?
-  put(fp"{tree}/chain/l1/l2/l3/leaf", "l", 0o644, T)?
-  fp"{tree}/times".mkdir()?
-  put(fp"{tree}/times/old", "o", 0o644, T, T + 5000 * SECOND)?
-  put(fp"{tree}/times/mid", "m", 0o644, T + 1000 * SECOND, T)?
-  put(fp"{tree}/times/new", "n", 0o644, T + 2000 * SECOND, T + 1000 * SECOND)?
+  fp"{tree}/chain/l1/l2/l3".mkdir(parents: true)
+  put(fp"{tree}/chain/l1/l2/l3/leaf", "l", 0o644, T)
+  fp"{tree}/times".mkdir()
+  put(fp"{tree}/times/old", "o", 0o644, T, T + 5000 * SECOND)
+  put(fp"{tree}/times/mid", "m", 0o644, T + 1000 * SECOND, T)
+  put(fp"{tree}/times/new", "n", 0o644, T + 2000 * SECOND, T + 1000 * SECOND)
 
-  build_recent(tree)?
+  build_recent(tree)
 
   for dir in ["sub", "sub/deep/deeper", "sub/deep", "with space", "empty_dir", "stick", "sizes", "chain/l1/l2/l3", "chain/l1/l2", "chain/l1", "chain", "times", "recent"] {
-    fs.set_times(fp"{tree}/{dir}", atime_ns: T, mtime_ns: T + 7000 * SECOND)?
+    fs.set_times(fp"{tree}/{dir}", atime_ns: T, mtime_ns: T + 7000 * SECOND)
   }
-  fs.set_times(tree, atime_ns: T, mtime_ns: T + 7000 * SECOND)?
+  fs.set_times(tree, atime_ns: T, mtime_ns: T + 7000 * SECOND)
 }
 
 ## A small mutable copy of the tree for the actions that change it: `-delete`
 ## and the output files.
 export proc build_scratch(root: Path) [fs, error] {
   let scratch = fp"{root}/scratch"
-  scratch.remove()?
-  scratch.mkdir()?
+  scratch.remove()
+  scratch.mkdir()
   let T = EPOCH_NS
-  fp"{scratch}/sub/deep/deeper".mkdir(parents: true)?
-  put(fp"{scratch}/sub/c.log", "log\n", 0o644, T)?
-  put(fp"{scratch}/sub/deep/d.txt", "deep\n", 0o644, T)?
-  put(fp"{scratch}/sub/deep/e.c", "int x;\n", 0o644, T)?
-  put(fp"{scratch}/sub/deep/deeper/f.txt", "ff", 0o644, T)?
-  put(fp"{scratch}/a.txt", "alpha\n", 0o644, T)?
-  put(fp"{scratch}/ro.txt", "ro", 0o444, T)?
-  put(fp"{scratch}/hard1", "h\n", 0o644, T)?
-  fs.link(fp"{scratch}/hard1", fp"{scratch}/hard2")?
-  fs.symlink(p"a.txt", fp"{scratch}/link_a")?
-  fs.symlink(p"nowhere", fp"{scratch}/broken")?
-  fp"{scratch}/empty_dir".mkdir()?
+  fp"{scratch}/sub/deep/deeper".mkdir(parents: true)
+  put(fp"{scratch}/sub/c.log", "log\n", 0o644, T)
+  put(fp"{scratch}/sub/deep/d.txt", "deep\n", 0o644, T)
+  put(fp"{scratch}/sub/deep/e.c", "int x;\n", 0o644, T)
+  put(fp"{scratch}/sub/deep/deeper/f.txt", "ff", 0o644, T)
+  put(fp"{scratch}/a.txt", "alpha\n", 0o644, T)
+  put(fp"{scratch}/ro.txt", "ro", 0o444, T)
+  put(fp"{scratch}/hard1", "h\n", 0o644, T)
+  fs.link(fp"{scratch}/hard1", fp"{scratch}/hard2")
+  fs.symlink(p"a.txt", fp"{scratch}/link_a")
+  fs.symlink(p"nowhere", fp"{scratch}/broken")
+  fp"{scratch}/empty_dir".mkdir()
 }
 
 ## Symlink loops, kept away from the tree so that following links there does
 ## not report them on every run.
 export proc build_loops(root: Path) [fs, error] {
-  fp"{root}/loops".mkdir()?
-  fp"{root}/loops/file".write("f")?
-  fs.symlink(p"loop2", fp"{root}/loops/loop1")?
-  fs.symlink(p"loop1", fp"{root}/loops/loop2")?
-  fs.symlink(p".", fp"{root}/loops/self")?
+  fp"{root}/loops".mkdir()
+  fp"{root}/loops/file".write("f")
+  fs.symlink(p"loop2", fp"{root}/loops/loop1")
+  fs.symlink(p"loop1", fp"{root}/loops/loop2")
+  fs.symlink(p".", fp"{root}/loops/self")
 }
 
 ## An unreadable directory and a readable one that cannot be searched, both
 ## beside the tree. Call `restore` before the temporary directory is removed.
 export proc build_hostile(root: Path) [fs, error] {
-  build_loops(root)?
-  fp"{root}/locked".mkdir()?
-  fp"{root}/locked".chmod(0o000)?
-  fp"{root}/noexec".mkdir()?
-  fp"{root}/noexec/inside".write("i")?
-  fp"{root}/noexec".chmod(0o644)?
+  build_loops(root)
+  fp"{root}/locked".mkdir()
+  fp"{root}/locked".chmod(0o000)
+  fp"{root}/noexec".mkdir()
+  fp"{root}/noexec/inside".write("i")
+  fp"{root}/noexec".chmod(0o644)
 }
 
 ## Make the hostile directories removable again.
 export proc restore(root: Path) [fs, error] {
-  fp"{root}/locked".chmod(0o755)?
-  fp"{root}/noexec".chmod(0o755)?
+  fp"{root}/locked".chmod(0o755)
+  fp"{root}/noexec".chmod(0o755)
 }
 
 ## One command line of a corpus. `flags` selects how the harness runs it:
@@ -277,8 +277,8 @@ export pure expand_input(data: Bytes) -> Bytes {
 export proc invoke(xsh_bin: Path, script: Path, root: Path, work: Path, c: Case) [fs, process, time, error] -> Result[Observed, Error] {
   let identity = unix.id()?
   let scratch = fp"{root}/scratch"
-  if "d" in c.flags { build_scratch(root)? }
-  if "r" in c.flags { build_recent(fp"{root}/tree")? }
+  if "d" in c.flags { build_scratch(root) }
+  if "r" in c.flags { build_recent(fp"{root}/tree") }
   var args: List[Str] = [xsh_bin.display(), script.display(), "--"]
   for arg in c.args { args += [resolve_ids(arg, identity.uid, identity.gid)] }
   let out = fp"{work}/stdout"
@@ -290,7 +290,7 @@ export proc invoke(xsh_bin: Path, script: Path, root: Path, work: Path, c: Case)
   if "d" in c.flags {
     var tail: List[Bytes] = [b"--- after ---\n"]
     let cap = fp"{scratch}/cap"
-    if cap.exists()? { tail += [b"cap:\n", cap.read_bytes()?] }
+    if cap.exists() { tail += [b"cap:\n", cap.read_bytes()?] }
     var names = ["scratch"] |> map { |name| bytes.from_text(name) } |> collect()
     names += listing(scratch, root.bytes().len() + 1)?
     var keyed: List[Str] = []

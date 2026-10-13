@@ -897,7 +897,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     let eligible = reason in ["HTTP error", "timeout"] or (reason == "connection refused" and settings.retry_connrefused) or settings.retry_all_errors
     if !eligible { return result.code }
     warn(settings, f"Problem : {reason}. Retrying in {plural(wait_ms / 1000, "second", "seconds")}. {plural(left, "retry", "retries")} left.")
-    time.sleep(time.millis(wait_ms))?
+    time.sleep(time.millis(wait_ms))
     left -= 1
     if settings.retry_delay == null { wait_ms = wait_ms * 2 }
   }
@@ -909,8 +909,8 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
 proc gunzip(data: Bytes) [fs, error] -> Result[Bytes] {
   let scratch = fs.tempdir()?
   let dir = scratch.host_path()?
-  fp"{dir}/in.gz".write(data)?
-  compression.transform(fp"{dir}/in.gz", fp"{dir}/out", "gzip", true)?
+  fp"{dir}/in.gz".write(data)
+  compression.transform(fp"{dir}/in.gz", fp"{dir}/out", "gzip", true)
   Ok(fp"{dir}/out".read_bytes()?)
 }
 
@@ -1026,8 +1026,8 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
             return {code: 23, again: null}
           }
         } else {
-          io.write_stdout_bytes(out)?
-          io.flush_stdout()?
+          io.write_stdout_bytes(out)
+          io.flush_stdout()
         }
       }
       if let jar_name = settings.cookie_jar {

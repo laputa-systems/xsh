@@ -343,7 +343,7 @@ test test_env_block_signal_validates_names_and_blocks_them_in_the_command { |ctx
   assert invalid.status == 125
   assert "'__ALL__': invalid signal" in invalid.stderr, invalid.stderr
 
-  if ! p"/proc/self/status".exists()? {
+  if ! p"/proc/self/status".exists() {
     test.skip("the host has no /proc/self/status")
   }
 

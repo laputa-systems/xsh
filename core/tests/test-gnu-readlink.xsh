@@ -3,8 +3,8 @@ use support.uu
 # origin: gnu readlink/multi.log
 test test_gnu_readlink_multi_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "regfile")?
-  uu.symlink(s, "regfile", "link1")?
+  uu.touch(s, "regfile")
+  uu.symlink(s, "regfile", "link1")
   uu.succeeds(uu.invoke(s, "readlink", ["link1", "link1"])?)
   uu.fails_with_code(uu.invoke(s, "readlink", ["link1", "link2"])?, 1)
   uu.fails_with_code(uu.invoke(s, "readlink", ["link1", "link2", "link1"])?, 1)
@@ -25,29 +25,29 @@ test test_gnu_readlink_multi_log { |ctx|
 test test_gnu_readlink_readlink_fp_loop_log { |ctx|
   let s = uu.scene(ctx)?
   let cwd = s.root.resolve()?.display()
-  uu.symlink(s, "s", "p")?
-  uu.symlink(s, "d", "s")?
-  uu.mkdir(s, "d")?
-  uu.write(s, "d/2", "2\n")?
-  uu.symlink(s, "../s/2", "d/1")?
+  uu.symlink(s, "s", "p")
+  uu.symlink(s, "d", "s")
+  uu.mkdir(s, "d")
+  uu.write(s, "d/2", "2\n")
+  uu.symlink(s, "../s/2", "d/1")
   let finite = uu.invoke(s, "readlink", ["-v", "-e", "p/1"])?
   uu.succeeds(finite)
   uu.stdout_is(finite, cwd + "/d/2\n")
-  uu.remove(s, "d/2")?
-  uu.symlink(s, "../s/1", "d/2")?
+  uu.remove(s, "d/2")
+  uu.symlink(s, "../s/1", "d/2")
   let cyclic = uu.invoke(s, "readlink", ["-v", "-e", "p/1"])?
   uu.fails(cyclic)
   let diagnostic = cyclic.stderr.utf8()?.trim()
   assert diagnostic.starts_with("readlink: p/1: ")
   let reason = diagnostic.byte_slice("readlink: p/1: ".byte_len())
-  uu.remove(s, "d/2")?
-  uu.symlink(s, "../s/3", "d/2")?
-  for index in range(3, 8) { uu.symlink(s, f"../p/{index + 1}", f"d/{index}")? }
-  uu.write(s, "d/8", "x\n")?
+  uu.remove(s, "d/2")
+  uu.symlink(s, "../s/3", "d/2")
+  for index in range(3, 8) { uu.symlink(s, f"../p/{index + 1}", f"d/{index}") }
+  uu.write(s, "d/8", "x\n")
   let longer = uu.invoke(s, "readlink", ["-v", "-e", "p/1"])?
   uu.succeeds(longer)
   uu.stdout_is(longer, cwd + "/d/8\n")
-  uu.symlink(s, "loop", "loop")?
+  uu.symlink(s, "loop", "loop")
   let direct = uu.invoke(s, "readlink", ["-v", "-e", "loop"])?
   uu.fails(direct)
   uu.stderr_is(direct, f"readlink: loop: {reason}\n")
@@ -56,8 +56,8 @@ test test_gnu_readlink_readlink_fp_loop_log { |ctx|
 # origin: gnu readlink/readlink-posix.log
 test test_gnu_readlink_readlink_posix_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.symlink(s, "file", "link1")?
+  uu.touch(s, "file")
+  uu.symlink(s, "file", "link1")
   let plain = uu.invoke(s, "readlink", ["file"], vars: {POSIXLY_CORRECT: "1"})?
   uu.fails_with_code(plain, 1)
   assert plain.stderr.utf8()?.replace("Argument", with: "argument") == "readlink: file: Invalid argument\n"
@@ -79,7 +79,7 @@ test test_gnu_readlink_readlink_root_log { |ctx|
     {name: "one", target: "/"}, {name: "two", target: "//"}, {name: "three", target: "///"},
     {name: "one-dots", target: "/./..//"}, {name: "two-dots", target: "//./..//"}, {name: "three-dots", target: "///./..//"},
     {name: "one-dev", target: "/dev"}, {name: "two-dev", target: "//dev"}, {name: "three-dev", target: "///dev"},
-  ] { uu.symlink(s, item.target, item.name)? }
+  ] { uu.symlink(s, item.target, item.name) }
   for item in [
     {operand: "/", mode: "-e", expected: "/"}, {operand: "//", mode: "-e", expected: double_root}, {operand: "///", mode: "-e", expected: "/"},
     {operand: "/.//..", mode: "-e", expected: "/"}, {operand: "//.//..", mode: "-e", expected: double_root}, {operand: "///.//..", mode: "-e", expected: "/"},
@@ -98,11 +98,11 @@ test test_gnu_readlink_readlink_root_log { |ctx|
 # origin: gnu readlink/rl-1.log
 test test_gnu_readlink_rl_1_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "subdir")?
-  uu.touch(s, "regfile")?
-  uu.symlink(s, "regfile", "link1")?
-  uu.symlink(s, "missing", "link2")?
-  uu.symlink(s, "q name", "qlink")?
+  uu.mkdir(s, "subdir")
+  uu.touch(s, "regfile")
+  uu.symlink(s, "regfile", "link1")
+  uu.symlink(s, "missing", "link2")
+  uu.symlink(s, "q name", "qlink")
   for item in [{name: "link1", expected: "regfile"}, {name: "link2", expected: "missing"}] {
     let r = uu.invoke(s, "readlink", [item.name])?
     uu.succeeds(r)

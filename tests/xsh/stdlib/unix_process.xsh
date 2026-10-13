@@ -72,7 +72,7 @@ test test_unix_duplicate_fd_shares_offset_and_owns_its_descriptor { |ctx|
   assert saved >= 100 and saved != source
   assert unix.read_fd(source, 2)? == b"ab"
   assert unix.read_fd(saved, 2)? == b"cd"
-  unix.close_fd(saved)?
+  unix.close_fd(saved)
   assert unix.read_fd(source, 2)? == b"ef"
   assert unix.read_fd(saved, 1) is Err(is HostIo)
   test.error_kind(unix.duplicate_fd(-1), "unix-duplicate-fd")
@@ -218,7 +218,7 @@ assert unix.poll_fd(fd, [])? == ["invalid"]
 test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   let root = test.temp_dir(ctx)?
   let fifo = fp"{root}/pipe"
-  fs.mkfifo(fifo, mode: 384)?
+  fs.mkfifo(fifo, mode: 384)
   let reader = unix.open_fd(fifo, nonblock: true)?
   var reader_open = true
   defer { if reader_open { unix.close_fd(reader) } }
@@ -232,7 +232,7 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   run sh -c "printf payload > \"$1\"" sh $fifo
   let ready = unix.poll_fd(reader, ["readable"])?
   assert "readable" in ready and "hangup" in ready
-  unix.close_fd(reader)?
+  unix.close_fd(reader)
   reader_open = false
   let result = test.run_script(ctx, r"""
 let fifo = Path(args[0])
@@ -288,7 +288,7 @@ test test_unix_seek_fd_uses_absolute_positions { |ctx|
 
   let fifo_dir = test.temp_dir(ctx, name: "seek-fifo")?
   let fifo = fp"{fifo_dir}/pipe"
-  fs.mkfifo(fifo, mode: 0o600)?
+  fs.mkfifo(fifo, mode: 0o600)
   let reader = unix.open_fd(fifo, nonblock: true)?
   defer unix.close_fd(reader)
   assert unix.seek_fd(reader, 0) is Err(is HostIo)
@@ -337,7 +337,7 @@ assert io.stdin_bytes()? == b""
 test test_unix_read_fd_reads_fifo_without_seeking_or_waiting_for_requested_size { |ctx|
   let root = test.temp_dir(ctx)?
   let fifo = fp"{root}/pipe"
-  fs.mkfifo(fifo, mode: 384)?
+  fs.mkfifo(fifo, mode: 384)
   let reader = unix.open_fd(fifo, nonblock: true)?
   defer unix.close_fd(reader)
   run sh -c "printf payload > \"$1\"" sh $fifo

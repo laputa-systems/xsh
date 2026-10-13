@@ -11,16 +11,16 @@ proc expression(s: uu.Scene, args: List[Str], status: Int) [fs, process, env, er
 # origin: gnu test/test-N.log
 test test_gnu_test_test_N_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let instant = time.now() * 1000000
-  fs.set_times(uu.at(s, "file"), atime_ns: instant, mtime_ns: instant)?
+  fs.set_times(uu.at(s, "file"), atime_ns: instant, mtime_ns: instant)
   expression(s, ["-N", "file"], 1)
   let noon = time.now() / 1000 / 86400 * 86400 + 12 * 3600
-  fs.set_times(uu.at(s, "file"), atime_sec: noon - 2 * 86400)?
+  fs.set_times(uu.at(s, "file"), atime_sec: noon - 2 * 86400)
   expression(s, ["-N", "file"], 0)
-  fs.set_times(uu.at(s, "file"), mtime_sec: noon - 4 * 86400)?
+  fs.set_times(uu.at(s, "file"), mtime_sec: noon - 4 * 86400)
   expression(s, ["-N", "file"], 1)
-  uu.write(s, "file", "data\n")?
+  uu.write(s, "file", "data\n")
   expression(s, ["-N", "file"], 0)
 }
 
@@ -37,8 +37,8 @@ test test_gnu_test_test_diag_log { |ctx|
 # origin: gnu test/test-file.log
 test test_gnu_test_test_file_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.set_mode(s, "file", 0)?
+  uu.touch(s, "file")
+  uu.set_mode(s, "file", 0)
   assert uu.read(s, "file") is Err(is PermissionDenied)
   expression(s, ["-f", "file"], 0)
   expression(s, ["-f", "fail"], 1)
@@ -51,10 +51,10 @@ test test_gnu_test_test_file_log { |ctx|
     {args: ["missing", "-ot", "file"], status: 0},
     {args: ["file", "-ot", "missing"], status: 1},
   ] { expression(s, case.args, case.status) }
-  uu.touch(s, "file1")?
-  uu.touch(s, "file2")?
-  fs.set_times(uu.at(s, "file1"), mtime_sec: 1761188400)?
-  fs.set_times(uu.at(s, "file2"), mtime_sec: 1761192000)?
+  uu.touch(s, "file1")
+  uu.touch(s, "file2")
+  fs.set_times(uu.at(s, "file1"), mtime_sec: 1761188400)
+  fs.set_times(uu.at(s, "file2"), mtime_sec: 1761192000)
   for case in [
     {args: ["file2", "-nt", "file1"], status: 0},
     {args: ["file1", "-nt", "file2"], status: 1},
@@ -67,10 +67,10 @@ test test_gnu_test_test_file_log { |ctx|
     {args: ["file1", "-ef", "file1"], status: 0},
     {args: ["file1", "-ef", "file2"], status: 1},
   ] { expression(s, case.args, case.status) }
-  uu.symlink(s, "file1", "symlink1")?
-  uu.symlink(s, "file2", "symlink2")?
-  uu.hard_link(s, "file1", "hardlink1")?
-  uu.hard_link(s, "file2", "hardlink2")?
+  uu.symlink(s, "file1", "symlink1")
+  uu.symlink(s, "file2", "symlink2")
+  uu.hard_link(s, "file1", "hardlink1")
+  uu.hard_link(s, "file2", "hardlink2")
   for link in ["symlink", "hardlink"] {
     expression(s, ["file1", "-ef", f"{link}1"], 0)
     expression(s, [f"{link}1", "-ef", "file1"], 0)

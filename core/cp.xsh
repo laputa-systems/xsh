@@ -90,7 +90,7 @@ proc preserve_xattrs(source: Path, target: Path, opts: Options, follow: Bool, ta
     }
   }
   if opts.context == "required" and ! has_context {
-    invalid(f"failed to get security context of {gnu.quote_bytes(source.bytes())}: No data available")?
+    invalid(f"failed to get security context of {gnu.quote_bytes(source.bytes())}: No data available")
   }
 }
 
@@ -120,10 +120,10 @@ proc preserve(source: Path, target: Path, opts: Options, follow: Bool, source_me
       target.chmod(target_mode)
       attributes?
     } else {
-      preserve_attributes(source, target, opts, follow, target_link)?
+      preserve_attributes(source, target, opts, follow, target_link)
     }
   } else {
-    preserve_attributes(source, target, opts, follow, target_link)?
+    preserve_attributes(source, target, opts, follow, target_link)
   }
   if opts.mode and ! target_link {
     target.chmod(source_meta.mode.bit_and(0o7777))
@@ -187,7 +187,7 @@ proc finish_parents(pairs: List[ParentDirectory], opts: Options) {
     if pair.created and ! opts.mode and ! opts.owner and ! opts.no_mode {
       pair.target.chmod((if opts.no_mode { 0o777 } else { pair.meta.mode.bit_and(0o1777) }).clear_bits(fs.umask()?))
     }
-    preserve(pair.source, pair.target, opts, true, pair.meta, created: pair.created)?
+    preserve(pair.source, pair.target, opts, true, pair.meta, created: pair.created)
   }
 }
 
@@ -233,7 +233,7 @@ proc inside(source: Path, target: Path) -> Bool {
 proc link_to_earlier_copy(target: Path, meta: FsStat, copies: List[FileIdentity]) -> Result[Bool] {
   for previous in copies {
     if previous.dev == meta.dev and previous.ino == meta.ino {
-      if target.exists()? { target.remove() }
+      if target.exists() { target.remove() }
       fs.link(previous.path, target)
       return Ok(true)
     }
@@ -249,7 +249,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   var input = source
   let existence = target.exists()
   if let Err(failure) = existence {
-    invalid(f"cannot stat {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")?
+    invalid(f"cannot stat {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
   }
   let exists = existence?
   var created = ! exists
@@ -257,17 +257,17 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   var copies = saved
   let parent = target.parent().resolve()
   if let Err(failure) = parent {
-    invalid(f"cannot create regular file {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")?
+    invalid(f"cannot create regular file {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
   }
   if fs.stat(parent?, follow_symlinks: true)?.kind != "dir" {
-    invalid(f"cannot create regular file {gnu.quote_bytes(target.bytes())}: Not a directory")?
+    invalid(f"cannot create regular file {gnu.quote_bytes(target.bytes())}: Not a directory")
   }
   let target_key = fp"{parent?}/{basename_path(target)?}".normalize()
   if exists {
     for previous in saved {
       if previous.path == target_key {
         if previous.kind == "symlink" and meta.kind != "symlink" and ! opts.symlink and ! opts.hardlink and ! opts.remove and opts.backup == "none" {
-          invalid(f"will not copy {gnu.quote_bytes(source.bytes())} through just-created symlink {gnu.quote_bytes(target.bytes())}")?
+          invalid(f"will not copy {gnu.quote_bytes(source.bytes())} through just-created symlink {gnu.quote_bytes(target.bytes())}")
         }
         if command_line and previous.dev == meta.dev and previous.ino == meta.ino and opts.backup == "none" {
           let kind = if meta.kind == "dir" { "directory" } else { "file" }
@@ -275,7 +275,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
           return Ok({copies: copies, failed: false})
         }
         if command_line and meta.kind != "dir" and opts.backup not in ["numbered", "t"] and opts.overwrite != "never" and opts.update != "none" {
-          invalid(f"will not overwrite just-created {gnu.quote_bytes(target.bytes())} with {gnu.quote_bytes(source.bytes())}")?
+          invalid(f"will not overwrite just-created {gnu.quote_bytes(target.bytes())} with {gnu.quote_bytes(source.bytes())}")
         }
       }
     }
@@ -283,20 +283,20 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   var output = ""
   var announced = false
   if meta.kind == "dir" {
-    if ! opts.recursive { invalid(f"-r not specified; omitting directory {gnu.quote_bytes(source.bytes())}")? }
+    if ! opts.recursive { invalid(f"-r not specified; omitting directory {gnu.quote_bytes(source.bytes())}") }
     for ancestor in ancestors {
       if ancestor.dev == meta.dev and ancestor.ino == meta.ino {
-        invalid(f"cannot copy cyclic symbolic link {gnu.quote_bytes(source.bytes())}")?
+        invalid(f"cannot copy cyclic symbolic link {gnu.quote_bytes(source.bytes())}")
       }
     }
     if exists and dest_kind == "dir" {
       let destination_meta = fs.stat(target, follow_symlinks: true)?
       if meta.dev == destination_meta.dev and meta.ino == destination_meta.ino {
-        invalid(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")?
+        invalid(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
       }
     }
     if command_line and inside(source, target) {
-      invalid(f"cannot copy a directory, {gnu.quote_bytes(source.bytes())}, into itself, {gnu.quote_bytes(target.bytes())}")?
+      invalid(f"cannot copy a directory, {gnu.quote_bytes(source.bytes())}, into itself, {gnu.quote_bytes(target.bytes())}")
     }
     # GNU follows a destination symlink to a directory only when --copy-contents is
     # also given. A dangling link counts as existing, so creating the directory
@@ -304,14 +304,14 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     if exists and dest_kind == "symlink" and opts.keep_directory_symlink and opts.copy_contents {
       match fs.stat(target, follow_symlinks: true) {
         Ok(followed) => dest_kind = followed.kind
-        Err(_) => invalid(f"cannot create directory {gnu.quote_bytes(target.bytes())}: File exists")?
+        Err(_) => invalid(f"cannot create directory {gnu.quote_bytes(target.bytes())}: File exists")
       }
     }
     if exists and dest_kind != "dir" {
-      invalid(f"cannot overwrite non-directory {gnu.quote_bytes(target.bytes())} with directory {gnu.quote_bytes(source.bytes())}")?
+      invalid(f"cannot overwrite non-directory {gnu.quote_bytes(target.bytes())} with directory {gnu.quote_bytes(source.bytes())}")
     }
     if opts.parents and target.basename() == ".." {
-      invalid(f"cannot create directory {gnu.quote_bytes(target.bytes())}: File exists")?
+      invalid(f"cannot create directory {gnu.quote_bytes(target.bytes())}: File exists")
     }
     if ! exists { mkdir_copy(target, meta.mode, opts) }
     if opts.verbose and ! exists {
@@ -330,14 +330,14 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       }
     }
     if ! exists and ! opts.mode and ! opts.owner and ! opts.no_mode { target.chmod((if opts.no_mode { 0o777 } else { meta.mode.bit_and(0o1777) }).clear_bits(fs.umask()?)) }
-    preserve(source, target, opts, follow, meta, created: created)?
+    preserve(source, target, opts, follow, meta, created: created)
     copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: meta.kind}]
     return Ok({copies: copies, failed: failed})
   }
   if exists {
-    if dest_kind == "dir" { invalid(f"cannot overwrite directory {gnu.quote_bytes(target.bytes())} with non-directory")? }
+    if dest_kind == "dir" { invalid(f"cannot overwrite directory {gnu.quote_bytes(target.bytes())} with non-directory") }
     if opts.overwrite == "never" or opts.update == "none" { if opts.debug { gnu.write_text(f"skipped {gnu.quote_bytes(target.bytes())}\n") }; return Ok({copies: copies, failed: false}) }
-    if opts.update == "none-fail" { invalid(f"not replacing {gnu.quote_bytes(target.bytes())}")? }
+    if opts.update == "none-fail" { invalid(f"not replacing {gnu.quote_bytes(target.bytes())}") }
     if opts.update == "older" {
       if let Ok(dest) = fs.stat(target, follow_symlinks: true) {
         if dest.mtime_ns >= meta.mtime_ns {
@@ -355,11 +355,11 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       let destination_mode = fs.stat(target)?.mode
       remove_readonly = opts.force and opts.backup == "none" and destination_mode.bit_and(0o222) == 0
       if remove_readonly {
-        io.write_stderr(f"cp: replace {gnu.quote_bytes(target.bytes())}, overriding mode {mode_octal(destination_mode)} ({mode_permissions(destination_mode)})? ")?
+        io.write_stderr(f"cp: replace {gnu.quote_bytes(target.bytes())}, overriding mode {mode_octal(destination_mode)} ({mode_permissions(destination_mode)})? ")
       } else {
-        io.write_stderr(f"cp: overwrite {gnu.quote_bytes(target.bytes())}? ")?
+        io.write_stderr(f"cp: overwrite {gnu.quote_bytes(target.bytes())}? ")
       }
-      io.flush_stderr()?
+      io.flush_stderr()
       let answer = io.stdin_line()?.lower()
       return Ok({copies: copies, failed: true}) when ! answer.starts_with("y")
     }
@@ -391,21 +391,21 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     if opts.hardlink and dest_kind == "symlink" and ! same_name { unsafe_same = false }
     if opts.symlink and dest_kind == "symlink" and ! same_name { unsafe_same = false }
     if unsafe_same {
-      invalid(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")?
+      invalid(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
     }
     if (opts.hardlink or opts.symlink) and ! opts.force and ! opts.remove and opts.backup == "none" {
       let kind = if opts.hardlink { "hard link" } else { "symbolic link" }
-      invalid(f"cannot create {kind} {gnu.quote_bytes(target.bytes())} to {gnu.quote_bytes(source.bytes())}: File exists")?
+      invalid(f"cannot create {kind} {gnu.quote_bytes(target.bytes())} to {gnu.quote_bytes(source.bytes())}: File exists")
     }
     if opts.attributes and meta.kind == "symlink" and ! opts.remove and opts.backup == "none" {
-      invalid(f"cannot create symbolic link {gnu.quote_bytes(target.bytes())}: File exists")?
+      invalid(f"cannot create symbolic link {gnu.quote_bytes(target.bytes())}: File exists")
     }
     if opts.backup != "none" {
       let backup = backup_path(target, opts)
       let backup_key = fp"{backup.parent().resolve()?}/{basename_path(backup)?}".normalize()
       let source_key = fp"{source.parent().resolve()?}/{basename_path(source)?}".normalize()
       if backup_key == source_key {
-        invalid(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source;  {gnu.quote_bytes(source.bytes())} not copied")?
+        invalid(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source;  {gnu.quote_bytes(source.bytes())} not copied")
       }
       target.rename(to: backup, overwrite: true)
       created = true
@@ -424,7 +424,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     } else if dest_kind == "symlink" and ! (e"POSIXLY_CORRECT" is Ok(_)) {
       if let Err(failure) = fs.stat(target, follow_symlinks: true) {
         if failure.errno == 2 {
-          invalid(f"not writing through dangling symlink {gnu.quote_bytes(target.bytes())}")?
+          invalid(f"not writing through dangling symlink {gnu.quote_bytes(target.bytes())}")
         }
       }
     }
@@ -439,7 +439,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   if ! linked {
     if opts.symlink {
       if ! source.display().starts_with("/") and target.parent().resolve()? != p".".resolve()? {
-        invalid(f"{gnu.quote_bytes(target.bytes())}: can make relative symbolic copies only in current directory")?
+        invalid(f"{gnu.quote_bytes(target.bytes())}: can make relative symbolic copies only in current directory")
       }
       target.symlink(to: source)
     } else if opts.hardlink {
@@ -449,16 +449,16 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     } else if meta.kind != "file" and opts.recursive and ! opts.copy_contents {
       if let Err(failure) = fs.mknod(target, meta.kind, meta.mode.bit_and(0o777),
         major: fs.dev_major(meta.rdev), minor: fs.dev_minor(meta.rdev)) {
-        invalid(f"cannot create special file {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")?
+        invalid(f"cannot create special file {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
       }
     } else if opts.attributes {
-      if ! target.exists()? {
+      if ! target.exists() {
         let made = fs.mknod(target, "file", if opts.mode or opts.owner { 0o600 } else if opts.no_mode { 0o666 } else { meta.mode.bit_and(0o777) })
         if let Err(failure) = made {
           created = false
           if failure.errno != 17 { return Err(failure) }
           if opts.overwrite == "never" or opts.update == "none" { return Ok({copies: copies, failed: false}) }
-          if opts.update == "none-fail" { invalid(f"not replacing {gnu.quote_bytes(target.bytes())}")? }
+          if opts.update == "none-fail" { invalid(f"not replacing {gnu.quote_bytes(target.bytes())}") }
         }
       }
     } else {
@@ -468,7 +468,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
           return Ok({copies: copies, failed: false})
         }
         if failure.errno == 17 and opts.update == "none-fail" {
-          invalid(f"not replacing {gnu.quote_bytes(target.bytes())}")?
+          invalid(f"not replacing {gnu.quote_bytes(target.bytes())}")
         }
         return Err(failure)
       }
@@ -508,7 +508,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         output += f"copy offload: {offload}, reflink: {reflink}, sparse detection: {sparse}\n"
       }
     }
-    preserve(input, target, opts, follow, meta, created: created)?
+    preserve(input, target, opts, follow, meta, created: created)
   }
   copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: fs.stat(target)?.kind}]
   # Copying commits the destination before a verbose output failure is reported.

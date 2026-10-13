@@ -17,6 +17,6 @@ test test_bb_sha512sum_sha512sum_original_aggregate { |ctx| checksum.check_origi
 # origin: busybox sha512sum/sha512sum -c EMPTY
 test test_bb_sha512sum_sha512sum_c_EMPTY_820a2c1d { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "EMPTY")?
+  uu.touch(s, "EMPTY")
   uu.fails_with_code(uu.invoke(s, "sha512sum", ["-c", "EMPTY"])?, 1)
 }

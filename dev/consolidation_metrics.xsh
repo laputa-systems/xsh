@@ -102,7 +102,7 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
         while cursor < chars.len() and depth > 0 {
           if (chars.get(cursor) ?? "") == "/" and (chars.get(cursor + 1) ?? "") == "*" { depth += 1; cursor += 2 } else if (chars.get(cursor) ?? "") == "*" and (chars.get(cursor + 1) ?? "") == "/" { depth -= 1; cursor += 2 } else { if (chars.get(cursor) ?? "") == "\n" { line += 1 }; cursor += 1 }
         }
-        if depth != 0 { invalid(source_path, start_line, "unterminated block comment")? }
+        if depth != 0 { invalid(source_path, start_line, "unterminated block comment") }
         continue
       }
       let start = cursor
@@ -122,8 +122,8 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
         if (chars.get(quote) ?? "") == "\"" { raw = true } else { quote = cursor }
       }
       let delimiter = chars.get(quote) ?? ""
-      if current == "c" and quote > cursor and delimiter == "'" { invalid(source_path, line, "C character literal is unsupported")? }
-      if raw and quote - start - (if current == "r" { 1 } else { 2 }) > 255 { invalid(source_path, line, "too many raw literal delimiters")? }
+      if current == "c" and quote > cursor and delimiter == "'" { invalid(source_path, line, "C character literal is unsupported") }
+      if raw and quote - start - (if current == "r" { 1 } else { 2 }) > 255 { invalid(source_path, line, "too many raw literal delimiters") }
       var literal = delimiter == "\"" or (quote > cursor and delimiter == "'")
       if delimiter == "'" and quote == cursor {
         # A lifetime is an apostrophe followed by an identifier without a closing quote.
@@ -135,7 +135,7 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
             yield {text: source.byte_slice(offsets[start], length: offsets[cursor] - offsets[start]), start: start, end: cursor, line: start_line, last_line: line, literal: false}
             continue
           }
-          if end != cursor + 2 { invalid(source_path, line, "multi-character Rust character literal")? }
+          if end != cursor + 2 { invalid(source_path, line, "multi-character Rust character literal") }
         }
         literal = true
       }
@@ -161,48 +161,48 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
             cursor += 1
             if cursor >= chars.len() { break }
             let escape = chars.get(cursor) ?? ""
-            if ! (escape in ["\\", "\"", "'", "n", "r", "t", "0", "x", "u", "\n", "\r"]) { invalid(source_path, line, "unsupported Rust escape")? }
+            if ! (escape in ["\\", "\"", "'", "n", "r", "t", "0", "x", "u", "\n", "\r"]) { invalid(source_path, line, "unsupported Rust escape") }
             if escape == "\n" { line += 1 }
-            if delimiter == "'" and escape in ["\n", "\r"] { invalid(source_path, start_line, "newline in character escape")? }
+            if delimiter == "'" and escape in ["\n", "\r"] { invalid(source_path, start_line, "newline in character escape") }
             if escape == "u" {
-              if current == "b" { invalid(source_path, line, "Unicode escape in byte literal")? }
-              if (chars.get(cursor + 1) ?? "") != "{" { invalid(source_path, line, "malformed Unicode escape")? }
+              if current == "b" { invalid(source_path, line, "Unicode escape in byte literal") }
+              if (chars.get(cursor + 1) ?? "") != "{" { invalid(source_path, line, "malformed Unicode escape") }
               cursor += 2
               var digits = 0
               var scalar = 0
               while cursor < chars.len() and (chars.get(cursor) ?? "") != "}" {
                 let digit = chars.get(cursor) ?? ""
                 if digit != "_" {
-                  if ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed Unicode escape")? }
+                  if ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed Unicode escape") }
                   digits += 1
                   scalar = scalar * 16 + ("0123456789abcdef".find(digit.lower()) ?? 0)
                 }
                 cursor += 1
               }
-              if (chars.get(cursor) ?? "") != "}" or digits == 0 or digits > 6 { invalid(source_path, start_line, "malformed Unicode escape")? }
-              if scalar > 1114111 or (scalar >= 55296 and scalar <= 57343) { invalid(source_path, line, "invalid Unicode scalar escape")? }
+              if (chars.get(cursor) ?? "") != "}" or digits == 0 or digits > 6 { invalid(source_path, start_line, "malformed Unicode escape") }
+              if scalar > 1114111 or (scalar >= 55296 and scalar <= 57343) { invalid(source_path, line, "invalid Unicode scalar escape") }
             } else if escape == "x" {
               for offset in [1, 2] {
                 let digit = chars.get(cursor + offset) ?? ""
-                if digit == "" or ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed hexadecimal escape")? }
+                if digit == "" or ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed hexadecimal escape") }
               }
-              if current != "b" and current != "c" and (chars.get(cursor + 1) ?? "").lower() in "89abcdef" { invalid(source_path, line, "non-ASCII hexadecimal escape")? }
+              if current != "b" and current != "c" and (chars.get(cursor + 1) ?? "").lower() in "89abcdef" { invalid(source_path, line, "non-ASCII hexadecimal escape") }
               cursor += 2
             }
             cursor += 1
             payload += 1
             continue
           }
-          if current == "b" and value.byte_len() > 1 { invalid(source_path, line, "non-ASCII byte literal")? }
+          if current == "b" and value.byte_len() > 1 { invalid(source_path, line, "non-ASCII byte literal") }
           if value == "\n" {
-            if delimiter == "'" { invalid(source_path, start_line, "newline in character literal")? }
+            if delimiter == "'" { invalid(source_path, start_line, "newline in character literal") }
             line += 1
           }
           payload += 1
           cursor += 1
         }
-        if ! closed { invalid(source_path, start_line, "unterminated Rust literal")? }
-        if delimiter == "'" and payload != 1 { invalid(source_path, start_line, "invalid character literal")? }
+        if ! closed { invalid(source_path, start_line, "unterminated Rust literal") }
+        if delimiter == "'" and payload != 1 { invalid(source_path, start_line, "invalid character literal") }
       } else {
         cursor += 1
         if ident_start(current) {
@@ -220,17 +220,17 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
     token_table[index] = item
     if ! item.literal and item.text in ["(", "[", "{"] { stack += [index] }
     if ! item.literal and item.text in [")", "]", "}"] {
-      if stack.is_empty() { invalid(source_path, item.line, "unmatched closing delimiter")? }
+      if stack.is_empty() { invalid(source_path, item.line, "unmatched closing delimiter") }
       let opening = stack[stack.len() - 1]
       let expected = if item.text == ")" { "(" } else if item.text == "]" { "[" } else { "{" }
-      if tokens[opening].text != expected { invalid(source_path, item.line, "mismatched Rust delimiters")? }
+      if tokens[opening].text != expected { invalid(source_path, item.line, "mismatched Rust delimiters") }
       mates[f"{opening}"] = index
       mates[f"{index}"] = opening
       stack = stack |> take(stack.len() - 1) |> collect
     }
     index += 1
   }
-  if ! stack.is_empty() { invalid(source_path, tokens[stack[0]].line, "unclosed Rust delimiter")? }
+  if ! stack.is_empty() { invalid(source_path, tokens[stack[0]].line, "unclosed Rust delimiter") }
   let physical = if source == "" { 0 } else { line - (if source.ends_with("\n") { 1 } else { 0 }) }
   {tokens: token_table, mates: mates, size: chars.len(), lines: physical}
 }
@@ -256,17 +256,17 @@ proc cfg_eval(source_path: Str, lexed: Lexed, start: Int, assignments: Map[Bool]
       count += 1
       cursor = child.next
       if cursor < end {
-        if (lexed.tokens.get(cursor) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "expected comma in cfg")? }
+        if (lexed.tokens.get(cursor) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "expected comma in cfg") }
         cursor += 1
       }
     }
-    if name == "not" and count != 1 { invalid(source_path, lexed.tokens[start].line, "cfg not requires one predicate")? }
+    if name == "not" and count != 1 { invalid(source_path, lexed.tokens[start].line, "cfg not requires one predicate") }
     return {value: value, next: end + 1}
   }
-  if ! ident_start(first(name)) { invalid(source_path, lexed.tokens[start].line, "unsupported cfg predicate")? }
+  if ! ident_start(first(name)) { invalid(source_path, lexed.tokens[start].line, "unsupported cfg predicate") }
   var end = start + 1
   if (lexed.tokens.get(end) ?? end_token).text == "=" {
-    if ! lexed.tokens[end + 1].literal { invalid(source_path, lexed.tokens[start].line, "cfg value must be a literal")? }
+    if ! lexed.tokens[end + 1].literal { invalid(source_path, lexed.tokens[start].line, "cfg value must be a literal") }
     end += 2
   }
   let atom = words(lexed, start, end)
@@ -275,12 +275,12 @@ proc cfg_eval(source_path: Str, lexed: Lexed, start: Int, assignments: Map[Bool]
 
 proc satisfiable(source_path: Str, lexed: Lexed, predicates: List[CfgPredicate], atoms: List[Str], index: Int, assignments: Map[Bool]) [error] -> Result[Bool] {
   if index < atoms.len() {
-    return true when satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], false))?
+    return true when satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], false))
     return satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], true))?
   }
   for predicate in predicates {
     let value = cfg_eval(source_path, lexed, predicate.start, assignments)?
-    if value.next != predicate.end { invalid(source_path, lexed.tokens[predicate.start].line, "trailing cfg tokens")? }
+    if value.next != predicate.end { invalid(source_path, lexed.tokens[predicate.start].line, "trailing cfg tokens") }
     return false when ! value.value
   }
   true
@@ -328,12 +328,12 @@ proc attributes(source_path: Str, lexed: Lexed) [error] -> Result[List[Attribute
       if name == "#" {
         let inner = (lexed.tokens.get(cursor + 1) ?? end_token).text == "!"
         let opening = cursor + (if inner { 2 } else { 1 })
-        if (lexed.tokens.get(opening) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported Rust attribute")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported Rust attribute") }
         let end = lexed.mates[f"{opening}"]
         let kind = (lexed.tokens.get(opening + 1) ?? end_token).text
         var condition_active = true
         if kind in ["cfg", "cfg_attr"] and ((lexed.tokens.get(opening + 2) ?? end_token).text != "(" or lexed.mates[f"{opening + 2}"] != end - 1) {
-          invalid(source_path, lexed.tokens[cursor].line, "malformed conditional attribute")?
+          invalid(source_path, lexed.tokens[cursor].line, "malformed conditional attribute")
         }
         if kind == "cfg_attr" {
           # Conditional metadata is harmless; conditional cfg/source_path or custom
@@ -344,15 +344,15 @@ proc attributes(source_path: Str, lexed: Lexed) [error] -> Result[List[Attribute
             if (lexed.tokens.get(child) ?? end_token).text == "," { break }
             child += 1
           }
-          if (lexed.tokens.get(child) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "cfg_attr requires metadata")? }
+          if (lexed.tokens.get(child) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "cfg_attr requires metadata") }
           condition_active = production_cfg(source_path, lexed, [{start: opening + 3, end: child}])?
           child += 1
           while child < end - 1 {
             if ! ((lexed.tokens.get(child) ?? end_token).text in ["allow", "warn", "deny", "forbid", "expect", "derive", "doc"]) {
-              invalid(source_path, lexed.tokens[cursor].line, "cfg_attr eligibility is unsupported")?
+              invalid(source_path, lexed.tokens[cursor].line, "cfg_attr eligibility is unsupported")
             }
             child += 1
-            if (lexed.tokens.get(child) ?? end_token).text == "(" { child = lexed.mates[f"{child}"] + 1 } else if (lexed.tokens.get(child) ?? end_token).text == "=" { child += 2 } else { invalid(source_path, lexed.tokens[cursor].line, "malformed cfg_attr metadata")? }
+            if (lexed.tokens.get(child) ?? end_token).text == "(" { child = lexed.mates[f"{child}"] + 1 } else if (lexed.tokens.get(child) ?? end_token).text == "=" { child += 2 } else { invalid(source_path, lexed.tokens[cursor].line, "malformed cfg_attr metadata") }
             if (lexed.tokens.get(child) ?? end_token).text == "," { child += 1 }
           }
         }
@@ -389,7 +389,7 @@ proc item_end(source_path: Str, lexed: Lexed, start: Int) [error] -> Result[Int]
     }
     if name in ["(", "["] { cursor = lexed.mates[f"{cursor}"] + 1 } else { cursor += 1 }
   }
-  invalid(source_path, lexed.tokens[start].line, "cannot determine attributed item boundary")?
+  invalid(source_path, lexed.tokens[start].line, "cannot determine attributed item boundary")
   start
 }
 
@@ -410,7 +410,7 @@ proc scope_start(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result
     start = cursor
     cursor -= 1
   }
-  if ! item { invalid(source_path, lexed.tokens[opening].line, "inner cfg scope is not a supported Rust item")? }
+  if ! item { invalid(source_path, lexed.tokens[opening].line, "inner cfg scope is not a supported Rust item") }
   start
 }
 
@@ -428,7 +428,7 @@ pure struct_body_name(lexed: Lexed, opening: Int) -> Str {
 proc attributed_item_target(source_path: Str, lexed: Lexed, attr: Attribute) [error] -> Result[AttributeTarget] {
   var cursor = attr.end + 1
   while (lexed.tokens.get(cursor) ?? end_token).text == "#" {
-    if (lexed.tokens.get(cursor + 1) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported dead_code allowance target")? }
+    if (lexed.tokens.get(cursor + 1) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported dead_code allowance target") }
     cursor = lexed.mates[f"{cursor + 1}"] + 1
   }
   while true {
@@ -454,7 +454,7 @@ proc attributed_item_target(source_path: Str, lexed: Lexed, attr: Attribute) [er
       while (lexed.tokens.get(after) ?? end_token).text == ":" and (lexed.tokens.get(after + 1) ?? end_token).text == ":" { after += 2; if ! ident_start(first((lexed.tokens.get(after) ?? end_token).text)) { break }; after += 1 }
       if (lexed.tokens.get(after) ?? end_token).text == "!" { "macro_invocation" } else { "" }
     } else { "" }
-    if kind == "" { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, "unsupported dead_code allowance target")? }
+    if kind == "" { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, "unsupported dead_code allowance target") }
     let name = if kind in ["module", "fn", "struct", "enum", "union", "trait", "type", "const", "static", "macro_definition"] { (lexed.tokens.get(cursor + (if kind == "macro_definition" { 2 } else { 1 })) ?? end_token).text } else { kind }
     let last = item_end(source_path, lexed, attr.end + 1)?
     return {kind: kind, name: name, first: lexed.tokens[attr.start].line, last: lexed.tokens[last].line}
@@ -521,14 +521,14 @@ proc excluded_spans(source_path: Str, lexed: Lexed, attrs: List[Attribute]) [err
     while true {
       let actual = last.start + (if last.inner { 3 } else { 2 })
       if (lexed.tokens.get(actual) ?? end_token).text == "cfg" {
-        if (lexed.tokens.get(actual + 1) ?? end_token).text != "(" { invalid(source_path, lexed.tokens[last.start].line, "malformed cfg attribute")? }
+        if (lexed.tokens.get(actual + 1) ?? end_token).text != "(" { invalid(source_path, lexed.tokens[last.start].line, "malformed cfg attribute") }
         predicates += [{start: actual + 2, end: lexed.mates[f"{actual + 1}"]}]
       }
       cursor += 1
       if cursor >= attrs.len() or attrs[cursor].start != last.end + 1 or attrs[cursor].inner != first.inner { break }
       last = attrs[cursor]
     }
-    if ! predicates.is_empty() and ! production_cfg(source_path, lexed, predicates)? {
+    if ! predicates.is_empty() and ! production_cfg(source_path, lexed, predicates) {
       var start = lexed.tokens[first.start].start
       var end = lexed.size
       var start_line = lexed.tokens[first.start].line
@@ -601,13 +601,13 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
           let kind = attr.start + (if attr.inner { 3 } else { 2 })
           if (lexed.tokens.get(kind) ?? end_token).text == "path" {
             let value = (lexed.tokens.get(kind + 2) ?? end_token).text
-            if (lexed.tokens.get(kind + 1) ?? end_token).text != "=" { invalid(source_path, lexed.tokens[attr.start].line, "malformed path attribute")? }
+            if (lexed.tokens.get(kind + 1) ?? end_token).text != "=" { invalid(source_path, lexed.tokens[attr.start].line, "malformed path attribute") }
             if value.starts_with("r") and "\"" in value {
               let parts = value.split("\"", maxsplit: 1)
               let suffix = f"\"{parts[0].byte_slice(1)}"
               explicit = parts[1].byte_slice(0, length: parts[1].byte_len() - suffix.byte_len())
             } else {
-              if ! value.starts_with("\"") or ! value.ends_with("\"") or "\\" in value { invalid(source_path, lexed.tokens[attr.start].line, "unsupported path attribute literal")? }
+              if ! value.starts_with("\"") or ! value.ends_with("\"") or "\\" in value { invalid(source_path, lexed.tokens[attr.start].line, "unsupported path attribute literal") }
               explicit = value.byte_slice(1, length: value.byte_len() - 2)
             }
           }
@@ -641,11 +641,11 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
   while cursor < closing {
     let row = (lexed.tokens.get(cursor) ?? end_token).text
     let header = if row == "BuildIntRow" { ["IntView", "Int"] } else if row == "BuildBoolRow" { ["BoolView", "Bool"] } else if row == "BuildExprRow" { ["ExprView", "Expr"] } else if row == "BuildStmtRow" { ["StmtView", "Stmt"] } else { [] }
-    if header.is_empty() { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"unknown instruction schema row {row}")? }
-    if row in rows { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"repeated instruction schema row {row}")? }
+    if header.is_empty() { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"unknown instruction schema row {row}") }
+    if row in rows { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"repeated instruction schema row {row}") }
     rows += [row]
     if (lexed.tokens.get(cursor + 1) ?? end_token).text != "=" or (lexed.tokens.get(cursor + 2) ?? end_token).text != ">" or (lexed.tokens.get(cursor + 3) ?? end_token).text != header[0] or (lexed.tokens.get(cursor + 4) ?? end_token).text != "[" or (lexed.tokens.get(cursor + 5) ?? end_token).text != header[1] or (lexed.tokens.get(cursor + 6) ?? end_token).text != "]" or (lexed.tokens.get(cursor + 7) ?? end_token).text != "{" {
-      invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"malformed instruction schema header for {row}")?
+      invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"malformed instruction schema header for {row}")
     }
     let table_open = cursor + 7
     let table_close = lexed.mates[f"{table_open}"]
@@ -653,20 +653,20 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
     var entry_count = 0
     while entry < table_close {
       let variant = lexed.tokens.get(entry) ?? end_token
-      if variant.text == "" or ! ident_start(first(variant.text)) { invalid(source_path, variant.line, f"malformed instruction schema entry in {row}")? }
+      if variant.text == "" or ! ident_start(first(variant.text)) { invalid(source_path, variant.line, f"malformed instruction schema entry in {row}") }
       var after_variant = entry + 1
       let fields = (lexed.tokens.get(after_variant) ?? end_token).text
       if fields in ["(", "{"] {
         let fields_close = lexed.mates[f"{after_variant}"]
-        if fields_close <= after_variant or fields_close >= table_close { invalid(source_path, variant.line, f"malformed instruction schema fields for {row}::{variant.text}")? }
+        if fields_close <= after_variant or fields_close >= table_close { invalid(source_path, variant.line, f"malformed instruction schema fields for {row}::{variant.text}") }
         after_variant = fields_close + 1
       }
       if (lexed.tokens.get(after_variant) ?? end_token).text != "=" or (lexed.tokens.get(after_variant + 1) ?? end_token).text != ">" {
-        invalid(source_path, variant.line, f"malformed instruction schema entry for {row}::{variant.text}")?
+        invalid(source_path, variant.line, f"malformed instruction schema entry for {row}::{variant.text}")
       }
       let tag = lexed.tokens.get(after_variant + 2) ?? end_token
       if tag.text == "" or ! ident_start(first(tag.text)) or (lexed.tokens.get(after_variant + 3) ?? end_token).text != "=" {
-        invalid(source_path, variant.line, f"malformed instruction schema tag for {row}::{variant.text}")?
+        invalid(source_path, variant.line, f"malformed instruction schema tag for {row}::{variant.text}")
       }
       var ordinal_end = after_variant + 4
       var ordinal_text = ""
@@ -676,22 +676,22 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
       }
       match ordinal_text.parse_int() {
         Ok(_) => {}
-        Err(_) => invalid(source_path, variant.line, f"malformed instruction schema ordinal for {row}::{variant.text}")?,
+        Err(_) => invalid(source_path, variant.line, f"malformed instruction schema ordinal for {row}::{variant.text}"),
       }
       let effects_open = ordinal_end
-      if (lexed.tokens.get(effects_open) ?? end_token).text != "[" { invalid(source_path, variant.line, f"malformed instruction schema effects for {row}::{variant.text}")? }
+      if (lexed.tokens.get(effects_open) ?? end_token).text != "[" { invalid(source_path, variant.line, f"malformed instruction schema effects for {row}::{variant.text}") }
       let effects_close = lexed.mates[f"{effects_open}"]
       if effects_close <= effects_open or effects_close >= table_close or (lexed.tokens.get(effects_close + 1) ?? end_token).text != ";" {
-        invalid(source_path, variant.line, f"malformed instruction schema terminator for {row}::{variant.text}: {(lexed.tokens.get(effects_close + 1) ?? end_token).text}")?
+        invalid(source_path, variant.line, f"malformed instruction schema terminator for {row}::{variant.text}: {(lexed.tokens.get(effects_close + 1) ?? end_token).text}")
       }
       variants += [evidence(source_path, variant, f"{row}::{variant.text}")]
       entry_count += 1
       entry = effects_close + 2
     }
-    if entry_count == 0 { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"empty instruction schema row {row}")? }
+    if entry_count == 0 { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"empty instruction schema row {row}") }
     cursor = table_close + 1
   }
-  if (rows |> sort) != (expected_rows |> sort) { invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "incomplete instruction schema table set")? }
+  if (rows |> sort) != (expected_rows |> sort) { invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "incomplete instruction schema table set") }
   variants
 }
 
@@ -701,11 +701,11 @@ proc legacy_stage_enum_variants(source_path: Str, lexed: Lexed, opening: Int) [e
   var variants: List[Str] = []
   while cursor < closing {
     let variant = lexed.tokens[cursor]
-    if ! ident_start(first(variant.text)) or variant.text in variants { invalid(source_path, variant.line, "malformed or repeated handwritten FullStageTag variant")? }
+    if ! ident_start(first(variant.text)) or variant.text in variants { invalid(source_path, variant.line, "malformed or repeated handwritten FullStageTag variant") }
     variants += [variant.text]
     cursor += 1
     if cursor < closing {
-      if lexed.tokens[cursor].text != "," { invalid(source_path, lexed.tokens[cursor].line, "handwritten FullStageTag variants must be unit entries")? }
+      if lexed.tokens[cursor].text != "," { invalid(source_path, lexed.tokens[cursor].line, "handwritten FullStageTag variants must be unit entries") }
       cursor += 1
     }
   }
@@ -729,11 +729,11 @@ proc legacy_stage_codec_variants(source_path: Str, lexed: Lexed, opening: Int) [
       if value == "=" and (lexed.tokens.get(member + 1) ?? end_token).text == ">" { arrows += [member]; member += 2; continue }
       member += 1
     }
-    if paths.len() != 2 or paths[0] != paths[1] or arrows.len() != 2 { invalid(source_path, row.line, f"malformed handwritten pipeline stage codec row ({paths.len()} variant paths, {arrows.len()} arrows)")? }
+    if paths.len() != 2 or paths[0] != paths[1] or arrows.len() != 2 { invalid(source_path, row.line, f"malformed handwritten pipeline stage codec row ({paths.len()} variant paths, {arrows.len()} arrows)") }
     let tag = (lexed.tokens.get(arrows[0] + 2) ?? end_token).text
     let fields = arrows[0] + 3
     if tag != paths[0] or lexed.tokens[fields].text != "{" or lexed.mates[f"{fields}"] + 1 != arrows[1] {
-      invalid(source_path, row.line, "handwritten pipeline stage codec tag or payload does not match its variant")?
+      invalid(source_path, row.line, "handwritten pipeline stage codec tag or payload does not match its variant")
     }
     variants += [paths[0]]
     cursor = member + 1
@@ -755,7 +755,7 @@ proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Sp
       let next = (lexed.tokens.get(cursor + 1) ?? end_token).text
       if item.text == "enum" and next in ["FullStageTag", "LoweredPipelineStage"] {
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage enum")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage enum") }
         if next == "FullStageTag" { tag_definitions += 1; tag_variants = legacy_stage_enum_variants(source_path, lexed, opening)? } else { semantic_definitions += 1 }
         cursor = lexed.mates[f"{opening}"] + 1
         continue
@@ -763,10 +763,10 @@ proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Sp
       if item.text == "macro_rules" and next == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "impl_stage_codec" {
         codec_definitions += 1
         let opening = cursor + 3
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage codec definition")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage codec definition") }
         let closing = lexed.mates[f"{opening}"]
         for required in ["FullCodec", "LoweredPipelineStage", "FullStageTag", "encode", "decode", "verify"] {
-          if ! contains_token(lexed, opening + 1, closing, required) { invalid(source_path, item.line, "incomplete handwritten pipeline stage codec definition")? }
+          if ! contains_token(lexed, opening + 1, closing, required) { invalid(source_path, item.line, "incomplete handwritten pipeline stage codec definition") }
         }
         cursor = closing + 1
         continue
@@ -774,7 +774,7 @@ proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Sp
       if item.text == "impl_stage_codec" and next == "!" {
         codec_tables += 1
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "handwritten pipeline stage codec table must use a block")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "handwritten pipeline stage codec table must use a block") }
         codec_variants = legacy_stage_codec_variants(source_path, lexed, opening)?
         cursor = lexed.mates[f"{opening}"] + 1
         continue
@@ -790,7 +790,7 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
   let closing = lexed.mates[f"{opening}"]
   var cursor = opening + 1
   if (lexed.tokens.get(cursor) ?? end_token).text != "@" or (lexed.tokens.get(cursor + 1) ?? end_token).text != "context" {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")
   }
   cursor += 2
   var context: List[Str] = []
@@ -798,7 +798,7 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
   let core_context = ["stage_builder", "stage_decoder", "stage_payload"]
   let view_context = [@core_context, "stage_view_context", "stage_view_input", "stage_view_value", "stage_view_expectations"]
   if context != core_context and context != view_context or (lexed.tokens.get(cursor) ?? end_token).text != ";" {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")
   }
   cursor += 1
 
@@ -807,39 +807,39 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
   while cursor < closing {
     let variant = lexed.tokens.get(cursor) ?? end_token
     if variant.text == "_" or ! ident_start(first(variant.text)) {
-      invalid(source_path, variant.line, "malformed pipeline stage schema entry")?
+      invalid(source_path, variant.line, "malformed pipeline stage schema entry")
     }
     if seen.get(variant.text) ?? false {
-      invalid(source_path, variant.line, f"repeated pipeline stage schema variant {variant.text}")?
+      invalid(source_path, variant.line, f"repeated pipeline stage schema variant {variant.text}")
     }
     seen[variant.text] = true
     let form = (lexed.tokens.get(cursor + 1) ?? end_token).text
     if form not in ["unit", "tuple", "struct"] {
-      invalid(source_path, variant.line, f"unknown pipeline stage schema form {form}")?
+      invalid(source_path, variant.line, f"unknown pipeline stage schema form {form}")
     }
     let fields_open = cursor + 2
     if (lexed.tokens.get(fields_open) ?? end_token).text != "{" {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")?
+      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")
     }
     let fields_close = lexed.mates[f"{fields_open}"]
     if fields_close <= fields_open or fields_close >= closing {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")?
+      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")
     }
     if form == "unit" {
       if fields_open + 1 != fields_close {
-        invalid(source_path, variant.line, f"unit pipeline stage has fields in {variant.text}")?
+        invalid(source_path, variant.line, f"unit pipeline stage has fields in {variant.text}")
       }
     } else if fields_open + 1 == fields_close {
-      invalid(source_path, variant.line, f"empty pipeline stage schema fields in {variant.text}")?
+      invalid(source_path, variant.line, f"empty pipeline stage schema fields in {variant.text}")
     }
     if (lexed.tokens.get(fields_close + 1) ?? end_token).text != ";" {
-      invalid(source_path, variant.line, f"malformed pipeline stage schema terminator for {variant.text}")?
+      invalid(source_path, variant.line, f"malformed pipeline stage schema terminator for {variant.text}")
     }
     variants += [evidence(source_path, variant, f"LoweredPipelineStage::{variant.text}")]
     cursor = fields_close + 2
   }
   if variants.is_empty() {
-    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "empty pipeline stage schema")?
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "empty pipeline stage schema")
   }
   variants
 }
@@ -906,7 +906,7 @@ proc function_region_for_parameters(source_path: Str, lexed: Lexed, keyword: Int
     if value in ["(", "["] { body_start = lexed.mates[f"{body_start}"] + 1 } else { body_start += 1 }
   }
   if body_start >= lexed.tokens.len() or lexed.tokens[body_start].text != "{" {
-    invalid(source_path, lexed.tokens[keyword].line, "cannot locate conversion function body")?
+    invalid(source_path, lexed.tokens[keyword].line, "cannot locate conversion function body")
   }
   if required_return != "" and ! contains_token(lexed, params_end + 1, body_start, required_return) {
     return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
@@ -980,7 +980,7 @@ proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, spans: List[S
           if source_variants >= 8 and target_variants >= 8 {
             found += [evidence(source_path, item, region.name)]
           } else if source_variants >= 8 or target_variants >= 8 {
-            invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")?
+            invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")
           }
         }
       }
@@ -1010,7 +1010,7 @@ proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List
             if constructs_type {
               found += [evidence(source_path, item, region.name)]
             } else if returns_semantic_type or recursive {
-              invalid(source_path, item.line, "unclassified type-expression tag walker")?
+              invalid(source_path, item.line, "unclassified type-expression tag walker")
             }
           }
         }
@@ -1055,13 +1055,13 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
       if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "instruction_schema" { instruction_schema_definition = true }
       if name == "instruction_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "instruction schema invocation must use a table block")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "instruction schema invocation must use a table block") }
         instruction_schema_calls += 1
         instructions += instruction_schema_variants(source_path, lexed, opening)?
       }
       if name == "pipeline_stage_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
         let opening = cursor + 2
-        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "pipeline stage schema invocation must use a table block")? }
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "pipeline stage schema invocation must use a table block") }
         pipeline_stage_schema_calls += 1
         stages += pipeline_stage_schema_variants(source_path, lexed, opening)?
       }
@@ -1102,7 +1102,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
         while opening < lexed.tokens.len() and (lexed.tokens.get(opening) ?? end_token).text != "{" {
           if (lexed.tokens.get(opening) ?? end_token).text in ["(", "["] { opening = lexed.mates[f"{opening}"] + 1 } else { opening += 1 }
         }
-        if opening >= lexed.tokens.len() { invalid(source_path, item.line, "match body not found")? }
+        if opening >= lexed.tokens.len() { invalid(source_path, item.line, "match body not found") }
         let closing = lexed.mates[f"{opening}"]
         var member = opening + 1
         var in_pattern = true
@@ -1155,21 +1155,21 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
     }
     cursor += 1
   }
-  if instruction_schema_calls > 1 { invalid(source_path, 1, "multiple instruction schema tables in one source file")? }
-  if instruction_schema_definition and instruction_schema_calls != 1 { invalid(source_path, 1, "instruction schema definition has no supported table invocation")? }
-  if source_path == "src/runtime/eval/indexed/full/schema.rs" and instruction_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated instruction schema layout")? }
-  if instruction_schema_calls > 0 and hand_instruction_rows { invalid(source_path, 1, "handwritten instruction rows overlap the generated schema")? }
-  if pipeline_stage_schema_definitions > 1 { invalid(source_path, 1, "multiple pipeline stage schema definitions in one source file")? }
-  if pipeline_stage_schema_calls > 1 { invalid(source_path, 1, "multiple pipeline stage schema tables in one source file")? }
-  if pipeline_stage_schema_definition and pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "pipeline stage schema definition has no supported table invocation")? }
+  if instruction_schema_calls > 1 { invalid(source_path, 1, "multiple instruction schema tables in one source file") }
+  if instruction_schema_definition and instruction_schema_calls != 1 { invalid(source_path, 1, "instruction schema definition has no supported table invocation") }
+  if source_path == "src/runtime/eval/indexed/full/schema.rs" and instruction_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated instruction schema layout") }
+  if instruction_schema_calls > 0 and hand_instruction_rows { invalid(source_path, 1, "handwritten instruction rows overlap the generated schema") }
+  if pipeline_stage_schema_definitions > 1 { invalid(source_path, 1, "multiple pipeline stage schema definitions in one source file") }
+  if pipeline_stage_schema_calls > 1 { invalid(source_path, 1, "multiple pipeline stage schema tables in one source file") }
+  if pipeline_stage_schema_definition and pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "pipeline stage schema definition has no supported table invocation") }
   let has_legacy_stage_layout = legacy_stages.tag_definitions > 0 or legacy_stages.codec_definitions > 0 or legacy_stages.codec_tables > 0 or legacy_stages.semantic_definitions > 0
   let has_generated_stage_layout = pipeline_stage_schema_definitions > 0 or pipeline_stage_schema_calls > 0
-  if has_generated_stage_layout and has_legacy_stage_layout { invalid(source_path, 1, "pipeline stage schema and handwritten pipeline stage layouts overlap")? }
+  if has_generated_stage_layout and has_legacy_stage_layout { invalid(source_path, 1, "pipeline stage schema and handwritten pipeline stage layouts overlap") }
   if source_path == "src/runtime/eval/indexed/full.rs" {
     if pipeline_stage_schema_calls > 0 {
-      if pipeline_stage_schema_definitions != 1 or pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout")? }
+      if pipeline_stage_schema_definitions != 1 or pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout") }
     } else if legacy_stages.tag_definitions == 1 and legacy_stages.codec_definitions == 1 and legacy_stages.codec_tables == 1 and legacy_stages.semantic_definitions == 0 and legacy_stages.tag_variants.len() == 46 and legacy_stages.codec_variants == legacy_stages.tag_variants {
-    } else if has_legacy_stage_layout { invalid(source_path, 1, "unrecognized handwritten pipeline stage layout")? } else { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout")? }
+    } else if has_legacy_stage_layout { invalid(source_path, 1, "unrecognized handwritten pipeline stage layout") } else { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout") }
   }
   let allowances = dead_code_allowance_analysis(source_path, lexed, spans, attrs, count)?
   # Overlapping blanket scopes own a physical line only once.
@@ -1200,7 +1200,7 @@ export proc scan_file(source_path: Str, source: Str) [error] -> Result[SourceSca
 proc module_target(root: Path, owner: Str, edge: RustModule) [fs, error] -> Result[Str] {
   var candidates: List[Path] = []
   if edge.explicit_path != null { candidates = [if edge.explicit_path.starts_with("/") { fp"{edge.explicit_path}" } else { fp"{root}/{edge.directory}/{edge.explicit_path}" }] } else { candidates = [fp"{root}/{edge.directory}/{edge.name}.rs", fp"{root}/{edge.directory}/{edge.name}/mod.rs"] }
-  let existing = collect { for candidate in candidates { yield candidate.resolve()?.strip_prefix(root)?.display() when candidate.exists()? } }
+  let existing = collect { for candidate in candidates { yield candidate.resolve()?.strip_prefix(root)?.display() when candidate.exists() } }
   if existing.len() != 1 { return Err(MetricError.Invalid(path: owner, line: edge.line, detail: f"module {edge.name} resolves to {existing.len()} files")) }
   existing[0]
 }
@@ -1292,7 +1292,7 @@ pure metric_value(report: Report, name: Str) -> Result[Int, Error] {
 
 ## Final closure requires both measured production roots to shrink and every blanket scope to be gone.
 export proc assert_final_close(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
-  assert_not_risen(current, baseline)?
+  assert_not_risen(current, baseline)
   for name in ["source_lines_src", "source_lines_xsht"] {
     let now = metric_value(current, name)?
     let before = metric_value(baseline, name)?
@@ -1431,6 +1431,6 @@ export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle
     if row.status != "review_verified" or row.reviewer.trim() == "" or row.evidence.is_empty() {
       return Err(MetricError.Contract(detail: f"review row is not verified with evidence: {row.name}"))
     }
-    for artifact in row.evidence { verify_artifact(base, artifact)? }
+    for artifact in row.evidence { verify_artifact(base, artifact) }
   }
 }

@@ -308,11 +308,11 @@ pure expected_bytes(case: MatrixCase, channel: Str) -> Result[Bytes] {
 
 proc run_case(ctx: TestContext, case: MatrixCase, index: Int) [fs, process, env, error] -> Result[Observed] {
   let root = test.temp_dir(ctx, name: f"awk-case-{index}")?
-  for name in case.dirs { fp"{root}/{name}".mkdir()? }
-  for pair in case.files { fp"{root}/{pair[0]}".write(pair[1])? }
-  for pair in case.files_b64 { fp"{root}/{pair[0]}".write(pair[1].base64_decode()?)? }
-  for pair in case.links { fp"{root}/{pair[0]}".symlink(to: fp"{pair[1]}")? }
-  for pair in case.modes { fp"{root}/{pair[0]}".chmod(pair[1].parse_int_decimal()?)? }
+  for name in case.dirs { fp"{root}/{name}".mkdir() }
+  for pair in case.files { fp"{root}/{pair[0]}".write(pair[1]) }
+  for pair in case.files_b64 { fp"{root}/{pair[0]}".write(pair[1].base64_decode()?) }
+  for pair in case.links { fp"{root}/{pair[0]}".symlink(to: fp"{pair[1]}") }
+  for pair in case.modes { fp"{root}/{pair[0]}".chmod(pair[1].parse_int_decimal()?) }
   let stdin = if case.stdin_b64.is_empty() { bytes.from_text(case.stdin) } else { case.stdin_b64.base64_decode()? }
   let arguments = [argument.replace("@DIR@", with: root.display()) for argument in case.args]
   let out = fp"{root}/.out"

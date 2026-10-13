@@ -274,8 +274,8 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
   }
   let width = if limited or regular { digits_of(widest) } else { 20 }
 
-  if first.mode == "stdin" { diffutils.skip_stdin(skip_first)? }
-  if second.mode == "stdin" { diffutils.skip_stdin(skip_second)? }
+  if first.mode == "stdin" { diffutils.skip_stdin(skip_first) }
+  if second.mode == "stdin" { diffutils.skip_stdin(skip_second) }
 
   var offset = 0
   var lines = 0

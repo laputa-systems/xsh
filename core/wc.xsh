@@ -472,13 +472,13 @@ proc write_streamed_line(output: Str) [process, env, io, error] {
 
   if let Err(failure) = io.write_stdout(output) {
     gnu.error(f"write error: {gnu.strerror(failure)}")
-    io.flush_stderr()?
+    io.flush_stderr()
     exit 1
   }
 
   if let Err(failure) = io.flush_stdout() {
     gnu.error(f"write error: {gnu.strerror(failure)}")
-    io.flush_stderr()?
+    io.flush_stderr()
     exit 1
   }
 }
@@ -503,7 +503,7 @@ proc count_one(
 
   if let failure = result.name_failure {
     gnu.name_error(input.name, failure)
-    if stream_output { io.flush_stderr()? }
+    if stream_output { io.flush_stderr() }
     return {total: total, output: output, seen: seen, failed: true}
   }
 
@@ -514,13 +514,13 @@ proc count_one(
     }
 
     gnu.error(diagnostic)
-    if stream_output { io.flush_stderr()? }
+    if stream_output { io.flush_stderr() }
     failed = true
   }
 
   if stream_output {
     if output != "" {
-      write_streamed_line(output)?
+      write_streamed_line(output)
       output = ""
     }
   }
@@ -561,7 +561,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.debug {
     gnu.error("avx512 support not detected")
     gnu.error("avx2 support not detected")
-    io.flush_stderr()?
+    io.flush_stderr()
   }
 
   let mode = total_choice(opts.total)

@@ -687,19 +687,19 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
 
 proc start_filter_pipe(root: Path, slot: Int, command: Str, name: Path) [fs, process, error] -> Result[FilterPipe] {
   let fifo = fp"{root}/filter-{slot}"
-  fs.mkfifo(fifo, 0o600)?
+  fs.mkfifo(fifo, 0o600)
   let reader = unix.open_fd(fifo, nonblock: true)?
   let writer = unix.open_fd(fifo, write: true, nonblock: true)?
   let plan = process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, stdin: fifo)
   let child = spawn plan?
-  unix.close_fd(reader)?
+  unix.close_fd(reader)
 
   Ok({handle: child, fd: writer, open: true, done: false, status: -1})
 }
 
 proc close_filter_pipe(pipe: FilterPipe) [process, error] -> Result[FilterPipe] {
   if pipe.fd >= 0 {
-    unix.close_fd(pipe.fd)?
+    unix.close_fd(pipe.fd)
   }
 
   Ok({...pipe, fd: -1, open: false})
@@ -709,7 +709,7 @@ proc close_filter_pipes(pipes: List[FilterPipe?]) [process, error] {
   for pipe in pipes {
     if let current = pipe {
       if current.fd >= 0 {
-        unix.close_fd(current.fd)?
+        unix.close_fd(current.fd)
       }
     }
   }
@@ -842,7 +842,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
   let scratch = fs.tempdir()?
   let root = scratch.host_path()?
   var pipes: List[FilterPipe?] = [null for _ in range(count)]
-  defer { close_filter_pipes(pipes)? }
+  defer { close_filter_pipes(pipes) }
   var pending = b""
   var record_index = 0
   var eof = false
@@ -913,7 +913,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
 # and pipes. The block-size option controls read granularity, not an input cap.
 proc read_input(name: Bytes, block_size: Int) [fs, process, error, io] -> Result[Bytes] {
   let fd = if name == b"-" { 0 } else { unix.open_fd(Path.parse_bytes(name)?)? }
-  defer { if fd != 0 { unix.close_fd(fd)? } }
+  defer { if fd != 0 { unix.close_fd(fd) } }
   var parts: List[Bytes] = []
   while true {
     let part = unix.read_fd(fd, block_size)?

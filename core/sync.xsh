@@ -24,7 +24,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     # An unreadable directory can report EISDIR before its permission error.
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Ok(info) = metadata {
-      if info.kind == "dir" and applet.current_euid() != 0 and ! fs.access(target, read: true)? {
+      if info.kind == "dir" and applet.current_euid() != 0 and ! fs.access(target, read: true) {
         gnu.error(f"error opening {gnu.quote(name)}: Permission denied")
         failed = true
         continue

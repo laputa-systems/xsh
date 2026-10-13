@@ -2752,7 +2752,7 @@ proc write_all(fd: Int, data: Bytes) -> Result[Unit] {
   }
 }
 proc warn_plain(text: Str) -> Result[Unit] {
-  write_all(2, bytes.from_text(f"awk: warning: {text}\n"))?
+  write_all(2, bytes.from_text(f"awk: warning: {text}\n"))
 }
 
 # A child's exit status as awk numbers it: the exit code, or 256 plus the
@@ -2813,7 +2813,7 @@ proc next_fifo(temporary: Temporary) -> Result[Started] {
   state.count += 1
   let base = state.base ?? fp"/tmp"
   let made = fp"{base}/c{state.count}"
-  fs.mkfifo(made, 0o600)?
+  fs.mkfifo(made, 0o600)
   Ok({temporary: state, fifo: made})
 }
 type OpenedReader = {reader: Reader, temporary: Temporary}
@@ -2835,16 +2835,16 @@ proc open_command_writer(temporary: Temporary, command: Str, prefix: Str) -> Res
   let hold = unix.open_fd(pipe_path, nonblock: true)?
   let fd = unix.open_fd(pipe_path, write: true)?
   let job = spawn run.status sh -c ${prefix + command} < $pipe_path ?
-  unix.close_fd(hold)?
+  unix.close_fd(hold)
   Ok({writer: Writer(fd: fd, pending: "", job: job, name: command, command: true), temporary: started.temporary})
 }
 # Opens a file for output: truncated, or appended to (and created when missing).
 proc open_output(target: Path, append: Bool) -> Result[Int] {
   if append {
-    if ! target.exists() { target.write("")? }
+    if ! target.exists() { target.write("") }
     return unix.open_fd(target, write: true, flags: ["append"])
   }
-  target.write("")?
+  target.write("")
   unix.open_fd(target, write: true)
 }
 proc open_file_reader(name: Str, stdin_reader: Reader) -> Result[Reader] {
@@ -3098,7 +3098,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       if uses_stdin { stdin = got.reader }
       state.reader = got.reader
       if got.record != null { return Ok({state: state, stdin: stdin, record: got.record, terminator: got.terminator, filename: filename, bindings: bindings, argind: argind}) }
-      if got.reader.fd > 0 { unix.close_fd(got.reader.fd)? }
+      if got.reader.fd > 0 { unix.close_fd(got.reader.fd) }
       state.active = false
       continue
     }
@@ -3123,7 +3123,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       match fs.stat(fp"{argument}", follow_symlinks: true) {
         Ok(info) => {
           if info.kind == "dir" {
-            warn_plain(f"command line argument `{argument}' is a directory: skipped")?
+            warn_plain(f"command line argument `{argument}' is a directory: skipped")
             continue
           }
         }
@@ -3175,7 +3175,7 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
         Err(failure) => { return Err(fatal_error(f"flush to \"{writer.name}\" failed: {reason_of(failure)}")) }
       }
     }
-    if writer.fd >= 0 { unix.close_fd(writer.fd)? }
+    if writer.fd >= 0 { unix.close_fd(writer.fd) }
     code = 0
     if writer.command {
       if let handle = writer.job {
@@ -3189,7 +3189,7 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
     let reader = readers.get(key) ?? no_reader()
     readers = readers.remove(key)
     found = true
-    if reader.fd > 0 { unix.close_fd(reader.fd)? }
+    if reader.fd > 0 { unix.close_fd(reader.fd) }
     code = 0
     if reader.command {
       if let handle = reader.job {
@@ -3211,14 +3211,14 @@ proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool
         Err(failure) => { return Err(bare_fatal(f"flush to \"{writer.name}\" failed: {reason_of(failure)}")) }
       }
     }
-    if writer.fd >= 0 { unix.close_fd(writer.fd)? }
+    if writer.fd >= 0 { unix.close_fd(writer.fd) }
     if writer.command {
       if let handle = writer.job { let _ = wait handle ? }
     }
   }
   for key in open_readers.keys() {
     let reader = open_readers.get(key) ?? no_reader()
-    if reader.fd > 0 { unix.close_fd(reader.fd)? }
+    if reader.fd > 0 { unix.close_fd(reader.fd) }
     if reader.command {
       if let handle = reader.job { let _ = wait handle ? }
     }
@@ -3644,10 +3644,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
     let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
     if holds_mapped_bytes(decoded.content) { assigned_mapped = true }
     field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
-    for note in decoded.notes { warn_plain(note)? }
+    for note in decoded.notes { warn_plain(note) }
     if mode != 0 and ! warned_extension and extension_variable(variable) {
       warned_extension = true
-      warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+      warn_plain(f"`{shown_name(variable)}' is a gawk extension")
     }
     globals[variable] = input(decoded.content)?
   }
@@ -3814,12 +3814,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           result = String(a + b)
           produced = true
         }
-        OpLess => { result = Numeric(if relation(0, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpLessEqual => { result = Numeric(if relation(1, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpEqual => { result = Numeric(if relation(2, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpNotEqual => { result = Numeric(if relation(3, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpGreater => { result = Numeric(if relation(4, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpGreaterEqual => { result = Numeric(if relation(5, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpLess => { result = Numeric(if relation(0, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpLessEqual => { result = Numeric(if relation(1, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpEqual => { result = Numeric(if relation(2, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpNotEqual => { result = Numeric(if relation(3, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpGreater => { result = Numeric(if relation(4, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpGreaterEqual => { result = Numeric(if relation(5, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
         OpMatch => {
           let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
           let pattern = scalar_text(stack[sp - 1], conversion)?
@@ -3908,7 +3908,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           field_mode = field_mode_after(name, stack[sp - 1], field_mode)?
           if mode != 0 and ! warned_extension and extension_variable(name) {
             warned_extension = true
-            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))?
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))
           }
           globals[name] = stack[sp - 1]
           sp -= 1
@@ -3916,7 +3916,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpIncGlobal(name, delta) => {
           if mode != 0 and ! warned_extension and extension_variable(name) {
             warned_extension = true
-            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))?
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))
           }
           if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
           let current = globals.get(name) ?? Empty
@@ -3928,19 +3928,19 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpJump(offset) => { pc += offset }
         OpJumpFalse(offset) => {
           sp -= 1
-          if ! truth(stack[sp])? { pc += offset }
+          if ! truth(stack[sp]) { pc += offset }
         }
         OpJumpTrue(offset) => {
           sp -= 1
-          if truth(stack[sp])? { pc += offset }
+          if truth(stack[sp]) { pc += offset }
         }
         OpShortAnd(offset) => {
           sp -= 1
-          if ! truth(stack[sp])? { result = Numeric(0.0); produced = true; pc += offset }
+          if ! truth(stack[sp]) { result = Numeric(0.0); produced = true; pc += offset }
         }
         OpShortOr(offset) => {
           sp -= 1
-          if truth(stack[sp])? { result = Numeric(1.0); produced = true; pc += offset }
+          if truth(stack[sp]) { result = Numeric(1.0); produced = true; pc += offset }
         }
         OpPop => { sp -= 1 }
         OpSetSite(index) => { site = index; located = true }
@@ -4084,12 +4084,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let equals = item.find("=") ?? 0
             let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
             if holds_mapped_bytes(decoded.content) { lossy = true }
-            for note in decoded.notes { warn_plain(note)? }
+            for note in decoded.notes { warn_plain(note) }
             let variable = assigned_name(item.byte_slice(0, length: equals), mode)
             field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
             if mode != 0 and ! warned_extension and extension_variable(variable) {
               warned_extension = true
-              warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+              warn_plain(f"`{shown_name(variable)}' is a gawk extension")
             }
             globals[variable] = input(decoded.content)?
           }
@@ -4115,7 +4115,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if phase == 0 { Err(fatal_error("`nextfile' cannot be called from a `BEGIN' rule"))? }
           if phase == 2 { Err(fatal_error("`nextfile' cannot be called from an `END' rule"))? }
           if main.active {
-            if main.reader.fd > 0 { unix.close_fd(main.reader.fd)? }
+            if main.reader.fd > 0 { unix.close_fd(main.reader.fd) }
             main.active = false
           }
           frames = []
@@ -4163,11 +4163,11 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if ! has_destination or (redirect != 3 and (destination == "/dev/stdout" or destination == "/dev/fd/1")) {
             out += text
             if interactive or out.byte_len() > 8192 {
-              emit_stdout(out, lossy)?
+              emit_stdout(out, lossy)
               out = ""
             }
           } else if redirect != 3 and (destination == "/dev/stderr" or destination == "/dev/fd/2") {
-            write_all(2, output_bytes(text, lossy))?
+            write_all(2, output_bytes(text, lossy))
           } else {
             if destination.is_empty() { Err(fatal_error(f"expression for `{if redirect == 1 { ">" } else if redirect == 2 { ">>" } else { "|" }}' redirection has null string value"))? }
             let key = f"{if redirect == 1 { ">" } else if redirect == 2 { ">>" } else { "|" }}{destination}"
@@ -4177,7 +4177,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 let flushed = flush_writers(writers, lossy)?
                 writers = flushed.writers
                 if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
-                emit_stdout(out, lossy)?
+                emit_stdout(out, lossy)
                 out = ""
                 let started = open_command_writer(temporary, destination, environment_prefix(arrays))?
                 writers[key] = started.writer
@@ -4219,12 +4219,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let equals = item.find("=") ?? 0
             let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
             if holds_mapped_bytes(decoded.content) { lossy = true }
-            for note in decoded.notes { warn_plain(note)? }
+            for note in decoded.notes { warn_plain(note) }
             let variable = assigned_name(item.byte_slice(0, length: equals), mode)
             field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
             if mode != 0 and ! warned_extension and extension_variable(variable) {
               warned_extension = true
-              warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+              warn_plain(f"`{shown_name(variable)}' is a gawk extension")
             }
             globals[variable] = input(decoded.content)?
           }
@@ -4356,10 +4356,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let n = number(values[0])?
             var computed = 0.0
             if name == "int" { computed = truncate(n) } else if name == "sqrt" {
-              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: sqrt: received negative argument {float_text(n, conversion)?}\n"))? }
+              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: sqrt: received negative argument {float_text(n, conversion)?}\n")) }
               computed = n.sqrt()
             } else if name == "log" {
-              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: log: received negative argument {float_text(n, conversion)?}\n"))? }
+              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: log: received negative argument {float_text(n, conversion)?}\n")) }
               computed = n.ln()
             } else if name == "exp" { computed = n.exp() } else if name == "sin" { computed = n.sin() } else { computed = n.cos() }
             result = Numeric(computed)
@@ -4392,7 +4392,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let flushed = flush_writers(writers, lossy)?
             writers = flushed.writers
             if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
-            emit_stdout(out, lossy)?
+            emit_stdout(out, lossy)
             out = ""
             let finished = run.status sh -c ${environment_prefix(arrays) + command}
             result = Numeric(status_code(finished).float())
@@ -4410,7 +4410,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               let flushed = flush_writers(writers, lossy)?
               writers = flushed.writers
               if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
-              emit_stdout(out, lossy)?
+              emit_stdout(out, lossy)
               out = ""
               result = Numeric(0.0)
             } else {
@@ -4429,11 +4429,11 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               }
               if target in ["/dev/stdout", "-"] {
                 found = true
-                emit_stdout(out, lossy)?
+                emit_stdout(out, lossy)
                 out = ""
               }
               if found { result = Numeric(0.0) } else {
-                write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: fflush: `{target}' is not an open file, pipe or co-process\n"))?
+                write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: fflush: `{target}' is not an open file, pipe or co-process\n"))
                 result = Numeric(-1.0)
               }
             }
@@ -4493,7 +4493,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             if count == 4 { target = scalar_text(values[3], conversion)? }
             let how_text = scalar_text(values[2], conversion)?
             if ! how_text.starts_with("g") and ! how_text.starts_with("G") and number(values[2])? < 1.0 {
-              write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: gensub: third argument `{how_text}' treated as 1\n"))?
+              write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: gensub: third argument `{how_text}' treated as 1\n"))
             }
             result = String(gensub(globals, scalar_text(values[0], conversion)?, scalar_text(values[1], conversion)?, values[2], target)?)
           } else {
@@ -4731,7 +4731,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           field_mode = field_mode_after(pending_name, pending_value, field_mode)?
           if mode != 0 and ! warned_extension and extension_variable(pending_name) {
             warned_extension = true
-            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(pending_name)}' is a gawk extension\n"))?
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(pending_name)}' is a gawk extension\n"))
           }
           globals[pending_name] = pending_value
         } else if pending == 3 {
@@ -4784,8 +4784,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         }
       }
     }
-    close_all(readers, writers, lossy)?
-    emit_stdout(out, lossy)?
+    close_all(readers, writers, lossy)
+    emit_stdout(out, lossy)
     out = ""
     (status % 256 + 256) % 256
   }
@@ -4811,7 +4811,7 @@ export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[S
       return Err(AwkError.Syntax(f"{function.site}: error: function name `{name}' previously defined"))
     }
   }
-  for note in program.notes { write_all(2, bytes.from_text(f"awk: {note}\n"))? }
+  for note in program.notes { write_all(2, bytes.from_text(f"awk: {note}\n")) }
   let linked = link(program)?
   run_machine(program, linked, arguments, variables, unix.isatty(1), mode)
 }

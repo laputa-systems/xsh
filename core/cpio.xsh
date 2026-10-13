@@ -1372,7 +1372,7 @@ proc write_file(file: Path, data: Bytes, sparse: Bool) [fs, error] -> Result[Uni
   if ! sparse or data.len() < 512 {
     return file.write(data, 384)
   }
-  file.write(b"", 384)?
+  file.write(b"", 384)
   let zeros = bytes.zero(512)?
   var offset = 0
   var run_start = -1

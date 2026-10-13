@@ -187,7 +187,7 @@ test test_mv_cross_device_directory_preserves_links_and_fifo { |ctx|
     moved_second.remove(missing_ok: true)
     moved_link.remove(missing_ok: true)
     moved_fifo.remove(missing_ok: true)
-    if destination.exists()? { destination.remove_dir() }
+    if destination.exists() { destination.remove_dir() }
     destination_dir.remove_dir()
   }
 
@@ -279,7 +279,7 @@ test test_mv_context_option_is_accepted_without_selinux { |ctx|
     assert result.stdout == "" and result.stderr == ""
     assert ! source.exists()?
     assert dest.read_text()? == "data"
-    dest.remove()?
+    dest.remove()
   }
 }
 

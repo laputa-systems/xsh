@@ -38,20 +38,20 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
   )
   let handle = spawn plan?
   let started = time.now()
-  while ! ready.exists()? {
+  while ! ready.exists() {
     if time.now() - started > 2000 {
-      handle.cancel(signal: "KILL", kill_after: 0ms)?
+      handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure("timeout child did not install its signal handler"))
     }
 
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
-  process.kill(handle.pid, signal)?
+  process.kill(handle.pid, signal)
   let completed = process.wait_timeout([handle], 2s)?
   let status = if let finished = completed {
     finished.status.shell_code()?
   } else {
-    handle.cancel(signal: "KILL", kill_after: 0ms)?
+    handle.cancel(signal: "KILL", kill_after: 0ms)
     1
   }
   Ok({status, stdout: out.read_text()?, stderr: err.read_text()?})
@@ -79,7 +79,7 @@ test timeout_stops_a_cpu_bound_xsh_child_and_runs_its_cleanup { |ctx|
   let root = test.temp_dir(ctx, name: "timeout-xsh-signal")?
   let marker = fp"{root}/cleanup"
   let child = fp"{root}/child.xsh"
-  child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nwhile time.now() >= 0 {}\n")?
+  child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nwhile time.now() >= 0 {}\n")
   let plan = process.command_argv(
     ctx.xsh_bin,
     [ctx.xsh_bin.display(), fp"{ctx.core_dir}/timeout.xsh", ".05", ctx.xsh_bin.display(), child.display(), marker.display()],
@@ -100,7 +100,7 @@ test timeout_stops_an_xsh_child_blocked_in_stdin_read { |ctx|
   let root = test.temp_dir(ctx, name: "timeout-xsh-stdin")?
   let marker = fp"{root}/cleanup"
   let child = fp"{root}/child.xsh"
-  child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nlet _ = io.stdin_bytes()?\n")?
+  child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nlet _ = io.stdin_bytes()?\n")
   let plan = process.command_argv(
     p"/bin/sh",
     [
@@ -184,7 +184,7 @@ test timeout_foreground_signals_only_the_command { |ctx|
   assert result.stderr == ""
   let pid = grandchild.read_text()?.parse_int() ?? -1
   defer process.kill(pid, signal: "KILL")
-  process.kill(pid, signal: "0")?
+  process.kill(pid, signal: "0")
 }
 
 test timeout_without_foreground_signals_the_commands_group { |ctx|
@@ -197,7 +197,7 @@ test timeout_without_foreground_signals_the_commands_group { |ctx|
   # exit is observable only once its new parent has reaped it.
   let started = time.now()
   while time.now() - started < 2000 and alive(pid) {
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
   test.error_kind(process.kill(pid, signal: "0"), "process-missing")
 }

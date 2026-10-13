@@ -525,7 +525,7 @@ test test_typed_callable_container_methods_keep_their_element_types {
   let stored = by_name.set("double", double)
   with selected = stored.get("double")? {
     assert selected(4) == 8
-  } else { |failure| test.fail(failure.message)? }
+  } else { |failure| test.fail(failure.message) }
 }
 
 test test_registered_method_checks_intrinsic_formatted_string_receiver {
@@ -935,7 +935,7 @@ proc select(stage: Stage) [error] -> Result[Unit] {
 # with the type's labels, and its effect bound is charged to the caller.
 test test_module_exported_callable_value_is_called_through_its_type { |ctx|
   let root = test.temp_dir(ctx, name: "typed-callable-module")?
-  fp"{root}/nested".mkdir()?
+  fp"{root}/nested".mkdir()
   fp"{root}/nested/handlers.xsh".write(r"""
 ##! Handlers chosen when the module loads.
 ## What a handler is called with and returns.
@@ -1150,14 +1150,14 @@ test test_with_try_path_results_keep_registry_error_types { |ctx|
   let callbacks: List[Scale] = [double]
   with listed = callbacks.get(0)? {
     assert listed(4) == 8
-  } else { |failure| test.fail(failure.message)? }
+  } else { |failure| test.fail(failure.message) }
 
   let callback_result: Result[Scale] = Ok(double)
   with contextual = callback_result.context("typed-callee")? {
     assert contextual(4) == 8
-  } else { |failure| test.fail(failure.message)? }
+  } else { |failure| test.fail(failure.message) }
 
   with parsed = "12".parse_int()? {
     assert parsed == 12
-  } else { |failure| test.fail(failure.message)? }
+  } else { |failure| test.fail(failure.message) }
 }

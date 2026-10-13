@@ -48,8 +48,8 @@ pure operand_label(raw: Bytes) -> Bytes {
 }
 
 proc confirm(question: Str) [process, io, error] -> Bool {
-  io.write_stderr(f"{gnu.prog()}: {question}? ")?
-  io.flush_stderr()?
+  io.write_stderr(f"{gnu.prog()}: {question}? ")
+  io.flush_stderr()
   let reply = io.stdin_line()?
   reply.trim().lower().starts_with("y")
 }
@@ -67,7 +67,7 @@ proc report_removed(name: Bytes, directory: Bool) [process, env, io, error] -> R
 
 proc report_progress(name: Bytes, opts: RmOptions) [process, env, io, error] -> Result[Unit] {
   return when ! opts.progress or opts.verbose or unix.tty_attrs(2) is Err(_)
-  io.write_stderr(f"\rRemoving {gnu.quote_bytes(name)}... done\n")?
+  io.write_stderr(f"\rRemoving {gnu.quote_bytes(name)}... done\n")
   io.flush_stderr()
 }
 

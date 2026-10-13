@@ -15,7 +15,7 @@ proc pack(ctx: TestContext, format: Str) [fs, error] -> Result[Bytes] {
   let source = fp"{root}/plain"
   let packed = fp"{root}/packed"
   source.write(PLAIN)
-  compression.transform(source, packed, format, metadata: false)?
+  compression.transform(source, packed, format, metadata: false)
   packed.read_bytes()
 }
 
@@ -34,7 +34,7 @@ test test_compression_auto_detects_every_format_from_the_stream { |ctx|
     let packed = fp"{root}/plain.{format}"
     packed.write(pack(ctx, format)?)
     let decoded = fp"{root}/decoded.{format}"
-    compression.transform(packed, decoded, "auto", decode: true)?
+    compression.transform(packed, decoded, "auto", decode: true)
     assert decoded.read_bytes()? == PLAIN, format
     let ran = decode_stdin(ctx, "auto", packed.read_bytes()?, false)?
     assert ran.status == 0, format

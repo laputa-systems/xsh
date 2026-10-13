@@ -5,8 +5,8 @@ proc packed(s: uu.Scene, name: Str) [fs, error] -> Result[Bytes] {
 }
 
 proc prepare(s: uu.Scene) [fs, error] -> Result[Unit] {
-  uu.write_bytes(s, "t1.bz2", packed(s, "hello")?)?
-  uu.write_bytes(s, "t2.bz2", packed(s, "hello")?)?
+  uu.write_bytes(s, "t1.bz2", packed(s, "hello")?)
+  uu.write_bytes(s, "t2.bz2", packed(s, "hello")?)
   Ok()
 }
 
@@ -21,8 +21,8 @@ test test_bb_bunzip2_bunzip2_reads_from_standard_input_71a35b87 { |ctx|
 # origin: busybox bunzip2/bunzip2: already exists
 test test_bb_bunzip2_bunzip2_already_exists_d734c910 { |ctx|
   let s = uu.scene(ctx)?
-  prepare(s)?
-  uu.touch(s, "t1")?
+  prepare(s)
+  uu.touch(s, "t1")
   let r = uu.invoke(s, "bunzip2", ["t1.bz2", "t2.bz2"])?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "bunzip2: can't open 't1': File exists\n")
@@ -32,7 +32,7 @@ test test_bb_bunzip2_bunzip2_already_exists_d734c910 { |ctx|
 # origin: busybox bunzip2/bunzip2: delete src
 test test_bb_bunzip2_bunzip2_delete_src_cb3b80fd { |ctx|
   let s = uu.scene(ctx)?
-  prepare(s)?
+  prepare(s)
   uu.succeeds(uu.invoke(s, "bunzip2", ["t2.bz2"])?)
   assert ! uu.exists(s, "t2.bz2")?
 }
@@ -40,7 +40,7 @@ test test_bb_bunzip2_bunzip2_delete_src_cb3b80fd { |ctx|
 # origin: busybox bunzip2/bunzip2: doesnt exist
 test test_bb_bunzip2_bunzip2_doesnt_exist_ab375dd9 { |ctx|
   let s = uu.scene(ctx)?
-  prepare(s)?
+  prepare(s)
   let r = uu.invoke(s, "bunzip2", ["z", "t1.bz2"])?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "bunzip2: z: No such file or directory\n")
@@ -50,7 +50,7 @@ test test_bb_bunzip2_bunzip2_doesnt_exist_ab375dd9 { |ctx|
 # origin: busybox bunzip2/bunzip2: stream unpack
 test test_bb_bunzip2_bunzip2_stream_unpack_619a21f7 { |ctx|
   let s = uu.scene(ctx)?
-  prepare(s)?
+  prepare(s)
   let r = uu.invoke(s, "bunzip2", [], stdin: uu.read(s, "t1.bz2")?)?
   uu.succeeds(r)
   uu.stdout_is(r, "HELLO\n")
@@ -59,8 +59,8 @@ test test_bb_bunzip2_bunzip2_stream_unpack_619a21f7 { |ctx|
 # origin: busybox bunzip2/bunzip2: unknown suffix
 test test_bb_bunzip2_bunzip2_unknown_suffix_078b255b { |ctx|
   let s = uu.scene(ctx)?
-  prepare(s)?
-  uu.touch(s, "t.zz")?
+  prepare(s)
+  uu.touch(s, "t.zz")
   let r = uu.invoke(s, "bunzip2", ["t.zz", "t1.bz2"])?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "bunzip2: t.zz: unknown suffix - ignored\n")
@@ -70,7 +70,7 @@ test test_bb_bunzip2_bunzip2_unknown_suffix_078b255b { |ctx|
 # origin: busybox bunzip2/bunzip2-removes-compressed-file
 test test_bb_bunzip2_bunzip2_removes_compressed_file_3d9d152d { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "foo.bz2", packed(s, "foo")?)?
+  uu.write_bytes(s, "foo.bz2", packed(s, "foo")?)
   uu.succeeds(uu.invoke(s, "bunzip2", ["foo.bz2"])?)
   assert ! uu.exists(s, "foo.bz2")?
 }

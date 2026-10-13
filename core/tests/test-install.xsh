@@ -453,7 +453,7 @@ test test_install_context_flags_are_silent_without_selinux { |ctx|
     assert result.status.exited_with(0), f"install {flag}: {result.stderr}"
     assert result.stdout == "" and result.stderr == ""
     assert dest.read_text()? == "data"
-    dest.remove()?
+    dest.remove()
   }
 }
 

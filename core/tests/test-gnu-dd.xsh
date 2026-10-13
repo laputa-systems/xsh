@@ -26,8 +26,8 @@ proc sequential(s: uu.Scene, first: List[Str], second: List[Str], input: Path, q
 # origin: gnu dd/conv-case.log
 test test_gnu_dd_conv_case_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input-lower", "abcdefghijklmnopqrstuvwxyz\n")?
-  uu.write(s, "input-upper", "ABCDEFGHIJKLMNOPQRSTUVWXYZ\n")?
+  uu.write(s, "input-lower", "abcdefghijklmnopqrstuvwxyz\n")
+  uu.write(s, "input-upper", "ABCDEFGHIJKLMNOPQRSTUVWXYZ\n")
   for row in [
     {source: "lower", target: "lower", conv: "lcase"},
     {source: "upper", target: "upper", conv: "ucase"},
@@ -40,8 +40,8 @@ test test_gnu_dd_conv_case_log { |ctx|
   }
   let locale = run.capture --text LC_ALL=en_US.iso8859-1 /bin/sh -c "locale charmap 2>/dev/null"
   if locale.status.exited_with(0) and locale.stdout.trim().replace("iso", with: "ISO-") == "ISO-8859-1" {
-    uu.write_bytes(s, "input-lower", b"\xe9\n")?
-    uu.write_bytes(s, "input-upper", b"\xc9\n")?
+    uu.write_bytes(s, "input-lower", b"\xe9\n")
+    uu.write_bytes(s, "input-upper", b"\xc9\n")
     for row in [
       {source: "lower", target: "lower", conv: "lcase"},
       {source: "upper", target: "upper", conv: "ucase"},
@@ -58,14 +58,14 @@ test test_gnu_dd_conv_case_log { |ctx|
 # origin: gnu dd/direct.log
 test test_gnu_dd_direct_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "in")?
-  uu.truncate(s, "in", 8192)?
+  uu.touch(s, "in")
+  uu.truncate(s, "in", 8192)
   let probe = uu.invoke(s, "dd", ["if=in", "oflag=direct", "of=out"])?
   if probe.status != 0 { test.skip("filesystem does not support aligned direct I/O") }
   for row in [{name: "short", size: 511}, {name: "m1", size: 8191}, {name: "p1", size: 8193}] {
-    uu.touch(s, row.name)?
-    uu.truncate(s, row.name, row.size)?
-    uu.remove(s, "out")?
+    uu.touch(s, row.name)
+    uu.truncate(s, row.name, row.size)
+    uu.remove(s, "out")
     uu.succeeds(uu.invoke(s, "dd", [f"if={row.name}", "iflag=direct", "oflag=direct", "of=out"])?)
   }
 }
@@ -83,20 +83,20 @@ test test_gnu_dd_partial_write_log { |ctx|
 # origin: gnu dd/skip-seek.log
 test test_gnu_dd_skip_seek_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "0123456789abcdef")?
+  uu.write(s, "in", "0123456789abcdef")
   for row in [
     {args: ["bs=1", "skip=1", "seek=2", "conv=notrunc", "count=3"], out: "zy123utsrqponmlkji", err: "3+0 records in\n3+0 records out\n"},
     {args: ["bs=5", "skip=1", "seek=1", "conv=notrunc", "count=1"], out: "zyxwv56789ponmlkji", err: "1+0 records in\n1+0 records out\n"},
     {args: ["bs=5", "skip=1", "seek=1", "count=1"], out: "zyxwv56789", err: "1+0 records in\n1+0 records out\n"},
     {args: ["bs=1", "iseek=1", "oseek=2", "conv=notrunc", "count=3"], out: "zy123utsrqponmlkji", err: "3+0 records in\n3+0 records out\n"},
   ] {
-    uu.write(s, "aux", "zyxwvutsrqponmlkji")?
+    uu.write(s, "aux", "zyxwvutsrqponmlkji")
     let r = uu.invoke_from_path(s, "dd", row.args.extend(["status=noxfer", "of=aux"]), uu.at(s, "in"))?
     uu.succeeds(r)
     uu.stderr_only(r, row.err)
     uu.file_is(s, "aux", row.out)
   }
-  uu.write(s, "in", "01234567\nabcdefghijkl\n")?
+  uu.write(s, "in", "01234567\nabcdefghijkl\n")
   let block = uu.invoke_from_path(s, "dd", ["ibs=10", "cbs=10", "status=noxfer", "conv=block,sync"], uu.at(s, "in"))?
   uu.succeeds(block)
   uu.stdout_is(block, "01234567  abcdefghij          ")
@@ -110,7 +110,7 @@ test test_gnu_dd_skip_seek_log { |ctx|
 # origin: gnu dd/unblock-sync.log
 test test_gnu_dd_unblock_sync_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "000100020003xx")?
+  uu.write(s, "in", "000100020003xx")
   let r = uu.invoke_from_path(s, "dd", ["cbs=4", "ibs=4", "conv=unblock,sync"], uu.at(s, "in"))?
   uu.succeeds(r)
   uu.stdout_is(r, "0001\n0002\n0003\nxx\n")
@@ -129,7 +129,7 @@ test test_gnu_dd_unblock_log { |ctx|
     {input: "a   ", output: "a\n\n"},
     {input: "a  \n", output: "a\n\n\n"},
   ] {
-    uu.write(s, "in", row.input)?
+    uu.write(s, "in", row.input)
     let r = uu.invoke_from_path(s, "dd", ["cbs=3", "conv=unblock", "status=noxfer"], uu.at(s, "in"))?
     uu.succeeds(r)
     uu.stdout_is(r, row.output)
@@ -141,7 +141,7 @@ test test_gnu_dd_unblock_log { |ctx|
 # origin: gnu dd/not-rewound.log
 test test_gnu_dd_not_rewound_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "abcde\n")?
+  uu.write(s, "in", "abcde\n")
   let r = sequential(s, ["skip=1", "count=1", "bs=1"], ["skip=1", "bs=1"], uu.at(s, "in"))
   uu.succeeds(r)
   uu.stdout_is(r, "bde\n")
@@ -154,7 +154,7 @@ test test_gnu_dd_skip_seek2_log { |ctx|
     {args: ["bs=5"], expected: "3456789abcdef\n"},
     {args: ["bs=5", "count=2"], expected: "3456789abc"},
   ] {
-    uu.write(s, "in", "LA:3456789abcdef\n")?
+    uu.write(s, "in", "LA:3456789abcdef\n")
     let r = sequential(s, ["bs=1", "skip=3", "count=0"], row.args, uu.at(s, "in"))
     uu.succeeds(r)
     uu.stdout_is(r, row.expected)
@@ -177,7 +177,7 @@ test test_gnu_dd_stderr_log { |ctx|
 # origin: gnu dd/bytes.log
 test test_gnu_dd_bytes_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "0123456789abcdefghijklm\n")?
+  uu.write(s, "in", "0123456789abcdefghijklm\n")
   for options in [["count=14B"], ["count=14", "iflag=count_bytes"]] {
     let r = uu.invoke_from_path(s, "dd", options.extend(["conv=swab"]), uu.at(s, "in"))?
     uu.succeeds(r)
@@ -217,7 +217,7 @@ test test_gnu_dd_bytes_log { |ctx|
 # origin: gnu dd/skip-seek-past-file.log
 test test_gnu_dd_skip_seek_past_file_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file", "1234")?
+  uu.write(s, "file", "1234")
   let warning = "dd: 'standard input': cannot skip to specified offset\n0+0 records in\n0+0 records out\n"
   for options in [["bs=1", "skip=5"], ["bs=3", "skip=2"]] {
     let args = options.extend(["count=0", "status=noxfer"])
@@ -249,7 +249,7 @@ test test_gnu_dd_skip_seek_past_file_log { |ctx|
 test test_gnu_dd_ascii_log { |ctx|
   let s = uu.scene(ctx)?
   let input = bytes.concat([b"\x40\xc1\x40\xc1\x40\xc1\x40\x40", bytes.from_ints([n for n in range(256)])?])
-  uu.write_bytes(s, "in", input)?
+  uu.write_bytes(s, "in", input)
   let expected = b"\x20\x41\x20\x41\x0a\x20\x41\x0a\x00\x01\x02\x03\x0a\x9c\x09\x86\x7f\x0a\x97\x8d\x8e\x0b\x0a\x0c\x0d\x0e\x0f\x0a\x10\x11\x12\x13\x0a\x9d\x85\x08\x87\x0a\x18\x19\x92\x8f\x0a\x1c\x1d\x1e\x1f\x0a\x80\x81\x82\x83\x0a\x84\x0a\x17\x1b\x0a\x88\x89\x8a\x8b\x0a\x8c\x05\x06\x07\x0a\x90\x91\x16\x93\x0a\x94\x95\x96\x04\x0a\x98\x99\x9a\x9b\x0a\x14\x15\x9e\x1a\x0a\x20\xa0\xa1\xa2\x0a\xa3\xa4\xa5\xa6\x0a\xa7\xa8\xd5\x2e\x0a\x3c\x28\x2b\x7c\x0a\x26\xa9\xaa\xab\x0a\xac\xad\xae\xaf\x0a\xb0\xb1\x21\x24\x0a\x2a\x29\x3b\x7e\x0a\x2d\x2f\xb2\xb3\x0a\xb4\xb5\xb6\xb7\x0a\xb8\xb9\xcb\x2c\x0a\x25\x5f\x3e\x3f\x0a\xba\xbb\xbc\xbd\x0a\xbe\xbf\xc0\xc1\x0a\xc2\x60\x3a\x23\x0a\x40\x27\x3d\x22\x0a\xc3\x61\x62\x63\x0a\x64\x65\x66\x67\x0a\x68\x69\xc4\xc5\x0a\xc6\xc7\xc8\xc9\x0a\xca\x6a\x6b\x6c\x0a\x6d\x6e\x6f\x70\x0a\x71\x72\x5e\xcc\x0a\xcd\xce\xcf\xd0\x0a\xd1\xe5\x73\x74\x0a\x75\x76\x77\x78\x0a\x79\x7a\xd2\xd3\x0a\xd4\x5b\xd6\xd7\x0a\xd8\xd9\xda\xdb\x0a\xdc\xdd\xde\xdf\x0a\xe0\xe1\xe2\xe3\x0a\xe4\x5d\xe6\xe7\x0a\x7b\x41\x42\x43\x0a\x44\x45\x46\x47\x0a\x48\x49\xe8\xe9\x0a\xea\xeb\xec\xed\x0a\x7d\x4a\x4b\x4c\x0a\x4d\x4e\x4f\x50\x0a\x51\x52\xee\xef\x0a\xf0\xf1\xf2\xf3\x0a\x5c\x9f\x53\x54\x0a\x55\x56\x57\x58\x0a\x59\x5a\xf4\xf5\x0a\xf6\xf7\xf8\xf9\x0a\x30\x31\x32\x33\x0a\x34\x35\x36\x37\x0a\x38\x39\xfa\xfb\x0a\xfc\xfd\xfe\xff\x0a"
   let r = uu.invoke(s, "dd", ["if=in", "of=out", "conv=ascii", "cbs=4"])?
   uu.succeeds(r)
@@ -259,7 +259,7 @@ test test_gnu_dd_ascii_log { |ctx|
 # origin: gnu dd/reblock.log
 test test_gnu_dd_reblock_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "dd.fifo")?
+  uu.mkfifo(s, "dd.fifo")
   for row in [
     {args: ["ibs=3", "obs=3", "if=dd.fifo"], expected: "0+2 records in\n1+1 records out\n4 bytes copied"},
     {args: ["bs=3", "ibs=1", "obs=1", "if=dd.fifo"], expected: "0+2 records in\n0+2 records out\n4 bytes copied"},
@@ -284,21 +284,21 @@ test test_gnu_dd_reblock_log { |ctx|
 # origin: gnu dd/sparse.log
 test test_gnu_dd_sparse_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "sparse")?
-  uu.truncate(s, "sparse", 1048576)?
+  uu.touch(s, "sparse")
+  uu.truncate(s, "sparse", 1048576)
   uu.succeeds(uu.invoke(s, "dd", ["bs=32K", "if=sparse", "of=sparse.dd", "conv=sparse"])?)
   assert uu.size(s, "sparse")? == uu.size(s, "sparse.dd")?
-  uu.write_bytes(s, "file.in", b"a\0\0b")?
+  uu.write_bytes(s, "file.in", b"a\0\0b")
   let append = uu.invoke(s, "dd", ["if=file.in", "bs=1", "conv=sparse", "oflag=append"], stdout: uu.at(s, "out"))?
   uu.succeeds(append)
   assert uu.read(s, "out")? == b"ab"
-  uu.write(s, "out", "____")?
+  uu.write(s, "out", "____")
   uu.succeeds(uu.invoke(s, "dd", ["if=file.in", "bs=1", "conv=sparse,notrunc", "of=out"])?)
   uu.file_is(s, "out", "a__b")
   let pipe = shell(s, r""""$@" | cat; """, uu.argv(s, "dd", [p"if=file.in", p"bs=1", p"conv=sparse"])?)
   uu.succeeds(pipe)
   uu.stdout_is_bytes(pipe, b"a\0\0b")
-  uu.remove(s, "file.in")?
+  uu.remove(s, "file.in")
   uu.succeeds(uu.invoke(s, "dd", ["if=/dev/urandom", "of=file.in", "bs=1M", "count=3", "iflag=fullblock"])?)
   uu.succeeds(uu.invoke(s, "dd", ["if=/dev/zero", "of=file.in", "bs=1M", "count=1", "seek=1", "conv=notrunc"])?)
   if fs.stat(uu.at(s, "file.in"))?.blocks_512 / 2 > 3000 {
@@ -306,9 +306,9 @@ test test_gnu_dd_sparse_log { |ctx|
     let flushed = run.capture --text sync fp"{s.root}/file.out"
     assert flushed.status.exited_with(0)
     assert fs.stat(uu.at(s, "file.out"))?.blocks_512 / 2 > 2500
-    uu.remove(s, "file.out")?
-    uu.touch(s, "file.out")?
-    uu.truncate(s, "file.out", 3145728)?
+    uu.remove(s, "file.out")
+    uu.touch(s, "file.out")
+    uu.truncate(s, "file.out", 3145728)
     uu.succeeds(uu.invoke(s, "dd", ["if=file.in", "of=file.out", "ibs=2M", "obs=1M", "conv=sparse,notrunc"])?)
     if fs.stat(uu.at(s, "file.out"))?.blocks_512 / 2 >= 2500 {
       uu.succeeds(uu.invoke(s, "dd", ["if=file.in", "of=manual.out", "bs=1M", "count=1"])?)

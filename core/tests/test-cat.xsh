@@ -135,7 +135,7 @@ test test_cat_accepts_non_utf8_file_path_arguments { |ctx|
 }
 
 test test_cat_streams_show_all_from_an_unbounded_device { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "cat-device")?
   let script = fp"{ctx.core_dir}/cat.xsh"

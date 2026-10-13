@@ -13,7 +13,7 @@ pure errno_of(result: Result[Any, Error]) -> Int {
 proc loopback_udp() [process, net, error] -> Result[Int, Error] {
   let c = linux.net_constants()
   let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
-  linux.bind(fd, {family: "inet", address: "127.0.0.1", port: 0})?
+  linux.bind(fd, {family: "inet", address: "127.0.0.1", port: 0})
   Ok(fd)
 }
 
@@ -47,7 +47,7 @@ proc settled_dump() [process, error] -> Result[LinuxNetworkDump] {
     }
     attempt += 1
   }
-  test.skip("linux.network_dump never completed on this host")?
+  test.skip("linux.network_dump never completed on this host")
   Ok(linux.network_dump()?)
 }
 
@@ -83,11 +83,11 @@ test test_tcp_echo_over_loopback {
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(server)
-  linux.setsockopt_int(server, c.SOL_SOCKET, c.SO_REUSEADDR, 1)?
+  linux.setsockopt_int(server, c.SOL_SOCKET, c.SO_REUSEADDR, 1)
   assert linux.getsockopt_int(server, c.SOL_SOCKET, c.SO_REUSEADDR)? == 1
   assert linux.getsockopt_int(server, c.SOL_SOCKET, c.SO_ACCEPTCONN)? == 0
-  linux.bind(server, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(server, 4)?
+  linux.bind(server, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(server, 4)
   assert linux.getsockopt_int(server, c.SOL_SOCKET, c.SO_ACCEPTCONN)? == 1
   let local = linux.getsockname(server)?
   assert local.family == "inet" and local.address == "127.0.0.1"
@@ -96,8 +96,8 @@ test test_tcp_echo_over_loopback {
 
   let client = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(client)
-  linux.setsockopt_int(client, c.IPPROTO_TCP, c.TCP_NODELAY, 1)?
-  linux.connect(client, local)?
+  linux.setsockopt_int(client, c.IPPROTO_TCP, c.TCP_NODELAY, 1)
+  linux.connect(client, local)
   assert linux.getpeername(client)? == local
 
   let accepted = linux.accept(server)?
@@ -116,7 +116,7 @@ test test_tcp_echo_over_loopback {
   assert reply.address.family == "unspec"
   assert reply.control == []
 
-  linux.shutdown(client, c.SHUT_WR)?
+  linux.shutdown(client, c.SHUT_WR)
   assert unix.read_fd(accepted.fd, 64)?.is_empty()
 }
 
@@ -126,8 +126,8 @@ test test_udp_exchange_reports_sender_truncation_and_ttl {
   defer unix.close_fd(receiver)
   let sender = loopback_udp()?
   defer unix.close_fd(sender)
-  linux.setsockopt_int(receiver, c.SOL_IP, c.IP_RECVTTL, 1)?
-  linux.setsockopt_int(sender, c.SOL_IP, c.IP_TTL, 17)?
+  linux.setsockopt_int(receiver, c.SOL_IP, c.IP_RECVTTL, 1)
+  linux.setsockopt_int(sender, c.SOL_IP, c.IP_TTL, 17)
   assert linux.getsockopt_int(sender, c.SOL_IP, c.IP_TTL)? == 17
 
   let target = linux.getsockname(receiver)?
@@ -153,12 +153,12 @@ test test_udp_error_queue_reports_the_icmp_origin {
   let c = linux.net_constants()
   let closed = loopback_udp()?
   let dead = linux.getsockname(closed)?
-  unix.close_fd(closed)?
+  unix.close_fd(closed)
 
   let probe = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(probe)
-  linux.setsockopt_int(probe, c.SOL_IP, c.IP_RECVERR, 1)?
-  linux.connect(probe, dead)?
+  linux.setsockopt_int(probe, c.SOL_IP, c.IP_RECVERR, 1)
+  linux.connect(probe, dead)
   assert linux.sendto(probe, bytes.from_text("x"))? == 1
   assert "error" in unix.poll_fd(probe, [], 1000)?
 
@@ -182,7 +182,7 @@ test test_icmp_echo_over_a_datagram_socket {
     }
     Ok(fd) => {
       defer unix.close_fd(fd)
-      linux.set_socket_timeout(fd, c.SO_RCVTIMEO, 2000)?
+      linux.set_socket_timeout(fd, c.SO_RCVTIMEO, 2000)
       # type 8 (echo request), code 0, checksum and identifier filled by the kernel
       let request = bytes.concat(
         [bytes.from_ints([8, 0, 0, 0, 0, 0, 0, 1])?, bytes.from_text("xsh-echo")],
@@ -224,9 +224,9 @@ test test_raw_icmp_socket_filters_and_checks_replies {
       defer unix.close_fd(fd)
       # struct icmp_filter: a set bit blocks that type, so only echo replies pass.
       let mask = bytes.pack_le(4294967294, 4)?
-      linux.setsockopt_bytes(fd, c.SOL_RAW, c.ICMP_FILTER, mask)?
+      linux.setsockopt_bytes(fd, c.SOL_RAW, c.ICMP_FILTER, mask)
       assert linux.getsockopt_bytes(fd, c.SOL_RAW, c.ICMP_FILTER, 4)? == mask
-      linux.set_socket_timeout(fd, c.SO_RCVTIMEO, 2000)?
+      linux.set_socket_timeout(fd, c.SO_RCVTIMEO, 2000)
 
       let body = bytes.concat([bytes.from_ints([8, 0, 0, 0, 18, 52, 0, 7])?, bytes.from_text("raw")])
       let sum = icmp_checksum(body)
@@ -252,11 +252,11 @@ test test_socket_options_move_bytes_and_timeouts {
 
   # struct linger { int l_onoff; int l_linger }
   let linger = bytes.concat([bytes.pack_le(1, 4)?, bytes.pack_le(5, 4)?])
-  linux.setsockopt_bytes(fd, c.SOL_SOCKET, c.SO_LINGER, linger)?
+  linux.setsockopt_bytes(fd, c.SOL_SOCKET, c.SO_LINGER, linger)
   assert linux.getsockopt_bytes(fd, c.SOL_SOCKET, c.SO_LINGER, 8)? == linger
   assert linux.getsockopt_bytes(fd, c.SOL_SOCKET, c.SO_LINGER, 64)?.len() == 8
 
-  linux.set_socket_timeout(fd, c.SO_RCVTIMEO, 60)?
+  linux.set_socket_timeout(fd, c.SO_RCVTIMEO, 60)
   let timeout = linux.getsockopt_bytes(fd, c.SOL_SOCKET, c.SO_RCVTIMEO, 16)?
   assert bytes.unpack_le(timeout, 8, 0)? == 0
   assert bytes.unpack_le(timeout, 8, 8)? == 60000
@@ -272,12 +272,12 @@ test test_failures_carry_the_kernel_errno {
   let c = linux.net_constants()
   let closed = loopback_udp()?
   let dead = linux.getsockname(closed)?
-  unix.close_fd(closed)?
+  unix.close_fd(closed)
 
   let tcp = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   assert errno_of(linux.connect(tcp, dead)) == 111
   assert errno_of(linux.getpeername(tcp)) == 107
-  unix.close_fd(tcp)?
+  unix.close_fd(tcp)
   # A descriptor number no process of this size holds open: EBADF, not a
   # reused number a closed socket might have left behind.
   assert errno_of(linux.getsockname(99999)) == 9
@@ -310,15 +310,15 @@ test test_unix_sockets_use_paths_and_abstract_names {
   for name in names {
     let server = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
     defer unix.close_fd(server)
-    linux.bind(server, {family: "unix", address: name})?
+    linux.bind(server, {family: "unix", address: name})
     defer fp"{socket_path}".remove()
-    linux.listen(server)?
+    linux.listen(server)
     let bound = linux.getsockname(server)?
     assert bound.family == "unix" and bound.address == name
 
     let client = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
     defer unix.close_fd(client)
-    linux.connect(client, bound)?
+    linux.connect(client, bound)
     let accepted = linux.accept(server, nonblock: true)?
     defer unix.close_fd(accepted.fd)
     assert unix.write_fd(client, bytes.from_text("over unix"))? == 9
@@ -408,8 +408,8 @@ test test_sock_diag_finds_a_tcp_listener {
   let c = linux.net_constants()
   let listener = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(listener)
-  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(listener)?
+  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(listener)
   let port = linux.getsockname(listener)?.port
 
   let nl = linux.netlink_open(c.NETLINK_SOCK_DIAG)?
@@ -534,18 +534,18 @@ test test_open_files_describes_each_socket_and_a_locked_file_by_its_own_type { |
   # inode 0 in the TCP table; no descriptor may be matched to it.
   let listener = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(listener)
-  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(listener, 4)?
+  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(listener, 4)
   let tcp_address = linux.getsockname(listener)?
   let first = linux.socket(c.AF_INET, c.SOCK_STREAM)?
-  linux.connect(first, tcp_address)?
+  linux.connect(first, tcp_address)
   let first_peer = linux.accept(listener)?
-  unix.close_fd(first_peer.fd)?
-  unix.close_fd(first)?
+  unix.close_fd(first_peer.fd)
+  unix.close_fd(first)
 
   let client = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(client)
-  linux.connect(client, tcp_address)?
+  linux.connect(client, tcp_address)
   let accepted = linux.accept(listener)?
   defer unix.close_fd(accepted.fd)
   let client_address = linux.getsockname(client)?
@@ -557,8 +557,8 @@ test test_open_files_describes_each_socket_and_a_locked_file_by_its_own_type { |
   let unix_name = f"@xsh-open-files-{pid}"
   let local_server = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
   defer unix.close_fd(local_server)
-  linux.bind(local_server, {family: "unix", address: unix_name})?
-  linux.listen(local_server)?
+  linux.bind(local_server, {family: "unix", address: unix_name})
+  linux.listen(local_server)
 
   let netlink = linux.netlink_open(c.NETLINK_ROUTE)?
   defer unix.close_fd(netlink)
@@ -647,7 +647,7 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
     return
   }
   let table = fp"/proc/net/route"
-  guard table.exists()? else {
+  guard table.exists() else {
     test.skip("this kernel has no /proc/net/route")
     return
   }

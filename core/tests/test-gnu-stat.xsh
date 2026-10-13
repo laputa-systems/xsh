@@ -23,7 +23,7 @@ test test_gnu_stat_stat_birthtime_log { |ctx|
   let changed = stat_text(s, ["--format", "%Z", "a"])?
   var updated = false
   for milliseconds in [70, 140, 280, 560, 1120] {
-    time.sleep(time.millis(milliseconds))?
+    time.sleep(time.millis(milliseconds))
     uu.succeeds(uu.invoke(s, "touch", ["a"])?)
     let current_birth = stat_text(s, ["--format", "%W", "a"])?
     let current_access = stat_text(s, ["--format", "%X", "a"])?
@@ -42,13 +42,13 @@ test test_gnu_stat_stat_fmt_log { |ctx|
     let format = [" " for _ in range(width - 1)].join("") + "%"
     assert stat_text(s, ["--form=" + format, "."])? == format + "\n"
   }
-  uu.touch(s, "'")?
+  uu.touch(s, "'")
   for directive in ["-c%N", "-c%Qn"] {
     assert stat_text(s, [directive, "'"])? == "\"'\"\n"
     assert stat_text(s, [directive, "'"], {QUOTING_STYLE: "locale"})? == "'\\''\n"
   }
   let name = "a\n\nb\nc"
-  uu.touch(s, name)?
+  uu.touch(s, name)
   let quoted = "'a'$'\\n\\n''b'$'\\n''c'"
   assert stat_text(s, ["-c%N", name])? == quoted + "\n"
   let default = stat_text(s, [name])?
@@ -76,7 +76,7 @@ test test_gnu_stat_stat_fmt_log { |ctx|
 # origin: gnu stat/stat-hyphen.log
 test test_gnu_stat_stat_hyphen_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "f")?
+  uu.touch(s, "f")
   let filename = uu.invoke_from_path(s, "stat", ["--format=%n", "-"], uu.at(s, "f"))?
   uu.succeeds(filename)
   uu.stdout_is(filename, "-\n")
@@ -137,10 +137,10 @@ test test_gnu_stat_stat_nanoseconds_log { |ctx|
 # origin: gnu stat/stat-slash.log
 test test_gnu_stat_stat_slash_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.mkdir(s, "dir")?
-  uu.symlink(s, "file", "link1")?
-  uu.symlink(s, "dir", "link2")?
+  uu.touch(s, "file")
+  uu.mkdir(s, "dir")
+  uu.symlink(s, "file", "link1")
+  uu.symlink(s, "dir", "link2")
   assert stat_text(s, ["--format=%n", "link1"])? == "link1\n"
   let trailing_file = uu.invoke(s, "stat", ["--format=%n", "link1/"])?
   uu.fails_with_code(trailing_file, 1)

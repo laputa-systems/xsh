@@ -20,7 +20,7 @@ proc main(...argv: List[Str]) [process, env, time, error, io] {
     if ! opts.no_title { print f"Every {interval.format(1)}s: {opts.operands.join(" ")}\n" }
     gnu.write_text(captured.stdout)
     gnu.write_text(captured.stderr)
-    io.flush_stdout()?
+    io.flush_stdout()
     if opts.exit_error and ! captured.status.exited_with(0) { exit 1 }
     let combined = captured.stdout + captured.stderr
     # The first run only establishes the baseline; a later differing run ends the loop.

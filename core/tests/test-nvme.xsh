@@ -104,7 +104,7 @@ proc nvme(ctx: TestContext, lines: List[Record], args: List[Str], log: Path) [fs
     recorded += [line]
   }
   fixture.write(json.encode_lines(recorded)?)
-  test.linux_fake(ctx, {storage_fixture: fixture, log: log})?
+  test.linux_fake(ctx, {storage_fixture: fixture, log: log})
   let source = fp"{ctx.core_dir}/nvme.xsh".read_text()?
   let out = test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, b"", "nvme")?
   Ok({status: out.status, stdout: out.stdout, stderr: out.stderr, bytes: out.stdout_bytes})
@@ -670,7 +670,7 @@ proc nvme_list(ctx: TestContext, root: Path, lines: List[Record], args: List[Str
     recorded += [line]
   }
   fixture.write(json.encode_lines(recorded)?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = "use lib.nvme_cli\nproc main(...argv: List[Str]) {\n  nvme_cli.dispatch(argv[2..], fp\"{argv[0]}\", fp\"{argv[1]}\")\n}\n"
   var words: List[Union[Str, Path]] = [fp"{root}/sys", fp"{root}/dev", "list"]
   for word in args {

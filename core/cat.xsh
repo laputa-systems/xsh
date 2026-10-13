@@ -340,7 +340,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         written += rendered.out.len()
       }
 
-      unix.close_fd(fd)?
+      unix.close_fd(fd)
       continue
     }
 

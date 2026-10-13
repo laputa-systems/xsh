@@ -18,18 +18,18 @@ proc wrapper_run(s: uu.Scene, args: List[Str], setup: Str, launch: List[Path]) [
 # origin: gnu cat/cat-E.log
 test test_gnu_cat_cat_E_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "in", b"a\rb\r\nc\n\r\nd\r")?
+  uu.write_bytes(s, "in", b"a\rb\r\nc\n\r\nd\r")
   let single = uu.invoke(s, "cat", ["-E", "in"])?
   uu.succeeds(single)
   uu.stdout_only_bytes(single, b"a\rb^M$\nc$\n^M$\nd\r")
 
-  uu.write_bytes(s, "in2", b"1\r")?
-  uu.write_bytes(s, "in2b", b"\n2\r\n")?
+  uu.write_bytes(s, "in2", b"1\r")
+  uu.write_bytes(s, "in2b", b"\n2\r\n")
   let split = uu.invoke(s, "cat", ["-E", "in2", "in2b"])?
   uu.succeeds(split)
   uu.stdout_only_bytes(split, b"1^M$\n2^M$\n")
 
-  uu.write_bytes(s, "in2b", b"2\r\n")?
+  uu.write_bytes(s, "in2b", b"2\r\n")
   let separate = uu.invoke(s, "cat", ["-E", "in2", "in2b"])?
   uu.succeeds(separate)
   uu.stdout_only_bytes(separate, b"1\r2^M$\n")
@@ -37,7 +37,7 @@ test test_gnu_cat_cat_E_log { |ctx|
 
 # origin: gnu cat/cat-proc.log
 test test_gnu_cat_cat_proc_log { |ctx|
-  if ! p"/proc/cpuinfo".is_file()? { test.skip("requires /proc/cpuinfo"); return }
+  if ! p"/proc/cpuinfo".is_file() { test.skip("requires /proc/cpuinfo"); return }
   let s = uu.scene(ctx)?
   let marked = uu.invoke(s, "cat", ["-E", "/proc/cpuinfo"])?
   let plain = uu.invoke(s, "cat", ["/proc/cpuinfo"])?
@@ -52,21 +52,21 @@ test test_gnu_cat_cat_proc_log { |ctx|
 # origin: gnu cat/cat-self.log
 test test_gnu_cat_cat_self_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "out", "x\n")?
+  uu.write(s, "out", "x\n")
   let append = uu.invoke(s, "cat", ["out"], stdout: uu.at(s, "out"), stdout_append: true)?
   uu.fails_with_code(append, 1)
   uu.stderr_is(append, "cat: out: input file is output file\n")
   uu.file_is(s, "out", "x\n")
 
-  uu.write(s, "doc", "x\n")?
-  uu.write(s, "doc.end", "y\n")?
+  uu.write(s, "doc", "x\n")
+  uu.write(s, "doc.end", "y\n")
   let truncate = uu.invoke(s, "cat", ["doc", "doc.end"], stdout: uu.at(s, "doc"))?
   uu.succeeds(truncate)
   uu.no_stderr(truncate)
   uu.file_is(s, "doc", "y\n")
 
-  uu.write(s, "fx", "x\n")?
-  uu.write(s, "fy", "y\n")?
+  uu.write(s, "fx", "x\n")
+  uu.write(s, "fy", "y\n")
   let joined = uu.invoke(s, "cat", ["fx", "fy"], stdout: uu.at(s, "fxy"))?
   uu.succeeds(joined)
   uu.no_stderr(joined)
@@ -96,7 +96,7 @@ test test_gnu_cat_cat_self_log { |ctx|
     uu.stderr_only(conflict, f"cat: {item.operand}: input file is output file\n")
   }
 
-  uu.write(s, "file", "foo\n")?
+  uu.write(s, "file", "foo\n")
   let exhausted = descriptor_run(s, [], r"""exec 3<file; "$@" <&3 >/dev/null || exit; exec 4>>file; exec "$@" <&3 >&4""")?
   uu.succeeds(exhausted)
   uu.no_output(exhausted)
@@ -105,7 +105,7 @@ test test_gnu_cat_cat_self_log { |ctx|
 # origin: gnu cat/cat-buf.log
 test test_gnu_cat_cat_buf_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "fifo")?
+  uu.mkfifo(s, "fifo")
   var matched = false
   for delay in ["0.1", "0.2", "0.4", "0.8", "1.6", "3.2"] {
     let out = uu.at(s, ".buffer-out")

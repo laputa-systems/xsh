@@ -87,7 +87,7 @@ test test_ping6_hop_limit_option_is_applied_to_the_socket { |ctx|
 }
 
 test test_ping6_reports_a_failed_send_once_and_does_not_wait_for_a_reply { |ctx|
-  need_ipv6_echo()?
+  need_ipv6_echo()
   # With path MTU discovery set to "do", a datagram larger than the loopback
   # MTU is refused by the local stack on every send.
   let started = time.now()

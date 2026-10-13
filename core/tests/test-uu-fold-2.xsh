@@ -46,7 +46,7 @@ test test_uu_fold_tab_counts_as_one_byte { |ctx|
 # origin: uutils test_fold::test_tab_advances_at_non_utf8_character
 test test_uu_fold_tab_advances_at_non_utf8_character { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "non_utf8_tab_stops.input", "non_utf8_tab_stops.input")?
+  uu.fixture(s, "fold", "non_utf8_tab_stops.input", "non_utf8_tab_stops.input")
   let expected = fp"{ctx.core_dir}/tests/data/uutils/fold/non_utf8_tab_stops_w8.expected".read_bytes()?
   let r = uu.invoke(s, "fold", ["-w8", "non_utf8_tab_stops.input"])?
   uu.succeeds(r)
@@ -56,7 +56,7 @@ test test_uu_fold_tab_advances_at_non_utf8_character { |ctx|
 # origin: uutils test_fold::test_tab_should_advance_to_next_tab_stop
 test test_uu_fold_tab_should_advance_to_next_tab_stop { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "fold", "tab_stops.input", "tab_stops.input")?
+  uu.fixture(s, "fold", "tab_stops.input", "tab_stops.input")
   let expected = fp"{ctx.core_dir}/tests/data/uutils/fold/tab_stops_w8.expected".read_bytes()?
   let r = uu.invoke(s, "fold", ["-w8", "tab_stops.input"])?
   uu.succeeds(r)
@@ -161,7 +161,7 @@ test test_uu_fold_zero_width_bytes_in_character_mode { |ctx|
 test test_uu_fold_zero_width_bytes_from_file { |ctx|
   let s = uu.scene(ctx)?
   let input = repeated("\x00", 16384)
-  uu.write(s, "zeros.bin", input)?
+  uu.write(s, "zeros.bin", input)
   let column = uu.invoke(s, "fold", ["zeros.bin"])?
   uu.succeeds(column)
   uu.stdout_is_bytes(column, bytes.from_text(input))
@@ -194,7 +194,7 @@ test test_uu_fold_zero_width_spaces_in_character_mode { |ctx|
 test test_uu_fold_zero_width_spaces_from_file { |ctx|
   let s = uu.scene(ctx)?
   let input = repeated("\u{200B}", 16384)
-  uu.write(s, "zero-width.txt", input)?
+  uu.write(s, "zero-width.txt", input)
   let column = uu.invoke(s, "fold", ["zero-width.txt"], vars: {LC_ALL: "C.UTF-8"})?
   uu.succeeds(column)
   uu.stdout_is_bytes(column, bytes.from_text(input))

@@ -51,7 +51,7 @@ export proc mkfs(argv: List[Str]) {
   if opts.operands.len() < 1 or opts.operands.len() > 2 { gnu.usage_error("expected DEVICE and optional BLOCKS") }
   let image = opts.operands[0] as Path
   if opts.create and opts.operands.len() != 2 { gnu.usage_error("-C requires a block count") }
-  if opts.create and image.exists()? { gnu.error("image already exists"); exit 1 }
+  if opts.create and image.exists() { gnu.error("image already exists"); exit 1 }
   var size: UInt = 0
   if opts.operands.len() == 2 {
     let blocks = match opts.operands[1].parse_int() { Ok(value) => value, Err(failure) => { gnu.error(failure.message); exit 1 } }
@@ -111,15 +111,15 @@ export proc format(image: Path, size: UInt, bits: UInt = 0, sector: UInt = 512, 
   let layout = geom.geometry(size, bits, sector, cluster, reserved, fats)?
   let name = geom.label_bytes(label)?
   guard serial <= 4294967295 else { return Err(error.failure("volume ID must fit 32 bits")) }
-  if create or ! image.exists()? {
-    bytes.resize(image, size, create: true, exclusive: true, regular: true)?
+  if create or ! image.exists() {
+    bytes.resize(image, size, create: true, exclusive: true, regular: true)
   } else { guard image_io.regular(image)? >= size else { return Err(error.failure("requested FAT volume exceeds image size")) } }
   let clear_length = (geom.data_sector(layout) + (if layout.bits == 32 { layout.spc } else { 0 })) * layout.sector
   let zeroes = bytes.zero(65536)?
   var offset = 0
   while offset < clear_length {
     let length = if clear_length - offset < 65536 { clear_length - offset } else { 65536 }
-    image_io.write_region(image, offset, zeroes.slice(0, length: length))?
+    image_io.write_region(image, offset, zeroes.slice(0, length: length))
     offset += length
   }
   var boot = bytes.zero(layout.sector)?
@@ -152,19 +152,19 @@ export proc format(image: Path, size: UInt, bits: UInt = 0, sector: UInt = 512, 
     table = geom.replace(table, change.offset, change.data)
   }
   if layout.bits == 32 { let change = geom.table_patch(table, layout, 2, geom.eoc(layout))?; table = geom.replace(table, change.offset, change.data) }
-  for copy in range(layout.fats) { image_io.write_region(image, (layout.reserved + copy * layout.fat_sectors) * layout.sector, table)? }
+  for copy in range(layout.fats) { image_io.write_region(image, (layout.reserved + copy * layout.fat_sectors) * layout.sector, table) }
   if label != "" {
     let entry = bytes.concat([name, b"\x08", bytes.zero(20)?])
-    image_io.write_region(image, if layout.bits == 32 { geom.cluster_offset(layout, 2) } else { geom.root_offset(layout) }, entry)?
+    image_io.write_region(image, if layout.bits == 32 { geom.cluster_offset(layout, 2) } else { geom.root_offset(layout) }, entry)
   }
   if layout.bits == 32 {
     let info = geom.fsinfo(layout, layout.clusters - 1, 3)?
-    image_io.write_region(image, layout.sector, info)?
-    image_io.write_region(image, 7 * layout.sector, info)?
-    image_io.write_region(image, 6 * layout.sector, boot)?
+    image_io.write_region(image, layout.sector, info)
+    image_io.write_region(image, 7 * layout.sector, info)
+    image_io.write_region(image, 6 * layout.sector, boot)
   }
-  image_io.write_region(image, 0, boot)?
-  fs.fsync(image)?
+  image_io.write_region(image, 0, boot)
+  fs.fsync(image)
   geom.information(layout, boot, label.upper())
 }
 
@@ -214,12 +214,12 @@ export proc label(image: Path, label: Str? = null) -> Result[Str, Error] {
   if ! labels.is_empty() { chosen = labels[0] }
   guard let offset = chosen else { return Err(error.failure("root directory has no free volume-label entry")) }
   let entry = bytes.concat([if label == "" { bytes.concat([b"\xe5", name.slice(1)]) } else { name }, b"\x08", bytes.zero(20)?])
-  image_io.write_region(image, offset, entry)?
-  for index in range(labels.len()) { if index > 0 { image_io.write_region(image, labels[index], b"\xe5")? } }
+  image_io.write_region(image, offset, entry)
+  for index in range(labels.len()) { if index > 0 { image_io.write_region(image, labels[index], b"\xe5") } }
   let boot = geom.replace(loaded.boot, if layout.bits == 32 { 71 } else { 43 }, if label == "" { b"NO NAME    " } else { name })
-  image_io.write_region(image, 0, boot)?
-  if layout.bits == 32 { image_io.write_region(image, layout.backup * layout.sector, boot)? }
-  fs.fsync(image)?
+  image_io.write_region(image, 0, boot)
+  if layout.bits == 32 { image_io.write_region(image, layout.backup * layout.sector, boot) }
+  fs.fsync(image)
   Ok(label.upper())
 }
 

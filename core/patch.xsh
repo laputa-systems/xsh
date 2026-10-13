@@ -162,8 +162,8 @@ proc say(text: Str) [process, env, io] {
 # standard output, so they cannot mix with it.
 proc note(opts: Options, text: Str) [process, env, io, error] {
   if opts.output == "-" {
-    io.write_stderr(text)?
-    io.flush_stderr()?
+    io.write_stderr(text)
+    io.flush_stderr()
   } else { say(text) }
 }
 
@@ -796,14 +796,14 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
             destination_original = fp"{target.write}".read_bytes()?
             destination_mode = fs.stat(fp"{target.write}", follow_symlinks: true)?.mode % 4096
           }
-          make_backup(opts, target.write, destination_exists, destination_original, destination_mode, true)?
-          if target.action == "renamed" { make_backup(opts, name, exists, original, original_mode, says_missing)? }
+          make_backup(opts, target.write, destination_exists, destination_original, destination_mode, true)
+          if target.action == "renamed" { make_backup(opts, name, exists, original, original_mode, says_missing) }
         } else {
-          make_backup(opts, name, exists, original, original_mode, says_missing)?
+          make_backup(opts, name, exists, original, original_mode, says_missing)
         }
       }
       if content.len() == 0 and (opts.remove_empty or removes) {
-        if exists and opts.output == null { remove_file(name)? }
+        if exists and opts.output == null { remove_file(name) }
       } else {
         if removes {
           note(opts, f"Not deleting file {q(opts, name)} as content differs from patch\n")
@@ -811,7 +811,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
         }
         if opts.output != null or (exists and (content != original or target.write != target.read)) or (!exists and (content.len() > 0 or failed == 0)) {
           let parent = dirname_of(outname)
-          if opts.output == null and parent != "" and !file_exists(parent) { fp"{parent}".mkdir(true)? }
+          if opts.output == null and parent != "" and !file_exists(parent) { fp"{parent}".mkdir(true) }
           if symlink {
             let link = content.utf8() ?? ""
             let text = if link.ends_with("\n") { link.byte_slice(0, link.byte_len() - 1) } else { link }
@@ -824,12 +824,12 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
           }
         }
         if target.mode >= 0 and !symlink and opts.output == null {
-          fp"{outname}".chmod(without_bits(target.mode % 4096, fs.umask()?))?
+          fp"{outname}".chmod(without_bits(target.mode % 4096, fs.umask()?))
         } else if target.action != "" and original_mode >= 0 and target.write != target.read {
-          fp"{outname}".chmod(original_mode)?
+          fp"{outname}".chmod(original_mode)
         }
         if target.action == "renamed" and target.read != target.write and opts.output == null and failed == 0 {
-          remove_file(target.read)?
+          remove_file(target.read)
         }
       }
     }
@@ -843,7 +843,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
     } else if outcome.mismatch {
       note(opts, f"Not setting time of file {q(opts, outname)} (contents mismatch)\n")
     } else if new_stamp.valid and !(new_stamp.seconds == 0 and new_stamp.nanos == 0) and file_exists(outname) {
-      fs.set_times(fp"{outname}", atime_sec: new_stamp.seconds, atime_nsec: new_stamp.nanos, mtime_sec: new_stamp.seconds, mtime_nsec: new_stamp.nanos)?
+      fs.set_times(fp"{outname}", atime_sec: new_stamp.seconds, atime_nsec: new_stamp.nanos, mtime_sec: new_stamp.seconds, mtime_nsec: new_stamp.nanos)
     }
   }
   if failed > 0 {
@@ -874,7 +874,7 @@ pure without_bits(mode: Int, mask: Int) -> Int {
 
 # Remove a file and then any directories left empty above it.
 proc remove_file(name: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{name}".remove()?
+  fp"{name}".remove()
   var parent = dirname_of(name)
   while parent != "" {
     let trimmed = if parent.ends_with("/") { parent.byte_slice(0, parent.byte_len() - 1) } else { parent }
@@ -930,7 +930,7 @@ proc make_backup(opts: Options, name: Str, exists: Bool, original: Bytes, mode: 
   }
   let target = backup_name(opts, name)
   let parent = dirname_of(target)
-  if parent != "" and !file_exists(parent) { fp"{parent}".mkdir(true)? }
+  if parent != "" and !file_exists(parent) { fp"{parent}".mkdir(true) }
   if mode >= 0 { fp"{target}".write(original, mode) } else { fp"{target}".write(original) }
 }
 

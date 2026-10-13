@@ -15,7 +15,7 @@ proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
 proc pipe_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let captures = test.temp_dir(s.ctx, name: "vdir-diagnostic")?
   let pipe = fp"{captures}/pipe"
-  fs.mkfifo(pipe, 0o644)?
+  fs.mkfifo(pipe, 0o644)
   let output = fp"{captures}/stderr"
   let reader_error = fp"{captures}/reader-error"
   let cat = process.which("cat")?
@@ -41,20 +41,20 @@ proc terminal_output(fd: Int) [process, net, error] -> Result[Bytes, Error] {
 
 proc terminal() [process, error] -> Result[UnixPty, Error] {
   let pair = unix.open_pty()?
-  unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: pair.replica)?
+  unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: pair.replica)
   Ok(pair)
 }
 
 proc invoke_terminal(s: uu.Scene, vars: Record) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let input = terminal()?
-  defer unix.close_fd(input.master)?
-  defer unix.close_fd(input.replica)?
+  defer unix.close_fd(input.master)
+  defer unix.close_fd(input.replica)
   let output = terminal()?
-  defer unix.close_fd(output.master)?
-  defer unix.close_fd(output.replica)?
+  defer unix.close_fd(output.master)
+  defer unix.close_fd(output.replica)
   let errors = terminal()?
-  defer unix.close_fd(errors.master)?
-  defer unix.close_fd(errors.replica)?
+  defer unix.close_fd(errors.master)
+  defer unix.close_fd(errors.replica)
   let argv = uu.argv(s, "vdir", [], vars)?
   let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, Path(input.name), Path(output.name), Path(errors.name), timeout: 5s)
   let status = process.run(plan)?
@@ -72,8 +72,8 @@ test test_uu_vdir_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
 # origin: uutils test_vdir::test_column_output
 test test_uu_vdir_column_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
-  uu.touch(s, "some-file1")?
+  uu.mkdir(s, "some-dir1")
+  uu.touch(s, "some-file1")
   let first = invoke(s, ["-C"])?
   uu.succeeds(first)
   uu.stdout_contains(first, "some-file1")
@@ -85,7 +85,7 @@ test test_uu_vdir_column_output { |ctx|
 # origin: uutils test_vdir::test_default_format_overrides
 test test_uu_vdir_default_format_overrides { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   for args in [["-1"], ["-C"], ["-x"], ["-m"], ["--format=single-column"], ["--zero"], ["-g", "-C"]] {
     let r = invoke(s, args, {TIME_STYLE: "invalid"})?
     uu.succeeds(r)
@@ -101,9 +101,9 @@ test test_uu_vdir_default_format_overrides { |ctx|
 # origin: uutils test_vdir::test_default_output
 test test_uu_vdir_default_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
-  uu.touch(s, "some-file1")?
-  fs.set_times(uu.at(s, "some-file1"), mtime_sec: 978307200, mtime_nsec: 0)?
+  uu.mkdir(s, "some-dir1")
+  uu.touch(s, "some-file1")
+  fs.set_times(uu.at(s, "some-file1"), mtime_sec: 978307200, mtime_nsec: 0)
   let first = invoke(s, [])?
   uu.succeeds(first)
   uu.stdout_contains(first, "some-file1")
@@ -136,7 +136,7 @@ test test_uu_vdir_invalid_option_exit_code { |ctx|
 # origin: uutils test_vdir::test_literal_quoting_on_terminal
 test test_uu_vdir_literal_quoting_on_terminal { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a\nb")?
+  uu.touch(s, "a\nb")
   let r = invoke_terminal(s, {QUOTING_STYLE: "literal"})?
   uu.succeeds(r)
   uu.stdout_contains(r, " a?b\r\n")
@@ -145,7 +145,7 @@ test test_uu_vdir_literal_quoting_on_terminal { |ctx|
 # origin: uutils test_vdir::test_quoting_defaults
 test test_uu_vdir_quoting_defaults { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a b")?
+  uu.touch(s, "a b")
   let first = invoke(s, [])?
   uu.succeeds(first)
   uu.stdout_contains(first, " a\\ b\n")
@@ -166,10 +166,10 @@ test test_uu_vdir_quoting_defaults { |ctx|
 # origin: uutils test_vdir::test_time_selection_preserves_name_sort
 test test_uu_vdir_time_selection_preserves_name_sort { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.touch(s, "b")?
-  fs.set_times(uu.at(s, "a"), atime_sec: 978307200, atime_nsec: 0)?
-  fs.set_times(uu.at(s, "b"), atime_sec: 1009843200, atime_nsec: 0)?
+  uu.touch(s, "a")
+  uu.touch(s, "b")
+  fs.set_times(uu.at(s, "a"), atime_sec: 978307200, atime_nsec: 0)
+  fs.set_times(uu.at(s, "b"), atime_sec: 1009843200, atime_nsec: 0)
   for time_flag in ["-u", "--time=atime"] {
     for zero in [false, true] {
       let args = [time_flag, "--time-style=+%Y", "a", "b"].extend(if zero { ["--zero"] } else { [] })

@@ -835,7 +835,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   # caller started seq with. Unless that was ignore, a closed reader ends seq by
   # the signal, as it ends any other utility, instead of by a write error.
   if process.signal_action("PIPE")? == "default" {
-    process.set_signal_action("PIPE", "default")?
+    process.set_signal_action("PIPE", "default")
   }
 
   let prepared = prepared_args(argv)

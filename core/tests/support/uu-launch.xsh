@@ -21,8 +21,8 @@ proc main(...words: List[Bytes]) [env, process, fs, error] {
     let metadata = json.encode({caller_keys: launch.caller_keys, umask: null})?
     let setup = [p"/bin/sh", p"-c", Path(r"""umask "$1" || exit; shift; exec "$@"; """), p"uu-mask",
       Path(f"{mask / 64}{mask / 8 % 8}{mask % 8}"), xsh, launcher, Path(metadata)].extend(argv)
-    unix.exec_env(process.command_argv(p"/bin/sh", setup), environment)?
+    unix.exec_env(process.command_argv(p"/bin/sh", setup), environment)
   }
   # A standalone command is invoked by its name even when resolved to an absolute executable path.
-  unix.exec_env(process.command_argv(argv[0], argv), environment, argv0: argv[0].basename())?
+  unix.exec_env(process.command_argv(argv[0], argv), environment, argv0: argv[0].basename())
 }

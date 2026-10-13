@@ -6,7 +6,7 @@ const GUID_SUFFIX = "-8be4df61-93ca-11d2-aa0d-00e098032b8c"
 
 # Boot manager variables are written with attributes NV|BS|RT (7).
 proc put(dir: Path, name: Str, data: Bytes) [fs, error] {
-  fp"{dir}/{name}{GUID_SUFFIX}".write(bytes.concat([bytes.from_ints([7, 0, 0, 0])?, data]))?
+  fp"{dir}/{name}{GUID_SUFFIX}".write(bytes.concat([bytes.from_ints([7, 0, 0, 0])?, data]))
 }
 
 proc get(dir: Path, name: Str) [fs, error] -> Bytes {
@@ -267,13 +267,13 @@ const ESP_GUID = "11112222-3333-4444-5555-666677778888"
 # A 4 MiB image with an ESP and a root partition, in the requested table.
 proc disk_image(ctx: TestContext, name: Str, label: Str) [fs, process, error] -> Path {
   let image = test.temp_path(ctx, name: name)
-  image.write(b"")?
-  image.truncate(4194304)?
+  image.write(b"")
+  image.truncate(4194304)
   let esp = if label == "gpt" { "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" } else { "ef" }
   let data = if label == "gpt" { "0fc63daf-8483-4772-8e79-3d69d8477de4" } else { "83" }
   let uuids = if label == "gpt" { [ESP_GUID, "99998888-7777-6666-5555-444433332222"] } else { ["", ""] }
   let id = if label == "gpt" { "" } else { "0xdeadbeef" }
-  linux.write_partition_table(image, {label: label, id: id, sector_size: 512, partitions: [{index: 1, start: 2048, end: 6143, size: 4096, type: esp, uuid: uuids[0], name: ""}, {index: 2, start: 6144, end: 8000, size: 1857, type: data, uuid: uuids[1], name: ""}]})?
+  linux.write_partition_table(image, {label: label, id: id, sector_size: 512, partitions: [{index: 1, start: 2048, end: 6143, size: 4096, type: esp, uuid: uuids[0], name: ""}, {index: 2, start: 6144, end: 8000, size: 1857, type: data, uuid: uuids[1], name: ""}]})
   image
 }
 

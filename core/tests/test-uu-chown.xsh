@@ -28,7 +28,7 @@ test test_uu_chown_invalid_arg { |ctx|
 test test_uu_chown_chown_only_owner { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [user_name, "--verbose", "test_chown_file1"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "retained as")
@@ -42,7 +42,7 @@ test test_uu_chown_chown_only_owner { |ctx|
 test test_uu_chown_chown_only_owner_colon { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [f"{user_name}:", "--verbose", "test_chown_file1"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "retained as")
@@ -61,7 +61,7 @@ test test_uu_chown_chown_dot_separator_warning { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
   let group_name = identity(s, "id", ["-gn"])?
-  uu.touch(s, "test_chown_dot_warn")?
+  uu.touch(s, "test_chown_dot_warn")
   let r = uu.invoke(s, "chown", [f"{user_name}.", "test_chown_dot_warn"])?
   uu.succeeds(r)
   uu.stderr_contains(r, "warning: '.' should be ':'")
@@ -79,7 +79,7 @@ test test_uu_chown_chown_owner_group { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
   let group_name = identity(s, "id", ["-gn"])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [f"{user_name}:{group_name}", "--verbose", "test_chown_file1"])?
   uu.stdout_contains(r, "retained as")
   let colon = uu.invoke(s, "chown", ["root:root:root", "--verbose", "test_chown_file1"])?
@@ -98,7 +98,7 @@ test test_uu_chown_chown_various_input { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
   let group_name = identity(s, "id", ["-gn"])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [f"{user_name}:{group_name}", "--verbose", "test_chown_file1"])?
   uu.stdout_contains(r, "retained as")
   let dot = uu.invoke(s, "chown", [f"{user_name}.{group_name}", "--verbose", "test_chown_file1"])?
@@ -112,7 +112,7 @@ test test_uu_chown_chown_various_input { |ctx|
 test test_uu_chown_chown_only_group { |ctx|
   let s = uu.scene(ctx)?
   let group_name = identity(s, "id", ["-gn"])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [f":{group_name}", "--verbose", "test_chown_file1"])?
   uu.stdout_contains(r, "retained as")
   uu.succeeds(r)
@@ -127,7 +127,7 @@ test test_uu_chown_chown_only_group { |ctx|
 test test_uu_chown_chown_only_user_id { |ctx|
   let s = uu.scene(ctx)?
   let user_id = identity(s, "id", ["-u"])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [user_id, "--verbose", "test_chown_file1"])?
   uu.stdout_contains(r, "retained as")
   let root = uu.invoke(s, "chown", ["0", "--verbose", "test_chown_file1"])?
@@ -139,7 +139,7 @@ test test_uu_chown_chown_only_user_id { |ctx|
 test test_uu_chown_chown_only_group_id { |ctx|
   let s = uu.scene(ctx)?
   let group_id = identity(s, "id", ["-g"])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [f":{group_id}", "--verbose", "test_chown_file1"])?
   uu.stdout_contains(r, "retained as")
   if group_id != "0" {
@@ -154,7 +154,7 @@ test test_uu_chown_chown_owner_group_id { |ctx|
   let s = uu.scene(ctx)?
   let user_id = identity(s, "id", ["-u"])?
   let group_id = identity(s, "id", ["-g"])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [f"{user_id}:{group_id}", "--verbose", "test_chown_file1"])?
   uu.stdout_contains(r, "retained as")
   let dot = uu.invoke(s, "chown", [f"{user_id}.{group_id}", "--verbose", "test_chown_file1"])?
@@ -169,7 +169,7 @@ test test_uu_chown_chown_owner_group_mix { |ctx|
   let s = uu.scene(ctx)?
   let user_id = identity(s, "id", ["-u"])?
   let group_name = identity(s, "id", ["-gn"])?
-  uu.touch(s, "test_chown_file1")?
+  uu.touch(s, "test_chown_file1")
   let r = uu.invoke(s, "chown", [f"{user_id}:{group_name}", "--verbose", "test_chown_file1"])?
   uu.stdout_contains(r, "retained as")
   let root = uu.invoke(s, "chown", ["0:root", "--verbose", "test_chown_file1"])?
@@ -181,9 +181,9 @@ test test_uu_chown_chown_owner_group_mix { |ctx|
 test test_uu_chown_chown_recursive { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
-  uu.mkdir_all(s, "a/b/c")?
-  uu.mkdir(s, "z")?
-  for file in ["a/a", "a/b/b", "a/b/c/c", "z/y"] { uu.touch(s, file)? }
+  uu.mkdir_all(s, "a/b/c")
+  uu.mkdir(s, "z")
+  for file in ["a/a", "a/b/b", "a/b/c/c", "z/y"] { uu.touch(s, file) }
   let r = uu.invoke(s, "chown", ["-R", "--verbose", user_name, "a", "z"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "ownership of 'a/a' retained as")
@@ -225,7 +225,7 @@ test test_uu_chown_chown_no_change_to_user { |ctx|
   let froms = ["42", ":42", "42:42"]
   for i in range(froms.len()) {
     let file = f"{i}"
-    uu.touch(s, file)?
+    uu.touch(s, file)
     let r = uu.invoke(s, "chown", ["-v", f"--from={froms[i]}", "43", file])?
     uu.succeeds(r)
     uu.stdout_only(r, f"ownership of '{file}' retained as {user_name}\n")
@@ -240,7 +240,7 @@ test test_uu_chown_chown_no_change_to_group { |ctx|
   let froms = ["42", ":42", "42:42"]
   for i in range(froms.len()) {
     let file = f"{i}"
-    uu.touch(s, file)?
+    uu.touch(s, file)
     let r = uu.invoke(s, "chown", ["-v", f"--from={froms[i]}", ":43", file])?
     uu.succeeds(r)
     uu.stdout_only(r, f"group of '{file}' retained as {group_name}\n")
@@ -255,7 +255,7 @@ test test_uu_chown_chown_no_change_to_user_group { |ctx|
   let froms = ["42", ":42", "42:42"]
   for i in range(froms.len()) {
     let file = f"{i}"
-    uu.touch(s, file)?
+    uu.touch(s, file)
     let r = uu.invoke(s, "chown", ["-v", f"--from={froms[i]}", "43:43", file])?
     uu.succeeds(r)
     uu.stdout_only(r, f"ownership of '{file}' retained as {user_name}:{group_name}\n")
@@ -265,8 +265,8 @@ test test_uu_chown_chown_no_change_to_user_group { |ctx|
 # origin: uutils test_chown::test_chown_reference_file
 test test_uu_chown_chown_reference_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.touch(s, "b")?
+  uu.touch(s, "a")
+  uu.touch(s, "b")
   let r = uu.invoke(s, "chown", ["--verbose", "--reference", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "ownership of 'b' retained as")
@@ -276,9 +276,9 @@ test test_uu_chown_chown_reference_file { |ctx|
 # origin: uutils test_chown::test_chown_reference_file_with_non_utf8_path
 test test_uu_chown_chown_reference_file_with_non_utf8_path { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let reference = uu.at_bytes(s, b"reference_\xff\xfe")?
-  reference.write(b"")?
+  reference.write(b"")
   let r = uu.invoke_paths(s, "chown", [p"--verbose", p"--reference", Path.parse_bytes(b"reference_\xff\xfe")?, p"file"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "ownership of 'file' retained as")
@@ -289,8 +289,8 @@ test test_uu_chown_chown_reference_file_with_non_utf8_path { |ctx|
 test test_uu_chown_chown_no_dereference_symlink_to_dir { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
-  uu.mkdir(s, "dir")?
-  uu.symlink(s, uu.at(s, "dir").display(), "link_to_dir")?
+  uu.mkdir(s, "dir")
+  uu.symlink(s, uu.at(s, "dir").display(), "link_to_dir")
   let link_before = fs.stat(uu.at(s, "link_to_dir"))?.ctime_ns
   let dir_before = fs.stat(uu.at(s, "dir"))?.ctime_ns
   let r = uu.invoke(s, "chown", ["--no-dereference", user_name, "link_to_dir"])?
@@ -303,8 +303,8 @@ test test_uu_chown_chown_no_dereference_symlink_to_dir { |ctx|
 test test_uu_chown_chown_symlink_cycles { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
-  uu.mkdir_all(s, "a/b/c")?
-  uu.symlink(s, uu.at(s, "a").display(), "a/b/c/d")?
+  uu.mkdir_all(s, "a/b/c")
+  uu.symlink(s, uu.at(s, "a").display(), "a/b/c/d")
   let r = uu.invoke(s, "chown", ["-vRL", user_name, "a"])?
   uu.succeeds(r)
   for file in ["a", "a/b", "a/b/c", "a/b/c/d"] {
@@ -319,10 +319,10 @@ test test_uu_chown_chown_symlink_cycles { |ctx|
 test test_uu_chown_chown_symlink_two_links_same_dir { |ctx|
   let s = uu.scene(ctx)?
   let user_name = identity(s, "whoami", [])?
-  uu.mkdir_all(s, "base/realdir")?
-  uu.touch(s, "base/realdir/file")?
-  uu.symlink(s, uu.at(s, "base/realdir").display(), "base/link1")?
-  uu.symlink(s, uu.at(s, "base/realdir").display(), "base/link2")?
+  uu.mkdir_all(s, "base/realdir")
+  uu.touch(s, "base/realdir/file")
+  uu.symlink(s, uu.at(s, "base/realdir").display(), "base/link1")
+  uu.symlink(s, uu.at(s, "base/realdir").display(), "base/link2")
   let r = uu.invoke(s, "chown", ["-vRL", user_name, "base"])?
   uu.succeeds(r)
   for file in ["base/realdir/file", "base/link1/file", "base/link2/file"] {

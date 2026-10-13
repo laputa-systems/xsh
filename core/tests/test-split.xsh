@@ -257,13 +257,13 @@ test test_split_numbered_device_reads_until_eof { |ctx|
       [ctx.xsh_bin.display(), "--", script.display(), "-n", number, "/dev/zero"],
       root, {LC_ALL: "C"}, b"", stdout, stderr)
     let handle = spawn plan?
-    defer handle.cancel(signal: "KILL", kill_after: 0ms)?
+    defer handle.cancel(signal: "KILL", kill_after: 0ms)
     let completed = process.wait_timeout([handle], 150ms)?
     assert completed == null, "an endless input has not reached EOF"
     assert stderr.read_bytes()? == b""
     assert stdout.read_bytes()? == b""
     assert ! fp"{root}/xaa".exists()?
-    handle.cancel(signal: "KILL", kill_after: 0ms)?
+    handle.cancel(signal: "KILL", kill_after: 0ms)
   }
 }
 
@@ -386,7 +386,7 @@ test test_split_bare_size_units_and_gnu_validation { |ctx|
   let separator = split_run(ctx, root, ["-t'\n'", "-tb"], b"a\n")?
   assert separator.stderr == "split: multi-character separator '\\'\\n\\''\n", separator.stderr
 
-  fp"{root}/d-aa".mkdir()?
+  fp"{root}/d-aa".mkdir()
   let directory = split_run(ctx, root, ["-", "d-"], b"a")?
   assert directory.stderr == "split: d-aa: Is a directory\n", directory.stderr
 }

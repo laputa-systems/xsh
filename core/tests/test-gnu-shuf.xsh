@@ -60,7 +60,7 @@ test test_gnu_shuf_shuf_log { |ctx|
     if second.status == 0 { assert first.stdout != second.stdout }
   }
   let input = sequence(100)
-  uu.write_bytes(s, "in", input)?
+  uu.write_bytes(s, "in", input)
   for args in [["in"], ["-i", "1-100"]] {
     let r = uu.invoke(s, "shuf", args)?
     uu.succeeds(r)
@@ -91,8 +91,8 @@ test test_gnu_shuf_shuf_log { |ctx|
   }
   let subset = uu.invoke(s, "shuf", ["-i1-18446744073709551615", "-n2"], stdout: p"/dev/null", timeout: 10s)?
   uu.succeeds(subset)
-  uu.touch(s, "unreadable")?
-  uu.set_mode(s, "unreadable", 0)?
+  uu.touch(s, "unreadable")
+  uu.set_mode(s, "unreadable", 0)
   uu.succeeds(uu.invoke(s, "shuf", ["-n0", "unreadable"])?)
   uu.fails_with_code(uu.invoke(s, "shuf", ["-n1", "unreadable"])?, 1)
   let multiple_counts = uu.invoke(s, "shuf", ["-n10", "-i0-9", "-n3", "-n20"])?
@@ -116,7 +116,7 @@ test test_gnu_shuf_shuf_log { |ctx|
   ]
   for args in invalid { uu.fails_with_code(uu.invoke(s, "shuf", args)?, 1) }
   for args in [["-o", "out", "missing-input"], ["-o", "out", "--random-source=missing-input", "in"]] {
-    uu.write(s, "out", "precious\n")?
+    uu.write(s, "out", "precious\n")
     uu.fails_with_code(uu.invoke(s, "shuf", args)?, 1)
     uu.file_is(s, "out", "precious\n")
   }

@@ -5,7 +5,7 @@ use support.uu as uu
 # A FIFO preserves the upstream diagnostic's pipe descriptor while a bounded
 # reader owns the bytes; regular-file capture would change this boundary.
 proc pipe_diagnostic(s: uu.Scene, args: List[Str]) -> Result[uu.Ran, Error] {
-  uu.mkfifo(s, ".diagnostic-pipe")?
+  uu.mkfifo(s, ".diagnostic-pipe")
   let pipe = uu.at(s, ".diagnostic-pipe")
   let output = uu.at(s, ".diagnostic-output")
   let reader_error = uu.at(s, ".diagnostic-reader-error")
@@ -30,7 +30,7 @@ test test_uu_dir_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
 # origin: uutils test_dir::test_default_format_overrides
 test test_uu_dir_default_format_overrides { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   for item in [{flag: "-1", expected: b"file\n"}, {flag: "--zero", expected: b"file\0"}] {
     let r = uu.invoke(s, "dir", [item.flag])?
     uu.succeeds(r)
@@ -46,8 +46,8 @@ test test_uu_dir_default_format_overrides { |ctx|
 # origin: uutils test_dir::test_default_output
 test test_uu_dir_default_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
-  uu.touch(s, "some-file1")?
+  uu.mkdir(s, "some-dir1")
+  uu.touch(s, "some-file1")
   let r = uu.invoke(s, "dir", [])?
   uu.succeeds(r)
   uu.stdout_contains(r, "some-file1")
@@ -81,7 +81,7 @@ test test_uu_dir_invalid_option_exit_code { |ctx|
 # origin: uutils test_dir::test_literal_quoting_on_terminal
 test test_uu_dir_literal_quoting_on_terminal { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a\nb")?
+  uu.touch(s, "a\nb")
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   let r = {
@@ -96,8 +96,8 @@ test test_uu_dir_literal_quoting_on_terminal { |ctx|
 # origin: uutils test_dir::test_long_output
 test test_uu_dir_long_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
-  uu.touch(s, "some-file1")?
+  uu.mkdir(s, "some-dir1")
+  uu.touch(s, "some-file1")
   let r = uu.invoke(s, "dir", ["-l"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "some-file1")
@@ -109,7 +109,7 @@ test test_uu_dir_long_output { |ctx|
 # origin: uutils test_dir::test_quoting_defaults
 test test_uu_dir_quoting_defaults { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a b")?
+  uu.touch(s, "a b")
   let r = uu.invoke(s, "dir", [])?
   uu.succeeds(r)
   uu.stdout_only(r, "a\\ b\n")
@@ -130,7 +130,7 @@ test test_uu_dir_quoting_defaults { |ctx|
 # origin: uutils test_dir::test_write_error
 test test_uu_dir_write_error { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let r = uu.invoke(s, "dir", ["file"], stdout: p"/dev/full")?
   uu.fails(r)
   uu.stderr_is(r, "dir: write error: No space left on device\n")

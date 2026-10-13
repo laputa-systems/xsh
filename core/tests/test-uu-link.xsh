@@ -19,8 +19,8 @@ test test_uu_link_link_existing_file { |ctx|
   let s = uu.scene(ctx)?
   let file = "test_link_existing_file"
   let link = "test_link_existing_file_link"
-  uu.touch(s, file)?
-  uu.write(s, file, "foobar")?
+  uu.touch(s, file)
+  uu.write(s, file, "foobar")
   assert uu.file_exists(s, file)?
   let r = uu.invoke(s, "link", [file, link])?
   uu.succeeds(r)
@@ -82,8 +82,8 @@ test test_uu_link_link_dest_exists { |ctx|
   let s = uu.scene(ctx)?
   let file = "test_link_dest_exists_src"
   let dest = "test_link_dest_exists_dst"
-  uu.touch(s, file)?
-  uu.touch(s, dest)?
+  uu.touch(s, file)
+  uu.touch(s, dest)
   let r = uu.invoke(s, "link", [file, dest])?
   uu.fails(r)
   uu.stderr_contains(r, "exists")

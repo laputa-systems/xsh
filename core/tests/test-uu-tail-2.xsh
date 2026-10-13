@@ -28,16 +28,16 @@ proc fixture(s: uu.Scene, name: Str) [fs, error] -> Result[Bytes] {
 proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
   let s = uu.scene(ctx)?
   for name in ["foobar.txt", "foobar2.txt", "foobar_with_null.txt", "follow_name.txt"] {
-    uu.write_bytes(s, name, fixture(s, name)?)?
+    uu.write_bytes(s, name, fixture(s, name)?)
   }
   Ok(s)
 }
 
 # Append through the kernel descriptor so the follower never sees a rewritten prefix.
 proc append_bytes(file: Path, data: Bytes) [fs, process, net, error] -> Result[Unit] {
-  if !file.exists()? { file.write(b"")? }
+  if !file.exists() { file.write(b"") }
   let fd = unix.open_fd(file, write: true, flags: ["append"])?
-  defer unix.close_fd(fd)?
+  defer unix.close_fd(fd)
   var offset = 0
   while offset < data.len() {
     let count = unix.write_fd(fd, data[offset..])?
@@ -73,12 +73,12 @@ proc start(s: uu.Scene, args: List[Str], held_stdin: Bool = false) [fs, process,
   let captures = test.temp_dir(s.ctx, name: "tail-live")?
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
-  out.write(b"")?
-  err.write(b"")?
+  out.write(b"")
+  err.write(b"")
   let argv = uu.argv(s, "tail", [Path(arg) for arg in args])?
   let words = if held_stdin {
     let fifo = fp"{captures}/stdin"
-    fs.mkfifo(fifo, 0o600)?
+    fs.mkfifo(fifo, 0o600)
     [p"/bin/sh", p"-c", p"exec 3<> \"$1\"; shift; exec \"$@\" <&3", p"sh", fifo].extend(argv)
   } else { argv }
   let plan = process.command_argv(words[0], words, s.root, {}, b"", out, err)
@@ -87,7 +87,7 @@ proc start(s: uu.Scene, args: List[Str], held_stdin: Bool = false) [fs, process,
 }
 
 proc alive(p: Live) [fs, process, error] -> Result[Unit] {
-  process.kill(p.child.pid, signal: "0")?
+  process.kill(p.child.pid, signal: "0")
   let stat = fp"/proc/{p.child.pid}/stat".read_text()?
   assert ") Z " not in stat and ") X " not in stat, "tail must remain alive"
   Ok()
@@ -95,12 +95,12 @@ proc alive(p: Live) [fs, process, error] -> Result[Unit] {
 
 # Cancellation kills and reaps the child even when an assertion exits early.
 proc cleanup(p: Live) [process, error] -> Result[Unit] {
-  p.child.cancel(signal: "KILL", kill_after: 0ms)?
+  p.child.cancel(signal: "KILL", kill_after: 0ms)
   Ok()
 }
 
 proc finish(p: Live) [fs, process, error] -> Result[uu.Ran] {
-  process.kill(p.child.pid, signal: "KILL")?
+  process.kill(p.child.pid, signal: "KILL")
   let status = wait p.child?
   Ok({util: "tail", args: p.args, status: status.shell_code()?, stdout: p.out.read_bytes()?, stderr: p.err.read_bytes()?})
 }
@@ -108,9 +108,9 @@ proc finish(p: Live) [fs, process, error] -> Result[uu.Ran] {
 proc checkpoint(p: Live, file: Path, expected: Str) [fs, process, time, error] -> Result[Unit] {
   let began = time.now()
   while expected not in file.read_text()? {
-    alive(p)?
+    alive(p)
     assert time.now() - began < 5000, f"tail checkpoint missing: {expected}; stdout={p.out.read_text()?}; stderr={p.err.read_text()?}"
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
   Ok()
 }
@@ -137,7 +137,7 @@ test test_uu_tail_negative_indexing { |ctx|
 # origin: uutils test_tail::test_no_skip_after_error
 test test_uu_tail_no_skip_after_error { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "f", "hello")?
+  uu.write(s, "f", "hello")
   let r = uu.invoke(s, "tail", ["/proc/self/mem", "f"], stdin: b"", timeout: 15s)?
   uu.fails(r)
   uu.stdout_contains(r, "hello")
@@ -300,8 +300,8 @@ test test_uu_tail_oversized_num { |ctx|
 # origin: uutils test_tail::test_permission_denied
 test test_uu_tail_permission_denied { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "unreadable")?
-  uu.set_mode(s, "unreadable", 0o000)?
+  uu.touch(s, "unreadable")
+  uu.set_mode(s, "unreadable", 0o000)
   let r = uu.invoke(s, "tail", ["unreadable"], stdin: b"", timeout: 15s)?
   uu.fails_with_code(r, 1)
   uu.stderr_only(r, "tail: cannot open 'unreadable' for reading: Permission denied\n")
@@ -310,23 +310,23 @@ test test_uu_tail_permission_denied { |ctx|
 # origin: uutils test_tail::test_permission_denied_is_not_reported_as_not_found
 test test_uu_tail_permission_denied_is_not_reported_as_not_found { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "noexec")?
-  uu.touch(s, "noexec/file")?
-  uu.set_mode(s, "noexec", 0o000)?
+  uu.mkdir(s, "noexec")
+  uu.touch(s, "noexec/file")
+  uu.set_mode(s, "noexec", 0o000)
   defer uu.set_mode(s, "noexec", 0o700)
   let r = uu.invoke(s, "tail", ["noexec/file"], stdin: b"", timeout: 15s)?
   uu.fails(r)
   uu.stderr_contains(r, "Permission denied")
-  uu.set_mode(s, "noexec", 0o700)?
+  uu.set_mode(s, "noexec", 0o700)
 }
 
 # origin: uutils test_tail::test_permission_denied_multiple
 test test_uu_tail_permission_denied_multiple { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "file1")?
-  uu.touch(s, "file2")?
-  uu.touch(s, "unreadable")?
-  uu.set_mode(s, "unreadable", 0o000)?
+  uu.touch(s, "file1")
+  uu.touch(s, "file2")
+  uu.touch(s, "unreadable")
+  uu.set_mode(s, "unreadable", 0o000)
   let r = uu.invoke(s, "tail", ["file1", "unreadable", "file2"], stdin: b"", timeout: 15s)?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "==> file1 <==\n\n==> file2 <==\n")
@@ -951,7 +951,7 @@ test test_uu_tail_positive_bytes_file { |ctx|
 # origin: uutils test_tail::test_positive_bytes_file_offset_past_seek_limit
 test test_uu_tail_positive_bytes_file_offset_past_seek_limit { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "big", repeated("a", 8192))?
+  uu.write(s, "big", repeated("a", 8192))
   let r = uu.invoke(s, "tail", ["-c", "+18446744073709551615", "big"], stdin: b"", timeout: 15s)?
   uu.succeeds(r)
   uu.no_stdout(r)
@@ -1029,23 +1029,23 @@ test test_uu_tail_presume_input_pipe_default { |ctx|
 test test_uu_tail_retry8 { |ctx|
   let s = scene(ctx)?
   let p = start(s, ["-F", "-s.1", "--max-unchanged-stats=1", "parent_dir/watched_file"])?
-  defer cleanup(p)?
-  time.sleep(1000ms)?
-  alive(p)?
-  checkpoint(p, p.err, "cannot open")?
-  uu.mkdir(s, "parent_dir")?
-  append_bytes(uu.at(s, "parent_dir/watched_file"), b"foo\n")?
-  time.sleep(1000ms)?
-  checkpoint(p, p.out, "foo\n")?
-  uu.at(s, "parent_dir/watched_file").remove()?
-  uu.at(s, "parent_dir").remove()?
-  time.sleep(1000ms)?
-  checkpoint(p, p.err, "has become inaccessible")?
-  uu.mkdir(s, "parent_dir")?
-  append_bytes(uu.at(s, "parent_dir/watched_file"), b"bar\n")?
-  time.sleep(1000ms)?
-  checkpoint(p, p.out, "bar\n")?
-  alive(p)?
+  defer cleanup(p)
+  time.sleep(1000ms)
+  alive(p)
+  checkpoint(p, p.err, "cannot open")
+  uu.mkdir(s, "parent_dir")
+  append_bytes(uu.at(s, "parent_dir/watched_file"), b"foo\n")
+  time.sleep(1000ms)
+  checkpoint(p, p.out, "foo\n")
+  uu.at(s, "parent_dir/watched_file").remove()
+  uu.at(s, "parent_dir").remove()
+  time.sleep(1000ms)
+  checkpoint(p, p.err, "has become inaccessible")
+  uu.mkdir(s, "parent_dir")
+  append_bytes(uu.at(s, "parent_dir/watched_file"), b"bar\n")
+  time.sleep(1000ms)
+  checkpoint(p, p.out, "bar\n")
+  alive(p)
   let r = finish(p)?
   uu.stdout_is(r, "foo\nbar\n")
   uu.stderr_is(r, "tail: cannot open 'parent_dir/watched_file' for reading: No such file or directory\ntail: 'parent_dir/watched_file' has appeared;  following new file\ntail: 'parent_dir/watched_file' has become inaccessible: No such file or directory\ntail: 'parent_dir/watched_file' has appeared;  following new file\n")
@@ -1054,26 +1054,26 @@ test test_uu_tail_retry8 { |ctx|
 # origin: uutils test_tail::test_retry9
 test test_uu_tail_retry9 { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "parent_dir")?
-  uu.write(s, "parent_dir/watched_file", "foo\n")?
+  uu.mkdir(s, "parent_dir")
+  uu.write(s, "parent_dir/watched_file", "foo\n")
   let p = start(s, ["-F", "-s.2", "--max-unchanged-stats=1", "parent_dir/watched_file"])?
-  defer cleanup(p)?
-  time.sleep(400ms)?
-  alive(p)?
-  checkpoint(p, p.out, "foo\n")?
+  defer cleanup(p)
+  time.sleep(400ms)
+  alive(p)
+  checkpoint(p, p.out, "foo\n")
   var expected = "foo\n"
   for text in ["bar\n", "foo\n", "bar\n"] {
-    uu.at(s, "parent_dir/watched_file").remove()?
-    uu.at(s, "parent_dir").remove()?
-    time.sleep(400ms)?
-    checkpoint(p, p.err, "has become inaccessible")?
-    uu.mkdir(s, "parent_dir")?
-    uu.write(s, "parent_dir/watched_file", text)?
-    time.sleep(400ms)?
+    uu.at(s, "parent_dir/watched_file").remove()
+    uu.at(s, "parent_dir").remove()
+    time.sleep(400ms)
+    checkpoint(p, p.err, "has become inaccessible")
+    uu.mkdir(s, "parent_dir")
+    uu.write(s, "parent_dir/watched_file", text)
+    time.sleep(400ms)
     expected += text
-    checkpoint(p, p.out, expected)?
+    checkpoint(p, p.out, expected)
   }
-  alive(p)?
+  alive(p)
   let r = finish(p)?
   uu.stdout_is(r, "foo\nbar\nfoo\nbar\n")
   uu.stderr_is(r, "tail: 'parent_dir/watched_file' has become inaccessible: No such file or directory\ntail: directory containing watched file was removed\ntail: inotify cannot be used, reverting to polling\ntail: 'parent_dir/watched_file' has appeared;  following new file\ntail: 'parent_dir/watched_file' has become inaccessible: No such file or directory\ntail: 'parent_dir/watched_file' has appeared;  following new file\ntail: 'parent_dir/watched_file' has become inaccessible: No such file or directory\ntail: 'parent_dir/watched_file' has appeared;  following new file\n")
@@ -1086,24 +1086,24 @@ test test_uu_tail_retry_descriptor_detects_truncation { |ctx|
     let args = ["-s.1", "--max-unchanged-stats=1", "--follow=descriptor", "--retry", "watchme"].extend(if round == 0 { ["---disable-inotify"] } else { [] })
     let delay = if round == 0 { 150ms } else { 50ms }
     let p = start(s, args)?
-    defer cleanup(p)?
-    time.sleep(delay)?
-    alive(p)?
-    checkpoint(p, p.err, "cannot open")?
-    uu.touch(s, "watchme")?
-    time.sleep(delay)?
-    checkpoint(p, p.err, "has appeared")?
-    uu.write(s, "watchme", "greetings\n")?
-    time.sleep(delay)?
-    checkpoint(p, p.out, "greetings\n")?
-    uu.write(s, "watchme", "hi\n")?
-    time.sleep(delay)?
-    checkpoint(p, p.out, "hi\n")?
-    alive(p)?
+    defer cleanup(p)
+    time.sleep(delay)
+    alive(p)
+    checkpoint(p, p.err, "cannot open")
+    uu.touch(s, "watchme")
+    time.sleep(delay)
+    checkpoint(p, p.err, "has appeared")
+    uu.write(s, "watchme", "greetings\n")
+    time.sleep(delay)
+    checkpoint(p, p.out, "greetings\n")
+    uu.write(s, "watchme", "hi\n")
+    time.sleep(delay)
+    checkpoint(p, p.out, "hi\n")
+    alive(p)
     let r = finish(p)?
     uu.stderr_is(r, "tail: warning: --retry only effective for the initial open\ntail: cannot open 'watchme' for reading: No such file or directory\ntail: 'watchme' has appeared;  following new file\ntail: watchme: file truncated\n")
     uu.stdout_is(r, "greetings\nhi\n")
-    uu.at(s, "watchme").remove()?
+    uu.at(s, "watchme").remove()
   }
 }
 
@@ -1118,7 +1118,7 @@ test test_uu_tail_retry_missing_file_error { |ctx|
 # origin: uutils test_tail::test_retry_warn_without_follow
 test test_uu_tail_retry_warn_without_follow { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "FILE")?
+  uu.touch(s, "FILE")
   let r = uu.invoke(s, "tail", ["FILE", "--retry"], stdin: b"", timeout: 15s)?
   uu.succeeds(r)
   uu.stderr_is(r, "tail: warning: --retry ignored; --retry is useful only when following\n")
@@ -1152,13 +1152,13 @@ test test_uu_tail_single_big_args { |ctx|
   let s = scene(ctx)?
   let file = uu.at(s, "single_big_args.txt")
   let expected = uu.at(s, "single_big_args_expected.txt")
-  file.write("")?
-  expected.write("")?
+  file.write("")
+  expected.write("")
   for chunk in range(100) {
-    append_bytes(file, bytes.from_text([f"Line {index}\n" for index in range(chunk * 10000, (chunk + 1) * 10000)].join("")))?
+    append_bytes(file, bytes.from_text([f"Line {index}\n" for index in range(chunk * 10000, (chunk + 1) * 10000)].join("")))
   }
   for chunk in range(90, 100) {
-    append_bytes(expected, bytes.from_text([f"Line {index}\n" for index in range(chunk * 10000, (chunk + 1) * 10000)].join("")))?
+    append_bytes(expected, bytes.from_text([f"Line {index}\n" for index in range(chunk * 10000, (chunk + 1) * 10000)].join("")))
   }
   let r = uu.invoke(s, "tail", ["single_big_args.txt", "-n", "100000"], stdin: b"", timeout: 15s)?
   uu.succeeds(r)
@@ -1244,7 +1244,7 @@ test test_uu_tail_stdin_explicit { |ctx|
 # origin: uutils test_tail::test_stdin_redirect_dir
 test test_uu_tail_stdin_redirect_dir { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   for args in [[], ["-"]] {
     let r = uu.invoke_from_path(s, "tail", args, uu.at(s, "dir"), timeout: 5s)?
     uu.fails_with_code(r, 1)
@@ -1255,7 +1255,7 @@ test test_uu_tail_stdin_redirect_dir { |ctx|
 # origin: uutils test_tail::test_stdin_redirect_file
 test test_uu_tail_stdin_redirect_file { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "f", "foo")?
+  uu.write(s, "f", "foo")
   {
     let r = uu.invoke_from_path(s, "tail", [], uu.at(s, "f"), timeout: 5s)?
     uu.succeeds(r)
@@ -1269,7 +1269,7 @@ test test_uu_tail_stdin_redirect_file { |ctx|
 # origin: uutils test_tail::test_stdin_redirect_offset
 test test_uu_tail_stdin_redirect_offset { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "k", "1\n2\n")?
+  uu.write(s, "k", "1\n2\n")
   let r = seek_stdin(s, [])?
   uu.succeeds(r)
   uu.stdout_only(r, "2\n")
@@ -1278,9 +1278,9 @@ test test_uu_tail_stdin_redirect_offset { |ctx|
 # origin: uutils test_tail::test_stdin_redirect_offset2
 test test_uu_tail_stdin_redirect_offset2 { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "k", "1\n2\n")?
-  uu.write(s, "l", "3\n4\n")?
-  uu.write(s, "m", "5\n6\n")?
+  uu.write(s, "k", "1\n2\n")
+  uu.write(s, "l", "3\n4\n")
+  uu.write(s, "m", "5\n6\n")
   let r = seek_stdin(s, ["k", "-", "l", "m"])?
   uu.succeeds(r)
   uu.stdout_only(r, "==> k <==\n1\n2\n\n==> 'standard input' <==\n2\n\n==> l <==\n3\n4\n\n==> m <==\n5\n6\n")
@@ -1289,15 +1289,15 @@ test test_uu_tail_stdin_redirect_offset2 { |ctx|
 # origin: uutils test_tail::test_stdin_via_script_redirection_and_pipe
 test test_uu_tail_stdin_via_script_redirection_and_pipe { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "file.txt", "line1\nline2\n")?
-  uu.write(s, "test.sh", "#!/usr/bin/env sh\ntail\n")?
-  uu.set_mode(s, "test.sh", 0o755)?
+  uu.write(s, "file.txt", "line1\nline2\n")
+  uu.write(s, "test.sh", "#!/usr/bin/env sh\ntail\n")
+  uu.set_mode(s, "test.sh", 0o755)
   let bin = test.temp_dir(ctx, name: "tail-bin")?
   let shim = fp"{bin}/tail"
   let vars = {PATH: f"{bin}:/usr/local/bin:/usr/bin:/bin"}
   let argv = uu.argv(s, "tail", [], vars)?
-  shim.write("#!/bin/sh\nexec " + [shell_quote(word) for word in argv].join(" ") + "\n")?
-  shim.chmod(0o755)?
+  shim.write("#!/bin/sh\nexec " + [shell_quote(word) for word in argv].join(" ") + "\n")
+  shim.chmod(0o755)
   for script in ["./test.sh < file.txt", "cat file.txt | ./test.sh"] {
     let r = wrapped(s, [], [p"/bin/sh", p"-c", Path(script)], vars)?
     uu.succeeds(r)
@@ -1308,7 +1308,7 @@ test test_uu_tail_stdin_via_script_redirection_and_pipe { |ctx|
 # origin: uutils test_tail::test_tail_bytes_exceeds_file_size
 test test_uu_tail_tail_bytes_exceeds_file_size { |ctx|
   let s = scene(ctx)?
-  uu.write(s, "test_file.txt", repeated("x", 5000))?
+  uu.write(s, "test_file.txt", repeated("x", 5000))
   let r = uu.invoke(s, "tail", ["-c", "1048576", "test_file.txt"], stdin: b"", timeout: 15s)?
   uu.succeeds(r)
   uu.stdout_only(r, repeated("x", 5000))
@@ -1416,18 +1416,18 @@ test test_uu_tail_tail_obsolete_error_cases { |ctx|
 # origin: uutils test_tail::test_tail_obsolete_f_flag
 test test_uu_tail_tail_obsolete_f_flag { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   {
     let p = start(s, ["+f", "file"])?
-    defer cleanup(p)?
-    time.sleep(500ms)?
-    alive(p)?
+    defer cleanup(p)
+    time.sleep(500ms)
+    alive(p)
     uu.no_output(finish(p)?)
   }
   let p = start(s, ["+f"], held_stdin: true)?
-  defer cleanup(p)?
-  time.sleep(500ms)?
-  alive(p)?
+  defer cleanup(p)
+  time.sleep(500ms)
+  alive(p)
   uu.no_output(finish(p)?)
 }
 
@@ -1549,7 +1549,7 @@ test test_uu_tail_tail_obsolete_plus_number { |ctx|
 # origin: uutils test_tail::test_when_argument_file_is_a_directory
 test test_uu_tail_when_argument_file_is_a_directory { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   let r = uu.invoke(s, "tail", ["dir"], stdin: b"", timeout: 15s)?
   uu.fails_with_code(r, 1)
   uu.stderr_only(r, "tail: error reading 'dir': Is a directory\n")
@@ -1558,8 +1558,8 @@ test test_uu_tail_when_argument_file_is_a_directory { |ctx|
 # origin: uutils test_tail::test_when_argument_file_is_a_symlink
 test test_uu_tail_when_argument_file_is_a_symlink { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "target")?
-  uu.symlink(s, "target", "link")?
+  uu.touch(s, "target")
+  uu.symlink(s, "target", "link")
   {
   let r = uu.invoke(s, "tail", ["-c", "+0", "link"], stdin: b"", timeout: 15s)?
   uu.succeeds(r)
@@ -1567,7 +1567,7 @@ test test_uu_tail_when_argument_file_is_a_symlink { |ctx|
   
   }
   let data = sample_bytes(100)
-  append_bytes(uu.at(s, "target"), data)?
+  append_bytes(uu.at(s, "target"), data)
   let r = uu.invoke(s, "tail", ["-c", "+0", "link"], stdin: b"", timeout: 15s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, data)
@@ -1576,8 +1576,8 @@ test test_uu_tail_when_argument_file_is_a_symlink { |ctx|
 # origin: uutils test_tail::test_when_argument_file_is_a_symlink_to_directory_then_error
 test test_uu_tail_when_argument_file_is_a_symlink_to_directory_then_error { |ctx|
   let s = scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.symlink(s, "dir", "dir_link")?
+  uu.mkdir(s, "dir")
+  uu.symlink(s, "dir", "dir_link")
   let r = uu.invoke(s, "tail", ["dir_link"], stdin: b"", timeout: 15s)?
   uu.fails_with_code(r, 1)
   uu.stderr_only(r, "tail: error reading 'dir_link': Is a directory\n")
@@ -1586,8 +1586,8 @@ test test_uu_tail_when_argument_file_is_a_symlink_to_directory_then_error { |ctx
 # origin: uutils test_tail::test_when_output_closed_then_no_broken_pipe
 test test_uu_tail_when_output_closed_then_no_broken_pipe { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "input")?
-  uu.truncate(s, "input", 10000000)?
+  uu.touch(s, "input")
+  uu.truncate(s, "input", 10000000)
   let state = test.temp_dir(ctx, name: "tail-closed")?
   let status_file = fp"{state}/status"
   let args = ["-c", "10000000", "input"]

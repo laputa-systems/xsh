@@ -16,7 +16,7 @@ test test_uu_cut_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
 # origin: uutils test_cut::test_8bit_non_utf8_delimiter
 test test_uu_cut_8bit_non_utf8_delimiter { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cut", "8bit-delim.txt", "8bit-delim.txt")?
+  uu.fixture(s, "cut", "8bit-delim.txt", "8bit-delim.txt")
   {
     let r = uu.invoke_paths(s, "cut", [Path("-d"), Path.parse_bytes(b"\xad")?, Path("--out=_"), Path("-f2,3"), Path("8bit-delim.txt")])?
     uu.succeeds(r)
@@ -72,7 +72,7 @@ test test_uu_cut_byte_no_split_with_output_delimiter { |ctx|
 # origin: uutils test_cut::test_byte_sequence
 test test_uu_cut_byte_sequence { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cut", "lists.txt", "lists.txt")?
+  uu.fixture(s, "cut", "lists.txt", "lists.txt")
   {
     let r = uu.invoke(s, "cut", ["-b", "2", "lists.txt"])?
     uu.succeeds(r)
@@ -168,7 +168,7 @@ test test_uu_cut_byte_sequence { |ctx|
 # origin: uutils test_cut::test_char_sequence
 test test_uu_cut_char_sequence { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cut", "lists.txt", "lists.txt")?
+  uu.fixture(s, "cut", "lists.txt", "lists.txt")
   {
     let r = uu.invoke(s, "cut", ["-c", "2", "lists.txt"])?
     uu.succeeds(r)
@@ -405,7 +405,7 @@ test test_uu_cut_cut_fields_single_byte_delimiter_in_mb_locale { |ctx|
 test test_uu_cut_cut_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?
-  file.write(b"a\tb\tc\n1\t2\t3\n")?
+  file.write(b"a\tb\tc\n1\t2\t3\n")
   {
     let r = uu.invoke_paths(s, "cut", [Path("-f1,3"), Path.parse_bytes(b"test_\xff\xfe.txt")?])?
     uu.succeeds(r)
@@ -416,7 +416,7 @@ test test_uu_cut_cut_non_utf8_paths { |ctx|
 # origin: uutils test_cut::test_delimiter
 test test_uu_cut_delimiter { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cut", "lists.txt", "lists.txt")?
+  uu.fixture(s, "cut", "lists.txt", "lists.txt")
   {
     let r = uu.invoke(s, "cut", ["-d", ":", "-f", "9-,6-7,-2,4", "lists.txt"])?
     uu.succeeds(r)
@@ -568,7 +568,7 @@ test test_uu_cut_field_only_options_without_fields { |ctx|
 # origin: uutils test_cut::test_field_sequence
 test test_uu_cut_field_sequence { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cut", "lists.txt", "lists.txt")?
+  uu.fixture(s, "cut", "lists.txt", "lists.txt")
   {
     let r = uu.invoke(s, "cut", ["-f", "2", "lists.txt"])?
     uu.succeeds(r)
@@ -703,7 +703,7 @@ test test_uu_cut_invalid_arg { |ctx|
 # origin: uutils test_cut::test_is_a_directory
 test test_uu_cut_is_a_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "some")?
+  uu.mkdir(s, "some")
   {
     let r = uu.invoke(s, "cut", ["-b1", "some"])?
     uu.fails_with_code(r, 1)
@@ -1024,7 +1024,7 @@ test test_uu_cut_newline_delim_suppress_missing_field { |ctx|
 # origin: uutils test_cut::test_newline_preservation_with_f1_option
 test test_uu_cut_newline_preservation_with_f1_option { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "1", "a\nb")?
+  uu.write(s, "1", "a\nb")
   {
     let r = uu.invoke(s, "cut", ["-f1-", "1"])?
     uu.succeeds(r)
@@ -1301,7 +1301,7 @@ test test_uu_cut_unset_locale_is_byte_oriented { |ctx|
 # origin: uutils test_cut::test_whitespace_delimited
 test test_uu_cut_whitespace_delimited { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cut", "lists.txt", "lists.txt")?
+  uu.fixture(s, "cut", "lists.txt", "lists.txt")
   {
     let r = uu.invoke(s, "cut", ["-w", "-f", "9-,6-7,-2,4", "lists.txt"])?
     uu.succeeds(r)

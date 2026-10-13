@@ -41,11 +41,11 @@ pure sequence(first: Int, last: Int, width: Int = 0) -> Str {
 test test_gnu_sort_sort_NaN_infloop_log { |ctx|
   let s = uu.scene(ctx)?
   test.timeout(ctx, 150s)
-  uu.write(s, "F", "nan\n")?
+  uu.write(s, "F", "nan\n")
   let merged = uu.invoke(s, "sort", ["-g", "-m", "F", "F"], timeout: 10s)?
   uu.succeeds(merged)
   uu.stdout_is(merged, "nan\nnan\n")
-  uu.write(s, "many", ["nan\n" for _ in range(128095)].join(""))?
+  uu.write(s, "many", ["nan\n" for _ in range(128095)].join(""))
   uu.succeeds(uu.invoke_from_path(s, "sort", ["-g"], uu.at(s, "many"), stdout: p"/dev/null", timeout: 120s)?)
 }
 
@@ -82,9 +82,9 @@ test test_gnu_sort_sort_buffer_size_log { |ctx|
 test test_gnu_sort_sort_compress_hang_log { |ctx|
   let s = uu.scene(ctx)?
   test.timeout(ctx, 1800s)
-  uu.at(s, "compress").write("#!/bin/sh\nif tr 41 14; then : >ok; else exit \"$?\"; fi\n", mode: 0o755)?
+  uu.at(s, "compress").write("#!/bin/sh\nif tr 41 14; then : >ok; else exit \"$?\"; fi\n", mode: 0o755)
   let expected = sequence(1, 200000, 6)
-  uu.write(s, "in", [padded(200001 - number, 6) + "\n" for number in range(1, 200001)].join(""))?
+  uu.write(s, "in", [padded(200001 - number, 6) + "\n" for number in range(1, 200001)].join(""))
   let r = uu.invoke(s, "sort", ["--compress-program=./compress", "-S", "1k", "in"], timeout: 1700s)?
   uu.succeeds(r)
   uu.stdout_is(r, expected)
@@ -97,7 +97,7 @@ test test_gnu_sort_sort_continue_log { |ctx|
   let probe = shell_sort(s, [], r"""ulimit -n 7 || exit; exec 3<&- 4<&- 5<&- 6<&-; exec "$@";""")?
   if probe.status != 0 { test.skip("sort cannot start under a seven-descriptor limit"); return }
   let files = [f"__test.{number}" for number in range(1, 32)] |> sort
-  for number in range(1, 32) { uu.write(s, f"__test.{number}", f"{number}\n")? }
+  for number in range(1, 32) { uu.write(s, f"__test.{number}", f"{number}\n") }
   let merged = shell_sort(s, ["-n", "-m"].extend(files), r"""ulimit -n 7 || exit; exec 3<&- 4<&- 5<&- 6<&-; exec "$@";""")?
   uu.succeeds(merged)
   uu.stdout_is(merged, sequence(1, 31))
@@ -190,9 +190,9 @@ test test_gnu_sort_sort_discrim_log { |ctx|
 test test_gnu_sort_sort_exit_early_log { |ctx|
   let s = uu.scene(ctx)?
   if unix.id()?.euid == 0 { test.skip("requires an unprivileged owner"); return }
-  uu.touch(s, "input")?; uu.set_mode(s, "input", 0o444)?
+  uu.touch(s, "input"); uu.set_mode(s, "input", 0o444)
   uu.fails_with_code(uu.invoke(s, "sort", ["-o", "input"], timeout: 10s)?, 2)
-  uu.touch(s, "output")?; uu.set_mode(s, "output", 0o200)?
+  uu.touch(s, "output"); uu.set_mode(s, "output", 0o200)
   uu.fails_with_code(uu.invoke(s, "sort", ["-o", "typo", "-", "output"], timeout: 10s)?, 2)
   assert ! uu.exists(s, "typo")?
 }
@@ -200,7 +200,7 @@ test test_gnu_sort_sort_exit_early_log { |ctx|
 # origin: gnu sort/sort-field-limit.log
 test test_gnu_sort_sort_field_limit_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "aa\nbb\n")?
+  uu.write(s, "in", "aa\nbb\n")
   for args in [["+0.18446744073709551615R", "in"], ["+1", "-1.18446744073709551615R", "in"]] {
     let r = uu.invoke(s, "sort", args, vars: {_POSIX2_VERSION: "200809"})?
     uu.succeeds(r)
@@ -220,7 +220,7 @@ test test_gnu_sort_sort_files0_from_log { |ctx|
   let minus = uu.invoke(s, "sort", ["--files0-from=-"], stdin: b"-")?
   uu.fails_with_code(minus, 2)
   uu.stderr_only(minus, "sort: when reading file names from standard input, no file name of '-' allowed\n")
-  uu.touch(s, "aux")?
+  uu.touch(s, "aux")
   let regular = uu.invoke(s, "sort", ["--files0-from=aux"])?
   uu.fails_with_code(regular, 2)
   uu.no_stdout(regular)
@@ -234,13 +234,13 @@ test test_gnu_sort_sort_files0_from_log { |ctx|
     uu.fails_with_code(r, 2)
     uu.stderr_only(r, "sort: -:1: invalid zero-length file name\n")
   }
-  uu.write(s, "g", "a")?
+  uu.write(s, "g", "a")
   for item in [{data: b"g", out: "a\n"}, {data: b"g\0", out: "a\n"}, {data: b"g\0g", out: "a\na\n"}, {data: b"g\0g\0", out: "a\na\n"}] {
     let r = uu.invoke(s, "sort", ["--files0-from=-"], stdin: item.data)?
     uu.succeeds(r)
     uu.stdout_only(r, item.out)
   }
-  uu.touch(s, "g")?
+  uu.touch(s, "g")
   let empty_first = uu.invoke(s, "sort", ["--files0-from=-"], stdin: b"\0g\0")?
   uu.fails_with_code(empty_first, 2)
   uu.stderr_only(empty_first, "sort: -:1: invalid zero-length file name\n")
@@ -288,8 +288,8 @@ test test_gnu_sort_sort_locale_log { |ctx|
       let vars: Record = if setting == "LC_ALL" { {LC_ALL: item.locale} } else { {LC_ALL: "", LC_COLLATE: item.locale} }
       let left = Path.parse_bytes(item.left)?
       let right = Path.parse_bytes(item.right)?
-      uu.at_bytes(s, item.left)?.write("")?
-      uu.at_bytes(s, item.right)?.write("")?
+      uu.at_bytes(s, item.left)?.write("")
+      uu.at_bytes(s, item.right)?.write("")
       let input = bytes.concat([item.left, b"\n", item.right, b"\n"])
       let sorted = uu.invoke(s, "sort", [], stdin: input, vars: vars)?
       let listed = uu.invoke_paths(s, "ls", [p"-1", left, right], vars: vars)?
@@ -303,11 +303,11 @@ test test_gnu_sort_sort_locale_log { |ctx|
       if locale_expected != c_expected and sorted.stdout == c_expected {
         failures += [f"{setting}={item.locale}: pair does not differ from C ordering"]
       }
-      uu.at_bytes(s, item.left)?.remove()?
-      uu.at_bytes(s, item.right)?.remove()?
+      uu.at_bytes(s, item.left)?.remove()
+      uu.at_bytes(s, item.right)?.remove()
     }
   }
-  uu.write_bytes(s, "in", bytes.from_text("aaé\naaf\nAAF\n"))?
+  uu.write_bytes(s, "in", bytes.from_text("aaé\naaf\nAAF\n"))
   let c_utf8 = uu.invoke(s, "sort", ["in"], vars: {LC_ALL: "C.UTF-8"})?
   uu.succeeds(c_utf8)
   assert c_utf8.stdout == bytes.from_text("AAF\naaf\naaé\n")
@@ -317,9 +317,9 @@ test test_gnu_sort_sort_locale_log { |ctx|
 # origin: gnu sort/sort-merge-fdlimit.log
 test test_gnu_sort_sort_merge_fdlimit_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "in")?
-  for number in range(1, 18) { uu.write(s, f"in/{number}", f"{number}\n")? }
-  uu.write(s, "some-data", sequence(1, 17))?
+  uu.mkdir(s, "in")
+  for number in range(1, 18) { uu.write(s, f"in/{number}", f"{number}\n") }
+  uu.write(s, "some-data", sequence(1, 17))
   let files = [f"in/{number}" for number in range(1, 18)] |> sort
   let batch = shell_sort(s, ["--batch-size=20", "/dev/null"], r"""ulimit -n 19 || exit 77; exec "$@";""")?
   if batch.status == 77 { test.skip("cannot change the descriptor limit"); return }
@@ -330,7 +330,7 @@ test test_gnu_sort_sort_merge_fdlimit_log { |ctx|
     let random = shell_sort(s, ["-mR"].extend(extra).extend(["--batch-size=16"]).extend(files), r"""ulimit -n 20 || exit; exec "$@";""")?
     assert random.status == 0 or ! ("open failed" in random.stderr.utf8()?)
   }
-  uu.write(s, "out", "6\n")?
+  uu.write(s, "out", "6\n")
   let occupied = shell_sort(s, ["-n", "-m", "--batch-size=7", "-o", "out", "out", "in/1", "in/2", "in/3", "in/4", "in/5", "out"], r"""exec 3<&- 4<&- 5<&- 6<&- 7</dev/null 8<&7 9<&7; ulimit -n 10 || exit; exec "$@";""")?
   uu.succeeds(occupied)
   uu.file_is(s, "out", sequence(1, 6) + "6\n")
@@ -340,7 +340,7 @@ test test_gnu_sort_sort_merge_fdlimit_log { |ctx|
 test test_gnu_sort_sort_rand_log { |ctx|
   let s = uu.scene(ctx)?
   let input = sequence(1, 100)
-  uu.write(s, "in", input)?
+  uu.write(s, "in", input)
   let random = uu.invoke(s, "sort", ["--random-sort", "in"])?
   uu.succeeds(random)
   assert random.stdout != bytes.from_text(input)
@@ -359,8 +359,8 @@ test test_gnu_sort_sort_rand_log { |ctx|
 test test_gnu_sort_sort_spinlock_abuse_log { |ctx|
   let s = uu.scene(ctx)?
   test.timeout(ctx, 40s)
-  uu.write(s, "in", sequence(1, 100000))?
-  uu.mkfifo(s, "fifo")?
+  uu.write(s, "in", sequence(1, 100000))
+  uu.mkfifo(s, "fifo")
   let r = shell_sort(s, ["--parallel=2", "in"], r"""(i=1; while [ "$i" -le 80 ]; do read row || exit; printf '%s\n' "$i"; sleep .1; i=$((i+1)); done; cat >/dev/null) <fifo & reader=$!; trap 'kill "$reader" 2>/dev/null; wait "$reader" 2>/dev/null' EXIT; ulimit -t 7 || exit; "$@" >fifo; result=$?; wait "$reader"; exit "$result";""", timeout: 35s)?
   uu.succeeds(r)
 }
@@ -369,7 +369,7 @@ test test_gnu_sort_sort_spinlock_abuse_log { |ctx|
 test test_gnu_sort_sort_unique_segv_log { |ctx|
   let s = uu.scene(ctx)?
   let input = ["\n" for _ in range(7)].join("") + "z\nzzzzzz\nzzzzzzz\nzzzzzzz\nzzzzzzz\nzzzzzzzzz\nzzzzzzzzzzz\nzzzzzzzzzzzz\n"
-  uu.write(s, "in", input)?
+  uu.write(s, "in", input)
   let single = uu.invoke(s, "sort", ["--parallel=1", "-u", "in"])?
   uu.succeeds(single)
   let parallel = uu.invoke(s, "sort", ["--parallel=2", "-u", "-S", "10b"], stdin: bytes.from_text(input))?
@@ -380,7 +380,7 @@ test test_gnu_sort_sort_unique_segv_log { |ctx|
 # origin: gnu sort/sort-unique.log
 test test_gnu_sort_sort_unique_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "1\n2\n1\n3\n")?
+  uu.write(s, "in", "1\n2\n1\n3\n")
   for locale in ["C", "fr_FR", "fr_FR.UTF-8"] {
     let r = uu.invoke(s, "sort", ["-u", "in"], vars: {LC_ALL: locale})?
     uu.succeeds(r)
@@ -394,7 +394,7 @@ test test_gnu_sort_sort_version_log { |ctx|
   let input = "gcc-c++-10.fc9.tar.gz\ngcc-c++-10.8.12-0.7rc2.fc9.tar.bz2\nglibc-2-0.1.beta1.fc10.rpm\nglibc-common-5-0.2.beta2.fc9.ebuild\nglibc-common-5-0.2b.deb\nglibc-common-11b.ebuild\nglibc-common-11-0.6rc2.ebuild\nlibstdc++-0.5.8.11-0.7rc2.fc10.tar.gz\nlibstdc++-4a.fc8.tar.gz\nlibstdc++-4.10.4.20040204svn.rpm\nlibstdc++-devel-3.fc8.ebuild\nlibstdc++-devel-3a.fc9.tar.gz\nlibstdc++-devel-8.fc8.deb\nlibstdc++-devel-8.6.2-0.4b.fc8\nnss_ldap-1-0.2b.fc9.tar.bz2\nnss_ldap-1-0.6rc2.fc8.tar.gz\nnss_ldap-1.0-0.1a.tar.gz\nnss_ldap-10beta1.fc8.tar.gz\nnss_ldap-10.11.8.6.20040204cvs.fc10.ebuild\nstring start 5.0.0 end of str\nstring start 5.1.0 end of str\nstring start 5.10.0 end of str\nstring start 5.2.0 end of str\nstring start 5.20.0 end of str\nstring start 5.3.0 end of str\nstring start 5.30.0 end of str\nstring start 5.4.0 end of str\nstring start 5.40.0 end of str\nstring start 5.5.0 end of str\nstring start 5.50.0 end of str\nstring start 5.6.0 end of str\nstring start 5.60.0 end of str\nstring start 5.7.0 end of str\nstring start 5.70.0 end of str\nstring start 5.8.0 end of str\nstring start 5.80.0 end of str\nstring start 5.9.0 end of str\nstring start 5.90.0 end of str\nstring start 5.04.0 end of str\n"
   let expected = "gcc-c++-10.fc9.tar.gz\ngcc-c++-10.8.12-0.7rc2.fc9.tar.bz2\nglibc-2-0.1.beta1.fc10.rpm\nglibc-common-5-0.2.beta2.fc9.ebuild\nglibc-common-5-0.2b.deb\nglibc-common-11b.ebuild\nglibc-common-11-0.6rc2.ebuild\nlibstdc++-0.5.8.11-0.7rc2.fc10.tar.gz\nlibstdc++-4a.fc8.tar.gz\nlibstdc++-4.10.4.20040204svn.rpm\nlibstdc++-devel-3.fc8.ebuild\nlibstdc++-devel-3a.fc9.tar.gz\nlibstdc++-devel-8.fc8.deb\nlibstdc++-devel-8.6.2-0.4b.fc8\nnss_ldap-1-0.2b.fc9.tar.bz2\nnss_ldap-1-0.6rc2.fc8.tar.gz\nnss_ldap-1.0-0.1a.tar.gz\nnss_ldap-10beta1.fc8.tar.gz\nnss_ldap-10.11.8.6.20040204cvs.fc10.ebuild\nstring start 5.0.0 end of str\nstring start 5.1.0 end of str\nstring start 5.2.0 end of str\nstring start 5.3.0 end of str\nstring start 5.4.0 end of str\nstring start 5.04.0 end of str\nstring start 5.5.0 end of str\nstring start 5.6.0 end of str\nstring start 5.7.0 end of str\nstring start 5.8.0 end of str\nstring start 5.9.0 end of str\nstring start 5.10.0 end of str\nstring start 5.20.0 end of str\nstring start 5.30.0 end of str\nstring start 5.40.0 end of str\nstring start 5.50.0 end of str\nstring start 5.60.0 end of str\nstring start 5.70.0 end of str\nstring start 5.80.0 end of str\nstring start 5.90.0 end of str\n"
   for suffix in ["", "0"] {
-    uu.write(s, "in" + suffix, if suffix == "" { input } else { input.replace(" ", with: "\0") })?
+    uu.write(s, "in" + suffix, if suffix == "" { input } else { input.replace(" ", with: "\0") })
     let r = uu.invoke(s, "sort", ["--stable", "--sort=version", "-o", "out" + suffix, "in" + suffix])?
     uu.succeeds(r)
     assert uu.read_text(s, "out" + suffix)?.replace("\0", with: " ") == expected

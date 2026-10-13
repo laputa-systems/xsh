@@ -19,7 +19,7 @@ proc invoke_at_root(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> R
 # A mount namespace keeps the temporary /proc mask out of the test runner.
 proc masked_proc(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let wrapper = uu.at(s, "mask-proc")
-  wrapper.write("#!/bin/sh\nmount -t tmpfs tmpfs /proc || exit 99\nexec \"$@\"\n", mode: 0o755)?
+  wrapper.write("#!/bin/sh\nmount -t tmpfs tmpfs /proc || exit 99\nexec \"$@\"\n", mode: 0o755)
   let words = [p"unshare", p"-rm", wrapper].extend(uu.argv(s, "df", [Path(word) for word in args])?)
   let out = uu.at(s, "masked-stdout")
   let err = uu.at(s, "masked-stderr")
@@ -712,7 +712,7 @@ test test_uu_df_output_file_all_filesystems { |ctx|
 # origin: uutils test_df::test_output_file_specific_files
 test test_uu_df_output_file_specific_files { |ctx|
   let s = uu.scene(ctx)?
-  for name in ["a", "b", "c"] { uu.touch(s, name)? }
+  for name in ["a", "b", "c"] { uu.touch(s, name) }
   let r = uu.invoke(s, "df", ["--output=file", "a", "b", "c"])?
   uu.succeeds(r)
   assert lines(r)? == ["File", "a", "b", "c"]
@@ -721,7 +721,7 @@ test test_uu_df_output_file_specific_files { |ctx|
 # origin: uutils test_df::test_file_column_width_if_filename_contains_unicode_chars
 test test_uu_df_file_column_width_if_filename_contains_unicode_chars { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "äöü.txt")?
+  uu.touch(s, "äöü.txt")
   let r = uu.invoke(s, "df", ["--output=file,target", "äöü.txt"])?
   uu.succeeds(r)
   assert (lines(r)?)[0] == "File Mounted on"

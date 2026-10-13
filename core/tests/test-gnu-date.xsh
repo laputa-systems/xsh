@@ -23,9 +23,9 @@ test test_gnu_date_date_sec_log { |ctx|
   let second = uu.invoke(s, "date", ["+%S"])?
   uu.succeeds(second)
   match second.stdout.utf8()?.trim() {
-    "58" => time.sleep(3s)?,
-    "59" => time.sleep(2s)?,
-    "00" => time.sleep(1s)?,
+    "58" => time.sleep(3s),
+    "59" => time.sleep(2s),
+    "00" => time.sleep(1s),
     _ => {},
   }
   let result = uu.invoke(s, "date", ["--date=21:04 +0100", "+%S"])?
@@ -81,7 +81,7 @@ test test_gnu_date_reference_log { |ctx|
   if explicit.stdout.utf8()?.trim().parse_int()? < current.stdout.utf8()?.trim().parse_int()? {
     assert a.stdout.utf8()?.trim().parse_int()? < current.stdout.utf8()?.trim().parse_int()?
   }
-  uu.symlink(s, "t1", "t1s")?
+  uu.symlink(s, "t1", "t1s")
   let target = uu.invoke(s, "date", ["-r", "t1"], vars: vars)?
   let symlink = uu.invoke(s, "date", ["-r", "t1s"], vars: vars)?
   assert target.stdout == symlink.stdout

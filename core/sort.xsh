@@ -1825,7 +1825,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   }
 
   if ! output.is_empty() { finish_sort_stdout_bytes(bytes.concat(output)) }
-  for reader in readers { unix.close_fd(reader.fd)? }
+  for reader in readers { unix.close_fd(reader.fd) }
 }
 
 ## GNU sort reserves three descriptors for standard streams and signal handling.
@@ -2007,8 +2007,8 @@ proc create_sort_temp_root(directory: Str?) [fs, io, process, env, error] -> FsR
 
 proc sort_temp_path(root: FsRoot, name: Str) [fs, error] -> Path {
   let relative = fp"{name}"
-  root.write(relative, b"")?
-  root.chmod(relative, 0o600)?
+  root.write(relative, b"")
+  root.chmod(relative, 0o600)
   fp"{root.host_path()?}/{name}"
 }
 
@@ -2048,8 +2048,8 @@ proc write_temp_run(root: FsRoot, name: Str, contents: Bytes, compress: Str?) [f
   if let program = compress {
     run_compress_program(program, [program], contents, run_path)
   } else {
-    root.write(fp"{name}", contents)?
-    root.chmod(fp"{name}", 0o600)?
+    root.write(fp"{name}", contents)
+    root.chmod(fp"{name}", 0o600)
   }
   {name: bytes.from_text(run_path.display()), path: run_path, stdin: false, compressed: compress}
 }
@@ -2058,7 +2058,7 @@ proc write_temp_run(root: FsRoot, name: Str, contents: Bytes, compress: Str?) [f
 proc compress_temp_run(root: FsRoot, name: Str, plain: Path, compress: Str?) [fs, process, env, error] -> SortInput {
   if let program = compress {
     let stored = write_temp_run(root, name, plain.read_bytes()?, compress)
-    plain.remove()?
+    plain.remove()
     stored
   } else {
     {name: bytes.from_text(plain.display()), path: plain, stdin: false, compressed: null}
@@ -2217,7 +2217,7 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
         let merged = sort_temp_path(root, f"{name}-plain")
         let fd = unix.open_fd(merged, write: true)?
         merge_sort_stream(plain_inputs, opts, has_key, key_field, fd, false)
-        unix.close_fd(fd)?
+        unix.close_fd(fd)
         next += [compress_temp_run(root, name, merged, compress)]
       }
       start = stop
@@ -2233,7 +2233,7 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
 proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int, has_key: Bool, key_field: Int, output: Path, has_output: Bool) [fs, io, env, process, error] {
   let compress = startable_compress_program(opts.compress_program)
   var temp_root: FsRoot? = null
-  defer { if let root = temp_root { root.close()? } }
+  defer { if let root = temp_root { root.close() } }
 
   let requested_limit = if buffer_size == 0 { 9223372036854775807 } else { buffer_size }
   ## A minimum run size prevents tiny -S values from creating a temporary file for every short record.
@@ -2285,7 +2285,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
         }
       }
     }
-    if ! input.stdin { unix.close_fd(fd)? }
+    if ! input.stdin { unix.close_fd(fd) }
   }
 
   if runs.is_empty() {
@@ -2322,7 +2322,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
       }
       let fd = unix.open_fd(output, write: true)?
       merge_sort_batched(runs, root, opts, has_key, key_field, batch_limit, fd, opts.unique, compress)
-      unix.close_fd(fd)?
+      unix.close_fd(fd)
     } else {
       merge_sort_batched(runs, root, opts, has_key, key_field, batch_limit, null, opts.unique, compress)
     }
@@ -2731,7 +2731,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let batch_limit = sort_merge_batch_limit(opts)
     if inputs.len() > batch_limit {
       let scratch = create_sort_temp_root(opts.temp_directory)
-      defer scratch.close()?
+      defer scratch.close()
       merge_sort_batched(inputs, scratch, opts, has_key, key_field, batch_limit, null, opts.unique, startable_compress_program(opts.compress_program))
       return
     }
@@ -2776,7 +2776,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
               bytes.from_text(f"{gnu.prog()}: {gnu.quote_bytes(name, always: false)}:{index + 1}: disorder: "),
               current.bytes,
               record_ending,
-            ]))?
+            ]))
           }
           exit 1
         }

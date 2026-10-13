@@ -589,8 +589,8 @@ test test_uu_numfmt_to_iec_i { |ctx|
 # origin: uutils test_numfmt::test_to_iec_i_should_truncate_output
 test test_uu_numfmt_to_iec_i_should_truncate_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "numfmt", "gnutest_iec_input.txt", "input")?
-  uu.fixture(s, "numfmt", "gnutest_iec-i_result.txt", "expected")?
+  uu.fixture(s, "numfmt", "gnutest_iec_input.txt", "input")
+  uu.fixture(s, "numfmt", "gnutest_iec-i_result.txt", "expected")
   let r1 = uu.invoke(s, "numfmt", ["--to=iec-i"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r1)
   uu.stdout_is_bytes(r1, uu.read(s, "expected")?)
@@ -599,8 +599,8 @@ test test_uu_numfmt_to_iec_i_should_truncate_output { |ctx|
 # origin: uutils test_numfmt::test_to_iec_should_truncate_output
 test test_uu_numfmt_to_iec_should_truncate_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "numfmt", "gnutest_iec_input.txt", "input")?
-  uu.fixture(s, "numfmt", "gnutest_iec_result.txt", "expected")?
+  uu.fixture(s, "numfmt", "gnutest_iec_input.txt", "input")
+  uu.fixture(s, "numfmt", "gnutest_iec_result.txt", "expected")
   let r1 = uu.invoke(s, "numfmt", ["--to=iec"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r1)
   uu.stdout_is_bytes(r1, uu.read(s, "expected")?)
@@ -617,8 +617,8 @@ test test_uu_numfmt_to_si { |ctx|
 # origin: uutils test_numfmt::test_to_si_should_truncate_output
 test test_uu_numfmt_to_si_should_truncate_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "numfmt", "gnutest_si_input.txt", "input")?
-  uu.fixture(s, "numfmt", "gnutest_si_result.txt", "expected")?
+  uu.fixture(s, "numfmt", "gnutest_si_input.txt", "input")
+  uu.fixture(s, "numfmt", "gnutest_si_result.txt", "expected")
   let r1 = uu.invoke(s, "numfmt", ["--to=si"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r1)
   uu.stdout_is_bytes(r1, uu.read(s, "expected")?)

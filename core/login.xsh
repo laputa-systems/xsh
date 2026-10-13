@@ -39,11 +39,11 @@ proc main(...argv: List[Str]) [fs, env, process, error, io, time] {
   if let Err(failure) = lookup { gnu.error(failure.message); exit 1 }
   let entry = lookup?
   let notice = accounts.nologin_file()
-  if entry.uid != 0 and notice.exists()? { gnu.write_text(notice.read_text()?); exit 1 }
+  if entry.uid != 0 and notice.exists() { gnu.write_text(notice.read_text()?); exit 1 }
   if !opts.preauthenticated {
     let authenticated = accounts.authenticate(entry)
     if authenticated is Err(_) { gnu.error("Login incorrect"); exit 1 }
-    if !authenticated? { gnu.error("Login incorrect"); exit 1 }
+    if !authenticated { gnu.error("Login incorrect"); exit 1 }
   }
   if let Err(failure) = accounts.check_expiration(entry) { gnu.error(failure.message); exit 1 }
   let requested = accounts.login_groups(entry)

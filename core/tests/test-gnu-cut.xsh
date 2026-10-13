@@ -25,7 +25,7 @@ proc run_case(s: uu.Scene, c: CutCase, transport: Str, locale: Str) [fs, process
   Ok({util: "cut", args: [word.display() for word in actual_args], status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 proc check_case(s: uu.Scene, c: CutCase, locale: Str) [fs, process, env, error] {
-  if let input = c.input { uu.write_bytes(s, "input", input)? }
+  if let input = c.input { uu.write_bytes(s, "input", input) }
   let transports = if c.input == null { ["none"] } else { ["file", "redirect", "pipe"] }
   for transport in transports {
     let r = run_case(s, c, transport, locale)?
@@ -181,8 +181,8 @@ test test_gnu_cut_cut_log { |ctx|
     case("EOL-subsumed-4", ["--output-d=:", "-b1-2,2-3,3-"], b"1234\n", b"1234\n"),
   ]
   for locale in ["C", "fr_FR.utf-8"] {
-    uu.write(s, "f", "x")?
-    uu.write(s, "g", "y")?
+    uu.write(s, "f", "x")
+    uu.write(s, "g", "y")
     let multi = uu.invoke(s, "cut", ["-f2-", "f", "g"], vars: {LC_ALL: locale})?
     uu.succeeds(multi)
     uu.stdout_only(multi, "x\ny\n")

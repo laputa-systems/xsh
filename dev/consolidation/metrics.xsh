@@ -16,16 +16,16 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   let current = measured.report
   json.write(o.output, current)
   if o.item_inventory != "" { json.write(fp"{o.item_inventory}", measured.item_allowances) }
-  metrics.assert_structural_not_risen(current, current)?
+  metrics.assert_structural_not_risen(current, current)
   if o.action == "measure" { return }
   if o.baseline == "" or o.audit == "" { fail "checks require --baseline and --audit" }
   let baseline = json.read(fp"{o.baseline}")?.require(metrics.Report)?
   if o.baseline_provenance != "" {
-    metrics.verify_blanket_baseline(o.root, o.baseline, o.baseline_provenance, baseline)?
+    metrics.verify_blanket_baseline(o.root, o.baseline, o.baseline_provenance, baseline)
   } else if o.baseline.ends_with("baseline-blanket-scope.json") {
     fail "the corrected blanket baseline requires --baseline-provenance"
   }
-  metrics.assert_structural_not_risen(baseline, baseline)?
+  metrics.assert_structural_not_risen(baseline, baseline)
   var rises: List[Rise] = []
   for row in current.metrics {
     let old = baseline.metrics |> where .name == row.name |> collect
@@ -58,12 +58,12 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   }
   for rise in rises { print f"{rise.metric}: {rise.baseline} -> {rise.current}; ceiling {rise.ceiling}; approval {rise.approval}" }
   if o.action == "final-close" {
-    metrics.assert_final_close(current, baseline)?
+    metrics.assert_final_close(current, baseline)
     if o.review_evidence == "" { fail "final-close requires --review-evidence" }
     let evidence = json.read(fp"{o.review_evidence}")?.require(metrics.ReviewEvidenceBundle)?
-    metrics.verify_review_evidence(current, evidence, o.root)?
+    metrics.verify_review_evidence(current, evidence, o.root)
   } else {
-    metrics.assert_structural_not_risen(current, baseline)?
+    metrics.assert_structural_not_risen(current, baseline)
     if o.review_evidence != "" { fail "--review-evidence is only valid with final-close" }
   }
 }

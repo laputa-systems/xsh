@@ -31,15 +31,15 @@ proc serve(s: uu.Scene) [fs, process, time, error] -> Result[HttpFixture, Error]
   let script = uu.at(s, "http-fixture.pl")
   let port = uu.at(s, "port")
   let request = uu.at(s, "request")
-  script.write(HTTP_FIXTURE)?
+  script.write(HTTP_FIXTURE)
   let handle = spawn run perl $script $port $request ?
   let started = time.now()
-  while !port.exists()? {
+  while !port.exists() {
     if time.now() - started > 5000 {
-      handle.cancel(signal: "KILL", kill_after: 0ms)?
+      handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure("HTTP fixture did not publish its port"))
     }
-    time.sleep(20ms)?
+    time.sleep(20ms)
   }
   Ok({base: f"http://127.0.0.1:{port.read_text()?.trim()}", handle: handle})
 }
@@ -54,7 +54,7 @@ test test_bb_wget_wget_O_overrides_P_576a1b1a { |ctx|
   let s = uu.scene(ctx)?
   let fixture = serve(s)?
   defer fixture.handle.cancel(kill_after: 100ms)
-  uu.mkdir(s, "foo")?
+  uu.mkdir(s, "foo")
   let r = uu.invoke(s, "wget", ["-q", "-O", "index.html", "-P", "foo", f"{fixture.base}/"], timeout: 20s)?
   uu.succeeds(r)
   response_is(s, "index.html")
@@ -85,7 +85,7 @@ test test_bb_wget_wget_supports_P_5d6738e6 { |ctx|
   let s = uu.scene(ctx)?
   let fixture = serve(s)?
   defer fixture.handle.cancel(kill_after: 100ms)
-  uu.mkdir(s, "foo")?
+  uu.mkdir(s, "foo")
   let r = uu.invoke(s, "wget", ["-q", "-P", "foo", f"{fixture.base}/"], timeout: 20s)?
   uu.succeeds(r)
   response_is(s, "foo/index.html")

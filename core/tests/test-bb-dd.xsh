@@ -3,7 +3,7 @@ use support.uu
 # origin: busybox dd/dd-accepts-if
 test test_bb_dd_dd_accepts_if_0d8639a2 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "foo", "I WANT\n")?
+  uu.write(s, "foo", "I WANT\n")
   let r = uu.invoke(s, "dd", ["if=foo"])?
   uu.succeeds(r)
   uu.stdout_is(r, "I WANT\n")
@@ -46,7 +46,7 @@ test test_bb_dd_dd_prints_count_to_standard_error_4a3efef4 { |ctx|
 # origin: busybox dd/dd-reports-write-errors
 test test_bb_dd_dd_reports_write_errors_e4045320 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "dd-reports-write-errors", "A nonempty original fixture exercises a failing device write.\n")?
+  uu.write(s, "dd-reports-write-errors", "A nonempty original fixture exercises a failing device write.\n")
   let r = uu.invoke(s, "dd", ["if=dd-reports-write-errors", "of=/dev/full"])?
   uu.fails_with_code(r, 1)
   uu.no_stdout(r)

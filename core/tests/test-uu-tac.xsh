@@ -66,7 +66,7 @@ test test_uu_tac_invalid_input { |ctx|
   let missing = uu.invoke(s, "tac", ["b"])?
   uu.fails(missing)
   uu.stderr_contains(missing, "failed to open 'b' for reading: No such file or directory")
-  uu.mkdir(s, "a")?
+  uu.mkdir(s, "a")
   let directory = uu.invoke(s, "tac", ["a"])?
   uu.fails(directory)
   uu.stderr_contains(directory, "a: read error: Is a directory")
@@ -208,7 +208,7 @@ test test_uu_tac_regular_start_anchor { |ctx|
 # origin: uutils test_tac::test_single_default
 test test_uu_tac_single_default { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "tac", "prime_per_line.txt", "prime_per_line.txt")?
+  uu.fixture(s, "tac", "prime_per_line.txt", "prime_per_line.txt")
   let r0 = uu.invoke(s, "tac", ["prime_per_line.txt"])?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, fp"{ctx.core_dir}/tests/data/uutils/tac/prime_per_line.expected".read_bytes()?)
@@ -217,7 +217,7 @@ test test_uu_tac_single_default { |ctx|
 # origin: uutils test_tac::test_single_non_newline_separator
 test test_uu_tac_single_non_newline_separator { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "tac", "delimited_primes.txt", "delimited_primes.txt")?
+  uu.fixture(s, "tac", "delimited_primes.txt", "delimited_primes.txt")
   let r0 = uu.invoke(s, "tac", ["-s", ":", "delimited_primes.txt"])?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, fp"{ctx.core_dir}/tests/data/uutils/tac/delimited_primes.expected".read_bytes()?)
@@ -226,7 +226,7 @@ test test_uu_tac_single_non_newline_separator { |ctx|
 # origin: uutils test_tac::test_single_non_newline_separator_before
 test test_uu_tac_single_non_newline_separator_before { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "tac", "delimited_primes.txt", "delimited_primes.txt")?
+  uu.fixture(s, "tac", "delimited_primes.txt", "delimited_primes.txt")
   let r0 = uu.invoke(s, "tac", ["-b", "-s", ":", "delimited_primes.txt"])?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, fp"{ctx.core_dir}/tests/data/uutils/tac/delimited_primes_before.expected".read_bytes()?)
@@ -267,12 +267,12 @@ test test_uu_tac_stdin_non_newline_separator_before { |ctx|
 # origin: uutils test_tac::test_tac_file_truncated_during_read_does_not_crash
 test test_uu_tac_tac_file_truncated_during_read_does_not_crash { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "input")?
-  uu.truncate(s, "input", 64 * 1024 * 1024)?
+  uu.touch(s, "input")
+  uu.truncate(s, "input", 64 * 1024 * 1024)
   let plan = uu.command(s, "tac", ["input"], stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 10s)?
   let child = spawn plan?
-  time.sleep(2ms)?
-  uu.truncate(s, "input", 0)?
+  time.sleep(2ms)
+  uu.truncate(s, "input", 0)
   let status = wait child?
   assert ! status.signaled(), "tac was killed by a signal"
 }
@@ -280,7 +280,7 @@ test test_uu_tac_tac_file_truncated_during_read_does_not_crash { |ctx|
 # origin: uutils test_tac::test_tac_non_utf8_paths
 test test_uu_tac_tac_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
-  uu.at_bytes(s, b"\xff\xfe")?.write(b"line1\nline2\nline3\n")?
+  uu.at_bytes(s, b"\xff\xfe")?.write(b"line1\nline2\nline3\n")
   let r = uu.invoke_paths(s, "tac", [Path.parse_bytes(b"\xff\xfe")?])?
   uu.succeeds(r)
   uu.stdout_is(r, "line3\nline2\nline1\n")
@@ -289,13 +289,13 @@ test test_uu_tac_tac_non_utf8_paths { |ctx|
 # origin: uutils test_tac::test_tac_stdin_redirected_file_truncated_during_read_does_not_crash
 test test_uu_tac_tac_stdin_redirected_file_truncated_during_read_does_not_crash { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "input")?
-  uu.truncate(s, "input", 64 * 1024 * 1024)?
+  uu.touch(s, "input")
+  uu.truncate(s, "input", 64 * 1024 * 1024)
   let argv = uu.argv(s, "tac", [])?
   let plan = process.command_argv(ctx.xsh_bin, argv, s.root, {}, uu.at(s, "input"), uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
   let child = spawn plan?
-  time.sleep(2ms)?
-  uu.truncate(s, "input", 0)?
+  time.sleep(2ms)
+  uu.truncate(s, "input", 0)
   let status = wait child?
   assert ! status.signaled(), "tac was killed by a signal"
 }

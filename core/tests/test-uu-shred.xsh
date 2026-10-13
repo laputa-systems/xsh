@@ -13,9 +13,9 @@ proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
 # Keeping the replica open prevents terminal EOF while queued stderr is drained.
 proc terminal_stderr(s: uu.Scene, args: List[Str]) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let pair = unix.open_pty()?
-  defer unix.close_fd(pair.master)?
-  defer unix.close_fd(pair.replica)?
-  unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: pair.replica)?
+  defer unix.close_fd(pair.master)
+  defer unix.close_fd(pair.replica)
+  unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: pair.replica)
   let output = uu.at(s, "stdout")
   let argv = uu.argv(s, "shred", [Path(word) for word in args])?
   let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, b"", output, Path(pair.name), timeout: 5s)
@@ -32,7 +32,7 @@ proc terminal_stderr(s: uu.Scene, args: List[Str]) [fs, process, net, env, error
 # origin: uutils test_shred::diagnostics::test_snippet_points_at_the_unknown_unit
 test test_uu_shred_diagnostics_snippet_points_at_the_unknown_unit { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "wipe_me")?
+  uu.touch(s, "wipe_me")
   let r = terminal_stderr(s, ["-s", "4vv", "wipe_me"])?
   uu.fails_with_code(r, 1)
   uu.stderr_is_bytes(r, b"shred: invalid file size: '4vv'\r\n")
@@ -42,7 +42,7 @@ test test_uu_shred_diagnostics_snippet_points_at_the_unknown_unit { |ctx|
 # origin: uutils test_shred::diagnostics::test_plain_message_when_stderr_is_a_pipe
 test test_uu_shred_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "wipe_me")?
+  uu.touch(s, "wipe_me")
   let r = uu.invoke(s, "shred", ["-s", "4vv", "wipe_me"])?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "shred: invalid file size: '4vv'\n")
@@ -51,7 +51,7 @@ test test_uu_shred_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
 # origin: uutils test_shred::test_all_patterns_present
 test test_uu_shred_all_patterns_present { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "foo.txt", "bar")?
+  uu.write(s, "foo.txt", "bar")
   let r = uu.invoke(s, "shred", ["-vn25", "foo.txt"])?
   uu.succeeds(r)
   for pattern in ["000000", "ffffff", "555555", "aaaaaa", "249249", "492492", "6db6db", "924924", "b6db6d",
@@ -71,7 +71,7 @@ test test_uu_shred_ambiguous_remove_arg { |ctx|
 # origin: uutils test_shred::test_hex
 test test_uu_shred_hex { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_hex")?
+  uu.touch(s, "test_hex")
   let r = uu.invoke(s, "shred", ["--size=0x10", "test_hex"])?
   uu.succeeds(r)
 }
@@ -93,8 +93,8 @@ test test_uu_shred_invalid_remove_arg { |ctx|
 # origin: uutils test_shred::test_random_source_dir
 test test_uu_shred_random_source_dir { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "source")?
-  uu.write(s, "foo.txt", "a")?
+  uu.mkdir(s, "source")
+  uu.write(s, "foo.txt", "a")
   let r = uu.invoke(s, "shred", ["-v", "--random-source=source", "foo.txt"])?
   uu.fails(r)
   assert !("pass 2/3" in r.stderr.utf8()?)
@@ -104,7 +104,7 @@ test test_uu_shred_random_source_dir { |ctx|
 # origin: uutils test_shred::test_random_source_open_error_includes_cause
 test test_uu_shred_random_source_open_error_includes_cause { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "target")?
+  uu.touch(s, "target")
   let r = uu.invoke(s, "shred", ["--random-source=missing", "target"])?
   uu.fails(r)
   uu.stderr_only(r, "shred: missing: No such file or directory\n")
@@ -115,8 +115,8 @@ test test_uu_shred_random_source_regular_file { |ctx|
   let s = uu.scene(ctx)?
   let many_bytes = bytes.concat([bytes.pack_le(i, 4)? for i in range(4096)])
   assert many_bytes.len() == 4096 * 4
-  uu.write_bytes(s, "source_long", many_bytes)?
-  uu.write(s, "foo.txt", "a")?
+  uu.write_bytes(s, "source_long", many_bytes)
+  uu.write(s, "foo.txt", "a")
   let r = uu.invoke(s, "shred", ["-vn3", "--random-source=source_long", "foo.txt"])?
   uu.succeeds(r)
   uu.stderr_only(r, "shred: foo.txt: pass 1/3 (random)...\nshred: foo.txt: pass 2/3 (random)...\nshred: foo.txt: pass 3/3 (random)...\n")
@@ -126,7 +126,7 @@ test test_uu_shred_random_source_regular_file { |ctx|
 # origin: uutils test_shred::test_shred
 test test_uu_shred_shred { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "test_shred", "test_shred file content")?
+  uu.write(s, "test_shred", "test_shred file content")
   let r = uu.invoke(s, "shred", ["test_shred"])?
   uu.succeeds(r)
   assert file_exists(s, "test_shred")?
@@ -136,13 +136,13 @@ test test_uu_shred_shred { |ctx|
 # origin: uutils test_shred::test_shred_empty
 test test_uu_shred_shred_empty { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_shred_remove_a")?
+  uu.touch(s, "test_shred_remove_a")
   let empty = uu.invoke(s, "shred", ["-uv", "test_shred_remove_a"])?
   uu.succeeds(empty)
   assert !("1/3 (random)" in empty.stderr.utf8()?)
   assert !file_exists(s, "test_shred_remove_a")?
-  uu.touch(s, "test_shred_remove_a")?
-  uu.write(s, "test_shred_remove_a", "1")?
+  uu.touch(s, "test_shred_remove_a")
+  uu.write(s, "test_shred_remove_a", "1")
   let nonempty = uu.invoke(s, "shred", ["-uv", "test_shred_remove_a"])?
   uu.succeeds(nonempty)
   uu.stderr_contains(nonempty, "1/3 (random)")
@@ -152,11 +152,11 @@ test test_uu_shred_shred_empty { |ctx|
 # origin: uutils test_shred::test_shred_fail_no_perm
 test test_uu_shred_shred_fail_no_perm { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.touch(s, "dir/test_shred_remove_a")?
+  uu.mkdir(s, "dir")
+  uu.touch(s, "dir/test_shred_remove_a")
   let directory = uu.at(s, "dir")
   let mode = uu.mode(s, "dir")?
-  uu.set_mode(s, "dir", mode.bit_and(0o555))?
+  uu.set_mode(s, "dir", mode.bit_and(0o555))
   defer directory.chmod(mode)
   let r = uu.invoke(s, "shred", ["-uv", "dir/test_shred_remove_a"])?
   uu.fails(r)
@@ -166,10 +166,10 @@ test test_uu_shred_shred_fail_no_perm { |ctx|
 # origin: uutils test_shred::test_shred_force
 test test_uu_shred_shred_force { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_shred_force")?
+  uu.touch(s, "test_shred_force")
   assert file_exists(s, "test_shred_force")?
   let mode = uu.mode(s, "test_shred_force")?
-  uu.set_mode(s, "test_shred_force", mode.bit_and(0o555))?
+  uu.set_mode(s, "test_shred_force", mode.bit_and(0o555))
   let refused = uu.invoke(s, "shred", ["-u", "test_shred_force"])?
   uu.fails(refused)
   assert file_exists(s, "test_shred_force")?
@@ -181,10 +181,10 @@ test test_uu_shred_shred_force { |ctx|
 # origin: uutils test_shred::test_shred_inaccessible_file_reports_real_error
 test test_uu_shred_shred_inaccessible_file_reports_real_error { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "locked")?
-  uu.touch(s, "locked/file")?
+  uu.mkdir(s, "locked")
+  uu.touch(s, "locked/file")
   let directory = uu.at(s, "locked")
-  uu.set_mode(s, "locked", 0o000)?
+  uu.set_mode(s, "locked", 0o000)
   defer directory.chmod(0o755)
   let r = uu.invoke(s, "shred", ["locked/file"])?
   uu.fails(r)
@@ -195,8 +195,8 @@ test test_uu_shred_shred_inaccessible_file_reports_real_error { |ctx|
 # origin: uutils test_shred::test_shred_nineteen_passes_first_and_last_are_random
 test test_uu_shred_shred_nineteen_passes_first_and_last_are_random { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "Us", bytes.from_ints([85 for _ in range(102400)])?)?
-  uu.write(s, "f", "1")?
+  uu.write_bytes(s, "Us", bytes.from_ints([85 for _ in range(102400)])?)
+  uu.write(s, "f", "1")
   let r = uu.invoke(s, "shred", ["-v", "-n19", "--random-source=Us", "f"])?
   uu.succeeds(r)
   for i in range(1, 20) { uu.stderr_contains(r, f"pass {i}/19") }
@@ -209,7 +209,7 @@ test test_uu_shred_shred_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let name = Path.parse_bytes(b"test_\xff\xfe.txt")?
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?
-  file.write("test content")?
+  file.write("test content")
   let r = uu.invoke_paths(s, "shred", [name])?
   uu.succeeds(r)
 }
@@ -217,7 +217,7 @@ test test_uu_shred_shred_non_utf8_paths { |ctx|
 # origin: uutils test_shred::test_shred_remove
 test test_uu_shred_shred_remove { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_shred_remove")?
+  uu.touch(s, "test_shred_remove")
   let r = uu.invoke(s, "shred", ["--remove", "test_shred_remove"])?
   uu.succeeds(r)
   assert !file_exists(s, "test_shred_remove")?
@@ -228,7 +228,7 @@ test test_uu_shred_shred_remove_unlink { |ctx|
   let s = uu.scene(ctx)?
   for argument in ["--remove=unlink", "--remove=unlin", "--remove=u"] {
     let scene = uu.scene(ctx)?
-    uu.touch(scene, "test_shred_remove_unlink")?
+    uu.touch(scene, "test_shred_remove_unlink")
     let r = uu.invoke(scene, "shred", [argument, "test_shred_remove_unlink"]) ?
     uu.succeeds(r)
     assert !file_exists(scene, "test_shred_remove_unlink")?
@@ -238,8 +238,8 @@ test test_uu_shred_shred_remove_unlink { |ctx|
 # origin: uutils test_shred::test_shred_remove_unlink_relative_path
 test test_uu_shred_shred_remove_unlink_relative_path { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1/dir2")?
-  uu.write(s, "dir1/dir2/file1", "test data")?
+  uu.mkdir(s, "dir1/dir2")
+  uu.write(s, "dir1/dir2/file1", "test data")
   let r = uu.invoke(s, "shred", ["--remove=unlink", "dir1/dir2/file1"])?
   uu.succeeds(r)
   assert !file_exists(s, "dir1/dir2/file1")?
@@ -248,7 +248,7 @@ test test_uu_shred_shred_remove_unlink_relative_path { |ctx|
 # origin: uutils test_shred::test_shred_remove_wipe
 test test_uu_shred_shred_remove_wipe { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_shred_remove_wipe")?
+  uu.touch(s, "test_shred_remove_wipe")
   let r = uu.invoke(s, "shred", ["--remove=wipe", "test_shred_remove_wipe"])?
   uu.succeeds(r)
   assert !file_exists(s, "test_shred_remove_wipe")?
@@ -259,7 +259,7 @@ test test_uu_shred_shred_remove_wipesync { |ctx|
   let s = uu.scene(ctx)?
   for argument in ["--remove=wipesync", "--remove=wipesyn", "--remove=wipes"] {
     let scene = uu.scene(ctx)?
-    uu.touch(scene, "test_shred_remove_wipesync")?
+    uu.touch(scene, "test_shred_remove_wipesync")
     let r = uu.invoke(scene, "shred", [argument, "test_shred_remove_wipesync"]) ?
     uu.succeeds(r)
     assert !file_exists(scene, "test_shred_remove_wipesync")?
@@ -269,8 +269,8 @@ test test_uu_shred_shred_remove_wipesync { |ctx|
 # origin: uutils test_shred::test_shred_rename_exhaustion
 test test_uu_shred_shred_rename_exhaustion { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test")?
-  uu.touch(s, "000")?
+  uu.touch(s, "test")
+  uu.touch(s, "000")
   let r = uu.invoke(s, "shred", ["-vu", "test"])?
   uu.succeeds(r)
   uu.stderr_contains(r, "renamed to 0000")
@@ -283,7 +283,7 @@ test test_uu_shred_shred_rename_exhaustion { |ctx|
 # origin: uutils test_shred::test_shred_trailing_slash_on_dir
 test test_uu_shred_shred_trailing_slash_on_dir { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
+  uu.mkdir(s, "d")
   let r = uu.invoke(s, "shred", ["d/"])?
   uu.fails(r)
   uu.stderr_contains(r, "Is a directory")
@@ -292,7 +292,7 @@ test test_uu_shred_shred_trailing_slash_on_dir { |ctx|
 # origin: uutils test_shred::test_shred_trailing_slash_on_file
 test test_uu_shred_shred_trailing_slash_on_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "shred", ["a/"])?
   uu.fails(r)
   uu.stderr_contains(r, "Not a directory")
@@ -301,8 +301,8 @@ test test_uu_shred_shred_trailing_slash_on_file { |ctx|
 # origin: uutils test_shred::test_shred_twenty_passes_with_known_random_source
 test test_uu_shred_shred_twenty_passes_with_known_random_source { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "Us", bytes.from_ints([85 for _ in range(102400)])?)?
-  uu.write(s, "f", "1")?
+  uu.write_bytes(s, "Us", bytes.from_ints([85 for _ in range(102400)])?)
+  uu.write(s, "f", "1")
   let r = uu.invoke(s, "shred", ["-v", "-u", "-n20", "-s4096", "--random-source=Us", "f"])?
   uu.succeeds(r)
   for pass in ["pass 1/20 (random)",
@@ -336,8 +336,8 @@ test test_uu_shred_shred_twenty_passes_with_known_random_source { |ctx|
 # origin: uutils test_shred::test_shred_u
 test test_uu_shred_shred_u { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_shred_remove_a")?
-  uu.touch(s, "test_shred_remove_b")?
+  uu.touch(s, "test_shred_remove_a")
+  uu.touch(s, "test_shred_remove_b")
   let r = uu.invoke(s, "shred", ["-u", "test_shred_remove_a"])?
   uu.succeeds(r)
   assert !file_exists(s, "test_shred_remove_a")?
@@ -347,7 +347,7 @@ test test_uu_shred_shred_u { |ctx|
 # origin: uutils test_shred::test_shred_verbose_no_padding_1
 test test_uu_shred_shred_verbose_no_padding_1 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "foo", "non-empty")?
+  uu.write(s, "foo", "non-empty")
   let r = uu.invoke(s, "shred", ["-vn1", "foo"])?
   uu.succeeds(r)
   uu.stderr_only(r, "shred: foo: pass 1/1 (random)...\n")
@@ -356,7 +356,7 @@ test test_uu_shred_shred_verbose_no_padding_1 { |ctx|
 # origin: uutils test_shred::test_shred_verbose_no_padding_10
 test test_uu_shred_shred_verbose_no_padding_10 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "foo", "non-empty")?
+  uu.write(s, "foo", "non-empty")
   let r = uu.invoke(s, "shred", ["-vn10", "foo"])?
   uu.succeeds(r)
   uu.stderr_contains(r, "shred: foo: pass 1/10 (random)...\n")

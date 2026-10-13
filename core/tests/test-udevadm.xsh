@@ -50,8 +50,8 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 # `dev` number links, a controller with a disk and a partition below it, a
 # network interface, and a character device, with database records for some.
 proc ensure_directory(root: FsRoot, directory: Path) [fs, error] -> Result[Unit] {
-  if ! root.exists(directory)? {
-    root.mkdir(directory, parents: true)?
+  if ! root.exists(directory) {
+    root.mkdir(directory, parents: true)
   }
 }
 
@@ -59,21 +59,21 @@ proc build_tree(ctx: TestContext) [fs, error] -> Result[Path] {
   let base = test.temp_dir(ctx, name: "udev-tree")?
   let root = fs.open_root(base)?
   for item in TREE_FILES {
-    ensure_directory(root, fp"{item.path}".dirname())?
-    root.write(fp"{item.path}", item.text)?
+    ensure_directory(root, fp"{item.path}".dirname())
+    root.write(fp"{item.path}", item.text)
   }
 
   for item in TREE_LINKS {
-    ensure_directory(root, fp"{item.path}".dirname())?
-    root.symlink(target: fp"{item.target}", path: fp"{item.path}")?
+    ensure_directory(root, fp"{item.path}".dirname())
+    root.symlink(target: fp"{item.target}", path: fp"{item.path}")
   }
 
-  ensure_directory(root, p"sys/bus/pci/drivers/ahci")?
+  ensure_directory(root, p"sys/bus/pci/drivers/ahci")
   # Class directories also hold plain files, which scans must step over.
-  root.write(p"sys/class/net/bonding_masters", "")?
+  root.write(p"sys/class/net/bonding_masters", "")
   # A write-only attribute that the walk must not read.
-  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/secret", "x")?
-  fp"{base}/sys/devices/pci0000:00/0000:00:1f.2/secret".chmod(0o200)?
+  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/secret", "x")
+  fp"{base}/sys/devices/pci0000:00/0000:00:1f.2/secret".chmod(0o200)
   Ok(base)
 }
 
@@ -225,10 +225,10 @@ test test_udevadm_info_export_db_lists_scanned_devices_and_cleanup_removes_recor
     "P: /devices/virtual/net/lo",
   ]
   fp"{tree}/run/udev/queue.bin".write("")
-  fp"{tree}/run/udev/links/disk/by-uuid".mkdir(parents: true)?
+  fp"{tree}/run/udev/links/disk/by-uuid".mkdir(parents: true)
   fp"{tree}/run/udev/links/disk/by-uuid/1234".write("")
   let sticky = fp"{tree}/run/udev/data/c1:3"
-  sticky.chmod(0o1644)?
+  sticky.chmod(0o1644)
   let cleaned = udevadm(ctx, tree, ["info", "-c"])?
   assert cleaned.status == 0, cleaned.stderr
   assert ! fp"{tree}/run/udev/queue.bin".exists()?
@@ -383,7 +383,7 @@ test test_udevadm_settle_waits_for_queue_until_timeout_or_marker { |ctx|
   marker.write("")
   let stopped = udevadm(ctx, tree, ["settle", "-t", "5", "-E", marker.display()])?
   assert stopped.status == 0, stopped.stderr
-  fp"{tree}/run/udev/queue".remove()?
+  fp"{tree}/run/udev/queue".remove()
   assert udevadm(ctx, tree, ["settle", "-t", "5"])?.status == 0
 }
 

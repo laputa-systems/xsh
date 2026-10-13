@@ -375,7 +375,7 @@ proc archive_data(opts: Options) [fs, io, error, process, env] -> Result[Bytes] 
     if opts.compression == "" { return Ok(raw) }
     tempdir scratch {
       let source = fp"{scratch}/archive"
-      source.write(raw)?
+      source.write(raw)
       return Ok(archive.decompress_bytes(source, opts.compression)?)
     }
   }
@@ -412,15 +412,15 @@ proc list_members(opts: Options) [fs, io, error, process, env, time] -> Result[U
 
 # Path.is_dir fails for a missing path, so existence is checked first.
 proc is_directory(target: Path) [fs, error] -> Result[Bool] {
-  if ! target.exists()? { return Ok(false) }
+  if ! target.exists() { return Ok(false) }
   target.is_dir()
 }
 
 # Makes the parent directories of an extraction target exist.
 proc ensure_parent(target: Path) [fs, error] -> Result[Unit] {
   let parent = target.parent()
-  if ! is_directory(parent)? {
-    parent.mkdir(parents: true)?
+  if ! is_directory(parent) {
+    parent.mkdir(parents: true)
   }
   Ok()
 }
@@ -437,7 +437,7 @@ proc prepare_destination(target: Path, opts: Options) [fs, error] -> Result[Bool
   }
   if opts.keep { return Ok(false) }
   if opts.overwrite {
-    target.remove()?
+    target.remove()
     return Ok(true)
   }
   Err(TarError.Invalid(message: f"{target.display()}: destination exists"))
@@ -447,8 +447,8 @@ proc prepare_destination(target: Path, opts: Options) [fs, error] -> Result[Bool
 # mode and mtime are set after its contents, which a read-only mode would block.
 proc extract_one(member: Member, target: Path, root: Path, data: Bytes, opts: Options) [fs, io, error, process, env] -> Result[Fixup?] {
   if member.kind == "dir" {
-    if ! is_directory(target)? {
-      target.mkdir(parents: true)?
+    if ! is_directory(target) {
+      target.mkdir(parents: true)
     }
     return Ok({path: target, mode: member.mode, mtime: member.mtime})
   }
@@ -456,16 +456,16 @@ proc extract_one(member: Member, target: Path, root: Path, data: Bytes, opts: Op
     gnu.error(f"skipping {member.kind} member {member.name}")
     return Ok(null)
   }
-  ensure_parent(target)?
-  if ! prepare_destination(target, opts)? { return Ok(null) }
+  ensure_parent(target)
+  if ! prepare_destination(target, opts) { return Ok(null) }
   match member.kind {
     "file" => {
-      target.write(data.slice(member.data, member.size))?
-      target.chmod(member.mode.bit_and(0o7777))?
-      fs.set_times(target, mtime_ns: member.mtime * NANOS, follow_symlinks: false)?
+      target.write(data.slice(member.data, member.size))
+      target.chmod(member.mode.bit_and(0o7777))
+      fs.set_times(target, mtime_ns: member.mtime * NANOS, follow_symlinks: false)
     }
-    "symlink" => fs.symlink(fp"{member.link}", target)?
-    "hardlink" => fs.link(member_path(root, strip_components(canonical(member.link), opts.strip))?, target, follow_symlinks: false)?
+    "symlink" => fs.symlink(fp"{member.link}", target)
+    "hardlink" => fs.link(member_path(root, strip_components(canonical(member.link), opts.strip))?, target, follow_symlinks: false)
     _ => {}
   }
   Ok(null)
@@ -496,8 +496,8 @@ proc extract_members(opts: Options) [fs, io, error, process, env] -> Result[Unit
   }
   for index in range(fixups.len()) {
     let fixup = fixups[fixups.len() - 1 - index]
-    fixup.path.chmod(fixup.mode.bit_and(0o7777))?
-    fs.set_times(fixup.path, mtime_ns: fixup.mtime * NANOS, follow_symlinks: false)?
+    fixup.path.chmod(fixup.mode.bit_and(0o7777))
+    fs.set_times(fixup.path, mtime_ns: fixup.mtime * NANOS, follow_symlinks: false)
   }
   Ok()
 }
@@ -591,19 +591,19 @@ proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] -> 
     if opts.archive_path == null {
       gnu.write_bytes(data)
     } else {
-      fp"{opts.archive_path ?? ""}".write(data)?
+      fp"{opts.archive_path ?? ""}".write(data)
     }
     return Ok()
   }
   tempdir scratch {
     let raw = fp"{scratch}/archive.tar"
     let packed = fp"{scratch}/archive.out"
-    raw.write(data)?
+    raw.write(data)
     if opts.archive_path == null {
-      archive.compress(raw, packed, format: opts.compression, overwrite: true)?
+      archive.compress(raw, packed, format: opts.compression, overwrite: true)
       gnu.write_bytes(packed.read_bytes()?)
     } else {
-      archive.compress(raw, fp"{opts.archive_path ?? ""}", format: opts.compression, overwrite: true)?
+      archive.compress(raw, fp"{opts.archive_path ?? ""}", format: opts.compression, overwrite: true)
     }
   }
   Ok()

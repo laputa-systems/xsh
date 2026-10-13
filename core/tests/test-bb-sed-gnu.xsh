@@ -3,7 +3,7 @@ use support.uu as uu
 # origin: busybox sed/sed NUL in command
 test test_bb_sed_sed_NUL_in_command_badc0c39 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "sed.commands", b"/woo/a he\0llo\n")?
+  uu.write_bytes(s, "sed.commands", b"/woo/a he\0llo\n")
   let r = uu.invoke(s, "sed", ["-f", "sed.commands"], stdin: b"woo", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"woo\nhe\0llo\n")

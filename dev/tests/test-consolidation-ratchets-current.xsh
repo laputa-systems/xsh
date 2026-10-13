@@ -437,7 +437,7 @@ test test_structural_rise_fails_with_the_metric_and_values { |ctx|
     Err(metrics.MetricError.Rise {name, before, after}) => assert name == "manual_payload_calls" and before == 1 and after == 2
     Err(error) => test.fail(error.message)
   }
-  metrics.assert_not_risen(baseline, current)?
+  metrics.assert_not_risen(baseline, current)
   let root = tree(ctx)?; fp"{root}/dev/consolidation".mkdir()
   json.write(fp"{root}/base.json", baseline); json.write(fp"{root}/current.json", current)
   json.write(fp"{root}/dev/consolidation/baseline-metadata.json", {start_commit: "fixture"})
@@ -634,7 +634,7 @@ test test_final_close_requires_structural_zeros_and_keeps_source_totals_advisory
   assert "manual_payload_calls" in final_close_failure({...closed, metrics: closed.metrics + [closed.metrics[2]]}, baseline)
   assert final_close_failure(closed, {...baseline, metrics: baseline.metrics |> where .name != "manual_payload_calls" |> collect}) == "expected one manual_payload_calls metric"
   assert "manual_payload_calls" in final_close_failure(closed, {...baseline, metrics: baseline.metrics + [baseline.metrics[2]]})
-  metrics.assert_final_close(closed, baseline)?
+  metrics.assert_final_close(closed, baseline)
 }
 
 test test_review_evidence_requires_all_unique_verified_rows_and_hashed_workspace_artifacts { |ctx|

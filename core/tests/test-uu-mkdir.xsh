@@ -59,7 +59,7 @@ test test_uu_mkdir_mkdir_dup_dir_parent { |ctx|
 # origin: uutils test_mkdir::test_mkdir_dup_file
 test test_uu_mkdir_mkdir_dup_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_file.txt")?
+  uu.touch(s, "test_file.txt")
   var r = uu.invoke(s, "mkdir", ["test_file.txt"])?
   uu.fails(r)
   r = uu.invoke(s, "mkdir", ["-p", "test_file.txt"])?
@@ -149,7 +149,7 @@ test test_uu_mkdir_mkdir_mixed_special_components { |ctx|
 # origin: uutils test_mkdir::test_mkdir_parent_dir_components
 test test_uu_mkdir_mkdir_parent_dir_components { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "base/child")?
+  uu.mkdir(s, "base/child")
   var r = uu.invoke(s, "mkdir", ["-p", "base/child/../sibling"])?
   uu.succeeds(r)
   assert uu.dir_exists(s, "base/sibling")?
@@ -324,7 +324,7 @@ test test_uu_mkdir_mkdir_parent_mode { |ctx|
 # origin: uutils test_mkdir::test_mkdir_parent_mode_check_existing_parent
 test test_uu_mkdir_mkdir_parent_mode_check_existing_parent { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")?
+  uu.mkdir(s, "a")
   let existing = fs.stat(uu.at(s, "a"))?.mode
   let r = uu.invoke(s, "mkdir", ["-p", "a/b/c"], umask: 0o160)?
   uu.succeeds(r)
@@ -340,8 +340,8 @@ test test_uu_mkdir_mkdir_parent_mode_check_existing_parent { |ctx|
 # origin: uutils test_mkdir::test_mkdir_parent_mode_skip_existing_last_component_chmod
 test test_uu_mkdir_mkdir_parent_mode_skip_existing_last_component_chmod { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a/b")?
-  uu.set_mode(s, "a/b", 0)?
+  uu.mkdir(s, "a/b")
+  uu.set_mode(s, "a/b", 0)
   let r = uu.invoke(s, "mkdir", ["-p", "a/b"], umask: 0o160)?
   uu.succeeds(r)
   uu.no_output(r)
@@ -405,8 +405,8 @@ test test_uu_mkdir_mkdir_parent_mode_with_explicit_mode { |ctx|
 # origin: uutils test_mkdir::test_mkdir_parent_inherits_setgid
 test test_uu_mkdir_mkdir_parent_inherits_setgid { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "parent")?
-  uu.set_mode(s, "parent", 0o2755)?
+  uu.mkdir(s, "parent")
+  uu.set_mode(s, "parent", 0o2755)
   let r = uu.invoke(s, "mkdir", ["-p", "parent/child/grandchild"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -418,8 +418,8 @@ test test_uu_mkdir_mkdir_parent_inherits_setgid { |ctx|
 # origin: uutils test_mkdir::test_mkdir_acl
 test test_uu_mkdir_mkdir_acl { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")?
-  fs.xattr_set(uu.at(s, "a"), "system.posix_acl_default", bytes.from_ints([2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 4, 0, 7, 0, 255, 255, 255, 255, 32, 0, 5, 0, 255, 255, 255, 255])?)?
+  uu.mkdir(s, "a")
+  fs.xattr_set(uu.at(s, "a"), "system.posix_acl_default", bytes.from_ints([2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 4, 0, 7, 0, 255, 255, 255, 255, 32, 0, 5, 0, 255, 255, 255, 255])?)
   let r = uu.invoke(s, "mkdir", ["-p", "a/b"], umask: 119)?
   uu.succeeds(r)
   assert fs.stat(uu.at(s, "a/b"))?.mode == 16893
@@ -428,8 +428,8 @@ test test_uu_mkdir_mkdir_acl { |ctx|
 # origin: uutils test_mkdir::test_mkdir_acl_inheritance_with_restrictive_mask
 test test_uu_mkdir_mkdir_acl_inheritance_with_restrictive_mask { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "parent")?
-  fs.xattr_set(uu.at(s, "parent"), "system.posix_acl_default", bytes.from_ints([2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 4, 0, 7, 0, 255, 255, 255, 255, 16, 0, 5, 0, 255, 255, 255, 255, 32, 0, 0, 0, 255, 255, 255, 255])?)?
+  uu.mkdir(s, "parent")
+  fs.xattr_set(uu.at(s, "parent"), "system.posix_acl_default", bytes.from_ints([2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 4, 0, 7, 0, 255, 255, 255, 255, 16, 0, 5, 0, 255, 255, 255, 255, 32, 0, 0, 0, 255, 255, 255, 255])?)
   let r = uu.invoke(s, "mkdir", ["-p", "parent/child"], umask: 0o000)?
   uu.succeeds(r)
   assert fs.stat(uu.at(s, "parent/child"))?.mode.bit_and(0o777) == 0o750

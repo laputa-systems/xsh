@@ -19,12 +19,12 @@ test fs_tempdir_in_creates_a_private_child_and_removes_it_on_close { |ctx|
   let root_path = root.host_path()?
 
   assert fs.stat(root_path)?.mode.bit_and(0o777) == 0o700
-  root.write(p"chunk", "data")?
-  root.chmod(p"chunk", 0o600)?
+  root.write(p"chunk", "data")
+  root.chmod(p"chunk", 0o600)
   assert fs.stat(fp"{root_path}/chunk")?.mode.bit_and(0o777) == 0o600
   assert (fs.children(parent)? |> count()) == 1
 
-  root.close()?
+  root.close()
   assert (fs.children(parent)? |> count()) == 0
 }
 

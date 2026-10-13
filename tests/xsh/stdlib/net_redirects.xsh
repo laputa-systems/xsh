@@ -125,15 +125,15 @@ proc start_script(ctx: TestContext, source: Str) [fs, process, time, error] -> R
   let root = test.temp_dir(ctx, name: "net-server")?
   let script = fp"{root}/server.pl"
   let port_file = fp"{root}/port"
-  script.write(source)?
+  script.write(source)
   let handle = spawn run perl $script $port_file ?
   let started = time.now()
-  while !port_file.exists()? {
+  while !port_file.exists() {
     if time.now() - started > 5000 {
-      handle.cancel(signal: "KILL", kill_after: 0ms)?
+      handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure("the HTTP fixture did not start"))
     }
-    time.sleep(20ms)?
+    time.sleep(20ms)
   }
   let port = port_file.read_text()?.trim()
   Ok({base: f"http://127.0.0.1:{port}", handle: handle})

@@ -148,7 +148,7 @@ proc clear_immutable(file: Path) [process, error] -> Result[Bool, Error] {
   let flags = found?.flags
   return Ok(false) when flags.bit_and(FS_IMMUTABLE) == 0
 
-  linux.set_file_attrs(file, flags.clear_bits(FS_IMMUTABLE))?
+  linux.set_file_attrs(file, flags.clear_bits(FS_IMMUTABLE))
   Ok(true)
 }
 
@@ -164,7 +164,7 @@ export proc write_variable(store: Store, name: Str, attributes: Int, data: Bytes
   let file = variable_path(store, name)?
   let restore = if file.exists() { clear_immutable(file)? } else { false }
   let written = file.write(bytes.concat([bytes.pack_le(attributes, 4)?, data]))
-  if restore { restore_immutable(file)? }
+  if restore { restore_immutable(file) }
   written
 }
 

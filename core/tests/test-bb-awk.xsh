@@ -318,7 +318,7 @@ test test_bb_awk_awk_if_length_0_dd284655{ |ctx|
 # origin: busybox awk/awk -f and ARGC
 test test_bb_awk_awk_f_and_ARGC_005000c7{ |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "do re mi\n")?
+  uu.write(s, "input", "do re mi\n")
   let r = uu.invoke(s, "awk", ["-f", "-", "input"], stdin: bytes.from_text("{print $2; print ARGC;}"), timeout: 5s)?
   uu.fails_with_code(r, 0)
   uu.stdout_is(r, "re\n2\n")

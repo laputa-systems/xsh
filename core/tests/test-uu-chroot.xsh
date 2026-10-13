@@ -11,7 +11,7 @@ test test_uu_chroot_invalid_arg { |ctx|
 # origin: uutils test_chroot::test_chroot_skip_chdir_not_root
 test test_uu_chroot_chroot_skip_chdir_not_root { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "foobar")?
+  uu.mkdir(s, "foobar")
   let r = uu.invoke(s, "chroot", ["--skip-chdir", "foobar"])?
   uu.fails_with_code(r, 125)
   uu.stderr_contains(r, "chroot: option --skip-chdir only permitted if NEWROOT is old '/'")
@@ -32,7 +32,7 @@ test test_uu_chroot_preference_of_userspec { |ctx|
   let username = whoami.stdout.utf8()?.trim()
   let id = uu.invoke(s, "id", ["-g", "-n"])?
   let group_name = id.stdout.utf8()?.trim()
-  uu.mkdir(s, "a")?
+  uu.mkdir(s, "a")
   let r = uu.invoke(s, "chroot", ["a", "--user", "fake", "--groups", "ABC,DEF", f"--userspec={username}:{group_name}"])?
   uu.fails_with_code(r, 125)
 }

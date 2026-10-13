@@ -16,8 +16,8 @@ proc signaled_sleep(s: uu.Scene, args: List[Str], signal: Str, expected: Int) [f
   let plan = uu.command(s, "sleep", args, timeout: 10s)?
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  time.sleep(100ms)?
-  process.kill(child.pid, signal: signal)?
+  time.sleep(100ms)
+  process.kill(child.pid, signal: signal)
   let completed = process.wait_timeout([child], 10s)?
   assert completed != null, "sleep did not terminate after its signal"
   assert completed.status.signaled()
@@ -150,7 +150,7 @@ test test_uu_sleep_uchild_when_kill_and_timeout_higher_than_kill_time_then_no_pa
   let plan = uu.command(s, "sleep", ["20.0"], timeout: 60s)?
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  process.kill(child.pid, signal: "KILL")?
+  process.kill(child.pid, signal: "KILL")
   let completed = process.wait_timeout([child], 5s)?
   assert completed != null, "sleep was still alive after kill within five seconds"
 }
@@ -332,7 +332,7 @@ proc timed_wait_child(s: uu.Scene, limit: Str, minimum_ns: Int) [fs, process, en
   assert p"sleep-err".read_bytes()? == b""
 }
 """
-  script.write(source.replace("WAIT_LIMIT", with: limit))?
+  script.write(source.replace("WAIT_LIMIT", with: limit))
   let sleep_words = uu.argv(s, "sleep", [p"10.0"])?
   let words = [s.ctx.xsh_bin, script, p"--"].extend(sleep_words)
   let timing = time.measure(process.command_argv(s.ctx.xsh_bin, words, s.root, {}, b"", uu.at(s, "owner-out"), uu.at(s, "owner-err")))?

@@ -17,16 +17,16 @@ test test_bb_md5sum_md5sum_original_aggregate { |ctx| checksum.check_original_ag
 # origin: busybox md5sum/md5sum -c EMPTY
 test test_bb_md5sum_md5sum_c_EMPTY_9c7796bd { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "EMPTY")?
+  uu.touch(s, "EMPTY")
   uu.fails_with_code(uu.invoke(s, "md5sum", ["-c", "EMPTY"])?, 1)
 }
 
 # origin: busybox md5sum/md5sum-verifies-non-binary-file
 test test_bb_md5sum_md5sum_verifies_non_binary_file_394a9a7e { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
+  uu.touch(s, "foo")
   let listing = uu.invoke(s, "md5sum", ["foo"])?
   uu.succeeds(listing)
-  uu.write_bytes(s, "bar", listing.stdout)?
+  uu.write_bytes(s, "bar", listing.stdout)
   uu.succeeds(uu.invoke(s, "md5sum", ["-c", "bar"])?)
 }

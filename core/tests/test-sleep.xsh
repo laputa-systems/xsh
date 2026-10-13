@@ -100,14 +100,14 @@ proc sleep_signal_exit_status(ctx: TestContext, signal: Str) [fs, process, time,
     new_session: true,
   )?
 
-  time.sleep(100ms)?
-  process.kill(child.pid, signal: signal)?
+  time.sleep(100ms)
+  process.kill(child.pid, signal: signal)
 
   if let completed = process.wait_timeout([child], 2000ms)? {
     return completed.status.shell_code()?
   }
 
-  child.cancel(signal: "KILL", kill_after: 0ms)?
+  child.cancel(signal: "KILL", kill_after: 0ms)
   -1
 }
 
@@ -132,12 +132,12 @@ test test_sleep_preserves_an_inherited_ignored_signal { |ctx|
     ]
     let child = spawn process.command_argv(ctx.xsh_bin, argv, root)?
 
-    time.sleep(100ms)?
-    process.kill(child.pid, signal: signal)?
+    time.sleep(100ms)
+    process.kill(child.pid, signal: signal)
     let still_running = process.wait_timeout([child], 100ms)? == null
 
     if still_running {
-      child.cancel(signal: "KILL", kill_after: 0ms)?
+      child.cancel(signal: "KILL", kill_after: 0ms)
     }
 
     assert still_running, signal

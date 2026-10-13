@@ -3,22 +3,22 @@ use support.uu
 # origin: gnu paste/multi-byte.log
 test test_gnu_paste_multi_byte_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f1", "1\n2\n")?
-  uu.write(s, "f2", "a\nb\n")?
+  uu.write(s, "f1", "1\n2\n")
+  uu.write(s, "f2", "a\nb\n")
   for delimiter in ["¢", "€", "😀"] {
     let r = uu.invoke(s, "paste", ["-d", delimiter, "f1", "f2"], vars: {LC_ALL: "fr_FR.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is_bytes(r, bytes.from_text(f"1{delimiter}a\n2{delimiter}b\n"))
   }
-  uu.write(s, "f3", "1\n2\n3\n")?
+  uu.write(s, "f3", "1\n2\n3\n")
   for delimiter in ["¢", "€"] {
     let r = uu.invoke(s, "paste", ["-s", "-d", delimiter, "f3"], vars: {LC_ALL: "fr_FR.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is_bytes(r, bytes.from_text(f"1{delimiter}2{delimiter}3\n"))
   }
-  uu.write(s, "f4", "a\nb\nc\n")?
-  uu.write(s, "f5", "1\n2\n3\n")?
-  uu.write(s, "f6", "x\ny\nz\n")?
+  uu.write(s, "f4", "a\nb\nc\n")
+  uu.write(s, "f5", "1\n2\n3\n")
+  uu.write(s, "f6", "x\ny\nz\n")
   let alternating = uu.invoke(s, "paste", ["-d", "¢€", "f4", "f5", "f6"], vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(alternating)
   uu.stdout_is_bytes(alternating, bytes.from_text("a¢1€x\nb¢2€y\nc¢3€z\n"))
@@ -53,8 +53,8 @@ test test_gnu_paste_paste_log { |ctx|
       for ends in [{left: "", right: ""}, {left: terminator, right: ""}, {left: "", right: terminator}, {left: terminator, right: terminator}] {
         let left = if two_rows { "1" + terminator + "a" } else { "a" }
         let right = if two_rows { "2" + terminator + "b" } else { "b" }
-        uu.write(s, "left", left + ends.left)?
-        uu.write(s, "right", right + ends.right)?
+        uu.write(s, "left", left + ends.left)
+        uu.write(s, "right", right + ends.right)
         let flags = if two_rows { if terminator == "\0" { ["-zd "] } else { ["-d "] } } else { if terminator == "\0" { ["-z"] } else { [] } }
         let expected = if two_rows { "1 2" + terminator + "a b" + terminator } else { "a\tb" + terminator }
         let r = uu.invoke(s, "paste", flags.extend(["left", "right"]))?
@@ -64,22 +64,22 @@ test test_gnu_paste_paste_log { |ctx|
     }
   }
   for name in [["a" for _ in range(50)].join(""), r"123\b\b\b.....@"] {
-    uu.touch(s, name)?
+    uu.touch(s, name)
     let r = uu.invoke(s, "paste", ["-d\\", name])?
     uu.fails_with_code(r, 1)
     uu.stderr_only(r, "paste: delimiter list ends with an unescaped backslash: \\\n")
   }
-  uu.write(s, "left", "1\n2\n3\n")?
+  uu.write(s, "left", "1\n2\n3\n")
   let empty = uu.invoke(s, "paste", ["-s", "-d", r"\0,", "left"])?
   uu.succeeds(empty)
   uu.stdout_only(empty, "12,3\n")
-  uu.write(s, "left", "0\n1\n")?
-  uu.write(s, "middle", "2\n3\n4\n5\n6\n")?
-  uu.write(s, "right", "7\n8\n9\n")?
+  uu.write(s, "left", "0\n1\n")
+  uu.write(s, "middle", "2\n3\n4\n5\n6\n")
+  uu.write(s, "right", "7\n8\n9\n")
   let reset = uu.invoke(s, "paste", ["-s", "-d", "abc", "left", "middle", "right"])?
   uu.succeeds(reset)
   uu.stdout_only(reset, "0a1\n2a3b4c5a6\n7a8b9\n")
-  uu.write(s, "left", "1\n2\n")?
+  uu.write(s, "left", "1\n2\n")
   for item in [
     {delimiter: r"\0", expected: "12\n"},
     {delimiter: r"\n", expected: "1\n2\n"},

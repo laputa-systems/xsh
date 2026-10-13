@@ -26,7 +26,7 @@ test test_uu_sync_sync_data_but_not_file { |ctx|
 # origin: uutils test_sync::test_sync_data_fifo_fails_immediately
 test test_uu_sync_sync_data_fifo_fails_immediately { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "test-fifo")?
+  uu.mkfifo(s, "test-fifo")
   let r = uu.invoke(s, "sync", ["--data", uu.at(s, "test-fifo").display()], timeout: 2s)?
   uu.fails(r)
   uu.stderr_contains(r, "error syncing")
@@ -37,7 +37,7 @@ test test_uu_sync_sync_data_fifo_fails_immediately { |ctx|
 # origin: uutils test_sync::test_sync_data_nonblock_flag_reset
 test test_uu_sync_sync_data_nonblock_flag_reset { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "test_file.txt", "test content")?
+  uu.write(s, "test_file.txt", "test content")
   uu.succeeds(uu.invoke(s, "sync", ["--data", "test_file.txt"], timeout: 30s)?)
 }
 
@@ -87,8 +87,8 @@ test test_uu_sync_sync_multiple_files { |ctx|
   let directory = test.temp_dir(ctx, name: "sync-multiple")?
   let file1 = fp"{directory}/file1.txt"
   let file2 = fp"{directory}/file2.txt"
-  file1.write("content1")?
-  file2.write("content2")?
+  file1.write("content1")
+  file2.write("content2")
   uu.succeeds(uu.invoke(s, "sync", ["--data", file1.display(), file2.display()], timeout: 30s)?)
 }
 
@@ -111,8 +111,8 @@ test test_uu_sync_sync_no_existing_files { |ctx|
 # origin: uutils test_sync::test_sync_no_permission_dir
 test test_uu_sync_sync_no_permission_dir { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir_all(s, "foo")?
-  uu.set_mode(s, "foo", 0o000)?
+  uu.mkdir_all(s, "foo")
+  uu.set_mode(s, "foo", 0o000)
   defer uu.set_mode(s, "foo", 0o700)
   for args in [["--data", "foo"], ["foo"]] {
     let r = uu.invoke(s, "sync", args, timeout: 30s)?
@@ -124,7 +124,7 @@ test test_uu_sync_sync_no_permission_dir { |ctx|
 # origin: uutils test_sync::test_sync_no_permission_file
 test test_uu_sync_sync_no_permission_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.set_mode(s, "file", 0o200)?
+  uu.touch(s, "file")
+  uu.set_mode(s, "file", 0o200)
   uu.succeeds(uu.invoke(s, "sync", ["file"], timeout: 30s)?)
 }

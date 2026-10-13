@@ -26,7 +26,7 @@ proc boot_stdout() [fs, process, time, error] -> Result[Str, Error] {
   let boots = [entry for entry in records if entry.kind == "boot_time"]
   var seconds: List[Int] = [entry.time_sec for entry in boots]
   if seconds.is_empty() {
-    if p"/var/run/utmp".exists()? {
+    if p"/var/run/utmp".exists() {
       seconds = [fs.stat(p"/var/run/utmp")?.mtime_ns / 1000000000]
     } else {
       let lines = [line for line in p"/proc/stat".read_text()?.lines().collect() if line.starts_with("btime ")]

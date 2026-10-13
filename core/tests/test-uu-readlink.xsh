@@ -21,8 +21,8 @@ test test_uu_readlink_invalid_arg { |ctx|
 # origin: uutils test_readlink::test_resolve
 test test_uu_readlink_resolve { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
-  uu.symlink(s, uu.at(s, "foo").display(), "bar")?
+  uu.touch(s, "foo")
+  uu.symlink(s, uu.at(s, "foo").display(), "bar")
   let r = uu.invoke(s, "readlink", ["bar"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "foo\n")
@@ -31,10 +31,10 @@ test test_uu_readlink_resolve { |ctx|
 # origin: uutils test_readlink::test_keeps_going_after_an_operand_that_cannot_be_read
 test test_uu_readlink_keeps_going_after_an_operand_that_cannot_be_read { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
-  uu.symlink(s, "foo", "bar")?
-  uu.touch(s, "baz")?
-  uu.symlink(s, "baz", "qux")?
+  uu.touch(s, "foo")
+  uu.symlink(s, "foo", "bar")
+  uu.touch(s, "baz")
+  uu.symlink(s, "baz", "qux")
   let r = uu.invoke(s, "readlink", ["bar", "nope", "qux"])?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "foo\nbaz\n")
@@ -48,8 +48,8 @@ test test_uu_readlink_keeps_going_after_an_operand_that_cannot_be_read { |ctx|
 # origin: uutils test_readlink::test_canonicalize_existing_keeps_going_after_a_missing_operand
 test test_uu_readlink_canonicalize_existing_keeps_going_after_a_missing_operand { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.touch(s, "c")?
+  uu.touch(s, "a")
+  uu.touch(s, "c")
   let root = s.root.resolve()?
   let r = uu.invoke(s, "readlink", ["-e", "a", "b", "c"])?
   uu.fails_with_code(r, 1)
@@ -86,9 +86,9 @@ test test_uu_readlink_canonicalize_missing { |ctx|
 # origin: uutils test_readlink::test_canonicalize_symlink_before_parentdir
 test test_uu_readlink_canonicalize_symlink_before_parentdir { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "real")?
-  uu.mkdir(s, "real/sub")?
-  uu.symlink(s, "real/sub", "link")?
+  uu.mkdir(s, "real")
+  uu.mkdir(s, "real/sub")
+  uu.symlink(s, "real/sub", "link")
   let root = s.root.resolve()?
   let r = uu.invoke(s, "readlink", ["-f", "link/.."])?
   uu.succeeds(r)
@@ -117,7 +117,7 @@ test test_uu_readlink_long_redirection_to_root { |ctx|
 # origin: uutils test_readlink::test_symlink_to_itself_verbose
 test test_uu_readlink_symlink_to_itself_verbose { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "a", "a")?
+  uu.symlink(s, "a", "a")
   let r = uu.invoke(s, "readlink", ["-ev", "a"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "Too many levels of symbolic links")
@@ -126,7 +126,7 @@ test test_uu_readlink_symlink_to_itself_verbose { |ctx|
 # origin: uutils test_readlink::test_posixly_correct_regular_file
 test test_uu_readlink_posixly_correct_regular_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "regfile")?
+  uu.touch(s, "regfile")
   for args in [["regfile"], ["-s", "regfile"], ["-q", "regfile"]] {
     let r = uu.invoke(s, "readlink", args, vars: {POSIXLY_CORRECT: "1"})?
     uu.fails_with_code(r, 1)
@@ -138,7 +138,7 @@ test test_uu_readlink_posixly_correct_regular_file { |ctx|
 # origin: uutils test_readlink::test_trailing_slash_regular_file
 test test_uu_readlink_trailing_slash_regular_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "regfile")?
+  uu.touch(s, "regfile")
   let r = uu.invoke(s, "readlink", ["-ev", "./regfile/"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "Not a directory")
@@ -151,8 +151,8 @@ test test_uu_readlink_trailing_slash_regular_file { |ctx|
 # origin: uutils test_readlink::test_trailing_slash_symlink_to_regular_file
 test test_uu_readlink_trailing_slash_symlink_to_regular_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "regfile")?
-  uu.symlink(s, "regfile", "link")?
+  uu.touch(s, "regfile")
+  uu.symlink(s, "regfile", "link")
   let r = uu.invoke(s, "readlink", ["-ev", "./link/"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "Not a directory")
@@ -168,7 +168,7 @@ test test_uu_readlink_trailing_slash_symlink_to_regular_file { |ctx|
 # origin: uutils test_readlink::test_trailing_slash_directory
 test test_uu_readlink_trailing_slash_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "directory")?
+  uu.mkdir(s, "directory")
   for query in ["./directory", "./directory/"] {
     let r = uu.invoke(s, "readlink", ["-e", query])?
     uu.succeeds(r)
@@ -179,8 +179,8 @@ test test_uu_readlink_trailing_slash_directory { |ctx|
 # origin: uutils test_readlink::test_trailing_slash_symlink_to_directory
 test test_uu_readlink_trailing_slash_symlink_to_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "directory")?
-  uu.symlink(s, "directory", "link")?
+  uu.mkdir(s, "directory")
+  uu.symlink(s, "directory", "link")
   for query in ["./link", "./link/"] {
     let r = uu.invoke(s, "readlink", ["-e", query])?
     uu.succeeds(r)
@@ -195,9 +195,9 @@ test test_uu_readlink_trailing_slash_symlink_to_directory { |ctx|
 # origin: uutils test_readlink::test_trailing_slash_symlink_to_missing
 test test_uu_readlink_trailing_slash_symlink_to_missing { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "subdir")?
-  uu.symlink(s, "missing", "link")?
-  uu.symlink(s, "subdir/missing", "link2")?
+  uu.mkdir(s, "subdir")
+  uu.symlink(s, "missing", "link")
+  uu.symlink(s, "subdir/missing", "link2")
   for query in ["missing", "./missing/", "link", "./link/", "link/more", "link2", "./link2/", "link2/more"] {
     let r = uu.invoke(s, "readlink", ["-ev", query])?
     uu.fails_with_code(r, 1)
@@ -209,8 +209,8 @@ test test_uu_readlink_trailing_slash_symlink_to_missing { |ctx|
 # origin: uutils test_readlink::test_canonicalize_trailing_slash_regfile
 test test_uu_readlink_canonicalize_trailing_slash_regfile { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "regfile")?
-  uu.symlink(s, "regfile", "link1")?
+  uu.touch(s, "regfile")
+  uu.symlink(s, "regfile", "link1")
   for name in ["regfile", "link1"] {
     let plain = uu.invoke(s, "readlink", ["-f", name])?
     uu.succeeds(plain)
@@ -227,8 +227,8 @@ test test_uu_readlink_canonicalize_trailing_slash_regfile { |ctx|
 # origin: uutils test_readlink::test_canonicalize_trailing_slash_subdir
 test test_uu_readlink_canonicalize_trailing_slash_subdir { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "subdir")?
-  uu.symlink(s, "subdir", "link2")?
+  uu.mkdir(s, "subdir")
+  uu.symlink(s, "subdir", "link2")
   for name in ["subdir", "link2"] {
     for query in [name, f"./{name}/"] {
       let r = uu.invoke(s, "readlink", ["-f", query])?
@@ -251,7 +251,7 @@ test test_uu_readlink_canonicalize_trailing_slash_subdir { |ctx|
 # origin: uutils test_readlink::test_canonicalize_trailing_slash_missing
 test test_uu_readlink_canonicalize_trailing_slash_missing { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "missing", "link3")?
+  uu.symlink(s, "missing", "link3")
   for name in ["missing", "link3"] {
     for query in [name, f"./{name}/"] {
       let r = uu.invoke(s, "readlink", ["-f", query])?
@@ -269,8 +269,8 @@ test test_uu_readlink_canonicalize_trailing_slash_missing { |ctx|
 # origin: uutils test_readlink::test_canonicalize_trailing_slash_subdir_missing
 test test_uu_readlink_canonicalize_trailing_slash_subdir_missing { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "subdir")?
-  uu.symlink(s, "subdir/missing", "link4")?
+  uu.mkdir(s, "subdir")
+  uu.symlink(s, "subdir/missing", "link4")
   for query in ["link4", "./link4/"] {
     let r = uu.invoke(s, "readlink", ["-f", query])?
     uu.succeeds(r)
@@ -286,7 +286,7 @@ test test_uu_readlink_canonicalize_trailing_slash_subdir_missing { |ctx|
 # origin: uutils test_readlink::test_canonicalize_trailing_slash_symlink_loop
 test test_uu_readlink_canonicalize_trailing_slash_symlink_loop { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "link5", "link5")?
+  uu.symlink(s, "link5", "link5")
   for query in ["link5", "./link5/", "link5/more", "./link5/more/"] {
     let r = uu.invoke(s, "readlink", ["-f", query])?
     uu.fails_with_code(r, 1)
@@ -322,9 +322,9 @@ test test_uu_readlink_delimiters { |ctx|
 # origin: uutils test_readlink::test_readlink_non_utf8_paths
 test test_uu_readlink_readlink_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "target_file")?
+  uu.touch(s, "target_file")
   let name = b"symlink_\xff\xfe"
-  uu.at_bytes(s, name)?.symlink(to: uu.at(s, "target_file"))?
+  uu.at_bytes(s, name)?.symlink(to: uu.at(s, "target_file"))
   let r = uu.invoke_paths(s, "readlink", [Path.parse_bytes(name)?])?
   uu.succeeds(r)
   uu.stdout_contains(r, "target_file")
@@ -333,7 +333,7 @@ test test_uu_readlink_readlink_non_utf8_paths { |ctx|
 # origin: uutils test_readlink::test_verbose_or_silent
 test test_uu_readlink_verbose_or_silent { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "regfile")?
+  uu.touch(s, "regfile")
   let r = uu.invoke(s, "readlink", ["regfile"])?
   uu.fails_with_code(r, 1)
   uu.no_output(r)

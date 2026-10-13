@@ -94,13 +94,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit failure_status
     }
   }
-  process.set_signal_action("HUP", "ignore")?
+  process.set_signal_action("HUP", "ignore")
   let launch_status = proc_launch.launch_status(opts.command[0])
   if launch_status != 0 {
     let reason = if launch_status == 127 { "No such file or directory" } else { "Permission denied" }
     launch_failed(opts.command[0], reason, launch_status, saved_stderr)
   }
-  io.flush_stdout()?
+  io.flush_stdout()
   let plan = process.command_argv(opts.command[0], opts.command)
   if let Err(failure) = unix.exec(plan) {
     let status = if gnu.errno(failure) == 2 { 127 } else { 126 }

@@ -70,7 +70,7 @@ test test_printf_preserves_output_bytes { |ctx|
 }
 
 test test_printf_flushes_stdout_and_reports_write_errors { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "printf-write-error")?
   let script = fp"{ctx.core_dir}/printf.xsh"
   let error_path = fp"{root}/error"
@@ -106,7 +106,7 @@ test test_printf_streams_large_field_widths { |ctx|
   assert data.byte_at(1000002) == 66
   assert stderr.read_text()? == ""
 
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
   let full_error = fp"{root}/error-full"
   let full = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display(), "%20000000f", "1"], root,
@@ -123,7 +123,7 @@ test test_printf_streams_large_field_widths { |ctx|
 }
 
 test test_printf_matches_c_field_width_limits { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "printf-width-limits")?
   let script = fp"{ctx.core_dir}/printf.xsh"
 

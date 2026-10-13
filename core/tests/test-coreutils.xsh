@@ -6,14 +6,14 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 proc front_end_dir(ctx: TestContext, applets: List[Str]) [fs, process, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "coreutils")?
   fp"{root}/lib".mkdir()
-  fp"{ctx.core_dir}/lib/gnu.xsh".copy(to: fp"{root}/lib/gnu.xsh")?
+  fp"{ctx.core_dir}/lib/gnu.xsh".copy(to: fp"{root}/lib/gnu.xsh")
 
   for name in ["coreutils"] + applets {
     let source = if name == "coreutils" { fp"{ctx.core_dir}/coreutils.xsh" } else { fp"{ctx.core_dir}/{name}.xsh" }
     let body = source.read_text()?.replace("#!/bin/xsh", with: f"#!{ctx.xsh_bin.display()}")
     let target = fp"{root}/{name}"
-    target.write(body)?
-    target.chmod(0o755)?
+    target.write(body)
+    target.chmod(0o755)
   }
 
   Ok(root)
@@ -71,7 +71,7 @@ test test_coreutils_unknown_program_names_the_program { |ctx|
 test test_coreutils_invoked_under_an_applet_name_runs_that_name { |ctx|
   let root = front_end_dir(ctx, [])?
   let link = fp"{root}/blah"
-  link.symlink(to: fp"{root}/coreutils")?
+  link.symlink(to: fp"{root}/coreutils")
 
   let result = front_run(ctx, root, link, ["--version"])?
   assert result.status == 1

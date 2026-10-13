@@ -23,28 +23,28 @@ proc wrapped(s: uu.Scene, args: List[Str], prefix: List[Path]) [fs, process, env
 test test_gnu_mktemp_bad_unicode_log { |ctx|
   let s = uu.scene(ctx)?
   let bad = b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf"
-  uu.at_bytes(s, bad)?.write("a\n")?
+  uu.at_bytes(s, bad)?.write("a\n")
   for locale in ["C", "fr_FR", "fr_FR.UTF-8"] {
     let vars = {LC_ALL: locale}
     let suffix = Path.parse_bytes(bytes.concat([b"--suffix=", bad]))?
     let file1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", suffix], vars: vars)?
-    created(s, file1, false)?
+    created(s, file1, false)
     let dir1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", p"-d", suffix], vars: vars)?
-    created(s, dir1, true)?
+    created(s, dir1, true)
     let dir_bytes = dir1.stdout[0..dir1.stdout.len() - 1]
     let tmpdir = Path.parse_bytes(bytes.concat([b"--tmpdir=", dir_bytes]))?
     for directory in [false, true] {
       let args = if directory { [p"-d", tmpdir] } else { [tmpdir] }
-      created(s, uu.invoke_paths(s, "mktemp", args, vars: vars)?, directory)?
+      created(s, uu.invoke_paths(s, "mktemp", args, vars: vars)?, directory)
     }
     for directory in [false, true] {
       let args = if directory { [p"-d"] } else { [] }
-      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: Path.parse_bytes(dir_bytes)?})?, directory)?
+      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: Path.parse_bytes(dir_bytes)?})?, directory)
     }
     let pattern_word = Path.parse_bytes(bytes.concat([bad, b"XXXXXX"]))?
     for directory in [false, true] {
       let args = if directory { [p"-d", p"-t", pattern_word] } else { [p"-t", pattern_word] }
-      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: "."})?, directory)?
+      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: "."})?, directory)
     }
   }
 }
@@ -107,7 +107,7 @@ test test_gnu_mktemp_mktemp_log { |ctx|
     {args: ["-t", "-p", "no/such/dir", "foo.XXX"], pattern: "^\\./foo\\....\n$", kind: "unchecked", pre: "", vars: {TMPDIR: "."}},
     {args: ["-u"], pattern: "^no/such/dir/tmp\\..{10}\n$", kind: "unchecked", pre: "", vars: {TMPDIR: "no/such/dir"}},
   ] {
-    if row.pre != "" { uu.mkdir(s, row.pre)?; uu.set_mode(s, row.pre, 0o755)? }
+    if row.pre != "" { uu.mkdir(s, row.pre); uu.set_mode(s, row.pre, 0o755) }
     let r = uu.invoke(s, "mktemp", row.args, vars: row.vars)?
     uu.succeeds(r)
     uu.no_stderr(r)
@@ -120,9 +120,9 @@ test test_gnu_mktemp_mktemp_log { |ctx|
       assert fs.stat(entry)?.kind == row.kind
       let required = if row.kind == "dir" { 0o700 } else { 0o600 }
       assert fs.stat(entry)?.mode.bit_and(0o777) == required
-      entry.remove()?
+      entry.remove()
     }
-    if row.pre != "" { uu.remove(s, row.pre)? }
+    if row.pre != "" { uu.remove(s, row.pre) }
   }
   let bad_dir = uu.invoke(s, "mktemp", [], vars: {TMPDIR: "no/such/dir"})?
   uu.fails_with_code(bad_dir, 1)
@@ -134,7 +134,7 @@ test test_gnu_mktemp_mktemp_log { |ctx|
 # origin: gnu mktemp/write-error.log
 test test_gnu_mktemp_write_error_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a/b")?
+  uu.mkdir(s, "a/b")
   for args in [["-p", "a/b"], ["-p", "a/b", "-d"]] {
     let r = wrapped(s, args, [p"/bin/sh", p"-c", p"exec \"$@\" > /dev/full", p"mktemp-output"])?
     uu.fails_with_code(r, 1)

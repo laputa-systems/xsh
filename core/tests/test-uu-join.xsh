@@ -46,7 +46,7 @@ proc fixtures(s: uu.Scene) {
     "unpaired_lines_outer.expected",
     "z.expected",
   ] {
-    uu.fixture(s, "join", name, name)?
+    uu.fixture(s, "join", name, name)
   }
 }
 
@@ -129,7 +129,7 @@ test test_uu_join_different_fields { |ctx|
 test test_uu_join_empty_fields_kept_without_empty_filler { |ctx|
   let s = uu.scene(ctx)?
   fixtures(s)
-  uu.write(s, "gap", "a,,b\n")?
+  uu.write(s, "gap", "a,,b\n")
   let r1 = uu.invoke(s, "join", ["-t", ",", "-o", "0,1.1,1.2,1.3", "gap", "gap"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "a,a,,b\n")
@@ -142,15 +142,15 @@ test test_uu_join_empty_fields_kept_without_empty_filler { |ctx|
 test test_uu_join_empty_fields_use_empty_filler { |ctx|
   let s = uu.scene(ctx)?
   fixtures(s)
-  uu.write(s, "blank", "hello\n\n\n")?
+  uu.write(s, "blank", "hello\n\n\n")
   let r1 = uu.invoke(s, "join", ["-e", "EMPTY", "blank", "blank"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "hello\nEMPTY\nEMPTY\nEMPTY\nEMPTY\n")
-  uu.write(s, "spaces", "   \n")?
+  uu.write(s, "spaces", "   \n")
   let r2 = uu.invoke(s, "join", ["-e", "EMPTY", "-o", "0,1.1", "spaces", "spaces"])?
   uu.succeeds(r2)
   uu.stdout_only(r2, "EMPTY EMPTY\n")
-  uu.write(s, "gap", "a,,b\n")?
+  uu.write(s, "gap", "a,,b\n")
   let r3 = uu.invoke(s, "join", ["-t", ",", "-e", "EMPTY", "-o", "0,1.1,1.2,1.3", "gap", "gap"])?
   uu.succeeds(r3)
   uu.stdout_only(r3, "a,a,EMPTY,b\n")
@@ -223,8 +223,8 @@ test test_uu_join_headers_autoformat { |ctx|
 test test_uu_join_join_emoji_delim_inner_key { |ctx|
   let s = uu.scene(ctx)?
   fixtures(s)
-  uu.write(s, "file1", "a🗿b\n")?
-  uu.write(s, "file2", "u🗿b\n")?
+  uu.write(s, "file1", "a🗿b\n")
+  uu.write(s, "file2", "u🗿b\n")
   let r1 = uu.invoke(s, "join", ["-t🗿", "-1", "2", "-2", "2", "file1", "file2"], vars: {LC_ALL: "C.utf8"})?
   uu.succeeds(r1)
   uu.stdout_only(r1, "b🗿a🗿u\n")
@@ -416,8 +416,8 @@ test test_uu_join_invalid_arg { |ctx|
 test test_uu_join_locale_collation { |ctx|
   let s = uu.scene(ctx)?
   fixtures(s)
-  uu.write(s, "f1.sorted", "abc:d 2\nab:d  1\n")?
-  uu.write(s, "f2.sorted", "abc:d y\nab:d  x\n")?
+  uu.write(s, "f1.sorted", "abc:d 2\nab:d  1\n")
+  uu.write(s, "f2.sorted", "abc:d y\nab:d  x\n")
   let r1 = uu.invoke(s, "join", ["--check-order", "f1.sorted", "f2.sorted"], vars: {LC_ALL: "en_US.UTF-8"})?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "abc:d 2 y")
@@ -469,8 +469,8 @@ test test_uu_join_join_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let first = uu.at_bytes(s, b"test_\xff\xfe_1.txt")?
   let second = uu.at_bytes(s, b"test_\xff\xfe_2.txt")?
-  first.write(b"a 1\n")?
-  second.write(b"a 2\n")?
+  first.write(b"a 1\n")
+  second.write(b"a 2\n")
   let r1 = uu.invoke_paths(s, "join", [Path.parse_bytes(b"test_\xff\xfe_1.txt")?, Path.parse_bytes(b"test_\xff\xfe_2.txt")?])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "a 1 2\n")

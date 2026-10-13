@@ -988,8 +988,8 @@ test test_cp_keep_directory_symlink_accepts_unique_abbreviation { |ctx|
 
 test test_cp_gnu_option_conflicts_and_destination_lookup_errors { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "source", "contents")?
-  uu.write(s, "target", "old")?
+  uu.write(s, "source", "contents")
+  uu.write(s, "target", "old")
   for flags in [["--link", "--symbolic-link"], ["--symbolic-link", "--link"]] {
     let result = uu.invoke(s, "cp", flags + ["source", "target"])?
     uu.fails(result)

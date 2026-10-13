@@ -321,7 +321,7 @@ proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, ne
     break when block.is_empty()
     discarded += block.len()
   }
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
   Ok()
 }
 
@@ -378,7 +378,7 @@ proc discard_caches(opts: Options) [fs, process, env] -> Bool {
 const DIRECT_SECTOR = 512
 
 proc reopen_without_direct(fd: Int, dest: Path, offset: Int, flags: List[Str]) [process, error] -> Result[Int] {
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
   let kept = [flag for flag in flags if flag != "direct"]
   let reopened = unix.open_fd(dest, write: true, nonblock: false, flags: kept)?
   let _ = unix.seek_fd(reopened, offset)?
@@ -391,14 +391,14 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   var output_kind = 0
   if opts.output != null {
     if "nocreat" in opts.conv and ! dest.exists() { fail "No such file or directory" }
-    if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"")? }
+    if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"") }
     output_kind = dest.metadata()?.mode / 4096 % 16
-    if output_kind == 1 and seek > 0 { seek_output_fifo(dest, seek, opts.obs)? }
+    if output_kind == 1 and seek > 0 { seek_output_fifo(dest, seek, opts.obs) }
     if output_kind in [1, 2, 6, 8] and ! (output_kind == 1 and opts.count == 0) {
       output_fd = unix.open_fd(dest, write: true, nonblock: false, flags: opts.output_flags)?
     }
     if output_kind == 8 {
-      if ! ("notrunc" in opts.conv) { dest.truncate(seek)? }
+      if ! ("notrunc" in opts.conv) { dest.truncate(seek) }
       if let fd = output_fd { let _ = unix.seek_fd(fd, seek)? }
     }
   } else if "append" in opts.output_flags {
@@ -419,7 +419,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       }
       let available = if size > skip { size - skip } else { 0 }
       let length = if available < limit { available } else { limit }
-      if let fd = output_fd { unix.close_fd(fd)?; output_fd = null }
+      if let fd = output_fd { unix.close_fd(fd); output_fd = null }
       let copied = bytes.copy_file(file.path, dest.resolve()?, source_offset: skip, dest_offset: seek, length: length, create: ! ("nocreat" in opts.conv))?
       return Ok({complete: copied.bytes / opts.ibs, partial: if copied.bytes % opts.ibs == 0 { 0 } else { 1 }, written: copied.bytes, failure: null, discard_failed: discard_caches(opts)})
     }
@@ -497,7 +497,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
     } else if block.len() == opts.ibs { complete += 1 } else { partial += 1 }
     if opts.output == null and output_fd == null {
       gnu.write_bytes(block)
-      io.flush_stdout()?
+      io.flush_stdout()
       written += block.len()
     } else if let fd = output_fd {
       var rest = block
@@ -546,10 +546,10 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   # but never shrinking: notrunc keeps any bytes past the copy.
   if sparse_output and opts.output != null and failure == null {
     let end = seek + output_position
-    if dest.metadata()?.size < end { dest.truncate(end)? }
+    if dest.metadata()?.size < end { dest.truncate(end) }
   }
-  if let fd = input_fd { unix.close_fd(fd)? }
-  if let fd = output_fd { unix.close_fd(fd)? }
+  if let fd = input_fd { unix.close_fd(fd) }
+  if let fd = output_fd { unix.close_fd(fd) }
   Ok({complete: complete, partial: partial, written: written, failure: failure, discard_failed: discard_caches(opts)})
 }
 
@@ -669,7 +669,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
       remaining -= block.len()
       blocks += 1
     }
-    unix.close_fd(fd)?
+    unix.close_fd(fd)
   } else if limit > 0 {
     if let input = opts.input {
       guard let source = open_dd_source(input) else { |failure| gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
@@ -730,7 +730,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     let outcome = write_fd_all(stdout_fd, data)
     written = outcome.written
     write_failure = outcome.failure
-    unix.close_fd(stdout_fd)?
+    unix.close_fd(stdout_fd)
   } else if opts.output == null {
     if converted.blocks.is_empty() {
       gnu.write_bytes(converted.data)
@@ -749,16 +749,16 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
         }
       }
     }
-    io.flush_stdout()?
+    io.flush_stdout()
   } else {
     let dest = opts.output ?? p""
     if "nocreat" in opts.conv and ! dest.exists() { gnu.error(f"failed to open {quoted_path(dest)}: No such file or directory"); exit 1 }
     if ! ("notrunc" in opts.conv) {
-      if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"")? }
-      if dest.metadata()?.mode / 4096 % 16 == 8 { dest.truncate(seek)? }
+      if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"") }
+      if dest.metadata()?.mode / 4096 % 16 == 8 { dest.truncate(seek) }
     }
     let kind = dest.metadata()?.mode / 4096 % 16
-    if kind == 1 and seek > 0 { seek_output_fifo(dest, seek, opts.obs)? }
+    if kind == 1 and seek > 0 { seek_output_fifo(dest, seek, opts.obs) }
     if kind in [1, 2, 6, 8] {
       if kind != 1 or opts.count != 0 {
         var fd = unix.open_fd(dest, write: true, nonblock: false, flags: opts.output_flags)?
@@ -797,7 +797,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
             }
           }
         }
-        unix.close_fd(fd)?
+        unix.close_fd(fd)
       }
     } else {
       if converted.blocks.is_empty() {

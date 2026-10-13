@@ -84,7 +84,7 @@ proc install_logged(ctx: TestContext, name: Str, lines: List[Any], log: Path) [f
   let root = test.temp_dir(ctx, name: name)?
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(lines)?)
-  test.linux_fake(ctx, {storage_fixture: fixture, log: log})?
+  test.linux_fake(ctx, {storage_fixture: fixture, log: log})
   let device = fp"{root}/device"
   device.write(b"")
   unix.open_fd(device)?
@@ -132,7 +132,7 @@ test test_sg_io_returns_status_sense_and_transferred_data { |ctx|
   assert busy.status == 2 and busy.driver_status == 8
   assert busy.sense == sense
   assert busy.data == b""
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_sg_io_reports_short_transfer_as_resid { |ctx|
@@ -147,7 +147,7 @@ test test_sg_io_reports_short_transfer_as_resid { |ctx|
   let reply = linux.sg_io(fd, cdb, 255)?
   assert reply.data == bytes.from_text("short")
   assert reply.resid == 250
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_sg_io_refuses_commands_that_can_change_the_device { |ctx|
@@ -168,7 +168,7 @@ test test_sg_io_refuses_commands_that_can_change_the_device { |ctx|
   }
   # An unmatched read-only command reaches the fixture and fails there.
   test.error_kind(linux.sg_io(fd, b"\x12\x00\x00\x00\x24\x00", 36), "linux-storage-fake")
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_sg_io_command_sends_both_directions { |ctx|
@@ -190,7 +190,7 @@ test test_sg_io_command_sends_both_directions { |ctx|
   assert linux.sg_io_command(fd, read_defects, 8)?.data.len() == 8
   # The payload is part of what is matched.
   test.error_kind(linux.sg_io_command(fd, write_buffer, b"\x09\x09\x09\x09"), "linux-storage-fake")
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_fixture_errno_is_carried_and_unmatched_commands_fail_loudly { |ctx|
@@ -206,7 +206,7 @@ test test_fixture_errno_is_carried_and_unmatched_commands_fail_loudly { |ctx|
   assert failure.errno == 5
   let missing = failure_of(linux.sg_io(fd, b"\x25\x00\x00\x00\x00\x00\x00\x00\x00\x00", 8), "linux-storage-fake")
   assert "no recorded response" in missing.message
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_fake_without_fixture_never_reaches_a_descriptor { |ctx|
@@ -214,14 +214,14 @@ test test_fake_without_fixture_never_reaches_a_descriptor { |ctx|
     test.skip("SG_IO is Linux-only")
     return
   }
-  test.linux_fake(ctx, {})?
+  test.linux_fake(ctx, {})
   let device = test.temp_file(ctx, name: "no-fixture-device", contents: b"")?
   let fd = unix.open_fd(device)?
   test.error_kind(linux.sg_io(fd, b"\x00\x00\x00\x00\x00\x00"), "linux-storage-fake")
   test.error_kind(linux.ata_identify(fd), "linux-storage-fake")
   test.error_kind(linux.nvme_namespace_id(fd), "linux-storage-fake")
   test.error_kind(linux.nvme_identify_controller(fd), "linux-storage-fake")
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_malformed_fixture_is_reported_with_its_line { |ctx|
@@ -232,12 +232,12 @@ test test_malformed_fixture_is_reported_with_its_line { |ctx|
   let root = test.temp_dir(ctx, name: "bad-fixture")?
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write("{\"op\":\"sg_io\",\"cdb\":\"AAAA\",\"cdb_typo\":1}\n")
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let device = test.temp_file(ctx, name: "bad-fixture-device", contents: b"")?
   let fd = unix.open_fd(device)?
   let failure = failure_of(linux.sg_io(fd, b"\x00\x00\x00\x00\x00\x00"), "linux-storage-fake")
   assert ":1: unknown field `cdb_typo`" in failure.message
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_ata_identify_and_smart_reads_use_sat_pass_through { |ctx|
@@ -278,7 +278,7 @@ test test_ata_identify_and_smart_reads_use_sat_pass_through { |ctx|
 
   let log = linux.ata_smart_read_log(fd, 6, sectors: 2)?
   assert log.data == log_pages and log.data.len() == 1024
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_ata_12_byte_pass_through_form { |ctx|
@@ -294,7 +294,7 @@ test test_ata_12_byte_pass_through_form { |ctx|
   assert linux.ata_identify(fd, cdb_size: 12)?.data.len() == 512
   test.error_kind(linux.ata_identify(fd), "linux-storage-fake")
   test.error_kind(linux.ata_identify(fd, cdb_size: 10), "invalid-argument")
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_ata_smart_status_reads_the_verdict_from_registers { |ctx|
@@ -315,13 +315,13 @@ test test_ata_smart_status_reads_the_verdict_from_registers { |ctx|
 
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines([sg_line(cdb, status: 2, sense: failing)])?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   assert ! linux.ata_smart_status(fd)?.passed
 
   fixture.write(json.encode_lines([sg_line(cdb, status: 2, sense: odd)])?)
   let failure = failure_of(linux.ata_smart_status(fd), "linux-ata")
   assert "lba_mid 0x01" in failure.message
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_ata_mutations_are_separate_named_functions { |ctx|
@@ -358,7 +358,7 @@ test test_ata_mutations_are_separate_named_functions { |ctx|
   for index in [2, 3, 4] {
     assert "\"op\":\"ata_smart_start_self_test\"" in calls[index]
   }
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_ata_failures_include_scsi_and_ata_status { |ctx|
@@ -374,11 +374,11 @@ test test_ata_failures_include_scsi_and_ata_status { |ctx|
   let failure = failure_of(linux.ata_identify(fd), "linux-ata")
   assert "status 0x51" in failure.message and "error 0x04" in failure.message
   assert "scsi status 0x02" in failure.message
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 
   let root = test.temp_dir(ctx, name: "ata-failures-2")?
   let fixture = fp"{root}/fixture.jsonl"
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let device = test.temp_file(ctx, name: "ata-failures-device", contents: b"")?
   let fd2 = unix.open_fd(device)?
   let sense = ata_sense(80, 0, 1, 0, 0, 0)?
@@ -398,7 +398,7 @@ test test_ata_failures_include_scsi_and_ata_status { |ctx|
   # A BUSY SCSI status.
   fixture.write(json.encode_lines([sg_line(cdb, direction: "from_device", data_len: 512, status: 8)])?)
   assert "unexpected SCSI status" in failure_of(linux.ata_identify(fd2), "linux-ata").message
-  unix.close_fd(fd2)?
+  unix.close_fd(fd2)
 }
 
 test test_nvme_identify_log_and_feature_reads { |ctx|
@@ -428,7 +428,7 @@ test test_nvme_identify_log_and_feature_reads { |ctx|
   assert linux.nvme_get_feature(fd, 4)?.result == 343
   # select 3 is the supported-capabilities selector.
   assert linux.nvme_get_feature(fd, 4, nsid: 1, select: 3, cdw11: 1)?.result == 7
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_nvme_admin_read_form_refuses_mutating_opcodes { |ctx|
@@ -454,7 +454,7 @@ test test_nvme_admin_read_form_refuses_mutating_opcodes { |ctx|
   assert linux.nvme_admin_command(fd, 128, 0, nsid: 1, cdw10: 0)?.status == 0
   assert linux.nvme_admin_command(fd, 1, 0, cdw10: 3)?.status == 0
   assert linux.nvme_admin_command(fd, 17, b"\xde\xad\xbe\xef", cdw10: 1)?.status == 0
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_nvme_device_status_is_data_for_raw_and_error_for_typed_helpers { |ctx|
@@ -480,7 +480,7 @@ test test_nvme_device_status_is_data_for_raw_and_error_for_typed_helpers { |ctx|
 
   assert linux.nvme_set_feature(fd, 4, 5, save: true)?.status == 0
   test.error_kind(linux.nvme_set_feature(fd, 4, 6), "linux-nvme")
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_nvme_arguments_are_validated_before_any_command { |ctx|
@@ -495,7 +495,7 @@ test test_nvme_arguments_are_validated_before_any_command { |ctx|
   test.error_kind(linux.nvme_admin(fd, 6, 4096, cdw10: -1), "invalid-argument")
   test.error_kind(linux.sg_io(fd, b"", 0), "linux-sg-io")
   test.error_kind(linux.sg_io(-1, b"\x00\x00\x00\x00\x00\x00"), "invalid-argument")
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
 }
 
 test test_storage_candidates_lists_scsi_and_nvme_nodes_from_sysfs { |ctx|
@@ -569,7 +569,7 @@ test test_real_ioctls_on_a_regular_file_fail_with_kernel_errno { |ctx|
   assert failure_of(linux.nvme_namespace_id(fd), "linux-nvme").errno == 25
   assert failure_of(linux.nvme_identify_controller(fd), "linux-nvme").errno == 25
   assert failure_of(linux.nvme_admin(fd, 6, 4096, cdw10: 1), "linux-nvme").errno == 25
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
   # A closed descriptor is EBADF.
   assert failure_of(linux.sg_io(fd, b"\x00\x00\x00\x00\x00\x00"), "linux-sg-io").errno == 9
 }

@@ -32,12 +32,12 @@ proc fixtures(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/diff/fixtures", fp"{root}/fx")?
   # Names with a space or a non-ASCII letter are created here instead of being
   # stored, because path lists handled by tooling split on spaces.
-  fp"{root}/fx/d1/with space".write("a b\n")?
-  fp"{root}/fx/d2/with space".write("a c\n")?
-  fp"{root}/fx/caf\u{e9}".write("x\n")?
+  fp"{root}/fx/d1/with space".write("a b\n")
+  fp"{root}/fx/d2/with space".write("a c\n")
+  fp"{root}/fx/caf\u{e9}".write("x\n")
   for entry in fs.walk(fp"{root}/fx", hidden: true)? {
     if entry.kind == "file" {
-      fs.set_times(entry.path, mtime_ns: if entry.name.ends_with("2") { TIME_SECOND } else { TIME_FIRST })?
+      fs.set_times(entry.path, mtime_ns: if entry.name.ends_with("2") { TIME_SECOND } else { TIME_FIRST })
     }
   }
   Ok(fp"{root}/fx")
@@ -164,79 +164,79 @@ proc run_group(ctx: TestContext, prefix: Str) [fs, process, error] -> Result[Uni
 }
 
 test test_diff_recorded_output_styles { |ctx|
-  run_group(ctx, "sty")?
+  run_group(ctx, "sty")
 }
 
 test test_diff_recorded_ignore_options { |ctx|
-  run_group(ctx, "ign")?
+  run_group(ctx, "ign")
 }
 
 test test_diff_recorded_output_formatting { |ctx|
-  run_group(ctx, "fmt")?
+  run_group(ctx, "fmt")
 }
 
 test test_diff_recorded_side_by_side_widths { |ctx|
-  run_group(ctx, "wid")?
+  run_group(ctx, "wid")
 }
 
 test test_diff_recorded_function_headings { |ctx|
-  run_group(ctx, "fn")?
+  run_group(ctx, "fn")
 }
 
 test test_diff_recorded_labels_binary_and_brief { |ctx|
-  run_group(ctx, "lab")?
-  run_group(ctx, "bin")?
-  run_group(ctx, "brf")?
+  run_group(ctx, "lab")
+  run_group(ctx, "bin")
+  run_group(ctx, "brf")
 }
 
 test test_diff_recorded_hunk_grouping_and_tab_comparison { |ctx|
-  run_group(ctx, "grp")?
+  run_group(ctx, "grp")
 }
 
 test test_diff_recorded_search_heuristics { |ctx|
-  run_group(ctx, "alg")?
+  run_group(ctx, "alg")
 }
 
 test test_diff_recorded_directories_and_operands { |ctx|
-  run_group(ctx, "dir")?
-  run_group(ctx, "opd")?
-  run_group(ctx, "exc")?
-  run_group(ctx, "stf")?
-  run_group(ctx, "srt")?
+  run_group(ctx, "dir")
+  run_group(ctx, "opd")
+  run_group(ctx, "exc")
+  run_group(ctx, "stf")
+  run_group(ctx, "srt")
 }
 
 test test_diff_recorded_standard_input { |ctx|
-  run_group(ctx, "sin")?
+  run_group(ctx, "sin")
 }
 
 test test_diff_recorded_errors_and_exit_statuses { |ctx|
-  run_group(ctx, "err")?
+  run_group(ctx, "err")
 }
 
 test test_diff_recorded_merged_output { |ctx|
-  run_group(ctx, "ifd")?
+  run_group(ctx, "ifd")
 }
 
 test test_diff_recorded_color { |ctx|
-  run_group(ctx, "col")?
+  run_group(ctx, "col")
 }
 
 test test_diff_recorded_utf8_locale { |ctx|
-  run_group(ctx, "mb")?
+  run_group(ctx, "mb")
 }
 
 test test_diff_recorded_devices { |ctx|
-  run_group(ctx, "dev")?
+  run_group(ctx, "dev")
 }
 
 test test_diff_special_files_in_directories_are_not_read { |ctx|
   let root = test.temp_dir(ctx, name: "diff-special")?
-  fp"{root}/f1".mkdir()?
-  fp"{root}/f2".mkdir()?
-  fs.mkfifo(fp"{root}/f1/p", 0o600)?
-  fs.mkfifo(fp"{root}/f2/p", 0o600)?
-  fp"{root}/f1/a".write("x\n")?
-  fp"{root}/f2/a".write("y\n")?
+  fp"{root}/f1".mkdir()
+  fp"{root}/f2".mkdir()
+  fs.mkfifo(fp"{root}/f1/p", 0o600)
+  fs.mkfifo(fp"{root}/f2/p", 0o600)
+  fp"{root}/f1/a".write("x\n")
+  fp"{root}/f2/a".write("y\n")
   let result = invoke(ctx, ["-r", "f1", "f2"], cwd: root)?
   assert result.status == 1, result.stderr.utf8()?
   assert result.stdout.utf8()? == "diff -r f1/a f2/a\n1c1\n< x\n---\n> y\nFile f1/p is a fifo while file f2/p is a fifo\n", result.stdout.utf8()?
@@ -249,9 +249,9 @@ test test_diff_unreadable_operand_is_trouble { |ctx|
   }
   let root = test.temp_dir(ctx, name: "diff-unreadable")?
   let secret = fp"{root}/secret"
-  secret.write("x\n")?
-  secret.chmod(0o000)?
-  fp"{root}/ok".write("y\n")?
+  secret.write("x\n")
+  secret.chmod(0o000)
+  fp"{root}/ok".write("y\n")
   let result = invoke(ctx, ["secret", "ok"], cwd: root)?
   assert result.status == 2
   assert result.stdout == b""
@@ -260,10 +260,10 @@ test test_diff_unreadable_operand_is_trouble { |ctx|
 
 test test_diff_dangling_entries_report_the_first_name_only { |ctx|
   let root = test.temp_dir(ctx, name: "diff-dangling")?
-  fp"{root}/a".mkdir()?
-  fp"{root}/b".mkdir()?
-  fp"{root}/a/l".symlink(to: p"nowhere")?
-  fp"{root}/b/l".symlink(to: p"nowhere")?
+  fp"{root}/a".mkdir()
+  fp"{root}/b".mkdir()
+  fp"{root}/a/l".symlink(to: p"nowhere")
+  fp"{root}/b/l".symlink(to: p"nowhere")
   let result = invoke(ctx, ["a", "b"], cwd: root)?
   assert result.status == 2
   assert result.stderr.utf8()? == "diff: a/l: No such file or directory\n", result.stderr.utf8()?
@@ -373,20 +373,20 @@ test test_diff_ignore_blank_lines_brief_and_single_line { |ctx|
 # Names sort in byte order: bin, fd, ff, only, same, sub (and ronly in b).
 proc build_trees(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: name)?
-  fp"{root}/a/sub".mkdir(parents: true)?
-  fp"{root}/b/sub".mkdir(parents: true)?
-  fp"{root}/a/same".mkdir()?
-  fp"{root}/b/same".mkdir()?
-  fp"{root}/a/same/q".write("same\n")?
-  fp"{root}/b/same/q".write("same\n")?
-  fp"{root}/a/sub/f".write("x\n")?
-  fp"{root}/b/sub/f".write("y\n")?
-  fp"{root}/a/only".write("left\n")?
-  fp"{root}/b/ronly".write("right\n")?
-  fp"{root}/a/bin".write(b"a\0b")?
-  fp"{root}/b/bin".write(b"a\0c")?
-  fp"{root}/a/fd".write("file\n")?
-  fp"{root}/b/fd".mkdir()?
+  fp"{root}/a/sub".mkdir(parents: true)
+  fp"{root}/b/sub".mkdir(parents: true)
+  fp"{root}/a/same".mkdir()
+  fp"{root}/b/same".mkdir()
+  fp"{root}/a/same/q".write("same\n")
+  fp"{root}/b/same/q".write("same\n")
+  fp"{root}/a/sub/f".write("x\n")
+  fp"{root}/b/sub/f".write("y\n")
+  fp"{root}/a/only".write("left\n")
+  fp"{root}/b/ronly".write("right\n")
+  fp"{root}/a/bin".write(b"a\0b")
+  fp"{root}/b/bin".write(b"a\0c")
+  fp"{root}/a/fd".write("file\n")
+  fp"{root}/b/fd".mkdir()
   Ok(root)
 }
 
@@ -409,10 +409,10 @@ test test_diff_recursive_prints_header_line_before_each_file_diff { |ctx|
 
 test test_diff_recursive_identical_trees_exit_zero_and_report_with_s { |ctx|
   let root = test.temp_dir(ctx, name: "diff-identical")?
-  fp"{root}/a/d".mkdir(parents: true)?
-  fp"{root}/b/d".mkdir(parents: true)?
-  fp"{root}/a/d/f".write("same\n")?
-  fp"{root}/b/d/f".write("same\n")?
+  fp"{root}/a/d".mkdir(parents: true)
+  fp"{root}/b/d".mkdir(parents: true)
+  fp"{root}/a/d/f".write("same\n")
+  fp"{root}/b/d/f".write("same\n")
   let quiet = invoke(ctx, ["-r", "a", "b"], cwd: root)?
   assert quiet.status == 0, quiet.stderr.utf8()?
   assert quiet.stdout == b""
@@ -441,7 +441,7 @@ test test_diff_new_file_compares_absent_entries_as_empty { |ctx|
 test test_diff_exclude_patterns_and_exclude_file_skip_entries_by_name { |ctx|
   let root = build_trees(ctx, "diff-exclude")?
   let patterns = fp"{root}/patterns"
-  patterns.write("o*\nr*\n")?
+  patterns.write("o*\nr*\n")
   let result = invoke(ctx, ["-r", "-x", "bin", "--exclude=fd", "-X", patterns.display(), "-x", "sub", "a", "b"], cwd: root)?
   assert result.status == 0, result.stdout.utf8()?
   assert result.stdout == b""
@@ -449,7 +449,7 @@ test test_diff_exclude_patterns_and_exclude_file_skip_entries_by_name { |ctx|
 
 test test_diff_directory_against_file_compares_the_same_named_entry { |ctx|
   let root = build_trees(ctx, "diff-dir-file")?
-  fp"{root}/y".write("y\n")?
+  fp"{root}/y".write("y\n")
   let result = invoke(ctx, ["a/sub", "y"], cwd: root)?
   assert result.status == 2, result.stdout.utf8()?
   assert result.stderr.utf8()?.find("diff: a/sub/y: No such file or directory") != null, result.stderr.utf8()?
@@ -462,10 +462,10 @@ test test_diff_directory_against_file_compares_the_same_named_entry { |ctx|
 
 test test_diff_recursive_symlink_loop_is_reported_not_followed { |ctx|
   let root = test.temp_dir(ctx, name: "diff-loop")?
-  fp"{root}/a/x".mkdir(parents: true)?
-  fp"{root}/b/x".mkdir(parents: true)?
-  fp"{root}/a/x/up".symlink(to: p"..")?
-  fp"{root}/b/x/up".symlink(to: p"..")?
+  fp"{root}/a/x".mkdir(parents: true)
+  fp"{root}/b/x".mkdir(parents: true)
+  fp"{root}/a/x/up".symlink(to: p"..")
+  fp"{root}/b/x/up".symlink(to: p"..")
   let result = invoke(ctx, ["-r", "a", "b"], cwd: root)?
   assert result.status == 2
   assert result.stderr.utf8()?.find("recursive directory loop") != null, result.stderr.utf8()?

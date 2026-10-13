@@ -20,8 +20,8 @@ proc shebang(s: uu.Scene, name: Str, args: List[Str]) [fs, process, env, error] 
 # origin: gnu env/env-S-script.log
 test test_gnu_env_env_S_script_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "env_test", "#!env sh\necho hello\n")?
-  uu.set_mode(s, "env_test", 0o755)?
+  uu.write(s, "env_test", "#!env sh\necho hello\n")
+  uu.set_mode(s, "env_test", 0o755)
   let simple = shebang(s, "env_test", [])?
   uu.succeeds(simple)
   uu.stdout_only(simple, "hello\n")
@@ -34,20 +34,20 @@ test test_gnu_env_env_S_script_log { |ctx|
     {name: "env3", options: "-S" + printf + "\\_x%sx\\n\\_Y", args: ["W"], expected: "xYx\nx./env3x\nxWx\n"},
     {name: "env4", options: "-S" + printf + " x%sx\\n A#B #C D", args: ["Z"], expected: "xA#Bx\nx./env4x\nxZx\n"},
   ] {
-    uu.write(s, case.name, "#!env " + case.options + "\n")?
-    uu.set_mode(s, case.name, 0o755)?
+    uu.write(s, case.name, "#!env " + case.options + "\n")
+    uu.set_mode(s, case.name, 0o755)
     let r = shebang(s, case.name, case.args)?
     uu.succeeds(r)
     uu.stdout_only(r, case.expected)
   }
   let perl = process.which("perl")?
-  uu.write(s, "env5", f"#!env -S {perl} -w -T\n" + "print \"hello\\n\";\n")?
-  uu.set_mode(s, "env5", 0o755)?
+  uu.write(s, "env5", f"#!env -S {perl} -w -T\n" + "print \"hello\\n\";\n")
+  uu.set_mode(s, "env5", 0o755)
   let strict_perl = shebang(s, "env5", [])?
   uu.succeeds(strict_perl)
   uu.stdout_only(strict_perl, "hello\n")
-  uu.write(s, "env6", f"#!env -S {perl} -mFile::Basename=basename -e " + "\"print basename(\\$ARGV[0]);\"\n")?
-  uu.set_mode(s, "env6", 0o755)?
+  uu.write(s, "env6", f"#!env -S {perl} -mFile::Basename=basename -e " + "\"print basename(\\$ARGV[0]);\"\n")
+  uu.set_mode(s, "env6", 0o755)
   let basename = shebang(s, "env6", [])?
   uu.succeeds(basename)
   uu.stdout_only(basename, "env6")

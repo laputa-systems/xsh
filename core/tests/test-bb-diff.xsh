@@ -3,7 +3,7 @@ use support.uu as uu
 # origin: busybox diff/diff of stdin
 test test_bb_diff_diff_of_stdin_1ca9b4f3 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "qwe\nasd\nzxc\n")?
+  uu.write(s, "input", "qwe\nasd\nzxc\n")
   let r = uu.invoke(s, "diff", ["-u", "-", "input"], stdin: bytes.from_text("asd\n"), timeout: 5s)?
   uu.fails_with_code(r, 1)
   let normalized = [line.split("\t")[0] for line in r.stdout.utf8()?.split("\n")].join("\n")
@@ -13,7 +13,7 @@ test test_bb_diff_diff_of_stdin_1ca9b4f3 { |ctx|
 # origin: busybox diff/diff of stdin, no newline in the file
 test test_bb_diff_diff_of_stdin_no_newline_in_the_file_7c561a26 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "qwe\nasd\nzxc")?
+  uu.write(s, "input", "qwe\nasd\nzxc")
   let r = uu.invoke(s, "diff", ["-u", "-", "input"], stdin: bytes.from_text("asd\n"), timeout: 5s)?
   uu.fails_with_code(r, 1)
   let normalized = [line.split("\t")[0] for line in r.stdout.utf8()?.split("\n")].join("\n")
@@ -23,7 +23,7 @@ test test_bb_diff_diff_of_stdin_no_newline_in_the_file_7c561a26 { |ctx|
 # origin: busybox diff/diff of empty file against stdin
 test test_bb_diff_diff_of_empty_file_against_stdin_f60287fd { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "")?
+  uu.write(s, "input", "")
   let r = uu.invoke(s, "diff", ["-u", "-", "input"], stdin: bytes.from_text("a\n"), timeout: 5s)?
   uu.fails_with_code(r, 1)
   let normalized = [line.split("\t")[0] for line in r.stdout.utf8()?.split("\n")].join("\n")
@@ -33,7 +33,7 @@ test test_bb_diff_diff_of_empty_file_against_stdin_f60287fd { |ctx|
 # origin: busybox diff/diff of empty file against nonempty one
 test test_bb_diff_diff_of_empty_file_against_nonempty_one_b4d1bf64 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "a\n")?
+  uu.write(s, "input", "a\n")
   let r = uu.invoke(s, "diff", ["-u", "-", "input"], stdin: bytes.from_text(""), timeout: 5s)?
   uu.fails_with_code(r, 1)
   let normalized = [line.split("\t")[0] for line in r.stdout.utf8()?.split("\n")].join("\n")
@@ -43,7 +43,7 @@ test test_bb_diff_diff_of_empty_file_against_nonempty_one_b4d1bf64 { |ctx|
 # origin: busybox diff/diff -b treats EOF as whitespace
 test test_bb_diff_diff_b_treats_EOF_as_whitespace_73c935a0 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "abc")?
+  uu.write(s, "input", "abc")
   let r = uu.invoke(s, "diff", ["-ub", "-", "input"], stdin: bytes.from_text("abc "), timeout: 5s)?
   uu.fails_with_code(r, 0)
   uu.stdout_is(r, "")
@@ -52,7 +52,7 @@ test test_bb_diff_diff_b_treats_EOF_as_whitespace_73c935a0 { |ctx|
 # origin: busybox diff/diff -b treats all spaces as equal
 test test_bb_diff_diff_b_treats_all_spaces_as_equal_3b8d241d { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "a \t c\n")?
+  uu.write(s, "input", "a \t c\n")
   let r = uu.invoke(s, "diff", ["-ub", "-", "input"], stdin: bytes.from_text("a\t \tc\n"), timeout: 5s)?
   uu.fails_with_code(r, 0)
   uu.stdout_is(r, "")
@@ -61,7 +61,7 @@ test test_bb_diff_diff_b_treats_all_spaces_as_equal_3b8d241d { |ctx|
 # origin: busybox diff/diff -B ignores changes whose lines are all blank
 test test_bb_diff_diff_B_ignores_changes_whose_lines_are_all_blank_b6616169 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "a\n")?
+  uu.write(s, "input", "a\n")
   let r = uu.invoke(s, "diff", ["-uB", "-", "input"], stdin: bytes.from_text("\na\n\n"), timeout: 5s)?
   uu.fails_with_code(r, 0)
   uu.stdout_is(r, "")
@@ -70,7 +70,7 @@ test test_bb_diff_diff_B_ignores_changes_whose_lines_are_all_blank_b6616169 { |c
 # origin: busybox diff/diff -B does not ignore changes whose lines are not all blank
 test test_bb_diff_diff_B_does_not_ignore_changes_whose_lines_are_not_all_blank_5a5d5252 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "a\n")?
+  uu.write(s, "input", "a\n")
   let r = uu.invoke(s, "diff", ["-uB", "-", "input"], stdin: bytes.from_text("\nb\n\n"), timeout: 5s)?
   uu.fails_with_code(r, 1)
   let normalized = [line.split("\t")[0] for line in r.stdout.utf8()?.split("\n")].join("\n")
@@ -80,7 +80,7 @@ test test_bb_diff_diff_B_does_not_ignore_changes_whose_lines_are_not_all_blank_5
 # origin: busybox diff/diff -B ignores blank single line change
 test test_bb_diff_diff_B_ignores_blank_single_line_change_7434ae1f { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "\n1\n")?
+  uu.write(s, "input", "\n1\n")
   let r = uu.invoke(s, "diff", ["-qB", "-", "input"], stdin: bytes.from_text("1\n"), timeout: 5s)?
   uu.fails_with_code(r, 0)
   uu.stdout_is(r, "")
@@ -89,7 +89,7 @@ test test_bb_diff_diff_B_ignores_blank_single_line_change_7434ae1f { |ctx|
 # origin: busybox diff/diff -B does not ignore non-blank single line change
 test test_bb_diff_diff_B_does_not_ignore_non_blank_single_line_change_e2409ce3 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "0\n")?
+  uu.write(s, "input", "0\n")
   let r = uu.invoke(s, "diff", ["-qB", "-", "input"], stdin: bytes.from_text("1\n"), timeout: 5s)?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "Files - and input differ\n")
@@ -98,7 +98,7 @@ test test_bb_diff_diff_B_does_not_ignore_non_blank_single_line_change_e2409ce3 {
 # origin: busybox diff/diff always takes context from old file
 test test_bb_diff_diff_always_takes_context_from_old_file_93415550 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "abc\na  c\ndef\n")?
+  uu.write(s, "input", "abc\na  c\ndef\n")
   let r = uu.invoke(s, "diff", ["-ub", "-", "input"], stdin: bytes.from_text("a c\n"), timeout: 5s)?
   uu.fails_with_code(r, 1)
   let normalized = [line.split("\t")[0] for line in r.stdout.utf8()?.split("\n")].join("\n")

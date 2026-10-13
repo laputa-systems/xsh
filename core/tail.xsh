@@ -291,7 +291,7 @@ proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: 
       Ok(chunk) => { if ! chunk.is_empty() { chunks += [chunk] } }
       Err(failure) => {
         if gnu.errno(failure) not in [11, 35] {
-          unix.close_fd(fd)?
+          unix.close_fd(fd)
           return Err(failure)
         }
       }
@@ -299,10 +299,10 @@ proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: 
 
     let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
     break when ! alive
-    time.sleep(interval)?
+    time.sleep(interval)
   }
 
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
   let data = bytes.concat(chunks)
   Ok(data[data_start(data, spec, zero)..])
 }
@@ -429,7 +429,7 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
             next += [file]
           } else {
             gnu.error_reading(file.label, failure)
-            unix.close_fd(file.fd)?
+            unix.close_fd(file.fd)
             failed = true
           }
         }
@@ -445,8 +445,8 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
         let events = unix.poll_fd(1, [])?
         break when "error" in events or "hangup" in events
       }
-      io.flush_stderr()?
-      time.sleep(poll_pause(interval))?
+      io.flush_stderr()
+      time.sleep(poll_pause(interval))
     }
   }
 
@@ -454,7 +454,7 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
     gnu.error("no files remaining")
   }
 
-  for file in active { unix.close_fd(file.fd)? }
+  for file in active { unix.close_fd(file.fd) }
   failed
 }
 
@@ -622,8 +622,8 @@ proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int
 
     let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
     break when ! alive
-    io.flush_stderr()?
-    time.sleep(poll_pause(interval))?
+    io.flush_stderr()
+    time.sleep(poll_pause(interval))
   }
 
   failed
@@ -758,7 +758,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   }
 
   # Preserve warning order when stderr and stdout share the same destination.
-  if ! following and (retrying or opts.pid != "") { io.flush_stderr()? }
+  if ! following and (retrying or opts.pid != "") { io.flush_stderr() }
 
   let operands = if opts.files.is_empty() { ["-"] } else { opts.files }
 

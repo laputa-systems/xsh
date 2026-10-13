@@ -547,7 +547,7 @@ test test_uu_stty_combo_tabs { |ctx|
     defer unix.close_fd(stderr.master)
     defer unix.close_fd(stderr.replica)
     for fd in [stdin.replica, stdout.replica, stderr.replica] {
-      unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: fd)?
+      unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: fd)
     }
     let r = uu.invoke_from_path(s, "stty", [arg], stdin: Path(stdin.name), stdout: Path(stdout.name), stderr: Path(stderr.name))?
     uu.succeeds(r)

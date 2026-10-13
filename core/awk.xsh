@@ -322,11 +322,11 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
     }
   }
   if settings.version {
-    io.write_stdout(VERSION)?
+    io.write_stdout(VERSION)
     return
   }
   if settings.help {
-    io.write_stdout(USAGE)?
+    io.write_stdout(USAGE)
     return
   }
   if ! program_given {

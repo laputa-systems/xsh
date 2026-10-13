@@ -63,7 +63,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # tolerated where there is no SELinux policy to apply it, which is also where
   # GNU ignores it.
   if opts.context != null and opts.context != BARE_CONTEXT {
-    if selinux.enabled()? {
+    if selinux.enabled() {
       gnu.error("--context is not supported on SELinux-enabled systems")
       exit 1
     }

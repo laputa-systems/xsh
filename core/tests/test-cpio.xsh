@@ -32,24 +32,24 @@ pure archive_of(format: Str) -> Bytes {
 # empty file, a FIFO, an odd-sized binary file and a name with a space, all with
 # one modification time.
 proc build_tree(root: Path) [fs, error] -> Result[Unit] {
-  fp"{root}/dir".mkdir()?
-  fp"{root}/dir/data.bin".write(b"\x00\x01\x02\xfe\xff\nabc\x00Z")?
-  fp"{root}/a.txt".write(b"hello\n")?
-  fp"{root}/a.txt".hardlink(at: fp"{root}/link.txt")?
-  fp"{root}/sp ace.txt".write(b"spaced\n")?
-  fp"{root}/sym".symlink(to: p"a.txt")?
-  fp"{root}/empty.txt".write(b"")?
-  fs.mkfifo(fp"{root}/pipe", 0o644)?
-  fp"{root}/dir".chmod(0o755)?
-  fp"{root}/dir/data.bin".chmod(0o600)?
-  fp"{root}/a.txt".chmod(0o644)?
-  fp"{root}/sp ace.txt".chmod(0o640)?
-  fp"{root}/empty.txt".chmod(0o644)?
-  fp"{root}/pipe".chmod(0o644)?
+  fp"{root}/dir".mkdir()
+  fp"{root}/dir/data.bin".write(b"\x00\x01\x02\xfe\xff\nabc\x00Z")
+  fp"{root}/a.txt".write(b"hello\n")
+  fp"{root}/a.txt".hardlink(at: fp"{root}/link.txt")
+  fp"{root}/sp ace.txt".write(b"spaced\n")
+  fp"{root}/sym".symlink(to: p"a.txt")
+  fp"{root}/empty.txt".write(b"")
+  fs.mkfifo(fp"{root}/pipe", 0o644)
+  fp"{root}/dir".chmod(0o755)
+  fp"{root}/dir/data.bin".chmod(0o600)
+  fp"{root}/a.txt".chmod(0o644)
+  fp"{root}/sp ace.txt".chmod(0o640)
+  fp"{root}/empty.txt".chmod(0o644)
+  fp"{root}/pipe".chmod(0o644)
   for name in ["dir/data.bin", "a.txt", "sp ace.txt", "empty.txt", "pipe", "dir"] {
-    fs.set_times(fp"{root}/{name}", mtime_ns: MTIME_NS)?
+    fs.set_times(fp"{root}/{name}", mtime_ns: MTIME_NS)
   }
-  fs.set_times(fp"{root}/sym", mtime_ns: MTIME_NS, follow_symlinks: false)?
+  fs.set_times(fp"{root}/sym", mtime_ns: MTIME_NS, follow_symlinks: false)
   Ok()
 }
 
@@ -93,7 +93,7 @@ test test_cpio_extracts_gnu_archives_of_every_format { |ctx|
 
 test test_cpio_creates_archives_byte_identical_to_gnu { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-create")?
-  build_tree(root)?
+  build_tree(root)
   for format in ["newc", "crc", "odc", "bin"] {
     let ran = cpio(ctx, root, ["-o", "-H", format, "--reproducible", "-R", "1000:1000", "--quiet"], bytes.from_text(NAMES))?
     assert ran.status == 0, format
@@ -118,11 +118,11 @@ test test_cpio_round_trips_through_every_format { |ctx|
   let source = test.temp_dir(ctx, name: "cpio-roundtrip-src")?
   var every_byte: List[Int] = []
   for value in range(256) { every_byte += [value] }
-  fp"{source}/all bytes".write(bytes.from_ints(every_byte)?)?
-  fp"{source}/line\nbreak".write(b"newline in the name")?
-  fp"{source}/odd".write(b"123")?
-  fp"{source}/dir".mkdir()?
-  fp"{source}/dir/-dash".write(b"x")?
+  fp"{source}/all bytes".write(bytes.from_ints(every_byte)?)
+  fp"{source}/line\nbreak".write(b"newline in the name")
+  fp"{source}/odd".write(b"123")
+  fp"{source}/dir".mkdir()
+  fp"{source}/dir/-dash".write(b"x")
   let names = b"all bytes\0line\nbreak\0odd\0dir\0dir/-dash\0"
   for format in ["newc", "crc", "odc", "bin"] {
     let packed_archive = cpio(ctx, source, ["-o0", "-H", format, "--quiet"], names)?
@@ -141,7 +141,7 @@ test test_cpio_round_trips_through_every_format { |ctx|
 
 test test_cpio_creates_block_padded_archives_and_counts_blocks { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-blocks")?
-  fp"{root}/f".write(b"data")?
+  fp"{root}/f".write(b"data")
   let plain = cpio(ctx, root, ["-o", "-H", "newc"], b"f\n")?
   assert plain.stdout.len() == 512
   assert plain.stderr == "1 block\n"
@@ -167,7 +167,7 @@ test test_cpio_creates_block_padded_archives_and_counts_blocks { |ctx|
 
 test test_cpio_default_format_is_binary_and_c_means_odc { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-defaults")?
-  fp"{root}/f".write(b"data")?
+  fp"{root}/f".write(b"data")
   let default_format = cpio(ctx, root, ["-o", "--quiet"], b"f\n")?
   assert default_format.stdout.slice(0, 2) == b"\xc7\x71"
   let portable = cpio(ctx, root, ["-oc", "--quiet"], b"f\n")?
@@ -181,9 +181,9 @@ test test_cpio_default_format_is_binary_and_c_means_odc { |ctx|
 
 test test_cpio_deferred_hard_links_in_newc { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-links")?
-  fp"{root}/one".write(b"shared")?
-  fp"{root}/one".hardlink(at: fp"{root}/two")?
-  fp"{root}/one".hardlink(at: fp"{root}/three")?
+  fp"{root}/one".write(b"shared")
+  fp"{root}/one".hardlink(at: fp"{root}/two")
+  fp"{root}/one".hardlink(at: fp"{root}/three")
   # Only two of three links are named: the first listed carries the data.
   let partial = cpio(ctx, root, ["-o", "-H", "newc", "--quiet"], b"two\none\n")?
   let listed = cpio(ctx, root, ["-itvn", "--quiet"], partial.stdout)?
@@ -212,8 +212,8 @@ test test_cpio_deferred_hard_links_in_newc { |ctx|
 test test_cpio_pass_through_copies_tree_and_keeps_links { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-pass")?
   let source = fp"{root}/src"
-  source.mkdir()?
-  build_tree(source)?
+  source.mkdir()
+  build_tree(source)
   let ran = cpio(ctx, source, ["-pdm", "--quiet", "../dest"], bytes.from_text(NAMES))?
   assert ran.status == 0
   assert ran.stderr == ""
@@ -236,8 +236,8 @@ test test_cpio_extraction_policies { |ctx|
   assert packed_archive.status == 0
   # A name needs its directory: without -d the extraction fails and says so.
   let source = test.temp_dir(ctx, name: "cpio-policy-src")?
-  fp"{source}/deep".mkdir()?
-  fp"{source}/deep/file".write(b"content")?
+  fp"{source}/deep".mkdir()
+  fp"{source}/deep/file".write(b"content")
   let packed = cpio(ctx, source, ["-o", "-H", "newc", "--quiet"], b"deep/file\n")?
   let out = test.temp_dir(ctx, name: "cpio-policy-out")?
   let refused = cpio(ctx, out, ["-i"], packed.stdout)?
@@ -247,7 +247,7 @@ test test_cpio_extraction_policies { |ctx|
   assert made.status == 0
   assert fp"{out}/deep/file".read_text()? == "content"
   # An existing file that is not older stays, with GNU's message and status 0.
-  fp"{out}/deep/file".write(b"local")?
+  fp"{out}/deep/file".write(b"local")
   let kept = cpio(ctx, out, ["-id", "--quiet"], packed.stdout)?
   assert kept.status == 0
   assert "deep/file not created: newer or same age version exists" in kept.stderr
@@ -269,7 +269,7 @@ test test_cpio_patterns_select_and_exclude_names { |ctx|
     assert bracket.stdout == b"a.txt\n"
     let excluded = cpio(ctx, root, ["-itf", "--quiet", "*.txt", "dir*", "s*"], packed_archive)?
     assert excluded.stdout == b"pipe\n"
-    fp"{root}/patterns".write("a.txt\nlink.txt\n")?
+    fp"{root}/patterns".write("a.txt\nlink.txt\n")
     let from_file = cpio(ctx, root, ["-it", "--quiet", "-E", "patterns", "pipe"], packed_archive)?
     assert from_file.stdout == b"a.txt\nlink.txt\npipe\n"
   }
@@ -282,8 +282,8 @@ test test_cpio_patterns_select_and_exclude_names { |ctx|
 
 test test_cpio_absolute_names_and_no_absolute_filenames { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-absolute")?
-  fp"{root}/inner".mkdir()?
-  fp"{root}/inner/file".write(b"in")?
+  fp"{root}/inner".mkdir()
+  fp"{root}/inner/file".write(b"in")
   let names = f"{root}/inner/file\n"
   let packed = cpio(ctx, root, ["-o", "-H", "newc", "--quiet"], bytes.from_text(names))?
   let listed = cpio(ctx, root, ["-it", "--quiet"], packed.stdout)?
@@ -295,7 +295,7 @@ test test_cpio_absolute_names_and_no_absolute_filenames { |ctx|
   let relative = f"{root}/inner/file".byte_slice(1)
   assert fp"{out}/{relative}".read_text()? == "in"
   # Without the option the archived absolute name is used as it is.
-  fp"{root}/inner/file".remove()?
+  fp"{root}/inner/file".remove()
   let restored = cpio(ctx, out, ["-id", "--quiet", "--absolute-filenames"], packed.stdout)?
   assert fp"{root}/inner/file".read_text()? == "in"
   # ".." components are cut together with everything before them.
@@ -307,8 +307,8 @@ test test_cpio_absolute_names_and_no_absolute_filenames { |ctx|
 test test_cpio_verbose_names_directory_and_archive_files { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-files")?
   let source = test.temp_dir(ctx, name: "cpio-files-src")?
-  fp"{source}/a".write(b"A")?
-  fp"{source}/b".write(b"B")?
+  fp"{source}/a".write(b"A")
+  fp"{source}/b".write(b"B")
   let made = cpio(ctx, root, ["-ov", "-D", f"{source}", "-H", "odc", "-O", "out.cpio"], b"a\nb\n")?
   assert made.status == 0
   assert made.stdout == b""
@@ -326,9 +326,9 @@ test test_cpio_verbose_names_directory_and_archive_files { |ctx|
 
 test test_cpio_append_adds_to_an_archive { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-append")?
-  fp"{root}/one".write(b"1")?
-  fp"{root}/two".write(b"22")?
-  fp"{root}/three".write(b"333")?
+  fp"{root}/one".write(b"1")
+  fp"{root}/two".write(b"22")
+  fp"{root}/three".write(b"333")
   for format in ["newc", "odc", "bin", "crc"] {
     let name = f"{format}.cpio"
     let first = cpio(ctx, root, ["-o", "-H", format, "-O", name, "--quiet"], b"one\n")?
@@ -349,7 +349,7 @@ test test_cpio_append_adds_to_an_archive { |ctx|
 
 test test_cpio_to_stdout_and_swapped_data { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-swap")?
-  fp"{root}/word".write(b"abcdefgh")?
+  fp"{root}/word".write(b"abcdefgh")
   let packed_archive = cpio(ctx, root, ["-o", "-H", "newc", "--quiet"], b"word\n")?
   let plain = cpio(ctx, root, ["-i", "--to-stdout", "--quiet"], packed_archive.stdout)?
   assert plain.stdout == b"abcdefgh"
@@ -358,7 +358,7 @@ test test_cpio_to_stdout_and_swapped_data { |ctx|
   assert cpio(ctx, root, ["-i", "--to-stdout", "-b", "--quiet"], packed_archive.stdout)?.stdout == b"dcbahgfe"
   let named = cpio(ctx, root, ["-i", "--to-stdout", "--quiet", "nomatch"], packed_archive.stdout)?
   assert named.stdout == b""
-  fp"{root}/seven".write(b"abcdefg")?
+  fp"{root}/seven".write(b"abcdefg")
   let odd = cpio(ctx, root, ["-o", "-H", "newc", "--quiet"], b"seven\n")?
   let refused = cpio(ctx, root, ["-i", "--to-stdout", "-s", "--quiet"], odd.stdout)?
   assert refused.stdout == b"abcdefg"
@@ -370,7 +370,7 @@ test test_cpio_to_stdout_and_swapped_data { |ctx|
 
 test test_cpio_checks_crc_checksums { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-crc")?
-  fp"{root}/data".write(b"checksummed")?
+  fp"{root}/data".write(b"checksummed")
   let packed_archive = cpio(ctx, root, ["-o", "-H", "crc", "--quiet"], b"data\n")?
   let good = cpio(ctx, root, ["-i", "--only-verify-crc", "--quiet"], packed_archive.stdout)?
   assert good.status == 0
@@ -459,7 +459,7 @@ pure swap_words(data: Bytes, from: Int, length: Int) -> Bytes {
 
 test test_cpio_reads_reversed_byte_order_binary_archives { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-reverse")?
-  fp"{root}/ab".write(b"wxyz")?
+  fp"{root}/ab".write(b"wxyz")
   let native = cpio(ctx, root, ["-o", "-H", "bin", "--quiet"], b"ab\n")?
   # Two 26-byte headers (file and trailer) with a 4-byte name and 4 bytes of
   # data between them, as written by a machine of the other byte order.
@@ -477,10 +477,10 @@ test test_cpio_reads_reversed_byte_order_binary_archives { |ctx|
 
 test test_cpio_rename_batch_file_renames_or_skips_members { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-rename")?
-  fp"{root}/a".write(b"A")?
-  fp"{root}/b".write(b"B")?
+  fp"{root}/a".write(b"A")
+  fp"{root}/b".write(b"B")
   let both = cpio(ctx, root, ["-oH", "odc", "--quiet"], b"a\nb\n")?
-  fp"{root}/names".write("first\n\n")?
+  fp"{root}/names".write("first\n\n")
   let out = test.temp_dir(ctx, name: "cpio-rename-out")?
   let ran = cpio(ctx, out, ["-iv", "--rename-batch-file", f"{root}/names"], both.stdout)?
   assert ran.status == 0
@@ -493,13 +493,13 @@ test test_cpio_rename_batch_file_renames_or_skips_members { |ctx|
 test test_cpio_directories_keep_modes_and_times { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-dirs")?
   let source = fp"{root}/src"
-  source.mkdir()?
-  fp"{source}/closed".mkdir()?
-  fp"{source}/closed/file".write(b"inside")?
-  fp"{source}/closed".chmod(0o555)?
-  fs.set_times(fp"{source}/closed", mtime_ns: MTIME_NS)?
+  source.mkdir()
+  fp"{source}/closed".mkdir()
+  fp"{source}/closed/file".write(b"inside")
+  fp"{source}/closed".chmod(0o555)
+  fs.set_times(fp"{source}/closed", mtime_ns: MTIME_NS)
   let packed_archive = cpio(ctx, source, ["-o", "-H", "newc", "--quiet"], b"closed\nclosed/file\n")?
-  fp"{source}/closed".chmod(0o755)?
+  fp"{source}/closed".chmod(0o755)
   let out = test.temp_dir(ctx, name: "cpio-dirs-out")?
   let ran = cpio(ctx, out, ["-idm", "--quiet"], packed_archive.stdout)?
   assert ran.status == 0
@@ -507,12 +507,12 @@ test test_cpio_directories_keep_modes_and_times { |ctx|
   assert fs.stat(fp"{out}/closed")?.mode.bit_and(0o777) == 0o555
   assert fs.stat(fp"{out}/closed")?.mtime_ns == fs.stat(fp"{source}/closed")?.mtime_ns
   assert fp"{out}/closed/file".read_text()? == "inside"
-  fp"{out}/closed".chmod(0o755)?
+  fp"{out}/closed".chmod(0o755)
 }
 
 test test_cpio_owner_option_and_header_truncation_warnings { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-owner")?
-  fp"{root}/f".write(b"x")?
+  fp"{root}/f".write(b"x")
   let owned = cpio(ctx, root, ["-o", "-H", "newc", "-R", "7:8", "--quiet"], b"f\n")?
   let listed = cpio(ctx, root, ["-itvn", "--quiet"], owned.stdout)?
   assert "     7        8 " in listed.stdout.utf8()? or " 7        8 " in listed.stdout.utf8()?
@@ -540,7 +540,7 @@ test test_cpio_unsupported_features_fail_explicitly { |ctx|
   let remote = cpio(ctx, root, ["-o", "-O", "host:archive"], b"")?
   assert remote.status == 2
   assert remote.stderr == "cpio: host:archive: remote archives are not supported\n"
-  fp"{root}/colon:name".write(b"")?
+  fp"{root}/colon:name".write(b"")
   let local = cpio(ctx, root, ["-o", "--force-local", "-O", "colon:name", "--quiet"], b"")?
   assert local.status == 0
   let tarball = bytes.concat([bytes.zero(257)?, b"ustar\x0000", bytes.zero(512 - 264)?])
@@ -552,8 +552,8 @@ test test_cpio_unsupported_features_fail_explicitly { |ctx|
 test test_cpio_sparse_extraction_and_symlink_targets { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-sparse")?
   let hole = bytes.zero(1048576)?
-  fp"{root}/holey".write(bytes.concat([b"head", hole, b"tail"]))?
-  fp"{root}/dotted".symlink(to: p"./holey")?
+  fp"{root}/holey".write(bytes.concat([b"head", hole, b"tail"]))
+  fp"{root}/dotted".symlink(to: p"./holey")
   let packed_archive = cpio(ctx, root, ["-o", "-H", "newc", "--quiet"], b"holey\ndotted\n")?
   let out = test.temp_dir(ctx, name: "cpio-sparse-out")?
   let ran = cpio(ctx, out, ["-id", "--sparse", "--quiet"], packed_archive.stdout)?
@@ -569,7 +569,7 @@ test test_cpio_sparse_extraction_and_symlink_targets { |ctx|
 
 test test_cpio_name_lists_ignore_blank_lines_and_report_missing_files { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-names")?
-  fp"{root}/one".write(b"1")?
+  fp"{root}/one".write(b"1")
   let ran = cpio(ctx, root, ["-o", "-H", "newc", "--quiet", "-v"], b"one\n\nmissing\none\n")?
   assert ran.status == 2
   assert ran.stderr == "one\ncpio: blank line ignored\ncpio: missing: Cannot stat: No such file or directory\none\n"

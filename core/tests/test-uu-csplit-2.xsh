@@ -8,7 +8,7 @@ pure numbers(from: Int, to: Int) -> Str {
 
 proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "csplit", "numbers50.txt", "numbers50.txt")?
+  uu.fixture(s, "csplit", "numbers50.txt", "numbers50.txt")
   Ok(s)
 }
 
@@ -20,7 +20,7 @@ proc split_count(s: uu.Scene) [fs, error] -> Result[Int, Error] {
 # Missing paths are not regular files, matching the upstream scene helper.
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
   let file = uu.at(s, name)
-  if !file.exists()? { return Ok(false) }
+  if !file.exists() { return Ok(false) }
   Ok(file.is_file()?)
 }
 
@@ -55,8 +55,8 @@ test test_uu_csplit_up_to_match_offset { |ctx|
     assert split_count(s)? == 2
     uu.file_is(s, "xx00", numbers(1, 12))
     uu.file_is(s, "xx01", numbers(12, 51))
-    uu.remove(s, "xx00")?
-    uu.remove(s, "xx01")?
+    uu.remove(s, "xx00")
+    uu.remove(s, "xx01")
   }
 }
 
@@ -334,7 +334,7 @@ test test_uu_csplit_up_to_no_match7 { |ctx|
 # origin: uutils test_csplit::test_write_error_dev_full
 test test_uu_csplit_write_error_dev_full { |ctx|
   let s = scene(ctx)?
-  uu.symlink(s, "/dev/full", "xx01")?
+  uu.symlink(s, "/dev/full", "xx01")
   let r = uu.invoke(s, "csplit", ["-", "2"], stdin: b"1\n2\n")?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "xx01: No space left on device")
@@ -344,7 +344,7 @@ test test_uu_csplit_write_error_dev_full { |ctx|
 # origin: uutils test_csplit::test_write_error_dev_full_keep_files
 test test_uu_csplit_write_error_dev_full_keep_files { |ctx|
   let s = scene(ctx)?
-  uu.symlink(s, "/dev/full", "xx01")?
+  uu.symlink(s, "/dev/full", "xx01")
   let r = uu.invoke(s, "csplit", ["-k", "-", "2"], stdin: b"1\n2\n")?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "xx01: No space left on device")
@@ -355,7 +355,7 @@ test test_uu_csplit_write_error_dev_full_keep_files { |ctx|
 # origin: uutils test_csplit::zero_error
 test test_uu_csplit_zero_error { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "in")?
+  uu.touch(s, "in")
   let r = uu.invoke(s, "csplit", ["in", "0"])?
   uu.fails(r)
   uu.stderr_contains(r, "0: line number must be greater")

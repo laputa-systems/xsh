@@ -280,13 +280,13 @@ test test_rm_recursive_removes_hierarchy_deeper_than_path_max { |ctx|
   let levels = ["a" for _ in range(1000)]
   let chain = fp"{levels.join("/")}"
   var top = fs.open_root(base)?
-  top.mkdir(p"deep")?
+  top.mkdir(p"deep")
   var floor = top.open_root(p"deep")?
   for _ in range(5) {
-    floor.mkdir(chain, parents: true)?
+    floor.mkdir(chain, parents: true)
     floor = floor.open_root(chain)?
   }
-  floor.write(p"leaf", "bottom")?
+  floor.write(p"leaf", "bottom")
   let deep = fp"{base}/deep"
   let removed = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- -rf $deep
   assert removed.status.exited_with(0), removed.stderr

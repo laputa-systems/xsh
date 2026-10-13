@@ -5,7 +5,7 @@ type TabCase = {name: Str, args: List[Str], input: Bytes, output: Bytes}
 proc check_tabs(s: uu.Scene, rows: List[TabCase]) [fs, process, env, error] {
   for row in rows {
     let name = f"{row.name}.input"
-    uu.write_bytes(s, name, row.input)?
+    uu.write_bytes(s, name, row.input)
     let r = uu.invoke(s, "expand", row.args.extend([name]))?
     uu.succeeds(r)
     uu.stdout_only_bytes(r, row.output)
@@ -67,8 +67,8 @@ test test_gnu_expand_expand_log { |ctx|
     {first: b"", second: b"c\td\n", output: b"c   d\n"},
     {first: b"a\tb\n", second: b"", output: b"a   b\n"},
   ] {
-    uu.write_bytes(s, "in1", row.first)?
-    uu.write_bytes(s, "in2", row.second)?
+    uu.write_bytes(s, "in1", row.first)
+    uu.write_bytes(s, "in2", row.second)
     let r = uu.invoke(s, "expand", ["--tabs=4", "in1", "in2"])?
     uu.succeeds(r)
     uu.stdout_only_bytes(r, row.output)
@@ -82,7 +82,7 @@ test test_gnu_expand_expand_log { |ctx|
     {args: ["-t/3", "-t/6"], error: "expand: '/' specifier only allowed with the last value\n"},
     {args: ["--tabs=3/"], error: "expand: '/' specifier not at start of number: '/'\n"},
   ] {
-    uu.touch(s, "empty")?
+    uu.touch(s, "empty")
     let r = uu.invoke(s, "expand", row.args.extend(["empty"]))?
     uu.fails_with_code(r, 1)
     uu.stderr_only(r, row.error)
@@ -95,31 +95,31 @@ test test_gnu_expand_mb_log { |ctx|
   let vars = {LC_ALL: "fr_FR.UTF-8"}
   let input = bytes.from_text("1234567812345678123456781\n.       .       .       .\na\tb\tc\td\n.       .       .       .\nä\tö\tü\tß\n.       .       .       .\n   äöü\t.    öüä.   \tä xx\n")
   let output = bytes.from_text("1234567812345678123456781\n.       .       .       .\na       b       c       d\n.       .       .       .\nä       ö       ü       ß\n.       .       .       .\n   äöü  .    öüä.       ä xx\n")
-  uu.write_bytes(s, "in", input)?
+  uu.write_bytes(s, "in", input)
   let first = uu.invoke_from_path(s, "expand", [], uu.at(s, "in"), vars)?
   uu.succeeds(first)
   uu.stdout_is_bytes(first, output)
   let twice = uu.invoke(s, "expand", ["./in", "./in"], vars: vars)?
   uu.succeeds(twice)
   uu.stdout_is_bytes(twice, bytes.concat([output, output]))
-  uu.write(s, "in", "12345678\ne\t|ascii(1)\né\t|composed(1)\né\t|decomposed(1)\n　\t|ideo-space(2)\n－\t|full-hypen(2)\n")?
+  uu.write(s, "in", "12345678\ne\t|ascii(1)\né\t|composed(1)\né\t|decomposed(1)\n　\t|ideo-space(2)\n－\t|full-hypen(2)\n")
   let widths = uu.invoke_from_path(s, "expand", [], uu.at(s, "in"), vars)?
   uu.succeeds(widths)
   uu.stdout_is(widths, "12345678\ne       |ascii(1)\né       |composed(1)\né       |decomposed(1)\n　      |ideo-space(2)\n－      |full-hypen(2)\n")
-  uu.write_bytes(s, "in", b"\n")?
+  uu.write_bytes(s, "in", b"\n")
   let newline = uu.invoke_from_path(s, "expand", [], uu.at(s, "in"), vars)?
   uu.succeeds(newline)
   uu.stdout_is_bytes(newline, b"\n")
   let a = bytes.from_text("ä")
-  uu.write_bytes(s, "in", bytes.concat([b"12345678\n\t\xff|\n\xff\t|\n\t\xff", a, b"|\n", a, b"\xff\t|\n\t", a, b"\xff|\n\xff\t", a, b"|\n", a, b"bcdef\xff\t|\n"]))?
+  uu.write_bytes(s, "in", bytes.concat([b"12345678\n\t\xff|\n\xff\t|\n\t\xff", a, b"|\n", a, b"\xff\t|\n\t", a, b"\xff|\n\xff\t", a, b"|\n", a, b"bcdef\xff\t|\n"]))
   let invalid = uu.invoke_from_path(s, "expand", [], uu.at(s, "in"), vars)?
   uu.succeeds(invalid)
   uu.stdout_is_bytes(invalid, bytes.concat([b"12345678\n        \xff|\n\xff       |\n        \xff", a, b"|\n", a, b"\xff      |\n        ", a, b"\xff|\n\xff       ", a, b"|\n", a, b"bcdef\xff |\n"]))
-  uu.write_bytes(s, "in", bytes.concat([b"\xef\xbb\xbf", input]))?
+  uu.write_bytes(s, "in", bytes.concat([b"\xef\xbb\xbf", input]))
   let bom = uu.invoke_from_path(s, "expand", [], uu.at(s, "in"), vars)?
   uu.succeeds(bom)
   uu.stdout_is_bytes(bom, bytes.concat([b"\xef\xbb\xbf", output]))
-  uu.write_bytes(s, "in1", bytes.concat([b"\xef\xbb\xbf", input]))?
+  uu.write_bytes(s, "in1", bytes.concat([b"\xef\xbb\xbf", input]))
   let multiple_bom = uu.invoke(s, "expand", ["in1", "in1"], vars: vars)?
   uu.succeeds(multiple_bom)
   uu.stdout_is_bytes(multiple_bom, bytes.concat([b"\xef\xbb\xbf", output, b"\xef\xbb\xbf", output]))

@@ -113,9 +113,9 @@ io.write_stderr("suffix")?
 }
 
 test test_io_flush_stderr_preserves_captured_output {
-  io.write_stderr("captured")?
-  io.write_stderr_bytes(b"bytes")?
-  io.flush_stderr()?
+  io.write_stderr("captured")
+  io.write_stderr_bytes(b"bytes")
+  io.flush_stderr()
 }
 
 test test_io_flush_stderr_reports_unwritable_descriptor { |ctx|

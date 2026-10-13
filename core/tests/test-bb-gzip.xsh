@@ -3,8 +3,8 @@ use support.uu
 # origin: busybox gzip/gzip-accepts-multiple-files
 test test_bb_gzip_gzip_accepts_multiple_files_eb79442c { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
-  uu.touch(s, "bar")?
+  uu.touch(s, "foo")
+  uu.touch(s, "bar")
   uu.succeeds(uu.invoke(s, "gzip", ["foo", "bar"])?)
   assert uu.file_exists(s, "foo.gz")?
   assert uu.file_exists(s, "bar.gz")?
@@ -29,7 +29,7 @@ test test_bb_gzip_gzip_compression_levels_81785e0c { |ctx|
 # origin: busybox gzip/gzip-removes-original-file
 test test_bb_gzip_gzip_removes_original_file_d8c1d446 { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
+  uu.touch(s, "foo")
   uu.succeeds(uu.invoke(s, "gzip", ["foo"])?)
   assert ! uu.exists(s, "foo")?
 }
