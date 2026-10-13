@@ -43,11 +43,13 @@ let whole = data.slice(0, data.len())
 let empty = data.slice(0, 0)
 let named = data.slice(length: 2, offset: 3)
 let saturated = data.slice(offset: 1, length: 9223372036854775807)
+let marker = b"#".slice(0, 1)
 print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()} ${named.base64()} ${saturated.base64()}
+print ${marker.base64()}
 """
   let report = reported(file, "lint.prefer-slice", source)?
-  assert report.split("warn[lint.prefer-slice]").len() == 7, report
-  assert report.split("help: rewrite equivalent byte slice -> ").len() == 7, report
+  assert report.split("warn[lint.prefer-slice]").len() == 8, report
+  assert report.split("help: rewrite equivalent byte slice -> ").len() == 8, report
   assert_checks(file)
   assert_formatted(file)
 
@@ -58,7 +60,9 @@ let whole = data[..]
 let empty = data[..0]
 let named = data[3..5]
 let saturated = data[1..6]
+let marker = b"#"[..1]
 print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()} ${named.base64()} ${saturated.base64()}
+print ${marker.base64()}
 """
   assert_checks(file)
   assert_formatted(file)
@@ -105,6 +109,8 @@ proc named_effects(data: Bytes) [env] -> Bytes {
 }
 pure produce() -> Bytes { b"abc" }
 let duplicated = produce().slice(1, produce().len() - 1)
+let commented_hash = b"#".slice(0, # retain bounds explanation
+  1)
 """
   let report = reported(file, "lint.prefer-slice", source)?
   assert_checks(file)

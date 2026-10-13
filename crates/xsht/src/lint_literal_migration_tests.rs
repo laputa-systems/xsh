@@ -192,7 +192,7 @@ fn list_duration_literal_updates_preserve_the_checked_element_domain() {
 
 #[test]
 fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
-    let source = "let data = b\"a\\0\\xffbcd\"\nlet copied = data\nlet suffix = data.slice(3, data.len() - 3) # retained\nlet empty = copied.slice(6, length: copied.len() - 6)\nlet rest = copied.slice(2)\nlet bounded = data.slice(1, 2)\nlet named = data.slice(length: 2, offset: 3)\nlet whole = copied.slice(0, copied.len() - 0)\nlet saturated = data.slice(1, 9223372036854775807)\n";
+    let source = "let data = b\"a\\0\\xffbcd\"\nlet copied = data\nlet suffix = data.slice(3, data.len() - 3) # retained\nlet empty = copied.slice(6, length: copied.len() - 6)\nlet rest = copied.slice(2)\nlet bounded = data.slice(1, 2)\nlet named = data.slice(length: 2, offset: 3)\nlet whole = copied.slice(0, copied.len() - 0)\nlet saturated = data.slice(1, 9223372036854775807)\nlet marker = b\"#\".slice(0, 1)\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
@@ -212,7 +212,7 @@ fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
         .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferSlice))
         .flat_map(|diagnostic| &diagnostic.fix_hints)
         .collect::<Vec<_>>();
-    assert_eq!(fixes.len(), 7);
+    assert_eq!(fixes.len(), 8);
     let mut fixed = source.to_owned();
     for fix in fixes.iter().rev() {
         fixed.replace_range(
@@ -227,6 +227,7 @@ fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
     assert!(fixed.contains("data[3..5]"));
     assert!(fixed.contains("copied[0..]"));
     assert!(fixed.contains("data[1..6]"));
+    assert!(fixed.contains("marker = b\"#\"[..1]"));
     let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
     assert!(
         reparsed.diagnostics.is_empty(),
@@ -264,7 +265,7 @@ fn byte_slice_rule_is_silent_without_proven_equivalent_bounds() {
         "let data = b\"abc\"\nlet suffix = data.slice(4, data.len() - 4)\n",
         "let data = b\"abc\"\nlet suffix = data.slice(-1)\n",
         "let data = b\"abc\"\nlet other = b\"abcd\"\nlet suffix = data.slice(1, other.len() - 1)\n",
-        "let data = b\"abc\"\nlet suffix = data.slice(1, # retain bounds explanation\n  data.len() - 1)\n",
+        "let data = b\"abc\"\nlet suffix = b\"#\".slice(0, # retain bounds explanation\n  1)\n",
         "let data = b\"abc\"\nlet suffix = data.slice(1, -1)\n",
         "pure produce() -> Bytes { b\"abc\" }\nlet suffix = produce().slice(1, produce().len() - 1)\n",
         "pure suffix(data: Bytes, offset: Int, length: Int) -> Bytes { data.slice(offset, length) }\n",

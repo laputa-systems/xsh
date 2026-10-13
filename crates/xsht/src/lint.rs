@@ -4527,9 +4527,9 @@ impl<'a> Linter<'a> {
             (Some(offset), length) => self.literal_byte_slice_bounds(base, offset, length),
             _ => None,
         };
-        let has_comments = self.source[receiver.span.range()].contains('#')
-            || self.source[receiver.span.end()..span.end()].contains('#');
-        let bounds = bounds.filter(|_| postfix_receiver && !has_comments)?;
+        let bounds = bounds.filter(|_| {
+            postfix_receiver && !span_may_contain_comment(self.source, span)
+        })?;
         // Include equivalent nested slices so dropping overlapping edits still converges.
         let receiver_text = match receiver.kind {
             ArenaExprKind::Call { callee, args } => {
