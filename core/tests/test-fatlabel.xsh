@@ -5,11 +5,9 @@ test test_fatlabel_cli_reads_and_changes_volume_label { |ctx|
   let image = fp"{root}/disk.img"
   let _ = vfat.format(image, 1474560, bits: 12, label: "BEFORE")?
   let script = fp"{ctx.core_dir}/fatlabel.xsh"
-  let read = test.run_script(ctx, script.read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir}, args: [image])?
-  assert read.status == 0, read.stderr
+  let read = test.expect(ctx, script.read_text()?, status: 0, env: {XSH_MODULE_PATH: ctx.core_dir}, args: [image])?
   assert read.stdout == "BEFORE\n"
-  let changed = test.run_script(ctx, script.read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir}, args: [image, "AFTER"])?
-  assert changed.status == 0, changed.stderr
+  test.expect(ctx, script.read_text()?, status: 0, env: {XSH_MODULE_PATH: ctx.core_dir}, args: [image, "AFTER"])?
   assert vfat.inspect(image)?.label == "AFTER"
   assert vfat.check(image)?.issues.is_empty()
 }

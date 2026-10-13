@@ -51,7 +51,7 @@ test test_fs_path_frame_apply_evaluates_source_operands_before_host_creation { |
   let target = fp"{root}/not-created.tar"
   let order_file = fp"{root}/operand-order"
 
-  let failed = test.run_script(
+  test.expect(
     ctx,
     f"""var order: List[Str] = []
 let invalid: Any = "not a boolean"
@@ -67,10 +67,9 @@ archive.tar_create(
   }} else {{ false }},
 )
 """,
+    status: 3,
+    stderr: ["schema check failed"],
   )?
-
-  assert failed.status == 3, failed.stderr
-  assert "schema check failed" in failed.stderr
   assert order_file.read_text()? == "path,root,entries,compression,overwrite"
   assert ! target.exists()?
 }
@@ -80,7 +79,7 @@ test test_path_write_evaluates_operands_before_host_failure { |ctx|
   let target = fp"{root}/missing/target"
   let order_file = fp"{root}/order"
 
-  let failed = test.run_script(
+  test.expect(
     ctx,
     f"""let target = if true {{
   p"{order_file}".write("path,")
@@ -92,9 +91,8 @@ target.write(if true {{
   "payload"
 }} else {{ "payload" }})
 """,
+    status: 3,
   )?
-
-  assert failed.status == 3, failed.stderr
   assert order_file.read_text()? == "path,data"
   assert ! target.exists()?
 }
@@ -127,14 +125,13 @@ test test_archive_tar_create_frame_emits_one_module_trace_pair { |ctx|
 test test_fs_tempdir_frame_apply_releases_created_resources { |ctx|
   let root = test.temp_dir(ctx, name: "fs-tempdir-frame-cleanup")?
   let path_file = fp"{root}/scratch-path"
-  let output = test.run_script(
+  test.expect(
     ctx,
     f"""let scratch = fs.tempdir()?
 p"{path_file}".write(scratch.host_path()?.display())
 """,
+    status: 0,
   )?
-
-  assert output.status == 0, output.stderr
   let scratch = fp"{path_file.read_text()?}"
   assert ! scratch.exists()?
 }

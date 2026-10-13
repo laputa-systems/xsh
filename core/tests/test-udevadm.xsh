@@ -403,8 +403,15 @@ test test_udevadm_settle_rejects_bad_timeout_and_extra_operands { |ctx|
 test test_udevadm_monitor_prints_kernel_events_from_the_uevent_stream { |ctx|
   let source = fp"{ctx.core_dir}/udevadm.xsh".read_text()?
   test.linux_fake(ctx, {})
-  let plain = test.run_script(ctx, source, ["monitor"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "udevadm")?
-  assert plain.success, plain.stderr
+  let plain = test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["monitor"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "udevadm",
+  )?
   let lines = plain.stdout.lines().collect()
   assert lines[0] == "monitor will print the received events for:"
   assert lines[1] == "KERNEL - the kernel uevent"
@@ -412,8 +419,15 @@ test test_udevadm_monitor_prints_kernel_events_from_the_uevent_stream { |ctx|
   assert lines[3].starts_with("KERNEL[")
   assert lines[3].ends_with("] add      /devices/virtual/block/sda (block)")
 
-  let detailed = test.run_script(ctx, source, ["monitor", "-k", "-p"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "udevadm")?
-  assert detailed.success, detailed.stderr
+  let detailed = test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["monitor", "-k", "-p"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "udevadm",
+  )?
   assert detailed.stdout.ends_with("ACTION=add\nDEVNAME=sda\nDEVPATH=/devices/virtual/block/sda\nSUBSYSTEM=block\n\n")
 
   let filtered = test.run_script(ctx, source, ["monitor", "-s", "net"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "udevadm")?

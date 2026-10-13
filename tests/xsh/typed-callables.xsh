@@ -124,7 +124,7 @@ export pure choose(left: Str, right: Str) -> Str { left + right }
 ## Returns the imported procedure value.
 export proc capture(left: Str, right: Str) -> Str { left + right }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""use helper as source
 pure choose(value: Int) -> Int { value + 1 }
@@ -134,10 +134,10 @@ print choose(40)
 print source.capture("module", "proc")
 print capture(40)
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == """modulepure
 41
 moduleproc

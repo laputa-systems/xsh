@@ -47,8 +47,13 @@ test test_fat_allocation_checker_repairs_lost_cluster { |ctx|
 test test_mkfs_fat_cli_reproducible_image { |ctx|
   let root = test.temp_dir(ctx, name: "mkfs-fat-cli")?
   let image = fp"{root}/image"
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/mkfs.fat.xsh".read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-C", "--invariant", "-F12", "-n", "TEST", image, "1440"])?
-  assert result.status == 0, result.stderr
+  test.expect(
+    ctx,
+    fp"{ctx.core_dir}/mkfs.fat.xsh".read_text()?,
+    status: 0,
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    args: ["-C", "--invariant", "-F12", "-n", "TEST", image, "1440"],
+  )?
   assert vfat.inspect(image)?.label == "TEST"
   assert vfat.inspect(image)?.serial == 0
 }

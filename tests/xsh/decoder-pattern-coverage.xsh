@@ -1,5 +1,5 @@
 test test_indexed_pattern_decoder_falls_through_for_dynamic_nonmatches { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error DecoderPatternError {
     Missing(detail: Str) : NotFound
@@ -39,7 +39,7 @@ proc witness() [error] {
 
 witness()
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == ""
 }

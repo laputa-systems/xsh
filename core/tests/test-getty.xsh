@@ -53,8 +53,15 @@ test test_getty_serial_flags_change_only_the_named_owned_terminal { |ctx|
   let root = test.temp_dir(ctx, name: "getty-serial")?
   let login = fp"{root}/login"
   login.write("#!/bin/sh\nexit 0\n", mode: 0o755)
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-i", "-n", "-h", "-L", "-l", login, "0", pty.name], {XSH_MODULE_PATH: ctx.core_dir}, b"", "getty")?
-  assert result.success, result.stderr
+  test.expect(
+    ctx,
+    fp"{ctx.core_dir}/getty.xsh".read_text()?,
+    status: 0,
+    args: ["-i", "-n", "-h", "-L", "-l", login, "0", pty.name],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "getty",
+  )?
   let changed = unix.tty_attrs(pty.replica)?
   assert changed.cflag.bit_and(mask) == mask
   assert changed.iflag == original.iflag
@@ -104,8 +111,15 @@ test test_getty_baud_changes_the_named_owned_terminal { |ctx|
   let root = test.temp_dir(ctx, name: "getty-baud")?
   let login = fp"{root}/login"
   login.write("#!/bin/sh\nexit 0\n", mode: 0o755)
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-i", "-n", "-l", login, "9600", pty.name], {XSH_MODULE_PATH: ctx.core_dir}, b"", "getty")?
-  assert result.success, result.stderr
+  test.expect(
+    ctx,
+    fp"{ctx.core_dir}/getty.xsh".read_text()?,
+    status: 0,
+    args: ["-i", "-n", "-l", login, "9600", pty.name],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "getty",
+  )?
   let changed = unix.tty_attrs(pty.replica)?
   assert changed.ispeed == 9600
   assert changed.ospeed == 9600

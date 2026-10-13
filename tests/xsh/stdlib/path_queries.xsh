@@ -62,9 +62,7 @@ test test_path_component_queries_on_a_dynamic_receiver { |ctx|
     "let library: Any = /usr/lib/libz.so\nassert ! library.ends_with(p\"z.so\")",
     "let text: Any = \"/usr/lib\"\nassert text.starts_with(\"/us\")",
   ] {
-    let checked = test.run_script(ctx, source)?
-    assert checked.status == 2, checked.stderr
-    assert "check.dynamic-boundary" in checked.stderr, checked.stderr
+    let _ = test.expect(ctx, source, status: 2, stderr: ["check.dynamic-boundary"])?
   }
 }
 

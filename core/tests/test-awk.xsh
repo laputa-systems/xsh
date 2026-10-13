@@ -72,8 +72,16 @@ test test_awk_numeric_conversion_formats { |ctx|
 
 test test_awk_function_next_and_exit_propagate { |ctx|
   let input = test.temp_file(ctx, name: "control", contents: b"skip\nkeep\nstop\nafter\n")?
-  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""function control() { if ($1=="skip") next; if ($1=="stop") exit 7 } { control(); print $1 } END { print "end", NR }""", input], env: {XSH_MODULE_PATH: ctx.core_dir})?
-  assert output.status == 7
+  let output = test.expect(
+    ctx,
+    fp"{ctx.core_dir}/awk.xsh".read_text()?,
+    status: 7,
+    args: [
+      r"""function control() { if ($1=="skip") next; if ($1=="stop") exit 7 } { control(); print $1 } END { print "end", NR }""",
+      input,
+    ],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+  )?
   assert output.stdout == "keep\nend 3\n"
 }
 
@@ -264,8 +272,13 @@ test test_awk_braces_are_literal_outside_intervals { |ctx|
 }
 
 test test_awk_print_redirects_only_to_standard_streams { |ctx|
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { print "err" > "/dev/stderr"; print "out" > "/dev/stdout" }"""], env: {XSH_MODULE_PATH: ctx.core_dir})?
-  assert result.status == 0
+  let result = test.expect(
+    ctx,
+    fp"{ctx.core_dir}/awk.xsh".read_text()?,
+    status: 0,
+    args: [r"""BEGIN { print "err" > "/dev/stderr"; print "out" > "/dev/stdout" }"""],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+  )?
   assert result.stdout == "out\n"
   assert result.stderr == "err\n"
 }

@@ -262,8 +262,7 @@ test test_linux_loop_attach_requires_writable_backing_without_fallback { |ctx|
   }}
 }}
 """
-  let result = test.run_script(ctx, source)?
-  assert result.success, result.stderr
+  test.expect(ctx, source, status: 0)?
   assert image.read_text()? == "read-only image"
   assert device_fixture.read_text()? == "regular file, never a block device"
 }

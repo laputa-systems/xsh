@@ -99,7 +99,7 @@ print accepted
 }
 
 test test_process_command_construction_preserves_operand_order { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc mark(label: Str, value: Str) [io] -> Str {
   print $label
@@ -122,8 +122,8 @@ let builder = process.command {
 }
 print "constructed"
 """,
+    status: 0,
   )?
-  assert output.status == 0, output.stderr
   assert output.stdout == """argv-target
 argv-zero
 argv-one
@@ -138,7 +138,7 @@ constructed
 }
 
 test test_process_command_construction_supports_forced_frames { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let argv = process.command_argv(
   "true",
@@ -152,8 +152,8 @@ let builder = process.command {
   run true
 }
 """,
+    status: 0,
   )?
-  assert output.status == 0, output.stderr
   assert output.stdout == "", output.stdout
 }
 

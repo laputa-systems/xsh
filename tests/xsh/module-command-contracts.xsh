@@ -1,5 +1,5 @@
 test module_command_fsync_runs_the_checked_operation { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     r"""let scratch = fs.tempdir()?
 defer scratch.close()
@@ -9,13 +9,15 @@ fs.fsync $durable
 fs.fsync $durable ?
 print durable.read_text()?
 """,
+    status: 0,
   )?
-  assert result.success, result.stderr
   assert result.stdout == "persisted\n", result.stdout
 }
 
 test module_command_scalar_words_defaults_and_flags { |ctx|
-  let result = test.run_script(ctx, r"""let scratch = fs.tempdir()?
+  let result = test.expect(
+    ctx,
+    r"""let scratch = fs.tempdir()?
 defer scratch.close()
 let durable = fp"{scratch.host_path()?}/payload.json"
 json.write $durable ({value: 1}) false
@@ -34,13 +36,16 @@ time.sleep ${0}ms
 let pause = 0ms
 time.sleep $pause
 print completed
-""")?
-  assert result.success, result.stderr
+""",
+    status: 0,
+  )?
   assert result.stdout == "completed\n", result.stdout
 }
 
 test module_command_operands_run_once_in_source_order { |ctx|
-  let result = test.run_script(ctx, r"""type Payload = {value: Int}
+  let result = test.expect(
+    ctx,
+    r"""type Payload = {value: Int}
 proc destination(durable: Path) [] -> Path {
   print destination
   durable
@@ -55,8 +60,9 @@ let durable = fp"{scratch.host_path()?}/ordered.json"
 json.write (destination(durable)) --pretty (payload())
 assert "7" in durable.read_text()?
 print completed
-""")?
-  assert result.success, result.stderr
+""",
+    status: 0,
+  )?
   assert result.stdout == "destination\npayload\ncompleted\n", result.stdout
 }
 
