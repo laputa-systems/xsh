@@ -23,7 +23,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
         let matches = wanted |> where file.dev == .dev and file.inode == .ino
         continue when matches.is_empty()
       }
-      if row.pid not in found { found = found.push(row.pid); if opts.terse { print $row.pid } }
+      if row.pid not in found { found += [row.pid]; if opts.terse { print $row.pid } }
       if ! opts.terse { print f"{row.command} {row.pid} {row.user} {file.fd_label}{file.access} {file_type(file.type)} {file.inode} {file.path}" }
     }
   }

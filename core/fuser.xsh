@@ -27,7 +27,12 @@ proc main(...argv: List[Str]) [fs, process, io, error] {
   for word in argv {
     if word == "--" { option_words = false }
     let signal_name = word.split("") |> drop(1).join("")
-    if option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(signal_name) is Ok(_) { normalized = normalized.push("--signal").push(signal_name) } else { normalized = normalized.push(word) }
+    if option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(signal_name) is Ok(_) { normalized += [
+      "--signal",
+      signal_name,
+    ] } else { normalized += [
+      word,
+    ] }
   }
   let opts: Options = cli.applet(normalized, {gnu: {status: 1}, verbose: {form: "-v --verbose", default: false}, silent: {form: "-s --silent", default: false}, mount: {form: "-m --mount", default: false}, kill: {form: "-k --kill", default: false}, all: {form: "-a --all", default: false}, namespace: {form: "-n --namespace SPACE", default: "file"}, signal: {form: "--signal SIGNAL", default: "KILL"}, help: {form: "--help", default: false}, operands: {form: "...NAME"}})?
   if opts.help { print "Usage: fuser [-vsmka] [-SIGNAL] [-n file|tcp|udp] NAME..."; return }

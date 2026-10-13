@@ -490,8 +490,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
       if found {
         let text = wide_to_decimal(chosen)
-        selected = selected.extend([chosen])
-        output_parts = output_parts.extend([@[bytes.from_text(text), mark]])
+        selected += [chosen]
+        output_parts += [@[bytes.from_text(text), mark]]
         output_size += text.byte_len() + 1
         produced += 1
 

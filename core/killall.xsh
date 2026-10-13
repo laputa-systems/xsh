@@ -8,7 +8,12 @@ proc main(...argv: List[Str]) [process, error, fs] {
   for word in argv {
     if word == "--" { option_words = false }
     let signal_name = word.split("") |> drop(1).join("")
-    if option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(signal_name) is Ok(_) { normalized = normalized.push("--signal").push(signal_name) } else { normalized = normalized.push(word) }
+    if option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(signal_name) is Ok(_) { normalized += [
+      "--signal",
+      signal_name,
+    ] } else { normalized += [
+      word,
+    ] }
   }
   let opts: Options = cli.applet(normalized, {gnu: {status: 1}, signal: {form: "-s --signal SIGNAL", default: "TERM"}, quiet: {form: "-q --quiet", default: false}, verbose: {form: "-v --verbose", default: false}, ignore_case: {form: "-I --ignore-case", default: false}, regexp: {form: "-r --regexp", default: false}, user: {form: "-u --user USER"}, help: {form: "--help", default: false}, operands: {form: "...NAME"}})?
   if opts.help { print "Usage: killall [-qvIr] [-s SIGNAL] [-u USER] NAME..."; return }
@@ -33,7 +38,7 @@ proc main(...argv: List[Str]) [process, error, fs] {
         if ! opts.quiet { eprint f"killall: {row.pid}: {failure.message}" }
         failed = true
       } else {
-        signaled = signaled.push(row.pid)
+        signaled += [row.pid]
         if opts.verbose { eprint f"Killed {row.command}({row.pid}) with signal {signal.number}" }
       }
     }

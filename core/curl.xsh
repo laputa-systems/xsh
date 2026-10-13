@@ -855,7 +855,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
 
   var jar: List[Cookie] = []
   for cookie in settings.cookies {
-    if cookie.find("=") == null { jar = jar.extend(load_jar(cookie)) }
+    if cookie.find("=") == null { jar += load_jar(cookie) }
   }
 
   var resume_from = 0

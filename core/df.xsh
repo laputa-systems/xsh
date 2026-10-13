@@ -183,7 +183,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
   if opts.portable and units.human == 0 { units = {...units, label: f"{units.block}-blocks"} }
   var columns = []
   if ! opts.output.is_empty() {
-    for selection in opts.output { columns = columns.extend(selection.split(",")) }
+    for selection in opts.output { columns += selection.split(",") }
   } else if opts.inodes {
     columns = ["source", "itotal", "iused", "iavail", "ipcent", "target"]
   } else { columns = ["source", "size", "used", "avail", "pcent", "target"] }

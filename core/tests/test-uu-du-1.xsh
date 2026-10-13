@@ -38,11 +38,11 @@ proc expected(s: uu.Scene, name = ".", inodes = false, separate = false, follow 
       visited = found.seen
       let child_meta = fs.stat(uu.at(s, f"{name}/{child.name}"), follow_symlinks: follow)?
       if !separate or child_meta.kind != "dir" { size += found.size }
-      lines = lines.extend(found.lines)
+      lines += found.lines
     }
     if depth >= 0 {
       let count = if inodes { size } else { (size + 1023) / 1024 }
-      lines = lines.push(f"{count}\t{name}\n")
+      lines += [f"{count}\t{name}\n"]
     }
   }
   Ok({size: size, seen: visited, lines: lines})

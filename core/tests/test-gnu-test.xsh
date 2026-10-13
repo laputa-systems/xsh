@@ -155,7 +155,7 @@ test test_gnu_test_test_log { |ctx|
     {args: ["-l", "abc", "-lt", "2"], status: 1},
     {args: ["2", "-lt", "-l", "abc"], status: 0},
   ]
-  cases = cases.extend(numeric)
+  cases += numeric
   for case in numeric {
     let inverse = [if word == "-eq" { "-ne" } else if word == "-gt" { "-le" } else if word == "-lt" { "-ge" } else { word } for word in case.args]
     cases += [{args: inverse, status: 1 - case.status}]

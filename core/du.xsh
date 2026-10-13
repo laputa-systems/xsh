@@ -424,7 +424,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   var failed = false
   for filename in opts.exclude_files {
     match fp"{filename}".read_text() {
-      Ok(text) => { excludes = excludes.extend(text.lines().collect()) }
+      Ok(text) => { excludes += text.lines().collect() }
       Err(failure) => {
         gnu.error(f"{gnu.quote_maybe(filename)}: {gnu.strerror(failure)}")
         gnu.try_help()

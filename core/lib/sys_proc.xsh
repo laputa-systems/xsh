@@ -305,7 +305,7 @@ export proc collect(root: FsRoot, page_size_bytes: Int) [fs, error] -> ProcessSo
     }
     let pid = parsed_pid
     let row = process_read(root, directory, pid, page_size_bytes)
-    issues = issues.extend(row.issues)
+    issues += row.issues
     if let process_row = row.process {
       processes += [process_row]
     }

@@ -486,7 +486,7 @@ pure parse_ipv6(text: Str) -> Bytes? {
 
     all = groups
     repeat missing times { all += [0] }
-    all = all.extend(after)
+    all += after
   } else {
     all = groups
   }
@@ -1148,7 +1148,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   if tables.is_empty() {
     tables = if family_is_inet { inet_tables } else { ["u_str", "u_dgr", "u_seq", "raw", "udp", "tcp"] }
   } else if family_is_inet and !has_inet {
-    tables = tables.extend(inet_tables)
+    tables += inet_tables
   }
 
   # State filter clauses lead the filter words.

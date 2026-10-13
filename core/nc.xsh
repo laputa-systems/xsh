@@ -816,7 +816,7 @@ proc connect_unix(socket_path: Str, opts: Options) [net, fs, process, io, error]
 proc run_client(host: Str, port_specs: List[Str], opts: Options) [net, fs, process, time, io, error] -> Unit {
   var ports = []
   for spec in port_specs {
-    ports = ports.extend(build_ports(spec, opts))
+    ports += build_ports(spec, opts)
   }
   if opts.random { ports = shuffled(ports) }
   var status = 1

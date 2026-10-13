@@ -271,7 +271,7 @@ proc blocked_signal_names(options: List[SignalActionOption]) [process] -> List[S
   var blocked = []
   for option in options {
     if let names = option.names {
-      blocked = blocked.extend(names)
+      blocked += names
     } else {
       for signal in process.signals() {
         if signal.number != 0 { blocked += [signal.name] }

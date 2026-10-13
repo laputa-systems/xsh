@@ -408,8 +408,8 @@ test test_gnu_mv_mv_special_1_log { |ctx|
     let normalized = line.replace("renamed ", with: "").replace("copied ", with: "").replace(remote.display(), with: "XXX")
     if normalized.starts_with("created directory 'XXX/") {
       let name = normalized[23..normalized.byte_len() - 1]
-      actual = actual.extend([f"'{name}' -> 'XXX/{name}'"])
-    } else { actual = actual.extend([normalized]) }
+      actual += [f"'{name}' -> 'XXX/{name}'"]
+    } else { actual += [normalized] }
   }
   let entries = ["mv-null", "mv-dir", "mv-dir/a", "mv-dir/a/b", "mv-dir/a/b/c", "mv-dir/a/b/c/file1", "mv-dir/d", "mv-dir/d/e", "mv-dir/d/e/f", "mv-dir/d/e/f/file2", "mv-dir2", "mv-dir2/mv-null"]
   assert (actual |> sort) == ([f"'{name}' -> 'XXX/{name}'" for name in entries] |> sort)

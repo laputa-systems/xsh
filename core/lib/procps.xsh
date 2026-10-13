@@ -79,7 +79,12 @@ export proc grep_main(argv: List[Str], send_signal: Bool) [process, env, error, 
   for word in argv {
     if word == "--" { option_words = false }
     let signal_name = word.split("") |> drop(1).join("")
-    if send_signal and option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(signal_name) is Ok(_) { normalized = normalized.push("--signal").push(signal_name) } else { normalized = normalized.push(word) }
+    if send_signal and option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(signal_name) is Ok(_) { normalized += [
+      "--signal",
+      signal_name,
+    ] } else { normalized += [
+      word,
+    ] }
   }
   let opts: GrepOptions = cli.applet(normalized, {
     gnu: {status: 2},

@@ -450,7 +450,7 @@ test test_gnu_ls_quote_align_log { |ctx|
     for line in r.stdout.utf8()?.lines() {
       continue when line.starts_with("total")
       let parts = line.split("T ")
-      lines = lines.extend([parts[-1]])
+      lines += [parts[-1]]
     }
     assert lines.join("\n") + "\n" == row.out
   }

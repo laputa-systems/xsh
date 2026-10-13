@@ -95,7 +95,7 @@ pure cell(row: LinuxProcessSample, field: Str, memory_total: Int) -> Str {
 
 proc main(...argv: List[Str]) [fs, process, error] {
   var normalized = []
-  for word in argv { normalized = normalized.push(if word == "aux" { "--bsd-aux" } else { word }) }
+  for word in argv { normalized += [if word == "aux" { "--bsd-aux" } else { word }] }
   let bsd = "--bsd-aux" in normalized
   normalized = normalized |> where . != "--bsd-aux"
   let opts: Options = cli.applet(normalized, {gnu: {status: 2}, all: {form: "-e -A --everyone", default: false}, full: {form: "-f --full", default: false}, pids: {form: "-p --pid PID"}, parents: {form: "--ppid PID"}, output: {form: "-o --format FORMAT", repeated: true}, sort: {form: "--sort KEYS"}, no_headers: {form: "--no-headers --no-heading", default: false}, help: {form: "--help", default: false}, operands: {form: "...ARG"}})?
@@ -143,11 +143,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
           "pcpu" | "%cpu" => f"{if row.runtime_seconds <= 0 { 0 } else { row.cpu_ticks * 1000 / row.ticks_per_second / row.runtime_seconds }}"
           else => cell(row, key, snapshot.memory.total)
         }
-        if previous_value != null and previous_value != value { next_groups = next_groups.push(segment); segment = [] }
-        segment = segment.push(row)
+        if previous_value != null and previous_value != value { next_groups += [segment]; segment = [] }
+        segment += [row]
         previous_value = value
       }
-      if ! segment.is_empty() { next_groups = next_groups.push(segment) }
+      if ! segment.is_empty() { next_groups += [segment] }
     }
     groups = next_groups
   }

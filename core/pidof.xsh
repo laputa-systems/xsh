@@ -13,7 +13,7 @@ proc main(...argv: List[Str]) [process, error] {
   for name in opts.operands {
     for row in rows |> sort-by(desc: true) .pid {
       if row.pid != self_pid and row.pid not in omitted and (row.command == name or row.argv0 == name or fp"{row.argv0}".name() == name) {
-        if row.pid not in found { found = found.push(row.pid) }
+        if row.pid not in found { found += [row.pid] }
         break when opts.single
       }
     }

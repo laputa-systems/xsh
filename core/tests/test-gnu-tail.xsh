@@ -312,10 +312,10 @@ test test_gnu_tail_debug_log { |ctx|
     {args: ["--debug", "-F", "/dev/null"], message: "tail: using polling mode"},
   ]
   if "inotify" in uu.read_text(s, "strace.out")? {
-    cases = cases.extend([
+    cases += [
       {args: ["--debug", "-n0", "-f", "file.debug"], message: "tail: using notification mode"},
       {args: ["--debug", "---disable-inotify", "-f", "file.debug"], message: "tail: using polling mode"},
-    ])
+    ]
   }
   for case in cases {
     let child = following(s, case.args)?

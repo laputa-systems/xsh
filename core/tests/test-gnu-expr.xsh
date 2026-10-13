@@ -135,7 +135,7 @@ test test_gnu_expr_expr_log { |ctx|
     {args: ["(", "2", "a"], out: "", status: 2, err: "expr: syntax error: expecting ')' instead of 'a'\n"},
   ]
   var failures = check_rows(s, rows, "C")?
-  failures = failures.extend(check_rows(s, rows[..100], "fr_FR.UTF-8")?)
+  failures += check_rows(s, rows[..100], "fr_FR.UTF-8")?
   assert failures.is_empty(), failures.join("\n")
 }
 
