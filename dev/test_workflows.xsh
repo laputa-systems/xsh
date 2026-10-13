@@ -90,7 +90,8 @@ export pure rust_plan(
   if privileged {
     plan += [stages.command("test-linux-priv", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh", "--features", "linux-priv-tests", "--test", "core_compat_extra",
-        "--test", "linux_priv", "--", "--nocapture", "--skip", "split::"], ctx.root, environment)]
+        "--test", "linux_priv", "--", "--nocapture", "--skip", "split::",
+        "--skip", "cp::privileged::test_cp_recursive_block_device_"], ctx.root, environment)]
   }
   plan
 }

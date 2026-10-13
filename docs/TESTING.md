@@ -382,13 +382,15 @@ cargo test --locked --profile verification --target "$TARGET" -p xsh \
 Then run the target with filter
 `cp::privileged::test_cp_recursive_block_device_` in the pinned image as root,
 with no network, a 1 GiB memory limit, and a `nodev` `/tmp` tmpfs.
+The `cargo dev gate --batch` privileged command skips this filter; the
+isolated nodev context is its sole final-gate owner.
 
-`core/tests/test-traceroute.xsh` also needs both privilege contexts. The normal
-UID 1000 suite checks the exact `EPERM` result for IPv4 source-route
-`IP_OPTIONS` and still runs gateway argument validation. Run
-`xsht test core/tests/test-traceroute.xsh` as container root in a private
-`xsh-test` container with `--network none` to exercise the positive source-route
-packet lengths; setting source-routing IP options requires `CAP_NET_RAW`.
+`core/tests/test-traceroute.xsh` checks the exact `EPERM` result for IPv4
+source-route `IP_OPTIONS` as UID 1000 in a network-isolated container, and
+still runs gateway argument validation. The privileged root full-native run in
+`cargo dev gate --batch` covers the positive loopback source-route path; it
+does not need a second root-only native run because every probe stays on
+loopback. Setting source-routing IP options requires `CAP_NET_RAW`.
 
 Successful `date --set` tests require a disposable QEMU guest: Linux time
 namespaces isolate monotonic and boot clocks, but not the realtime clock. Run
