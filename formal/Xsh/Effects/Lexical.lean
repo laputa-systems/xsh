@@ -227,6 +227,72 @@ theorem checked_consumption_keeps_creation_charge (consumer : CheckedConsumer)
       some (chargeAtCreation work obligation, ⟨work, remaining⟩) := by
   rfl
 
+/-- Pull a finite prefix, recording each charge in the order it is observed. -/
+def pullSequence : Nat → SuspendedWork → List EffectCharge × SuspendedWork
+  | 0, suspended => ([], suspended)
+  | Nat.succ steps, suspended =>
+      match pull suspended with
+      | none => ([], suspended)
+      | some (charge, next) =>
+          let (charges, final) := pullSequence steps next
+          (charge :: charges, final)
+
+/-- Every finite pull prefix is the corresponding ordered creation charge prefix. -/
+theorem pull_sequence_preserves_creation_and_body_order (steps : Nat)
+    (work : DelayedWork) (remaining : List EffectObligation) :
+    pullSequence steps ⟨work, remaining⟩ =
+      ((remaining.take steps).map (chargeAtCreation work),
+        ⟨work, remaining.drop steps⟩) := by
+  induction steps generalizing remaining with
+  | zero => simp [pullSequence]
+  | succ steps ih =>
+      cases remaining with
+      | nil => simp [pullSequence, pull]
+      | cons obligation remaining =>
+          simp [pullSequence, pull, ih]
+
+/-- Each reported charge keeps the delayed work's origin and its body's source site. -/
+theorem pull_sequence_charge_keeps_origin_and_body_site (steps : Nat)
+    (work : DelayedWork) (remaining : List EffectObligation)
+    (charge : EffectCharge)
+    (member : charge ∈ (pullSequence steps ⟨work, remaining⟩).1) :
+    ∃ obligation ∈ remaining.take steps,
+      charge = chargeAtCreation work obligation ∧
+        charge.lexicalSite = work.creation ∧
+        charge.causalBodySite = obligation.source ∧
+        charge.required = obligation.required := by
+  rw [pull_sequence_preserves_creation_and_body_order] at member
+  change charge ∈ (remaining.take steps).map (chargeAtCreation work) at member
+  rcases List.mem_map.mp member with ⟨obligation, ⟨inPrefix, sameCharge⟩⟩
+  subst charge
+  exact ⟨obligation, inPrefix,
+    ⟨rfl, ⟨charge_lexical_site_is_creation work obligation, ⟨rfl, rfl⟩⟩⟩⟩
+
+/-- If the queued obligations fit the creation context, every pulled one still does. -/
+theorem pull_sequence_charges_are_permitted (context : LexicalContext)
+    (work : DelayedWork) :
+    ∀ (remaining : List EffectObligation) (steps : Nat),
+      permitsObligations context remaining →
+      ∀ charge ∈ (pullSequence steps ⟨work, remaining⟩).1,
+        permits context charge.required := by
+  intro remaining steps
+  induction steps generalizing remaining with
+  | zero =>
+      intro permitted charge member
+      simp [pullSequence] at member
+  | succ steps ih =>
+      cases remaining with
+      | nil =>
+          intro permitted charge member
+          simp [pullSequence, pull] at member
+      | cons obligation remaining =>
+          intro permitted charge member
+          simp only [pullSequence, pull, List.mem_cons] at member
+          rcases member with sameCharge | member
+          · subst charge
+            exact permitted.1
+          · exact ih remaining permitted.2 charge member
+
 private def streamName : RawName := ⟨⟨1, by decide⟩⟩
 private def requestName : RawName := ⟨⟨2, by decide⟩⟩
 private def callbackName : RawName := ⟨⟨3, by decide⟩⟩
@@ -239,11 +305,21 @@ def exampleCallbackCreation : Expr :=
 def exampleNetworkObligation : EffectObligation :=
   ⟨exampleNetworkBody, .net⟩
 
+def exampleLaterNetworkBody : Expr := .call (.ident callbackName) []
+
+def exampleLaterNetworkObligation : EffectObligation :=
+  ⟨exampleLaterNetworkBody, .net⟩
+
 def exampleStream : DelayedWork := {
   kind := .streamProducer
   creation := exampleStreamCreation
   captures := fun _ => none
   obligations := [exampleNetworkObligation]
+}
+
+def exampleTwoSiteStream : DelayedWork := {
+  exampleStream with
+  obligations := [exampleNetworkObligation, exampleLaterNetworkObligation]
 }
 
 def exampleCallback : DelayedWork := {
@@ -279,6 +355,17 @@ theorem stream_created_outside_can_be_consumed_inside_without_net :
 theorem example_stream_charge_names_creation_and_body :
     chargeAtCreation exampleStream exampleNetworkObligation =
       ⟨exampleStreamCreation, exampleNetworkBody, .net⟩ := by
+  rfl
+
+example : pullSequence 1 ⟨exampleTwoSiteStream, exampleTwoSiteStream.obligations⟩ =
+    ([chargeAtCreation exampleTwoSiteStream exampleNetworkObligation],
+      ⟨exampleTwoSiteStream, [exampleLaterNetworkObligation]⟩) := by
+  rfl
+
+example : pullSequence 2 ⟨exampleTwoSiteStream, exampleTwoSiteStream.obligations⟩ =
+    ([chargeAtCreation exampleTwoSiteStream exampleNetworkObligation,
+        chargeAtCreation exampleTwoSiteStream exampleLaterNetworkObligation],
+      ⟨exampleTwoSiteStream, []⟩) := by
   rfl
 
 theorem callback_created_inside_without_net_is_rejected :
