@@ -3,6 +3,7 @@ import Xsh.Syntax.Core
 import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Semantics.Environments
+import Xsh.Validation.Boundary
 import Xsh.Effects.Lattice
 import Xsh.Effects.Lexical
 import Xsh.Conformance.Transport.Codecs
