@@ -1,7 +1,6 @@
-# regex-lite 0.1.9 with one change: nfa.rs always keys capture names with a
-# BTreeMap. Upstream's std build uses a HashMap, whose RandomState calls
-# getrandom while compiling any regex; applets must keep working when that
-# syscall fails.
+# regex-lite 0.1.9 with two local changes: nfa.rs uses BTreeMap for capture
+# names so compiling a regex does not call getrandom; pikevm.rs uses
+# usize::MAX to avoid a deprecation warning in warning-deny builds.
 [package]
 name = "regex-lite"
 version = "0.1.9"
