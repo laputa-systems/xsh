@@ -161,6 +161,39 @@ private theorem decode_hex_digit (digit : Nat) (bound : digit < 16) :
     have notDecimal : ¬(48 ≤ 87 + digit ∧ 87 + digit ≤ 57) := by omega
     simp [hexDigit?, charCode, notDecimal, charBounds] <;> omega
 
+private theorem decode_hex_digit_inverse {character : Char} {digit : Fin 16}
+    (decoded : hexDigit? character = some digit) :
+    hexDigit digit.val = character := by
+  have charBounds :
+      (48 ≤ character.toNat ∧ character.toNat ≤ 57) ∨
+        (97 ≤ character.toNat ∧ character.toNat ≤ 102) := by
+    unfold hexDigit? at decoded
+    by_cases decimal : 48 ≤ character.toNat ∧ character.toNat ≤ 57
+    · exact Or.inl decimal
+    · by_cases lowercase : 97 ≤ character.toNat ∧ character.toNat ≤ 102
+      · exact Or.inr lowercase
+      · simp [decimal, lowercase] at decoded
+  apply Char.ext
+  apply UInt32.toNat.inj
+  change (hexDigit digit.val).toNat = character.toNat
+  rw [hexDigit_toNat _ digit.isLt]
+  rcases charBounds with decimal | lowercase
+  · have finEq : (⟨character.toNat - 48, by omega⟩ : Fin 16) = digit := by
+      simpa [hexDigit?, decimal] using decoded
+    have valueEq : digit.val = character.toNat - 48 := by
+      simpa using congrArg Fin.val finEq.symm
+    have digitSmall : character.toNat - 48 < 10 := by omega
+    simp [digitSmall, valueEq]
+    omega
+  · have notDecimal : ¬(48 ≤ character.toNat ∧ character.toNat ≤ 57) := by omega
+    have finEq : (⟨character.toNat - 87, by omega⟩ : Fin 16) = digit := by
+      simpa [hexDigit?, notDecimal, lowercase] using decoded
+    have valueEq : digit.val = character.toNat - 87 := by
+      simpa using congrArg Fin.val finEq.symm
+    have notDigitSmall : ¬character.toNat - 87 < 10 := by omega
+    simp [notDigitSmall, valueEq]
+    omega
+
 private theorem fixedHexCharacters_succ (width value : Nat) :
     fixedHexCharacters (width + 1) value =
       hexDigit (value / 16 ^ width % 16) :: fixedHexCharacters width value := by
@@ -169,6 +202,181 @@ private theorem fixedHexCharacters_succ (width value : Nat) :
 private theorem fixedHexCharacters_length (width value : Nat) :
     (fixedHexCharacters width value).length = width := by
   simp [fixedHexCharacters]
+
+private theorem decodeHexAcc_accumulator (accumulator : Nat) (characters : List Char) :
+    decodeHexAcc accumulator characters =
+      (decodeHexAcc 0 characters).map
+        (fun value => accumulator * 16 ^ characters.length + value) := by
+  induction characters generalizing accumulator with
+  | nil =>
+      simp [decodeHexAcc]
+  | cons character rest ih =>
+      cases parsedDigit : hexDigit? character with
+      | none => simp [decodeHexAcc, parsedDigit]
+      | some digitValue =>
+          simp [decodeHexAcc, parsedDigit]
+          rw [ih (accumulator := accumulator * 16 + digitValue.val)]
+          rw [ih (accumulator := digitValue.val)]
+          cases decoded : decodeHexAcc 0 rest with
+          | none => simp
+          | some value =>
+              simp only [Option.map_some]
+              have arithmetic :
+                  (accumulator * 16 + digitValue.val) * 16 ^ rest.length + value =
+                    accumulator * (16 ^ rest.length * 16) +
+                      (digitValue.val * 16 ^ rest.length + value) := by
+                rw [Nat.add_mul, Nat.mul_assoc accumulator 16,
+                  Nat.mul_comm 16 (16 ^ rest.length)]
+                simp [Nat.add_assoc]
+              rw [arithmetic, Nat.pow_succ]
+
+private theorem decodeHexAcc_shift (accumulator : Nat) (characters : List Char) :
+    ∀ {value}, decodeHexAcc accumulator characters = some value →
+      ∃ decoded, decodeHexAcc 0 characters = some decoded ∧
+        value = accumulator * 16 ^ characters.length + decoded := by
+  intro value accepted
+  cases zeroDecoded : decodeHexAcc 0 characters with
+  | none =>
+      have relation := decodeHexAcc_accumulator accumulator characters
+      rw [accepted, zeroDecoded] at relation
+      have impossible : False := by simpa using relation
+      exact False.elim impossible
+  | some decoded =>
+      have relation := decodeHexAcc_accumulator accumulator characters
+      rw [accepted, zeroDecoded] at relation
+      simp only [Option.map_some] at relation
+      exact ⟨decoded, rfl, Option.some.inj relation⟩
+
+private theorem decodeHexAcc_zero_bound {characters : List Char} {value : Nat}
+    (accepted : decodeHexAcc 0 characters = some value) :
+    value < 16 ^ characters.length := by
+  induction characters generalizing value with
+  | nil =>
+      simp [decodeHexAcc] at accepted
+      subst value
+      simp
+  | cons character rest ih =>
+      cases parsedDigit : hexDigit? character with
+      | none => simp [decodeHexAcc, parsedDigit] at accepted
+      | some digitValue =>
+          have tailAccepted : decodeHexAcc digitValue.val rest = some value := by
+            simpa [decodeHexAcc, parsedDigit] using accepted
+          obtain ⟨restValue, restDecoded, valueEq⟩ :=
+            decodeHexAcc_shift digitValue.val rest tailAccepted
+          have restBound := ih restDecoded
+          have digitBound : digitValue.val ≤ 15 := by omega
+          have digitProductBound :=
+            Nat.mul_le_mul_right (16 ^ rest.length) digitBound
+          rw [List.length_cons, Nat.pow_succ, valueEq]
+          omega
+
+private theorem decodeHexAcc_zero_injective (left right : List Char) (value : Nat)
+    (sameLength : left.length = right.length)
+    (leftDecoded : decodeHexAcc 0 left = some value)
+    (rightDecoded : decodeHexAcc 0 right = some value) :
+    left = right := by
+  induction left generalizing right value with
+  | nil =>
+      cases right with
+      | nil => rfl
+      | cons character rest => simp at sameLength
+  | cons character rest ih =>
+      cases right with
+      | nil => simp at sameLength
+      | cons other otherRest =>
+          have restLength : rest.length = otherRest.length := by
+            simp only [List.length_cons] at sameLength
+            omega
+          cases parsedLeftDigit : hexDigit? character with
+          | none => simp [decodeHexAcc, parsedLeftDigit] at leftDecoded
+          | some leftDigitValue =>
+              cases parsedRightDigit : hexDigit? other with
+              | none => simp [decodeHexAcc, parsedRightDigit] at rightDecoded
+              | some rightDigitValue =>
+                  have leftTail : decodeHexAcc leftDigitValue.val rest = some value := by
+                    simpa [decodeHexAcc, parsedLeftDigit] using leftDecoded
+                  have rightTail : decodeHexAcc rightDigitValue.val otherRest = some value := by
+                    simpa [decodeHexAcc, parsedRightDigit] using rightDecoded
+                  obtain ⟨leftValue, leftZero, leftEquation⟩ :=
+                    decodeHexAcc_shift leftDigitValue.val rest leftTail
+                  obtain ⟨rightValue, rightZero, rightEquation⟩ :=
+                    decodeHexAcc_shift rightDigitValue.val otherRest rightTail
+                  have leftBound := decodeHexAcc_zero_bound leftZero
+                  have rightBound := decodeHexAcc_zero_bound rightZero
+                  have rightBound' : rightValue < 16 ^ rest.length := by
+                    simpa [restLength] using rightBound
+                  have rightEquation' :
+                      value = rightDigitValue.val * 16 ^ rest.length + rightValue := by
+                    simpa [restLength] using rightEquation
+                  have digitEq : leftDigitValue.val = rightDigitValue.val := by
+                    by_cases equal : leftDigitValue.val = rightDigitValue.val
+                    · exact equal
+                    · have order : leftDigitValue.val < rightDigitValue.val ∨
+                          rightDigitValue.val < leftDigitValue.val := by omega
+                      rcases order with order | order
+                      · have upper : leftDigitValue.val * 16 ^ rest.length + leftValue <
+                            (leftDigitValue.val + 1) * 16 ^ rest.length := by
+                          calc
+                            leftDigitValue.val * 16 ^ rest.length + leftValue <
+                                leftDigitValue.val * 16 ^ rest.length + 16 ^ rest.length :=
+                                  Nat.add_lt_add_left leftBound _
+                            _ = (leftDigitValue.val + 1) * 16 ^ rest.length := by
+                                  simp [Nat.add_mul]
+                        have productOrder : (leftDigitValue.val + 1) * 16 ^ rest.length ≤
+                            rightDigitValue.val * 16 ^ rest.length :=
+                          Nat.mul_le_mul_right _ (by omega)
+                        have valueOrder : rightDigitValue.val * 16 ^ rest.length ≤ value := by
+                          rw [rightEquation']
+                          exact Nat.le_add_right _ _
+                        have : value < value := by
+                          calc
+                            value = leftDigitValue.val * 16 ^ rest.length + leftValue :=
+                                leftEquation
+                            _ < (leftDigitValue.val + 1) * 16 ^ rest.length := upper
+                            _ ≤ rightDigitValue.val * 16 ^ rest.length := productOrder
+                            _ ≤ value := valueOrder
+                        omega
+                      · have upper : rightDigitValue.val * 16 ^ rest.length + rightValue <
+                            (rightDigitValue.val + 1) * 16 ^ rest.length := by
+                          calc
+                            rightDigitValue.val * 16 ^ rest.length + rightValue <
+                                rightDigitValue.val * 16 ^ rest.length + 16 ^ rest.length :=
+                                  Nat.add_lt_add_left rightBound' _
+                            _ = (rightDigitValue.val + 1) * 16 ^ rest.length := by
+                                  simp [Nat.add_mul]
+                        have productOrder : (rightDigitValue.val + 1) * 16 ^ rest.length ≤
+                            leftDigitValue.val * 16 ^ rest.length :=
+                          Nat.mul_le_mul_right _ (by omega)
+                        have valueOrder : leftDigitValue.val * 16 ^ rest.length ≤ value := by
+                          rw [leftEquation]
+                          exact Nat.le_add_right _ _
+                        have : value < value := by
+                          calc
+                            value = rightDigitValue.val * 16 ^ rest.length + rightValue :=
+                                rightEquation'
+                            _ < (rightDigitValue.val + 1) * 16 ^ rest.length := upper
+                            _ ≤ leftDigitValue.val * 16 ^ rest.length := productOrder
+                            _ ≤ value := valueOrder
+                        omega
+                  have rightEquation'' :
+                      value = leftDigitValue.val * 16 ^ rest.length + rightValue := by
+                    simpa [digitEq] using rightEquation'
+                  have tailEq : leftValue = rightValue := by
+                    omega
+                  have leftCharacter : hexDigit leftDigitValue.val = character :=
+                    decode_hex_digit_inverse parsedLeftDigit
+                  have rightCharacter : hexDigit rightDigitValue.val = other :=
+                    decode_hex_digit_inverse parsedRightDigit
+                  have restEq : rest = otherRest :=
+                    ih otherRest leftValue restLength leftZero (by
+                      rw [tailEq]
+                      exact rightZero)
+                  have characterEq : character = other := by
+                    calc
+                      character = hexDigit leftDigitValue.val := leftCharacter.symm
+                      _ = hexDigit rightDigitValue.val := congrArg hexDigit digitEq
+                      _ = other := rightCharacter
+                  simp [characterEq, restEq]
 
 private theorem decodeHexAcc_fixedHexCharacters (width value accumulator : Nat) :
     decodeHexAcc accumulator (fixedHexCharacters width value) =
@@ -258,6 +466,166 @@ private theorem decodeByteList_encodeByteList (bytes : List WireByte) :
       simp [ih]
       apply Fin.ext
       simpa [Nat.mul_comm] using Nat.div_add_mod byte.val 16
+
+private theorem encodeByteList_decodeByteList {bytes : List WireByte} :
+    ∀ (characters : List Char), decodeByteList characters = some bytes →
+      encodeByteList bytes = characters := by
+  induction bytes with
+  | nil =>
+      intro characters accepted
+      cases characters with
+      | nil => rfl
+      | cons high rest =>
+          cases rest with
+          | nil => simp [decodeByteList] at accepted
+          | cons low rest =>
+              cases highDigit : hexDigit? high <;>
+                cases lowDigit : hexDigit? low <;>
+                cases tailDecoded : decodeByteList rest <;>
+                simp [decodeByteList, highDigit, lowDigit, tailDecoded] at accepted
+  | cons byte tail ih =>
+      intro characters accepted
+      cases characters with
+      | nil => simp [decodeByteList] at accepted
+      | cons high rest =>
+          cases rest with
+          | nil => simp [decodeByteList] at accepted
+          | cons low rest =>
+              cases parsedHigh : hexDigit? high with
+              | none => simp [decodeByteList, parsedHigh] at accepted
+              | some highDigit =>
+                  cases parsedLow : hexDigit? low with
+                  | none => simp [decodeByteList, parsedHigh, parsedLow] at accepted
+                  | some lowDigit =>
+                      cases tailDecoded : decodeByteList rest with
+                      | none =>
+                          simp [decodeByteList, parsedHigh, parsedLow, tailDecoded] at accepted
+                      | some decodedTail =>
+                          have decodedEq :
+                              (⟨highDigit.val * 16 + lowDigit.val, by omega⟩ :: decodedTail) =
+                                byte :: tail := by
+                            have accepted' :
+                                some (⟨highDigit.val * 16 + lowDigit.val, by omega⟩ :: decodedTail) =
+                                  some (byte :: tail) := by
+                              simpa [decodeByteList, parsedHigh, parsedLow, tailDecoded]
+                                using accepted
+                            exact Option.some.inj accepted'
+                          injection decodedEq with byteEq tailEq
+                          have tailDecoded' : decodeByteList rest = some tail := by
+                            rw [tailEq] at tailDecoded
+                            exact tailDecoded
+                          have tailEncoding : encodeByteList tail = rest :=
+                            ih rest tailDecoded'
+                          have highPart : byte.val / 16 = highDigit.val := by
+                            rw [show byte.val = highDigit.val * 16 + lowDigit.val by
+                              simpa using congrArg Fin.val byteEq.symm]
+                            omega
+                          have lowPart : byte.val % 16 = lowDigit.val := by
+                            rw [show byte.val = highDigit.val * 16 + lowDigit.val by
+                              simpa using congrArg Fin.val byteEq.symm]
+                            omega
+                          simp [encodeByteList, encodeByte, highPart, lowPart,
+                            decode_hex_digit_inverse parsedHigh,
+                            decode_hex_digit_inverse parsedLow, tailEncoding]
+
+/-- Every text accepted by the fixed-width Lean u32 codec is its canonical
+lowercase encoding. This does not establish Rust bridge conformance. -/
+theorem decodeHex32_accepted_reencodes :
+    ∀ (text : String) (value : Xsh.Foundation.Word32),
+      decodeHex32? text = some value → encodeHex32 value = text := by
+  intro text value accepted
+  by_cases length : text.toList.length = 8
+  · cases rawDecoded : decodeHexAcc 0 text.toList with
+    | none => simp [decodeHex32?, length, rawDecoded] at accepted
+    | some raw =>
+        have rawBound : raw < 4294967296 := by
+          have bound := decodeHexAcc_zero_bound rawDecoded
+          have power : 16 ^ 8 = 4294967296 := by decide
+          rw [length, power] at bound
+          exact bound
+        have valueEq : (⟨raw, rawBound⟩ : Xsh.Foundation.Word32) = value := by
+          have accepted' :
+              some (⟨raw, rawBound⟩ : Xsh.Foundation.Word32) = some value := by
+            simpa [decodeHex32?, length, rawDecoded,
+              Xsh.Foundation.Word32.decode?, rawBound] using accepted
+          exact Option.some.inj accepted'
+        have textDecoded : decodeHexAcc 0 text.toList = some value.val := by
+          have valueRaw : raw = value.val := by
+            simpa using congrArg Fin.val valueEq
+          rw [rawDecoded]
+          rw [valueRaw]
+        have encodedDecoded :
+            decodeHexAcc 0 (fixedHexCharacters 8 value.val) = some value.val := by
+          rw [decodeHexAcc_fixedHexCharacters]
+          have bound : value.val < 16 ^ 8 := by
+            rw [show 16 ^ 8 = 4294967296 by decide]
+            exact value.isLt
+          simp [Nat.mod_eq_of_lt bound]
+        have sameLength :
+            text.toList.length = (fixedHexCharacters 8 value.val).length := by
+          rw [length, fixedHexCharacters_length]
+        have charactersEq := decodeHexAcc_zero_injective text.toList
+          (fixedHexCharacters 8 value.val) value.val sameLength textDecoded encodedDecoded
+        calc
+          encodeHex32 value = String.ofList (fixedHexCharacters 8 value.val) := rfl
+          _ = String.ofList text.toList := congrArg String.ofList charactersEq.symm
+          _ = text := by simp
+  · simp [decodeHex32?, length] at accepted
+
+/-- Every text accepted by the fixed-width Lean u64 codec is its canonical
+lowercase encoding. This does not establish Rust bridge conformance. -/
+theorem decodeHex64_accepted_reencodes :
+    ∀ (text : String) (value : Word64),
+      decodeHex64? text = some value → encodeHex64 value = text := by
+  intro text value accepted
+  by_cases length : text.toList.length = 16
+  · cases rawDecoded : decodeHexAcc 0 text.toList with
+    | none => simp [decodeHex64?, length, rawDecoded] at accepted
+    | some raw =>
+        have rawBound : raw < 18446744073709551616 := by
+          have bound := decodeHexAcc_zero_bound rawDecoded
+          have power : 16 ^ 16 = 18446744073709551616 := by decide
+          rw [length, power] at bound
+          exact bound
+        have valueEq : (⟨raw, rawBound⟩ : Word64) = value := by
+          have accepted' : some (⟨raw, rawBound⟩ : Word64) = some value := by
+            simpa [decodeHex64?, length, rawDecoded, rawBound] using accepted
+          exact Option.some.inj accepted'
+        have textDecoded : decodeHexAcc 0 text.toList = some value.val := by
+          have valueRaw : raw = value.val := by
+            simpa using congrArg Fin.val valueEq
+          rw [rawDecoded]
+          rw [valueRaw]
+        have encodedDecoded :
+            decodeHexAcc 0 (fixedHexCharacters 16 value.val) = some value.val := by
+          rw [decodeHexAcc_fixedHexCharacters]
+          have bound : value.val < 16 ^ 16 := by
+            rw [show 16 ^ 16 = 18446744073709551616 by decide]
+            exact value.isLt
+          simp [Nat.mod_eq_of_lt bound]
+        have sameLength :
+            text.toList.length = (fixedHexCharacters 16 value.val).length := by
+          rw [length, fixedHexCharacters_length]
+        have charactersEq := decodeHexAcc_zero_injective text.toList
+          (fixedHexCharacters 16 value.val) value.val sameLength textDecoded encodedDecoded
+        calc
+          encodeHex64 value = String.ofList (fixedHexCharacters 16 value.val) := rfl
+          _ = String.ofList text.toList := congrArg String.ofList charactersEq.symm
+          _ = text := by simp
+  · simp [decodeHex64?, length] at accepted
+
+/-- Every text accepted by the Lean byte codec is its canonical lowercase
+encoding. This does not establish Rust bridge conformance. -/
+theorem decodeHexBytes_accepted_reencodes :
+    ∀ (text : String) (value : List WireByte),
+      decodeHexBytes? text = some value → encodeHexBytes value = text := by
+  intro text value accepted
+  change decodeByteList text.toList = some value at accepted
+  have charactersEq := encodeByteList_decodeByteList text.toList accepted
+  calc
+    encodeHexBytes value = String.ofList (encodeByteList value) := rfl
+    _ = String.ofList text.toList := congrArg String.ofList charactersEq
+    _ = text := by simp
 
 theorem encode_hex32_width (value : Xsh.Foundation.Word32) :
     (encodeHex32 value).toList.length = 8 := by

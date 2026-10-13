@@ -39,21 +39,29 @@ theorem optional_bridge_id_raw_round_trip (raw : Xsh.Foundation.Word32)
     subst raw
     simp [OptionalBridgeId.fromRaw?, OptionalBridgeId.raw]
 
-/-- Open boundary: every accepted u32 text re-encodes byte-for-byte. The proved
-encoder round trip covers strings produced by `encodeHex32`; this stronger
-accepted-input uniqueness statement remains unproved. -/
+/-- Every accepted u32 text re-encodes to the Lean codec's canonical bytes.
+This property does not establish Rust bridge conformance. -/
 def acceptedHex32Reencodes : Prop :=
   ∀ (text : String) (value : Xsh.Foundation.Word32),
     decodeHex32? text = some value → encodeHex32 value = text
 
-/-- Open boundary: every accepted u64 text re-encodes byte-for-byte. -/
+/-- Every accepted u64 text re-encodes to the Lean codec's canonical bytes. -/
 def acceptedHex64Reencodes : Prop :=
   ∀ (text : String) (value : Word64),
     decodeHex64? text = some value → encodeHex64 value = text
 
-/-- Open boundary: every accepted byte-list text re-encodes byte-for-byte. -/
+/-- Every accepted byte-list text re-encodes to the Lean codec's canonical bytes. -/
 def acceptedHexBytesReencodes : Prop :=
   ∀ (text : String) (value : List WireByte),
     decodeHexBytes? text = some value → encodeHexBytes value = text
+
+theorem accepted_hex32_reencodes : acceptedHex32Reencodes :=
+  decodeHex32_accepted_reencodes
+
+theorem accepted_hex64_reencodes : acceptedHex64Reencodes :=
+  decodeHex64_accepted_reencodes
+
+theorem accepted_hex_bytes_reencodes : acceptedHexBytesReencodes :=
+  decodeHexBytes_accepted_reencodes
 
 end Xsh.Conformance.Transport

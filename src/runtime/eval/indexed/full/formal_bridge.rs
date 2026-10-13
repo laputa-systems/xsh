@@ -424,7 +424,8 @@ fn decode_source_document(input: &str) -> Result<SourceDocument, String> {
 
 fn validate_raw_document(document: &RawIrDocument) -> Result<(), String> {
     let mut binder_ids = BTreeSet::new();
-    let mut function_ids = BTreeSet::new();
+    let mut current_function = None;
+    // The projection emits each function row immediately before its parameters.
     for (index, binder) in document.binders.iter().enumerate() {
         let expected = IrId::from_index(index)?;
         if binder.id != expected || !binder_ids.insert(binder.id) {
@@ -432,13 +433,14 @@ fn validate_raw_document(document: &RawIrDocument) -> Result<(), String> {
         }
         match (binder.role, binder.owner.0) {
             (BinderRole::Function, None) => {
-                if binder.text.is_empty() || !function_ids.insert(binder.id) {
+                if binder.text.is_empty() {
                     return Err("function binder projection is invalid".to_string());
                 }
+                current_function = Some(binder.id);
             }
             (BinderRole::Parameter, Some(owner)) => {
-                if binder.text.is_empty() || !function_ids.contains(&owner) {
-                    return Err("parameter binder has no preceding function owner".to_string());
+                if binder.text.is_empty() || current_function != Some(owner) {
+                    return Err("parameter binder does not belong to the current function".to_string());
                 }
             }
             _ => return Err("binder role and owner do not form a valid state".to_string()),
@@ -643,6 +645,19 @@ fn decode_raw_ir_document(input: &str) -> Result<RawIrDocument, String> {
     };
     validate_raw_document(&document)?;
     Ok(document)
+}
+
+/// Decode the source and raw-IR documents as one artifact and keep their IDs paired.
+fn decode_source_raw_pair(
+    source_input: &str,
+    raw_input: &str,
+) -> Result<(SourceDocument, RawIrDocument), String> {
+    let source = decode_source_document(source_input)?;
+    let raw = decode_raw_ir_document(raw_input)?;
+    if raw.source_id != source.id {
+        return Err("raw-IR document does not name its source document".to_string());
+    }
+    Ok((source, raw))
 }
 
 fn decode_binder(value: Json) -> Result<BinderProjection, String> {
@@ -1121,7 +1136,9 @@ pure path_echo(input: Path) -> Path {
         );
 
         let raw_encoded = encode_raw_ir_document(&raw).unwrap();
-        let decoded = decode_raw_ir_document(&raw_encoded).unwrap();
+        let (paired_source, decoded) =
+            decode_source_raw_pair(&source_encoded, &raw_encoded).unwrap();
+        assert_eq!(paired_source, source);
         assert_eq!(decoded, raw);
         assert_eq!(encode_raw_ir_document(&decoded).unwrap(), raw_encoded);
         assert_eq!(decoded.source_id, source.id);
@@ -1366,6 +1383,12 @@ pure path_echo(input: Path) -> Path {
             set_field(value, "schema", Json::String("xsh-source-v2".to_string()));
         });
         assert!(decode_source_document(&unknown_version).is_err());
+        for reserved_id in [0, IR_NONE] {
+            let invalid_id = parsed_raw_mutation(&encoded, |value| {
+                set_field(value, "id", Json::String(hex_u32(reserved_id)));
+            });
+            assert!(decode_source_document(&invalid_id).is_err());
+        }
         assert!(encoded.contains("é"), "UTF-8 source text stays readable and exact");
 
         let escaped_unicode =
@@ -1374,6 +1397,182 @@ pure path_echo(input: Path) -> Path {
             decode_source_document(escaped_unicode).unwrap().text,
             "café 😀"
         );
+    }
+
+    #[test]
+    fn raw_transport_rejects_reserved_ids_and_invalid_driver_roots() {
+        let (source, raw, _, parsed, program) = base_documents();
+        let encoded = encode_raw_ir_document(&raw).unwrap();
+
+        for reserved_id in [0, IR_NONE] {
+            let invalid_source_id = parsed_raw_mutation(&encoded, |value| {
+                set_field(value, "sourceId", Json::String(hex_u32(reserved_id)));
+            });
+            assert!(decode_raw_ir_document(&invalid_source_id).is_err());
+
+            let invalid_instruction_id = parsed_raw_mutation(&encoded, |value| {
+                set_nested_field(
+                    value,
+                    "instructions",
+                    0,
+                    "id",
+                    Json::String(hex_u32(reserved_id)),
+                );
+            });
+            assert!(decode_raw_ir_document(&invalid_instruction_id).is_err());
+        }
+
+        let zero_driver_root = parsed_raw_mutation(&encoded, |value| {
+            set_field(value, "driverRoot", Json::String(hex_u32(0)));
+        });
+        assert!(decode_raw_ir_document(&zero_driver_root).is_err());
+
+        let missing_driver_root = parsed_raw_mutation(&encoded, |value| {
+            set_field(value, "driverProgramCount", Json::String(hex_u32(1)));
+            set_field(value, "driverRoot", Json::String(hex_u32(IR_NONE)));
+        });
+        assert!(decode_raw_ir_document(&missing_driver_root).is_err());
+
+        let other_source_id = IrId::from_raw(source.id.raw() + 1).unwrap();
+        let source_encoded = encode_source_document(&source);
+        let mismatched_source_document = parsed_raw_mutation(&encoded, |value| {
+            set_field(
+                value,
+                "sourceId",
+                Json::String(hex_u32(other_source_id.raw())),
+            );
+        });
+        assert!(
+            decode_source_raw_pair(&source_encoded, &mismatched_source_document).is_err()
+        );
+
+        assert!(export_raw_ir_document(
+            &program,
+            &parsed.arena,
+            other_source_id,
+            raw.integer_output_bits.clone(),
+            raw.float_output_bits.clone(),
+            raw.native_path_inputs.clone(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn raw_transport_rejects_row_word_binder_and_path_corruption() {
+        let (_, raw, _, _, _) = base_documents();
+        let encoded = encode_raw_ir_document(&raw).unwrap();
+
+        let reordered_instructions = parsed_raw_mutation(&encoded, |value| {
+            let instructions = object_field(value, "instructions");
+            let Json::Array(rows) = instructions else {
+                panic!("test mutation field is an array");
+            };
+            rows.swap(0, 1);
+        });
+        assert!(decode_raw_ir_document(&reordered_instructions).is_err());
+
+        let inconsistent_words = parsed_raw_mutation(&encoded, |value| {
+            let replacement = raw.instructions[0].words[0] ^ 1;
+            set_nested_field(
+                value,
+                "instructions",
+                0,
+                "words",
+                Json::Array(vec![
+                    Json::String(hex_u32(replacement)),
+                    Json::String(hex_u32(raw.instructions[0].words[1])),
+                ]),
+            );
+        });
+        assert!(decode_raw_ir_document(&inconsistent_words).is_err());
+
+        let inconsistent_value = parsed_raw_mutation(&encoded, |value| {
+            set_nested_field(
+                value,
+                "instructions",
+                0,
+                "value",
+                Json::String(hex_u64(raw.instructions[0].value_bits ^ 1)),
+            );
+        });
+        assert!(decode_raw_ir_document(&inconsistent_value).is_err());
+
+        let empty_function_name = parsed_raw_mutation(&encoded, |value| {
+            set_nested_field(
+                value,
+                "binderProjection",
+                0,
+                "text",
+                Json::String(String::new()),
+            );
+        });
+        assert!(decode_raw_ir_document(&empty_function_name).is_err());
+
+        let reordered_binders = parsed_raw_mutation(&encoded, |value| {
+            let binders = object_field(value, "binderProjection");
+            let Json::Array(rows) = binders else {
+                panic!("test mutation field is an array");
+            };
+            rows.swap(0, 1);
+        });
+        assert!(decode_raw_ir_document(&reordered_binders).is_err());
+
+        let parameter_index = raw
+            .binders
+            .iter()
+            .position(|binder| binder.role == BinderRole::Parameter)
+            .expect("fixture has a parameter binder");
+        let later_function = raw
+            .binders
+            .iter()
+            .skip(parameter_index + 1)
+            .find(|binder| binder.role == BinderRole::Function)
+            .expect("fixture has a function after its first parameter");
+        let later_owner = parsed_raw_mutation(&encoded, |value| {
+            set_nested_field(
+                value,
+                "binderProjection",
+                parameter_index,
+                "owner",
+                Json::String(hex_u32(later_function.id.raw())),
+            );
+        });
+        assert!(decode_raw_ir_document(&later_owner).is_err());
+
+        let earlier_function = raw
+            .binders
+            .iter()
+            .find(|binder| binder.role == BinderRole::Function)
+            .expect("fixture has a function binder");
+        let later_parameter_index = raw
+            .binders
+            .iter()
+            .enumerate()
+            .find(|(_, binder)| {
+                binder.role == BinderRole::Parameter
+                    && binder.owner.0 != Some(earlier_function.id)
+            })
+            .map(|(index, _)| index)
+            .expect("fixture has a parameter after its first function");
+        let earlier_owner = parsed_raw_mutation(&encoded, |value| {
+            set_nested_field(
+                value,
+                "binderProjection",
+                later_parameter_index,
+                "owner",
+                Json::String(hex_u32(earlier_function.id.raw())),
+            );
+        });
+        assert!(decode_raw_ir_document(&earlier_owner).is_err());
+
+        let nul_path = parsed_raw_mutation(&encoded, |value| {
+            set_field(
+                value,
+                "nativePathInputs",
+                Json::Array(vec![Json::String("00".to_string())]),
+            );
+        });
+        assert!(decode_raw_ir_document(&nul_path).is_err());
     }
 
     #[test]
