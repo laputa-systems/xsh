@@ -126,7 +126,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.removed-record-require` | Replace the removed `record.require` with a named schema and `.require(Schema)` |
 | `lint.run-status` | Remove `?` from a `run` of a command whose nonzero status is expected |
 | `lint.runless` | Reject external commands when linting with `--runless`, except allowed names |
-| `lint.shadowing` | Flag a binding that shadows a name from an outer scope |
+| `lint.shadowing` | Flag a binding that shadows an outer name, except exported callable labels matching module callables |
 | `lint.stage-callable` | Name the callable directly instead of a transparent stream stage block |
 | `lint.stream-options` | Replace stream stage flags with ordinary named arguments |
 | `lint.stringly-typed-match` | Suggest a tag union type for a match with three or more string-literal arms |
