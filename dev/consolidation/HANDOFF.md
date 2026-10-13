@@ -1,6 +1,58 @@
 # Consolidation restart handoff
 
-Status: paused 2026-10-13.
+Status: active 2026-10-13.
+
+## Resumed verification and documentation refresh — 2026-10-13
+
+Resume began at `59a6dfbc`; main now includes the materialized-stream
+comprehension repair, checked lint annotation/resource proofs, restored
+hash-bound observers, the policy import migration to the current observer,
+corpus walkers excluding `.work`, and two fixture repairs. The first-party
+Rust `Type::may_hold_resource` predicate is now public so lint uses the same
+resource classification as the checker. Nothing has been pushed.
+
+The documentation refresh shortened canonical owners, moved contributor
+details out of AGENTS.md, corrected runtime execution paths, and retained
+system-report privacy, packaging, and verification contracts. Generated docs
+were rebuilt with the pinned release pair. `make docs-check` passes, including
+the rejected snippets and all three documentation-project tests. The single
+mdtool pass found template-relative links and generated-source markers that
+must be retained, plus example/path false positives; it was not a clean scan.
+
+Pre-edit verification on immutable `59a6dfbc` passed repository check (1,506
+files), root runtime integration (94), the other selected root integration
+(183; one corpus-walker failure), ambient/core boundary gates, and soundness
+(14). The full native suite recorded 13,437 passed, 56 failed, and 138 skipped.
+Failures are retained rather than classified collectively as flakes. Confirmed
+causes include long socket paths, inherited setgid scratch directories,
+hash-bound observer drift (restored), scratch-corpus traversal (fixed), a lint
+fixture inheriting disabled configuration (fixed), and a GNU rm shell quote
+(fixed, exact workload passes). A safe nested-process regression also proves
+`mdev` leaks umask 000 into its caller; its source repair is in progress.
+
+After quarantining only owned scratch leftovers, XSHT integration finished
+41 passed / 4 failed: prefer-collect layout invariance, a separate invalid
+layout byte range, three post-desugar fuser fixtures, and the lint performance
+gate. The latter is not valid timing evidence under load or before lint is
+clean. Targeted fixes own these failures; do not repeat the full corpus loop
+until their narrow regressions pass. Debug library verification remains active.
+
+W9 tracing on `59a6dfbc` confirms each shared-session full key is prepared and
+checked once: repository check 1,661, default lint 1,518; Laputa check 379,
+default lint 316. Default lint additionally uses fresh candidate-probe caches:
+288 caches / 905 records in XSH, 77 / 347 in Laputa. Every `(cache, key)` is
+checked once, but repeated physical keys across probes remain work to measure
+and optimize. Diagnostic content is equal as a multiset; shared-import lint
+ownership causes nondeterministic order and is under investigation. Laputa was
+clean at `ef53ce3559432a80599606f848b1b4ac792b65d0` during this count run.
+
+Next: finish focused failures, manual lint batches, merged-source correctness,
+privileged Linux acceptance, structural/semantic closure, and release A/B
+performance and vendored-regex impact. Performance gates require quiet-host
+pre/post checks; final acceptance is still open. The owner also authorized
+Lean G0 toolchain and private bridge foundations after its preflight closes,
+in parallel with consolidation on disjoint files; its source baseline and
+semantic repairs wait for consolidation close.
 
 ## Paused after the final-gate pass — 2026-10-13
 

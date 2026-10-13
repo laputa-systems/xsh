@@ -992,7 +992,7 @@ root has capacity: true</code></pre></figure>
 </section>
 <section class="chapter">
 <h2 id="concurrency-fan-out-collect"><a class="anchor" href="#concurrency-fan-out-collect">Concurrency: Fan Out, Collect</a></h2>
-<p>XSH's unit of concurrency is the process and the pipeline stage, never a thread or a future. <code>par-map</code> runs its block on a bounded worker pool and returns results in input order:</p>
+<p>XSH exposes concurrency through processes and pipeline stages rather than user-managed threads or futures. <code>par-map</code> runs its block on a bounded worker pool and returns results in input order:</p>
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-keyword">let</span> scratch <span class="hl-operator">=</span> fs<span class="hl-punctuation">.</span><span class="hl-function">tempdir</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
 <span class="hl-keyword">let</span> root <span class="hl-operator">=</span> scratch<span class="hl-punctuation">.</span><span class="hl-function">host_path</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
 

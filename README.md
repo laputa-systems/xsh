@@ -8,29 +8,30 @@ no word splitting, no implicit eval, no `set -e` traps, no scraping columns out
 of text. Values are typed, paths are paths, failures are visible in the code,
 and a script is checked before its first command runs.
 
-```bash
-# Who is listening on 8080? Scrape two tools and hope the columns don't move.
-pid=$(ss -ltnp | awk '$4 ~ /:8080$/' | grep -o 'pid=[0-9]*' | cut -d= -f2)
-echo "8080 is held by $(ps -o comm= -p "$pid") ($pid)"
-```
-
 ```xsh
 for owner in process.port(8080)? |> where .state == "LISTEN" {
   print f"8080 is held by {owner.command} ({owner.pid})"
 }
 ```
 
-## Build
+## Install and run
+
+Choose the `xsh` and `xsht` binaries for your platform from the
+[release assets](https://github.com/laputa-systems/xsh/releases), rename them
+to `xsh` and `xsht`, and put both in a directory on your `PATH`.
+Make them executable with `chmod +x xsh xsht`. For a source build, see
+[Testing](docs/TESTING.md#building-from-source).
 
 ```bash
-cargo build --release -p xsh --bins -p xsht --bin xsht
-export PATH="$PWD/target/release:$PATH"
 xsh examples/streams.xsh       # run a script
 xsht check examples/           # type-check without running
 ```
 
 `xsh` runs scripts. `xsht` is the toolchain: `check`, `test`, `fmt`, `lint`,
 `trace`, and `api`.
+
+Tool configuration lives in `xsht-config.ini`; see
+[configuration](docs/XSHT.md#configuration).
 
 ## Learn
 

@@ -55,7 +55,7 @@ Coordinate the machine compiler queue before `--build`. Preparation builds
 dash with `make -j2`, then Oils with its sequential optimized build; both
 use the existing image compiler and libraries. BuildKit limits the overlay
 build to four CPU-equivalents and 8 GiB, and the preparation receipt records
-those limits. For final ARM verification,
+those limits. For an internal ARM run,
 pass `--arch arm64 --base-image sha256:THE_ARM_DOCKERFILE_TEST_IMAGE_ID` and
 use a separate overlay tag. The result records the exact base and overlay IDs.
 

@@ -1036,9 +1036,9 @@ The last expression of a block is its value; `return` is for early exits.
 
 ## Concurrency: Fan Out, Collect
 
-XSH's unit of concurrency is the process and the pipeline stage, never a
-thread or a future. `par-map` runs its block on a bounded worker pool and
-returns results in input order:
+XSH exposes concurrency through processes and pipeline stages rather than
+user-managed threads or futures. `par-map` runs its block on a bounded worker
+pool and returns results in input order:
 
 ```xsh
 let scratch = fs.tempdir()?

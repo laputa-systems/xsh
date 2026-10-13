@@ -23,6 +23,10 @@ values. `-V` and `--version` print the schema version.
 Live collection is supported on Linux. `--from FILE` reads at most 16 MiB,
 validates a saved v1 JSON report, and renders it without collecting host data.
 Invalid or truncated input fails instead of being treated as a partial report.
+Valid partial reports exit 0 with observation states and collection issues.
+Usage, invalid replay, and unsupported live collection use distinct error
+variants; unhandled failures retain their source error and exit with runtime
+failure status 3.
 
 ## Collection and report states
 

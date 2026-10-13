@@ -56,10 +56,14 @@ line always computes. Three things found while porting the rest:
 
 ## Defects
 
-The W9 module publication gap is closed for parity: the sealed owner matches
-the frozen reference on all 1,690 inputs and 6,760 profile outcomes, with
-matching diagnostics. No current per-workspace module check or preparation
-counts have been recorded. Close W9 only with that count evidence.
+The W9 module publication gap is closed for frozen parity: all 1,690 inputs
+and 6,760 profile outcomes match. At `59a6dfbc`, temporary tracing confirmed
+one preparation and check per full module-record key in each shared session:
+XSH check 1,661 / default lint 1,518; Laputa check 379 / default lint 316.
+Default lint also created 288 fresh candidate-probe caches in XSH (905
+records) and 77 in Laputa (347 records). The instrumentation was removed.
+Diagnostics match as a multiset, but parallel ownership of shared imports
+makes their order nondeterministic. Close current W9 after that is repaired.
 
 ### The xsh-wide lint pass is landed but unverified
 
@@ -116,10 +120,6 @@ follows host load alone is timing.
 
 ### Smaller open items
 
-- `[e for e in fs.children(dir)?]` yields an empty list while
-  `for e in fs.children(dir)? { }` visits both entries (found by the laputa
-  lint pass, `guest/asterinas/viability/overlay/usr/lib/asterinas/boot-proof.xsh:117`;
-  `lint.prefer-list-comp` fires on that shape and its rewrite changed behavior).
 - Each lint candidate probe is a full parse, load and check of the import
   graph (introduced by `da40b6b4`); options are one shared check of the
   unchanged graph, grouped candidates, or skipping probes on a clean corpus.
@@ -180,10 +180,6 @@ rebuild alone takes about two minutes.
   build in the kernel; `cargo dev` preloads jemalloc into its build steps
   there (`XSH_DEV_BUILD_PRELOAD`). A plain `cargo build` does not: a release
   rebuild of `xsh` takes 163 s without the preload and 33 s with it.
-- Measure module-check reuse with current per-workspace pass counts. An older
-  source snapshot reported repeated checks of shared modules (about 37 s of
-  thread time and another check after each fix round); that timing is
-  historical, and no current pass-count measurement is recorded.
 - The `xsht` integration target is dominated by the corpus tests (lint and
   format invariance over this repository and Laputa) and competes with
   itself for the lint budget test.
