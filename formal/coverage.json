@@ -4552,6 +4552,267 @@
       "status": "fragment",
       "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
       "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.ordinary_word_is_one_argument",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.ordinary_word_is_one_argument",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.word_with_embedded_space_remains_one_argument",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.word_with_embedded_space_remains_one_argument",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.wildcard_word_remains_literal",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.wildcard_word_remains_literal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.splice_preserves_items_and_order",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.splice_preserves_items_and_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.splice_items_keep_boundaries_in_source_order",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.splice_items_keep_boundaries_in_source_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.empty_splice_is_identity",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.empty_splice_is_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.expand_argv_append",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.expand_argv_append",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.mixed_words_preserve_source_order",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.mixed_words_preserve_source_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Argv.whitespace_split_mutation_changes_argv",
+      "module": "Xsh.Semantics.Argv",
+      "declaration": "Xsh.Semantics.Argv.whitespace_split_mutation_changes_argv",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expansion of already-classified command words into argv text, preserving item boundaries and source order.",
+      "boundary": "No parsing, interpolation, path conversion, globbing, NUL validation, process creation, host behavior, or Rust conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.file_read_requires_filesystem",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.file_read_requires_filesystem",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.run_requires_process",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.run_requires_process",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.time_now_requires_time",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.time_now_requires_time",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.socket_connect_requires_process_and_network",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.socket_connect_requires_process_and_network",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.print_requires_no_effects",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.print_requires_no_effects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.io_bound_permits_run",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.io_bound_permits_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.without_net_rejects_socket_connect",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.without_net_rejects_socket_connect",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.file_read_fs_to_process_mutation_changes_permission",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.file_read_fs_to_process_mutation_changes_permission",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.socket_connect_dropped_net_mutation_changes_permission",
+      "module": "Xsh.Effects.PrimitiveClassification",
+      "declaration": "Xsh.Semantics.Effects.socket_connect_dropped_net_mutation_changes_permission",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Five named primitive operations, their represented effect requirements, and lexical permission outcomes, including two classification mutation witnesses.",
+      "boundary": "No arbitrary source classification, registry or Rust correspondence, diagnostics, host execution, or full G3 effect proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.ofList_membership",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.ofList_membership",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.toList_nodup",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.toList_nodup",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.toList_key_ordered",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.toList_key_ordered",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.insert_existing_identity",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.insert_existing_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.remove_absent_identity",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.remove_absent_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.union_membership_iff",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.union_membership_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.intersection_membership_iff",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.intersection_membership_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.difference_membership_iff",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.difference_membership_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.ofList_permutation_preserves_iteration",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.ofList_permutation_preserves_iteration",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.ofList_duplicate_append_preserves_iteration",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.ofList_duplicate_append_preserves_iteration",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Values.OrderedSet.insertion_order_mutation_detected",
+      "module": "Xsh.Values.OrderedSet",
+      "declaration": "Xsh.Values.OrderedSet.insertion_order_mutation_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
+      "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
     }
   ],
   "source_identity": null

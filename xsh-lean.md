@@ -5,7 +5,8 @@ The pinned toolchain, finite private bridge fixtures, provisional inventory,
 scalar and base-machine fragments, validation, nominal identity/provenance,
 union-membership, byte-lexical RelPath, and recursive `.require` fragments,
 bounded refinements, non-empty filtering, environment/store, effects including
-bounded failure witnesses and edge-order laws, raw-IR, and transport
+bounded failure witnesses, edge-order laws, and five bounded primitive
+classifications, argv expansion, finite ordered-set laws, raw-IR, and transport
 codec/law fragments are integrated.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
 runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
@@ -20,7 +21,7 @@ inventoried universal theorem obligations remain planned. The Raw decoder
 fragments prove successful word-read length, payload length and table bounds,
 plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 174 fragment roots; its 50 Python
+Rust conformance. The inventory now names 203 fragment roots; its 50 Python
 tests check inventory consistency, mutation controls, and finite-case evidence
 boundaries. The new RelPath roots cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,
@@ -30,13 +31,17 @@ explicit alignment for permission and pull-sequence correspondence, and use
 structural `Expr` site labels that cannot distinguish identical occurrences.
 They do not execute producers or establish Rust conformance or full
 `EFF-LATENT`/`EFF-SEMANTIC` semantics. No `BASE-*` obligation is complete.
+The 29 new roots cover argv word/splice expansion, five named primitive effect
+classifications under the represented lexical rules, and ordered-set laws over
+finite ordinal keys. They establish no parser, Rust implementation, or full
+G1/G3 correspondence.
 **Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
 **Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and
 lowering obligations, and connect those independent statements to the Rust
 implementation with conformance and certified artifacts. The current scalar,
-syntax, environment/store, validation, effects, base-machine, raw-IR, and
-transport modules are partial foundations only. `formal/Xsh.lean` imports
-every current module under `formal/Xsh/`, but root reachability does not
+syntax, environment/store, validation, effects, argv, ordered-set, base-machine,
+raw-IR, and transport modules are partial foundations only.
+`formal/Xsh.lean` imports every current module under `formal/Xsh/`, but root reachability does not
 establish adequacy or close any full-language obligation. These fragments do
 not establish Rust conformance.
 

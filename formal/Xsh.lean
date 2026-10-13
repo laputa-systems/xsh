@@ -3,6 +3,8 @@ import Xsh.Syntax.Core
 import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
+import Xsh.Values.OrderedSet
+import Xsh.Semantics.Argv
 import Xsh.Semantics.Environments
 import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace
@@ -18,6 +20,7 @@ import Xsh.Validation.NonEmptyFiltering
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
+import Xsh.Effects.PrimitiveClassification
 import Xsh.Effects.ExpressionBridge
 import Xsh.Effects.Capture
 import Xsh.Effects.BoundFailureWitnesses

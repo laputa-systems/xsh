@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(174, len(result["fragment_roots"]))
+        self.assertEqual(203, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -413,6 +413,62 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Validation.NonEmptyFiltering.removing_nonempty_guard_is_detected",
             },
             nonempty_filtering_roots,
+        )
+        argv_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Semantics.Argv"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Semantics.Argv.ordinary_word_is_one_argument",
+                "Xsh.Semantics.Argv.word_with_embedded_space_remains_one_argument",
+                "Xsh.Semantics.Argv.wildcard_word_remains_literal",
+                "Xsh.Semantics.Argv.splice_preserves_items_and_order",
+                "Xsh.Semantics.Argv.splice_items_keep_boundaries_in_source_order",
+                "Xsh.Semantics.Argv.empty_splice_is_identity",
+                "Xsh.Semantics.Argv.expand_argv_append",
+                "Xsh.Semantics.Argv.mixed_words_preserve_source_order",
+                "Xsh.Semantics.Argv.whitespace_split_mutation_changes_argv",
+            },
+            argv_roots,
+        )
+        primitive_classification_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Effects.PrimitiveClassification"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Semantics.Effects.file_read_requires_filesystem",
+                "Xsh.Semantics.Effects.run_requires_process",
+                "Xsh.Semantics.Effects.time_now_requires_time",
+                "Xsh.Semantics.Effects.socket_connect_requires_process_and_network",
+                "Xsh.Semantics.Effects.print_requires_no_effects",
+                "Xsh.Semantics.Effects.io_bound_permits_run",
+                "Xsh.Semantics.Effects.without_net_rejects_socket_connect",
+                "Xsh.Semantics.Effects.file_read_fs_to_process_mutation_changes_permission",
+                "Xsh.Semantics.Effects.socket_connect_dropped_net_mutation_changes_permission",
+            },
+            primitive_classification_roots,
+        )
+        ordered_set_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Values.OrderedSet"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Values.OrderedSet.ofList_membership",
+                "Xsh.Values.OrderedSet.toList_nodup",
+                "Xsh.Values.OrderedSet.toList_key_ordered",
+                "Xsh.Values.OrderedSet.insert_existing_identity",
+                "Xsh.Values.OrderedSet.remove_absent_identity",
+                "Xsh.Values.OrderedSet.union_membership_iff",
+                "Xsh.Values.OrderedSet.intersection_membership_iff",
+                "Xsh.Values.OrderedSet.difference_membership_iff",
+                "Xsh.Values.OrderedSet.ofList_permutation_preserves_iteration",
+                "Xsh.Values.OrderedSet.ofList_duplicate_append_preserves_iteration",
+                "Xsh.Values.OrderedSet.insertion_order_mutation_detected",
+            },
+            ordered_set_roots,
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:

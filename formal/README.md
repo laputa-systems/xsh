@@ -51,12 +51,27 @@ re-encoding laws for accepted hexadecimal values and bridge IDs. These are
 independent Lean results about their stated definitions, not Rust conformance
 or full-language proofs.
 
+The argv fragment proves nine laws and witnesses about expanding already
+classified command words: ordinary words remain single items, splices preserve
+their items and order, and a space-splitting mutation changes the result. It
+does not model parsing, interpolation, path conversion, globbing, NUL
+validation, process creation, or host behavior. The primitive-classification
+fragment proves nine results for five named host operations under the
+represented lexical effect rules, including two classification mutation
+witnesses. It does not classify arbitrary source
+syntax, establish registry or Rust correspondence, or close G3. The ordered-set
+fragment proves eleven laws and witnesses for finite sets over ordinal keys,
+including extensional membership, increasing iteration, and an insertion-order
+mutation. It does not establish XSH checker/runtime behavior or Rust
+conformance.
+
 Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. Integer operation fragments prove
+G0b source freeze remain pending. The provisional inventory has 203 fragment
+roots across 89 core owner sets and still marks all 72 universal theorem
+obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
 subtraction, multiplication, division, and remainder. Concrete mutation
 witnesses distinguish checked overflow from wrapping addition and truncating
@@ -103,8 +118,9 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 174 rooted Lean fragment declarations. Its 50 Python tests
-check inventory shape, root reachability, mutation controls, and finite-case
+The inventory names 203 rooted Lean fragment declarations across 89 core owner
+sets. Its 50 Python tests check inventory shape, root reachability, mutation
+controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
 G1 closure or whole-language soundness claim is made.
 
