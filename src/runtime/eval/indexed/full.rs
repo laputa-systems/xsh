@@ -18889,6 +18889,10 @@ pure noncallable_map_value() -> Int {
   let callbacks: Map[Str, Int] = {["label"]: 1}
   callbacks.len()
 }
+pure spread_map_value(callbacks: Map[Str, Scale]) -> Int {
+  let merged: Map[Str, Scale] = {...callbacks}
+  merged.len()
+}
 pure empty_map_value() -> Int {
   let callbacks: Map[Str, Scale] = {}
   callbacks.len()
@@ -19003,6 +19007,46 @@ test test_typed_callable_literal_containers {
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert!(
             error.message.contains("checked callable expression child has no structural producer proof"),
+            "{}",
+            error.message
+        );
+
+        let spread_map = function_instruction_indices(
+            &program,
+            "spread_map_value",
+            FullTag::ExprMapLiteral,
+        );
+        assert_eq!(spread_map.len(), 1);
+        let decoder = return_analysis_decoder(&program, "spread_map_value");
+        let mut entries = match decoder.expression_view(spread_map[0]).unwrap() {
+            schema::ExprView::MapLiteral(entries) => entries,
+            _ => unreachable!("spread map instruction has a map literal view"),
+        };
+        let (key, spread_operand, _) = entries.next().unwrap().unwrap();
+        assert!(key.is_none());
+        assert!(entries.next().is_none());
+        let spread_operand = spread_operand.raw() as usize;
+        assert_eq!(program.store.tags[spread_operand], FullTag::ExprParam);
+
+        let mut forged_spread_type = program.clone();
+        let mut semantic = SemanticPoolBuilder::default();
+        let incompatible_map_type = semantic
+            .intern_type(
+                &mut forged_spread_type.store.semantic,
+                &Type::Map(Box::new(Type::Int), Box::new(scale.clone())),
+            )
+            .unwrap();
+        let fact_index = forged_spread_type
+            .store
+            .checked_expr_types
+            .binary_search_by_key(&(spread_map[0] as u32), |fact| fact.instruction)
+            .expect("spread map has a checked type fact");
+        forged_spread_type.store.checked_expr_types[fact_index].type_id = incompatible_map_type;
+        let error = FullVerifier::verify(&forged_spread_type).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checked callable expression slot disagrees with its expected type"),
             "{}",
             error.message
         );
