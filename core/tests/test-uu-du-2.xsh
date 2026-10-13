@@ -16,7 +16,7 @@ proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
   let captures = test.temp_dir(s.ctx, name: "du-captures")?
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
-  let plan = uu.command(s, "du", args, vars: vars, stdout: out, stderr: err, timeout: 30s)?
+  let plan = uu.command(s, "du", args, vars:, stdout: out, stderr: err, timeout: 30s)?
   let status = process.run(plan)?.exit_code()?
   Ok({util: "du", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }

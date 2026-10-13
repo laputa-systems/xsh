@@ -4,9 +4,9 @@ proc wrapped(s: uu.Scene, words: List[Path], input: Bytes = b"", stdin: Path? = 
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
   let plan = if let input_path = stdin {
-    process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input_path, out, err, timeout: timeout)
+    process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input_path, out, err, timeout:)
   } else {
-    process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input, out, err, timeout: timeout)
+    process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input, out, err, timeout:)
   }
   let status = process.run(plan)?.exit_code()?
   {util: "od", args: [], status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?}

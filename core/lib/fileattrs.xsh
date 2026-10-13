@@ -120,7 +120,7 @@ export pure unquote_bytes(raw: Bytes, quoted = false) -> Result[Bytes, Error] {
 
 ## Decode escaped text from an argument or a dump name.
 export pure unquote(raw: Str, quoted = false) -> Result[Bytes, Error] {
-  unquote_bytes(bytes.from_text(raw), quoted: quoted)
+  unquote_bytes(bytes.from_text(raw), quoted:)
 }
 
 ## Decode setfattr's explicit encodings; --raw bypasses this conversion.

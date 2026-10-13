@@ -75,7 +75,7 @@ pure first(value: Str) -> Str { value.split("").get(0) ?? "" }
 pure ident_part(value: Str) -> Bool { ident_start(value) or (value != "" and value in "0123456789") }
 # Missing lookahead is an explicit end-of-input token.
 const end_token: Token = {text: "", start: 0, end: 0, line: 0, last_line: 0, literal: false}
-proc invalid(source_path: Str, line: Int, detail: Str) [error] -> Result[Unit] { Err(MetricError.Invalid(path: source_path, line: line, detail: detail)) }
+proc invalid(source_path: Str, line: Int, detail: Str) [error] -> Result[Unit] { Err(MetricError.Invalid(path: source_path, line:, detail:)) }
 
 # Literal contents never enter the token stream as identifiers or delimiters.
 # Offsets are Unicode scalar indices; line ownership is independent of byte width.

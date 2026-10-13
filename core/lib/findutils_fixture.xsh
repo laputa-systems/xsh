@@ -14,7 +14,7 @@ const SECOND = 1000000000
 proc put(target: Path, text: Str, mode: Int, mtime_ns: Int, atime_ns: Int? = null) [fs, error] {
   target.write(text)
   target.chmod(mode)
-  fs.set_times(target, atime_ns: atime_ns ?? mtime_ns, mtime_ns: mtime_ns)
+  fs.set_times(target, atime_ns: atime_ns ?? mtime_ns, mtime_ns:)
 }
 
 ## Recreate `recent` below the tree directory with ages at the middle of a

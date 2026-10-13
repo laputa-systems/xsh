@@ -636,7 +636,7 @@ test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
   assert expected.len() > 0
   for sparse in ["auto", "always", "never"] {
     let dest = fp"{root}/{sparse}"
-    let report = fs.copy_file(source, dest, sparse: sparse, reflink: "auto")?
+    let report = fs.copy_file(source, dest, sparse:, reflink: "auto")?
     if sparse == "always" {
       assert report.offload_error == null
     } else {
@@ -658,7 +658,7 @@ test test_copy_file_does_not_pad_sysfs_files_to_their_reported_size { |ctx|
   let root = test.temp_dir(ctx, name: "fs-copy-sys")?
   for sparse in ["auto", "always", "never"] {
     let dest = fp"{root}/{sparse}"
-    let report = fs.copy_file(source, dest, sparse: sparse)?
+    let report = fs.copy_file(source, dest, sparse:)?
     let content = dest.read_bytes()?
     assert report.bytes == content.len()
     assert content.len() > 0
@@ -710,7 +710,7 @@ test test_copy_file_streams_to_devices_without_truncating_or_claiming_holes { |c
   let payload = bytes.concat([bytes.zero(65536)?, b"payload"])
   source.write(payload)
   for sparse in ["auto", "always", "never"] {
-    let report = fs.copy_file(source, /dev/null, sparse: sparse, reflink: "auto")?
+    let report = fs.copy_file(source, /dev/null, sparse:, reflink: "auto")?
     assert report.bytes == payload.len()
     assert report.hole_bytes == 0
     assert report.method == "read_write"

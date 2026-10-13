@@ -608,7 +608,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       # The bounds left out keep the limits the process has now.
       if wanted_soft.kind == "keep" or wanted_hard.kind == "keep" {
-        match process.rlimit(resource.rlimit, pid: pid) {
+        match process.rlimit(resource.rlimit, pid:) {
           Ok(current) => {
             new_soft = current.soft
             new_hard = current.hard
@@ -630,11 +630,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         gnu.write_text(f"New {resource.name} limit for pid {shown_pid}: <{limit_text(new_soft)}:{limit_text(new_hard)}>\n")
       }
 
-      if let Err(failure) = process.set_rlimit(resource.rlimit, soft: new_soft, hard: new_hard, pid: pid) {
+      if let Err(failure) = process.set_rlimit(resource.rlimit, soft: new_soft, hard: new_hard, pid:) {
         fail(f"failed to set the {resource.name} resource limit: {gnu.strerror(failure)}")
       }
     } else {
-      match process.rlimit(resource.rlimit, pid: pid) {
+      match process.rlimit(resource.rlimit, pid:) {
         Ok(current) => {
           rows += [{resource: resource.name, description: resource.description, soft: limit_text(current.soft), hard: limit_text(current.hard), units: resource.units}]
         }

@@ -559,7 +559,7 @@ export pure errno_text(code: Int) -> Str {
 
 ## The failure for errno `code`, with the standard wording.
 export pure errno_failure(code: Int) -> IwError {
-  .Errno(code: code, text: errno_text(code))
+  .Errno(code:, text: errno_text(code))
 }
 
 # --- transport ---------------------------------------------------------
@@ -586,7 +586,7 @@ export proc disconnect(client: Client) [process] {
 proc failure_to_iw(failure: Error) -> Error {
   let code = gnu.errno(failure)
   return failure when code == 0
-  IwError.Errno(code: code, text: gnu.strerror(failure))
+  IwError.Errno(code:, text: gnu.strerror(failure))
 }
 
 proc decode_messages(replies: List[LinuxNetlinkMessage]) -> List[Message] {

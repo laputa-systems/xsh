@@ -7,7 +7,7 @@ proc wrapped(s: uu.Scene, args: List[Str], setup: Str, timeout: Duration = 10s) 
   let words = [p"/bin/sh", p"-c", Path(setup), p"head-boundary"].extend(launch)
   let out = uu.at(s, ".wrapped-out")
   let err = uu.at(s, ".wrapped-err")
-  let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C", TZ: "UTC"}, b"", out, err, timeout: timeout))?
+  let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C", TZ: "UTC"}, b"", out, err, timeout:))?
   Ok({util: "head", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 

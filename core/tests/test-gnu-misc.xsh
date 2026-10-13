@@ -5,7 +5,7 @@ pure shell_words(words: List[Path]) -> Str {
 }
 
 proc terminal_run(s: uu.Scene, util: Str, args: List[Path], redirect: Str = "", umask: Int? = null) -> Result[Int] {
-  let words = uu.argv(s, util, args, umask: umask)?
+  let words = uu.argv(s, util, args, umask:)?
   let command = shell_words(words) + redirect
   let plan = process.command_argv(p"/usr/bin/script", ["script", "-q", "-e", "-c", command, "/dev/null"], s.root,
     stdout: uu.at(s, "terminal-output"), stderr: uu.at(s, "terminal-error"), timeout: 5s)

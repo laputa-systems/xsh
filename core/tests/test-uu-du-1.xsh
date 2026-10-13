@@ -6,7 +6,7 @@ proc invoke(s: uu.Scene, args: List[Str], stdin: Bytes = b"", vars: Record = {})
   let capture = test.temp_dir(s.ctx, name: "du-capture")?
   let out = fp"{capture}/stdout"
   let err = fp"{capture}/stderr"
-  let r = uu.invoke(s, "du", args, stdin: stdin, vars: vars, stdout: out, stderr: err)?
+  let r = uu.invoke(s, "du", args, stdin:, vars:, stdout: out, stderr: err)?
   Ok({util: r.util, args: r.args, status: r.status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 

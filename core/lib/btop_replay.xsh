@@ -196,7 +196,7 @@ export pure models(observations: List[model.Observation]) -> List[model.Model] {
         0
       }
       let gap = elapsed_ns >= scheduler.SAMPLE_INTERVAL_NS * 2
-      let next = model.step_cached(current, previous, metadata, gap: gap)
+      let next = model.step_cached(current, previous, metadata, gap:)
       yield next.value
       metadata = next.metadata
       previous = current

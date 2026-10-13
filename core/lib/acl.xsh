@@ -176,7 +176,7 @@ export proc read(target: Path) [fs, error] -> Result[List[Entry], Error] {
     for default in [false, true] {
       let found = fs.xattr_get(target, if default { "system.posix_acl_default" } else { "system.posix_acl_access" })
       if let Ok(payload) = found {
-        yield @decode(payload, default: default)?
+        yield @decode(payload, default:)?
       } else if let Err(failure) = found {
         if failure.errno == 61 or failure.errno == 93 {
           if ! default { yield @from_mode(stat.mode) }

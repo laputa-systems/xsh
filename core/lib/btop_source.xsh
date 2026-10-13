@@ -40,8 +40,8 @@ export proc capture(
     storage: disks.collect(
       root,
       at_ns,
-      cached_mounts: cached_mounts,
-      cached_mounts_at_ns: cached_mounts_at_ns,
+      cached_mounts:,
+      cached_mounts_at_ns:,
       captured_usage: captured_mount_usage,
     )?,
   })

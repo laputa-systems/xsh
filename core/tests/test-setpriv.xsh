@@ -48,7 +48,7 @@ proc applet_words(ctx: TestContext) [fs, process, error] -> List[Str] {
 # A script the command can read after setpriv has dropped to another user.
 proc shared_script(ctx: TestContext, name: Str, source: Str) [fs, error] -> Result[Str] {
   ctx.temp_root.chmod(0o755)
-  let script = test.temp_file(ctx, name: name, contents: bytes.from_text(source))?
+  let script = test.temp_file(ctx, name:, contents: bytes.from_text(source))?
   script.chmod(0o644)
   script.display()
 }

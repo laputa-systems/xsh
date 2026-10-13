@@ -151,7 +151,7 @@ proc mkdir_copy(target: Path, source_mode: Int, opts: Options) {
     return
   }
   let mode = if opts.mode or opts.owner { 0o700 } else { source_mode.bit_and(0o1777).clear_bits(fs.umask()?).bit_or(0o700) }
-  parent.mkdir(basename_path(target)?, mode: mode)
+  parent.mkdir(basename_path(target)?, mode:)
   target.chmod(mode)
 }
 
@@ -331,7 +331,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       }
     }
     if ! exists and ! opts.mode and ! opts.owner and ! opts.no_mode { target.chmod((if opts.no_mode { 0o777 } else { meta.mode.bit_and(0o1777) }).clear_bits(fs.umask()?)) }
-    preserve(source, target, opts, follow, meta, created: created)
+    preserve(source, target, opts, follow, meta, created:)
     copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: meta.kind}]
     return Ok({copies: copies, failed: failed})
   }
@@ -509,7 +509,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         output += f"copy offload: {offload}, reflink: {reflink}, sparse detection: {sparse}\n"
       }
     }
-    preserve(input, target, opts, follow, meta, created: created)
+    preserve(input, target, opts, follow, meta, created:)
   }
   copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: fs.stat(target)?.kind}]
   # Copying commits the destination before a verbose output failure is reported.

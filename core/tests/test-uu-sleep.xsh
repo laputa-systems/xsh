@@ -17,7 +17,7 @@ proc signaled_sleep(s: uu.Scene, args: List[Str], signal: Str, expected: Int) [f
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   time.sleep(100ms)
-  process.kill(child.pid, signal: signal)
+  process.kill(child.pid, signal:)
   let completed = process.wait_timeout([child], 10s)?
   assert completed != null, "sleep did not terminate after its signal"
   assert completed.status.signaled()

@@ -862,14 +862,14 @@ proc mount(argv: List[Str]) {
     }
     return
   }
-  if args.operands.len() == 1 and "remount" in options { linux.mount("none", fp"{args.operands[0]}", fstype: types, options: options); return }
+  if args.operands.len() == 1 and "remount" in options { linux.mount("none", fp"{args.operands[0]}", fstype: types, options:); return }
   require_operands(args, 2, 2)
   if "," in types { unsupported("multiple filesystem types for a direct mount") }
   if (types == "" or types == "auto") and ! ("bind" in options or "rbind" in options or "move" in options) {
     types = linux.blkid(fp"{args.operands[0]}")?.type
     if types == "" { gnu.usage_error("cannot identify filesystem type; specify --types") }
   }
-  linux.mount(args.operands[0], fp"{args.operands[1]}", fstype: types, options: options)
+  linux.mount(args.operands[0], fp"{args.operands[1]}", fstype: types, options:)
 }
 
 proc blkid(argv: List[Str]) {
@@ -952,7 +952,7 @@ proc swap_command(command: Str, argv: List[Str]) {
       let metadata = fs.stat(device, follow_symlinks: true)?
       if metadata.kind not in ["file", "block"] { gnu.usage_error("swap target must be a regular file or block device") }
       linux.mkswap(device)
-    } else if command == "swapon" { linux.swapon(fp"{name}", priority: priority) } else { linux.swapoff(fp"{name}") }
+    } else if command == "swapon" { linux.swapon(fp"{name}", priority:) } else { linux.swapoff(fp"{name}") }
   }
 }
 
@@ -1029,7 +1029,7 @@ proc fstrim(argv: List[Str]) {
   let offset = fstrim_bytes(args.values.get("-o") ?? "0", "offset")
   let minimum = fstrim_bytes(args.values.get("-m") ?? "0", "minimum extent length")
   let length: UInt? = if "-l" in args.values { fstrim_bytes(args.values.get("-l")?, "length") } else { null }
-  let result = linux.fstrim(fp"{name}", offset: offset, length: length, minlen: minimum)
+  let result = linux.fstrim(fp"{name}", offset:, length:, minlen: minimum)
   if let Err(failure) = result {
     # ENOTTY and EOPNOTSUPP both mean the filesystem has no discard support.
     let errno = failure.errno ?? -1

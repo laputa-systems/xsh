@@ -56,7 +56,7 @@ proc linux_entry(label: Str, loader: Str, data: Bytes) -> Bytes {
 # Boot0000 Linux (active), Boot0001 Windows (active, binary data), Boot0002
 # Shell (inactive, no disk node), with BootOrder 1,0,2.
 proc fixture(ctx: TestContext, name: Str) [fs, error] -> Path {
-  let dir = test.temp_dir(ctx, name: name)?
+  let dir = test.temp_dir(ctx, name:)?
   put(dir, "BootOrder", u16_list([1, 0, 2]))
   put(dir, "BootCurrent", u16(1))
   put(dir, "Timeout", u16(5))
@@ -268,7 +268,7 @@ const ESP_GUID = "11112222-3333-4444-5555-666677778888"
 
 # A 4 MiB image with an ESP and a root partition, in the requested table.
 proc disk_image(ctx: TestContext, name: Str, label: Str) [fs, process, error] -> Path {
-  let image = test.temp_path(ctx, name: name)
+  let image = test.temp_path(ctx, name:)
   image.write(b"")
   image.truncate(4194304)
   let esp = if label == "gpt" { "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" } else { "ef" }

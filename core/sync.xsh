@@ -30,7 +30,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         continue
       }
     }
-    if let Err(failure) = fs.sync_path(target, mode: mode) {
+    if let Err(failure) = fs.sync_path(target, mode:) {
       let verb = if (failure.errno ?? 0) in [2, 13, 20] { "opening" } else { "syncing" }
       gnu.error(f"error {verb} {gnu.quote(name)}: {gnu.strerror(failure)}")
       failed = true

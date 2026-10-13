@@ -158,7 +158,7 @@ export proc command(
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout: timeout)
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout:)
   }
   Ok(plan)
 }
@@ -216,7 +216,7 @@ export proc invoke_paths(
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, timeout: timeout)
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, timeout:)
   }
   finish(s, util, [word.display() for word in args], plan)
 }
@@ -242,7 +242,7 @@ export proc invoke_from_path(
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout: timeout)
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout:)
   }
   finish(s, util, args, plan, stdout == null, stderr == null)
 }

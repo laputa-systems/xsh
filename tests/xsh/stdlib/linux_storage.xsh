@@ -81,7 +81,7 @@ proc page(first: List[Int]) [error] -> Result[Bytes, Error] {
 # and returns a descriptor number for a placeholder file. Under the fake the
 # descriptor is never read.
 proc install_logged(ctx: TestContext, name: Str, lines: List[Any], log: Path) [fs, process, error] -> Result[Int, Error] {
-  let root = test.temp_dir(ctx, name: name)?
+  let root = test.temp_dir(ctx, name:)?
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(lines)?)
   test.linux_fake(ctx, {storage_fixture: fixture, log: log})
@@ -118,7 +118,7 @@ test test_sg_io_returns_status_sense_and_transferred_data { |ctx|
   let test_unit_ready = b"\x00\x00\x00\x00\x00\x00"
   let fd = install(ctx, "sg-io", [
     sg_line(inquiry, direction: "from_device", data_len: 36, data: ok_data),
-    sg_line(test_unit_ready, status: 2, driver_status: 8, sense: sense),
+    sg_line(test_unit_ready, status: 2, driver_status: 8, sense:),
   ])?
 
   let reply = linux.sg_io(fd, inquiry, 36)?
@@ -259,7 +259,7 @@ test test_ata_identify_and_smart_reads_use_sat_pass_through { |ctx|
   let sense = ata_sense(80, 0, 1, 0, 0, 0)?
   let smart_sense = ata_sense(80, 0, 1, 0, 79, 194)?
   let fd = install(ctx, "ata-reads", [
-    sg_line(identify_cdb, direction: "from_device", data_len: 512, data: identify_page, status: 2, driver_status: 8, sense: sense),
+    sg_line(identify_cdb, direction: "from_device", data_len: 512, data: identify_page, status: 2, driver_status: 8, sense:),
     sg_line(data_cdb, direction: "from_device", data_len: 512, data: data_page, status: 2, driver_status: 8, sense: smart_sense),
     sg_line(thresholds_cdb, direction: "from_device", data_len: 512, data: threshold_page, status: 2, driver_status: 8, sense: smart_sense),
     sg_line(log_cdb, direction: "from_device", data_len: 1024, data: log_pages, status: 2, driver_status: 8, sense: smart_sense),
@@ -289,7 +289,7 @@ test test_ata_12_byte_pass_through_form { |ctx|
   let identify_cdb = b"\xa1\x08\x2e\x00\x01\x00\x00\x00\x00\xec\x00\x00"
   let sense = ata_sense(80, 0, 1, 0, 0, 0)?
   let fd = install(ctx, "ata-12", [
-    sg_line(identify_cdb, direction: "from_device", data_len: 512, data: page([1])?, status: 2, sense: sense),
+    sg_line(identify_cdb, direction: "from_device", data_len: 512, data: page([1])?, status: 2, sense:),
   ])?
   assert linux.ata_identify(fd, cdb_size: 12)?.data.len() == 512
   test.error_kind(linux.ata_identify(fd), "linux-storage-fake")
@@ -337,11 +337,11 @@ test test_ata_mutations_are_separate_named_functions { |ctx|
   let sense = ata_sense(80, 0, 0, 0, 79, 194)?
   let log = test.temp_file(ctx, name: "ata-mutations-calls", contents: b"")?
   let fd = install_logged(ctx, "ata-mutations", [
-    sg_line(enable, status: 2, driver_status: 8, sense: sense),
-    sg_line(disable, status: 2, driver_status: 8, sense: sense),
-    sg_line(short_test, status: 2, driver_status: 8, sense: sense),
-    sg_line(extended_test, status: 2, driver_status: 8, sense: sense),
-    sg_line(abort_test, status: 2, driver_status: 8, sense: sense),
+    sg_line(enable, status: 2, driver_status: 8, sense:),
+    sg_line(disable, status: 2, driver_status: 8, sense:),
+    sg_line(short_test, status: 2, driver_status: 8, sense:),
+    sg_line(extended_test, status: 2, driver_status: 8, sense:),
+    sg_line(abort_test, status: 2, driver_status: 8, sense:),
   ], log)?
   assert linux.ata_smart_enable(fd)?.data == b""
   assert linux.ata_smart_disable(fd)?.status == 80
@@ -392,7 +392,7 @@ test test_ata_failures_include_scsi_and_ata_status { |ctx|
   assert "no ATA status return descriptor" in failure_of(linux.ata_identify(fd2), "linux-ata").message
 
   # A short data phase.
-  fixture.write(json.encode_lines([sg_line(cdb, direction: "from_device", data_len: 512, data: b"\x01\x02", status: 2, sense: sense)])?)
+  fixture.write(json.encode_lines([sg_line(cdb, direction: "from_device", data_len: 512, data: b"\x01\x02", status: 2, sense:)])?)
   assert "2 of 512 data bytes" in failure_of(linux.ata_identify(fd2), "linux-ata").message
 
   # A BUSY SCSI status.

@@ -119,7 +119,7 @@ export proc format(image: Path, size: UInt, bits: UInt = 0, sector: UInt = 512, 
   var offset = 0
   while offset < clear_length {
     let length = if clear_length - offset < 65536 { clear_length - offset } else { 65536 }
-    image_io.write_region(image, offset, zeroes.slice(0, length: length))
+    image_io.write_region(image, offset, zeroes.slice(0, length:))
     offset += length
   }
   var boot = bytes.zero(layout.sector)?

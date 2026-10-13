@@ -7,7 +7,7 @@ proc ls_invoke(s: uu.Scene, args: List[Str], vars: Record = {}, stdout: Path? = 
   let capture = uu.scene(s.ctx)?
   let output = stdout ?? uu.at(capture, "stdout")
   let errors = uu.at(capture, "stderr")
-  let r = uu.invoke(s, "ls", args, vars: vars, stdout: output, stderr: errors)?
+  let r = uu.invoke(s, "ls", args, vars:, stdout: output, stderr: errors)?
   Ok({util: "ls", args: args, status: r.status,
     stdout: if stdout == null { output.read_bytes()? } else { b"" }, stderr: errors.read_bytes()?})
 }

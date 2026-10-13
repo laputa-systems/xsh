@@ -104,7 +104,7 @@ export pure controller(page: Bytes) -> Controller {
 }
 
 pure text(page: Bytes, offset: Int, length: Int) -> Str {
-  let raw = page.slice(offset, length: length)
+  let raw = page.slice(offset, length:)
   let decoded = raw.utf8() ?? ""
   decoded.trim()
 }

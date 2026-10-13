@@ -98,13 +98,13 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var base = ""
   var to = ""
   if base_name != "" {
-    let result = fs_misc.canonical(base_name, missing, logical: logical, strip: opts.strip)
+    let result = fs_misc.canonical(base_name, missing, logical:, strip: opts.strip)
     if let Err(failure) = result { gnu.name_error(base_name, failure); exit 1 }
     base = result?
     if missing == "existing" and fs.stat(fp"{base}", follow_symlinks: true)?.kind != "dir" { gnu.error(f"{gnu.quote(base_name)}: Not a directory"); exit 1 }
   }
   if to_name != "" {
-    let result = fs_misc.canonical(to_name, missing, logical: logical, strip: opts.strip)
+    let result = fs_misc.canonical(to_name, missing, logical:, strip: opts.strip)
     if let Err(failure) = result { gnu.name_error(to_name, failure); exit 1 }
     to = result?
     if missing == "existing" and fs.stat(fp"{to}", follow_symlinks: true)?.kind != "dir" { gnu.error(f"{gnu.quote(to_name)}: Not a directory"); exit 1 }
@@ -113,7 +113,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   for operand in opts.paths {
     let name = argument_bytes(operand, prepared.raw)
     let result = if let Ok(text) = name.utf8() {
-      match fs_misc.canonical(text, missing, logical: logical, strip: opts.strip) { Ok(value) => Ok(bytes.from_text(value)), Err(failure) => Err(failure) }
+      match fs_misc.canonical(text, missing, logical:, strip: opts.strip) { Ok(value) => Ok(bytes.from_text(value)), Err(failure) => Err(failure) }
     } else {
       match Path.parse_bytes(name)?.resolve() { Ok(resolved_path) => Ok(resolved_path.bytes()), Err(failure) => Err(failure) }
     }

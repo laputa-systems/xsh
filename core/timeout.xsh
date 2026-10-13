@@ -44,7 +44,7 @@ proc send(handle: ProcessHandle, signal: Str, verbose: Bool, foreground: Bool, c
   # A managed child leads a process group named by its pid. A foreground child
   # shares timeout's own group, which must not receive the signal.
   let sent = if foreground {
-    process.kill(handle.pid, signal: signal)
+    process.kill(handle.pid, signal:)
   } else {
     process.kill_group(handle.pid, signal)
   }

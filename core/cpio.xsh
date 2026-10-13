@@ -542,7 +542,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
   while true {
     guard data.len() - position >= 6 else {
       let message = if known == "" { "premature end of archive" } else { "premature end of file" }
-      return Err(.Fatal(message: message))
+      return Err(.Fatal(message:))
     }
     if known == "" and data.len() - position >= 512 and data.slice(position + 257, 5) == b"ustar" and detect_format(data, position) == "" {
       return Err(.Fatal(message: "tar and ustar archives are not supported"))
@@ -1924,11 +1924,11 @@ proc extract_device(st: Run, opts: Options, header: Header, chown_enabled: Bool)
   let numbered = kind == "char" or kind == "block"
   let major = if numbered { header.rdev_major } else { 0 }
   let minor = if numbered { header.rdev_minor } else { 0 }
-  var result = if numbered { fs.mknod(file, kind, permissions, major: major, minor: minor) } else { fs.mknod(file, kind, permissions) }
+  var result = if numbered { fs.mknod(file, kind, permissions, major:, minor:) } else { fs.mknod(file, kind, permissions) }
   if result is Err(_) and opts.make_dirs {
     let made = create_parents(state, opts, file)
     state = made.st
-    result = if numbered { fs.mknod(file, kind, permissions, major: major, minor: minor) } else { fs.mknod(file, kind, permissions) }
+    result = if numbered { fs.mknod(file, kind, permissions, major:, minor:) } else { fs.mknod(file, kind, permissions) }
   }
   match result {
     Ok(_) => {}
@@ -2329,7 +2329,7 @@ proc emit_regular(opts: Options, format: Str, sink: Sink, st: Run, header: Heade
   let pad = padding(format, size)
   if pad > 0 { out = sink_emit(out, ZERO_PAD.slice(0, pad)) }
   if opts.reset_time {
-    match fs.set_times(file, atime_ns: atime_ns, mtime_ns: mtime_ns) {
+    match fs.set_times(file, atime_ns:, mtime_ns:) {
       Ok(_) => {}
       Err(failure) => { state = call_error(state, "utime", source, failure) }
     }

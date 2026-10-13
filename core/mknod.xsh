@@ -105,6 +105,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     mode = parsed?
     if mode > 0o777 { gnu.error("mode must specify only file permission bits"); exit 1 }
   }
-  if let Err(failure) = fs.mknod(fp"{args[0]}", kind, mode, major: major, minor: minor) { gnu.name_error(args[0], failure); exit 1 }
+  if let Err(failure) = fs.mknod(fp"{args[0]}", kind, mode, major:, minor:) { gnu.name_error(args[0], failure); exit 1 }
   if opts.mode != null { if let Err(failure) = fp"{args[0]}".chmod(mode) { gnu.name_error(args[0], failure); exit 1 } }
 }

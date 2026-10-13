@@ -5,9 +5,9 @@ proc wrapped(s: uu.Scene, code: Str, words: List[Path], stdin: Path? = null, inp
   let err = uu.at(s, "wrapped-err")
   let argv = [p"/bin/sh", p"-c", Path(code), p"tee-wrapper"].extend(words)
   let plan = if let source = stdin {
-    process.command_argv(p"/bin/sh", argv, s.root, {LC_ALL: "C"}, source, out, err, timeout: timeout)
+    process.command_argv(p"/bin/sh", argv, s.root, {LC_ALL: "C"}, source, out, err, timeout:)
   } else {
-    process.command_argv(p"/bin/sh", argv, s.root, {LC_ALL: "C"}, input, out, err, timeout: timeout)
+    process.command_argv(p"/bin/sh", argv, s.root, {LC_ALL: "C"}, input, out, err, timeout:)
   }
   let status = process.run(plan)?.exit_code()?
   {util: "tee", args: [], status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?}

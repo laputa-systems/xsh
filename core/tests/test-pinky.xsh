@@ -82,7 +82,7 @@ proc sessions(ctx: TestContext) [fs, process, error] -> Result[World] {
       utmp_record(USER_PROCESS, bob_line, "bob", "::1")?,
       utmp_record(USER_PROCESS, stranger_line, "stranger", "")?,
     ],
-    bob_line: bob_line, stranger_line: stranger_line,
+    bob_line:, stranger_line:,
   )
 }
 

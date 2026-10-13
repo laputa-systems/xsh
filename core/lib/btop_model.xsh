@@ -310,7 +310,7 @@ pure process_rate(
       current.cpu.stat.aggregate,
       before.cpu.stat.aggregate,
       if core_count == 0 { 1 } else { core_count },
-      per_core: per_core,
+      per_core:,
     )
   }
 

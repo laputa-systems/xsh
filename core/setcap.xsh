@@ -51,7 +51,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
       } else {
         if word.starts_with("-") and word != "-" { gnu.usage_error(f"invalid option {word}") }
         let raw = if word == "-" { gnu.read_operand("-")?.utf8()?.trim() } else { word }
-        let parsed = capability.parse(raw, rootid: rootid)
+        let parsed = capability.parse(raw, rootid:)
         if let Err(failure) = parsed {
           gnu.error(failure.message)
           exit 1

@@ -158,7 +158,7 @@ pure snapshot(found: Stat) -> fmt.Meta {
 # nanosecond range cannot hold so that far-future dates still compare.
 proc time_reference(text: Str, start_ns: Int) [process, env, error, time] -> Result[Int, Error] {
   let base = dates.instant_from_ns(start_ns)
-  if let Ok(instant) = dates.parse_instant(text, base: base) {
+  if let Ok(instant) = dates.parse_instant(text, base:) {
     return Ok(9223372036854775807) when instant.seconds > 9223372035
     return Ok(-9223372036854775807) when instant.seconds < -9223372035
     Ok(instant.seconds * 1000000000 + instant.nanoseconds)

@@ -651,7 +651,7 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
       }
       source = fp"{name}"
     }
-    match compression.transform(source, part, codec, decode: decode, level: level, test: false, metadata: false, overwrite: true, pass_through: false) {
+    match compression.transform(source, part, codec, decode:, level:, test: false, metadata: false, overwrite: true, pass_through: false) {
       Ok(_) => {
         joined += [part.read_bytes()?]
         if name != "-" { consumed += [name] }
@@ -957,7 +957,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       continue
     }
     let passing_through = (force or pass_through) and decode and to_stdout and ! testing
-    match compression.transform(source, destination, codec, decode: decode, level: level, test: testing, metadata: metadata, overwrite: force, pass_through: passing_through) {
+    match compression.transform(source, destination, codec, decode:, level:, test: testing, metadata:, overwrite: force, pass_through: passing_through) {
       Ok(_) => {
         if destination != null and source != null and ! keep {
           if let Err(failure) = fp"{name}".remove(missing_ok: false) {

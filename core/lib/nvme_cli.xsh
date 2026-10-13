@@ -651,9 +651,9 @@ proc admin(dev: Session, what: Str, opcode: Int, nsid: Int, cdw10: Int, length: 
   }
   if dev.dry_run { exit 0 }
   let outcome = if change {
-    linux.nvme_admin_command(dev.fd, opcode, length, nsid: nsid, cdw10: cdw10, cdw11: cdw11, cdw12: cdw12, cdw13: cdw13, cdw14: cdw14, timeout_ms: dev.timeout_ms)
+    linux.nvme_admin_command(dev.fd, opcode, length, nsid:, cdw10:, cdw11:, cdw12:, cdw13:, cdw14:, timeout_ms: dev.timeout_ms)
   } else {
-    linux.nvme_admin(dev.fd, opcode, length, nsid: nsid, cdw10: cdw10, cdw11: cdw11, cdw12: cdw12, cdw13: cdw13, cdw14: cdw14, timeout_ms: dev.timeout_ms)
+    linux.nvme_admin(dev.fd, opcode, length, nsid:, cdw10:, cdw11:, cdw12:, cdw13:, cdw14:, timeout_ms: dev.timeout_ms)
   }
   match outcome {
     Err(failure) => {
@@ -1434,7 +1434,7 @@ proc get_feature(argv: List[Str]) [fs, process, env, io, error] {
   var length = feature_data_length(feature_id, cdw11)
   if has(begun.parsed, "data-len") { length = number(begun.parsed, "data-len", 0) }
   let nsid = number(begun.parsed, "namespace-id", 0)
-  let reply = admin(dev, "get-feature", OPCODE_GET_FEATURES, nsid, select * 256 + feature_id, length, cdw11: cdw11, cdw14: number(begun.parsed, "uuid-index", 0))
+  let reply = admin(dev, "get-feature", OPCODE_GET_FEATURES, nsid, select * 256 + feature_id, length, cdw11:, cdw14: number(begun.parsed, "uuid-index", 0))
   if begun.format == "binary" and length > 0 {
     gnu.write_bytes(reply.data)
     return
@@ -1537,7 +1537,7 @@ proc identify_listed(node: Path, nsid: Int) [fs, process, error] -> List[Int]? {
   match unix.open_fd(node) {
     Err(_) => null
     Ok(fd) => {
-      let outcome = linux.nvme_admin(fd, OPCODE_IDENTIFY, 4096, nsid: nsid, cdw10: 0)
+      let outcome = linux.nvme_admin(fd, OPCODE_IDENTIFY, 4096, nsid:, cdw10: 0)
       let _ = unix.close_fd(fd)
       match outcome {
         Err(_) => null
@@ -1557,7 +1557,7 @@ proc identify_listed(node: Path, nsid: Int) [fs, process, error] -> List[Int]? {
 }
 
 proc listed_namespaces(sys_root: Path, dev_root: Path) [fs, process, env, io, error] -> List[ListedNamespace] {
-  let found = match linux.storage_candidates(sys_root: sys_root, dev_root: dev_root) {
+  let found = match linux.storage_candidates(sys_root:, dev_root:) {
     Ok(items) => items
     Err(failure) => {
       fail(false, f"Failed to scan nvme subsystems: {gnu.strerror(failure)}")

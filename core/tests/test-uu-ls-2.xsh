@@ -11,12 +11,12 @@ proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}, terminal: Bool = fa
     let pty = unix.open_pty()?
     defer unix.close_fd(pty.master)
     defer unix.close_fd(pty.replica)
-    let plan = uu.command(s, "ls", args, vars: vars, stdout: fp"{pty.name}", stderr: error_output, timeout: 30s)?
+    let plan = uu.command(s, "ls", args, vars:, stdout: fp"{pty.name}", stderr: error_output, timeout: 30s)?
     let status = process.run(plan)?.exit_code()?
     let data = unix.read_fd(pty.master, 65536)?
     Ok({util: "ls", args: args, status: status, stdout: data, stderr: if stderr == null { error_output.read_bytes()? } else { b"" }})
   } else {
-    let plan = uu.command(s, "ls", args, vars: vars, stdout: output, stderr: error_output, timeout: 30s)?
+    let plan = uu.command(s, "ls", args, vars:, stdout: output, stderr: error_output, timeout: 30s)?
     let status = process.run(plan)?.exit_code()?
     Ok({util: "ls", args: args, status: status, stdout: output.read_bytes()?, stderr: if stderr == null { error_output.read_bytes()? } else { b"" }})
   }
@@ -1042,7 +1042,7 @@ test test_uu_ls_ls_invalid_block_size_in_env_var { |ctx|
     uu.stdout_contains(r, " 1 1 ")
   }
   for vars in [{BLOCKSIZE: "invalid"}, {BLOCKSIZE: "0"}] {
-    let r = invoke(s, ["-og"], vars: vars)?
+    let r = invoke(s, ["-og"], vars:)?
     uu.succeeds(r)
     assert "total 4" in r.stdout.utf8()?.lines()
     uu.stdout_contains(r, " 1024 ")

@@ -28,7 +28,7 @@ proc invoke(ctx: TestContext, args: List[Str], input = b"", cwd: Path? = null, l
 
 # The fixture tree copied to a scratch directory with the pinned times.
 proc fixtures(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
-  let root = test.temp_dir(ctx, name: name)?
+  let root = test.temp_dir(ctx, name:)?
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/diff/fixtures", fp"{root}/fx")?
   # Names with a space or a non-ASCII letter are created here instead of being
   # stored, because path lists handled by tooling split on spaces.
@@ -376,7 +376,7 @@ test test_diff_ignore_blank_lines_brief_and_single_line { |ctx|
 # Two trees whose differences exercise every directory-comparison report.
 # Names sort in byte order: bin, fd, ff, only, same, sub (and ronly in b).
 proc build_trees(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
-  let root = test.temp_dir(ctx, name: name)?
+  let root = test.temp_dir(ctx, name:)?
   fp"{root}/a/sub".mkdir(parents: true)
   fp"{root}/b/sub".mkdir(parents: true)
   fp"{root}/a/same".mkdir()

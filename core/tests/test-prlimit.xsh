@@ -107,7 +107,7 @@ proc fix_limits(pid: Int) [fs, time, process, error] -> Result[Bool] {
 
   for name in RESOURCES {
     if name != "nice" and name != "rtprio" {
-      process.set_rlimit(name, soft: 100 + at, hard: 200 + at, pid: pid)
+      process.set_rlimit(name, soft: 100 + at, hard: 200 + at, pid:)
     }
 
     at += 1

@@ -463,7 +463,7 @@ test test_uu_cp_cp_r_symlink { |ctx|
   for gid in unix.id()?.supplementary {
     guard gid == source_gid else { other_gid = gid; break }
   }
-  if let gid = other_gid { fs.set_owner(uu.at(s, "tmp/symlink"), gid: gid) }
+  if let gid = other_gid { fs.set_owner(uu.at(s, "tmp/symlink"), gid:) }
   let r = uu.invoke(s, "cp", ["--preserve", "-r", "tmp", "tmp2"])?
   uu.succeeds(r)
   uu.no_output(r)

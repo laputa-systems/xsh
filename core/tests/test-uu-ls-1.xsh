@@ -58,7 +58,7 @@ proc ls_run(s: uu.Scene, args: List[Str], vars: Record = {}, stdout: Path? = nul
   defer capture.remove()
   let out = stdout ?? fp"{capture}/stdout"
   let err = fp"{capture}/stderr"
-  let r = uu.invoke(s, "ls", args, vars: vars, stdout: out, stderr: err)?
+  let r = uu.invoke(s, "ls", args, vars:, stdout: out, stderr: err)?
   let output = if stdout == null { out.read_bytes()? } else { b"" }
   Ok({...r, stdout: output, stderr: err.read_bytes()?})
 }

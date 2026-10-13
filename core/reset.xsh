@@ -26,7 +26,7 @@ proc main(...argv: List[Str]) [env, process, error, io] {
   for fd in [0, 1, 2] {
     if let Ok(attrs) = unix.tty_attrs(fd) {
       let sane = unix.tty_mode(attrs, "sane")?
-      if let Err(failure) = unix.set_tty_attrs(sane, fd: fd, when: "flush") { gnu.name_error("terminal", failure); exit 1 }
+      if let Err(failure) = unix.set_tty_attrs(sane, fd:, when: "flush") { gnu.name_error("terminal", failure); exit 1 }
       changed = true
       break
     }

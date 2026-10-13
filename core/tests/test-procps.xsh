@@ -172,7 +172,7 @@ type Sleeper = {name: Str, pid: Int, release: Path, child: ProcessHandle}
 
 proc start_sleeper(ctx: TestContext, tag: Str, token: Str = "", reading: Path? = null, appending: Path? = null) [fs, process, time, error] -> Result[Sleeper, Error] {
   let name = unique_name(ctx, tag)?
-  let link = fp"{test.temp_dir(ctx, name: name)?}/{name}"
+  let link = fp"{test.temp_dir(ctx, name:)?}/{name}"
   fs.symlink(ctx.xsh_bin, link)
   let ready = test.temp_path(ctx, name: f"{name}.ready")
   let release = test.temp_path(ctx, name: f"{name}.release")
@@ -242,7 +242,7 @@ test test_pkill_sends_term_by_default_and_honours_signal_option { |ctx|
 
 test test_pkill_name_and_full_command_matching { |ctx|
   let token = f"needle-{process.current_pid()?}"
-  let target = start_sleeper(ctx, "a", token: token)?
+  let target = start_sleeper(ctx, "a", token:)?
   defer stop(target)
   let prefix = target.name.byte_slice(0, target.name.byte_len() - 1)
   assert pkill(ctx, ["--signal", "0", prefix])?.status.exited_with(0), "an unanchored pattern matches part of the name"
@@ -310,7 +310,7 @@ test test_pkill_reports_usage_and_selection_errors_with_distinct_statuses { |ctx
 
 test test_pkill_and_killall_never_select_their_own_process { |ctx|
   let name = unique_name(ctx, "s")?
-  let link = fp"{test.temp_dir(ctx, name: name)?}/{name}"
+  let link = fp"{test.temp_dir(ctx, name:)?}/{name}"
   fs.symlink(ctx.xsh_bin, link)
   let own = run.capture --text $link fp"{ctx.core_dir}/pkill.xsh" -- -x $name
   assert own.status.exited_with(1), "pkill matched its own process"
@@ -645,7 +645,7 @@ test test_pidstat_command_filter_and_memory_columns { |ctx|
 # differ from that run onward, `fail_at` makes it fail from that run onward, and
 # `numbered` appends the run number to the output (which then always differs).
 proc counting_command(ctx: TestContext, name: Str) [fs, error] -> Result[Path, Error] {
-  test.temp_file(ctx, name: name, contents: bytes.from_text("""
+  test.temp_file(ctx, name:, contents: bytes.from_text("""
 let counter = fp"{args[0]}"
 let seen = (if counter.exists()? { counter.read_text()?.trim().parse_int()? } else { 0 }) + 1
 counter.write(f"{seen}")

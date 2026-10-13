@@ -182,7 +182,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   # A failed ownership change still publishes the copy with its safe initial
   # permissions; requested special bits are applied only after chown succeeds.
   var ownership_changed = true
-  if let Err(failure) = fs.set_owner(staged, uid: uid, gid: gid) {
+  if let Err(failure) = fs.set_owner(staged, uid:, gid:) {
     gnu.error(f"cannot change ownership of {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
     ownership_changed = false
   }
@@ -228,7 +228,7 @@ proc install_directory(raw: Path, opts: Options, mode: Int, uid: Int?, gid: Int?
   let existed = files.present(dest)?
   make_ancestors(dest.parent(), opts.verbose)
   dest.mkdir(parents: true)
-  if let Err(failure) = fs.set_owner(dest, uid: uid, gid: gid, follow_symlinks: true) {
+  if let Err(failure) = fs.set_owner(dest, uid:, gid:, follow_symlinks: true) {
     # A new directory can inherit setgid from a setgid parent; a failed ownership
     # change must not leave special bits on the directory it created.
     if ! existed { dest.chmod(0o700) }

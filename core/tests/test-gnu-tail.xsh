@@ -279,9 +279,9 @@ proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = nu
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
   let plan = if let source = input {
-    process.command_argv(words[0], words, s.root, {}, source, out, err, timeout: timeout)
+    process.command_argv(words[0], words, s.root, {}, source, out, err, timeout:)
   } else {
-    process.command_argv(words[0], words, s.root, {}, b"", out, err, timeout: timeout)
+    process.command_argv(words[0], words, s.root, {}, b"", out, err, timeout:)
   }
   let status = process.run(plan)?
   Ok({util: "tail", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
@@ -622,7 +622,7 @@ test test_gnu_tail_tail_log { |ctx|
     for transport in ["file", "redirect", "pipe"] {
       continue when case.name.starts_with("f-") and transport != "pipe"
       if transport == "file" and (case.name.starts_with("minus-") or case.name == "err-1" or case.name == "err-3") { continue }
-      let r = if transport == "file" { uu.invoke(s, "tail", case.args.extend(["input"]), vars: vars)? } else if transport == "redirect" { uu.invoke_from_path(s, "tail", case.args, uu.at(s, "input"), vars: vars)? } else { uu.invoke(s, "tail", case.args, bytes.from_text(case.input), vars: vars)? }
+      let r = if transport == "file" { uu.invoke(s, "tail", case.args.extend(["input"]), vars:)? } else if transport == "redirect" { uu.invoke_from_path(s, "tail", case.args, uu.at(s, "input"), vars:)? } else { uu.invoke(s, "tail", case.args, bytes.from_text(case.input), vars:)? }
       assert r.status == case.status, f"{case.name}/{transport}: status {r.status}"
       uu.stdout_is(r, case.output)
       let diagnostics = r.stderr as Str

@@ -70,23 +70,23 @@ test test_gnu_date_reference_log { |ctx|
   let vars = {TZ: "UTC0"}
   let earlier = "2025-10-23 03:00"
   let later = "2025-10-23 04:00"
-  uu.succeeds(uu.invoke(s, "touch", ["-m", "-d", earlier, "a"], vars: vars)?)
-  uu.succeeds(uu.invoke(s, "touch", ["-m", "-d", later, "b"], vars: vars)?)
-  let a = uu.invoke(s, "date", ["+%s", "-r", "a"], vars: vars)?
-  let b = uu.invoke(s, "date", ["+%s", "-r", "b"], vars: vars)?
+  uu.succeeds(uu.invoke(s, "touch", ["-m", "-d", earlier, "a"], vars:)?)
+  uu.succeeds(uu.invoke(s, "touch", ["-m", "-d", later, "b"], vars:)?)
+  let a = uu.invoke(s, "date", ["+%s", "-r", "a"], vars:)?
+  let b = uu.invoke(s, "date", ["+%s", "-r", "b"], vars:)?
   uu.succeeds(a); uu.succeeds(b)
   assert a.stdout.utf8()?.trim() as Int < b.stdout.utf8()?.trim() as Int
-  let explicit = uu.invoke(s, "date", ["+%s", "-d", earlier], vars: vars)?
-  let current = uu.invoke(s, "date", ["+%s"], vars: vars)?
+  let explicit = uu.invoke(s, "date", ["+%s", "-d", earlier], vars:)?
+  let current = uu.invoke(s, "date", ["+%s"], vars:)?
   if explicit.stdout.utf8()?.trim() as Int < current.stdout.utf8()?.trim() as Int {
     assert a.stdout.utf8()?.trim() as Int < current.stdout.utf8()?.trim() as Int
   }
   uu.symlink(s, "t1", "t1s")
-  let target = uu.invoke(s, "date", ["-r", "t1"], vars: vars)?
-  let symlink = uu.invoke(s, "date", ["-r", "t1s"], vars: vars)?
+  let target = uu.invoke(s, "date", ["-r", "t1"], vars:)?
+  let symlink = uu.invoke(s, "date", ["-r", "t1s"], vars:)?
   assert target.stdout == symlink.stdout
   for args in [["--reference"], ["--reference="], ["--reference=missing"], ["-d", earlier, "-r/"]] {
-    uu.fails_with_code(uu.invoke(s, "date", args, vars: vars)?, 1)
+    uu.fails_with_code(uu.invoke(s, "date", args, vars:)?, 1)
   }
 }
 

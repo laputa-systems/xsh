@@ -909,7 +909,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
 # actions, and pattern-action rules.
 pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Result[Parsed[Int]] {
   let lexed = lex(piece, mode)?
-  var p = Parser(tokens: lexed.tokens, starts: lexed.starts, lines: lexed.lines, at: 0, program: program, printing: false, depth: 0, piece: piece, loops: 0, context: "", errors: [], sandbox: sandbox)
+  var p = Parser(tokens: lexed.tokens, starts: lexed.starts, lines: lexed.lines, at: 0, program:, printing: false, depth: 0, piece:, loops: 0, context: "", errors: [], sandbox:)
   for note in lexed.notes { p.program.notes += [note] }
   if TokWord("ENVIRON") in lexed.tokens { p.program.environ = true }
   p = skip_newlines(p)
@@ -961,7 +961,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
       p = body.parser
       p.context = ""
       if function_name.value in p.program.functions { p.errors += [f"{location}: error: function name `{function_name.value}' previously defined"] }
-      p.program.functions = p.program.functions.set(function_name.value, Function(parameters: parameters, body: body.value, site: location))
+      p.program.functions = p.program.functions.set(function_name.value, Function(parameters:, body: body.value, site: location))
     } else if word in ["BEGIN", "END"] {
       let after = advance(p)
       if is_at(after, "\n") or is_at(after, ";") or peek(after) == TokEnd {
@@ -998,7 +998,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
         action = statement_node(p, Print([], false, null, ""))
         p = action.parser
       }
-      p.program.rules += [Rule(pattern: pattern, end: end, action: action.value, site: site)]
+      p.program.rules += [Rule(pattern:, end:, action: action.value, site:)]
     }
     # One semicolon may follow an item; newlines are free.
     p = skip_newlines(p)
@@ -1688,13 +1688,13 @@ pure boundaries_hold(subject: Bytes, start: Int, end: Int, lead: Str, trail: Str
 # whose boundary conditions hold.
 pure engine_matches(translated: Str, subject: Bytes, bounds: Bounds, marked: List[Bool], ignore_case: Bool) -> Result[List[Match]] {
   if bounds.lead.is_empty() and bounds.trail.is_empty() {
-    let hits = regex.find_bytes(translated, subject, extended: true, ignore_case: ignore_case)?
+    let hits = regex.find_bytes(translated, subject, extended: true, ignore_case:)?
     return Ok([{start: hit.start, end: hit.end} for hit in hits])
   }
   var offset = 0
   let found: List[Match] = collect {
     while offset <= subject.len() {
-      let caps = regex.captures_bytes(translated, subject, offset, extended: true, ignore_case: ignore_case)?
+      let caps = regex.captures_bytes(translated, subject, offset, extended: true, ignore_case:)?
       break when caps.is_empty()
       let span = caps[0] ?? {start: 0, end: 0}
       if boundaries_hold(subject, span.start, span.end, bounds.lead, bounds.trail, marked) {
@@ -1780,7 +1780,7 @@ pure regex_warnings(pattern: Str) -> List[Str] {
 pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Match?]] {
   if is_ascii_text(content) and is_ascii_text(pattern) {
     let translated = rx_translate(pattern, NO_ALPHABET)?
-    let caps = regex.captures_bytes(translated, bytes.from_text(content), 0, extended: true, ignore_case: ignore_case)?
+    let caps = regex.captures_bytes(translated, bytes.from_text(content), 0, extended: true, ignore_case:)?
     return Ok([if item == null { null } else { {start: (item).start, end: (item).end} } for item in caps])
   }
   let alphabet = make_alphabet(pattern, content)
@@ -1798,7 +1798,7 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
     }
   }
   offsets += [position]
-  let caps = regex.captures_bytes(translated, bytes.from_ints(mapped)?, 0, extended: true, ignore_case: ignore_case)?
+  let caps = regex.captures_bytes(translated, bytes.from_ints(mapped)?, 0, extended: true, ignore_case:)?
   Ok([if item == null { null } else { {start: offsets[(item).start], end: offsets[(item).end]} } for item in caps])
 }
 
@@ -2281,7 +2281,7 @@ pure grown_table(cells: Map[Cell], first_key: Str) -> Table {
       for seq in range(count) { if (seq + 1) / size > 10 { size = next_table_size(size); yield seq } }
     }
   }
-  Table(cells: cells, next: count, kind: kind, size: size, growths: growths)
+  Table(cells:, next: count, kind:, size:, growths:)
 }
 pure empty_table() -> Table { Table(cells: {}, next: 0, kind: 0, size: 0, growths: []) }
 
@@ -2876,7 +2876,7 @@ proc open_command_reader(temporary: Temporary, command: Str, prefix: Str) -> Res
   let pipe_path = started.fifo
   let fd = unix.open_fd(pipe_path, nonblock: true)?
   let job = spawn run.status sh -c ${prefix + command} > $pipe_path ?
-  Ok({reader: Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: true, lossy: false, job: job, name: command, command: true), temporary: started.temporary})
+  Ok({reader: Reader(fd:, text: "", at: 0, done: false, tail: b"", pollable: true, lossy: false, job:, name: command, command: true), temporary: started.temporary})
 }
 # Starts `sh -c command` with standard input from a FIFO this process writes.
 proc open_command_writer(temporary: Temporary, command: Str, prefix: Str) -> Result[OpenedWriter] {
@@ -2888,7 +2888,7 @@ proc open_command_writer(temporary: Temporary, command: Str, prefix: Str) -> Res
   let fd = unix.open_fd(pipe_path, write: true)?
   let job = spawn run.status sh -c ${prefix + command} < $pipe_path ?
   unix.close_fd(hold)
-  Ok({writer: Writer(fd: fd, pending: "", job: job, name: command, command: true), temporary: started.temporary})
+  Ok({writer: Writer(fd:, pending: "", job:, name: command, command: true), temporary: started.temporary})
 }
 # Opens a file for output: truncated, or appended to (and created when missing).
 proc open_output(target: Path, append: Bool) -> Result[Int] {
@@ -2904,7 +2904,7 @@ proc open_file_reader(name: Str, stdin_reader: Reader) -> Result[Reader] {
   let metadata = fs.stat(fp"{name}", follow_symlinks: true)?
   return Err(error.failure("is a directory")) when metadata.kind == "dir"
   let fd = unix.open_fd(fp"{name}")?
-  Ok(Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: name, command: false))
+  Ok(Reader(fd:, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name:, command: false))
 }
 
 ## True when the text is a valid awk variable name.
@@ -3188,7 +3188,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       match unix.open_fd(fp"{argument}") {
         Ok(fd) => {
           filename = argument
-          state.reader = Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: argument, command: false)
+          state.reader = Reader(fd:, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: argument, command: false)
           state.active = true
           opened = true
         }
@@ -4116,7 +4116,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
           sp = sp - computed
           if frames.len() > 2000 { Err(fatal_error("function call nesting too deep"))? }
-          frames += [Frame(slots: slots, aliases: aliases, return_to: pc, base: sp, iterators: iterators.len(), site: site)]
+          frames += [Frame(slots:, aliases:, return_to: pc, base: sp, iterators: iterators.len(), site:)]
           slots = new_slots
           aliases = new_aliases
           pc = entries.get(name) ?? 0
@@ -4263,7 +4263,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 temporary = started.temporary
               } else {
                 match open_output(fp"{destination}", redirect == 2) {
-                  Ok(fd) => { writers[key] = Writer(fd: fd, pending: "", job: null, name: destination, command: false) }
+                  Ok(fd) => { writers[key] = Writer(fd:, pending: "", job: null, name: destination, command: false) }
                   Err(failure) => { Err(fatal_error(f"cannot redirect to `{destination}': {reason_of(failure)}"))? }
                 }
               }
@@ -4880,7 +4880,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   }
   match outcome {
     Ok(value) => Ok(value)
-    Err(AwkError.Plain {message}) => Err(AwkError.Plain(message: message, pending: out))
+    Err(AwkError.Plain {message}) => Err(AwkError.Plain(message:, pending: out))
     # Before any statement has run there is no source position to name.
     Err(failure) => if located { Err(placed(labels, site, globals, out, failure)) } else { Err(AwkError.Plain(message: failure.message, pending: out)) }
   }

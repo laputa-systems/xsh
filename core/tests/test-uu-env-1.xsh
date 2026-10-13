@@ -7,7 +7,7 @@ proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, 
   let child = spawn command?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   time.sleep(500ms)
-  process.kill(child.pid, signal: signal)
+  process.kill(child.pid, signal:)
   time.sleep(100ms)
   let done = process.wait_timeout([child], 0ms)?
   let running = done == null

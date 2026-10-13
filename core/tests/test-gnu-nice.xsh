@@ -7,7 +7,7 @@ proc nested(s: uu.Scene, options: List[Str], util: Str = "nice", stderr: Path? =
   if stderr == null {
     return uu.invoke_paths(s, "nice", [Path(word) for word in options].extend(child))
   }
-  uu.invoke(s, "nice", options.extend([word.display() for word in child]), stderr: stderr)
+  uu.invoke(s, "nice", options.extend([word.display() for word in child]), stderr:)
 }
 
 # origin: gnu nice/nice-fail.log

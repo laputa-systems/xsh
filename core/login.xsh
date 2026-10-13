@@ -59,7 +59,7 @@ proc main(...argv: List[Str]) [fs, env, process, error, io, time] {
   # Credential changes cannot roll back. Resolve groups and build the complete
   # session request first; a failed transition or exec ends this login process.
   if entry.uid != identity.uid or entry.uid != applet.current_euid() or entry.gid != identity.gid or entry.gid != identity.egid or !equal_groups(groups, actual) {
-    if let Err(failure) = unix.set_credentials(uid: entry.uid, gid: entry.gid, groups: groups) { gnu.error(failure.message); exit 1 }
+    if let Err(failure) = unix.set_credentials(uid: entry.uid, gid: entry.gid, groups:) { gnu.error(failure.message); exit 1 }
   }
   if let Err(failure) = unix.exec_env(command, environment, argv0: f"-{shell.basename()}") { gnu.error(failure.message); exit 1 }
 }

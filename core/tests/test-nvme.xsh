@@ -39,14 +39,14 @@ proc admin_line(
 }
 
 proc identify_line(nsid: Int, cns: Int, data: Bytes, cdw11 = 0) -> Record {
-  admin_line(6, nsid: nsid, cdw10: cns, cdw11: cdw11, direction: "from_device", data_len: 4096, data: data)
+  admin_line(6, nsid:, cdw10: cns, cdw11:, direction: "from_device", data_len: 4096, data:)
 }
 
 # A log page read of `length` bytes at offset zero; the dword count is
 # zero-based and split across cdw10 and cdw11.
 proc log_line(log_id: Int, length: Int, data: Bytes, nsid = 4294967295) -> Record {
   let dwords = length / 4 - 1
-  admin_line(2, nsid: nsid, cdw10: dwords % 65536 * 65536 + log_id, cdw11: dwords / 65536, direction: "from_device", data_len: length, data: data)
+  admin_line(2, nsid:, cdw10: dwords % 65536 * 65536 + log_id, cdw11: dwords / 65536, direction: "from_device", data_len: length, data:)
 }
 
 # Replaces `value.len()` bytes of `data` at `offset`.

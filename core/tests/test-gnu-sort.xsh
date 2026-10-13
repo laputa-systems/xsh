@@ -6,7 +6,7 @@ proc shell_sort(s: uu.Scene, args: List[Str], setup: Str, stdin: Bytes = b"", va
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
   let words = [p"/bin/sh", p"-c", Path(setup), p"sort-wrapper"].extend(uu.argv(s, "sort", [Path(word) for word in args], vars)?)
-  let plan = process.command_argv(p"/bin/sh", words, s.root, vars, stdin, out, err, timeout: timeout)
+  let plan = process.command_argv(p"/bin/sh", words, s.root, vars, stdin, out, err, timeout:)
   let status = process.run(plan)?.shell_code()?
   Ok({util: "sort", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
@@ -631,8 +631,8 @@ test test_gnu_sort_sort_locale_log { |ctx|
         uu.at_bytes(s, item.left)?.write("")
         uu.at_bytes(s, item.right)?.write("")
         let input = bytes.concat([item.left, b"\n", item.right, b"\n"])
-        let sorted = uu.invoke(s, "sort", [], stdin: input, vars: vars)?
-        let listed = uu.invoke_paths(s, "ls", [p"-1", left, right], vars: vars)?
+        let sorted = uu.invoke(s, "sort", [], stdin: input, vars:)?
+        let listed = uu.invoke_paths(s, "ls", [p"-1", left, right], vars:)?
         uu.succeeds(sorted)
         uu.succeeds(listed)
         let locale_expected = pair_bytes(item.left, item.right, bash_path_precedes(s, left, right, vars)?)

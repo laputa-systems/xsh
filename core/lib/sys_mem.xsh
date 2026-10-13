@@ -76,7 +76,7 @@ pure meminfo_issue(field: Str, state: report.ObservationState, error_kind: Str) 
 }
 
 pure error_field(name: Str, error_kind: Str, state: report.ObservationState = report.Malformed) -> MemInfoField {
-  meminfo_field(name, state, error_kind: error_kind)
+  meminfo_field(name, state, error_kind:)
 }
 
 pure parse_value(name: Str, values: List[Str]) -> FieldParse {

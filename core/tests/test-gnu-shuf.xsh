@@ -14,7 +14,7 @@ proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Bytes = b"
   let words = isolated[..3].extend(prefix).extend(isolated[3..])
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
-  let plan = process.command_argv(words[0], words, s.root, {}, input, out, err, timeout: timeout)
+  let plan = process.command_argv(words[0], words, s.root, {}, input, out, err, timeout:)
   let status = process.run(plan)?
   Ok({util: "shuf", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }

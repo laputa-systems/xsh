@@ -617,7 +617,7 @@ test test_gnu_ls_block_size_log { |ctx|
       for mode in range(3) {
         let divisor = if block == "1" or (variable == "BLOCKSIZE" and mode != 2) { 1 } else if block == "512" { 512 } else { 1024 }
         let flags = if mode == 0 { ["-og"] } else if mode == 1 { ["-og", "-k"] } else { ["-og", "-k", f"--block-size={block}"] }
-        let r = uu.invoke(sub, "ls", flags.extend(names), vars: vars)?
+        let r = uu.invoke(sub, "ls", flags.extend(names), vars:)?
         uu.succeeds(r)
         let normalized = [size_tail(line) for line in r.stdout.utf8()?.lines()]
         for i in range(names.len()) { assert normalized[i] == f"{sizes[i] / divisor} Jan  1  2001 {names[i]}" }

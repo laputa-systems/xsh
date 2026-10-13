@@ -169,7 +169,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
       if option == "--restore" { restore = value; continue }
       let remove = option in ["-x", "--remove", "-X", "--remove-file"]
       let source = if option in ["-M", "--modify-file", "-X", "--remove-file", "--set-file"] { gnu.read_operand(value)?.utf8()? } else { value }
-      let entries = acl.parse(source, remove: remove, defaults: defaults)
+      let entries = acl.parse(source, remove:, defaults:)
       if let Err(failure) = entries { gnu.error(failure.message); exit 2 }
       actions += [{kind: if remove { .Remove } else if option in ["--set", "--set-file"] { .Replace } else { .Modify }, entries: entries?}]
       continue

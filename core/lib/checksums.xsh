@@ -456,11 +456,11 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
 }
 
 proc digest(name: Str, algorithm: Str, length: Int) [fs, io] -> Result[Digest] {
-  if name == "-" { hash.digest_stdin(algorithm, length: length) } else { hash.digest_file(fp"{name}", algorithm, length: length) }
+  if name == "-" { hash.digest_stdin(algorithm, length:) } else { hash.digest_file(fp"{name}", algorithm, length:) }
 }
 
 proc digest_path(name: Bytes, algorithm: Str, length: Int) [fs, io, error] -> Result[Digest] {
-  if name == b"-" { hash.digest_stdin(algorithm, length: length) } else { hash.digest_file(name as Path, algorithm, length: length) }
+  if name == b"-" { hash.digest_stdin(algorithm, length:) } else { hash.digest_file(name as Path, algorithm, length:) }
 }
 
 proc name_error_bytes(name: Bytes, failure: Error) [process, env] -> Unit {

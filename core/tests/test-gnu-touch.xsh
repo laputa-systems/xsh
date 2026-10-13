@@ -136,13 +136,13 @@ test test_gnu_touch_obsolescent_log { |ctx|
   let vars = {_POSIX2_VERSION: "199209", POSIXLY_CORRECT: "1"}
   for ones in ["11111111", "1111111111"] {
     for args in [[ones], ["--", ones], ["01010000", ones], ["--", "01010000", ones]] {
-      uu.succeeds(uu.invoke(s, "touch", args, vars: vars)?)
+      uu.succeeds(uu.invoke(s, "touch", args, vars:)?)
       assert uu.file_exists(s, ones)?
       assert ! uu.exists(s, "01010000")?
       uu.remove(s, ones)
     }
   }
-  uu.succeeds(uu.invoke(s, "touch", ["0101000000", "file"], vars: vars)?)
+  uu.succeeds(uu.invoke(s, "touch", ["0101000000", "file"], vars:)?)
   assert uu.file_exists(s, "0101000000")? and uu.file_exists(s, "file")?
 }
 

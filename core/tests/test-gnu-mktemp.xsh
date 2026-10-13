@@ -27,15 +27,15 @@ test test_gnu_mktemp_bad_unicode_log { |ctx|
   for locale in ["C", "fr_FR", "fr_FR.UTF-8"] {
     let vars = {LC_ALL: locale}
     let suffix = bytes.concat([b"--suffix=", bad]) as Path
-    let file1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", suffix], vars: vars)?
+    let file1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", suffix], vars:)?
     created(s, file1, false)
-    let dir1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", p"-d", suffix], vars: vars)?
+    let dir1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", p"-d", suffix], vars:)?
     created(s, dir1, true)
     let dir_bytes = dir1.stdout[0..dir1.stdout.len() - 1]
     let tmpdir = bytes.concat([b"--tmpdir=", dir_bytes]) as Path
     for directory in [false, true] {
       let args = if directory { [p"-d", tmpdir] } else { [tmpdir] }
-      created(s, uu.invoke_paths(s, "mktemp", args, vars: vars)?, directory)
+      created(s, uu.invoke_paths(s, "mktemp", args, vars:)?, directory)
     }
     for directory in [false, true] {
       let args = if directory { [p"-d"] } else { [] }

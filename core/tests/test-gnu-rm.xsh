@@ -12,7 +12,7 @@ proc shell_run(s: uu.Scene, args: List[Str], setup: Str, input: Bytes = b"", tim
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
   let words = [p"/bin/sh", p"-c", Path(setup), p"rm-wrapper"].extend(uu.argv(s, "rm", [Path(arg) for arg in args])?)
-  let plan = process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C"}, input, out, err, timeout: timeout)
+  let plan = process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C"}, input, out, err, timeout:)
   let status = process.run(plan)?.shell_code()?
   Ok({util: "rm", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }

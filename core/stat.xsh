@@ -261,7 +261,7 @@ proc stat_quote(name: Str, always = false) [env] -> Str {
   } else if style == "escape" {
     name.replace("\\", with: "\\\\").replace(" ", with: "\\ ").replace("\t", with: "\\t").replace("\n", with: "\\n")
   } else {
-    gnu.quote_bytes(raw, always: always)
+    gnu.quote_bytes(raw, always:)
   }
 }
 

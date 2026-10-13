@@ -134,7 +134,7 @@ pure pax_overrides(body: Bytes) -> Result[PaxOverrides] {
     return Err(TarError.Invalid(message: "malformed extended header")) when space < 0
     let length = text.byte_slice(position, length: space - position).parse_int_decimal()?
     if length <= 0 or position + length > text.byte_len() { return Err(TarError.Invalid(message: "malformed extended header")) }
-    let record = text.byte_slice(position, length: length)
+    let record = text.byte_slice(position, length:)
     let assignment = record.byte_slice(space + 1 - position, length: length - (space + 1 - position) - 1)
     let equals = assignment.find("=") ?? -1
     return Err(TarError.Invalid(message: "malformed extended header")) when equals < 0

@@ -230,8 +230,8 @@ test test_wc_files0_stops_after_stdout_write_error { |ctx|
       fp"{ctx.core_dir}/wc.xsh",
     ],
     cwd: root,
-    stdout: stdout,
-    stderr: stderr,
+    stdout:,
+    stderr:,
     timeout: 5s,
   )
   let status = process.run(plan)?

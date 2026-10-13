@@ -5,7 +5,7 @@ test test_sync_path_flushes_files_directories_and_rejects_invalid_modes { |ctx|
   fs.sync_path(file)
   fs.sync_path(root)
   for mode in ["data", "filesystem"] {
-    let result = fs.sync_path(file, mode: mode)
+    let result = fs.sync_path(file, mode:)
     if let Err(failure) = result {
       assert failure.errno == 95 or failure.errno == 45
     }
@@ -20,7 +20,7 @@ test test_sync_path_does_not_wait_for_a_fifo_writer { |ctx|
   let fifo = fp"{root}/fifo"
   fs.mkfifo(fifo, 0o600)
   for mode in ["all", "data"] {
-    let result = fs.sync_path(fifo, mode: mode)
+    let result = fs.sync_path(fifo, mode:)
     assert result is Err(_)
     if let Err(failure) = result {
       assert failure.errno == 22 or failure.errno == 95 or failure.errno == 45

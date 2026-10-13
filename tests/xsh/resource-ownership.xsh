@@ -42,7 +42,7 @@ proc resource_borrow_root(root: FsRoot) [fs, error] -> Result[Unit] {
 
 proc resource_fail_with_root() [fs, error] -> Result[FsRoot, ResourceRootError] {
   with root = fs.tempdir() {
-    fail .Owned(root: root)
+    fail .Owned(root:)
   } else {
     return Err(.Unavailable())
   }

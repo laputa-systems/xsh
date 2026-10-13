@@ -99,7 +99,7 @@ test test_gnu_expand_mb_log { |ctx|
   let first = uu.invoke_from_path(s, "expand", [], uu.at(s, "in"), vars)?
   uu.succeeds(first)
   uu.stdout_is_bytes(first, output)
-  let twice = uu.invoke(s, "expand", ["./in", "./in"], vars: vars)?
+  let twice = uu.invoke(s, "expand", ["./in", "./in"], vars:)?
   uu.succeeds(twice)
   uu.stdout_is_bytes(twice, bytes.concat([output, output]))
   uu.write(s, "in", "12345678\ne\t|ascii(1)\né\t|composed(1)\né\t|decomposed(1)\n　\t|ideo-space(2)\n－\t|full-hypen(2)\n")
@@ -120,7 +120,7 @@ test test_gnu_expand_mb_log { |ctx|
   uu.succeeds(bom)
   uu.stdout_is_bytes(bom, bytes.concat([b"\xef\xbb\xbf", output]))
   uu.write_bytes(s, "in1", bytes.concat([b"\xef\xbb\xbf", input]))
-  let multiple_bom = uu.invoke(s, "expand", ["in1", "in1"], vars: vars)?
+  let multiple_bom = uu.invoke(s, "expand", ["in1", "in1"], vars:)?
   uu.succeeds(multiple_bom)
   uu.stdout_is_bytes(multiple_bom, bytes.concat([b"\xef\xbb\xbf", output, b"\xef\xbb\xbf", output]))
 }

@@ -46,7 +46,7 @@ export proc status_code(status: Status) -> Result[Int, Error] {
 export proc command(argv: List[Str], new_session: Bool = false, detach: Bool = false) -> Result[Command, Error] {
   return Err(ControlError.Invalid("missing command")) when argv.is_empty()
   let executable = process.which(argv[0])?
-  Ok(process.command_argv(executable, argv, new_session: new_session, detach: detach))
+  Ok(process.command_argv(executable, argv, new_session:, detach:))
 }
 
 ## Require explicit direct-kernel shutdown and sync unless disabled.
