@@ -3,6 +3,7 @@ import Xsh.Syntax.Core
 import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Semantics.Environments
+import Xsh.Proofs.BaseMachine
 import Xsh.Validation.Boundary
 import Xsh.Validation.Store
 import Xsh.Effects.Lattice
