@@ -1,5 +1,7 @@
 # Consolidation restart handoff
 
+Status: winding down (2026-10-13). No new items or lanes start; in-flight work lands, then the handoff below is replaced.
+
 ## Paused for reboot; sealed work integrated — 2026-10-12
 
 The owner requested wind-down, integration and a handoff, then stop. The goal
