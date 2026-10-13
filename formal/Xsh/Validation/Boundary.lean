@@ -59,15 +59,15 @@ def require {α : Type u} : List α → RequireOutcome (NonEmptyList α)
 def map {α : Type u} {β : Type v} (f : α → β) (value : NonEmptyList α) :
     NonEmptyList β :=
   ⟨value.val.map f, by
-    cases value.val with
-    | nil => simp at value.property
-    | cons head tail => simp⟩
+    cases hvalues : value.val with
+    | nil => exact value.property hvalues
+    | cons head tail => simp [hvalues]⟩
 
 def append {α : Type u} (value : NonEmptyList α) (tail : List α) : NonEmptyList α :=
   ⟨value.val ++ tail, by
-    cases value.val with
-    | nil => simp at value.property
-    | cons head rest => simp⟩
+    cases hvalues : value.val with
+    | nil => exact value.property hvalues
+    | cons head rest => simp [hvalues]⟩
 
 def prepend {α : Type u} (before : List α) (value : NonEmptyList α) : NonEmptyList α :=
   ⟨before ++ value.val, append_ne_nil_right before value.val value.property⟩
@@ -149,7 +149,9 @@ def BoundedSpec.accepts (spec : BoundedSpec) (value : Int) : Prop :=
   spec.low ≤ value ∧ value ≤ spec.high ∧ spec.base.accepts value
 
 instance (spec : BoundedSpec) (value : Int) : Decidable (spec.accepts value) := by
-  cases spec.base <;> dsimp [BoundedSpec.accepts, IntegerBase.accepts] <;> infer_instance
+  cases spec with
+  | mk base low high nonempty low_in_base high_in_base =>
+      cases base <;> dsimp [BoundedSpec.accepts, IntegerBase.accepts] <;> infer_instance
 
 abbrev BoundedValue (spec : BoundedSpec) :=
   { value : Xsh.Values.IntValue // spec.accepts value.val }
@@ -169,10 +171,10 @@ def requireBounded (spec : BoundedSpec) (value : Xsh.Values.IntValue) :
     .rejected
 
 theorem bounded_low_is_accepted (spec : BoundedSpec) : spec.accepts spec.low := by
-  exact ⟨le_refl _, spec.nonempty, spec.low_in_base⟩
+  exact ⟨by omega, spec.nonempty, spec.low_in_base⟩
 
 theorem bounded_high_is_accepted (spec : BoundedSpec) : spec.accepts spec.high := by
-  exact ⟨spec.nonempty, le_refl _, spec.high_in_base⟩
+  exact ⟨spec.nonempty, by omega, spec.high_in_base⟩
 
 theorem introduce_bounded_erases_exactly (spec : BoundedSpec)
     (value : Xsh.Values.IntValue) (in_range : spec.accepts value.val) :
@@ -247,13 +249,15 @@ theorem port_range_accepts_high : portRange.accepts 65535 := by
   exact bounded_high_is_accepted portRange
 
 theorem port_range_rejects_below : ¬ portRange.accepts 0 := by
-  unfold BoundedSpec.accepts portRange intRange IntegerBase.accepts
-    Xsh.Values.signed64Min Xsh.Values.signed64Limit
+  intro accepted
+  have lower : (1 : Int) ≤ 0 := by
+    simpa [BoundedSpec.accepts, portRange, intRange] using accepted.1
   omega
 
 theorem port_range_rejects_above : ¬ portRange.accepts 65536 := by
-  unfold BoundedSpec.accepts portRange intRange IntegerBase.accepts
-    Xsh.Values.signed64Min Xsh.Values.signed64Limit
+  intro accepted
+  have upper : (65536 : Int) ≤ 65535 := by
+    simpa [BoundedSpec.accepts, portRange, intRange] using accepted.2.1
   omega
 
 theorem byte_range_accepts_upper : byteRange.accepts 255 := by
@@ -261,13 +265,15 @@ theorem byte_range_accepts_upper : byteRange.accepts 255 := by
   exact bounded_high_is_accepted byteRange
 
 theorem byte_range_rejects_half_open_upper : ¬ byteRange.accepts 256 := by
-  unfold BoundedSpec.accepts byteRange uintRange IntegerBase.accepts
-    Xsh.Values.signed64Limit
+  intro accepted
+  have upper : (256 : Int) ≤ 255 := by
+    simpa [BoundedSpec.accepts, byteRange, uintRange] using accepted.2.1
   omega
 
 theorem byte_range_rejects_negative : ¬ byteRange.accepts (-1) := by
-  unfold BoundedSpec.accepts byteRange uintRange IntegerBase.accepts
-    Xsh.Values.signed64Limit
+  intro accepted
+  have lower : (0 : Int) ≤ -1 := by
+    simpa [BoundedSpec.accepts, byteRange, uintRange] using accepted.1
   omega
 
 def requireUInt (value : Xsh.Values.IntValue) : RequireOutcome Xsh.Values.UIntValue :=
