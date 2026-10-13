@@ -149,7 +149,11 @@ print f"accepted {values[0]}"
     source,
     status: 3,
     stdout: ["constructed false\n"],
-    stderr: ["stack-overflow", "more than 32 frame machines are open", "call path:", "proc nested"],
+    stderr: [
+      "stack-overflow",
+      "more than 32 frame machines are open",
+      "for value in nested(n - 1, marker)",
+    ],
     args: ["31", rejected_marker],
     env: {XSH_TEST_SMALL_EVAL_STACK: "1"},
   )?
