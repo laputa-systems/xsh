@@ -1,12 +1,10 @@
 # XSHT Tooling
 
-`xsht` is the tooling frontend for XSH source: checking, formatting, linting,
-native tests, API queries, tracing, structural search, and refactoring. Script
-execution stays in `xsh`; `xsht` evaluates only when a command (test, trace)
-requires it. `crates/xsht/src/commands.rs` declares every command's options
-once: the argument parser matches only those declarations, and `xsht help`,
-`xsht help COMMAND`, and the usage lines are generated from them, so they are
-the authoritative option reference.
+`xsht` is the toolchain for checking, formatting, linting, testing, querying the
+API, tracing, searching, and refactoring XSH source. Scripts run with `xsh`;
+`xsht` executes them only for `test` and `trace`. User-facing command options
+live in `crates/xsht/src/commands.rs`; `xsht help` and `xsht help COMMAND` are
+the flag reference.
 
 ## Commands
 
@@ -17,293 +15,111 @@ the authoritative option reference.
 | `xsht lint [--fix] [--only RULE,...] [--runless] [--deny-notes] [FILE...]`, `xsht lint --list` | non-fatal quality diagnostics and conservative autofixes; the code catalog | `crates/xsht/src/cli/lint.rs`, `crates/xsht/src/lint.rs` |
 | `xsht test [FILTER]` | discover and run native `test NAME { ... }` declarations | `crates/xsht/src/xsht/test.rs` |
 | `xsht api [QUERY...]` | query language and standard-library metadata | `crates/xsht/src/api.rs`, `crates/xsht/src/cli/api.rs` |
-| `xsht trace SCRIPT` | run with structured tracing (text, jsonl, flamegraph, syscall totals) | `crates/xsht/src/trace.rs`, `crates/xsht/src/cli/trace.rs` |
-| `xsht grep` / `xsht refactor` | AST-pattern search and span-based rewrite | `crates/xsht/src/grep.rs`, `crates/xsht/src/cli/refactor.rs` |
+| `xsht trace SCRIPT [ARGS...]` | run with structured tracing (text, jsonl, flamegraph, syscall totals) | `crates/xsht/src/trace.rs`, `crates/xsht/src/cli/trace.rs` |
+| `xsht grep PATTERN [FILE...]` / `xsht refactor PATTERN REPLACEMENT [FILE...]` | AST-pattern search and span-based rewrite | `crates/xsht/src/grep.rs`, `crates/xsht/src/cli/refactor.rs` |
 | `xsht ast SCRIPT` | parser debug output | `crates/xsht/src/cli/syntax_tree.rs` |
 | `xsht highlight SCRIPT` | syntax highlighting runs as JSON Lines, from the lexer (`src/syntax/highlight.rs`) | `src/syntax/highlight.rs`, `crates/xsht/src/cli/highlight.rs` |
 | `xsht desugar SCRIPT` | the script with every sugar statement replaced by its expansion | `crates/xsht/src/format.rs` (`Formatter::desugar_source`), `crates/xsht/src/cli/desugar.rs` |
-| `xsht grammar [--format ebnf\|json]` | the language's productions as EBNF, or the JSON reference that `make docs` renders | `src/syntax/grammar/reference.rs`, `crates/xsht/src/app.rs` |
-
-Dispatch starts in `xsht::app::main` (`crates/xsht/src/app.rs`); every command
-returns a `CliOutput` (`crates/xsht/src/cli/mod.rs`). Commands consume the
-shared checked-program bundle from `src/loader.rs` through the `xsh::frontend`
-façade rather than building parallel parser/checker pipelines. Shared parse and
-check diagnostics are deduplicated per command, so an imported module's error
-is reported once.
-
-`xsht check` and `xsht lint` end their stderr with one timing line whenever
-they processed a file, for example
-`xsht check: 301 files in 4.75s (thread time by stage: discover 0.03s, load 7.16s, check 30.90s, lower 6.06s)`.
-A stage sums the time of every worker thread that ran it, so stages can add up
-to more than the wall-clock total; a consumer that compares stderr drops that
-last line (`StageTimings`, `crates/xsht/src/cli/timing.rs`).
+| `xsht grammar [--format ebnf\|json]` | the language's productions as EBNF or JSON | `src/syntax/grammar/reference.rs`, `crates/xsht/src/app.rs` |
 
 ## Configuration
 
-One rule decides which `xsht-config.ini` governs a file: the nearest one above
-the file's absolute location, found without resolving symbolic links. That
-config alone supplies the file's `module_path`, `[format] line-width`,
-`[check] annotate`, `[lint]` keys, `[lint.RULE] exclude`, and `[dead-code]`,
-for `check`, `lint`, `fmt`, `grep`, `refactor`, `ast`, `desugar`, and `test`,
-whether the file was named, found under a directory argument or `.`, or found
-by no-argument discovery, and whatever directory the command was started in.
-A config further up supplies none of them, so a project nested in another
-keeps its own settings. A file with no config above it takes every default
-and has no project module roots; the current directory's config does not
-stand in. Patterns and relative paths in a config resolve from the config's
-directory. An invalid file is a command error.
+The nearest `xsht-config.ini` above a file governs its per-file settings,
+regardless of the command's working directory. Lookup uses the file's absolute
+lexical path and does not follow symbolic links. With no config, a file gets
+the defaults and has no project module roots. Relative paths and exclusion
+patterns resolve from the config directory; an invalid config fails the
+command.
 
-Discovery skips a file that the `exclude` (for `xsht fmt`, also the
-`[format] exclude`) of its nearest config names. An exclusion also covers the
-projects nested below the config that states it: discovery from a directory
-asks every config from the file up to the one governing that directory, so a
-project that excludes `vendor/**` or its worktrees skips them even when they
-hold a config of their own. Configs above the one governing the directory
-are not asked: a command started in the nested project, or given its
-directory, sees that project's own `exclude` and nothing else. A file named
-on the command line is always processed.
+During directory discovery, `exclude` applies from each config between the
+file and the walked root. `[format] exclude` adds another exclusion for
+`xsht fmt`. A nested project's config does not cancel an exclusion from an
+outer project, but starting discovery inside the nested project does not apply
+configs above its root. Files named directly on the command line bypass
+discovery exclusions.
 
-Two keys list the roots of one project and are therefore read only from the
-`xsht-config.ini` in the current directory: `include`, the extra roots of
-no-argument discovery, and `test_roots`, the directories `xsht test`
-searches. `[coverage] exclude`, which shapes the one report of a test run,
-is read from the same file. Started above a project, `xsht test` does not
-find that project's tests, and no-argument discovery does not follow its
-`include`; the files they do find are still governed by their own nearest
-configs.
+`include`, `test_roots`, and `[coverage] exclude` describe the project from
+which the command runs, so they come only from the current directory's config.
+`include` adds roots to no-argument source discovery; `xsht test` searches
+`tests/` by default or the configured `test_roots`. Coverage exclusions remove
+files from the source-coverage denominator of `--cov` and `--cov-json` reports.
 
 | Key | Meaning |
 |---|---|
 | `include` | extra roots for no-argument discovery, read from the current directory's config |
 | `exclude` | glob patterns, relative to the config, of files that discovery skips, nested projects included; a file named on the command line is always processed |
-| `module_path` | module search roots (default `.`, the config's directory), searched after file-relative lookup and `XSH_MODULE_PATH`; `xsh` and `xshi` read this one key for the entry script through the same `project_module_roots` (`src/project.rs`); `xsht test` also passes the roots to `module.load` and appends them to children's `XSH_MODULE_PATH` |
-| `test_roots` | directories `xsht test` searches, read from the current directory's config |
+| `module_path` | module roots searched after file-relative lookup and `XSH_MODULE_PATH`; defaults to `.` relative to the config directory. `xsh` and `xsht check`, `fmt`, `lint`, `ast`, and `test` use the nearest config for each loaded script; a file without one has no project roots |
+| `test_roots` | directories `xsht test` searches, read from the current directory's config (default `tests/`) |
 | `[format] line-width` | formatter width target (default 120) |
 | `[format] exclude` | glob patterns, relative to the config, that `xsht fmt` skips during discovery; files named explicitly are still formatted |
-| `[check] annotate` | the `--annotate` policy of each file the config governs, when the flag names none |
-| `[lint] prefer-inferred-pure-returns` | opt-in `lint.prefer-inferred-pure-return`: removal of private pure return annotations the checker can infer. Off when `[check] annotate` writes returns |
-| `[lint] prefer-inferred-private-effects` | `false` turns off `lint.prefer-inferred-private-effects`, which is on by default |
-| `[lint] prefer-env-string`, `prefer-item-shorthand`, `prefer-tempdir-scope` | each rule is on by default; `false` disables its corpus-migration suggestion |
-| `[lint] prefer-inferred-proc-returns` | opt-in `lint.prefer-inferred-proc-return`: a private proc drops its return annotation when a second check of the file without it is clean and leaves every checked type, statement position, and effect of the file unchanged. Exports, `main`, tests, and recursive procs keep theirs, as does a body that needs the annotation as an expected type (`Err(.Variant(...))`, `.require()`, an empty collection). Off when `[check] annotate` writes returns |
-| (no key) | `lint.prefer-fail` is on by default and has no `[lint]` key; `[lint.prefer-fail] exclude` exempts files. It may emit an advisory note for a private single-variant, message-only error family used only for construction in this file; converting it to `fail MESSAGE` would change nominal error identity, so there is no family-migration fix. Directly exported families are exempt. The separate `return Err(.Variant(...))` spelling migration remains a fixable warning: it becomes `fail .Variant(...)` and preserves the variant and cause |
-| (no key) | `lint.prefer-implicit-message` is on by default and has no `[lint]` key; `[lint.prefer-implicit-message] exclude` exempts files. A private variant declared `V(message: Str)` can drop its payload and take the message positionally. Named `message:` calls are reported, and `xsht lint --fix` rewrites them to positional syntax when the edit is safe, including in importers; after those calls are fixed, the private declaration can drop its payload. An `export error` declaration is not reported for payload removal or changed, because its payload is part of the constructor and pattern API; safe call-site fixes remain available. A declaration with an offered `lint.prefer-fail` deletion fix is left to that rule; a finding without that fix does not suppress this migration |
-| `[lint] prefer-rel-path` | opt-in note `lint.prefer-rel-path`: the `path` argument of an `FsRoot` method whose type is a plain `Path` is reported, because it may be absolute or climb out with `..` and then fails only when the root resolves it. A literal without interpolation is left alone. No fix: the `RelPath` type comes from the binding's annotation, the parameter and its callers, or a `.require(RelPath)?`. |
-| (no key) | `lint.redundant-close` is on by default. It removes a deferred close of a locally created `FsRoot` when all other uses borrow the root and the close runs after the other defers; automatic scope cleanup already performs that release. Explicit unlocks and closes needed for cleanup ordering keep their behavior. |
-| `[lint] prefer-text-pattern` | opt-in note `lint.prefer-text-pattern`, which has no fix: it reports a `split` whose pieces are read as `parts[0]`, `parts[1]`, and a `starts_with` test in a statement that also slices at the prefix's length, where an f-string pattern names the pieces. A pattern matches the whole text and its last hole takes the rest, so the rewrite is the author's |
-| `[lint] prefer-set` | `lint.prefer-set` rewrites a local `Map[K, Bool]` that is provably a set (declared empty, written only with `true`, read only by `in`, `not in`, `len()`, `is_empty()`, and `keys()`) to a `Set[K]`, in one fix that changes the declaration and every use together; that needs no setting. The same name as a method or field (`row.keys()`), in a comment, or in a string that interpolates nothing is not a use; a string that interpolates withholds the fix. `prefer-set = true` also notes every other `Map[K, Bool]` annotation, without a fix, since a stored `false` may mean something there |
-| `[lint] runless-except` | commands allowed under `--runless` |
-| `[lint.RULE] exclude` | files `xsht lint` does not report one rule in, as globs relative to the configuration file; the section is named by the rule's code, as in `[lint.prefer-inferred-variant]`, and a name that is not a lint rule is an error. For a corpus that shows an older spelling on purpose, such as documentation examples |
+| `[check] annotate` | annotation classes for `xsht check --annotate` when the flag has no explicit policy |
+| `[lint] prefer-inferred-pure-returns`, `prefer-inferred-proc-returns`, `prefer-set`, `prefer-text-pattern`, `prefer-rel-path` | opt-in rules; inferred-return rules are disabled when `[check] annotate` includes returns |
+| `[lint] prefer-inferred-private-effects` | on by default; set to `false` to disable |
+| `[lint] prefer-env-string`, `prefer-item-shorthand`, `prefer-tempdir-scope` | on by default; set each to `false` to disable |
+| `[lint] runless-except` | command names allowed by `xsht lint --runless` |
+| `[lint.RULE] exclude` | glob patterns exempting files from one lint rule; the section name must be a lint code, such as `[lint.prefer-inferred-variant]` |
+| (no key) | `lint.prefer-fail`, `lint.prefer-implicit-message`, and `lint.redundant-close` are on by default; use `[lint.RULE] exclude` to exempt files |
 | `[dead-code] exclude` | files exempt from `lint.dead-code` and `lint.unused-callable` |
-| `[coverage] exclude` | files removed from the `xsht test --cov` denominator only, read from the current directory's config |
+| `[coverage] exclude` | files removed from the source coverage denominator, read from the current directory's config |
 
 ## Lint
 
-Lints analyze the checked program and its published facts; they never re-derive
-types or effects from syntax. Every diagnostic code, from any stage, is a
-variant of `xsh::diagnostic::DiagnosticCode`, declared once with its stable
-name, family, default severity, one-line summary, and whether a non-lint
-code's fix is safe for `xsht lint --fix` (`fixable`). `--only` accepts every lint code plus the fixable codes of other
-stages (`DiagnosticCode::lint_selectable`), and
-`xsht lint --list [--format text|jsonl]` prints that catalog, which
-`make docs` renders into `docs/reference/lints.md`. `--only` restricts both
-reports and fixes; an unknown code is a usage error that suggests the nearest
-selectable code. Naming a rule in `--only` also runs it whatever its `[lint]`
-key says: an opt-in rule that no config turned on, and a default rule that a
-config turned off. The one exception is a project whose `[check] annotate`
-writes returns, where `lint.prefer-inferred-pure-return` and
-`lint.prefer-inferred-proc-return` stay off however they are asked for. A
-`[lint.RULE] exclude` still exempts its files. A scoped fix splices its
-exact edits with no formatting pass (`apply_cst_fixes`), while unrestricted
-`--fix` formats the rewritten file. A fix is declined when a comment lies inside
-its span and the replacement does not carry the same comments in the same
-order; the formatter keeps a comment with the match arm it precedes, so a
-later round finds it in the same place and declines again. A file whose fixes
-are all declined says so after its findings.
+`xsht lint` analyzes checked facts for each reachable program. Files with check
+errors are skipped; check warnings appear with lint findings. `--only` limits
+reports and fixes to selected lint codes or other fixable diagnostic codes.
+Selecting a rule overrides its `[lint]` setting, except inferred-return rules
+stay off when `[check] annotate` includes returns; `[lint.CODE] exclude` still
+applies.
+Lint diagnostics are invariant under formatting.
 
-Standalone `Linter::lint` and `Linter::lint_module` calls do not synthesize the
-shared baseline `CheckOutput`. `LintOptions.checked_output` supplies those facts
-explicitly; without it, rules that read the shared facts stay silent or withhold
-fixes. `xsht lint` checks the workspace once and passes the shared result to
-each lint run. Rule-specific rewrite proofs may still check a proposed candidate.
-Lint rewrite layout and single-line eligibility use the file's configured
-`[format] line-width`; standalone library lint keeps the formatter's default.
-
-A file with a check error is not linted, because its checked facts are
-incomplete; a check warning is reported beside the file's lint findings.
-
-`lint.prefer-atomically-replace` reports temporary-file publication only when
-its final rename explicitly passes `overwrite: true`. Renames that omit
-`overwrite` or pass `false` preserve immutable publication by refusing a
-collision; `atomically replace` would overwrite that destination and is not an
-equivalent suggestion. Other differences in replacement sequences still carry
-a note explaining why no automatic rewrite is offered.
-
-When reported, a `note` leaves the exit status at 0 and is counted separately
-in the closing `xsht lint: N findings, M notes` line; `--deny-notes` makes an
-otherwise successful run with notes exit 1. Per-file `lint_diagnostics_status`
-ignores notes, while `lint_files_timed` counts emitted notes and applies
-`--deny-notes`. `cargo dev check` uses the lint command's status, and the
-`lint_performance` gate allows note-only reports. `lint.prefer-rel-path` and
-`lint.prefer-text-pattern` are opt-in notes because they can produce broad sets
-of migration candidates; `[lint]` keys or `--only` select them.
-The always-on notes have narrower evidence boundaries:
-
-- `lint.prefer-non-empty-argv` reports a spliced `run` target or pipeline
-  segment typed as `List[T]`; `NonEmpty[T]` must come from the binding,
-  parameter and callers, `.require(NonEmpty[T])?`, or a checked type
-  narrowing.
-- `lint.prefer-typed-callable` applies to private top-level `Proc` or `Pure`
-  parameters whose in-module callers all pass top-level functions with one
-  signature; it skips the candidate when that function's name is used as a
-  value or any call to it uses splice/spread. The body can then call the
-  parameter directly instead of using `.call(...)`.
-- `lint.prefer-within` reports a statement list only when every `run` form has
-  the same `--timeout` and at least two such statements; `within` bounds the
-  commands with one deadline instead of giving each its own timeout, and
-  reports that deadline as the scope's `Result`.
-- `lint.prefer-env-path-list` proposes `List[Path]` for a colon-formatted
-  search path as a dangerous manual fix. When unset, the string adds an empty
-  entry (searched as the current directory) while the list omits it. A
-  non-UTF-8 environment value falls back to `""`, and an interpolated `Path`
-  uses display text; the list preserves their bytes. An entry containing `:`
-  splits in the string but fails in the list.
-- `lint.empty-sentinel` reports a `let` or `var` initialized from a `Str?` or
-  `Result[Str]` with `SOURCE ?? ""`, then tested for emptiness later in that
-  same block with `== ""`, `!= ""`, or `.is_empty()`. It suggests
-  `if let NAME = SOURCE` or `if let Ok(NAME) = SOURCE` for a `Result`, keeping
-  a missing value distinct from a present empty string.
-- `lint.prefer-wait-until` reports a `while` loop whose body contains a
-  `time.sleep(...)` call and a local counter update. It offers a dangerous
-  manual `wait until` rewrite only for plain test/sleep/count loops that fail
-  on timeout; that uses elapsed time and returns `Timeout` instead of the
-  loop's count-based failure, so `--fix` never applies it.
-
-Per-rule summaries are in the generated
-[`docs/reference/lints.md`](reference/lints.md).
-A fix round is accepted when the rewritten file has no check diagnostic the
-file did not have before, whether or not `--only` selects its code. SIGINT or
-SIGTERM is observed between files and between fix rounds; fixed files are
-written only after every file is done, so an interrupted run writes none.
-
-Lint selects true entry roots during directory discovery (files with no inbound
-import; one deterministic root per import cycle; explicitly named files always),
-lints imported modules only through those roots, and checks each reachable
-bundle once. `lint.dead-code` and `lint.unused-callable` are proof-oriented
-reachability warnings over that bundle and never auto-delete. Workers are
-bounded (at most four) and run on `FRONTEND_WORKER_STACK_BYTES` stacks.
-
-A safe fix:
-
-- is a non-overlapping source replacement over an original span, applied
-  through the CST (`apply_cst_guarded_edits`);
-- skips a span containing comments unless the replacement keeps each of
-  them, as one that runs from a declaration to its last use does;
-- leaves the file parsing, resolving, formatting, and with no new checker
-  diagnostics (existing diagnostics may remain);
-- converges: rounds repeat until no fix applies, and the final round's
-  diagnostics are the ones reported;
-- keeps exactly the parentheses the parser needs where it lands: replacements
-  are built with conservative grouping, and `minimize_fix_grouping` removes
-  every pair `check.redundant-parens` would reject.
-
-When a rule cannot preserve nearby comments, it reports without a fix. Lint
-diagnostics are invariant under formatting; a rule that measures source shape
-measures the formatter's spelling. Shapes the formatter owns are not lint rules.
-`lint.error-fallback-block` keeps a multiline expression handler inside the
-replacement's lazy `Result` `??` block, preserving its continuation lines.
-`lint.prefer-guard` reports a postfix guard only when the guarded statement fits
-88 columns, because the formatter has no readable multiline layout for a longer
-one; a longer guard stays an `if` block.
+`--fix` applies guarded source edits in rounds. A fix is declined if it would
+add a checker diagnostic or drop a comment. Without `--only`, rewritten files
+are formatted; a scoped run applies its edits without a formatting pass. Notes
+do not fail a run unless `--deny-notes` is set. `xsht lint --list
+[--format text|jsonl]` prints the catalog used by the generated
+[lint reference](reference/lints.md).
 
 ## Native tests
 
-`xsht test` discovers explicit `test NAME { ... }` declarations under
-`test_roots`, prepares each file through the same verified indexed program as
-`xsh`, and reports lowering failures as failed tests with the `xsht check`
-diagnostic. `FILTER` matches a path prefix or a test-name substring; `--exact`
-takes `PATH::TEST_NAME`. `--list`, `--fail-fast`, `--keep-temp`, and
-`--nocapture` behave as named. Child output is captured per test and shown on
-failure. Matching files are parsed and their imports loaded before they are
-checked and prepared on a bounded pool of front-end workers; results return in
-path order. Each test file's nearest `module_path` governs its full transitive
-import graph, even when another test file reaches the same physical module
-under a different config. Discovery checks for SIGINT/SIGTERM between file
-reads and at recursive import boundaries before checker workers start.
-`--jobs` controls test execution and does not limit file preparation, so
-`--list` can use multiple CPUs.
-
-Without `--jobs`, all visible logical CPUs run concurrently, capped at 32. The
-scheduler rotates ready source files and admits at most eight test cases from
-one file to execution at a time. Each `test.run_script`, `test.run_xsh`, and
-`test.run_xsht_trace` child leads a runner-owned process group; on SIGINT/SIGTERM
-the runner sends SIGTERM to those groups, waits one second, sends SIGKILL, and
-exits `128 + signal`.
-
-Each test has a time limit: `--timeout DURATION` (an XSH duration literal such
-as `30s` or `5m`; default `120s`; `0` or `none` disables it), or the limit the
-test sets with `test.timeout(ctx, limit)`, which wins unless the run disabled
-timeouts. A test that overruns is canceled through its evaluator: its first
-checkpoint raises a `canceled` error so its defers run, and its own child
-process groups receive SIGTERM and then SIGKILL. A test still running five
-seconds later is aborted without cleanup; after one more second its thread is
-abandoned. The test is reported as `TIMEOUT` with `TIMEOUT after LIMIT`, counts
-as a failure, and the run continues (`--fail-fast` stops it). Covered by
-`cli::test_runner_times_out_hung_tests_and_stops_their_descendants`.
-
-`--cov` prints source coverage, `--api` adds standard-API hit data, and
-`--cov-json FILE` writes the machine-readable report (`docs/TESTING.md`).
+`xsht test` discovers `test NAME { ... }` under `test_roots` (default
+`tests/`) and prepares each test with its file's module roots. `FILTER` matches
+a path prefix or test-name substring; `--exact` uses `PATH::TEST_NAME`.
+`--list`, `--fail-fast`, `--keep-temp`, `--nocapture`, and `-j`/`--jobs` control
+selection and execution. The default timeout is 120 seconds; `--timeout` sets
+another XSH duration, while `0` or `none` disables it. `--cov` reports source
+coverage, `--api` adds API hits and requires `--cov`, and `--cov-json FILE`
+writes the report as JSON.
 
 ## API queries
 
-`xsht api` is the first-contact language reference. With no selector it prints
-an onboarding guide whose script is itself checked by `tests/xsh/api-tool.xsh`.
-Selectors are `summary`, `module:NAME`, `api:MODULE.FUNCTION`,
-`method:RECEIVER[.METHOD]`, `record:NAME`, `language:ID` (exact or prefix), and
-`search:TERMS`; batches preserve order. Options: `--format text|jsonl`,
-`--details basic|full`, `--strict`, `--query-file PATH`, `--stdin`.
-
-All content comes from the registry: module and method docs in
-`crates/xsh-registry/src/signature/`, language items in
-`crates/xsh-registry/src/reference.rs`, and examples in `docs/snippets/api/`.
-Items carry a purpose, an optional contract (only constraints that prevent a
-wrong program), derived effects, signatures, tags, and an example; they never
-expose Rust names, implementation paths, or tests. The registry rejects missing
-or unknown documentation.
+With no selector, `xsht api` prints a getting-started guide. Use `summary`,
+`module:NAME`, `api:MODULE.FUNCTION`, `method:RECEIVER[.METHOD]`,
+`record:NAME`, `language:ID` (exact or prefix), or `search:TERMS` to query the
+registry. Batches preserve order. Options are `--format text|jsonl`,
+`--details basic|full`,
+`--strict`, `--query-file PATH`, and `--stdin`.
 
 ## Desugar
 
-`xsht desugar SCRIPT` prints the program the checker and the runtime read:
-each sugar statement (`docs/DESIGN.md`) is replaced by the core statements its
-expansion builds, and everything else is printed as `xsht fmt` prints it. It
-is the formatter with one switch, so a form needs no code of its own here: a
-`SugarForm` added in `src/syntax/parser/sugar.rs` is expanded the day it
-parses.
+`xsht desugar SCRIPT` prints formatted source with each sugar statement
+replaced by its core expansion. It parses without checking or modifying the
+input; the output checks and runs as the input does. The command fails if the
+input does not parse or if the expanded output does not parse back to the same
+program.
 
-- The script is parsed, not checked. The output checks when the script does,
-  with the same diagnostics apart from positions, and runs the same.
-- Comments stay on the statement they lead. A trailing comment stays on the
-  statement's line when the expansion fits on one line and moves to the
-  guarded statement otherwise.
-- A local that an expansion binds under a name no identifier can spell is
-  printed under a fresh name, `STEM_N`, that the script spells nowhere.
-- A statement after `# fmt: skip`, or an expression with a comment inside,
-  is copied from the source by `xsht fmt`; when it holds sugar, `desugar`
-  prints it instead, formatted.
-- One rule is not in the output: the failure block of `guard cond else` must
-  leave the enclosing continuation, and the `if` printed for it may fall
-  through. A script that checks loses nothing.
-- The command refuses to print (exit 1, a diagnostic on stderr) when the
-  script does not parse, or when what it would print does not parse back to
-  exactly the expansion. The second is a bug in the command.
+## Generated references
 
-`make docs` shows a snippet's expansion in the SPEC with
-`{{.spec.NAME.desugared}}`, which runs this command, so a documented expansion
-is the implemented one. `the_desugared_corpus_checks_and_tests_like_the_corpus`
-(`crates/xsht/tests/desugar.rs`) desugars every native test file that holds
-sugar and requires the same check diagnostics and test results.
+`make docs` refreshes `docs/reference/cli.md` from `xsht --help` and
+`xsht help COMMAND`, `docs/reference/lints.md` from `xsht lint --list`, and
+`docs/reference/stdlib.md` from `xsht api`. It also renders
+`docs/reference/grammar.md` from `xsht grammar --format json`. In
+`docs/templates/SPEC.md`, a `{{.spec.NAME.desugared}}` placeholder obtains its
+snippet expansion from `xsht desugar`. These references are generated; update
+their templates, snippets, command, diagnostic, API, or grammar sources, then
+run `make docs`.
 
 ## Source representations
 
-`xsht grep` matches semantic AST structure. `xsht refactor` applies replacements
-to captured spans in the source-faithful CST and does not format; run `xsht fmt`
-afterwards. See `docs/ARCHITECTURE.md` for the AST and CST invariants.
+`xsht grep` matches semantic AST structure. `xsht refactor` rewrites captured
+spans in the original source and does not format; run `xsht fmt` afterwards.
+See `docs/ARCHITECTURE.md` for the AST and CST invariants.
