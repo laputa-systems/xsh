@@ -732,7 +732,7 @@ proc settle(argv: List[Str]) [fs, env, process, io, time, error] {
       exit 1
     }
 
-    time.sleep(time.millis(50))
+    time.sleep(50 * 1ms)
   }
 }
 

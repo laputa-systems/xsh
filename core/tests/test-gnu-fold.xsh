@@ -84,7 +84,7 @@ proc limited(s: uu.Scene, words: List[Path], kib: Int, input: Path, output: Path
 
 # origin: gnu fold/fold-zero-width.log
 test test_gnu_fold_fold_zero_width_log { |ctx|
-  test.timeout(ctx, time.seconds(600))
+  test.timeout(ctx, 600 * 1s)
   let s = uu.scene(ctx)?
   let zero = bytes.from_ints([0 for n in range(BUFFER * 2)])?
   for case in [{name: "nul", data: zero}, {name: "inp", data: bytes.from_text(["​" for n in range(BUFFER * 2)].join(""))}] {
