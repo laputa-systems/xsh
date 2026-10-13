@@ -21,7 +21,7 @@ bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. The inventory names 50 rooted Lean
+72 complete theorem obligations planned. The inventory names 53 rooted Lean
 fragment declarations. Its 29 Python tests check inventory shape, root
 reachability, and mutation controls; they are not semantic or Rust conformance
 tests. No full G1 closure or whole-language soundness claim is made.
@@ -30,12 +30,16 @@ The base-machine fragment includes a typed `time.now()` request for signed
 epoch milliseconds. `Xsh.Semantics.BaseHostTrace` labels internal steps,
 requests, and responses; proves that accepted and rejected response edges
 preserve the fragment's machine invariant; and defines a finite runner driven
-by scripted responses. One proved script issues two requests in order, returns
-2 then 3, and completes with 5; a Boolean response is labeled and rejected
-with a type-mismatch fault. This finite example does not establish generic
-soundness for the scripted runner. Clock accuracy remains an external
-assumption, and the fragment proves no Rust, operating-system, or concrete
-clock behavior. The executable Float comparator
+by scripted responses. The generic finite-fuel runner is proved to produce a
+valid prefix trace, and valid traces preserve the machine's well-formedness
+invariant. A mutation witness shows that omitting a consumed mismatched
+response event cannot form a trace from the waiting state to failure. A
+concrete script issues two requests in order, returns 2 then 3, and completes
+with 5; a Boolean response is labeled and rejected with a type-mismatch
+fault. These results concern only the finite scripted formal runner. They do
+not establish source or whole-language soundness, Rust or OS conformance,
+concrete host behavior, or clock accuracy; clock correspondence remains an
+external assumption. The executable Float comparator
 in `Xsh.Values.FloatEquality` is specified against the raw-bit IEEE value
 relation, with symmetry, transitivity, and reflexivity exactly for non-NaNs.
 Signed zeros compare equal while retaining distinct raw bits, transport
