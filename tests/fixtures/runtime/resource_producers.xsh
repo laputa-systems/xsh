@@ -49,7 +49,7 @@ export error ChildError = Owned(child: ProcessHandle)
 # Fail with an activity held by a typed payload instead of an emitted row.
 stream error_children() [process, error] -> Stream[Int] {
   let child = spawn run sleep 30 ?
-  Err(ChildError.Owned(child: child))?
+  Err(ChildError.Owned(child:))?
 }
 
 ## Propagate a child's resource-bearing failure through a suspended parent.

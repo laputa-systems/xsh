@@ -19,8 +19,8 @@ proc main(...words: List[Bytes]) [env, process, fs, error] {
     let xsh = applet.current_exe()?
     let launcher = process.script_path()?
     let metadata = json.encode({caller_keys: launch.caller_keys, umask: null})?
-    let setup = [p"/bin/sh", p"-c", Path(r"""umask "$1" || exit; shift; exec "$@"; """), p"uu-mask",
-      Path(f"{mask / 64}{mask / 8 % 8}{mask % 8}"), xsh, launcher, Path(metadata)].extend(argv)
+    let setup = [p"/bin/sh", p"-c", p"umask \"$1\" || exit; shift; exec \"$@\"; ", p"uu-mask",
+      fp"{mask / 64}{mask / 8 % 8}{mask % 8}", xsh, launcher, fp"{metadata}"].extend(argv)
     unix.exec_env(process.command_argv(p"/bin/sh", setup), environment)
   }
   # A standalone command is invoked by its name even when resolved to an absolute executable path.

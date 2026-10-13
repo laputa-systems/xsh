@@ -143,22 +143,22 @@ export proc command(
   s: Scene,
   util: Str,
   args: List[Str],
-  stdin: Bytes = b"",
+  stdin = b"",
   vars: Record = {},
   stdout: Path? = null,
   stderr: Path? = null,
-  stdout_append: Bool = false,
-  stderr_append: Bool = false,
-  timeout: Duration = 0ms,
+  stdout_append = false,
+  stderr_append = false,
+  timeout = 0ms,
   umask: Int? = null,
 ) [fs, process, env, error] -> Result[Command, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let argv = argv(s, util, [fp"{word}" for word in args], vars, umask)?
+  let command_words = argv(s, util, [fp"{word}" for word in args], vars, umask)?
   let plan = if timeout == 0ms {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
+    process.command_argv(s.ctx.xsh_bin, command_words, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout:)
+    process.command_argv(s.ctx.xsh_bin, command_words, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout:)
   }
   Ok(plan)
 }
@@ -170,20 +170,20 @@ export proc invoke(
   s: Scene,
   util: Str,
   args: List[Str],
-  stdin: Bytes = b"",
+  stdin = b"",
   vars: Record = {},
   stdout: Path? = null,
   stderr: Path? = null,
-  stdout_append: Bool = false,
-  stderr_append: Bool = false,
-  timeout: Duration = 0ms,
+  stdout_append = false,
+  stderr_append = false,
+  timeout = 0ms,
   umask: Int? = null,
 ) [fs, process, env, error] -> Result[Ran, Error] {
   let plan = command(s, util, args, stdin, vars, stdout, stderr, stdout_append, stderr_append, timeout, umask)?
   finish(s, util, args, plan, stdout == null, stderr == null)
 }
 
-proc finish(s: Scene, util: Str, args: List[Str], plan: Command, capture_stdout: Bool = true, capture_stderr: Bool = true) [fs, process, error] -> Result[Ran, Error] {
+proc finish(s: Scene, util: Str, args: List[Str], plan: Command, capture_stdout = true, capture_stderr = true) [fs, process, error] -> Result[Ran, Error] {
   let out = fp"{s.root}/.uu-stdout"
   let err = fp"{s.root}/.uu-stderr"
   let status = process.run(plan)?
@@ -205,18 +205,18 @@ export proc invoke_paths(
   s: Scene,
   util: Str,
   args: List[Path],
-  stdin: Bytes = b"",
+  stdin = b"",
   vars: Record = {},
-  timeout: Duration = 0ms,
+  timeout = 0ms,
   umask: Int? = null,
 ) [fs, process, env, error] -> Result[Ran, Error] {
-  let argv = argv(s, util, args, vars, umask)?
+  let command_words = argv(s, util, args, vars, umask)?
   let out = fp"{s.root}/.uu-stdout"
   let err = fp"{s.root}/.uu-stderr"
   let plan = if timeout == 0ms {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err)
+    process.command_argv(s.ctx.xsh_bin, command_words, s.root, vars, stdin, out, err)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, timeout:)
+    process.command_argv(s.ctx.xsh_bin, command_words, s.root, vars, stdin, out, err, timeout:)
   }
   finish(s, util, [word.display() for word in args], plan)
 }
@@ -231,18 +231,18 @@ export proc invoke_from_path(
   vars: Record = {},
   stdout: Path? = null,
   stderr: Path? = null,
-  stdout_append: Bool = false,
-  stderr_append: Bool = false,
-  timeout: Duration = 0ms,
+  stdout_append = false,
+  stderr_append = false,
+  timeout = 0ms,
   umask: Int? = null,
 ) [fs, process, env, error] -> Result[Ran, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let argv = argv(s, util, [fp"{word}" for word in args], vars, umask)?
+  let command_words = argv(s, util, [fp"{word}" for word in args], vars, umask)?
   let plan = if timeout == 0ms {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
+    process.command_argv(s.ctx.xsh_bin, command_words, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout:)
+    process.command_argv(s.ctx.xsh_bin, command_words, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout:)
   }
   finish(s, util, args, plan, stdout == null, stderr == null)
 }
