@@ -9,8 +9,9 @@ Related documents:
 
 - `docs/user-tour.md` explains why XSH exists and teaches it by example; read it first.
 - `docs/DESIGN.md` records the design taste behind new syntax; it is not a contract.
-- `docs/SPEC-INTERACTIVE.md` is the complete contract for the interactive
-  shell `xshi`. Nothing in `xshi` changes how `.xsh` files parse, check, or run.
+- `docs/SPEC-INTERACTIVE.md` is the contract for the interactive shell `xshi`.
+  Its interactive implementation requires the `laputa-asterinas` feature of
+  the `xshi` crate. It does not change how `.xsh` files parse, check, or run.
 - `docs/reference/stdlib.md` is the generated index of standard modules,
   methods, and records. `xsht api` answers the same questions with full
   signatures and details. `docs/reference/cli.md` and
@@ -4726,14 +4727,16 @@ with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 | Command | Purpose |
 |---|---|
 | `xsh SCRIPT [--] ARGS...`, `xsh -- SCRIPT ARGS...` | run a script (the second form suits shebang lines) |
-| `xshi` | interactive shell (`docs/SPEC-INTERACTIVE.md`) |
+| `xshi` | interactive shell ([contract](SPEC-INTERACTIVE.md)); interactive implementation requires the `xshi` crate's `laputa-asterinas` Cargo feature |
 | `xsht check [--summary] [--annotate[=CLASSES]] [PATH...]` | parse, type-check, and validate scripts |
 | `xsht fmt [--check] [FILE...]` | format |
 | `xsht lint [--fix] [--only RULE,...] [--runless] [--deny-notes] [FILE...]` | quality checks and safe fixes |
 | `xsht test [OPTIONS] [FILTER]` | run native tests (17) |
-| `xsht trace [--raw] [--trace-format text\|jsonl\|flamegraph] [--trace-file PATH] SCRIPT ARGS...` | run with tracing |
+| `xsht trace [--raw] [--trace-format text\|jsonl\|flamegraph] [--trace-file PATH] [--syscalls] [--trace-top-syscalls N] SCRIPT ARGS...` | run with tracing; `--syscalls` adds native totals on Linux x86_64 and aarch64 |
 | `xsht api [QUERY...]` | query language and standard-library reference data |
 | `xsht ast SCRIPT` | print the parse tree |
+| `xsht highlight SCRIPT` | print syntax highlighting runs as JSON Lines |
+| `xsht grammar [--format ebnf\|json]` | print the language grammar as EBNF or JSON |
 | `xsht desugar SCRIPT` | print the script with every sugar statement replaced by its expansion |
 | `xsht grep PATTERN [FILE...]`, `xsht refactor PATTERN REPLACEMENT [FILE...]` | structural search and rewrite |
 
@@ -4809,6 +4812,8 @@ kinds, never bodies, headers, queries, or credentials. Trace output is
 separate from script stdout and goes to stderr unless `--trace-file` is given.
 Without `--raw`, `xsht trace` prints a summary of call counts, duration
 percentiles, and the slowest operations.
+`--syscalls` adds native syscall totals on Linux x86_64 and aarch64 only; with
+it, `--trace-top-syscalls N` sets how many syscall rows are shown (default 8).
 
 A runtime failure or top-level `Err` prints a traceback starting with `err:`.
 Process exit failures use a compact summary such as ``err: `tar` exited 1``;
