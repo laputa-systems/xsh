@@ -60,7 +60,7 @@ export proc build(root: Path, name: Str = "tree") [fs, time, error] {
   let sub = fp"{tree}/sub"
   sub.mkdir()
   put(fp"{sub}/c.log", "log\n", 0o644, T + 1000 * SECOND)
-  fp"{sub}/deep/deeper".mkdir(parents: true)
+  fp"{sub}/deep/deeper".mkdir()
   put(fp"{sub}/deep/d.txt", "deep\n", 0o644, T + 2000 * SECOND)
   put(fp"{sub}/deep/e.c", "int x;\n", 0o644, T + 3000 * SECOND)
   put(fp"{sub}/deep/deeper/f.txt", "ff", 0o644, T + 4000 * SECOND)
@@ -75,7 +75,7 @@ export proc build(root: Path, name: Str = "tree") [fs, time, error] {
     sized.write(bytes.zero(size) ?? b"")
     fs.set_times(sized, atime_ns: T, mtime_ns: T)
   }
-  fp"{tree}/chain/l1/l2/l3".mkdir(parents: true)
+  fp"{tree}/chain/l1/l2/l3".mkdir()
   put(fp"{tree}/chain/l1/l2/l3/leaf", "l", 0o644, T)
   fp"{tree}/times".mkdir()
   put(fp"{tree}/times/old", "o", 0o644, T, T + 5000 * SECOND)
@@ -97,7 +97,7 @@ export proc build_scratch(root: Path) [fs, error] {
   scratch.remove()
   scratch.mkdir()
   let T = EPOCH_NS
-  fp"{scratch}/sub/deep/deeper".mkdir(parents: true)
+  fp"{scratch}/sub/deep/deeper".mkdir()
   put(fp"{scratch}/sub/c.log", "log\n", 0o644, T)
   put(fp"{scratch}/sub/deep/d.txt", "deep\n", 0o644, T)
   put(fp"{scratch}/sub/deep/e.c", "int x;\n", 0o644, T)

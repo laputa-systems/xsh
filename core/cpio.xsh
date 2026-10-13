@@ -2746,7 +2746,7 @@ proc main(...argv: List[Str]) [fs, io, error, process, env, time] {
       match fs.stat(wanted) {
         Ok(_) => {}
         Err(_) => {
-          match wanted.mkdir(parents: true) {
+          match wanted.mkdir() {
             Ok(_) => {}
             Err(failure) => { die(f"cannot make directory `{directory}': {gnu.strerror(failure)}") }
           }

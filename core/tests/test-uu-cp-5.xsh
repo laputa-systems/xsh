@@ -595,7 +595,7 @@ test test_uu_cp_cp_xattr_enotsup_handling { |ctx|
   let base = s.root.basename()
   let probe = fp"/dev/shm/xattr_test_probe_{base}"
   probe.write("test")
-  defer probe.remove(missing_ok: true)
+  defer probe.remove()
   if fs.xattr_set(probe, "user.t", b"v") is Ok(_) {
     test.skip("/dev/shm supports xattrs on this system")
     return
@@ -603,9 +603,9 @@ test test_uu_cp_cp_xattr_enotsup_handling { |ctx|
   let t1 = fp"/dev/shm/t1_{base}"
   let t2 = fp"/dev/shm/t2_{base}"
   let t3 = fp"/dev/shm/t3_{base}"
-  defer t1.remove(missing_ok: true)
-  defer t2.remove(missing_ok: true)
-  defer t3.remove(missing_ok: true)
+  defer t1.remove()
+  defer t2.remove()
+  defer t3.remove()
   for item in [{flag: "-a", target: t1}, {flag: "--preserve=all", target: t2}] {
     let r = uu.invoke(s, "cp", [item.flag, uu.at(s, "src").display(), item.target.display()])?
     uu.succeeds(r)
@@ -628,8 +628,8 @@ test test_uu_cp_cp_xattr_failure_keeps_dest_contents { |ctx|
     test.skip("no usable /dev/shm or disk-backed temporary directory")
     return
   }
-  defer source.remove(missing_ok: true)
-  defer destination.remove(missing_ok: true)
+  defer source.remove()
+  defer destination.remove()
   let huge = bytes.from_ints([121 for _ in range(9100)])?
   let source_accepts = fs.xattr_set(source, "user.huge", huge) is Ok(_)
   let probe = fp"{destination}/probe"

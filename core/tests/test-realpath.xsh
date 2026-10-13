@@ -18,7 +18,7 @@ test test_realpath { |ctx|
 
 test test_realpath_physical_logical_relative_and_missing { |ctx|
   let root = test.temp_dir(ctx, name: "realpath-resolution")?
-  fp"{root}/dir/inner".mkdir(parents: true)
+  fp"{root}/dir/inner".mkdir()
   fp"{root}/alias".symlink(to: p"dir/inner")
   assert run_applet(ctx, root, ["alias/.."])?.stdout == root.display() + "/dir\n"
   assert run_applet(ctx, root, ["-L", "alias/.."])?.stdout == root.display() + "\n"

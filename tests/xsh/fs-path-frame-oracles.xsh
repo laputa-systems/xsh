@@ -1,7 +1,7 @@
 test test_fs_path_frame_apply_executes_live_host_rows { |ctx|
   let root = test.temp_dir(ctx, name: "fs-path-frame-apply")?
   let nested = fp"{root}/nested"
-  nested.mkdir(parents: true)
+  nested.mkdir()
   let file = fp"{nested}/payload.txt"
   file.write("payload")
   file.write_atomic(b"bytes")

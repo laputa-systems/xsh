@@ -41,7 +41,7 @@ test test_lsattr_directory_filters_and_symlinks { |ctx|
 
 test test_lsattr_preserves_operand_order_and_recursive_headings { |ctx|
   let root = test.temp_dir(ctx, name: "lsattr-order")?
-  fp"{root}/dir/subdir".mkdir(parents: true)
+  fp"{root}/dir/subdir".mkdir()
   fp"{root}/dir/subdir/inner".write("content")
   fp"{root}/after".write("content")
   let output = lsattr_fake(ctx, ["-R", fp"{root}/dir".display(), fp"{root}/after".display()], 0)

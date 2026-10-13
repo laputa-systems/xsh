@@ -331,7 +331,7 @@ test test_du_reports_children_blocked_by_directory_search_permissions { |ctx|
   let root = test.temp_dir(ctx, name: "du-denied")?
   let no_search = fp"{root}/d/no-x"
   let blocked_child = fp"{no_search}/y"
-  blocked_child.mkdir(parents: true)
+  blocked_child.mkdir()
   defer { no_search.chmod(0o700) }
   no_search.chmod(0o600)
   let script = fp"{ctx.core_dir}/du.xsh"
@@ -349,7 +349,7 @@ test test_du_reports_unreadable_directories { |ctx|
   let root = test.temp_dir(ctx, name: "du-unreadable")?
   let script = fp"{ctx.core_dir}/du.xsh"
   let no_read = fp"{root}/subdir/links"
-  no_read.mkdir(parents: true)
+  no_read.mkdir()
   fp"{no_read}/child".write("content")
   defer { no_read.chmod(0o700) }
   no_read.chmod(0o300)

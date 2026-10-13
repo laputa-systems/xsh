@@ -225,7 +225,7 @@ test test_udevadm_info_export_db_lists_scanned_devices_and_cleanup_removes_recor
     "P: /devices/virtual/net/lo",
   ]
   fp"{tree}/run/udev/queue.bin".write("")
-  fp"{tree}/run/udev/links/disk/by-uuid".mkdir(parents: true)
+  fp"{tree}/run/udev/links/disk/by-uuid".mkdir()
   fp"{tree}/run/udev/links/disk/by-uuid/1234".write("")
   let sticky = fp"{tree}/run/udev/data/c1:3"
   sticky.chmod(0o1644)

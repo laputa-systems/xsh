@@ -425,7 +425,7 @@ proc is_directory(target: Path) [fs, error] -> Result[Bool] {
 proc ensure_parent(target: Path) [fs, error] {
   let parent = target.parent()
   if ! is_directory(parent) {
-    parent.mkdir(parents: true)
+    parent.mkdir()
   }
   Ok()
 }
@@ -453,7 +453,7 @@ proc prepare_destination(target: Path, opts: Options) [fs, error] -> Result[Bool
 proc extract_one(member: Member, target: Path, root: Path, data: Bytes, opts: Options) [fs, io, error, process, env] -> Result[Fixup?] {
   if member.kind == "dir" {
     if ! is_directory(target) {
-      target.mkdir(parents: true)
+      target.mkdir()
     }
     return Ok({path: target, mode: member.mode, mtime: member.mtime})
   }

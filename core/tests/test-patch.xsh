@@ -115,7 +115,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   # A case with no starting files has no `in` directory: git cannot keep an
   # empty directory, so the tree is created empty instead of copied.
   if fp"{root}/in".exists() {
-    let _ = fs.copy_tree(fp"{root}/in", fp"{work}/w", parents: true)?
+    let _ = fs.copy_tree(fp"{root}/in", fp"{work}/w")?
   } else {
     fp"{work}/w".mkdir()
   }

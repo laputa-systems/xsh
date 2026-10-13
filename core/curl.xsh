@@ -849,7 +849,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
   if let target = dest {
     if settings.create_dirs {
       let parent = target.parent()
-      let _ = parent.mkdir(parents: true)
+      let _ = parent.mkdir()
     }
   }
 

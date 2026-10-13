@@ -979,7 +979,7 @@ test test_uu_mv_mv_xattr_enotsup_silent { |ctx|
   uu.write(s, "src", "x")
   fs.xattr_set(uu.at(s, "src"), "user.t", b"v")
   let target = p"/dev/shm/mv_test"
-  defer target.remove(missing_ok: true)
+  defer target.remove()
   let r = uu.invoke(s, "mv", [uu.at(s, "src").display(), target.display()])?
   uu.succeeds(r)
   uu.no_stderr(r)

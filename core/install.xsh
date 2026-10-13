@@ -218,7 +218,7 @@ proc install_directory(raw: Path, opts: Options, mode: Int, uid: Int?, gid: Int?
   let dest = if raw_bytes.is_empty() { p"/" } else { raw_bytes as Path }
   let existed = files.present(dest)?
   make_ancestors(dest.parent(), opts.verbose)
-  dest.mkdir(parents: true)
+  dest.mkdir()
   if let Err(failure) = fs.set_owner(dest, uid:, gid:, follow_symlinks: true) {
     # A new directory can inherit setgid from a setgid parent; a failed ownership
     # change must not leave special bits on the directory it created.

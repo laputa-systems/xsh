@@ -150,7 +150,7 @@ test test_mv_cross_device_file_copies_before_removing_source { |ctx|
   destination_dir.mkdir()
   let destination = fp"{destination_dir}/destination"
   defer {
-    destination.remove(missing_ok: true)
+    destination.remove()
     destination_dir.remove_dir()
   }
 
@@ -187,10 +187,10 @@ test test_mv_cross_device_directory_preserves_links_and_fifo { |ctx|
   let moved_link = fp"{destination}/dangling"
   let moved_fifo = fp"{destination}/fifo"
   defer {
-    moved_first.remove(missing_ok: true)
-    moved_second.remove(missing_ok: true)
-    moved_link.remove(missing_ok: true)
-    moved_fifo.remove(missing_ok: true)
+    moved_first.remove()
+    moved_second.remove()
+    moved_link.remove()
+    moved_fifo.remove()
     if destination.exists() { destination.remove_dir() }
     destination_dir.remove_dir()
   }
@@ -353,7 +353,7 @@ test test_mv_cross_device_unremovable_target_reports_inter_device_failure { |ctx
   let destination = fp"{destination_dir}/k"
   defer {
     destination_dir.chmod(0o700)
-    destination.remove(missing_ok: true)
+    destination.remove()
     destination_dir.remove_dir()
   }
   destination.write("old")

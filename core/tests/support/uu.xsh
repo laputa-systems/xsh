@@ -293,7 +293,7 @@ export proc append(s: Scene, name: Str, content: Str) [fs, process, io, error] -
 
 ## Removes a file, link or directory tree (`remove`).
 export proc remove(s: Scene, name: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".remove(missing_ok: true)
+  fp"{s.root}/{name}".remove()
   Ok()
 }
 

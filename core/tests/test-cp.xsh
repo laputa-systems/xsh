@@ -279,7 +279,7 @@ test test_cp_recursive_interactive_decline_continues { |ctx|
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
   source.mkdir()
-  fp"{dest}/source".mkdir(parents: true)
+  fp"{dest}/source".mkdir()
   fp"{source}/existing".write("new")
   fp"{source}/other".write("copied")
   fp"{dest}/source/existing".write("old")
@@ -481,7 +481,7 @@ test test_cp_backup_rejects_update_none_modes { |ctx|
 
 test test_cp_parents_refuses_dot_dot_destination { |ctx|
   let root = test.temp_dir(ctx, name: "cp-parents-dotdot")?
-  fp"{root}/src/sub".mkdir(parents: true)
+  fp"{root}/src/sub".mkdir()
   fp"{root}/src/sub/f".write("x\n")
   fp"{root}/d".mkdir()
   cd $root {
@@ -570,8 +570,8 @@ test test_cp_parents_preserves_existing_parent_modes { |ctx|
   let p2 = fp"{p1}/p2"
   let first = fp"{p2}/first/file"
   let second = fp"{p2}/second/file"
-  first.parent().mkdir(parents: true)
-  second.parent().mkdir(parents: true)
+  first.parent().mkdir()
+  second.parent().mkdir()
   first.write("first")
   second.write("second")
   p1.chmod(0o755)

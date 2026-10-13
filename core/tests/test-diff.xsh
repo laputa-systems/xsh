@@ -377,8 +377,8 @@ test test_diff_ignore_blank_lines_brief_and_single_line { |ctx|
 # Names sort in byte order: bin, fd, ff, only, same, sub (and ronly in b).
 proc build_trees(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name:)?
-  fp"{root}/a/sub".mkdir(parents: true)
-  fp"{root}/b/sub".mkdir(parents: true)
+  fp"{root}/a/sub".mkdir()
+  fp"{root}/b/sub".mkdir()
   fp"{root}/a/same".mkdir()
   fp"{root}/b/same".mkdir()
   fp"{root}/a/same/q".write("same\n")
@@ -413,8 +413,8 @@ test test_diff_recursive_prints_header_line_before_each_file_diff { |ctx|
 
 test test_diff_recursive_identical_trees_exit_zero_and_report_with_s { |ctx|
   let root = test.temp_dir(ctx, name: "diff-identical")?
-  fp"{root}/a/d".mkdir(parents: true)
-  fp"{root}/b/d".mkdir(parents: true)
+  fp"{root}/a/d".mkdir()
+  fp"{root}/b/d".mkdir()
   fp"{root}/a/d/f".write("same\n")
   fp"{root}/b/d/f".write("same\n")
   let quiet = invoke(ctx, ["-r", "a", "b"], cwd: root)?
@@ -466,8 +466,8 @@ test test_diff_directory_against_file_compares_the_same_named_entry { |ctx|
 
 test test_diff_recursive_symlink_loop_is_reported_not_followed { |ctx|
   let root = test.temp_dir(ctx, name: "diff-loop")?
-  fp"{root}/a/x".mkdir(parents: true)
-  fp"{root}/b/x".mkdir(parents: true)
+  fp"{root}/a/x".mkdir()
+  fp"{root}/b/x".mkdir()
   fp"{root}/a/x/up".symlink(to: p"..")
   fp"{root}/b/x/up".symlink(to: p"..")
   let result = invoke(ctx, ["-r", "a", "b"], cwd: root)?

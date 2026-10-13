@@ -520,7 +520,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
       }
     }
   } else if let directory = options.prefix {
-    let _ = fp"{directory}".mkdir(parents: true)
+    let _ = fp"{directory}".mkdir()
   }
 
   # Redirects are followed here, one hop at a time, so each hop is announced
@@ -609,7 +609,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
         }
         if reply.status >= 400 {
           if let target_path = target.path {
-            if options.output == null { let _ = target_path.remove(missing_ok: true) }
+            if options.output == null { let _ = target_path.remove() }
           }
           if options.terse {
             log(options, f"{stamp()} ERROR {reply.status}: {reply.reason}.\n")
