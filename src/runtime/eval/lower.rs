@@ -2613,7 +2613,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     != Some(&crate::sema::check::StatementPosition::Statement)
             });
         let body_cannot_fall_through =
-            block_callable_body_cannot_fall_through_arena(self.program, def.body, tail_is_value);
+            block_callable_body_cannot_fall_through_arena(
+                self.program,
+                def.body,
+                tail_is_value,
+                &self.bodies.expr_types,
+            );
         if !body_cannot_fall_through {
             if matches!(return_kind, LoweredReturnKind::Plain(LoweredType::Stream)) {
             } else if lowered_return_kind_accepts_unit_fallthrough(return_kind) {

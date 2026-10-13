@@ -41,14 +41,19 @@ fn block_never_falls_through_arena(arena: &ArenaProgram, block_id: BlockId) -> b
 }
 
 /// Proves that a callable body cannot reach its end without returning. A
-/// value-position tail is lowered as an implicit return; other normal
-/// completion remains a fallthrough path.
+/// value-position tail is lowered as an implicit return; checked expression
+/// types distinguish Result propagation from optional access.
 pub(crate) fn block_callable_body_cannot_fall_through_arena(
     arena: &ArenaProgram,
     block_id: BlockId,
     tail_is_value: bool,
+    expression_types: &FxHashMap<ExprId, Type>,
 ) -> bool {
-    tail_is_value || block_never_falls_through_arena(arena, block_id)
+    let facts = FlowFacts {
+        expression_types_by_id: Some(expression_types),
+        ..FlowFacts::AST_ONLY
+    };
+    tail_is_value || !block_control_flow(arena, block_id, &facts).completes
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -62,6 +67,7 @@ struct ControlFlow {
 #[derive(Clone, Copy, Default)]
 struct FlowFacts<'a> {
     expression_types: Option<&'a BTreeMap<Span, Type>>,
+    expression_types_by_id: Option<&'a FxHashMap<ExprId, Type>>,
     propagating_statements: Option<&'a BTreeSet<Span>>,
     propagating_conditions: Option<&'a BTreeSet<Span>>,
 }
@@ -69,6 +75,7 @@ struct FlowFacts<'a> {
 impl FlowFacts<'static> {
     const AST_ONLY: Self = Self {
         expression_types: None,
+        expression_types_by_id: None,
         propagating_statements: None,
         propagating_conditions: None,
     };
@@ -236,17 +243,22 @@ fn stmt_control_flow_inner(
         ArenaStmtKind::Match { value, arms } => {
             let subject = expr_control_flow(arena, value, facts);
             let mut arms_flow = ControlFlow::NONE;
-            for arm in arena.arena.match_arms(arms) {
-                if arm
-                    .guard
-                    .is_some_and(|guard| bool_literal(arena, guard) == Some(false))
-                {
-                    continue;
-                }
-                let guard = arm
-                    .guard
-                    .map_or(ControlFlow::NORMAL, |guard| expr_control_flow(arena, guard, facts));
-                arms_flow = arms_flow.either(guard.then(block_control_flow(arena, arm.block, facts)));
+            let mut caught = false;
+            let arm_list = arena.arena.match_arms(arms);
+            for arm in arm_list {
+                let arm_flow = match_arm_control_flow(
+                    arena,
+                    value,
+                    arm.pattern,
+                    arm.guard,
+                    block_control_flow(arena, arm.block, facts),
+                    facts,
+                    &mut caught,
+                );
+                arms_flow = arms_flow.either(arm_flow);
+            }
+            if !caught && !bool_match_is_exhaustive(arena, value, arm_list, facts) {
+                arms_flow = arms_flow.either(ControlFlow::NORMAL);
             }
             subject.then(arms_flow)
         }
@@ -432,11 +444,323 @@ fn assign_target_control_flow(
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KnownLiteral {
+    Bool(bool),
+    Int(i64),
+}
+
+fn expression_type<'a>(
+    arena: &ArenaProgram,
+    expr: ExprId,
+    facts: &'a FlowFacts<'_>,
+) -> Option<&'a Type> {
+    facts
+        .expression_types_by_id
+        .and_then(|types| types.get(&expr))
+        .or_else(|| {
+            facts
+                .expression_types
+                .and_then(|types| types.get(&arena.arena.expr(expr).span))
+        })
+}
+
+fn known_literal(arena: &ArenaProgram, expr: ExprId) -> Option<KnownLiteral> {
+    match arena.arena.expr(expr).kind {
+        ArenaExprKind::Bool(value) => Some(KnownLiteral::Bool(value)),
+        ArenaExprKind::Int(value) => arena
+            .arena
+            .int_literal(value)
+            .value()
+            .map(KnownLiteral::Int),
+        ArenaExprKind::Unary {
+            op: UnaryOp::Neg,
+            expr,
+        } => match known_literal(arena, expr)? {
+            KnownLiteral::Int(value) => value.checked_neg().map(KnownLiteral::Int),
+            KnownLiteral::Bool(_) => None,
+        },
+        _ => None,
+    }
+}
+
 fn bool_literal(arena: &ArenaProgram, expr: ExprId) -> Option<bool> {
     match arena.arena.expr(expr).kind {
         ArenaExprKind::Bool(value) => Some(value),
+        ArenaExprKind::Unary {
+            op: UnaryOp::Not,
+            expr,
+        } => Some(!bool_literal(arena, expr)?),
+        ArenaExprKind::Binary {
+            op: BinaryOp::And,
+            left,
+            right,
+        } => match bool_literal(arena, left) {
+            Some(false) => Some(false),
+            Some(true) => bool_literal(arena, right),
+            None => None,
+        },
+        ArenaExprKind::Binary {
+            op: BinaryOp::Or,
+            left,
+            right,
+        } => match bool_literal(arena, left) {
+            Some(true) => Some(true),
+            Some(false) => bool_literal(arena, right),
+            None => None,
+        },
         _ => None,
     }
+}
+
+fn literal_pattern_match(
+    arena: &ArenaProgram,
+    pattern: crate::syntax::arena::PatternId,
+    subject: KnownLiteral,
+) -> Option<bool> {
+    match arena.arena.pattern(pattern).kind {
+        crate::syntax::arena::ArenaPatternKind::Group(inner)
+        | crate::syntax::arena::ArenaPatternKind::Alias { pattern: inner, .. } => {
+            literal_pattern_match(arena, inner, subject)
+        }
+        crate::syntax::arena::ArenaPatternKind::Wildcard => Some(true),
+        crate::syntax::arena::ArenaPatternKind::Literal(expr) => {
+            known_literal(arena, expr).map(|literal| literal == subject)
+        }
+        crate::syntax::arena::ArenaPatternKind::Alternation(patterns) => {
+            let mut unknown = false;
+            for pattern in arena.arena.pattern_ids(patterns) {
+                match literal_pattern_match(arena, pattern, subject) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => unknown = true,
+                }
+            }
+            if unknown { None } else { Some(false) }
+        }
+        _ => None,
+    }
+}
+
+fn pattern_matches_every_subject(
+    arena: &ArenaProgram,
+    pattern: crate::syntax::arena::PatternId,
+) -> bool {
+    match arena.arena.pattern(pattern).kind {
+        crate::syntax::arena::ArenaPatternKind::Wildcard => true,
+        crate::syntax::arena::ArenaPatternKind::Group(inner)
+        | crate::syntax::arena::ArenaPatternKind::Alias { pattern: inner, .. } => {
+            pattern_matches_every_subject(arena, inner)
+        }
+        _ => false,
+    }
+}
+
+fn bool_match_is_exhaustive(
+    arena: &ArenaProgram,
+    subject: ExprId,
+    arms: &[crate::syntax::arena::ArenaMatchArm],
+    facts: &FlowFacts<'_>,
+) -> bool {
+    if expression_type(arena, subject, facts) != Some(&Type::Bool) {
+        return false;
+    }
+    [false, true].into_iter().all(|value| {
+        arms.iter().any(|arm| {
+            arm.guard.is_none()
+                && literal_pattern_match(arena, arm.pattern, KnownLiteral::Bool(value)) == Some(true)
+        })
+    })
+}
+
+fn match_arm_control_flow(
+    arena: &ArenaProgram,
+    subject: ExprId,
+    pattern: crate::syntax::arena::PatternId,
+    guard: Option<ExprId>,
+    body: ControlFlow,
+    facts: &FlowFacts<'_>,
+    caught: &mut bool,
+) -> ControlFlow {
+    if *caught {
+        return ControlFlow::NONE;
+    }
+    let pattern_match = known_literal(arena, subject)
+        .and_then(|subject| literal_pattern_match(arena, pattern, subject));
+    if pattern_match == Some(false) || guard.is_some_and(|id| bool_literal(arena, id) == Some(false)) {
+        return ControlFlow::NONE;
+    }
+    let guard_flow = guard.map_or(ControlFlow::NORMAL, |guard| expr_control_flow(arena, guard, facts));
+    let flow = guard_flow.then(body);
+    let definitely_matches = pattern_match == Some(true)
+        || (known_literal(arena, subject).is_none()
+            && pattern_matches_every_subject(arena, pattern));
+    if definitely_matches && guard.is_none_or(|id| bool_literal(arena, id) == Some(true)) {
+        *caught = true;
+    }
+    flow
+}
+
+fn definitely_empty_iterable(arena: &ArenaProgram, expr: ExprId) -> bool {
+    match arena.arena.expr(expr).kind {
+        ArenaExprKind::List(elements) | ArenaExprKind::Set(elements) => {
+            arena.arena.list_element_exprs(elements).next().is_none()
+        }
+        _ => false,
+    }
+}
+
+fn definitely_nonempty_iterable(arena: &ArenaProgram, expr: ExprId) -> bool {
+    match arena.arena.expr(expr).kind {
+        ArenaExprKind::List(elements) => arena
+            .arena
+            .list_elements(elements)
+            .any(|element| element.splice_span.is_none()),
+        ArenaExprKind::Set(elements) => arena.arena.list_element_exprs(elements).next().is_some(),
+        ArenaExprKind::Str(value) => !arena.arena.string_literal(value).is_empty(),
+        _ => false,
+    }
+}
+
+/// Comprehension sources and qualifiers contribute their evaluated flow, but
+/// projections stay optional whenever a source or filter can produce no items.
+fn comprehension_control_flow(
+    arena: &ArenaProgram,
+    qualifiers: crate::syntax::arena::ArenaRange,
+    projections: &[ExprId],
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
+    let qualifiers = arena.arena.comp_qualifiers(qualifiers);
+    let Some(first_for) = qualifiers.iter().position(|qualifier| {
+        matches!(qualifier, crate::syntax::arena::ArenaCompQualifier::For { .. })
+    }) else {
+        return ControlFlow::NORMAL;
+    };
+    let mut flow = ControlFlow::NORMAL;
+    for qualifier in &qualifiers[..=first_for] {
+        if !flow.completes {
+            break;
+        }
+        let expr = qualifier.expr();
+        flow = flow.then(expr_control_flow(arena, expr, facts));
+        match qualifier {
+            crate::syntax::arena::ArenaCompQualifier::For { iter, .. }
+                if definitely_empty_iterable(arena, *iter) => return flow,
+            crate::syntax::arena::ArenaCompQualifier::If { .. }
+                if bool_literal(arena, expr) == Some(false) => return flow,
+            _ => {}
+        }
+    }
+    if !flow.completes {
+        return flow;
+    }
+    let crate::syntax::arena::ArenaCompQualifier::For { iter, .. } = qualifiers[first_for] else {
+        unreachable!();
+    };
+    let mut iteration_may_be_skipped = !definitely_nonempty_iterable(arena, iter);
+    for qualifier in &qualifiers[..first_for] {
+        if let crate::syntax::arena::ArenaCompQualifier::If { .. } = qualifier
+            && bool_literal(arena, qualifier.expr()) != Some(true)
+        {
+            iteration_may_be_skipped = true;
+        }
+    }
+    let mut iteration = ControlFlow::NORMAL;
+    for qualifier in &qualifiers[first_for + 1..] {
+        let expr = qualifier.expr();
+        if iteration.completes {
+            iteration = iteration.then(expr_control_flow(arena, expr, facts));
+        }
+        if matches!(qualifier, crate::syntax::arena::ArenaCompQualifier::If { .. })
+            && bool_literal(arena, expr) == Some(false)
+        {
+            iteration_may_be_skipped = true;
+            break;
+        }
+        if let crate::syntax::arena::ArenaCompQualifier::For { iter, .. } = qualifier {
+            if definitely_empty_iterable(arena, *iter) {
+                iteration_may_be_skipped = true;
+                break;
+            }
+            if !definitely_nonempty_iterable(arena, *iter) {
+                iteration_may_be_skipped = true;
+            }
+        }
+        if matches!(qualifier, crate::syntax::arena::ArenaCompQualifier::If { .. })
+            && bool_literal(arena, expr) != Some(true)
+        {
+            iteration_may_be_skipped = true;
+        }
+    }
+    if iteration.completes {
+        for projection in projections {
+            if !iteration.completes {
+                break;
+            }
+            iteration = iteration.then(expr_control_flow(arena, *projection, facts));
+        }
+    }
+    flow = flow.then(if iteration_may_be_skipped {
+        ControlFlow::NORMAL.either(iteration)
+    } else {
+        iteration
+    });
+    flow
+}
+
+fn pipeline_control_flow(
+    arena: &ArenaProgram,
+    input: ExprId,
+    stages: crate::syntax::arena::ArenaRange,
+    structured: bool,
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
+    let mut flow = expr_control_flow(arena, input, facts);
+    if structured {
+        for stage in arena.arena.stream_stages(stages) {
+            if flow.completes {
+                flow = flow.then(stream_stage_args_control_flow(arena, stage.args, facts));
+            }
+        }
+    } else {
+        for stage in arena.arena.pipe_stages(stages) {
+            if !flow.completes {
+                break;
+            }
+            let stage_flow = match &stage.kind {
+                crate::syntax::arena::ArenaPipeStageKind::Expr(expr) => {
+                    expr_control_flow(arena, *expr, facts)
+                }
+                crate::syntax::arena::ArenaPipeStageKind::Stream(stage) => {
+                    stream_stage_args_control_flow(arena, stage.args, facts)
+                }
+            };
+            flow = flow.then(stage_flow);
+        }
+    }
+    flow
+}
+
+fn stream_stage_args_control_flow(
+    arena: &ArenaProgram,
+    args: crate::syntax::arena::ArenaRange,
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
+    // Stage blocks are callbacks: their control transfers stay in the
+    // callback's callable scope, while stage arguments execute eagerly.
+    let mut flow = ControlFlow::NORMAL;
+    for arg in arena.arena.call_args(args) {
+        let expr = match arg.kind {
+            crate::syntax::arena::ArenaCallArgKind::Positional(expr)
+            | crate::syntax::arena::ArenaCallArgKind::Named { value: expr, .. }
+            | crate::syntax::arena::ArenaCallArgKind::Splice { value: expr, .. }
+            | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value: expr, .. } => expr,
+        };
+        if flow.completes {
+            flow = flow.then(expr_control_flow(arena, expr, facts));
+        }
+    }
+    flow
 }
 
 fn expr_if_control_flow(
@@ -497,17 +821,17 @@ fn expr_control_flow_inner(
         ArenaExprKind::Match { value, arms } => {
             let subject = expr_control_flow(arena, value, facts);
             let mut outcomes = ControlFlow::NONE;
+            let mut caught = false;
             for arm in arena.arena.match_expr_arms(arms) {
-                if arm
-                    .guard
-                    .is_some_and(|guard| bool_literal(arena, guard) == Some(false))
-                {
-                    continue;
-                }
-                let guard = arm
-                    .guard
-                    .map_or(ControlFlow::NORMAL, |guard| expr_control_flow(arena, guard, facts));
-                outcomes = outcomes.either(guard.then(expr_control_flow(arena, arm.value, facts)));
+                outcomes = outcomes.either(match_arm_control_flow(
+                    arena,
+                    value,
+                    arm.pattern,
+                    arm.guard,
+                    expr_control_flow(arena, arm.value, facts),
+                    facts,
+                    &mut caught,
+                ));
             }
             subject.then(outcomes)
         }
@@ -515,17 +839,17 @@ fn expr_control_flow_inner(
         | ArenaExprKind::PatternCondition { value, arms } => {
             let subject = expr_control_flow(arena, value, facts);
             let mut arm_flow = ControlFlow::NONE;
+            let mut caught = false;
             for arm in arena.arena.match_expr_arms(arms) {
-                if arm
-                    .guard
-                    .is_some_and(|guard| bool_literal(arena, guard) == Some(false))
-                {
-                    continue;
-                }
-                let guard = arm
-                    .guard
-                    .map_or(ControlFlow::NORMAL, |guard| expr_control_flow(arena, guard, facts));
-                arm_flow = arm_flow.either(guard.then(expr_control_flow(arena, arm.value, facts)));
+                arm_flow = arm_flow.either(match_arm_control_flow(
+                    arena,
+                    value,
+                    arm.pattern,
+                    arm.guard,
+                    expr_control_flow(arena, arm.value, facts),
+                    facts,
+                    &mut caught,
+                ));
             }
             let mut flow = subject.then(arm_flow);
             if subject.completes {
@@ -541,6 +865,13 @@ fn expr_control_flow_inner(
                 propagates: body.propagates,
                 completes: body.breaks_target,
             }
+        }
+        ArenaExprKind::ListComp { expr, qualifiers }
+        | ArenaExprKind::SetComp { expr, qualifiers } => {
+            comprehension_control_flow(arena, qualifiers, &[expr], facts)
+        }
+        ArenaExprKind::MapComp { key, value, qualifiers } => {
+            comprehension_control_flow(arena, qualifiers, &[key, value], facts)
         }
         ArenaExprKind::Try(inner) => {
             let mut flow = expr_control_flow(arena, inner, facts);
@@ -593,6 +924,52 @@ fn expr_control_flow_inner(
                     || (lhs.completes && rhs.propagates && may_run),
                 completes: lhs.completes && (may_skip || rhs.completes),
             }
+        }
+        ArenaExprKind::Index { base, index, guarded } => {
+            let propagating = guarded
+                && matches!(expression_type(arena, base, facts), Some(Type::Result(_, _)));
+            let base = expr_control_flow(arena, base, facts);
+            let index = expr_control_flow(arena, index, facts);
+            let mut flow = base.then(if guarded && !propagating {
+                ControlFlow::NORMAL.either(index)
+            } else {
+                index
+            });
+            if propagating && flow.completes {
+                flow.propagates = true;
+            }
+            flow
+        }
+        ArenaExprKind::Slice {
+            base,
+            start,
+            end,
+            guarded,
+        } => {
+            let propagating = guarded
+                && matches!(expression_type(arena, base, facts), Some(Type::Result(_, _)));
+            let base = expr_control_flow(arena, base, facts);
+            let mut bounds = ControlFlow::NORMAL;
+            for bound in start.into_iter().chain(end) {
+                if bounds.completes {
+                    bounds = bounds.then(expr_control_flow(arena, bound, facts));
+                }
+            }
+            let mut flow = base.then(if guarded && !propagating {
+                ControlFlow::NORMAL.either(bounds)
+            } else {
+                bounds
+            });
+            if propagating && flow.completes {
+                flow.propagates = true;
+            }
+            flow
+        }
+        ArenaExprKind::Pipeline { input, stages } => {
+            pipeline_control_flow(arena, input, stages, false, facts)
+        }
+        ArenaExprKind::StructuredPipeline { input, stages } => {
+            pipeline_control_flow(arena, input, stages, true, facts)
         }
         _ => {
             let mut flow = ControlFlow::NORMAL;
@@ -652,13 +1029,25 @@ fn block_has_exit_point_ast(arena: &ArenaProgram, block_id: BlockId) -> bool {
 }
 
 impl Checker {
-    pub(super) fn block_has_exit_point_arena(&self, arena: &ArenaProgram, block_id: BlockId) -> bool {
-        let facts = FlowFacts {
+    fn checked_flow_facts(&self) -> FlowFacts<'_> {
+        FlowFacts {
             expression_types: Some(&self.expr_types),
+            expression_types_by_id: None,
             propagating_statements: Some(&self.propagating_statements),
             propagating_conditions: Some(&self.propagating_conditions),
-        };
-        let flow = block_control_flow(arena, block_id, &facts);
+        }
+    }
+
+    fn block_never_falls_through_checked_arena(
+        &self,
+        arena: &ArenaProgram,
+        block_id: BlockId,
+    ) -> bool {
+        !block_control_flow(arena, block_id, &self.checked_flow_facts()).completes
+    }
+
+    pub(super) fn block_has_exit_point_arena(&self, arena: &ArenaProgram, block_id: BlockId) -> bool {
+        let flow = block_control_flow(arena, block_id, &self.checked_flow_facts());
         flow.breaks_target || flow.exits || flow.propagates
     }
 }
@@ -2744,7 +3133,7 @@ impl Checker {
                 }
             } else if expected != &Type::Unit
                 && !expected.is_result_unit()
-                && !block_never_falls_through_arena(arena, block_id)
+                && !self.block_never_falls_through_checked_arena(arena, block_id)
             {
                 self.error(
                     block_span,
@@ -4244,7 +4633,7 @@ impl Checker {
         let always_returns = if self.inferred_returns.is_some() {
             self.return_inference_block_returns(arena, block_id)
         } else {
-            block_never_falls_through_arena(arena, block_id)
+            self.block_never_falls_through_checked_arena(arena, block_id)
         };
         if !reachable || always_returns {
             Type::Unknown
@@ -4828,11 +5217,8 @@ impl Checker {
     ) -> Type {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
-        let all_arms_return =
-            match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts())
-                && arm_list
-                    .iter()
-                    .all(|arm| block_never_falls_through_arena(arena, arm.block));
+        let match_is_exhaustive =
+            match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts());
         let infer_branches = self.inferred_returns.is_some() && expected.is_none();
         let mut inferred: Option<Type> = None;
         for arm in arm_list {
@@ -4881,6 +5267,10 @@ impl Checker {
             }
             self.pop_scope();
         }
+        let all_arms_return = match_is_exhaustive
+            && arm_list
+                .iter()
+                .all(|arm| self.block_never_falls_through_checked_arena(arena, arm.block));
         let value_span = arena.arena.expr(value).span;
         self.check_list_match_coverage_arena(
             arena,
@@ -5544,6 +5934,159 @@ mod return_flow_tests {
         let diagnostics = diagnostics(source);
         assert!(
             !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn boolean_short_circuit_and_negation_prune_unreachable_breaks() {
+        let sources = [
+            "pure side_effect() -> Bool { true }\nproc spin() [] { loop { if false and side_effect() { break } if !true { break } if false or false { break } if true or (if true { break } else { false }) {} } }\n",
+        ];
+        for source in sources {
+            let diagnostics = diagnostics(source);
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+                "{source}\n{diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_impossible_literal_match_arm_does_not_break_the_loop() {
+        let source = "proc spin() [] { loop { match 0 { 1 => { break } _ => {} } } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_unmatched_statement_match_keeps_a_normal_path() {
+        let source = "proc spin() [] { loop { match 0 { 1 => { break } } } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn exhaustive_boolean_match_arms_can_all_return() {
+        let source = "pure choose(value: Bool) -> Int {\n  match value {\n    true => { return 1 }\n    false => { return 2 }\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_null_guarded_index_does_not_count_a_return_in_its_operand() {
+        let sources = [
+            "pure choose() -> Int {\n  let values: List[Int]? = null\n  while true {\n    let ignored = values?[if true { return 1 } else { 0 }]\n    break\n  }\n}\n",
+            "pure choose() -> Int {\n  let values: List[Int]? = null\n  while true {\n    let ignored = values?[if true { return 1 } else { 0 }..]\n    break\n  }\n}\n",
+        ];
+        for source in sources {
+            let diagnostics = diagnostics(source);
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+                "{source}\n{diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_result_guarded_index_still_requires_its_operand_on_success() {
+        let source = "proc choose(values: Result[List[Int], Error]) [error] -> Int {\n  let ignored = values?[if true { return 1 } else { 0 }]\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_comprehension_does_not_count_a_return_in_its_projection() {
+        let source = "pure choose() -> Int {\n  while true {\n    let ignored = [if true { return 1 } else { 0 } for item in []]\n    break\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_later_comprehension_source_does_not_count_its_projection() {
+        let source = "pure choose() -> Int { let ignored = [if true { return 1 } else { 0 } for outer in [1] for inner in []] }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_false_comprehension_filter_does_not_count_its_projection() {
+        let source = "pure choose() -> Int { let ignored = [if true { return 1 } else { 0 } for item in [1] if false] }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_nonempty_comprehension_keeps_its_projection_mandatory() {
+        let source = "pure choose() -> Int {\n  let ignored = [if true { return 1 } else { 0 } for item in [1]]\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_later_comprehension_source_keeps_its_evaluated_control_flow() {
+        let source = "proc spin(stop: Bool) [] { loop { let ignored = [item for outer in [1] for item in (if stop { break } else { [outer] })] } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_unconsumed_stream_callback_does_not_return_from_its_creator() {
+        let source = "pure choose() -> Int {\n  while true {\n    let ignored = [1] |> map { |item| return item }\n    break\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
             "{diagnostics:?}"
