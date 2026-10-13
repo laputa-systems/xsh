@@ -22121,3 +22121,6 @@ proc local() [env, error] -> Int {
         );
     }
 }
+
+#[cfg(test)]
+mod formal_bridge;
