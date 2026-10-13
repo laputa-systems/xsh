@@ -702,12 +702,15 @@ proc settle(argv: List[Str]) [fs, env, process, io, time, error] -> Result[Unit,
   var seconds = 120
   if opts.timeout != null {
     let text = opts.timeout
-    match text.parse_uint() {
-      Ok(value) => seconds = value
-      Err(_) => {
-        let reason = if text.starts_with("-") and text.byte_len() > 1 { "Result not representable" } else { "Invalid argument" }
-        die(f"Invalid timeout value '{text}': {reason}", 1)
+    if let Ok(value) = text.parse_uint() {
+      seconds = value
+    } else {
+      let reason = if text.starts_with("-") and text.byte_len() > 1 {
+        "Result not representable"
+      } else {
+        "Invalid argument"
       }
+      die(f"Invalid timeout value '{text}': {reason}", 1)
     }
   }
 

@@ -953,9 +953,15 @@ test test_uu_cp_acl_preserve { |ctx|
   uu.mkdir(s, "a")
   uu.mkdir(s, "b")
   uu.touch(s, "a/file")
-  let r = match uu.invoke(s, "setfacl", ["-m", "group::rwx", uu.at(s, "a").display()]) {
-    Ok(result) => result,
-    Err(_) => { test.skip("setfacl unavailable"); return },
+  let r = if let Ok(result) = uu.invoke(
+    s,
+    "setfacl",
+    ["-m", "group::rwx", uu.at(s, "a").display()],
+  ) {
+    result
+  } else {
+    test.skip("setfacl unavailable")
+    return
   }
   if r.status != 0 { test.skip("setfacl failed"); return }
   let second = uu.invoke(s, "cp", ["-p", uu.at(s, "a/file").display(), "b"])?

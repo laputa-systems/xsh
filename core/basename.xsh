@@ -30,13 +30,12 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0basename-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0basename-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -99,9 +98,10 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   if ! (opts.multiple or opts.suffix != null) {
     if names.len() > 2 {
       let extra = names[2]
-      match extra.utf8() {
-        Ok(value) => gnu.extra_operand(value)
-        Err(_) => gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
+      if let Ok(value) = extra.utf8() {
+        gnu.extra_operand(value)
+      } else {
+        gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
       }
     }
 

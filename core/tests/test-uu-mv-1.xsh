@@ -252,14 +252,19 @@ test test_uu_mv_acl { |ctx|
   uu.mkdir(s, "a")
   uu.mkdir(s, "b")
   uu.touch(s, "a/file")
-  let setter = match process.which("setfacl") { Ok(tool) => tool, Err(_) => { test.skip("setfacl is not installed"); p"/usr/bin/setfacl" } }
+  let setter = if let Ok(tool) = process.which("setfacl") {
+    tool
+  } else {
+    test.skip("setfacl is not installed")
+    /usr/bin/setfacl
+  }
   # The original command resolves a outside the scene. Its failed setup skips.
   let setup = process.run(process.command_argv(setter, [setter, "-m", "group::rwx", "a"], stdout: uu.at(s, "acl-out"), stderr: uu.at(s, "acl-err")))?
   if ! setup.exited_with(0) { test.skip("setfacl failed on its original working-directory operand") }
   uu.succeeds(uu.invoke(s, "mv", [uu.at(s, "a/file").display(), "b"])?)
   # The upstream comparison falls back to an empty list for absent paths.
-  let left = match fs.xattr_list(p"a/file") { Ok(names) => names |> sort |> collect(), Err(_) => [] }
-  let right = match fs.xattr_list(p"b/file") { Ok(names) => names |> sort |> collect(), Err(_) => [] }
+  let left = if let Ok(names) = fs.xattr_list(p"a/file") { names |> sort |> collect() } else { [] }
+  let right = if let Ok(names) = fs.xattr_list(p"b/file") { names |> sort |> collect() } else { [] }
   assert left == right
 }
 

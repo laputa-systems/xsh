@@ -10,20 +10,19 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0mktemp-raw-argument-{index}\0"
-        if argument.starts_with(b"--suffix=") {
-          text += [f"--suffix={marker}"]
-          raw += [{marker: marker, value: argument[9..]}]
-        } else if argument.starts_with(b"--tmpdir=") {
-          text += [f"--tmpdir={marker}"]
-          raw += [{marker: marker, value: argument[9..]}]
-        } else {
-          text += [marker]
-          raw += [{marker: marker, value: argument}]
-        }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0mktemp-raw-argument-{index}\0"
+      if argument.starts_with(b"--suffix=") {
+        text += [f"--suffix={marker}"]
+        raw += [{marker: marker, value: argument[9..]}]
+      } else if argument.starts_with(b"--tmpdir=") {
+        text += [f"--tmpdir={marker}"]
+        raw += [{marker: marker, value: argument[9..]}]
+      } else {
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
       }
     }
   }

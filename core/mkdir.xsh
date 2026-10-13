@@ -72,10 +72,8 @@ pure lexical_parent(target: Path) -> Path {
 
 proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, parent_mode: Int) [fs, process, env, io, error] -> Result[Unit] {
   if parents {
-    match fs.stat(target, follow_symlinks: true) {
-      Ok(meta) => { return when meta.kind == "dir" }
-      Err(_) => {}
-    }
+    if let Ok(meta) = fs.stat(target, follow_symlinks: true) { return when meta.kind == "dir" }
+
     let parent = lexical_parent(target)
     if parent != "" and parent != target {
       create_directory(parent, true, null, verbose, parent_mode)
@@ -136,10 +134,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let umask = fs.umask()?
   var mode = null
   if let spec = opts.mode {
-    match parse_mode(spec, umask) {
-      Ok(value) => mode = value
-      Err(_) => { gnu.error(f"invalid mode {gnu.quote_value(spec)}")
-        exit 1 }
+    if let Ok(value) = parse_mode(spec, umask) {
+      mode = value
+    } else {
+      gnu.error(f"invalid mode {gnu.quote_value(spec)}")
+      exit 1
     }
   }
   var failed = false

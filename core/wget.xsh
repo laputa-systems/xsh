@@ -156,10 +156,10 @@ proc number(option: Str, text: Str) [io, error] -> Int {
 
 proc seconds(option: Str, text: Str) [io, error] -> Duration {
   let parsed = text.parse_float()
-  match parsed {
-    Ok(value) => return time.millis((value * 1000.0).round() ?? 0) when value >= 0.0
-    Err(_) => {}
+  if let Ok(value) = parsed {
+    return time.millis((value * 1000.0).round() ?? 0) when value >= 0.0
   }
+
   io.write_stderr(f"wget: {option}: Invalid time period '{text}'\n")
   io.flush_stderr()
   exit EXIT_USAGE
@@ -475,9 +475,10 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
   if options.resume {
     if let target_path = target.path {
       let known = target_path.metadata()
-      match known {
-        Ok(info) => resume_from = info.size
-        Err(_) => resume_from = 0
+      if let Ok(info) = known {
+        resume_from = info.size
+      } else {
+        resume_from = 0
       }
     }
   }
@@ -537,19 +538,16 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
     if looks_numeric(host) {
       announce = f"Connecting to {host}:{port}... "
     } else {
-      match dns.resolve_host(host) {
-        Ok(found) => {
-          let addresses = collect {
-            for entry in found { yield entry.addr }
-          }
-          log_verbose(options, f"Resolving {host} ({host})... {addresses.join(", ")}\n")
-          announce = f"Connecting to {host} ({host})|{addresses[0]}|:{port}... "
+      if let Ok(found) = dns.resolve_host(host) {
+        let addresses = collect {
+          for entry in found { yield entry.addr }
         }
-        Err(_) => {
-          log_verbose(options, f"Resolving {host} ({host})... failed: Name does not resolve.\n")
-          log(options, f"wget: unable to resolve host address '{host}'\n")
-          return {status: EXIT_NETWORK, bytes: 0, millis: 0, saved: false}
-        }
+        log_verbose(options, f"Resolving {host} ({host})... {addresses.join(", ")}\n")
+        announce = f"Connecting to {host} ({host})|{addresses[0]}|:{port}... "
+      } else {
+        log_verbose(options, f"Resolving {host} ({host})... failed: Name does not resolve.\n")
+        log(options, f"wget: unable to resolve host address '{host}'\n")
+        return {status: EXIT_NETWORK, bytes: 0, millis: 0, saved: false}
       }
     }
     log_verbose(options, announce)

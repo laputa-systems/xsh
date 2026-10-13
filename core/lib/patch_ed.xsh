@@ -77,9 +77,10 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
       let parts = c[4].split(delimiter)
       if parts.len() < 3 or first < 1 or last > size { return {output: buffer, failed: text, next: i} }
       let pattern = regex.compile(parts[1])
-      let compiled = match pattern {
-        Ok(value) => value
-        Err(_) => { return {output: buffer, failed: text, next: i} }
+      let compiled = if let Ok(value) = pattern {
+        value
+      } else {
+        return {output: buffer, failed: text, next: i}
       }
       let global = parts.len() > 3 and parts[3] == "g"
       for index in range(first - 1, last) {

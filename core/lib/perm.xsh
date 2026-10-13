@@ -178,16 +178,18 @@ export proc owner(raw: Str, group_only = false) [fs, error, process] -> Result[O
   var user_id = null
   var group_id = null
   if username != "" {
-    match uid(username) {
-      Ok(id) => user_id = id
-      Err(_) => return Err(PermError.Invalid("invalid user"))
+    if let Ok(id) = uid(username) {
+      user_id = id
+    } else {
+      return Err(PermError.Invalid("invalid user"))
     }
   }
   if parts.len() == 2 {
     if parts[1] != "" {
-      match gid(parts[1]) {
-        Ok(id) => group_id = id
-        Err(_) => return Err(PermError.Invalid("invalid group"))
+      if let Ok(id) = gid(parts[1]) {
+        group_id = id
+      } else {
+        return Err(PermError.Invalid("invalid group"))
       }
     } else if username != "" {
       group_id = if rx"^[ \t\n\u{b}\u{c}\r]*\+?[0-9]+$".matches(username) { user.by_uid(uid(username)?)?.gid } else { user.lookup(username)?.gid }

@@ -21,14 +21,14 @@ pure prepare_arguments(argv: List[Bytes], posix: Bool) -> RmArguments {
       presume_input_tty = true
       continue
     }
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0rm-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0rm-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
+
     if argument == b"--" or (posix and options and (argument == b"-" or ! argument.starts_with(b"-"))) { options = false }
   }
   {argv: text, raw: raw, presume_input_tty: presume_input_tty}
@@ -308,7 +308,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         }
       }
     }
-    let device = match fs.stat(target) { Ok(meta) => meta.dev, Err(_) => 0 }
+    let device = if let Ok(meta) = fs.stat(target) { meta.dev } else { 0 }
     let result = remove_target(target, operand_label(name), opts, device, prompt_mode == 2, automatic, prepared.presume_input_tty)
     if ! result.ok { success = false }
     if let failure = result.write_error { if write_error == null { write_error = failure } }

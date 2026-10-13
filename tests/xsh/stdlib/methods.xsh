@@ -300,9 +300,13 @@ value.bit_and(1)
 }
 
 test test_error_message_field_can_be_matched_as_text {
-  let nonempty = match "nope".parse_int() {
-    Err(failure) => match failure.message { "" => false, _ => true }
-    Ok(_) => false
+  let nonempty = if let Err(failure) = "nope".parse_int() {
+    match failure.message {
+      "" => false
+      _ => true
+    }
+  } else {
+    false
   }
   assert nonempty
 }

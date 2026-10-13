@@ -95,9 +95,10 @@ export pure pattern_bytes(text: Str) -> Bytes? {
     values += [value]
     index += 2
   }
-  match bytes.from_ints(values) {
-    Ok(packed) => packed
-    Err(_) => null
+  if let Ok(packed) = bytes.from_ints(values) {
+    packed
+  } else {
+    null
   }
 }
 
@@ -396,12 +397,11 @@ export proc open_clock() [process, net, error] -> Result[Clock, Error] {
   let c = linux.net_constants()
   let coarse: Clock = {fd: -1, target: b""}
   guard let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM) else { return Ok(coarse) }
-  match bind_clock(fd) {
-    Ok(clock) => Ok(clock)
-    Err(_) => {
-      unix.close_fd(fd)
-      Ok(coarse)
-    }
+  if let Ok(clock) = bind_clock(fd) {
+    Ok(clock)
+  } else {
+    unix.close_fd(fd)
+    Ok(coarse)
   }
 }
 

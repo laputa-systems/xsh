@@ -427,9 +427,10 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
     let placeholder = b"__XSH_RAW_CHECK_PATH__"
     var normalized = bytes.concat([content[..open + 1], placeholder, content[separator.close..]])
     if escape { normalized = bytes.concat([b"\\", normalized]) }
-    let parsed = match normalized.utf8() {
-      Ok(value) => parse_line(value, algorithm, length, infer, alternate_format)
-      Err(_) => null
+    let parsed = if let Ok(value) = normalized.utf8() {
+      parse_line(value, algorithm, length, infer, alternate_format)
+    } else {
+      null
     }
     return null when parsed == null
     let item = parsed
@@ -443,9 +444,10 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
   if !alternate_format and (marker == 32 or marker == 42) { name_start += 1 }
   let normalized = bytes.concat([content[..name_start], b"__XSH_RAW_CHECK_PATH__"])
   let text = normalized.utf8()
-  let parsed = match text {
-    Ok(value) => parse_line(value, algorithm, length, infer, alternate_format)
-    Err(_) => null
+  let parsed = if let Ok(value) = text {
+    parse_line(value, algorithm, length, infer, alternate_format)
+  } else {
+    null
   }
   return null when parsed == null
   let item = parsed
@@ -501,18 +503,20 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
     continue when line.len() == 0 or (line.len() == 1 and line.byte_at(0) == 13)
     continue when line.byte_at(0) == 35
     if !format_decided {
-      let valid_record = match line.utf8() {
-        Ok(value) => parse_line(value, algorithm, length, infer, false) != null
-        Err(_) => parse_byte_line(line, algorithm, length, infer, false) != null
+      let valid_record = if let Ok(value) = line.utf8() {
+        parse_line(value, algorithm, length, infer, false) != null
+      } else {
+        parse_byte_line(line, algorithm, length, infer, false) != null
       }
       if valid_record {
         alternate_format = bsd_alternate_format(line)
         format_decided = true
       }
     }
-    let entry = match line.utf8() {
-      Ok(value) => parse_line(value, algorithm, length, infer, alternate_format)
-      Err(_) => parse_byte_line(line, algorithm, length, infer, alternate_format)
+    let entry = if let Ok(value) = line.utf8() {
+      parse_line(value, algorithm, length, infer, alternate_format)
+    } else {
+      parse_byte_line(line, algorithm, length, infer, alternate_format)
     }
     if entry == null {
       malformed += 1

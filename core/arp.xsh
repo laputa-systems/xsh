@@ -66,9 +66,10 @@ pure parse_address(word: Str) -> Bytes? {
     last = [tail % 256] + last
     tail = tail / 256
   }
-  match bytes.from_ints(octets + last) {
-    Ok(raw) => raw
-    Err(_) => null
+  if let Ok(raw) = bytes.from_ints(octets + last) {
+    raw
+  } else {
+    null
   }
 }
 

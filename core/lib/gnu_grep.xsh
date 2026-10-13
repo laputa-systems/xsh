@@ -220,9 +220,10 @@ proc emit(data: Bytes) {
 }
 
 proc text_of(raw: Bytes) [env] -> Str {
-  match raw.utf8() {
-    Ok(text) => text
-    Err(_) => gnu.quote_value_bytes(raw)
+  if let Ok(text) = raw.utf8() {
+    text
+  } else {
+    gnu.quote_value_bytes(raw)
   }
 }
 
@@ -576,10 +577,7 @@ pure width_for(ctx: Context, width: Int) -> Int {
 # zapping take a byte loop.
 pure delimiter_positions(data: Bytes, eol: Int, zap: Bool) -> List[Int] {
   if eol == 10 and ! zap {
-    match regex.find_bytes("\n", data) {
-      Ok(marks) => { return [mark.start for mark in marks] }
-      Err(_) => {}
-    }
+    if let Ok(marks) = regex.find_bytes("\n", data) { return [mark.start for mark in marks] }
   }
   let out = collect {
     for at in range(data.len()) {
@@ -631,13 +629,16 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
     while probe < size and ! zap {
       let want = if size - probe < CHUNK { size - probe } else { CHUNK }
       let read = bytes.read_at(target ?? p"", probe, want)
-      match read {
-        Ok(data) => {
-          break when data.is_empty()
-          if has_nul(data) { zap = true; first_null = 0 }
-          probe += data.len()
+      if let Ok(data) = read {
+        break when data.is_empty()
+        if has_nul(data) {
+          zap = true
+          first_null = 0
         }
-        Err(_) => { break }
+      
+        probe += data.len()
+      } else {
+        break
       }
     }
   }
@@ -688,22 +689,20 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
     # can match at all, so the rest skip per-record matching.
     let possible = collect {
       if ctx.prefilter != null and ! zap and ctx.eol == 10 and ! records.is_empty() {
-        match regex.find_bytes(ctx.prefilter, data, extended: true, ignore_case: o.ignore_case) {
-          Ok(found) => {
-            var cursor = 0
-            var record_begin = 0
-            for record in records {
-              let record_end = record_begin + record.len()
-              var seen = false
-              while cursor < found.len() and found[cursor].start <= record_end {
-                if found[cursor].start >= record_begin { seen = true }
-                cursor += 1
-              }
-              yield seen
-              record_begin = record_end + 1
+        if let Ok(found) = regex.find_bytes(ctx.prefilter, data, extended: true, ignore_case: o.ignore_case) {
+          var cursor = 0
+          var record_begin = 0
+          for record in records {
+            let record_end = record_begin + record.len()
+            var seen = false
+            while cursor < found.len() and found[cursor].start <= record_end {
+              if found[cursor].start >= record_begin { seen = true }
+              cursor += 1
             }
+        
+            yield seen
+            record_begin = record_end + 1
           }
-          Err(_) => {}
         }
       }
     }
@@ -871,10 +870,8 @@ proc search_input(ctx: Context, progress: Run, real: Path?, show_name: Bool, lab
   if ctx.o.tabs {
     let meta = fs.stat(width_source, follow_symlinks: true)
     var digits = 19
-    match meta {
-      Ok(stat) => { if stat.kind == "file" { digits = digits_of(stat.size + (if ctx.o.number { 1 } else { 0 })) } }
-      Err(_) => {}
-    }
+    if let Ok(stat) = meta { if stat.kind == "file" { digits = digits_of(stat.size + (if ctx.o.number { 1 } else { 0 })) } }
+
     width = digits
   }
   if real != null {

@@ -284,9 +284,10 @@ export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env,
   if kind == "" { gnu.usage_error("missing encoding type") }
   if opts.files.len() > 1 {
     let extra = gnu.argument_bytes(opts.files[1], prepared.raw)
-    match extra.utf8() {
-      Ok(value) => gnu.extra_operand(value)
-      Err(_) => gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
+    if let Ok(value) = extra.utf8() {
+      gnu.extra_operand(value)
+    } else {
+      gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
     }
   }
   # GNU reads the wrap width as decimal only, so `0x0` is an invalid size.

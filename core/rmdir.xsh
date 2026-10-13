@@ -25,9 +25,10 @@ proc removal_reason(target: Path, failure: Error) [fs, error] -> Str {
     let trimmed = fp"{name.byte_slice(0, length: end)}"
     if let Ok(meta) = fs.stat(trimmed) {
       if meta.kind == "symlink" {
-        match fs.stat(trimmed, follow_symlinks: true) {
-          Ok(referent) => { return "Symbolic link not followed" when referent.kind == "dir" }
-          Err(_) => return "Symbolic link not followed"
+        if let Ok(referent) = fs.stat(trimmed, follow_symlinks: true) {
+          return "Symbolic link not followed" when referent.kind == "dir"
+        } else {
+          return "Symbolic link not followed"
         }
       }
     }

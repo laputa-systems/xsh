@@ -134,9 +134,10 @@ export pure decode(data: Bytes, utf8: Bool) -> Decoded {
 }
 
 pure bytes_text(data: Bytes) -> Str? {
-  match data.utf8() {
-    Ok(text) => text
-    Err(_) => null
+  if let Ok(text) = data.utf8() {
+    text
+  } else {
+    null
   }
 }
 
@@ -148,9 +149,10 @@ pure utf8_bytes(cp: Int) -> List[Int] {
 }
 
 pure cp_text(cp: Int) -> Str {
-  match bytes.from_ints(utf8_bytes(cp)) {
-    Ok(data) => data.utf8() ?? ""
-    Err(_) => ""
+  if let Ok(data) = bytes.from_ints(utf8_bytes(cp)) {
+    data.utf8() ?? ""
+  } else {
+    ""
   }
 }
 
@@ -843,9 +845,10 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
             yield byte
           }
         }
-        match bytes.from_ints(quoted) {
-          Ok(escaped) => native = bytes_text(escaped)
-          Err(_) => native = null
+        if let Ok(escaped) = bytes.from_ints(quoted) {
+          native = bytes_text(escaped)
+        } else {
+          native = null
         }
       }
       Err(_) => literal = null
@@ -1151,9 +1154,10 @@ export pure char_index(dec: Decoded, byte: Int) -> Int {
 # Printable ASCII only (tab and other controls count as non-ASCII here, which
 # merely sends such a line down the slower character path).
 pure ascii_line(line: Bytes) -> Bool {
-  match regex.find_bytes("[^ -~]", line) {
-    Ok(found) => found.is_empty()
-    Err(_) => false
+  if let Ok(found) = regex.find_bytes("[^ -~]", line) {
+    found.is_empty()
+  } else {
+    false
   }
 }
 
@@ -1229,10 +1233,7 @@ export pure alternation(programs: List[Program]) -> Str? {
         yield byte
       }
     }
-    match bytes.from_ints(quoted) {
-      Ok(data) => { parts += [bytes_text(data) ?? ""] }
-      Err(_) => { return null }
-    }
+    if let Ok(data) = bytes.from_ints(quoted) { parts += [bytes_text(data) ?? ""] } else { return null }
   }
   parts.join("|")
 }

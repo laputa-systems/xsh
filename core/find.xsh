@@ -158,13 +158,13 @@ pure snapshot(found: Stat) -> fmt.Meta {
 # nanosecond range cannot hold so that far-future dates still compare.
 proc time_reference(text: Str, start_ns: Int) [process, env, error, time] -> Result[Int, Error] {
   let base = dates.instant_from_ns(start_ns)
-  match dates.parse_instant(text, base: base) {
-    Ok(instant) => {
-      return Ok(9223372036854775807) when instant.seconds > 9223372035
-      return Ok(-9223372036854775807) when instant.seconds < -9223372035
-      Ok(instant.seconds * 1000000000 + instant.nanoseconds)
-    }
-    Err(_) => { search.reject(f"I cannot figure out how to interpret {gnu.quote_value(text)} as a date or time"); Ok(0) }
+  if let Ok(instant) = dates.parse_instant(text, base: base) {
+    return Ok(9223372036854775807) when instant.seconds > 9223372035
+    return Ok(-9223372036854775807) when instant.seconds < -9223372035
+    Ok(instant.seconds * 1000000000 + instant.nanoseconds)
+  } else {
+    search.reject(f"I cannot figure out how to interpret {gnu.quote_value(text)} as a date or time")
+    Ok(0)
   }
 }
 
@@ -543,7 +543,7 @@ proc write_output(name: Str, data: Bytes, raw: List[gnu.RawArgument]) [fs, io, p
   if name == "/dev/stdout" { gnu.write_bytes(data); return Ok() }
   if name == "/dev/stderr" { io.write_stderr(data.utf8() ?? ""); io.flush_stderr(); return Ok() }
   let target = gnu.argument_bytes(name, raw) as Path
-  let size = match fs.stat(target) { Ok(found) => found.size; Err(_) => 0 }
+  let size = if let Ok(found) = fs.stat(target) { found.size } else { 0 }
   let _ = bytes.write_at(target, size, data, create: true)?
   Ok()
 }
@@ -614,9 +614,17 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
       var kind = meta.kind
       let followed = plan.follow == 2 or (plan.follow == 1 and depth == 0)
       if ! followed and meta.kind == "symlink" {
-        kind = match fs.stat(target, follow_symlinks: true) { Ok(found) => found.kind; Err(_) => "symlink" }
+        kind = if let Ok(found) = fs.stat(target, follow_symlinks: true) {
+          found.kind
+        } else {
+          "symlink"
+        }
       } else if followed {
-        kind = match fs.stat(target, follow_symlinks: false) { Ok(found) => found.kind; Err(_) => meta.kind }
+        kind = if let Ok(found) = fs.stat(target, follow_symlinks: false) {
+          found.kind
+        } else {
+          meta.kind
+        }
       }
       matched = kind in node.argv
     }
@@ -656,7 +664,7 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
     "nouser" => matched = user.by_uid(meta.uid) is Err(_)
     "nogroup" => matched = group.by_gid(meta.gid) is Err(_)
     "samefile" => matched = meta.ino == node.number and meta.dev == node.bound
-    "fstype" => matched = match fs.mount_for(target) { Ok(found) => found.fstype == node.text; Err(_) => false }
+    "fstype" => matched = if let Ok(found) = fs.mount_for(target) { found.fstype == node.text } else { false }
     "print" | "print0" => gnu.write_bytes(bytes.concat([raw, if node.kind == "print0" { b"\0" } else { b"\n" }]))
     "printf" => gnu.write_bytes(fmt.render(node.segments, entry)?)
     "fprint" | "fprint0" => write_output(node.file, bytes.concat([raw, if node.kind == "fprint0" { b"\0" } else { b"\n" }]), plan.raw)

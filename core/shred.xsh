@@ -60,9 +60,10 @@ pure pass_patterns(passes: Int) -> List[Bytes] {
 }
 
 proc quote_maybe_bytes(name: Bytes) [env] -> Str {
-  match name.utf8() {
-    Ok(text) => gnu.quote_maybe(text)
-    Err(_) => gnu.quote_bytes(name, always: false)
+  if let Ok(text) = name.utf8() {
+    gnu.quote_maybe(text)
+  } else {
+    gnu.quote_bytes(name, always: false)
   }
 }
 

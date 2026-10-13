@@ -676,7 +676,12 @@ test test_uu_shuf_gnu_compat_range_repeat { |ctx|
 # origin: uutils test_shuf::test_getrandom_fail
 test test_uu_shuf_getrandom_fail { |ctx|
   let s = uu.scene(ctx)?
-  let tracer = match process.which("strace") { Ok(executable) => executable, Err(_) => { test.skip("strace is unavailable"); return } }
+  let tracer = if let Ok(executable) = process.which("strace") {
+    executable
+  } else {
+    test.skip("strace is unavailable")
+    return
+  }
   let launch_words = uu.argv(s, "shuf", [p"-i", p"1234-1235"])?
   let argv = [tracer, p"-o", p"/dev/null", p"-e", p"inject=getrandom:error=EAGAIN"].extend(launch_words)
   let out = uu.at(s, "trace-out")

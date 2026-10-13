@@ -520,20 +520,17 @@ proc apply_securebits(edits: List[FlagEdit]) [process, env, error] {
 # The user whose account supplies --init-groups must exist before anything
 # changes, so a missing account leaves the process untouched.
 proc init_group_ids(uid: Int) [process, env, fs, error] -> List[Int] {
-  match user.by_uid(uid) {
-    Ok(account) => {
-      match user.groups(account.name, primary_gid: account.gid) {
-        Ok(ids) => ids
-        Err(failure) => {
-          die_with("initgroups failed", failure)
-          exit 127
-        }
+  if let Ok(account) = user.by_uid(uid) {
+    match user.groups(account.name, primary_gid: account.gid) {
+      Ok(ids) => ids
+      Err(failure) => {
+        die_with("initgroups failed", failure)
+        exit 127
       }
     }
-    Err(_) => {
-      usage_fail(f"uid {uid} not found, --init-groups requires an user that can be found on the system")
-      exit 1
-    }
+  } else {
+    usage_fail(f"uid {uid} not found, --init-groups requires an user that can be found on the system")
+    exit 1
   }
 }
 
@@ -657,10 +654,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     gnu.write_text(collect { for entry in capability.CAPABILITIES { yield base_name(entry) } }.join("\n") + "\n")
     return
   }
-  let original_uid = match unix.id() {
-    Ok(ids) => ids.uid
-    Err(_) => 0
-  }
+  let original_uid = if let Ok(ids) = unix.id() { ids.uid } else { 0 }
   let init_ids = if let uid = request.init_user { init_group_ids(uid) } else { [] }
   let death_signal = if let choice = request.pdeathsig {
     if choice == "keep" { read_state().parent_death_signal } else if choice == "clear" { 0 } else { signal_number(choice) }

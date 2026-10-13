@@ -378,25 +378,28 @@ export proc stderr_is(r: Ran, expected: Str) {
 
 ## Asserts standard output contains `needle`.
 export proc stdout_contains(r: Ran, needle: Str) {
-  match r.stdout.utf8() {
-    Ok(actual) => assert needle in actual, f"{shown(r)}: stdout {actual} lacks {needle}"
-    Err(_) => assert false, f"{shown(r)}: stdout is not valid UTF-8"
+  if let Ok(actual) = r.stdout.utf8() {
+    assert needle in actual, f"{shown(r)}: stdout {actual} lacks {needle}"
+  } else {
+    assert false, f"{shown(r)}: stdout is not valid UTF-8"
   }
 }
 
 ## Asserts standard error contains `needle`.
 export proc stderr_contains(r: Ran, needle: Str) {
-  match r.stderr.utf8() {
-    Ok(actual) => assert needle in actual, f"{shown(r)}: stderr {actual} lacks {needle}"
-    Err(_) => assert false, f"{shown(r)}: stderr is not valid UTF-8"
+  if let Ok(actual) = r.stderr.utf8() {
+    assert needle in actual, f"{shown(r)}: stderr {actual} lacks {needle}"
+  } else {
+    assert false, f"{shown(r)}: stderr is not valid UTF-8"
   }
 }
 
 ## Asserts standard output starts with `prefix`.
 export proc stdout_str_starts_with(r: Ran, prefix: Str) {
-  match r.stdout.utf8() {
-    Ok(actual) => assert actual.starts_with(prefix), f"{shown(r)}: stdout {actual} does not start with {prefix}"
-    Err(_) => assert false, f"{shown(r)}: stdout is not valid UTF-8"
+  if let Ok(actual) = r.stdout.utf8() {
+    assert actual.starts_with(prefix), f"{shown(r)}: stdout {actual} does not start with {prefix}"
+  } else {
+    assert false, f"{shown(r)}: stdout is not valid UTF-8"
   }
 }
 

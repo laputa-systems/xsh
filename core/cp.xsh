@@ -302,9 +302,10 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     # also given. A dangling link counts as existing, so creating the directory
     # over it fails with EEXIST rather than replacing the link.
     if exists and dest_kind == "symlink" and opts.keep_directory_symlink and opts.copy_contents {
-      match fs.stat(target, follow_symlinks: true) {
-        Ok(followed) => dest_kind = followed.kind
-        Err(_) => invalid(f"cannot create directory {gnu.quote_bytes(target.bytes())}: File exists")
+      if let Ok(followed) = fs.stat(target, follow_symlinks: true) {
+        dest_kind = followed.kind
+      } else {
+        invalid(f"cannot create directory {gnu.quote_bytes(target.bytes())}: File exists")
       }
     }
     if exists and dest_kind != "dir" {
@@ -517,9 +518,12 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
 }
 
 proc report(source: Path, target: Path, failure: Error) {
-  match failure {
-    CopyError.Invalid {message} => gnu.error(message)
-    _ => gnu.error(f"cannot copy {gnu.quote_bytes(source.bytes())} to {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
+  if let CopyError.Invalid {message} = failure {
+    gnu.error(message)
+  } else {
+    gnu.error(
+      f"cannot copy {gnu.quote_bytes(source.bytes())} to {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}",
+    )
   }
 }
 

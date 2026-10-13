@@ -144,12 +144,11 @@ test test_unix_credentials_transition_inside_namespace { |ctx|
     test.skip("credential transitions require root inside a Linux namespace")
     return
   }
-  let unshare = match process.which("unshare") {
-    Ok(executable) => executable
-    Err(_) => {
-      test.skip("unshare is unavailable")
-      return
-    }
+  let unshare = if let Ok(executable) = process.which("unshare") {
+    executable
+  } else {
+    test.skip("unshare is unavailable")
+    return
   }
   let probe = process.run(process.command_argv(unshare, [unshare, "--mount", "--pid", "--fork", "--", "true"]))?
   guard probe.ok else {

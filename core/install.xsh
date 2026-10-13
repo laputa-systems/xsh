@@ -298,9 +298,11 @@ proc main(...argv: List[Bytes]) {
   if opts.operands.is_empty() { gnu.usage_error("missing file operand") }
   if opts.strip_program != null and ! opts.strip { gnu.error("WARNING: ignoring --strip-program option as -s option was not specified") }
   let mode_bytes = gnu.argument_bytes(opts.mode, prepared.raw)
-  let mode_spec = match mode_bytes.utf8() {
-    Ok(text) => text
-    Err(_) => { gnu.usage_error(f"invalid mode {gnu.quote_bytes(mode_bytes)}"); exit 1 }
+  let mode_spec = if let Ok(text) = mode_bytes.utf8() {
+    text
+  } else {
+    gnu.usage_error(f"invalid mode {gnu.quote_bytes(mode_bytes)}")
+    exit 1
   }
   let mode = install_mode(mode_spec, opts.directory)
   if mode == null {
@@ -311,17 +313,21 @@ proc main(...argv: List[Bytes]) {
   var gid = null
   if opts.owner != null {
     if let Ok(number) = opts.owner.parse_int() { uid = number } else {
-      match user.lookup(opts.owner) {
-        Ok(owner) => uid = owner.uid
-        Err(_) => { gnu.error(f"invalid user {gnu.quote(opts.owner)}"); exit 1 }
+      if let Ok(owner) = user.lookup(opts.owner) {
+        uid = owner.uid
+      } else {
+        gnu.error(f"invalid user {gnu.quote(opts.owner)}")
+        exit 1
       }
     }
   }
   if opts.group_name != null {
     if let Ok(number) = opts.group_name.parse_int() { gid = number } else {
-      match group.lookup(opts.group_name) {
-        Ok(found) => gid = found.gid
-        Err(_) => { gnu.error(f"invalid group {gnu.quote(opts.group_name)}"); exit 1 }
+      if let Ok(found) = group.lookup(opts.group_name) {
+        gid = found.gid
+      } else {
+        gnu.error(f"invalid group {gnu.quote(opts.group_name)}")
+        exit 1
       }
     }
   }

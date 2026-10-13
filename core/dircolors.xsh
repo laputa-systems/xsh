@@ -70,9 +70,10 @@ pure shell_output_field(text: Str) -> Str {
 # Operands that are not UTF-8 reach the text parser as NUL markers; these helpers
 # recover the raw bytes for opening files and for naming them in messages.
 proc display_name(name: Bytes) [env] -> Str {
-  match name.utf8() {
-    Ok(text) => text
-    Err(_) => gnu.quote_bytes(name, always: false)
+  if let Ok(text) = name.utf8() {
+    text
+  } else {
+    gnu.quote_bytes(name, always: false)
   }
 }
 
@@ -177,9 +178,11 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
     if file != "-" and (is_directory(file_bytes) ?? false) { gnu.error(f"{gnu.quote_bytes(file_bytes, always: false)}: read error: Is a directory"); exit 1 }
     match read_database(file_bytes) {
       Ok(data) => {
-        match data.utf8() {
-          Ok(value) => input = value
-          else => { gnu.error("database is not UTF-8"); exit 1 }
+        if let Ok(value) = data.utf8() {
+          input = value
+        } else {
+          gnu.error("database is not UTF-8")
+          exit 1
         }
       }
       Err(failure) => { gnu.error(f"{gnu.quote_bytes(file_bytes, always: false)}: {gnu.strerror(failure)}"); exit 1 }

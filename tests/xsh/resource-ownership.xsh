@@ -220,13 +220,13 @@ cli main(observed: Path) {
   assert rejected.status == 3, rejected.stderr
   assert rejected_cleanup.read_text()?.trim() == "false", "a rejected row retains producer ownership for quiet cleanup"
   let failed = try { resource_producers.delegated_errors() |> collect() }
-  match failed {
-    Err(resource_producers.ChildError.Owned {child: child}) => {
-      defer child.cancel(kill_after: 0ms)
-      assert process.list()? |> any .pid == child.pid, "a delegated error retains its contained child"
-    }
-    _ => test.fail("expected a delegated resource-bearing error")
+  if let Err(resource_producers.ChildError.Owned {child: child}) = failed {
+    defer child.cancel(kill_after: 0ms)
+    assert process.list()? |> any .pid == child.pid, "a delegated error retains its contained child"
+  } else {
+    test.fail("expected a delegated resource-bearing error")
   }
+
   let scoped = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
 stream child() [process, error] -> Stream[Int] {
   let child = spawn run sleep 30 ?

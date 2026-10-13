@@ -39,12 +39,11 @@ proc applet_in_new_netns(ctx: TestContext, tool: Str, args: List[Str]) [fs, proc
   let out = fp"{root}/out"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/{tool}.xsh".display()].extend(args)
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", out)
-  match linux.run_in_namespaces(plan, unshare: ["user", "net"], map_root_user: true) {
-    Ok(status) => {
-      guard status.exited_with(0) else { return Ok(null) }
-      Ok(out.read_text()?)
-    }
-    Err(_) => Ok(null)
+  if let Ok(status) = linux.run_in_namespaces(plan, unshare: ["user", "net"], map_root_user: true) {
+    guard status.exited_with(0) else { return Ok(null) }
+    Ok(out.read_text()?)
+  } else {
+    Ok(null)
   }
 }
 

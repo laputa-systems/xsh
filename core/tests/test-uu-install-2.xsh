@@ -455,9 +455,11 @@ test test_uu_install_install_target_new_file_with_owner { |ctx|
 # origin: uutils test_install::test_install_target_without_splice_support
 test test_uu_install_install_target_without_splice_support { |ctx|
   let s = uu.scene(ctx)?
-  let strace = match process.which("strace") {
-    Ok(tool) => tool,
-    Err(_) => { test.skip("strace is not installed"); p"/usr/bin/strace" },
+  let strace = if let Ok(tool) = process.which("strace") {
+    tool
+  } else {
+    test.skip("strace is not installed")
+    /usr/bin/strace
   }
   let source = ctx.xsh_bin
   let words = uu.argv(s, "install", [source, p"target_file"])?

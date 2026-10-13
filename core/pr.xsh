@@ -7,15 +7,23 @@ type Options = {columns: Str, across: Bool, merge: Bool, double: Bool, omit_head
 proc size(value: Str, message: Str, minimum = 1) -> Int {
   return -2147483648 when value == "-2147483648" and minimum == -2147483648
   let numeric = rx"^[+-]?[0-9]+$".matches(value)
-  match value.parse_int() {
-    Ok(number) => {
-      return number when number >= minimum and number <= 2147483647
-      let overflow = number < -2147483648 or number > 2147483647 or (minimum == 0 and number < 0)
-      let reason = if overflow { ": Value too large for defined data type" } else if number == 0 and minimum == 1 { ": Result not representable" } else { "" }
-      gnu.error(f"{message}: {gnu.quote_value(value)}{reason}")
+  if let Ok(number) = value.parse_int() {
+    return number when number >= minimum and number <= 2147483647
+    let overflow = number < -2147483648 or number > 2147483647 or (minimum == 0 and number < 0)
+    let reason = if overflow {
+      ": Value too large for defined data type"
+    } else if number == 0 and minimum == 1 {
+      ": Result not representable"
+    } else {
+      ""
     }
-    Err(_) => gnu.error(f"{message}: {gnu.quote_value(value)}{if numeric { ": Value too large for defined data type" } else { "" }}")
+    gnu.error(f"{message}: {gnu.quote_value(value)}{reason}")
+  } else {
+    gnu.error(
+      f"{message}: {gnu.quote_value(value)}{if numeric { ": Value too large for defined data type" } else { "" }}",
+    )
   }
+
   exit 1
 }
 

@@ -338,16 +338,13 @@ test test_ping_raw_socket_identifier_needs_cap_net_raw { |ctx|
   need_icmp("inet")
   let c = linux.net_constants()
   let ran = ping(ctx, ["-c", "1", "-e", "77", "127.0.0.1"])?
-  match linux.socket(c.AF_INET, c.SOCK_RAW, c.IPPROTO_ICMP) {
-    Ok(fd) => {
-      unix.close_fd(fd)
-      assert ran.status == 0, ran.stderr
-      assert REPLY_V4.matches(ran.stdout.split("\n")[1]), ran.stdout
-    }
-    Err(_) => {
-      assert ran.status == 2
-      assert ran.stderr == "ping: socktype: SOCK_RAW\nping: socket: Operation not permitted\nping: => missing cap_net_raw+p capability or setuid?\n", ran.stderr
-    }
+  if let Ok(fd) = linux.socket(c.AF_INET, c.SOCK_RAW, c.IPPROTO_ICMP) {
+    unix.close_fd(fd)
+    assert ran.status == 0, ran.stderr
+    assert REPLY_V4.matches(ran.stdout.split("\n")[1]), ran.stdout
+  } else {
+    assert ran.status == 2
+    assert ran.stderr == "ping: socktype: SOCK_RAW\nping: socket: Operation not permitted\nping: => missing cap_net_raw+p capability or setuid?\n", ran.stderr
   }
 }
 

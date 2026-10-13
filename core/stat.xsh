@@ -100,13 +100,12 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0stat-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0stat-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -267,11 +266,14 @@ proc stat_quote(name: Str, always = false) [env] -> Str {
 }
 
 proc stat_quote_bytes(name: Bytes, always = false) [env] -> Bytes {
-  match name.utf8() {
-    Ok(text) => bytes.from_text(stat_quote(text, always))
-    Err(_) => {
-      let style = env.get_or("QUOTING_STYLE", "shell-escape") ?? "shell-escape"
-      if style == "literal" { name } else { bytes.from_text(gnu.quote_bytes(name, always: always or style.ends_with("-always"))) }
+  if let Ok(text) = name.utf8() {
+    bytes.from_text(stat_quote(text, always))
+  } else {
+    let style = env.get_or("QUOTING_STYLE", "shell-escape") ?? "shell-escape"
+    if style == "literal" {
+      name
+    } else {
+      bytes.from_text(gnu.quote_bytes(name, always: always or style.ends_with("-always")))
     }
   }
 }

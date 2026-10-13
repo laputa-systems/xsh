@@ -479,7 +479,7 @@ proc main(...operands: List[Bytes]) {
     while ! stopped {
       var data = b""
       if reader == null { data = io.stdin_read(65536)? } else if source_size == -2 {
-        if file_offset == 0 { data = match (reader).read_bytes() { Ok(bytes_read) => bytes_read; Err(_) => b"" } }
+        if file_offset == 0 { data = if let Ok(bytes_read) = reader.read_bytes() { bytes_read } else { b"" } }
       } else if file_offset < source_size {
         let left = source_size - file_offset
         data = bytes.read_at(reader, file_offset, if left < 65536 { left } else { 65536 })?

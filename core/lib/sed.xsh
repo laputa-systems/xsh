@@ -485,10 +485,10 @@ pure compile_regex(source: Bytes, extended: Bool, ignore_case: Bool, multiline: 
     if let message = extended_precheck(widened) { return Err(SedError.Invalid(message)) }
   }
   guard let pattern = widened.utf8() else { return Err(SedError.Invalid("regular expression is not valid UTF-8")) }
-  match regex.captures_bytes(pattern, b"", 0, extended, ignore_case) {
-    Err(failure) => { return Err(SedError.Invalid(regex_message(failure.message, pattern, extended))) }
-    Ok(_) => {}
+  if let Err(failure) = regex.captures_bytes(pattern, b"", 0, extended, ignore_case) {
+    return Err(SedError.Invalid(regex_message(failure.message, pattern, extended)))
   }
+
   Ok(.Explicit({pattern: pattern, ignore_case: ignore_case, multiline: multiline, groups: group_count(source, extended), buffer_start: anchors.start, buffer_end: anchors.end}))
 }
 
@@ -710,13 +710,11 @@ pure translate_operand(text: Bytes) -> List[Int] {
 # name is reported before anything after it is looked at.
 proc open_output(opened: List[Str], name: Str) [fs, io, error, process, env] -> List[Str] {
   return opened when name in ["/dev/stdout", "/dev/stderr"] or name in opened
-  match fp"{name}".write(b"") {
-    Err(failure) => {
-      gnu.error(f"couldn't open file {name}: {gnu.strerror(failure)}")
-      exit 4
-    }
-    Ok(_) => {}
+  if let Err(failure) = fp"{name}".write(b"") {
+    gnu.error(f"couldn't open file {name}: {gnu.strerror(failure)}")
+    exit 4
   }
+
   opened + [name]
 }
 
@@ -1290,14 +1288,14 @@ pure select(command: Instruction, state: RangeState, end: Int, line_no: Int, is_
     return Ok({matched: matched, state: next, end: end, last_regex: saved})
   }
   var starts = false
-  match first {
-    Line(value) => starts = current != .Closed and line_no >= value
-    _ => {
-      let found = address_hit(first, line_no, is_last, text, saved, extended)?
-      starts = found.matched
-      saved = found.last_regex
-    }
+  if let Line(value) = first {
+    starts = current != .Closed and line_no >= value
+  } else {
+    let found = address_hit(first, line_no, is_last, text, saved, extended)?
+    starts = found.matched
+    saved = found.last_regex
   }
+
   return Ok({matched: false, state: current, end: end, last_regex: saved}) unless starts
   var stop = 0
   var single = false
@@ -1505,12 +1503,9 @@ proc flush_stdout(m: Machine) [io, error, process, env] -> Machine {
 proc write_files(m: Machine, ctx: Context) [fs, error, process, env] -> Unit {
   for index in range(ctx.file_names.len()) {
     let data = bytes.concat(m.out.bufs[FIRST_FILE + index])
-    match fp"{ctx.file_names[index]}".write(data) {
-      Err(failure) => {
-        gnu.error(f"couldn't flush <unknown>: {gnu.strerror(failure)}")
-        exit 4
-      }
-      Ok(_) => {}
+    if let Err(failure) = fp"{ctx.file_names[index]}".write(data) {
+      gnu.error(f"couldn't flush <unknown>: {gnu.strerror(failure)}")
+      exit 4
     }
   }
 }
@@ -1925,31 +1920,23 @@ proc commit_in_place(target: Str, output: Bytes, mode: Int, suffix: Str) [fs, io
       exit 4
     }
   }
-  match temporary.write(output, mode) {
-    Err(failure) => {
-      gnu.error(f"couldn't open temporary file {directory_of(target)}sedXXXXXX: {gnu.strerror(failure)}")
-      exit 4
-    }
-    Ok(_) => {}
+  if let Err(failure) = temporary.write(output, mode) {
+    gnu.error(f"couldn't open temporary file {directory_of(target)}sedXXXXXX: {gnu.strerror(failure)}")
+    exit 4
   }
+
   if suffix != "" {
     let backup = if "*" in suffix { suffix.replace("*", with: target) } else { f"{target}{suffix}" }
-    match destination.rename(to: fp"{backup}", overwrite: true) {
-      Err(failure) => {
-        let _ = temporary.remove()
-        gnu.error(f"cannot rename {target} to {backup}: {gnu.strerror(failure)}")
-        exit 4
-      }
-      Ok(_) => {}
-    }
-  }
-  match temporary.rename(to: destination, overwrite: true) {
-    Err(failure) => {
+    if let Err(failure) = destination.rename(to: fp"{backup}", overwrite: true) {
       let _ = temporary.remove()
-      gnu.error(f"cannot rename {temporary.display()} to {target}: {gnu.strerror(failure)}")
+      gnu.error(f"cannot rename {target} to {backup}: {gnu.strerror(failure)}")
       exit 4
     }
-    Ok(_) => {}
+  }
+  if let Err(failure) = temporary.rename(to: destination, overwrite: true) {
+    let _ = temporary.remove()
+    gnu.error(f"cannot rename {temporary.display()} to {target}: {gnu.strerror(failure)}")
+    exit 4
   }
 }
 
@@ -2022,14 +2009,12 @@ export proc execute(program: Program, options: Options, in_place: InPlace, names
             gnu.error(f"couldn't edit {name}: not a regular file")
             shutdown(m, ctx, 4)
           }
-          match source.read_bytes() {
-            Err(failure) => {
-              gnu.error(f"can't read {name}: {gnu.strerror(failure)}")
-              m = {...m, bad: m.bad + 1}
-              continue
-            }
-            Ok(_) => {}
+          if let Err(failure) = source.read_bytes() {
+            gnu.error(f"can't read {name}: {gnu.strerror(failure)}")
+            m = {...m, bad: m.bad + 1}
+            continue
           }
+
           var bufs_now = m.out.bufs
           bufs_now[1] = []
           var missing_now = m.out.missing

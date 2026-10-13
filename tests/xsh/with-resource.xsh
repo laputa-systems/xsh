@@ -7,9 +7,11 @@ proc foreign_lock(lock_path: Path) [fs, error] -> Result[FsLock] {
 }
 
 proc lock_available(lock_path: Path) [fs, error] -> Bool {
-  match fs.lock(lock_path, nonblocking: true) {
-    Ok(lock) => { fs.unlock(lock); true }
-    Err(_) => false
+  if let Ok(lock) = fs.lock(lock_path, nonblocking: true) {
+    fs.unlock(lock)
+    true
+  } else {
+    false
   }
 }
 

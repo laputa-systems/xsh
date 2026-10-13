@@ -238,7 +238,7 @@ proc ctime_field(ns: Int) [time, error] -> Result[Str, Error] {
 # Link text of a symlink entry, empty for anything else.
 proc link_text(entry: Entry) [fs] -> Bytes {
   return b"" when entry.meta.kind != "symlink"
-  match entry.path.readlink() { Ok(target) => target.bytes(); Err(_) => b"" }
+  if let Ok(target) = entry.path.readlink() { target.bytes() } else { b"" }
 }
 
 # Type letter of what a symlink points at: N dangling, L loop, ? other error.
@@ -251,15 +251,15 @@ proc followed_type(entry: Entry) [fs] -> Str {
 }
 
 proc owner_name(uid: Int) [fs] -> Str {
-  match user.by_uid(uid) { Ok(found) => found.name; Err(_) => f"{uid}" }
+  if let Ok(found) = user.by_uid(uid) { found.name } else { f"{uid}" }
 }
 
 proc group_name(gid: Int) [fs] -> Str {
-  match group.by_gid(gid) { Ok(found) => found.name; Err(_) => f"{gid}" }
+  if let Ok(found) = group.by_gid(gid) { found.name } else { f"{gid}" }
 }
 
 proc fstype_name(entry: Entry) [fs] -> Str {
-  match fs.mount_for(entry.path) { Ok(found) => found.fstype; Err(_) => "unknown" }
+  if let Ok(found) = fs.mount_for(entry.path) { found.fstype } else { "unknown" }
 }
 
 # Floating `%S`: allocated bytes over size, in the shortest `%g` form.

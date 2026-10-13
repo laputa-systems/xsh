@@ -54,9 +54,10 @@ proc shared_script(ctx: TestContext, name: Str, source: Str) [fs, error] -> Resu
 }
 
 proc has_capability(number: Int) [process, error] -> Bool {
-  match linux.privileges() {
-    Ok(state) => number in state.effective
-    Err(_) => false
+  if let Ok(state) = linux.privileges() {
+    number in state.effective
+  } else {
+    false
   }
 }
 

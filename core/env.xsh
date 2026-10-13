@@ -158,9 +158,10 @@ pure assignment_separator(arg: Bytes) -> Int? {
 }
 
 pure text_if_utf8(arg: Bytes) -> Str {
-  match arg.utf8() {
-    Ok(text) => text
-    Err(_) => ""
+  if let Ok(text) = arg.utf8() {
+    text
+  } else {
+    ""
   }
 }
 
@@ -207,9 +208,11 @@ pure signal_names(text: Str) -> List[Str] {
 
 proc validate_signal_names(names: List[Str]) [process, env, error] {
   for name in names {
-    let signal = match process.signal(name) {
-      Ok(signal) => signal
-      Err(_) => { gnu.error(f"{gnu.quote(name)}: invalid signal"); exit 125 }
+    let signal = if let Ok(signal) = process.signal(name) {
+      signal
+    } else {
+      gnu.error(f"{gnu.quote(name)}: invalid signal")
+      exit 125
     }
     if signal.number == 0 {
       gnu.error(f"{gnu.quote(name)}: invalid signal")
@@ -222,9 +225,11 @@ proc apply_signal_actions(options: List[SignalActionOption]) [process, env, erro
   for option in options {
     if let names = option.names {
       for name in names {
-        let signal = match process.signal(name) {
-          Ok(signal) => signal
-          Err(_) => { gnu.error(f"{gnu.quote(name)}: invalid signal"); exit 125 }
+        let signal = if let Ok(signal) = process.signal(name) {
+          signal
+        } else {
+          gnu.error(f"{gnu.quote(name)}: invalid signal")
+          exit 125
         }
         if signal.number == 0 {
           gnu.error(f"{gnu.quote(name)}: invalid signal")
@@ -277,7 +282,12 @@ proc blocked_signal_names(options: List[SignalActionOption]) [process] -> List[S
 }
 
 proc split_words(source: Bytes, verbose: Bool) [process, env, error, io] -> List[Bytes] {
-  let text = match source.utf8() { Ok(text) => text, Err(_) => { split_error("invalid split string"); "" } }
+  let text = if let Ok(text) = source.utf8() {
+    text
+  } else {
+    split_error("invalid split string")
+    ""
+  }
   let words = split_string(text)
   if verbose and ! words.is_empty() {
     io.write_stderr(f"split -S:  {gnu.quote(text)}\n")
@@ -309,9 +319,11 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
   }
 
   let argv0_text: Str? = if let selected = argv0 {
-    match selected.utf8() {
-      Ok(text) => text
-      Err(_) => { gnu.error("--argv0 argument is not valid UTF-8"); exit 125 }
+    if let Ok(text) = selected.utf8() {
+      text
+    } else {
+      gnu.error("--argv0 argument is not valid UTF-8")
+      exit 125
     }
   } else { null }
 
@@ -343,10 +355,7 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
   }
 
   env (search_environment) {
-    let executable = match process.which(target) {
-      Ok(executable_path) => executable_path
-      Err(_) => target
-    }
+    let executable = if let Ok(executable_path) = process.which(target) { executable_path } else { target }
     let command = if let directory = cwd {
       process.command_argv(executable, words, cwd: directory)
     } else {

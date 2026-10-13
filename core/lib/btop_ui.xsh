@@ -674,12 +674,11 @@ export pure reduce(
   value: model.Model,
   local_display: List[processes.LocalProcessDisplay] = [],
 ) -> State {
-  match event {
-    input.Pressed(key) => {
-      let updated = if state.editing_filter { edit_key(state, key) } else { browse_key(state, value, key, local_display) }
-      reconcile(updated, value, local_display)
-    }
-    else => state
+  if let input.Pressed(key) = event {
+    let updated = if state.editing_filter { edit_key(state, key) } else { browse_key(state, value, key, local_display) }
+    reconcile(updated, value, local_display)
+  } else {
+    state
   }
 }
 

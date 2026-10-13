@@ -1722,9 +1722,10 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
   # ACL decoration is optional; unsupported or unreadable xattrs do not fail a listing.
   let follow_acl = ctx.deref == "always" or (arg and ctx.deref in ["cmdline", "cmdline_dir"])
   let acl = if ok and ctx.format == "long" {
-    match fs.xattr_list(target, follow_symlinks: follow_acl) {
-      Ok(names) => "system.posix_acl_access" in names or "system.posix_acl_default" in names
-      Err(_) => false
+    if let Ok(names) = fs.xattr_list(target, follow_symlinks: follow_acl) {
+      "system.posix_acl_access" in names or "system.posix_acl_default" in names
+    } else {
+      false
     }
   } else {
     false
@@ -1783,21 +1784,21 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
 # non-UTF-8 final name is kept as its raw bytes beside the canonical parent; a
 # non-UTF-8 parent has no canonical text and keeps its lexical absolute name.
 proc canonical_name(ctx: Ctx, full: Bytes) [fs, error] -> Result[Bytes, Error] {
-  match full.utf8() {
-    Ok(text) => match fs_misc.canonical(text, "missing") {
+  if let Ok(text) = full.utf8() {
+    match fs_misc.canonical(text, "missing") {
       Ok(found) => Ok(bytes.from_text(found))
       Err(problem) => Err(problem)
     }
-    Err(_) => {
-      let parent = base_dir(full)
-
-      match parent.utf8() {
-        Ok(text) => match fs_misc.canonical(text, "missing") {
-          Ok(found) => Ok(bytes.concat([bytes.from_text(if found == "/" { "" } else { found }), b"/", base_raw(full)])),
-          Err(problem) => Err(problem)
-        }
-        Err(_) => Ok(lexical_absolute(ctx, full))
+  } else {
+    let parent = base_dir(full)
+  
+    if let Ok(text) = parent.utf8() {
+      match fs_misc.canonical(text, "missing") {
+        Ok(found) => Ok(bytes.concat([bytes.from_text(if found == "/" { "" } else { found }), b"/", base_raw(full)]))
+        Err(problem) => Err(problem)
       }
+    } else {
+      Ok(lexical_absolute(ctx, full))
     }
   }
 }

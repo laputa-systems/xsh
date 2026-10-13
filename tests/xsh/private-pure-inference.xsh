@@ -26,9 +26,10 @@ pure inferred_record(value: Int) {
 }
 
 pure inferred_text_pattern_alias(subject: Str) {
-  match subject {
-    f"{inferred_text_pattern_alias}" as whole => inferred_text_pattern_alias + whole
-    _ => ""
+  if let f"{inferred_text_pattern_alias}" as whole = subject {
+    inferred_text_pattern_alias + whole
+  } else {
+    ""
   }
 }
 

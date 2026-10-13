@@ -254,18 +254,17 @@ proc pid_argument(text: Str) [process, env] -> Int {
 # The task ids of a process, ascending, or null when the process does not exist
 # (a live process always has at least its main task).
 proc task_ids(pid: Int) [process, error] -> List[Int]? {
-  match process.threads(pid) {
-    Ok(threads) => {
-      let rows: List[ProcessThread] = threads |> collect
-      let ids = collect {
-        for row in rows {
-          yield row.thread_id
-        }
+  if let Ok(threads) = process.threads(pid) {
+    let rows: List[ProcessThread] = threads |> collect()
+    let ids = collect {
+      for row in rows {
+        yield row.thread_id
       }
-
-      if ids.is_empty() { null } else { ids |> sort }
     }
-    Err(_) => null
+  
+    if ids.is_empty() { null } else { ids |> sort }
+  } else {
+    null
   }
 }
 

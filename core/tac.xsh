@@ -63,17 +63,16 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
   for index in range(argv.len()) {
     let argument = argv[index]
     let offset = if options and ! separator_next { separator_offset(argument) } else { 0 }
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0tac-raw-argument-{index}\0"
-        if offset > 0 {
-          text += [f"{argument[0..offset].utf8() ?? ""}{marker}"]
-          raw += [{marker: marker, value: argument[offset..]}]
-        } else {
-          text += [marker]
-          raw += [{marker: marker, value: argument}]
-        }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0tac-raw-argument-{index}\0"
+      if offset > 0 {
+        text += [f"{argument[0..offset].utf8() ?? ""}{marker}"]
+        raw += [{marker: marker, value: argument[offset..]}]
+      } else {
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
       }
     }
 

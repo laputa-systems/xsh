@@ -169,13 +169,13 @@ pure initial() -> Settings {
 # curl takes seconds as a decimal number and rejects anything else.
 proc seconds_ms(option: Str, text: Str) [io, error] -> Int {
   let parsed = text.parse_float()
-  match parsed {
-    Ok(value) => {
-      if value < 0.0 { fail_usage(f"option {option}: expected a proper numerical parameter") }
-      return (value * 1000.0).round() ?? 0
-    }
-    Err(_) => fail_usage(f"option {option}: expected a proper numerical parameter")
+  if let Ok(value) = parsed {
+    if value < 0.0 { fail_usage(f"option {option}: expected a proper numerical parameter") }
+    return (value * 1000.0).round() ?? 0
+  } else {
+    fail_usage(f"option {option}: expected a proper numerical parameter")
   }
+
   0
 }
 
@@ -209,23 +209,21 @@ proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error
   return bytes.from_text(value) when ! files or ! value.starts_with("@")
   let name = value.byte_slice(1)
   let raw = if name == "-" { io.stdin_bytes() } else { fp"{name}".read_bytes() }
-  match raw {
-    Ok(content) => {
-      return content unless strip
-      let kept = collect {
-        for index in range(content.len()) {
-          let byte = content.byte_at(index) ?? 0
-          if byte != 10 and byte != 13 { yield byte }
-        }
+  if let Ok(content) = raw {
+    return content unless strip
+    let kept = collect {
+      for index in range(content.len()) {
+        let byte = content.byte_at(index) ?? 0
+        if byte != 10 and byte != 13 { yield byte }
       }
-      return bytes.from_ints(kept) ?? b""
     }
-    Err(_) => {
-      io.write_stderr(f"curl: Failed to open {name}\n")
-      io.flush_stderr()
-      fail_usage(f"option {option}: error encountered when reading a file", 26)
-    }
+    return bytes.from_ints(kept) ?? b""
+  } else {
+    io.write_stderr(f"curl: Failed to open {name}\n")
+    io.flush_stderr()
+    fail_usage(f"option {option}: error encountered when reading a file", 26)
   }
+
   b""
 }
 
@@ -569,9 +567,10 @@ proc cookie_from(header: Str, host: Str, route: Str) [time] -> Cookie? {
     } else if key == "expires" {
       expires = parse_expires(val)
     } else if key == "max-age" {
-      match val.parse_int() {
-        Ok(seconds_valid) => max_age = seconds_valid
-        Err(_) => max_age = null
+      if let Ok(seconds_valid) = val.parse_int() {
+        max_age = seconds_valid
+      } else {
+        max_age = null
       }
     }
   }
@@ -833,12 +832,11 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     if target.ends_with("/") { target = f"{target}{fp"{source}".basename()}" }
     url = target
     let content = if source == "-" { io.stdin_bytes() } else { fp"{source}".read_bytes() }
-    match content {
-      Ok(bytes_in) => body = bytes_in
-      Err(_) => {
-        show_error(settings, 26, "Failed to open/read local data from file/application")
-        return 26
-      }
+    if let Ok(bytes_in) = content {
+      body = bytes_in
+    } else {
+      show_error(settings, 26, "Failed to open/read local data from file/application")
+      return 26
     }
   }
 
@@ -865,9 +863,10 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     if spec == "-" {
       if let target = dest {
         let known = target.metadata()
-        match known {
-          Ok(info) => resume_from = info.size
-          Err(_) => resume_from = 0
+        if let Ok(info) = known {
+          resume_from = info.size
+        } else {
+          resume_from = 0
         }
       }
     } else {
@@ -981,12 +980,11 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
         return {code: 33, again: null}
       }
       if settings.compressed and http_transfer.header_value(reply.headers, "content-encoding") == "gzip" and !streamed {
-        match gunzip(body) {
-          Ok(plain) => body = plain
-          Err(_) => {
-            show_error(settings, 61, "Unrecognized content encoding type")
-            return {code: 61, again: null}
-          }
+        if let Ok(plain) = gunzip(body) {
+          body = plain
+        } else {
+          show_error(settings, 61, "Unrecognized content encoding type")
+          return {code: 61, again: null}
         }
       }
       if let limit = settings.max_filesize {

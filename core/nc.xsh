@@ -464,9 +464,10 @@ proc lookup(host: Str, opts: Options) [net] -> Lookup {
 # reverse name when the resolver has one.
 proc address_name(addr: Str, opts: Options) [net] -> Str {
   return addr when opts.numeric
-  match dns.reverse(addr) {
-    Ok(names) => return if names.is_empty() { addr } else { names[0] }
-    Err(_) => return addr
+  if let Ok(names) = dns.reverse(addr) {
+    return if names.is_empty() { addr } else { names[0] }
+  } else {
+    return addr
   }
 }
 
@@ -692,26 +693,24 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
 
     if stdin_open and pending.is_empty() and net_out {
       if readable(0, 0) {
-        match unix.read_fd(0, BUFSIZE) {
-          Ok(data) => {
-            if data.is_empty() {
-              stdin_open = false
-              if opts.quit >= 0 { timeout_ms = opts.quit * 1000 }
-            } else {
-              if opts.interval > 0 { time.sleep(time.seconds(opts.interval)) }
-              if opts.crlf {
-                pending = add_carriage_returns(data, after_cr)
-                after_cr = data.byte_at(data.len() - 1) == 13
-              } else {
-                pending = data
-              }
-              progressed = true
-            }
-          }
-          Err(_) => {
+        if let Ok(data) = unix.read_fd(0, BUFSIZE) {
+          if data.is_empty() {
             stdin_open = false
             if opts.quit >= 0 { timeout_ms = opts.quit * 1000 }
+          } else {
+            if opts.interval > 0 { time.sleep(time.seconds(opts.interval)) }
+            if opts.crlf {
+              pending = add_carriage_returns(data, after_cr)
+              after_cr = data.byte_at(data.len() - 1) == 13
+            } else {
+              pending = data
+            }
+        
+            progressed = true
           }
+        } else {
+          stdin_open = false
+          if opts.quit >= 0 { timeout_ms = opts.quit * 1000 }
         }
       }
     }
@@ -746,31 +745,29 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
     }
 
     if net_in and ("readable" in events or "hangup" in events or "error" in events) {
-      match unix.read_fd(fd, BUFSIZE) {
-        Ok(data) => {
-          if data.is_empty() {
-            net_in = false
-            attempt(linux.shutdown(fd, c.SHUT_RD))
-          } else {
-            progressed = true
-            received += 1
-            if opts.telnet { answer_telnet(fd, data) }
-            if stdout_open {
-              if let Err(_) = write_all(1, data) {
-                stdout_open = false
-                net_in = false
-                attempt(linux.shutdown(fd, c.SHUT_RD))
-              }
-            }
-            if opts.recvlimit > 0 and received >= opts.recvlimit {
+      if let Ok(data) = unix.read_fd(fd, BUFSIZE) {
+        if data.is_empty() {
+          net_in = false
+          attempt(linux.shutdown(fd, c.SHUT_RD))
+        } else {
+          progressed = true
+          received += 1
+          if opts.telnet { answer_telnet(fd, data) }
+          if stdout_open {
+            if let Err(_) = write_all(1, data) {
+              stdout_open = false
               net_in = false
               attempt(linux.shutdown(fd, c.SHUT_RD))
             }
           }
+      
+          if opts.recvlimit > 0 and received >= opts.recvlimit {
+            net_in = false
+            attempt(linux.shutdown(fd, c.SHUT_RD))
+          }
         }
-        Err(_) => {
-          net_in = false
-        }
+      } else {
+        net_in = false
       }
     }
 

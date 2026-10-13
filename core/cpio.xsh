@@ -338,9 +338,10 @@ type UserSpec = {uid: Int?, gid: Int?}
 
 # The display form of a raw name for messages: invalid UTF-8 is replaced.
 pure shown(name: Bytes) -> Str {
-  match Path.parse_bytes(name) {
-    Ok(parsed) => parsed.display()
-    Err(_) => name.utf8() ?? "?"
+  if let Ok(parsed) = Path.parse_bytes(name) {
+    parsed.display()
+  } else {
+    name.utf8() ?? "?"
   }
 }
 
@@ -480,9 +481,10 @@ pure make_device(major: Int, minor: Int) -> Int {
 }
 
 pure le_word(value: Int) -> Bytes {
-  match bytes.from_ints([value % 256, value / 256 % 256]) {
-    Ok(word) => word
-    Err(_) => b"\0\0"
+  if let Ok(word) = bytes.from_ints([value % 256, value / 256 % 256]) {
+    word
+  } else {
+    b"\0\0"
   }
 }
 
@@ -867,31 +869,29 @@ pure strip_trailing_slashes(name: Bytes) -> Bytes {
 # Splits a name list read from standard input; the last name needs no
 # terminator. GNU cpio reads names as C strings, so a NUL inside a name ends it.
 pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
-  match data.utf8() {
-    Ok(text) => {
-      let parts = text.split(if terminator == 0 { "\0" } else { "\n" })
-      let names = collect {
-        for index in range(parts.len()) {
-          break when index == parts.len() - 1 and parts[index] == ""
-          let cstring = parts[index].find("\0") ?? -1
-          yield bytes.from_text(if cstring < 0 { parts[index] } else { parts[index].byte_slice(0, length: cstring) })
+  if let Ok(text) = data.utf8() {
+    let parts = text.split(if terminator == 0 { "\0" } else { "\n" })
+    let names = collect {
+      for index in range(parts.len()) {
+        break when index == parts.len() - 1 and parts[index] == ""
+        let cstring = parts[index].find("\0") ?? -1
+        yield bytes.from_text(if cstring < 0 { parts[index] } else { parts[index].byte_slice(0, length: cstring) })
+      }
+    }
+    names
+  } else {
+    var begin = 0
+    let names = collect {
+      for index in range(data.len()) {
+        if data.byte_at(index) == terminator {
+          yield cut_at_nul(data.slice(begin, index - begin))
+          begin = index + 1
         }
       }
-      names
+  
+      if begin < data.len() { yield cut_at_nul(data.slice(begin, data.len() - begin)) }
     }
-    Err(_) => {
-      var begin = 0
-      let names = collect {
-        for index in range(data.len()) {
-          if data.byte_at(index) == terminator {
-            yield cut_at_nul(data.slice(begin, index - begin))
-            begin = index + 1
-          }
-        }
-        if begin < data.len() { yield cut_at_nul(data.slice(begin, data.len() - begin)) }
-      }
-      names
-    }
+    names
   }
 }
 
@@ -1091,17 +1091,19 @@ pure pad_right(text: Str, width: Int) -> Str {
 
 proc owner_name(uid: Int, numeric: Bool) [fs] -> Str {
   return f"{uid}" when numeric
-  match user.by_uid(uid) {
-    Ok(account) => account.name
-    Err(_) => f"{uid}"
+  if let Ok(account) = user.by_uid(uid) {
+    account.name
+  } else {
+    f"{uid}"
   }
 }
 
 proc group_label(gid: Int, numeric: Bool) [fs] -> Str {
   return f"{gid}" when numeric
-  match group.by_gid(gid) {
-    Ok(entry) => entry.name
-    Err(_) => f"{gid}"
+  if let Ok(entry) = group.by_gid(gid) {
+    entry.name
+  } else {
+    f"{gid}"
   }
 }
 
@@ -1275,18 +1277,14 @@ proc link_to_name(st: Run, opts: Options, name: Bytes, target: Path) [fs, proces
 # otherwise remembers `name` as that inode's first file.
 proc link_to_inode(st: Run, opts: Options, name: Bytes, header: Header) [fs, process, env] -> Linked {
   let key = inode_key(header)
-  match st.inodes.get(key) {
-    Ok(existing) => {
-      return link_to_name(st, opts, name, existing)
-    }
-    Err(_) => {}
+  if let Ok(existing) = st.inodes.get(key) {
+    return link_to_name(st, opts, name, existing)
   }
-  match path_of(name) {
-    Ok(file) => {
-      return {linked: false, reason: "", st: {...st, inodes: st.inodes.set(key, file)}}
-    }
-    Err(_) => {}
+
+  if let Ok(file) = path_of(name) {
+    return {linked: false, reason: "", st: {...st, inodes: st.inodes.set(key, file)}}
   }
+
   {linked: false, reason: "", st: st}
 }
 
@@ -1422,27 +1420,25 @@ proc parse_owner(spec: Str) [fs, process, env] -> Result[UserSpec, Str] {
   var uid = null
   var gid = null
   if user_part != "" {
-    match user.lookup(user_part) {
-      Ok(account) => {
-        uid = account.uid
-        if colon >= 0 and group_part == "" { gid = account.gid }
-      }
-      Err(_) => {
-        match user_part.parse_int_decimal() {
-          Ok(number) => { uid = number }
-          Err(_) => { return Err("invalid user") }
-        }
+    if let Ok(account) = user.lookup(user_part) {
+      uid = account.uid
+      if colon >= 0 and group_part == "" { gid = account.gid }
+    } else {
+      if let Ok(number) = user_part.parse_int_decimal() {
+        uid = number
+      } else {
+        return Err("invalid user")
       }
     }
   }
   if group_part != "" {
-    match group.lookup(group_part) {
-      Ok(entry) => { gid = entry.gid }
-      Err(_) => {
-        match group_part.parse_int_decimal() {
-          Ok(number) => { gid = number }
-          Err(_) => { return Err("invalid group") }
-        }
+    if let Ok(entry) = group.lookup(group_part) {
+      gid = entry.gid
+    } else {
+      if let Ok(number) = group_part.parse_int_decimal() {
+        gid = number
+      } else {
+        return Err("invalid group")
       }
     }
   }
@@ -1830,10 +1826,7 @@ proc create_directory(st: Run, opts: Options, header: Header, existing: Bool, ch
 # After a data-carrying link is created, links every deferred name for the same inode to it.
 proc create_deferred_links(st: Run, opts: Options, header: Header) [fs, process, env] -> Run {
   var state = st
-  let target = match path_of(header.name) {
-    Ok(value) => value
-    Err(_) => { return st }
-  }
+  let target = if let Ok(value) = path_of(header.name) { value } else { return st }
   let remaining: List[Header] = collect {
     for waiting in st.deferred {
       if same_inode(waiting, header) {
@@ -2002,10 +1995,12 @@ proc extract_link(st: Run, opts: Options, header: Header, target: Bytes, chown_e
 proc replace_placeholders(st: Run, opts: Options, chown_enabled: Bool) [fs, process, env] -> Run {
   var state = st
   for holder in st.placeholders {
-    match fs.stat(holder.path, follow_symlinks: false) {
-      Ok(info) => continue when info.dev != holder.dev or info.ino != holder.ino
-      Err(_) => { continue }
+    if let Ok(info) = fs.stat(holder.path, follow_symlinks: false) {
+      continue when info.dev != holder.dev or info.ino != holder.ino
+    } else {
+      continue
     }
+
     match holder.path.unlink() {
       Ok(_) => {}
       Err(failure) => {
@@ -2084,30 +2079,24 @@ proc extract_entry(st: Run, opts: Options, format: Str, header: Header, content:
   let kind = kind_bits(header.mode)
   var existing_dir = false
   if ! opts.to_stdout {
-    match path_of(name) {
-      Ok(file) => {
-        match fs.stat(file, follow_symlinks: false) {
-          Ok(info) => {
-            if info.kind == "dir" and kind == TYPE_DIR {
-              existing_dir = true
-            } else if ! opts.unconditional and header.mtime <= info.mtime_ns / 1000000000 {
-              gnu.error(f"{shown(name)} not created: newer or same age version exists")
+    if let Ok(file) = path_of(name) {
+      if let Ok(info) = fs.stat(file, follow_symlinks: false) {
+        if info.kind == "dir" and kind == TYPE_DIR {
+          existing_dir = true
+        } else if ! opts.unconditional and header.mtime <= info.mtime_ns / 1000000000 {
+          gnu.error(f"{shown(name)} not created: newer or same age version exists")
+          return {name: name, st: state}
+        } else {
+          let removed = if info.kind == "dir" { file.remove_dir() } else { file.unlink() }
+          match removed {
+            Ok(_) => {}
+            Err(failure) => {
+              gnu.error(f"cannot remove current {shown(name)}: {gnu.strerror(failure)}")
               return {name: name, st: state}
-            } else {
-              let removed = if info.kind == "dir" { file.remove_dir() } else { file.unlink() }
-              match removed {
-                Ok(_) => {}
-                Err(failure) => {
-                  gnu.error(f"cannot remove current {shown(name)}: {gnu.strerror(failure)}")
-                  return {name: name, st: state}
-                }
-              }
             }
           }
-          Err(_) => {}
         }
       }
-      Err(_) => {}
     }
   }
   if kind == TYPE_FILE {
@@ -2128,16 +2117,16 @@ proc extract_entry(st: Run, opts: Options, format: Str, header: Header, content:
 proc read_tty_line(descriptor: Int) [process, net] -> Str? {
   var line = []
   while true {
-    match unix.read_fd(descriptor, 1) {
-      Ok(chunk) => {
-        if chunk.is_empty() {
-          return null when line.is_empty()
-          break
-        }
-        break when chunk == b"\n"
-        line += [chunk]
+    if let Ok(chunk) = unix.read_fd(descriptor, 1) {
+      if chunk.is_empty() {
+        return null when line.is_empty()
+        break
       }
-      Err(_) => { return null }
+    
+      break when chunk == b"\n"
+      line += [chunk]
+    } else {
+      return null
     }
   }
   bytes.concat(line).utf8() ?? ""
@@ -2407,13 +2396,12 @@ proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_sta
     if opts.renumber {
       if info.nlink > 1 {
         let key = inode_key(header)
-        match translated.get(key) {
-          Ok(known) => { header = {...header, ino: known} }
-          Err(_) => {
-            translated = translated.set(key, next_inode)
-            header = {...header, ino: next_inode}
-            next_inode += 1
-          }
+        if let Ok(known) = translated.get(key) {
+          header = {...header, ino: known}
+        } else {
+          translated = translated.set(key, next_inode)
+          header = {...header, ino: next_inode}
+          next_inode += 1
         }
       } else {
         header = {...header, ino: next_inode}
@@ -2566,26 +2554,24 @@ proc copy_pass(opts: Options, destination: Bytes, chown_enabled: Bool) [fs, io, 
       name: output,
     }
     var existing_dir = false
-    match fs.stat(target, follow_symlinks: false) {
-      Ok(old) => {
-        if old.kind == "dir" and info.kind == "dir" {
-          existing_dir = true
-        } else if ! opts.unconditional and header.mtime <= old.mtime_ns / 1000000000 {
-          gnu.error(f"{shown(output)} not created: newer or same age version exists")
-          continue
-        } else {
-          let removed = if old.kind == "dir" { target.remove_dir() } else { target.unlink() }
-          match removed {
-            Ok(_) => {}
-            Err(failure) => {
-              gnu.error(f"cannot remove current {shown(output)}: {gnu.strerror(failure)}")
-              continue
-            }
+    if let Ok(old) = fs.stat(target, follow_symlinks: false) {
+      if old.kind == "dir" and info.kind == "dir" {
+        existing_dir = true
+      } else if ! opts.unconditional and header.mtime <= old.mtime_ns / 1000000000 {
+        gnu.error(f"{shown(output)} not created: newer or same age version exists")
+        continue
+      } else {
+        let removed = if old.kind == "dir" { target.remove_dir() } else { target.unlink() }
+        match removed {
+          Ok(_) => {}
+          Err(failure) => {
+            gnu.error(f"cannot remove current {shown(output)}: {gnu.strerror(failure)}")
+            continue
           }
         }
       }
-      Err(_) => {}
     }
+
     if info.kind == "file" {
       var linked = false
       if opts.link {
@@ -2710,16 +2696,13 @@ proc read_archive(opts: Options) [fs, io, error, process, env] -> Bytes {
       }
     }
     if data.is_empty() {
-      match fs.stat(fp"/dev/stdin") {
-        Ok(info) => {
-          if info.kind == "char" or info.kind == "block" {
-            match unix.open_fd(fp"/dev/tty") {
-              Ok(_) => { die("end of volume reached: multi-volume archives are not supported") }
-              Err(failure) => { die(f"/dev/tty: {gnu.strerror(failure)}") }
-            }
+      if let Ok(info) = fs.stat(fp"/dev/stdin") {
+        if info.kind == "char" or info.kind == "block" {
+          match unix.open_fd(fp"/dev/tty") {
+            Ok(_) => die("end of volume reached: multi-volume archives are not supported")
+            Err(failure) => die(f"/dev/tty: {gnu.strerror(failure)}")
           }
         }
-        Err(_) => {}
       }
     }
   }
@@ -2761,9 +2744,10 @@ type Plan = {
 # Where -D puts relative archive names: they keep meaning what they meant before.
 proc anchored(name: Str, directory: Str?) [fs, error] -> Path {
   return fp"{name}" when directory == null or name.starts_with("/")
-  match fs.cwd() {
-    Ok(here) => fp"{here}/{name}"
-    Err(_) => fp"{name}"
+  if let Ok(here) = fs.cwd() {
+    fp"{here}/{name}"
+  } else {
+    fp"{name}"
   }
 }
 

@@ -460,9 +460,10 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
 
 # Whether NAME is a symbolic link itself. A missing name is not a link.
 proc is_link(name: Str) [fs] -> Bool {
-  match fs.stat(fp"{name}", follow_symlinks: false) {
-    Ok(entry) => entry.kind == "symlink"
-    Err(_) => false
+  if let Ok(entry) = fs.stat(fp"{name}", follow_symlinks: false) {
+    entry.kind == "symlink"
+  } else {
+    false
   }
 }
 

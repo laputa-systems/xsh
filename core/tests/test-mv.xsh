@@ -138,9 +138,11 @@ test test_mv_backup_preserves_source_link_named_like_backup { |ctx|
 test test_mv_cross_device_file_copies_before_removing_source { |ctx|
   let root = test.temp_dir(ctx, name: "mv-cross-device")?
   let shared = p"/dev/shm"
-  let shared_meta = match fs.stat(shared) {
-    Ok(meta) => meta
-    Err(_) => { test.skip("/dev/shm is not available"); return }
+  let shared_meta = if let Ok(meta) = fs.stat(shared) {
+    meta
+  } else {
+    test.skip("/dev/shm is not available")
+    return
   }
   if fs.stat(root)?.dev == shared_meta.dev { test.skip("requires a second filesystem"); return }
 
@@ -169,9 +171,11 @@ test test_mv_cross_device_file_copies_before_removing_source { |ctx|
 test test_mv_cross_device_directory_preserves_links_and_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "mv-cross-device-tree")?
   let shared = p"/dev/shm"
-  let shared_meta = match fs.stat(shared) {
-    Ok(meta) => meta
-    Err(_) => { test.skip("/dev/shm is not available"); return }
+  let shared_meta = if let Ok(meta) = fs.stat(shared) {
+    meta
+  } else {
+    test.skip("/dev/shm is not available")
+    return
   }
   if fs.stat(root)?.dev == shared_meta.dev { test.skip("requires a second filesystem"); return }
 
@@ -335,9 +339,11 @@ test test_mv_missing_duplicate_source_is_reported_before_overwrite_check { |ctx|
 test test_mv_cross_device_unremovable_target_reports_inter_device_failure { |ctx|
   let root = test.temp_dir(ctx, name: "mv-unremovable-target")?
   let shared = p"/dev/shm"
-  let shared_meta = match fs.stat(shared) {
-    Ok(meta) => meta
-    Err(_) => { test.skip("/dev/shm is not available"); return }
+  let shared_meta = if let Ok(meta) = fs.stat(shared) {
+    meta
+  } else {
+    test.skip("/dev/shm is not available")
+    return
   }
   if fs.stat(root)?.dev == shared_meta.dev { test.skip("requires a second filesystem"); return }
   if applet.current_euid() == 0 { test.skip("requires an unprivileged caller"); return }

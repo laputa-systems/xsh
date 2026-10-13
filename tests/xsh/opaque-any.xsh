@@ -124,10 +124,12 @@ test test_opaque_any_keeps_validation_and_path_operations {
   } else {
     assert false
   }
-  match json.get(raw, ["name"])? {
-    name is Str => assert name == "demo"
-    else => assert false
+  if let name is Str = json.get(raw, ["name"])? {
+    assert name == "demo"
+  } else {
+    assert false
   }
+
   assert json.get(raw, ["name"])? == "demo"
   assert json.get(raw, ["absent"], "fallback") == "fallback"
   assert json.get(raw, ["cells", 1])? == 2

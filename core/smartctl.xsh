@@ -562,9 +562,10 @@ proc nvme_page(fd: Int, command: Str, number: Int, length: Int) [process] -> Fet
 
 # The namespace id of a namespace node, or null for a controller node.
 proc nvme_namespace(fd: Int) [process] -> Int? {
-  match linux.nvme_namespace_id(fd) {
-    Ok(found) => found
-    Err(_) => null
+  if let Ok(found) = linux.nvme_namespace_id(fd) {
+    found
+  } else {
+    null
   }
 }
 

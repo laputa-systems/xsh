@@ -91,15 +91,17 @@ proc identity(spec: Str) [fs, error] -> Result[Identity] {
   var gid = null
   var username = null
   if parts[0] != "" {
-    match perm.uid(parts[0]) {
-      Ok(id) => uid = id
-      Err(_) => return Err(IdentityError.Invalid("invalid user"))
+    if let Ok(id) = perm.uid(parts[0]) {
+      uid = id
+    } else {
+      return Err(IdentityError.Invalid("invalid user"))
     }
   }
   if parts.len() == 2 and parts[1] != "" {
-    match perm.gid(parts[1]) {
-      Ok(id) => gid = id
-      Err(_) => return Err(IdentityError.Invalid("invalid group"))
+    if let Ok(id) = perm.gid(parts[1]) {
+      gid = id
+    } else {
+      return Err(IdentityError.Invalid("invalid group"))
     }
   }
   if let id = uid {
@@ -117,9 +119,10 @@ proc additional_groups(spec: Str) [fs, error, env] -> Result[List[Int]] {
     for name in spec.split(",") {
       continue when name == ""
       let group_name = name.trim()
-      match perm.gid(group_name) {
-        Ok(id) => yield id
-        Err(_) => return Err(IdentityError.Invalid(f"invalid group {gnu.quote(name)}"))
+      if let Ok(id) = perm.gid(group_name) {
+        yield id
+      } else {
+        return Err(IdentityError.Invalid(f"invalid group {gnu.quote(name)}"))
       }
     }
   }
@@ -149,12 +152,16 @@ proc set_identity(opts: Options, outer: Result[Identity], outer_groups: Result[L
     }
     let groups = match memberships {
       Ok(found) => found
-      Err(failure) => match outer_groups {
-        Ok(before) => {
-          if before.is_empty() { gnu.error(failure.message); exit 125 }
-          before
+      Err(failure) => if let Ok(before) = outer_groups {
+        if before.is_empty() {
+          gnu.error(failure.message)
+          exit 125
         }
-        Err(_) => { gnu.error(failure.message); exit 125 }
+      
+        before
+      } else {
+        gnu.error(failure.message)
+        exit 125
       }
     }
     if let Err(failure) = unix.set_groups(groups) {

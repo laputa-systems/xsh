@@ -702,9 +702,10 @@ proc parse_options(argv: List[Str]) [fs, error, process, env] -> Options {
             value = words[index]
             index += 1
           }
-          match value.parse_int_decimal() {
-            Ok(count) => opts.strip = count
-            Err(_) => gnu.usage_error(f"invalid number of strip components {gnu.quote_value(value)}")
+          if let Ok(count) = value.parse_int_decimal() {
+            opts.strip = count
+          } else {
+            gnu.usage_error(f"invalid number of strip components {gnu.quote_value(value)}")
           }
         }
         _ => gnu.usage_error(f"unrecognized option '--{long_name}'")
@@ -766,10 +767,12 @@ proc main(...argv: List[Str]) [fs, io, error, process, env, time] {
   match execute(opts) {
     Ok(_) => {}
     Err(failure) => {
-      match failure {
-        TarError.Invalid {message} => gnu.error(message)
-        _ => gnu.error(gnu.strerror(failure))
+      if let TarError.Invalid {message} = failure {
+        gnu.error(message)
+      } else {
+        gnu.error(gnu.strerror(failure))
       }
+
       exit 1
     }
   }

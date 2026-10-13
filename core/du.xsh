@@ -237,20 +237,21 @@ proc entry_metadata(root: FsRoot, entry: Path, name: Str, follow: Bool) [fs, err
     Ok(meta) => Ok({meta: meta, external_target: null})
     Err(failure) => {
       return Err(failure) when ! follow
-      match root.stat(entry, follow_symlinks: false) {
-        Ok(link) => {
-          return Err(failure) when link.kind != "symlink"
-          let target = root.readlink(entry)?.display()
-          let resolved = if target.starts_with("/") { fp"{target}" } else {
-            let directory = root.host_path()?.display()
-            fp"{if directory.ends_with("/") { f"{directory}{target}" } else { f"{directory}/{target}" }}"
-          }
-          match fs.stat(resolved, follow_symlinks: true) {
-            Ok(meta) => Ok({meta: meta, external_target: resolved})
-            Err(target_failure) => Err(target_failure)
-          }
+      if let Ok(link) = root.stat(entry, follow_symlinks: false) {
+        return Err(failure) when link.kind != "symlink"
+        let target = root.readlink(entry)?.display()
+        let resolved = if target.starts_with("/") {
+          fp"{target}"
+        } else {
+          let directory = root.host_path()?.display()
+          fp"{if directory.ends_with("/") { f"{directory}{target}" } else { f"{directory}/{target}" }}"
         }
-        Err(_) => Err(failure)
+        match fs.stat(resolved, follow_symlinks: true) {
+          Ok(meta) => Ok({meta: meta, external_target: resolved})
+          Err(target_failure) => Err(target_failure)
+        }
+      } else {
+        Err(failure)
       }
     }
   }
@@ -433,10 +434,11 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   }
   let patterns = collect {
     for pattern in excludes {
-      match regex.compile(glob_regex(pattern)) {
-        Ok(compiled) => yield compiled
-        Err(_) => { gnu.error(f"Invalid exclude syntax: {gnu.quote(pattern)}")
-          exit 1 }
+      if let Ok(compiled) = regex.compile(glob_regex(pattern)) {
+        yield compiled
+      } else {
+        gnu.error(f"Invalid exclude syntax: {gnu.quote(pattern)}")
+        exit 1
       }
     }
   }

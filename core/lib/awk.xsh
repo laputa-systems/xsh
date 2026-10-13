@@ -529,9 +529,13 @@ pure lvalue(program: Program, id: Int) -> Bool {
   match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; _ => false }
 }
 pure is_field_post_increment(program: Program, id: Int) -> Bool {
-  match program.expressions[id] {
-    Increment(target, _, true) => match program.expressions[target] { Field(_) => true; _ => false }
-    _ => false
+  if let Increment(target, _, true) = program.expressions[id] {
+    match program.expressions[target] {
+      Field(_) => true
+      _ => false
+    }
+  } else {
+    false
   }
 }
 # The optional variable after "getline"; without one the record becomes $0.
@@ -1133,9 +1137,10 @@ pure plain_text(value: Scalar) -> Result[Str] {
   }
 }
 pure scalar_text(value: Scalar, conversion: Str) -> Result[Str] {
-  match value {
-    Numeric(n) => float_text(n, conversion)
-    _ => plain_text(value)
+  if let Numeric(n) = value {
+    float_text(n, conversion)
+  } else {
+    plain_text(value)
   }
 }
 
@@ -1225,7 +1230,7 @@ pure formatted(value: Scalar, spec: Format, conversion: Str) -> Result[Str] {
   } else {
     let n = number(value)?
     if n - n != 0.0 {
-      result = special_text(n, match value { Nan(positive) => ! positive; _ => true })
+      result = special_text(n, if let Nan(positive) = value { ! positive } else { true })
       let count = spec.width - result.byte_len()
       if count > 0 { result = if spec.left { result + padding(" ", count) } else { padding(" ", count) + result } }
       return Ok(result)
@@ -1756,15 +1761,15 @@ pure regex_warnings(pattern: Str) -> List[Str] {
   while at < chars.len() {
     if chars[at] == "\\" { at += 2; continue }
     if chars[at] != "[" { at += 1; continue }
-    match rx_bracket(chars, at, NO_ALPHABET) {
-      Ok(bracket) => {
-        if bracket.at - at >= 4 and chars[at + 1] == ":" and chars[bracket.at - 2] == ":" {
-          let component = chars[at..bracket.at].join("")
-          found += [f"regexp component `{component}' should probably be `[{component}]'"]
-        }
-        at = bracket.at
+    if let Ok(bracket) = rx_bracket(chars, at, NO_ALPHABET) {
+      if bracket.at - at >= 4 and chars[at + 1] == ":" and chars[bracket.at - 2] == ":" {
+        let component = chars[at..bracket.at].join("")
+        found += [f"regexp component `{component}' should probably be `[{component}]'"]
       }
-      Err(_) => { return found }
+    
+      at = bracket.at
+    } else {
+      return found
     }
   }
   found
@@ -1871,16 +1876,16 @@ pure decode_lossy(data: Bytes) -> Result[Str] {
 }
 pure decode_chunk(carry: Bytes, fresh: Bytes) -> Result[Chunk] {
   let data = if carry.is_empty() { fresh } else { bytes.concat([carry, fresh]) }
-  match data.utf8() {
-    Ok(text) => Ok({text: text, tail: b"", lossy: false})
-    Err(_) => {
-      let keep = incomplete_tail(data)
-      let head = if keep > 0 { data.slice(0, length: data.len() - keep) } else { data }
-      let rest = if keep > 0 { data.slice(data.len() - keep, length: keep) } else { b"" }
-      match head.utf8() {
-        Ok(text) => Ok({text: text, tail: rest, lossy: false})
-        Err(_) => Ok({text: decode_lossy(head)?, tail: rest, lossy: true})
-      }
+  if let Ok(text) = data.utf8() {
+    Ok({text: text, tail: b"", lossy: false})
+  } else {
+    let keep = incomplete_tail(data)
+    let head = if keep > 0 { data.slice(0, length: data.len() - keep) } else { data }
+    let rest = if keep > 0 { data.slice(data.len() - keep, length: keep) } else { b"" }
+    if let Ok(text) = head.utf8() {
+      Ok({text: text, tail: rest, lossy: false})
+    } else {
+      Ok({text: decode_lossy(head)?, tail: rest, lossy: true})
     }
   }
 }
@@ -2358,15 +2363,16 @@ pure compile_place(x: List[Expression], names: List[Str], id: Int) -> Result[Pla
   }
 }
 pure is_dollar_zero(x: List[Expression], id: Int) -> Bool {
-  match x[id] { Number(n) => n == 0.0; _ => false }
+  if let Number(n) = x[id] { n == 0.0 } else { false }
 }
 
 # Regular expression operands that are literals push their pattern text
 # rather than the result of matching the record.
 pure compile_regex_source(x: List[Expression], names: List[Str], id: Int) -> Result[List[Op]] {
-  match x[id] {
-    RegexLiteral(pattern) => Ok([OpPushText(pattern)])
-    _ => compile_expression(x, names, id)
+  if let RegexLiteral(pattern) = x[id] {
+    Ok([OpPushText(pattern)])
+  } else {
+    compile_expression(x, names, id)
   }
 }
 
@@ -2411,9 +2417,10 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
       }
       if op == "~" or op == "!~" {
         let subject = compile_expression(x, names, left)?
-        match x[right] {
-          RegexLiteral(pattern) => { return Ok(subject + [if op == "~" { OpMatchLiteral(pattern) } else { OpNotMatchLiteral(pattern) }]) }
-          _ => { return Ok(subject + compile_expression(x, names, right)? + [if op == "~" { OpMatch } else { OpNotMatch }]) }
+        if let RegexLiteral(pattern) = x[right] {
+          return Ok(subject + [if op == "~" { OpMatchLiteral(pattern) } else { OpNotMatchLiteral(pattern) }])
+        } else {
+          return Ok(subject + compile_expression(x, names, right)? + [if op == "~" { OpMatch } else { OpNotMatch }])
         }
       }
       let first = compile_expression(x, names, left)?
@@ -2473,9 +2480,17 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
         ops += compile_regex_source(x, names, args[2])?
         match x[args[2]] { RegexLiteral(_) => { literal = true }; _ => {} }
       }
-      let array = match x[args[1]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }
+      let array = if let Variable(variable) = x[args[1]] {
+        array_spot(names, variable)
+      } else {
+        SpotNone
+      }
       var spots = [array]
-      if args.len() == 4 { spots += [match x[args[3]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }] }
+      if args.len() == 4 { spots += [if let Variable(variable) = x[args[3]] {
+        array_spot(names, variable)
+      } else {
+        SpotNone
+      }] }
       return Ok(ops + [OpArrayBuiltin(if literal { "split_regex" } else { "split" }, spots, args.len())])
     }
     if name == "match" {
@@ -2483,7 +2498,11 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
       ops += compile_expression(x, names, args[0])? + compile_regex_source(x, names, args[1])?
       let spots: List[Spot] = collect {
         if args.len() == 3 {
-          yield match x[args[2]] { Variable(variable) => array_spot(names, variable), _ => SpotNone }
+          yield if let Variable(variable) = x[args[2]] {
+            array_spot(names, variable)
+          } else {
+            SpotNone
+          }
         }
       }
       return Ok(ops + [OpArrayBuiltin("match", spots, args.len())])
@@ -2540,15 +2559,12 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
   # Anything else is a user function, resolved when the call runs.
   let kinds: List[Arg] = collect {
     for child in args {
-      match x[child] {
-        Variable(variable) => {
-          let slot = slot_of(names, variable)
-          yield if slot >= 0 { ArgLocal(slot) } else { ArgGlobal(variable) }
-        }
-        _ => {
-          ops += compile_expression(x, names, child)?
-          yield ArgValue
-        }
+      if let Variable(variable) = x[child] {
+        let slot = slot_of(names, variable)
+        yield if slot >= 0 { ArgLocal(slot) } else { ArgGlobal(variable) }
+      } else {
+        ops += compile_expression(x, names, child)?
+        yield ArgValue
       }
     }
   }
@@ -2572,15 +2588,27 @@ pure patch_markers(body: List[Op], break_to: Int, continue_to: Int) -> List[Op] 
 # A condition's code followed by the jump taken when it is false; a relational
 # comparison fuses into one operation.
 pure compile_condition(x: List[Expression], names: List[Str], id: Int, offset: Int) -> Result[List[Op]] {
-  match x[id] {
-    Binary(op, left, right) => {
-      let code = if op == "<" { 0 } else if op == "<=" { 1 } else if op == "==" { 2 } else if op == "!=" { 3 } else if op == ">" { 4 } else if op == ">=" { 5 } else { -1 }
-      if code >= 0 {
-        return Ok(compile_expression(x, names, left)? + compile_expression(x, names, right)? + [OpJumpUnless(code, offset)])
-      }
+  if let Binary(op, left, right) = x[id] {
+    let code = if op == "<" {
+      0
+    } else if op == "<=" {
+      1
+    } else if op == "==" {
+      2
+    } else if op == "!=" {
+      3
+    } else if op == ">" {
+      4
+    } else if op == ">=" {
+      5
+    } else {
+      -1
     }
-    _ => {}
+    if code >= 0 {
+      return Ok(compile_expression(x, names, left)? + compile_expression(x, names, right)? + [OpJumpUnless(code, offset)])
+    }
   }
+
   Ok(compile_expression(x, names, id)? + [OpJumpFalse(offset)])
 }
 pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str], id: Int) -> Result[List[Op]] {
@@ -2596,19 +2624,15 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       # An increment or plain assignment to a global whose value is not used.
       match x[child] {
         Increment(target, delta, post) => {
-          match x[target] {
-            Variable(name) => {
-              if slot_of(names, name) < 0 and name != "NF" { return Ok(site + [OpIncGlobal(name, delta)]) }
-            }
-            _ => {}
+          if let Variable(name) = x[target] {
+            if slot_of(names, name) < 0 and name != "NF" { return Ok(site + [OpIncGlobal(name, delta)]) }
           }
         }
         Assign(op, target, right) => {
-          match x[target] {
-            Variable(name) => {
-              if op == "=" and slot_of(names, name) < 0 and name != "NF" { return Ok(site + compile_expression(x, names, right)? + [OpStoreGlobal(name)]) }
+          if let Variable(name) = x[target] {
+            if op == "=" and slot_of(names, name) < 0 and name != "NF" {
+              return Ok(site + compile_expression(x, names, right)? + [OpStoreGlobal(name)])
             }
-            _ => {}
           }
         }
         _ => {}
@@ -2650,17 +2674,12 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       if initial != null { init_ops = compile_expression(x, names, initial)? + [OpPop] }
       var step_ops: List[Op] = []
       if step != null {
-        match x[step] {
-          Increment(target, delta, post) => {
-            match x[target] {
-              Variable(name) => {
-                if slot_of(names, name) < 0 and name != "NF" { step_ops = [OpIncGlobal(name, delta)] }
-              }
-              _ => {}
-            }
+        if let Increment(target, delta, post) = x[step] {
+          if let Variable(name) = x[target] {
+            if slot_of(names, name) < 0 and name != "NF" { step_ops = [OpIncGlobal(name, delta)] }
           }
-          _ => {}
         }
+
         if step_ops.is_empty() { step_ops = compile_expression(x, names, step)? + [OpPop] }
       }
       let inner = compile_statement(x, s, names, body)?
@@ -3422,9 +3441,17 @@ proc make_time(spec: Str, utc: Bool) -> Result[Int] {
   let seconds = days * 86400 + parts[3] * 3600 + parts[4] * 60 + parts[5]
   return Ok(seconds) when utc
   let calendar = time.to_calendar(seconds * 1000000000, true)?
-  match time.from_calendar(calendar.year, calendar.month, calendar.day, calendar.hour, calendar.minute, calendar.second) {
-    Ok(stamp) => Ok(stamp / 1000000000)
-    Err(_) => Ok(-1)
+  if let Ok(stamp) = time.from_calendar(
+    calendar.year,
+    calendar.month,
+    calendar.day,
+    calendar.hour,
+    calendar.minute,
+    calendar.second,
+  ) {
+    Ok(stamp / 1000000000)
+  } else {
+    Ok(-1)
   }
 }
 # gensub: how is "g"/"G" for all matches or the number of the match to replace;
@@ -3704,7 +3731,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   var out = ""
   var lossy = assigned_mapped
   for expression in program.expressions {
-    match expression { Text(content) => { if holds_mapped_bytes(content) { lossy = true } }; _ => {} }
+    if let Text(content) = expression { if holds_mapped_bytes(content) { lossy = true } }
   }
   var status = 0
   var site = 0
@@ -3890,13 +3917,13 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpNegate => {
           let value = stack[sp - 1]
           sp -= 1
-          match value {
-            Nan(positive) => { result = Nan(! positive) }
-            _ => {
-              let n = number(value)?
-              result = if is_nan(n) { Nan(true) } else { Numeric(-n) }
-            }
+          if let Nan(positive) = value {
+            result = Nan(! positive)
+          } else {
+            let n = number(value)?
+            result = if is_nan(n) { Nan(true) } else { Numeric(-n) }
           }
+
           produced = true
         }
         OpPlus => {
@@ -3928,18 +3955,29 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           let left = stack[sp]
           let right = stack[sp + 1]
           var holds = false
-          match left {
-            Numeric(a) => {
-              match right {
-                Numeric(b) => {
-                  holds = if code == 0 { a < b } else if code == 1 { a <= b } else if code == 2 { a == b } else if code == 3 { a != b } else if code == 4 { a > b } else { a >= b }
-                  if a == -0.0 or b == -0.0 { holds = relation(code, left, right, "%.6g", false)? }
-                }
-                _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? }
+          if let Numeric(a) = left {
+            if let Numeric(b) = right {
+              holds = if code == 0 {
+                a < b
+              } else if code == 1 {
+                a <= b
+              } else if code == 2 {
+                a == b
+              } else if code == 3 {
+                a != b
+              } else if code == 4 {
+                a > b
+              } else {
+                a >= b
               }
+              if a == -0.0 or b == -0.0 { holds = relation(code, left, right, "%.6g", false)? }
+            } else {
+              holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))?
             }
-            _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? }
+          } else {
+            holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))?
           }
+
           if ! holds { pc += offset }
         }
         OpStoreGlobal(name) => {
@@ -3959,9 +3997,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
           if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
           let current = globals.get(name) ?? Empty
-          match current {
-            Numeric(n) => { globals[name] = Numeric(n + delta) }
-            _ => { globals[name] = Numeric(number(current)? + delta) }
+          if let Numeric(n) = current {
+            globals[name] = Numeric(n + delta)
+          } else {
+            globals[name] = Numeric(number(current)? + delta)
           }
         }
         OpJump(offset) => { pc += offset }
@@ -4305,21 +4344,22 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             if usable { reader = readers.get(key) ?? no_reader() }
           }
           if usable {
-            match read_record(reader, record_separator(globals, mode)?, fold_case(globals)) {
-              Ok(got) => {
-                if got.reader.lossy { lossy = true }
-                if uses_stdin { stdin_reader = got.reader } else { readers[f"<{name}"] = got.reader }
-                if got.record == null { result = Numeric(0.0) } else {
-                  globals["RT"] = String(got.terminator)
-                  pending = if target.kind == 7 { 0 } else { target.kind }
-                  pending_name = target.name
-                  pending_slot = target.slot
-                  pending_key = target.key
-                  pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
-                  result = Numeric(1.0)
-                }
+            if let Ok(got) = read_record(reader, record_separator(globals, mode)?, fold_case(globals)) {
+              if got.reader.lossy { lossy = true }
+              if uses_stdin { stdin_reader = got.reader } else { readers[f"<{name}"] = got.reader }
+              if got.record == null {
+                result = Numeric(0.0)
+              } else {
+                globals["RT"] = String(got.terminator)
+                pending = if target.kind == 7 { 0 } else { target.kind }
+                pending_name = target.name
+                pending_slot = target.slot
+                pending_key = target.key
+                pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
+                result = Numeric(1.0)
               }
-              Err(_) => { result = Numeric(-1.0) }
+            } else {
+              result = Numeric(-1.0)
             }
           }
           produced = true
@@ -4337,22 +4377,24 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             temporary = started.temporary
           }
           result = Numeric(-1.0)
-          match read_record(readers.get(key) ?? no_reader(), record_separator(globals, mode)?, fold_case(globals)) {
-            Ok(got) => {
-              if got.reader.lossy { lossy = true }
-              readers[key] = got.reader
-              if got.record == null { result = Numeric(0.0) } else {
-                globals["RT"] = String(got.terminator)
-                pending = if target.kind == 7 { 0 } else { target.kind }
-                pending_name = target.name
-                pending_slot = target.slot
-                pending_key = target.key
-                pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
-                result = Numeric(1.0)
-              }
+          if let Ok(got) = read_record(readers.get(key) ?? no_reader(), record_separator(globals, mode)?, fold_case(globals)) {
+            if got.reader.lossy { lossy = true }
+            readers[key] = got.reader
+            if got.record == null {
+              result = Numeric(0.0)
+            } else {
+              globals["RT"] = String(got.terminator)
+              pending = if target.kind == 7 { 0 } else { target.kind }
+              pending_name = target.name
+              pending_slot = target.slot
+              pending_key = target.key
+              pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
+              result = Numeric(1.0)
             }
-            Err(_) => { result = Numeric(-1.0) }
+          } else {
+            result = Numeric(-1.0)
           }
+
           produced = true
         }
         OpBuiltin(name, count) => {
@@ -4640,10 +4682,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             sp = base
             let regex_mode = name == "split_regex"
             var array = ""
-            match array_of(spots[0], slots, aliases, globals) {
-              Ok(named) => { array = named }
-              Err(_) => { Err(fatal_error("split: second argument is not an array"))? }
+            if let Ok(named) = array_of(spots[0], slots, aliases, globals) {
+              array = named
+            } else {
+              Err(fatal_error("split: second argument is not an array"))?
             }
+
             if count == 4 {
               let seps_array = array_of(spots[1], slots, aliases, globals)?
               let parts = split_with_separators(content, separator, regex_mode, ignore_case)?
@@ -4699,15 +4743,18 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               sp -= 1
             }
             var source = ""
-            match array_of(spots[0], slots, aliases, globals) {
-              Ok(found) => { source = found }
-              Err(_) => { Err(fatal_error(f"{name}: first argument is not an array"))? }
+            if let Ok(found) = array_of(spots[0], slots, aliases, globals) {
+              source = found
+            } else {
+              Err(fatal_error(f"{name}: first argument is not an array"))?
             }
+
             var destination = source
             if spots.len() >= 2 {
-              match array_of(spots[1], slots, aliases, globals) {
-                Ok(found) => { destination = found }
-                Err(_) => { Err(fatal_error(f"{name}: second argument is not an array"))? }
+              if let Ok(found) = array_of(spots[1], slots, aliases, globals) {
+                destination = found
+              } else {
+                Err(fatal_error(f"{name}: second argument is not an array"))?
               }
             }
             let items: List[SortItem] = collect {

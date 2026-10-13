@@ -111,9 +111,8 @@ proc find_program(name: Str) [fs, env] -> Str? {
     }
   }
   for candidate in candidates {
-    match fs.stat(fp"{candidate}", follow_symlinks: true) {
-      Ok(info) => return candidate when info.kind == "file"
-      Err(_) => {}
+    if let Ok(info) = fs.stat(fp"{candidate}", follow_symlinks: true) {
+      return candidate when info.kind == "file"
     }
   }
   null

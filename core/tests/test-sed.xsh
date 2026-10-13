@@ -333,9 +333,10 @@ pure octal_mode(mode: Int) -> Str {
 # or permission bits and contents.
 proc describe_file(work: Path, name: Str) [fs, error] -> Result[Str] {
   let target = fp"{work}/{name}"
-  let info = match fs.stat(target, follow_symlinks: false) {
-    Ok(value) => value
-    Err(_) => { return Ok(f"file {name} absent") }
+  let info = if let Ok(value) = fs.stat(target, follow_symlinks: false) {
+    value
+  } else {
+    return Ok(f"file {name} absent")
   }
   return Ok(f"file {name} directory") when info.kind == "dir"
   if info.kind == "symlink" { return Ok(f"file {name} symlink '{escape_bytes(bytes.from_text(target.readlink()?.display()))}'") }

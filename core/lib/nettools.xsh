@@ -179,9 +179,10 @@ export pure ipv4_parse(text: Str) -> Bytes? {
       yield value
     }
   }
-  match bytes.from_ints(octets) {
-    Ok(raw) => raw
-    Err(_) => null
+  if let Ok(raw) = bytes.from_ints(octets) {
+    raw
+  } else {
+    null
   }
 }
 
@@ -204,9 +205,10 @@ export pure ether_parse(text: Str) -> Bytes? {
       yield value
     }
   }
-  match bytes.from_ints(octets) {
-    Ok(raw) => raw
-    Err(_) => null
+  if let Ok(raw) = bytes.from_ints(octets) {
+    raw
+  } else {
+    null
   }
 }
 
@@ -215,10 +217,7 @@ export pure netmask_parse(text: Str) -> Bytes? {
   if text.starts_with("0x") or text.starts_with("0X") {
     let value = text.parse_int() ?? -1
     return null when value < 0 or value > 4294967295
-    return match bytes.pack_be(value, 4) {
-      Ok(raw) => raw
-      Err(_) => null
-    }
+    return if let Ok(raw) = bytes.pack_be(value, 4) { raw } else { null }
   }
   ipv4_parse(text)
 }
@@ -235,9 +234,10 @@ export pure prefix_mask(prefix: Int) -> Bytes {
       yield OCTET_BY_BITS[clamped]
     }
   }
-  match bytes.from_ints(octets) {
-    Ok(raw) => raw
-    Err(_) => b""
+  if let Ok(raw) = bytes.from_ints(octets) {
+    raw
+  } else {
+    b""
   }
 }
 
@@ -301,9 +301,10 @@ export pure ipv6_parse(text: Str) -> Bytes? {
       yield @[value / 256, value % 256]
     }
   }
-  match bytes.from_ints(octets) {
-    Ok(raw) => raw
-    Err(_) => null
+  if let Ok(raw) = bytes.from_ints(octets) {
+    raw
+  } else {
+    null
   }
 }
 
@@ -313,9 +314,10 @@ export pure decimal(text: Str) -> Int? {
   for digit in text {
     return null when HEX.find(digit) == null or (HEX.find(digit) ?? 0) > 9
   }
-  match text.parse_int_decimal() {
-    Ok(value) => value
-    Err(_) => null
+  if let Ok(value) = text.parse_int_decimal() {
+    value
+  } else {
+    null
   }
 }
 

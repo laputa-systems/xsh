@@ -328,9 +328,10 @@ proc run_case(ctx: TestContext, case: MatrixCase, index: Int) [fs, process, env,
 }
 # The directory path is the one volatile value in the output.
 pure normalized(data: Bytes, root: Str) -> Bytes {
-  match data.utf8() {
-    Ok(text) => bytes.from_text(text.replace(root, with: "@DIR@"))
-    Err(_) => data
+  if let Ok(text) = data.utf8() {
+    bytes.from_text(text.replace(root, with: "@DIR@"))
+  } else {
+    data
   }
 }
 

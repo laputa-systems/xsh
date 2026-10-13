@@ -192,20 +192,19 @@ pure prepare_arguments(argv: List[Bytes]) -> gnu.PreparedArguments {
 
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0split-raw-argument-{index}\0"
-        let equals = equals_offset(argument)
-        let name = if equals > 0 { argument[0..equals].utf8() ?? "" } else { "" }
-
-        if name.starts_with("--") {
-          text += [f"{name}={marker}"]
-          raw += [{marker: marker, value: argument[equals + 1..]}]
-        } else {
-          text += [marker]
-          raw += [{marker: marker, value: argument}]
-        }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0split-raw-argument-{index}\0"
+      let equals = equals_offset(argument)
+      let name = if equals > 0 { argument[0..equals].utf8() ?? "" } else { "" }
+    
+      if name.starts_with("--") {
+        text += [f"{name}={marker}"]
+        raw += [{marker: marker, value: argument[equals + 1..]}]
+      } else {
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
       }
     }
   }

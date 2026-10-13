@@ -199,9 +199,10 @@ export pure stored_bytes(text: Str, encoded: Str) -> Bytes {
 
 ## Replace the invoking user's ids in recorded output with portable markers.
 export pure mark_ids(data: Bytes, uid: Int, gid: Int) -> Bytes {
-  match data.utf8() {
-    Ok(text) => bytes.from_text(text.replace(f"{uid}", with: "@UID@").replace(f"{gid}", with: "@GID@"))
-    Err(_) => data
+  if let Ok(text) = data.utf8() {
+    bytes.from_text(text.replace(f"{uid}", with: "@UID@").replace(f"{gid}", with: "@GID@"))
+  } else {
+    data
   }
 }
 
@@ -253,9 +254,10 @@ proc listing(directory: Path, strip: Int) [fs, error] -> Result[List[Bytes]] {
 }
 
 pure with_root_name(data: Bytes, root: Path) -> Bytes {
-  match data.utf8() {
-    Ok(text) => bytes.from_text(text.replace(root.display(), with: "/fixture"))
-    Err(_) => data
+  if let Ok(text) = data.utf8() {
+    bytes.from_text(text.replace(root.display(), with: "/fixture"))
+  } else {
+    data
   }
 }
 

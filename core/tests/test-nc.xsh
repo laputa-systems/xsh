@@ -254,18 +254,16 @@ test test_nc_talks_to_itself_and_half_closes { |ctx|
 }
 
 test test_nc_listen_without_n_names_the_address { |ctx|
-  match dns.reverse("127.0.0.1") {
-    Ok(names) => {
-      guard names == ["localhost"] else {
-        test.skip("127.0.0.1 does not reverse-resolve to localhost here")
-        return
-      }
-    }
-    Err(_) => {
-      test.skip("127.0.0.1 does not reverse-resolve here")
+  if let Ok(names) = dns.reverse("127.0.0.1") {
+    guard names == ["localhost"] else {
+      test.skip("127.0.0.1 does not reverse-resolve to localhost here")
       return
     }
+  } else {
+    test.skip("127.0.0.1 does not reverse-resolve here")
+    return
   }
+
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-names")?
   let handle = spawn nc_command(ctx, root, "server", ["-v", "-l", "127.0.0.1", f"{port}"])?
@@ -278,18 +276,16 @@ test test_nc_listen_without_n_names_the_address { |ctx|
 }
 
 test test_nc_without_n_to_a_name_prints_the_address_it_used { |ctx|
-  match dns.resolve_host("localhost") {
-    Ok(rows) => {
-      if [r for r in rows if r.addr == "127.0.0.1"].is_empty() {
-        test.skip("localhost has no IPv4 address here")
-        return
-      }
-    }
-    Err(_) => {
-      test.skip("localhost does not resolve here")
+  if let Ok(rows) = dns.resolve_host("localhost") {
+    if [r for r in rows if r.addr == "127.0.0.1"].is_empty() {
+      test.skip("localhost has no IPv4 address here")
       return
     }
+  } else {
+    test.skip("localhost does not resolve here")
+    return
   }
+
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let ran = run_nc(ctx, ["-4", "-z", "-v", "localhost", f"{server.port}"])?
@@ -480,9 +476,10 @@ test test_nc_receive_limit_ends_the_session { |ctx|
   var client = -1
   let started = time.now()
   while client < 0 and time.now() - started < 10000 {
-    match tcp_client(port) {
-      Ok(fd) => client = fd
-      Err(_) => time.sleep(20ms)
+    if let Ok(fd) = tcp_client(port) {
+      client = fd
+    } else {
+      time.sleep(20ms)
     }
   }
   assert client >= 0

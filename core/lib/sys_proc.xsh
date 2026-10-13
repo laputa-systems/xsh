@@ -119,10 +119,7 @@ export proc collect_local_display(root: FsRoot, process_rows: List[Process]) [fs
         if let Ok(name) = user_names.get(uid) {
           name
         } else {
-          let name = match user.by_uid(uid) {
-            Ok(account) => account.name
-            Err(_) => f"{uid}"
-          }
+          let name = if let Ok(account) = user.by_uid(uid) { account.name } else { f"{uid}" }
           user_names = user_names.set(uid, name)
           name
         }

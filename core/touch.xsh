@@ -14,13 +14,12 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0touch-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0touch-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -166,15 +165,18 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     let date_input = normalize_date_displacement(text)
     let access_time = date_parse.parse_instant(date_input, base: atime ?? base)
     let modify_time = date_parse.parse_instant(date_input, base: mtime ?? base)
-    match access_time {
-      Ok(value) => atime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
-      Err(_) => { gnu.error(f"invalid date format {gnu.quote_value(text)}")
-        exit 1 }
+    if let Ok(value) = access_time {
+      atime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
+    } else {
+      gnu.error(f"invalid date format {gnu.quote_value(text)}")
+      exit 1
     }
-    match modify_time {
-      Ok(value) => mtime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
-      Err(_) => { gnu.error(f"invalid date format {gnu.quote_value(text)}")
-        exit 1 }
+
+    if let Ok(value) = modify_time {
+      mtime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
+    } else {
+      gnu.error(f"invalid date format {gnu.quote_value(text)}")
+      exit 1
     }
   }
   var failed = false

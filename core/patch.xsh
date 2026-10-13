@@ -644,19 +644,14 @@ type Target = {read: Str, write: Str, action: Str, mode: Int}
 proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], scan: patch_parse.Scan, target: Target, facts: Facts) [fs, io, process, env, error] -> PatchStatus {
   let name = target.read
   var entry_kind = ""
-  match fs.stat(fp"{name}", follow_symlinks: false) {
-    Ok(info) => { entry_kind = info.kind }
-    Err(_) => {}
-  }
+  if let Ok(info) = fs.stat(fp"{name}", follow_symlinks: false) { entry_kind = info.kind }
+
   var exists = false
   var blocked = ""
   if entry_kind != "" {
     var kind = entry_kind
     if entry_kind == "symlink" and opts.follow_symlinks {
-      match fs.stat(fp"{name}", follow_symlinks: true) {
-        Ok(info) => { kind = info.kind }
-        Err(_) => { kind = "dangling" }
-      }
+      if let Ok(info) = fs.stat(fp"{name}", follow_symlinks: true) { kind = info.kind } else { kind = "dangling" }
     }
     if kind != "file" and kind != "dangling" {
       blocked = f"File {q(opts, name)} is not a regular file -- refusing to patch\n"

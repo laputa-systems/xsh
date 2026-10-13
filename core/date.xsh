@@ -121,9 +121,10 @@ proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: D
 }
 
 proc reject_extra_operand(raw: Bytes) [process, env] -> Unit {
-  match raw.utf8() {
-    Ok(text) => gnu.extra_operand(text)
-    Err(_) => gnu.usage_error(f"extra operand {gnu.quote_value_bytes(raw)}")
+  if let Ok(text) = raw.utf8() {
+    gnu.extra_operand(text)
+  } else {
+    gnu.usage_error(f"extra operand {gnu.quote_value_bytes(raw)}")
   }
 }
 
@@ -483,13 +484,13 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateSty
   # A date with undecodable bytes cannot match any date syntax, so it is reported
   # with octal escapes instead of being parsed.
   var text = ""
-  match raw.utf8() {
-    Ok(value) => text = value
-    Err(_) => {
-      gnu.error(f"invalid date {gnu.quote_value_bytes(raw)}")
-      return false
-    }
+  if let Ok(value) = raw.utf8() {
+    text = value
+  } else {
+    gnu.error(f"invalid date {gnu.quote_value_bytes(raw)}")
+    return false
   }
+
   let base = date_parse.instant_from_ns(time.now() * 1000000)
   match parse_date(text, utc:, base:) {
     Ok(epoch) => {
@@ -624,10 +625,13 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
   if setting {
     if date_operand and date.len() == 0 { gnu.error(f"invalid date {gnu.quote_bytes(date)}"); exit 1 }
     var text = ""
-    match date.utf8() {
-      Ok(value) => text = value
-      Err(_) => { gnu.error(f"invalid date {gnu.quote_value_bytes(date)}"); exit 1 }
+    if let Ok(value) = date.utf8() {
+      text = value
+    } else {
+      gnu.error(f"invalid date {gnu.quote_value_bytes(date)}")
+      exit 1
     }
+
     let parsed = if set_option { parse_date(text, utc:) } else { date_parse.parse_instant(text, utc:) }
     match parsed {
       Ok(epoch) => {

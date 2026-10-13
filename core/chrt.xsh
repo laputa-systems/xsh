@@ -134,18 +134,17 @@ proc number_argument(text: Str, what: Str, low: Int, high: Int) [process, env] -
 # The task ids of a process, ascending, or null when the process does not exist
 # (a live process always has at least its main task).
 proc task_ids(pid: Int) [process, error] -> List[Int]? {
-  match process.threads(pid) {
-    Ok(threads) => {
-      let rows: List[ProcessThread] = threads |> collect
-      let ids = collect {
-        for row in rows {
-          yield row.thread_id
-        }
+  if let Ok(threads) = process.threads(pid) {
+    let rows: List[ProcessThread] = threads |> collect()
+    let ids = collect {
+      for row in rows {
+        yield row.thread_id
       }
-
-      if ids.is_empty() { null } else { ids |> sort }
     }
-    Err(_) => null
+  
+    if ids.is_empty() { null } else { ids |> sort }
+  } else {
+    null
   }
 }
 
@@ -157,9 +156,10 @@ proc show_max() [process, env, io] {
   var text = ""
 
   for policy in POLICIES {
-    match process.scheduler_priorities(policy.name) {
-      Ok(range) => text = f"{text}{policy.label} min/max priority\t: {range.min}/{range.max}\n"
-      Err(_) => text = f"{text}{policy.label} not supported?\n"
+    if let Ok(range) = process.scheduler_priorities(policy.name) {
+      text = f"{text}{policy.label} min/max priority\t: {range.min}/{range.max}\n"
+    } else {
+      text = f"{text}{policy.label} not supported?\n"
     }
   }
 

@@ -664,12 +664,14 @@ proc compare_entry(cfg: Settings, left_name: Str, right_name: Str, trail: List[S
   if let Err(failure) = left { gnu.name_error(left_name, failure); return 2 }
   let right = probe(cfg, right_name, missing)
   if let Err(failure) = right { gnu.name_error(right_name, failure); return 2 }
-  match left {
-    Ok(first) => match right {
-      Ok(second) => compare_known(cfg, first, second, true, trail)
-      Err(_) => 2
+  if let Ok(first) = left {
+    if let Ok(second) = right {
+      compare_known(cfg, first, second, true, trail)
+    } else {
+      2
     }
-    Err(_) => 2
+  } else {
+    2
   }
 }
 
@@ -687,8 +689,8 @@ proc compare_operands(cfg: Settings, left_name: Str, right_name: Str) [fs, io, p
   }
   return 2 when failed
   let blank: Probe = {name: "", kind: "absent", size: 0, identity: "", target: "", mtime_ns: 0, rdev: 0}
-  let first = match left { Ok(item) => item, Err(_) => blank }
-  let second = match right { Ok(item) => item, Err(_) => blank }
+  let first = if let Ok(item) = left { item } else { blank }
+  let second = if let Ok(item) = right { item } else { blank }
   if first.kind == "absent" and second.kind == "absent" {
     if left_name == right_name {
       gnu.error(gnu.quote_maybe(left_name))

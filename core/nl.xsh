@@ -6,20 +6,18 @@ type Options = {body: Str, header: Str, footer: Str, delimiter: Str, increment: 
 
 proc number(value: Str, what: Str, minimum: Int, maximum: Int) -> Int {
   if value == "-9223372036854775808" and minimum == -9223372036854775807 - 1 { return minimum }
-  match value.parse_int() {
-    Ok(parsed) => {
-      if parsed < minimum or parsed > maximum {
-        let reason = if parsed < minimum { ": Result not representable" } else { ": Value too large for data type" }
-        gnu.error(f"invalid {what}: {gnu.quote_value(value)}{reason}")
-        exit 1
-      }
-      parsed
-    }
-    Err(_) => {
-      let overflow = rx"^[+-]?[0-9]+$".matches(value)
-      gnu.error(f"invalid {what}: {gnu.quote_value(value)}{if overflow { ": Value too large for data type" } else { "" }}")
+  if let Ok(parsed) = value.parse_int() {
+    if parsed < minimum or parsed > maximum {
+      let reason = if parsed < minimum { ": Result not representable" } else { ": Value too large for data type" }
+      gnu.error(f"invalid {what}: {gnu.quote_value(value)}{reason}")
       exit 1
     }
+  
+    parsed
+  } else {
+    let overflow = rx"^[+-]?[0-9]+$".matches(value)
+    gnu.error(f"invalid {what}: {gnu.quote_value(value)}{if overflow { ": Value too large for data type" } else { "" }}")
+    exit 1
   }
 }
 

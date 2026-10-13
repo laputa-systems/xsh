@@ -750,9 +750,10 @@ test test_uu_df_nonexistent_file { |ctx|
 # origin: uutils test_df::test_df_all_shows_binfmt_misc
 test test_uu_df_df_all_shows_binfmt_misc { |ctx|
   let s = uu.scene(ctx)?
-  let mounted = match p"/proc/self/mountinfo".read_text() {
-    Ok(content) => "binfmt_misc" in content,
-    Err(_) => false,
+  let mounted = if let Ok(content) = p"/proc/self/mountinfo".read_text() {
+    "binfmt_misc" in content
+  } else {
+    false
   }
   if mounted {
   let r = uu.invoke(s, "df", ["--all", "--output=fstype,target"])?
@@ -764,9 +765,10 @@ test test_uu_df_df_all_shows_binfmt_misc { |ctx|
 # origin: uutils test_df::test_df_hides_binfmt_misc_by_default
 test test_uu_df_df_hides_binfmt_misc_by_default { |ctx|
   let s = uu.scene(ctx)?
-  let mounted = match p"/proc/self/mountinfo".read_text() {
-    Ok(content) => "binfmt_misc" in content,
-    Err(_) => false,
+  let mounted = if let Ok(content) = p"/proc/self/mountinfo".read_text() {
+    "binfmt_misc" in content
+  } else {
+    false
   }
   if mounted {
   let r = uu.invoke(s, "df", ["--output=fstype,target"])?

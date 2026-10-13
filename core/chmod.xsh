@@ -175,10 +175,12 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
     if opts.verbosity == "verbose" { gnu.write_text(f"neither symbolic link {gnu.quote(f"{target}")} nor referent has been changed\n") }
     return success
   }
-  match target.chmod(after, follow_symlinks: opts.dereference) {
-    Err(failure) => { if ! opts.quiet { gnu.error(f"changing permissions of {gnu.quote(f"{target}")}: {gnu.strerror(failure)}") }; failed_mode(target, before, after, opts); return false }
-    Ok(_) => {}
+  if let Err(failure) = target.chmod(after, follow_symlinks: opts.dereference) {
+    if ! opts.quiet { gnu.error(f"changing permissions of {gnu.quote(f"{target}")}: {gnu.strerror(failure)}") }
+    failed_mode(target, before, after, opts)
+    return false
   }
+
   if opts.verbosity == "verbose" or (opts.verbosity == "changes" and before != after) {
     let message = if before == after { f"mode of {gnu.quote(f"{target}")} retained as {octal_text(before)} ({symbolic_text(before)})" } else { f"mode of {gnu.quote(f"{target}")} changed from {octal_text(before)} ({symbolic_text(before)}) to {octal_text(after)} ({symbolic_text(after)})" }
     gnu.write_text(f"{message}\n")
