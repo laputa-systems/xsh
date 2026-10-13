@@ -285,7 +285,7 @@ pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[
       if unified {
         let line = f"@@ -{unified_range(first0, last0)} +{unified_range(first1, last1)} @@"
         yield paint(fmt, 4, bytes.from_text(line))
-        if !title.text.is_empty() { yield @[b" ", title.text] }
+        yield @[b" ", title.text] unless title.text.is_empty()
         yield b"\n"
         var cursor = 0
         var i = first0
@@ -293,7 +293,7 @@ pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[
         while i <= last0 or j <= last1 {
           if cursor >= chain.len() or i < chain[cursor].line0 {
             let blank = fmt.suppress_blank_empty and first.lines[i].is_empty()
-            if !blank { yield if fmt.initial_tab { b"\t" } else { b" " } }
+            yield if fmt.initial_tab { b"\t" } else { b" " } unless blank
             yield render_line("", first.lines[i], !terminated(first, i), fmt, 0)
             i += 1
             j += 1
@@ -312,7 +312,7 @@ pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[
         }
       } else {
         yield b"***************"
-        if !title.text.is_empty() { yield @[b" ", title.text] }
+        yield @[b" ", title.text] unless title.text.is_empty()
         yield @[b"\n", paint(fmt, 4, bytes.from_text(f"*** {range_pair(first0, last0)} ****")), b"\n"]
         if hunk.changes.bit_and(OLD) != 0 {
           var cursor = 0
