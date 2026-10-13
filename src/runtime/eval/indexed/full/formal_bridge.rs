@@ -13,6 +13,9 @@ const SOURCE_SCHEMA: &str = "xsh-source-v1";
 const RAW_IR_SCHEMA: &str = "xsh-raw-ir-v1";
 const RAW_IR_SCOPE: &str = "scalar-literal-boundary-fixture-v1";
 const SERIALIZATION_ONLY_NAN: u64 = 0x7ff8_0000_0000_0042;
+// Keep this private fixture transport bounded without exposing parser tuning as a runtime option.
+const MAX_TRANSPORT_DOCUMENT_BYTES: usize = 64 * 1024;
+const MAX_JSON_CONTAINER_DEPTH: usize = 64;
 
 /// Exchanged table IDs are one-based and leave the maximum word for absence.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -178,12 +181,15 @@ struct JsonParser<'a> {
 
 impl<'a> JsonParser<'a> {
     fn parse(input: &'a str) -> Result<Json, String> {
+        if input.len() > MAX_TRANSPORT_DOCUMENT_BYTES {
+            return Err("wire document exceeds the private transport byte limit".to_string());
+        }
         let mut parser = Self {
             input,
             bytes: input.as_bytes(),
             index: 0,
         };
-        let value = parser.value()?;
+        let value = parser.value(0)?;
         parser.whitespace();
         if parser.index != parser.bytes.len() {
             return Err("trailing data after JSON document".to_string());
@@ -191,14 +197,21 @@ impl<'a> JsonParser<'a> {
         Ok(value)
     }
 
-    fn value(&mut self) -> Result<Json, String> {
+    fn value(&mut self, parent_depth: usize) -> Result<Json, String> {
         self.whitespace();
         match self.bytes.get(self.index).copied() {
             Some(b'"') => self.string().map(Json::String),
-            Some(b'[') => self.array(),
-            Some(b'{') => self.object(),
+            Some(b'[') => self.array(self.next_container_depth(parent_depth)?),
+            Some(b'{') => self.object(self.next_container_depth(parent_depth)?),
             _ => Err("wire documents contain only strings, arrays, and objects".to_string()),
         }
+    }
+
+    fn next_container_depth(&self, parent_depth: usize) -> Result<usize, String> {
+        parent_depth
+            .checked_add(1)
+            .filter(|depth| *depth <= MAX_JSON_CONTAINER_DEPTH)
+            .ok_or_else(|| "wire document exceeds the private JSON nesting limit".to_string())
     }
 
     fn string(&mut self) -> Result<String, String> {
@@ -224,7 +237,7 @@ impl<'a> JsonParser<'a> {
         Err("unterminated JSON string".to_string())
     }
 
-    fn array(&mut self) -> Result<Json, String> {
+    fn array(&mut self, depth: usize) -> Result<Json, String> {
         self.index += 1;
         self.whitespace();
         let mut values = Vec::new();
@@ -232,7 +245,7 @@ impl<'a> JsonParser<'a> {
             return Ok(Json::Array(values));
         }
         loop {
-            values.push(self.value()?);
+            values.push(self.value(depth)?);
             self.whitespace();
             if self.consume(b']') {
                 return Ok(Json::Array(values));
@@ -243,7 +256,7 @@ impl<'a> JsonParser<'a> {
         }
     }
 
-    fn object(&mut self) -> Result<Json, String> {
+    fn object(&mut self, depth: usize) -> Result<Json, String> {
         self.index += 1;
         self.whitespace();
         let mut fields = Vec::new();
@@ -260,7 +273,7 @@ impl<'a> JsonParser<'a> {
             if !self.consume(b':') {
                 return Err("expected colon after JSON object key".to_string());
             }
-            let value = self.value()?;
+            let value = self.value(depth)?;
             fields.push((key, value));
             self.whitespace();
             if self.consume(b'}') {
@@ -273,11 +286,10 @@ impl<'a> JsonParser<'a> {
     }
 
     fn whitespace(&mut self) {
-        while self
-            .bytes
-            .get(self.index)
-            .is_some_and(u8::is_ascii_whitespace)
-        {
+        while matches!(
+            self.bytes.get(self.index),
+            Some(b' ' | b'\t' | b'\r' | b'\n')
+        ) {
             self.index += 1;
         }
     }
@@ -1284,5 +1296,55 @@ pure path_echo(input: Path) -> Path {
         });
         assert!(decode_source_document(&unknown_version).is_err());
         assert!(encoded.contains("é"), "UTF-8 source text stays readable and exact");
+
+        let escaped_unicode =
+            r#"{"schema":"xsh-source-v1","id":"00000001","text":"caf\u00e9 \ud83d\ude00"}"#;
+        assert_eq!(
+            decode_source_document(escaped_unicode).unwrap().text,
+            "café 😀"
+        );
+    }
+
+    #[test]
+    fn json_transport_rejects_non_json_whitespace_and_bounds_input() {
+        for whitespace in ['\u{000b}', '\u{000c}'] {
+            let invalid = format!("[{whitespace}\"value\"]");
+            assert!(JsonParser::parse(&invalid).is_err());
+        }
+
+        let valid_whitespace = " [ \t\r\n\"value\" \t\r\n ] ";
+        assert!(JsonParser::parse(valid_whitespace).is_ok());
+
+        let at_byte_limit = format!(
+            "\"{}\"",
+            "x".repeat(MAX_TRANSPORT_DOCUMENT_BYTES - 2)
+        );
+        assert_eq!(at_byte_limit.len(), MAX_TRANSPORT_DOCUMENT_BYTES);
+        assert!(JsonParser::parse(&at_byte_limit).is_ok());
+        let over_byte_limit = format!("\"{}\"", "x".repeat(MAX_TRANSPORT_DOCUMENT_BYTES - 1));
+        assert!(JsonParser::parse(&over_byte_limit).is_err());
+    }
+
+    #[test]
+    fn json_transport_rejects_container_nesting_beyond_the_fixed_limit() {
+        let nested_arrays = |depth: usize| {
+            format!(
+                "{}\"value\"{}",
+                "[".repeat(depth),
+                "]".repeat(depth)
+            )
+        };
+        let nested_objects = |depth: usize| {
+            format!(
+                "{}\"value\"{}",
+                "{\"child\":".repeat(depth),
+                "}".repeat(depth)
+            )
+        };
+
+        assert!(JsonParser::parse(&nested_arrays(MAX_JSON_CONTAINER_DEPTH)).is_ok());
+        assert!(JsonParser::parse(&nested_arrays(MAX_JSON_CONTAINER_DEPTH + 1)).is_err());
+        assert!(JsonParser::parse(&nested_objects(MAX_JSON_CONTAINER_DEPTH)).is_ok());
+        assert!(JsonParser::parse(&nested_objects(MAX_JSON_CONTAINER_DEPTH + 1)).is_err());
     }
 }
