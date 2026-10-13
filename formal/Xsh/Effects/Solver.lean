@@ -37,10 +37,17 @@ def toEffectSummary (facts : FactSet) : EffectSummary :=
   { known := fun effect => facts (some effect) = true
     unresolved := facts none }
 
-def declaredFacts (effects : Effect → Bool) : FactSet := fun fact =>
-  match fact with
-  | none => false
-  | some effect => effects effect
+/-- A missing declaration is unknown; an explicit empty clause has no facts. -/
+def declaredFacts (effects : Option (Effect → Bool)) : FactSet :=
+  match effects with
+  | none => fun fact =>
+      match fact with
+      | none => true
+      | some _ => false
+  | some known => fun fact =>
+      match fact with
+      | none => false
+      | some effect => known effect
 
 structure Edge (declarations : Nat) where
   target : Fin declarations
@@ -81,7 +88,7 @@ theorem stateLe_trans {declarations : Nat} {first middle last : SolverState decl
 def readEdge (graph : Graph declarations) (state : SolverState declarations)
     (edge : Edge declarations) : FactSet :=
   if edge.readsContract then
-    declaredFacts ((graph.node edge.target).declared.getD (fun _ => false))
+    declaredFacts (graph.node edge.target).declared
   else
     state edge.target
 
@@ -569,6 +576,34 @@ def contractVsSummaryGraph : Graph 2 where
 theorem declared_contract_is_read_instead_of_body_summary :
     solve contractVsSummaryGraph 0 (some Effect.fs) = true ∧
       solve contractVsSummaryGraph 0 (some Effect.time) = false := by
+  decide
+
+def missingDeclaredContractGraph : Graph 2 where
+  node source :=
+    if source = 0 then
+      { direct := emptyFacts, declared := none,
+        edges := [{ target := 1, capturesError := false, readsContract := true }] }
+    else
+      { direct := effectFact .time, declared := none, edges := [] }
+
+theorem missing_contract_stays_unresolved :
+    solve missingDeclaredContractGraph 0 none = true ∧
+      solve missingDeclaredContractGraph 0 (some Effect.time) = false := by
+  decide
+
+def emptyClause : Effect → Bool := fun _ => false
+
+def explicitlyEmptyContractGraph : Graph 2 where
+  node source :=
+    if source = 0 then
+      { direct := emptyFacts, declared := none,
+        edges := [{ target := 1, capturesError := false, readsContract := true }] }
+    else
+      { direct := effectFact .time, declared := some emptyClause, edges := [] }
+
+theorem explicit_empty_contract_stays_empty :
+    solve explicitlyEmptyContractGraph 0 none = false ∧
+      solve explicitlyEmptyContractGraph 0 (some Effect.time) = false := by
   decide
 
 def errorCapturingEdge : Edge 1 :=
