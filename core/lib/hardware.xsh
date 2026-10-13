@@ -550,7 +550,7 @@ pure quantity(value: Int, divisor: Int, signed: Bool, digits = 1) -> Str {
   let prefix = if value < 0 { "-" } else if signed { "+" } else { "" }
   let magnitude = if value < 0 { -value } else { value }
   var scale = 1
-  for index in range(digits) { scale *= 10 }
+  for _ in range(digits) { scale *= 10 }
   let fraction = (magnitude % divisor * scale + divisor / 2) / divisor
   f"{prefix}{magnitude / divisor + fraction / scale}.{decimal(fraction % scale, digits)}"
 }

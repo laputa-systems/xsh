@@ -137,7 +137,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let path_prefix = if use_dir { bytes.concat([directory, b"/"]) } else { b"" }
   let prefix = bytes.concat([path_prefix, pattern[0..start]])
   let alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-  for attempt in range(256) {
+  for _ in range(256) {
     var random = ""
     while random.byte_len() < end - start {
       let entropy = bytes.read_at(p"/dev/urandom", 0, end - start)

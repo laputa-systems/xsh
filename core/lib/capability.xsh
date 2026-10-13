@@ -55,7 +55,7 @@ export const CAPABILITIES: List[CapabilityName] = [
   {name: "cap_checkpoint_restore", bit: 40},
 ]
 
-pure power(bit: Int) -> Int { var value = 1; for index in range(bit) { value *= 2 }; value }
+pure power(bit: Int) -> Int { var value = 1; for _ in range(bit) { value *= 2 }; value }
 pure empty() -> Mask { {low: 0, high: 0} }
 pure union(a: Mask, b: Mask) -> Mask { {low: a.low.bit_or(b.low), high: a.high.bit_or(b.high)} }
 pure minus(a: Mask, b: Mask) -> Mask { {low: a.low.clear_bits(b.low), high: a.high.clear_bits(b.high)} }
@@ -163,7 +163,7 @@ export pure parse(text: Str, rootid: Int? = null) -> Result[FileCaps, Error] {
   }
   return Err(CapabilityError.Invalid("file effective set must equal permitted union inheritable, or be empty")) when ! equal(effective, empty()) and ! equal(effective, union(permitted, inheritable))
   let record: FileCaps = FileCaps(revision: if rootid == null { .Two } else { .Three }, effective: ! equal(effective, empty()), permitted:, inheritable:, rootid:)
-  let validated = encode(record)?
+  let _ = encode(record)?
   record
 }
 

@@ -10,7 +10,7 @@ proc ignored_nonempty(target: Path, failure: Error) [fs] -> Bool {
   return true when code in [17, 39, 66]
   return false unless code in [1, 13, 16, 30]
   if let Ok(children) = fs.children(target, stat: false, ordered: false) {
-    for child in children { return true }
+    for _ in children { return true }
   }
   false
 }
