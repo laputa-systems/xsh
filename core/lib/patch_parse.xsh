@@ -76,39 +76,13 @@ const NORMAL_RE = rx"^(\d+)(?:,(\d+))?([acd])(\d+)(?:,(\d+))?$"
 const ED_RE = rx"^(\d+)(?:,(\d+))?([acdi])$"
 
 ## A header name that was not present.
-export const NO_NAME: HeaderName = {name: "", stamp: "", present: false}
+export const NO_NAME: HeaderName = HeaderName(name: "", stamp: "", present: false)
 
 ## A patch with no Git extended header.
-export const NO_GIT: GitHeader = {
-  present: false,
-  old_path: "",
-  new_path: "",
-  rename_from: "",
-  rename_to: "",
-  copy_from: "",
-  copy_to: "",
-  old_mode: "",
-  new_mode: "",
-  new_file_mode: "",
-  deleted_file_mode: "",
-  binary: false,
-}
+export const NO_GIT: GitHeader = GitHeader(present: false, old_path: "", new_path: "", rename_from: "", rename_to: "", copy_from: "", copy_to: "", old_mode: "", new_mode: "", new_file_mode: "", deleted_file_mode: "", binary: false)
 
 ## A hunk with no lines, the starting point for building one.
-export const EMPTY_HUNK: Hunk = {
-  old_first: 0,
-  old_count: 0,
-  new_first: 0,
-  new_count: 0,
-  kinds: [],
-  texts: [],
-  prefix: 0,
-  suffix: 0,
-  function: b"",
-  line: 0,
-  old_start: 0,
-  new_start: 0,
-}
+export const EMPTY_HUNK: Hunk = Hunk(old_first: 0, old_count: 0, new_first: 0, new_count: 0, kinds: [], texts: [], prefix: 0, suffix: 0, function: b"", line: 0, old_start: 0, new_start: 0)
 
 ## Split bytes into lines that keep their terminator. The last line has none
 ## when the data does not end in a line break. Lone carriage returns stay in
@@ -366,7 +340,7 @@ pure leading_blanks(text: Str) -> Int {
 ## recognized format. A Git header is recognized whether or not hunks follow
 ## it, so renames and mode changes are patches of their own.
 export pure scan(lines: List[Bytes], from: Int, allowed: Str) -> Scan {
-  var header: Header = {old_name: NO_NAME, new_name: NO_NAME, index_name: "", git: NO_GIT, prereq: ""}
+  var header: Header = Header(old_name: NO_NAME, new_name: NO_NAME, index_name: "", git: NO_GIT, prereq: "")
   var start = from
   var i = from
   let total = lines.len()

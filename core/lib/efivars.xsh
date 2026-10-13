@@ -36,11 +36,11 @@ export type Variable = {name: Str, attributes: Int, data: Bytes}
 export type Family = {prefix: Str, order: Str, label: Str}
 
 ## Boot entries ranked by BootOrder.
-export const BOOT: Family = {prefix: "Boot", order: "BootOrder", label: "Boot"}
+export const BOOT: Family = Family(prefix: "Boot", order: "BootOrder", label: "Boot")
 ## Driver entries ranked by DriverOrder.
-export const DRIVER: Family = {prefix: "Driver", order: "DriverOrder", label: "Driver"}
+export const DRIVER: Family = Family(prefix: "Driver", order: "DriverOrder", label: "Driver")
 ## System-preparation entries ranked by SysPrepOrder.
-export const SYSPREP: Family = {prefix: "SysPrep", order: "SysPrepOrder", label: "SysPrep"}
+export const SYSPREP: Family = Family(prefix: "SysPrep", order: "SysPrepOrder", label: "SysPrep")
 
 ## One device path node: `kind` and `subtype` as the specification numbers
 ## them and the payload without the four-byte node header.
@@ -340,7 +340,7 @@ export pure node(kind: Int, subtype: Int, data: Bytes) -> Result[Node, Error] {
 }
 
 ## The node that terminates a device path.
-export const END_NODE: Node = {kind: 127, subtype: 255, data: b""}
+export const END_NODE: Node = Node(kind: 127, subtype: 255, data: b"")
 
 ## A File Path media node: `path` as a NUL-terminated UTF-16 string.
 export pure file_node(location: Str) -> Result[Node, Error] { node(4, 4, utf16_terminated(location)?) }

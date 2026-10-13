@@ -241,21 +241,7 @@ proc parse_request(argv: List[Str]) [process, io, env] -> Request {
   if "timeout" in values { timeout = (decimal_number(values["timeout"], 38) % 65536 + 65536) % 65536 }
   if "index" in values { index = decimal_number(values["index"], 1) }
   if "part" in values { part = decimal_number(values["part"], 38) }
-  let request: Request = {
-    activate: "active" in flags, deactivate: "inactive" in flags, bootnum: bootnum,
-    delete: "delete-bootnum" in flags, create: "create" in flags, create_only: "create-only" in flags,
-    disk: if "disk" in values { values["disk"] } else { null }, remove_dups: "remove-dups" in flags,
-    reconnect: "reconnect" in flags, no_reconnect: "no-reconnect" in flags, index: index,
-    loader: if "loader" in values { values["loader"] } else { null },
-    label: if "label" in values { values["label"] } else { null }, bootnext: bootnext,
-    delete_bootnext: "delete-bootnext" in flags, bootorder: if "bootorder" in values { values["bootorder"] } else { null },
-    delete_bootorder: "delete-bootorder" in flags, part: part, quiet: "quiet" in flags,
-    driver: "driver" in flags, sysprep: "sysprep" in flags, timeout: timeout,
-    delete_timeout: "delete-timeout" in flags, unicode: "unicode" in flags, verbose: verbose,
-    file_dev_path: "file-dev-path" in flags,
-    append_file: if "append-binary-args" in values { values["append-binary-args"] } else { null },
-    operands: operands,
-  }
+  let request: Request = Request(activate: "active" in flags, deactivate: "inactive" in flags, bootnum:, delete: "delete-bootnum" in flags, create: "create" in flags, create_only: "create-only" in flags, disk: if "disk" in values { values["disk"] } else { null }, remove_dups: "remove-dups" in flags, reconnect: "reconnect" in flags, no_reconnect: "no-reconnect" in flags, index:, loader: if "loader" in values { values["loader"] } else { null }, label: if "label" in values { values["label"] } else { null }, bootnext:, delete_bootnext: "delete-bootnext" in flags, bootorder: if "bootorder" in values { values["bootorder"] } else { null }, delete_bootorder: "delete-bootorder" in flags, part:, quiet: "quiet" in flags, driver: "driver" in flags, sysprep: "sysprep" in flags, timeout:, delete_timeout: "delete-timeout" in flags, unicode: "unicode" in flags, verbose:, file_dev_path: "file-dev-path" in flags, append_file: if "append-binary-args" in values { values["append-binary-args"] } else { null }, operands:)
   request
 }
 

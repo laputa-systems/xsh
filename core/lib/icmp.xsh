@@ -395,7 +395,7 @@ proc bind_clock(fd: Int) [process, net, error] -> Result[Clock, Error] {
 ## coarse rather than wrong.
 export proc open_clock() [process, net, error] -> Result[Clock, Error] {
   let c = linux.net_constants()
-  let coarse: Clock = {fd: -1, target: b""}
+  let coarse: Clock = Clock(fd: -1, target: b"")
   guard let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM) else { return Ok(coarse) }
   if let Ok(clock) = bind_clock(fd) {
     Ok(clock)

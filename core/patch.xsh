@@ -507,7 +507,7 @@ proc one_patch(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sca
     action = "copied"
     found = true
   } else if let given = named { chosen = given; found = true } else {
-    var best: Candidate = {name: "", exists: false}
+    var best: Candidate = Candidate(name: "", exists: false)
     var have = false
     for candidate in candidates {
       if !have or better(candidate, best) { best = candidate; have = true }
@@ -558,7 +558,7 @@ proc one_patch(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sca
   }
   let old_missing = (old_raw.present and (old_raw.name == "/dev/null" or patch_parse.is_epoch(old_raw.stamp))) or (git.present and git.new_file_mode != "")
   let new_missing = (new_raw.present and (new_raw.name == "/dev/null" or patch_parse.is_epoch(new_raw.stamp))) or (git.present and git.deleted_file_mode != "")
-  let target: Target = {read: if source != "" { source } else { chosen }, write: chosen, action: action, mode: git_mode(git, opts.reverse)}
+  let target: Target = Target(read: if source != "" { source } else { chosen }, write: chosen, action:, mode: git_mode(git, opts.reverse))
   apply_file(opts, strip, max_fuzz, lines, scan, target, {creating: creating or (git.present and git.new_file_mode != ""), deleting: deleting or (git.present and git.deleted_file_mode != ""), old_missing: old_missing, new_missing: new_missing})
 }
 
@@ -591,7 +591,7 @@ proc skip_hunks(lines: List[Bytes], scan: patch_parse.Scan) -> Skipped {
 }
 
 pure read_one(lines: List[Bytes], position: Int, kind: Str, strip_cr: Bool) -> patch_parse.HunkRead {
-  let none: patch_parse.HunkRead = {hunk: null, next: position, bad_line: 0, bad_text: b"", truncated: false, partial: false}
+  let none: patch_parse.HunkRead = patch_parse.HunkRead(hunk: null, next: position, bad_line: 0, bad_text: b"", truncated: false, partial: false)
   return none when position >= lines.len()
   let text = patch_parse.body_text(lines[position])
   if kind == "unified" or kind == "git" {
@@ -747,7 +747,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
     if target.action != "" { tail = f" ({target.action} from {q(opts, name)})" } else if opts.output != null { tail = f" (read from {name})" }
     note(opts, f"{verb} {if symlink { "symbolic link" } else { "file" }} {q(opts, outname)}{tail}\n")
   }
-  var outcome: Outcome = {output: [], rejected: [], total: 0, mismatch: false, skipped: false, next: 0, fatal_line: 0, fatal_text: b"", partial: false, reversed: false}
+  var outcome: Outcome = Outcome(output: [], rejected: [], total: 0, mismatch: false, skipped: false, next: 0, fatal_line: 0, fatal_text: b"", partial: false, reversed: false)
   if scan.kind == "ed" and blocked == "" {
     # The ed script runs against the whole file; nothing can be rejected.
     let edited = patch_ed.run_ed(lines, scan.body, input_lines)

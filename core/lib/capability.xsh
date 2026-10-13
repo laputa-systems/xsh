@@ -117,8 +117,8 @@ export pure decode(data: Bytes) -> Result[FileCaps, Error] {
   let magic = bytes.unpack_le(data[0..4], 4)?
   let rev = magic / 16777216
   return Err(CapabilityError.Invalid("invalid capability flags or length")) when magic % 16777216 > 1 or rev < 1 or rev > 3 or data.len() != (if rev == 1 { 12 } else if rev == 2 { 20 } else { 24 })
-  let permitted: Mask = {low: bytes.unpack_le(data[4..8], 4)?, high: if rev > 1 { bytes.unpack_le(data[12..16], 4)? } else { 0 }}
-  let inheritable: Mask = {low: bytes.unpack_le(data[8..12], 4)?, high: if rev > 1 { bytes.unpack_le(data[16..20], 4)? } else { 0 }}
+  let permitted: Mask = Mask(low: bytes.unpack_le(data[4..8], 4)?, high: if rev > 1 { bytes.unpack_le(data[12..16], 4)? } else { 0 })
+  let inheritable: Mask = Mask(low: bytes.unpack_le(data[8..12], 4)?, high: if rev > 1 { bytes.unpack_le(data[16..20], 4)? } else { 0 })
   {revision: revision(rev)?, effective: magic % 2 == 1, permitted: permitted, inheritable: inheritable, rootid: if rev == 3 { bytes.unpack_le(data[20..24], 4)? } else { null }}
 }
 
@@ -162,7 +162,7 @@ export pure parse(text: Str, rootid: Int? = null) -> Result[FileCaps, Error] {
     }
   }
   return Err(CapabilityError.Invalid("file effective set must equal permitted union inheritable, or be empty")) when ! equal(effective, empty()) and ! equal(effective, union(permitted, inheritable))
-  let record: FileCaps = {revision: if rootid == null { .Two } else { .Three }, effective: ! equal(effective, empty()), permitted: permitted, inheritable: inheritable, rootid: rootid}
+  let record: FileCaps = FileCaps(revision: if rootid == null { .Two } else { .Three }, effective: ! equal(effective, empty()), permitted:, inheritable:, rootid:)
   let validated = encode(record)?
   record
 }

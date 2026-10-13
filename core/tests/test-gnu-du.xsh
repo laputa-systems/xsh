@@ -199,7 +199,7 @@ test test_gnu_du_hard_link_log { |ctx|
 test test_gnu_du_inacc_dest_log { |ctx|
   let scene = uu.scene(ctx)?
   uu.mkdir(scene, "f")
-  let s: uu.Scene = {ctx: ctx, root: uu.at(scene, "f")}
+  let s: uu.Scene = uu.Scene(ctx:, root: uu.at(scene, "f"))
   for name in ["a", "b", "c", "d", "e"] { uu.mkdir(s, name) }
   uu.touch(s, "c/j")
   defer { uu.set_mode(s, "c", 0o700) }
@@ -338,7 +338,7 @@ test test_gnu_du_two_args_log { |ctx|
   let parent = uu.scene(ctx)?
   uu.mkdir(parent, "sub/t/1")
   uu.mkdir(parent, "sub/t/2")
-  let s: uu.Scene = {ctx: ctx, root: uu.at(parent, "sub")}
+  let s: uu.Scene = uu.Scene(ctx:, root: uu.at(parent, "sub"))
   assert uu.dir_exists(s, "t")?
   for operands in [["t/1", "t/2"], [".", "t"], ["..", "t"]] {
     uu.succeeds(uu.invoke(s, "du", operands, timeout: 10s)?)
@@ -416,7 +416,7 @@ test test_gnu_du_inodes_log { |ctx|
 test test_gnu_du_2g_log { |ctx|
   let made = run.capture --text mktemp -d /var/tmp/xsh-du-XXXXXXXX
   assert made.status.exited_with(0), made.stderr
-  let allocated: uu.Scene = {ctx: ctx, root: fp"{made.stdout.trim()}"}
+  let allocated: uu.Scene = uu.Scene(ctx:, root: fp"{made.stdout.trim()}")
   defer { allocated.root.remove() }
   let big = uu.at(allocated, "big")
   let allocation = run.capture --text fallocate -l2G $big

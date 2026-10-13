@@ -283,10 +283,7 @@ proc load_file(options: Options, file: Str) [fs, process, net, env, error] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, io, error] {
-  var options: Options = {
-    bsd: false, set: false, delete: false, file: false, verbose: false, numeric: false, use_device: false,
-    device: null, hw: 1, hw_given: false, operands: [],
-  }
+  var options: Options = Options(bsd: false, set: false, delete: false, file: false, verbose: false, numeric: false, use_device: false, device: null, hw: 1, hw_given: false, operands: [])
   var at = 0
   var operands = []
   while at < argv.len() {

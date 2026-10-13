@@ -445,10 +445,7 @@ test test_settings_report_lists_modes_and_partner_when_present {
   let supported = 1 + 2 + 32 + 64 + 128 + 8192
   let advertising = 1 + 2 + 32 + 64 + 8192
   let partner = 8 + 64 + 8192
-  let settings: dec.LinkSettings = {
-    speed: 1000, duplex: 1, port: 0, phy: 1, autoneg: 1, mdix: 2, mdix_ctrl: 3, transceiver: 0,
-    supported: [supported, 0, 0], advertising: [advertising, 0, 0], partner: [partner, 0, 0], nwords: 3, raw: b"",
-  }
+  let settings: dec.LinkSettings = dec.LinkSettings(speed: 1000, duplex: 1, port: 0, phy: 1, autoneg: 1, mdix: 2, mdix_ctrl: 3, transceiver: 0, supported: [supported, 0, 0], advertising: [advertising, 0, 0], partner: [partner, 0, 0], nwords: 3, raw: b"")
   assert dec.settings_lines(settings) == [
     "\tSupported ports: [ TP ]",
     "\tSupported link modes:   10baseT/Half 10baseT/Full ",

@@ -232,15 +232,7 @@ proc tos_value(word: Str) [process, io] -> Int {
 }
 
 proc parse_options(argv: List[Str]) [process, io] -> Parsed {
-  var opts: Options = {
-    family: "any", broadcast: false, crlf: false, debug: false, nostdin: false,
-    passfd: false, rcvbuf: null, interval: 0, keep: false, listen: false,
-    ttl: null, minttl: null, shutdown: false, numeric: false, sndbuf: null,
-    proxy_user: null, srcport: null, quit: -1, random: false, md5: false,
-    srcaddr: null, telnet: false, tos: null, unix: false, udp: false,
-    rtable: null, verbose: false, recvlimit: 0, timeout: -1, proxy_proto: null,
-    proxy_addr: null, dccp: false, scan: false,
-  }
+  var opts: Options = Options(family: "any", broadcast: false, crlf: false, debug: false, nostdin: false, passfd: false, rcvbuf: null, interval: 0, keep: false, listen: false, ttl: null, minttl: null, shutdown: false, numeric: false, sndbuf: null, proxy_user: null, srcport: null, quit: -1, random: false, md5: false, srcaddr: null, telnet: false, tos: null, unix: false, udp: false, rtable: null, verbose: false, recvlimit: 0, timeout: -1, proxy_proto: null, proxy_addr: null, dccp: false, scan: false)
   var index = 0
   while index < argv.len() {
     let word = argv[index]

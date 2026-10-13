@@ -253,7 +253,7 @@ pure member(cs: CharSet, cp: Int, icase: Bool, utf8: Bool) -> Bool {
 pure make_set(negated: Bool, singles: List[Int], ranges: List[Int], names: List[Str], icase: Bool, utf8: Bool) -> CharSet {
   # Case-insensitive matching widens `upper` and `lower` to every letter.
   let classes = [if icase and (name == "upper" or name == "lower") { "alpha" } else { name } for name in names]
-  let shell: CharSet = {negated: negated, low: [], singles: singles, ranges: ranges, classes: classes}
+  let shell: CharSet = CharSet(negated:, low: [], singles:, ranges:, classes:)
   let low = [member(shell, cp, icase, utf8) != negated for cp in range(256)]
   {negated: negated, low: low, singles: singles, ranges: ranges, classes: classes}
 }
@@ -867,7 +867,7 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
   while lead < ops.len() and ops[lead] == OP_SAVE { lead += 1 }
   let anchored = lead < ops.len() and ops[lead] == OP_BOL
   let first = if parsed.backrefs { [] } else { first_set(ops, xs, ys, parsed.sets, icase, utf8) }
-  let program: Program = {ops: ops, xs: xs, ys: ys, sets: parsed.sets, slots: slot_base + parsed.nodes.len(), backrefs: parsed.backrefs, icase: icase, utf8: utf8, memo: looping or splits > 3, filter: ! first.is_empty(), anchored: anchored, fixed: fixed, consuming: consuming, first: first, literal: literal, native: native, native_ere: native_ere}
+  let program: Program = Program(ops:, xs:, ys:, sets: parsed.sets, slots: slot_base + parsed.nodes.len(), backrefs: parsed.backrefs, icase:, utf8:, memo: looping or splits > 3, filter: ! first.is_empty(), anchored:, fixed:, consuming:, first:, literal:, native:, native_ere:)
   Ok({programs: [program], warnings: warnings})
 }
 

@@ -116,7 +116,7 @@ proc main(...argv: List[Bytes]) {
     for name in paths {
       guard let source = text.open_source_bytes(name) else { |failure| text.name_error_bytes(name, failure); failed = true; continue }
       defer text.close_source(source)
-      var reader: Reader = {source: source, buffer: b"", eof: false}
+      var reader: Reader = Reader(source:, buffer: b"", eof: false)
       var index = 0
       loop {
         let prefix = if index == 0 { b"" } else { separators[(index - 1) % separators.len()] }
@@ -138,7 +138,7 @@ proc main(...argv: List[Bytes]) {
       readers += [{source: source, buffer: b"", eof: false}]
     }
     defer { for reader in readers { text.close_source(reader.source) } }
-    var stdin: Reader = {source: text.Stdin, buffer: b"", eof: false}
+    var stdin: Reader = Reader(source: text.Stdin, buffer: b"", eof: false)
     loop {
       var found = false
       var prefix = b""

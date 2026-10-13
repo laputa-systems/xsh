@@ -187,7 +187,7 @@ test test_uu_install_install_on_invalid_link_at_destination { |ctx|
   uu.symlink(s, "/opt/FakeDestination", "dest/test.sh")
   uu.succeeds(uu.invoke(s, "chmod", ["+x", "test.sh"])?)
   absolute_link(s, "test.sh", "src/test.sh")
-  let inside: uu.Scene = {ctx: ctx, root: uu.at(s, "src")}
+  let inside: uu.Scene = uu.Scene(ctx:, root: uu.at(s, "src"))
   let r = uu.invoke(inside, "install", [uu.at(s, "src/test.sh").display(), uu.at(s, "dest/test.sh").display()])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -202,7 +202,7 @@ test test_uu_install_install_on_invalid_link_at_destination_and_dev_null_at_sour
   uu.symlink(s, "/opt/FakeDestination", "dest/test.sh")
   uu.succeeds(uu.invoke(s, "chmod", ["+x", "test.sh"])?)
   absolute_link(s, "test.sh", "src/test.sh")
-  let inside: uu.Scene = {ctx: ctx, root: uu.at(s, "src")}
+  let inside: uu.Scene = uu.Scene(ctx:, root: uu.at(s, "src"))
   let r = uu.invoke(inside, "install", ["/dev/null", uu.at(s, "dest/test.sh").display()])?
   uu.succeeds(r)
   uu.no_output(r)

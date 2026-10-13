@@ -59,14 +59,7 @@ proc build_scene() [process, net, error] -> Result[Scene, Error] {
   linux.bind(udp, {family: "inet", address: "127.0.0.1", port: 0})
   let udp_client = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   linux.connect(udp_client, linux.getsockname(udp)?)
-  let scene: Scene = {
-    listen4: four[0], client4: four[1], server4: four[2],
-    listen6: six[0], client6: six[1], server6: six[2],
-    udp: udp, udp_client: udp_client,
-    a: linux.getsockname(four[0])?.port, ca: linux.getsockname(four[1])?.port,
-    b: linux.getsockname(six[0])?.port, cb: linux.getsockname(six[1])?.port,
-    c: linux.getsockname(udp)?.port, cu: linux.getsockname(udp_client)?.port,
-  }
+  let scene: Scene = Scene(listen4: four[0], client4: four[1], server4: four[2], listen6: six[0], client6: six[1], server6: six[2], udp:, udp_client:, a: linux.getsockname(four[0])?.port, ca: linux.getsockname(four[1])?.port, b: linux.getsockname(six[0])?.port, cb: linux.getsockname(six[1])?.port, c: linux.getsockname(udp)?.port, cu: linux.getsockname(udp_client)?.port)
   Ok(scene)
 }
 

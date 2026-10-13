@@ -101,7 +101,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if assigned != null and (additive or subtractive) { gnu.error("= is incompatible with - and +"); exit 1 }
   if add.bit_and(remove) != 0 { gnu.error("Can't both set and unset same flag."); exit 1 }
   if verbose { eprint (gnu.version_text("chattr")) }
-  let changes: Changes = {add: add, remove: remove, assigned: assigned, generation: generation, project: project, recursive: recursive, verbose: verbose, quiet: quiet}
+  let changes: Changes = Changes(add:, remove:, assigned:, generation:, project:, recursive:, verbose:, quiet:)
   var pending: List[Str] = argv[at..]
   var top = pending.len()
   var success = true

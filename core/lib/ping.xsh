@@ -554,7 +554,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
   var names: Map[Str] = {}
   let destination = {family: target.family, address: target.address, port: 0}
   let started_ms = time.now()
-  var stats: Stats = {sent: 0, received: 0, duplicates: 0, errors: 0, corrupted: 0, rtt_min: 0, rtt_max: 0, rtt_sum: 0, rtt_sum2: 0, pipe: 0, ewma8: 0, first_ns: 0, last_ns: 0}
+  var stats: Stats = Stats(sent: 0, received: 0, duplicates: 0, errors: 0, corrupted: 0, rtt_min: 0, rtt_max: 0, rtt_sum: 0, rtt_sum2: 0, pipe: 0, ewma8: 0, first_ns: 0, last_ns: 0)
   var seen: Set[Int] = set.empty()
   var sent_at: Map[Int, Int] = {}
   var next_send_ms = started_ms

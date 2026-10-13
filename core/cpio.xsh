@@ -567,7 +567,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
   if data.len() - position < width {
     return Err(.Fatal(message: "premature end of file"))
   }
-  var header: Header = {ino: 0, mode: 0, uid: 0, gid: 0, nlink: 0, mtime: 0, size: 0, dev_major: 0, dev_minor: 0, rdev_major: 0, rdev_minor: 0, checksum: 0, name: b""}
+  var header: Header = Header(ino: 0, mode: 0, uid: 0, gid: 0, nlink: 0, mtime: 0, size: 0, dev_major: 0, dev_minor: 0, rdev_major: 0, rdev_minor: 0, checksum: 0, name: b"")
   var name_size = 0
   var reversed = false
   if format == "newc" or format == "crc" {
@@ -1601,17 +1601,7 @@ proc apply_option(opts: Options, key: Str, value: Str) [fs, io, process, env] ->
 # argp's grammar: bundled short flags, long options by unambiguous prefix,
 # --name=value or --name value. Errors use argp wording and status 64.
 proc parse_command_line(argv: List[Str]) [fs, io, process, env] -> Options {
-  var opts: Options = {
-    mode: "", table: false, verbose: false, dot: false, quiet: false, format: "", block_size: 512,
-    directory: null, force_local: false, owner: null, group: null, warn_truncate: false,
-    warn_interdir: false, archive: null, input_archive: null, output_archive: null,
-    swap_bytes: false, swap_halfwords: false, nonmatching: false, numeric: false,
-    pattern_file: null, only_verify_crc: false, rename: false, rename_batch: null, to_stdout: false,
-    append: false, renumber: false, ignore_devno: false, ignore_dirnlink: false, link: false,
-    no_abs: false, null: false, reset_time: false, dereference: false, make_dirs: false,
-    preserve_mtime: false, no_preserve_owner: false, sparse: false, unconditional: false,
-    operands: [],
-  }
+  var opts: Options = Options(mode: "", table: false, verbose: false, dot: false, quiet: false, format: "", block_size: 512, directory: null, force_local: false, owner: null, group: null, warn_truncate: false, warn_interdir: false, archive: null, input_archive: null, output_archive: null, swap_bytes: false, swap_halfwords: false, nonmatching: false, numeric: false, pattern_file: null, only_verify_crc: false, rename: false, rename_batch: null, to_stdout: false, append: false, renumber: false, ignore_devno: false, ignore_dirnlink: false, link: false, no_abs: false, null: false, reset_time: false, dereference: false, make_dirs: false, preserve_mtime: false, no_preserve_owner: false, sparse: false, unconditional: false, operands: [])
   var index = 0
   var only_operands = false
   while index < argv.len() {
@@ -1817,7 +1807,7 @@ proc create_directory(st: Run, opts: Options, header: Header, existing: Bool, ch
   if header.mode.bit_and(0o200) != 0 and ! opts.preserve_mtime {
     state = set_perms(state, opts, file, name, header.mode, header.uid, header.gid, header.mtime, chown_enabled)
   } else {
-    let fixup: DirFixup = {path: file, name: name, mode: header.mode, uid: header.uid, gid: header.gid, mtime: header.mtime}
+    let fixup: DirFixup = DirFixup(path: file, name:, mode: header.mode, uid: header.uid, gid: header.gid, mtime: header.mtime)
     state = {...state, fixups: state.fixups + [fixup]}
   }
   {name: name, st: state}
@@ -1958,7 +1948,7 @@ proc extract_link(st: Run, opts: Options, header: Header, target: Bytes, chown_e
     }
     match fs.stat(file, follow_symlinks: false) {
       Ok(info) => {
-        let placeholder: Placeholder = {path: file, name: name, target: target, mode: header.mode, uid: header.uid, gid: header.gid, mtime: header.mtime, dev: info.dev, ino: info.ino}
+        let placeholder: Placeholder = Placeholder(path: file, name:, target:, mode: header.mode, uid: header.uid, gid: header.gid, mtime: header.mtime, dev: info.dev, ino: info.ino)
         return {...state, placeholders: state.placeholders + [placeholder]}
       }
       Err(failure) => { return call_error(state, "stat", name, failure) }
@@ -2350,7 +2340,7 @@ proc read_names(opts: Options) [io, error, process, env] -> List[Bytes] {
 
 proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_start: Int) [fs, io, error, process, env, time] -> Result[Bool, CpioError] {
   let names = read_names(opts)
-  var sink: Sink = {file: target, offset: start, pending: [], pending_size: 0, total: padding_start}
+  var sink: Sink = Sink(file: target, offset: start, pending: [], pending_size: 0, total: padding_start)
   var st = fresh_run()
   var deferred: List[Deferred] = []
   var translated: Map[Int] = {}
@@ -2375,21 +2365,7 @@ proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_sta
       }
     }
     let type_bits = type_bits_of(info.kind)
-    var header: Header = {
-      ino: info.ino,
-      mode: type_bits + info.mode.bit_and(4095),
-      uid: opts.owner ?? info.uid,
-      gid: opts.group ?? info.gid,
-      nlink: info.nlink,
-      mtime: info.mtime_ns / 1000000000,
-      size: info.size,
-      dev_major: device_major(info.dev),
-      dev_minor: device_minor(info.dev),
-      rdev_major: 0,
-      rdev_minor: 0,
-      checksum: 0,
-      name: b"",
-    }
+    var header: Header = Header(ino: info.ino, mode: type_bits + info.mode.bit_and(4095), uid: opts.owner ?? info.uid, gid: opts.group ?? info.gid, nlink: info.nlink, mtime: info.mtime_ns / 1000000000, size: info.size, dev_major: device_major(info.dev), dev_minor: device_minor(info.dev), rdev_major: 0, rdev_minor: 0, checksum: 0, name: b"")
     if info.kind == "char" or info.kind == "block" {
       header = {...header, rdev_major: device_major(info.rdev), rdev_minor: device_minor(info.rdev)}
     }
@@ -2489,7 +2465,7 @@ proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_sta
       if let head = flat { sink = sink_emit(sink, head) }
     }
   }
-  let trailer: Header = {ino: 0, mode: 0, uid: 0, gid: 0, nlink: 1, mtime: 0, size: 0, dev_major: 0, dev_minor: 0, rdev_major: 0, rdev_minor: 0, checksum: 0, name: TRAILER}
+  let trailer: Header = Header(ino: 0, mode: 0, uid: 0, gid: 0, nlink: 1, mtime: 0, size: 0, dev_major: 0, dev_minor: 0, rdev_major: 0, rdev_minor: 0, checksum: 0, name: TRAILER)
   let closing = encode_header(format, trailer, opts.warn_truncate)
   if let head = closing { sink = sink_emit(sink, head) }
   let fill = (opts.block_size - sink.total % opts.block_size) % opts.block_size
@@ -2538,21 +2514,7 @@ proc copy_pass(opts: Options, destination: Bytes, chown_enabled: Bool) [fs, io, 
       }
     }
     let type_bits = type_bits_of(info.kind)
-    let header: Header = {
-      ino: info.ino,
-      mode: type_bits + info.mode.bit_and(4095),
-      uid: info.uid,
-      gid: info.gid,
-      nlink: info.nlink,
-      mtime: info.mtime_ns / 1000000000,
-      size: info.size,
-      dev_major: device_major(info.dev),
-      dev_minor: device_minor(info.dev),
-      rdev_major: device_major(info.rdev),
-      rdev_minor: device_minor(info.rdev),
-      checksum: 0,
-      name: output,
-    }
+    let header: Header = Header(ino: info.ino, mode: type_bits + info.mode.bit_and(4095), uid: info.uid, gid: info.gid, nlink: info.nlink, mtime: info.mtime_ns / 1000000000, size: info.size, dev_major: device_major(info.dev), dev_minor: device_minor(info.dev), rdev_major: device_major(info.rdev), rdev_minor: device_minor(info.rdev), checksum: 0, name: output)
     var existing_dir = false
     if let Ok(old) = fs.stat(target, follow_symlinks: false) {
       if old.kind == "dir" and info.kind == "dir" {
@@ -2792,7 +2754,7 @@ proc prepare_output(opts: Options, format: Str, plan: Plan) [fs, io, error, proc
 }
 
 proc prepare(opts: Options) [fs, io, error, process, env] -> Plan {
-  var plan: Plan = {data: b"", patterns: [], batch: [], tty: -1, tty_out: -1, target: null, start: 0, pad_start: 0, destination: b""}
+  var plan: Plan = Plan(data: b"", patterns: [], batch: [], tty: -1, tty_out: -1, target: null, start: 0, pad_start: 0, destination: b"")
   if opts.mode == "in" {
     plan = {...plan, data: read_archive(opts), patterns: collect_patterns(opts)}
     if let name = opts.rename_batch {

@@ -32,7 +32,7 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
     if old.len() == 1 and row.value > old[0].value { rises += [{metric: row.name, baseline: old[0].value, current: row.value, ceiling: old[0].value, approval: "", reason: "", remove_when: ""}] }
   }
   # Persist the unapproved inventory even when an envelope is malformed.
-  let initial_audit: Audit = {schema: 1, mode: o.action, envelope: o.envelope, rises: rises}
+  let initial_audit: Audit = Audit(schema: 1, mode: o.action, envelope: o.envelope, rises:)
   json.write(fp"{o.audit}", initial_audit)
   if o.action == "final-close" and o.envelope != "" { fail "final-close rejects temporary envelopes" }
   if o.envelope != "" {
@@ -53,7 +53,7 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
         yield if approved.is_empty() { rise } else { {...rise, ceiling: approved[0].ceiling, approval: approved[0].approval, reason: approved[0].reason, remove_when: approved[0].remove_when} }
       }
     }
-    let approved_audit: Audit = {schema: 1, mode: o.action, envelope: o.envelope, rises: rises}
+    let approved_audit: Audit = Audit(schema: 1, mode: o.action, envelope: o.envelope, rises:)
     json.write(fp"{o.audit}", approved_audit)
   }
   for rise in rises { print f"{rise.metric}: {rise.baseline} -> {rise.current}; ceiling {rise.ceiling}; approval {rise.approval}" }

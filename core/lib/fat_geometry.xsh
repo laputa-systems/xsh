@@ -106,7 +106,7 @@ export pure parse(boot: Bytes, size: Int) -> Result[Layout, Error] {
   if bits == 32 {
     guard roots == 0 and short_fat == 0 and number(boot, 42, 2)? == 0 and number(boot, 40, 2)?.bit_and(128) == 0 else { return Err(error.failure("unsupported FAT32 version or active-FAT layout")) }
   } else { guard roots > 0 and short_fat > 0 else { return Err(error.failure("invalid FAT12/16 root directory")) } }
-  let layout: Layout = {bits, sector, spc, reserved, fats, fat_sectors, roots, total, clusters, root_cluster: if bits == 32 { number(boot, 44, 4)? } else { 0 }, fsinfo: if bits == 32 { number(boot, 48, 2)? } else { 0 }, backup: if bits == 32 { number(boot, 50, 2)? } else { 0 }}
+  let layout: Layout = Layout(bits:, sector:, spc:, reserved:, fats:, fat_sectors:, roots:, total:, clusters:, root_cluster: if bits == 32 { number(boot, 44, 4)? } else { 0 }, fsinfo: if bits == 32 { number(boot, 48, 2)? } else { 0 }, backup: if bits == 32 { number(boot, 50, 2)? } else { 0 })
   if bits == 32 { guard valid(layout, layout.root_cluster) and layout.fsinfo > 0 and layout.fsinfo < reserved and layout.backup > 0 and layout.backup + 1 < reserved else { return Err(error.failure("invalid FAT32 root or reserved-sector references")) } }
   Ok(layout)
 }

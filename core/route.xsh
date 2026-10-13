@@ -323,10 +323,7 @@ proc parse_modify(add: Bool, family: Str, words: List[Str]) [process, error] -> 
   }
   if family == "inet6" and network != null { modify_usage(family) }
   if at >= words.len() { modify_usage(family) }
-  var request: Request = {
-    add: add, family: family, network: network, target: words[at], netmask: null, gateway: null, metric: null,
-    mss: null, window: null, irtt: null, reject: false, device: null,
-  }
+  var request: Request = Request(add:, family:, network:, target: words[at], netmask: null, gateway: null, metric: null, mss: null, window: null, irtt: null, reject: false, device: null)
   at += 1
   while at < words.len() {
     let word = words[at]

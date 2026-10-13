@@ -206,7 +206,7 @@ proc exclusive(previous: Str, current: Str) [process, env] -> Unit {
 }
 
 proc parse_options(args: List[Str]) [process, env, io] -> Settings {
-  var cfg: Settings = {delimiter: -1, input_file: null, eof: "", replace: null, max_lines: 0, max_args: 0, max_chars: DEFAULT_LIMIT, max_procs: 1, interactive: false, no_run_if_empty: false, trace: false, exit_on_overflow: false, slot_var: null, open_tty: false, show_limits: false, command: []}
+  var cfg: Settings = Settings(delimiter: -1, input_file: null, eof: "", replace: null, max_lines: 0, max_args: 0, max_chars: DEFAULT_LIMIT, max_procs: 1, interactive: false, no_run_if_empty: false, trace: false, exit_on_overflow: false, slot_var: null, open_tty: false, show_limits: false, command: [])
   var at = 0
   while at < args.len() {
     let arg = args[at]
@@ -451,7 +451,7 @@ proc main(...operands: List[Bytes]) {
   }
   if initial_size > cfg.max_chars { gnu.error("cannot fit single argument within argument list size limit"); exit 1 }
   if cfg.open_tty and fs.access(p"/dev/tty", read: true) is Err(_) { gnu.error(f"{gnu.quote("/dev/tty")}: No such device or address"); exit 1 }
-  var state: Lexer = {word: b"", quote: 0, escaped: false, started: false, line: 0, word_line: 0, row_words: false, trailing_space: false}
+  var state: Lexer = Lexer(word: b"", quote: 0, escaped: false, started: false, line: 0, word_line: 0, row_words: false, trailing_space: false)
   var batch: List[Item] = []
   var size = initial_size
   var batch_lines = 0

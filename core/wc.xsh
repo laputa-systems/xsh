@@ -665,12 +665,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let utf8 = locale.lower().find("utf-8") != null or locale.lower().find("utf8") != null
   let posix = posix_mode()
   let only_bytes = shown.bytes and ! shown.lines and ! shown.words and ! shown.chars and ! shown.longest
-  var state: WcState = {
-    total: Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(0), longest: 0),
-    output: "",
-    seen: 0,
-    failed: false,
-  }
+  var state: WcState = WcState(total: Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(0), longest: 0), output: "", seen: 0, failed: false)
 
   if streamed_list {
     # A pipe may wait for each count before it sends the next filename.

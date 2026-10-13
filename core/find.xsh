@@ -597,7 +597,7 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
   var failed = false
   var deferred: List[Deferred] = []
   let raw = target.bytes()
-  let entry: fmt.Entry = {path: target, start: start, depth: depth, meta: meta}
+  let entry: fmt.Entry = fmt.Entry(path: target, start:, depth:, meta:)
   match node.kind {
     "true" => matched = true
     "false" => matched = false
@@ -735,7 +735,7 @@ proc visit(target: Path, depth: Int, hint: Str, ancestors: List[Ancestor], devic
   # that cannot be searched, as GNU find does.
   let known = hint in ["file","dir","symlink","fifo","socket","block","char"]
   let lazy = depth > 0 and ! plan.stat_needed and known and (plan.follow != 2 or (hint != "symlink" and hint != "dir"))
-  var meta: fmt.Meta = {kind: hint, size: 0, uid: 0, gid: 0, ino: 0, dev: 0, nlink: 0, mode: 0, atime_ns: 0, mtime_ns: 0, ctime_ns: 0, birth_ns: null, blocks_512: 0}
+  var meta: fmt.Meta = fmt.Meta(kind: hint, size: 0, uid: 0, gid: 0, ino: 0, dev: 0, nlink: 0, mode: 0, atime_ns: 0, mtime_ns: 0, ctime_ns: 0, birth_ns: null, blocks_512: 0)
   if ! lazy { meta = stat_entry(target, depth, plan.follow)? }
   let identity = f"{meta.dev}:{meta.ino}"
   if meta.kind == "dir" and ! lazy {
@@ -746,7 +746,7 @@ proc visit(target: Path, depth: Int, hint: Str, ancestors: List[Ancestor], devic
       }
     }
   }
-  var decision: Decision = {matched: false, prune: false, quit: false, failed: false, deferred: []}
+  var decision: Decision = Decision(matched: false, prune: false, quit: false, failed: false, deferred: [])
   if ! opts.depth and depth >= opts.minimum {
     decision = evaluate(target, meta, depth, start, plan, plan.root)?
     deferred += decision.deferred
@@ -875,7 +875,7 @@ proc main(...operands: List[Bytes]) {
   }
   var expression_args: List[Str] = args[at..]
   if expression_args.is_empty() { expression_args = ["-true"] }
-  let initial: Options = {follow: follow, minimum: 0, maximum: -1, depth: false, device: false, warn: false, start_ns: start_ns, day_start_ns: 0, regex_type: "emacs", last_token: last_token, last_test: "", raw: raw}
+  let initial: Options = Options(follow:, minimum: 0, maximum: -1, depth: false, device: false, warn: false, start_ns:, day_start_ns: 0, regex_type: "emacs", last_token:, last_test: "", raw:)
   let outcome = try {
     let parsed = comma_expression(expression_args, {nodes: [], root: -1, at: 0, opts: initial})?
     if parsed.at < expression_args.len() { search.reject("you have too many ')'") }
@@ -914,7 +914,7 @@ proc main(...operands: List[Bytes]) {
     if node.kind in ["count","size","time","newerxy","perm","empty","samefile","nouser","nogroup","fstype","ls","fls"] { stat_needed = true }
     if node.kind in ["printf","fprintf"] and fmt.needs_stat(node.segments) { stat_needed = true }
   }
-  let plan: Run = {nodes: nodes, root: root, follow: final_opts.follow, opts: final_opts, stat_needed: stat_needed, raw: raw}
+  let plan: Run = Run(nodes:, root:, follow: final_opts.follow, opts: final_opts, stat_needed:, raw:)
   var failed = read_failed
   var deferred: List[Deferred] = []
   for target in roots {

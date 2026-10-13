@@ -127,7 +127,7 @@ pure padded(size: Int) -> Int {
 # Only path and linkpath change a member's name or link; other records are ignored.
 pure pax_overrides(body: Bytes) -> Result[PaxOverrides] {
   let text = body as Str
-  var overrides: PaxOverrides = {path: null, linkpath: null}
+  var overrides: PaxOverrides = PaxOverrides(path: null, linkpath: null)
   var position = 0
   while position < text.byte_len() {
     let space = text.find(" ", position) ?? -1
@@ -176,7 +176,7 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
   var after_zero = false
   var long_name = null
   var long_link = null
-  var overrides: PaxOverrides = {path: null, linkpath: null}
+  var overrides: PaxOverrides = PaxOverrides(path: null, linkpath: null)
   let members: List[Member] = collect {
     while true {
       let remaining = data.len() - position
@@ -667,7 +667,7 @@ proc read_names(path_text: Str) [fs, error, process, env] -> List[Str] {
 # Accepts the classic bundled form (`tar xvf ARCHIVE`) by treating a first word
 # without a dash as option letters, then parses long options and operands.
 proc parse_options(argv: List[Str]) [fs, error, process, env] -> Options {
-  var opts: Options = {mode: "", verbose: false, archive_path: null, root: ".", compression: "", to_stdout: false, keep: false, overwrite: false, strip: 0, excludes: [], members: [], help: false, version: false}
+  var opts: Options = Options(mode: "", verbose: false, archive_path: null, root: ".", compression: "", to_stdout: false, keep: false, overwrite: false, strip: 0, excludes: [], members: [], help: false, version: false)
   var words = argv
   if ! words.is_empty() and ! words[0].starts_with("-") {
     words = [f"-{words[0]}", @words[1..]]

@@ -976,14 +976,7 @@ proc color_enabled(mode: Int) [env, io, process, error] -> Bool {
 ## applet name implies ("E" or "F") and `wrapper` the applet name that warns
 ## it is obsolescent; both are empty for grep itself.
 export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, process, env, error] -> Unit {
-  var o: Options = {
-    matcher: "", keys: [], keys_given: false, ignore_case: false, invert: false, word: false, whole: false,
-    null_data: false, count: false, list: 0, quiet: false, suppress: false, only: false, filename_option: 0,
-    number: false, byte: false, tabs: false, null_name: false, binary_files: "binary", before: -1, after: -1,
-    context: -1, max_count: INTMAX, directories: "read", devices: "read-command-line", dereference: false,
-    label: b"(standard input)", color: 0, group_separator: b"--", line_buffered: false, excludes: [],
-    exclude_dirs: [], show_help: false, show_version: false,
-  }
+  var o: Options = Options(matcher: "", keys: [], keys_given: false, ignore_case: false, invert: false, word: false, whole: false, null_data: false, count: false, list: 0, quiet: false, suppress: false, only: false, filename_option: 0, number: false, byte: false, tabs: false, null_name: false, binary_files: "binary", before: -1, after: -1, context: -1, max_count: INTMAX, directories: "read", devices: "read-command-line", dereference: false, label: b"(standard input)", color: 0, group_separator: b"--", line_buffered: false, excludes: [], exclude_dirs: [], show_help: false, show_version: false)
   if flag != "" {
     flush_stdout()
     eprint f"{wrapper}: warning: {wrapper} is obsolescent; using grep -{flag}"
@@ -1155,7 +1148,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
     }
   }
   for warning in warnings { complain(f"warning: {warning}") }
-  var colors: Colors = {on: false, reversed: false, erase: true, selected_match: "01;31", context_match: "01;31", selected_line: "", context_line: "", filename: "35", line_number: "32", byte_offset: "32", separator: "36"}
+  var colors: Colors = Colors(on: false, reversed: false, erase: true, selected_match: "01;31", context_match: "01;31", selected_line: "", context_line: "", filename: "35", line_number: "32", byte_offset: "32", separator: "36")
   let colorize = color_enabled(o.color)
   if colorize {
     colors.on = true
@@ -1199,7 +1192,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
   let recursive = o.directories == "recurse"
   var show = -1
   if o.filename_option == 0 and operands.len() <= 1 { show = if recursive { -1 } else { 0 } } else if o.filename_option >= 0 { show = 1 } else { show = 0 }
-  var progress: Run = {used: false, selected: false, failed: false}
+  var progress: Run = Run(used: false, selected: false, failed: false)
   for target in targets {
     if target == b"-" and ! implicit_root {
       progress = search_input(ctx, progress, null, show == 1, o.label)

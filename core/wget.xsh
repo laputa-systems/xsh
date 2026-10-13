@@ -451,7 +451,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
   var host = http_transfer.url_host(url)
   var port = http_transfer.url_port(url)
 
-  var target: Target = {path: null, label: "", stdout: false}
+  var target: Target = Target(path: null, label: "", stdout: false)
   if let named = options.output {
     if named == "-" {
       target = {path: null, label: "STDOUT", stdout: true}
@@ -551,20 +551,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
       }
     }
     log_verbose(options, announce)
-    let request: http_transfer.Request = {
-      method: method,
-      url: url,
-      headers: headers,
-      body: body,
-      timeout: null,
-      connect_timeout: options.timeout,
-      idle_timeout: options.timeout,
-      redirects: 0,
-      return_redirects: true,
-      verify: options.verify,
-      cacert: options.ca_certificate,
-      fail_status: false,
-    }
+    let request: http_transfer.Request = http_transfer.Request(method:, url:, headers:, body:, timeout: null, connect_timeout: options.timeout, idle_timeout: options.timeout, redirects: 0, return_redirects: true, verify: options.verify, cacert: options.ca_certificate, fail_status: false)
     let buffered = target.stdout or options.spider or resume_from > 0 or options.server_response
     let result = if buffered {
       http_transfer.fetch(request)

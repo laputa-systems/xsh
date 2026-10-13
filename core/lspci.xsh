@@ -21,7 +21,7 @@ proc inventory(opts: Options, argv: List[Str]) -> Result[Unit] {
   # Filter after collection so tree relationships retain their inventory indexes.
   if opts.tree and (opts.slot != "" or opts.ids != "") { gnu.usage_error("PCI tree output cannot be combined with device selectors") }
   let devices = if opts.tree { collected.functions } else { collected.functions |> where { |device| hardware.pci_matches(device, opts.slot, opts.ids)? } }
-  let view: hardware.PciView = {numeric: numeric, driver: opts.driver, verbose: verbose, domain: opts.domain, tree: opts.tree}
+  let view: hardware.PciView = hardware.PciView(numeric:, driver: opts.driver, verbose:, domain: opts.domain, tree: opts.tree)
   for line in hardware.pci_lines(devices, labels, view)? { gnu.write_text(line + "\n") }
 }
 

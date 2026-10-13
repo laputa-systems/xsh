@@ -68,18 +68,7 @@ proc install_blanket_baseline(root: Path, original: metrics.Report, corrected: m
   })
   let blanket = corrected.metrics |> where .name == "blanket_dead_code_lines" |> collect
   assert blanket.len() == 1
-  let provenance: metrics.BlanketBaselineProvenance = {
-    schema: 1,
-    start_commit: "fixture",
-    source_manifest_sha256: source_manifest_hash,
-    original_baseline_path: "dev/consolidation/baseline.json",
-    original_baseline_sha256: original_hash,
-    corrected_baseline_path: "dev/consolidation/baseline-blanket-scope.json",
-    corrected_baseline_sha256: corrected_hash,
-    corrected_blanket_lines: blanket[0].value,
-    scanner_sha256: hash.sha256(fp"{root}/dev/consolidation_metrics.xsh")?.hex().lower(),
-    ratchet_tests_sha256: hash.sha256(fp"{root}/dev/tests/test-consolidation-ratchets.xsh")?.hex().lower(),
-  }
+  let provenance: metrics.BlanketBaselineProvenance = metrics.BlanketBaselineProvenance(schema: 1, start_commit: "fixture", source_manifest_sha256: source_manifest_hash, original_baseline_path: "dev/consolidation/baseline.json", original_baseline_sha256: original_hash, corrected_baseline_path: "dev/consolidation/baseline-blanket-scope.json", corrected_baseline_sha256: corrected_hash, corrected_blanket_lines: blanket[0].value, scanner_sha256: hash.sha256(fp"{root}/dev/consolidation_metrics.xsh")?.hex().lower(), ratchet_tests_sha256: hash.sha256(fp"{root}/dev/tests/test-consolidation-ratchets.xsh")?.hex().lower())
   let provenance_path = fp"{root}/dev/consolidation/blanket-metric-provenance.json"
   json.write(provenance_path, provenance)
   let metric_values = collect { for row in corrected.metrics { yield {name: row.name, value: row.value} } }
@@ -423,12 +412,12 @@ test test_malformed_lexical_forms_and_eligibility_cfg_attr_fail_loudly {
 }
 
 test test_structural_rise_fails_with_the_metric_and_values { |ctx|
-  let baseline: metrics.Report = {schema: 1, sources: [], metrics: [
+  let baseline: metrics.Report = metrics.Report(schema: 1, sources: [], metrics: [
     {name: "blanket_dead_code_lines", value: 0, evidence: []},
     {name: "manual_payload_calls", value: 1, evidence: []},
     {name: "source_lines_src", value: 5, evidence: []},
     {name: "source_lines_xsht", value: 5, evidence: []},
-  ], reviews: []}
+  ], reviews: [])
   let current: metrics.Report = {...baseline, metrics: collect {
     for row in baseline.metrics { yield if row.name == "manual_payload_calls" { {...row, value: 2} } else { row } }
   }}
@@ -455,12 +444,12 @@ test test_structural_rise_fails_with_the_metric_and_values { |ctx|
 
 test test_corrected_blanket_baseline_requires_provenance_and_changes_only_its_metric { |ctx|
   let root = tree(ctx)?
-  let original: metrics.Report = {schema: 1, sources: [], metrics: [
+  let original: metrics.Report = metrics.Report(schema: 1, sources: [], metrics: [
     {name: "blanket_dead_code_lines", value: 7, evidence: [{path: "src/lib.rs", line: 1, detail: "old blanket scope"}]},
     {name: "manual_payload_calls", value: 1, evidence: []},
     {name: "source_lines_src", value: 5, evidence: []},
     {name: "source_lines_xsht", value: 5, evidence: []},
-  ], reviews: []}
+  ], reviews: [])
   let corrected: metrics.Report = {...original, metrics: collect {
     for row in original.metrics { yield if row.name == "blanket_dead_code_lines" { {...row, value: 3, evidence: []} } else { row } }
   }}
@@ -549,13 +538,7 @@ proc review_fixture(ctx: TestContext) [fs, process, error] -> Result[ReviewFixtu
   }
   let artifact_path = ".work/proofs/review.txt"
   fp"{root}/{artifact_path}".write("synthetic review evidence\n")
-  let artifact: metrics.ReviewArtifact = {
-    path: artifact_path,
-    sha256: hash.sha256(fp"{root}/{artifact_path}")?.hex(),
-    command: "xsht test dev/tests/test-consolidation-ratchets-current.xsh",
-    method: "native fixture assertion",
-    result: "verified",
-  }
+  let artifact: metrics.ReviewArtifact = metrics.ReviewArtifact(path: artifact_path, sha256: hash.sha256(fp"{root}/{artifact_path}")?.hex(), command: "xsht test dev/tests/test-consolidation-ratchets-current.xsh", method: "native fixture assertion", result: "verified")
   {root: root, commit: commit, sources: sources, artifact: artifact}
 }
 

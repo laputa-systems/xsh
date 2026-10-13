@@ -400,7 +400,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     var offset = 0
     var pending = b""
-    var state: CountState = {line: b"", compare: b"", count: 0, printed: 0, active: false}
+    var state: CountState = CountState(line: b"", compare: b"", count: 0, printed: 0, active: false)
 
     loop {
       guard let chunk = tio.read_chunk(source, offset) else { |failure|

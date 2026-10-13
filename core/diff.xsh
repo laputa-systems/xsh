@@ -688,7 +688,7 @@ proc compare_operands(cfg: Settings, left_name: Str, right_name: Str) [fs, io, p
     failed = true
   }
   return 2 when failed
-  let blank: Probe = {name: "", kind: "absent", size: 0, identity: "", target: "", mtime_ns: 0, rdev: 0}
+  let blank: Probe = Probe(name: "", kind: "absent", size: 0, identity: "", target: "", mtime_ns: 0, rdev: 0)
   let first = if let Ok(item) = left { item } else { blank }
   let second = if let Ok(item) = right { item } else { blank }
   if first.kind == "absent" and second.kind == "absent" {
@@ -1159,9 +1159,9 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   let templates = merged_templates(format_events(argv))
   # GNU does not expand tabs for comparison when trailing white space is also
   # ignored: the combination compares like `-Z` alone.
-  let rules: gnudiff.Rules = {utf8: utf8_locale(), tabsize: tabsize, ignore_case: opts.ignore_case, all_space: opts.all_space, space_change: opts.space_change, trailing_space: opts.trailing_space, expand_tabs: opts.ignore_tab and !opts.trailing_space, minimal: opts.minimal, speed_large_files: opts.speed, horizon: horizon}
-  let fmt: diffrender.Format = {utf8: rules.utf8, style: style, context: context, initial_tab: opts.initial_tab, expand_tabs: opts.expand_tabs, tabsize: tabsize, suppress_blank_empty: opts.suppress_blank_empty, width: width, left_column: opts.left_column, suppress_common: opts.suppress_common, function_patterns: function_patterns, ignore_blank: opts.ignore_blank, blank_skips_space: opts.space_change or opts.all_space, patterns: opts.ignore_matching, palette: if colored { palette } else { [] }}
-  let cfg: Settings = {opts: opts, rules: rules, fmt: fmt, templates: templates, labels: opts.label, switches: switch_text(argv), patterns: patterns, style: style, fold_names: fold_names}
+  let rules: gnudiff.Rules = gnudiff.Rules(utf8: utf8_locale(), tabsize:, ignore_case: opts.ignore_case, all_space: opts.all_space, space_change: opts.space_change, trailing_space: opts.trailing_space, expand_tabs: opts.ignore_tab and !opts.trailing_space, minimal: opts.minimal, speed_large_files: opts.speed, horizon:)
+  let fmt: diffrender.Format = diffrender.Format(utf8: rules.utf8, style:, context:, initial_tab: opts.initial_tab, expand_tabs: opts.expand_tabs, tabsize:, suppress_blank_empty: opts.suppress_blank_empty, width:, left_column: opts.left_column, suppress_common: opts.suppress_common, function_patterns:, ignore_blank: opts.ignore_blank, blank_skips_space: opts.space_change or opts.all_space, patterns: opts.ignore_matching, palette: if colored { palette } else { [] })
+  let cfg: Settings = Settings(opts:, rules:, fmt:, templates:, labels: opts.label, switches: switch_text(argv), patterns:, style:, fold_names:)
 
   let pairs = collect {
     if let from = opts.from_file {

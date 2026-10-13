@@ -623,7 +623,7 @@ pure parse_replacement(text: Bytes) -> List[ReplNode] {
   while at < text.len() {
     let byte = at_byte(text, at)
     if byte == 92 {
-      var node: ReplNode = {text: text[base..at], group: -1, kind: current}
+      var node: ReplNode = ReplNode(text: text[base..at], group: -1, kind: current)
       current = saved
       at += 1
       if at >= text.len() {
@@ -957,7 +957,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       if groups >= 0 and highest > groups {
         return Err(complain(chunk, at, f"invalid reference \\{highest} on 's' command's RHS"))
       }
-      let substitution: Substitution = {regex: choice, nodes: nodes, global: global, occurrence: occurrence, print: print, write: write, evaluate: evaluate}
+      let substitution: Substitution = Substitution(regex: choice, nodes:, global:, occurrence:, print:, write:, evaluate:)
       commands += [{...command, sub: substitution}]
       continue
     }
@@ -1603,7 +1603,7 @@ proc runtime_failure(m: Machine, ctx: Context, failure: Error) [fs, io, error, p
 # regex persist in the machine across streams (separate files).
 proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error, process, env] -> Machine {
   var m = machine
-  var cursor: Cursor = {next_name: 0, position: 0, count: 0, trailing: true, current: "-", line: 0, bad: 0, fatal: false}
+  var cursor: Cursor = Cursor(next_name: 0, position: 0, count: 0, trailing: true, current: "-", line: 0, bad: 0, fatal: false)
   var records = []
   let name_count = names.len()
   let commands = ctx.program.commands
@@ -1619,7 +1619,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
   var ends: List[Int] = [0 for command in commands]
   if ctx.options.separate { m = {...m, roffset: {}, rdata: {}, hold: {text: b"", chomped: true}} }
   var queue: List[QueueItem] = []
-  var line: Space = {text: b"", chomped: true}
+  var line: Space = Space(text: b"", chomped: true)
   var replaced = false
   var restart = false
   while true {
@@ -1972,7 +1972,7 @@ export proc execute(program: Program, options: Options, in_place: InPlace, names
       targets += [FIRST_FILE + found]
     }
   }
-  let ctx: Context = {program: program, options: options, in_place: in_place.enabled, delim: delim, delim_bytes: bytes.from_ints([delim]) ?? b"\n", targets: targets, file_names: file_names}
+  let ctx: Context = Context(program:, options:, in_place: in_place.enabled, delim:, delim_bytes: bytes.from_ints([delim]) ?? b"\n", targets:, file_names:)
   var bufs: List[List[Bytes]] = [[]]
   var missing: List[Bool] = [false]
   while bufs.len() < FIRST_FILE + file_names.len() {

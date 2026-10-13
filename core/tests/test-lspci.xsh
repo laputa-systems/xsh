@@ -18,7 +18,7 @@ test test_lspci_labels_numeric_modes_and_selectors {
   assert spaced.get("1234")? == "Acme  Corp"
   assert spaced.get("1234:5678")? == "Widget  V2"
   let device = device_fixture()
-  let view: hardware.PciView = {numeric: 2, driver: true, verbose: 0, domain: true, tree: false}
+  let view: hardware.PciView = hardware.PciView(numeric: 2, driver: true, verbose: 0, domain: true, tree: false)
   let lines = hardware.pci_lines([device], labels, view)?
   assert lines[0] == "0001:02:03.4 Ethernet controller [0200]: Acme Network device [1234:5678] (rev 02)"
   assert lines[1] == "\tKernel driver in use: acme"
@@ -53,7 +53,7 @@ test test_lspci_tree_retains_parent_indexes_and_rejects_unreachable_cycles {
   let bridge = {...device_fixture(), address: "0000:00:01.0", domain: 0, bus: 0, device: 1, function: 0, class_code: 394240, parent_function_index: null}
   let child = {...device_fixture(), address: "0000:02:00.0", domain: 0, bus: 2, device: 0, function: 0, parent_function_index: 0}
   let labels: Map[Str] = {}
-  let view: hardware.PciView = {numeric: 1, driver: false, verbose: 0, domain: true, tree: true}
+  let view: hardware.PciView = hardware.PciView(numeric: 1, driver: false, verbose: 0, domain: true, tree: true)
   let lines = hardware.pci_lines([bridge, child], labels, view)?
   assert lines.len() == 2
   assert lines[1].starts_with("  +-0000:02:00.0")

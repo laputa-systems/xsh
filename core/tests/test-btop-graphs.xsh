@@ -106,28 +106,7 @@ test test_btop_graphs_track_read_write_and_combined_io_for_one_device_identity {
   fixture.write_b3_bundle(bundle, [])
   let loaded = replay.load(bundle.host_path()?)?
   let base = replay.models(loaded.observations)[0]
-  let device: disks.Device = {
-    identity: "41:8:0",
-    identity_state: report.Observed,
-    name: "sda",
-    major: 8,
-    minor: 0,
-    mount_targets: ["/mnt/data"],
-    filesystem: "ext4",
-    capacity_state: report.Observed,
-    capacity_age_ns: 0,
-    total_bytes: 1073741824,
-    used_bytes: 268435456,
-    available_bytes: 805306368,
-    read_sectors: 10,
-    read_state: report.Observed,
-    read_bytes_per_second: {state: rates.Observed, value: 1024.0},
-    write_sectors: 20,
-    write_state: report.Observed,
-    write_bytes_per_second: {state: rates.Observed, value: 2048.0},
-    in_flight: 0,
-    in_flight_state: report.Observed,
-  }
+  let device: disks.Device = disks.Device(identity: "41:8:0", identity_state: report.Observed, name: "sda", major: 8, minor: 0, mount_targets: ["/mnt/data"], filesystem: "ext4", capacity_state: report.Observed, capacity_age_ns: 0, total_bytes: 1073741824, used_bytes: 268435456, available_bytes: 805306368, read_sectors: 10, read_state: report.Observed, read_bytes_per_second: {state: rates.Observed, value: 1024.0}, write_sectors: 20, write_state: report.Observed, write_bytes_per_second: {state: rates.Observed, value: 2048.0}, in_flight: 0, in_flight_state: report.Observed)
   let value = {...base, storage: {block_state: report.Observed, mount_state: report.Observed, devices: [device]}}
   let history = graphs.observe(graphs.empty(), value)?
 

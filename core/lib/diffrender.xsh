@@ -263,7 +263,7 @@ pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[
   var out = []
   var wrote_header = false
   let flags = ignorable(first, second, script, fmt)
-  var state: Heading = {search_from: 0, line: -1}
+  var state: Heading = Heading(search_from: 0, line: -1)
   let n0 = first.lines.len()
   let n1 = second.lines.len()
   for members in hunk_groups(script, flags, fmt.context) {
@@ -571,7 +571,7 @@ pure render_sdiff(first: gnudiff.Source, second: gnudiff.Source, script: List[gn
     while cursor <= script.len() {
       var limit0 = n0
       var limit1 = n1
-      var hunk: Hunk = {first0: 0, last0: -1, first1: 0, last1: -1, changes: 0}
+      var hunk: Hunk = Hunk(first0: 0, last0: -1, first1: 0, last1: -1, changes: 0)
       if cursor < script.len() {
         hunk = analyze([script[cursor]], first, second, fmt)
         if hunk.changes == 0 {

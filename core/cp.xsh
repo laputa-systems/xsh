@@ -556,11 +556,7 @@ proc option_value(value: Str, choices: List[Str], option: Str) -> Str {
 proc main(...raw_argv: List[Bytes]) {
   let prepared = gnu.prepare_arguments(raw_argv)
   let argv = prepared.text
-  var opts: Options = {recursive: false, dereference: "default", overwrite: "always", force: false,
-    update: "all", target: null, no_target: false, hardlink: false, symlink: false,
-    mode: false, no_mode: false, xattr: "none", context: "none", owner: false, times: false, links: false, parents: false,
-    remove: false, backup: "none", suffix: e"SIMPLE_BACKUP_SUFFIX" ?? "~", sparse: "auto", reflink: "auto",
-    verbose: false, attributes: false, one_fs: false, strip: false, copy_contents: false, keep_directory_symlink: false, debug: false}
+  var opts: Options = Options(recursive: false, dereference: "default", overwrite: "always", force: false, update: "all", target: null, no_target: false, hardlink: false, symlink: false, mode: false, no_mode: false, xattr: "none", context: "none", owner: false, times: false, links: false, parents: false, remove: false, backup: "none", suffix: e"SIMPLE_BACKUP_SUFFIX" ?? "~", sparse: "auto", reflink: "auto", verbose: false, attributes: false, one_fs: false, strip: false, copy_contents: false, keep_directory_symlink: false, debug: false)
   var operands = []
   var at = 0
   var ended = false

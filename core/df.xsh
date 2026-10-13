@@ -25,7 +25,7 @@ pure percent(used: Int, available: Int) -> Str {
 # Inode counts share the human-readable selection with block counts but never
 # scale by a block size, so they are rendered with a unit size of one.
 pure row(mount: Mount, counts: Counters, units: disk.Units) -> Map[Str] {
-  let inodes: disk.Units = {block: 1, human: units.human, label: ""}
+  let inodes: disk.Units = disk.Units(block: 1, human: units.human, label: "")
   {
     source: mount.source, fstype: mount.kind, target: mount.target.display(), file: mount.file,
     size: disk.amount(counts.size, units), used: disk.amount(counts.used, units), avail: disk.amount(counts.avail, units),
@@ -233,7 +233,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
   }
   var table = []
   var devices = []
-  var totals: Counters = {size: 0, used: 0, avail: 0, files: 0, iused: 0, ifree: 0}
+  var totals: Counters = Counters(size: 0, used: 0, avail: 0, files: 0, iused: 0, ifree: 0)
   for mount in mounts {
     continue when ! opts.include.is_empty() and mount.kind not in opts.include
     continue when mount.kind in opts.exclude
@@ -249,7 +249,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     }
     continue when opts.targets.is_empty() and ! opts.all and stats.blocks == 0
     devices += [mount.dev]
-    let counts: Counters = {size: stats.blocks * stats.fragment_size, used: (stats.blocks - stats.blocks_free) * stats.fragment_size, avail: stats.blocks_available * stats.fragment_size, files: stats.files, iused: stats.files - stats.files_free, ifree: stats.files_available}
+    let counts: Counters = Counters(size: stats.blocks * stats.fragment_size, used: (stats.blocks - stats.blocks_free) * stats.fragment_size, avail: stats.blocks_available * stats.fragment_size, files: stats.files, iused: stats.files - stats.files_free, ifree: stats.files_available)
     totals = {size: totals.size + counts.size, used: totals.used + counts.used, avail: totals.avail + counts.avail, files: totals.files + counts.files, iused: totals.iused + counts.iused, ifree: totals.ifree + counts.ifree}
     table += [row(mount, counts, units)]
   }

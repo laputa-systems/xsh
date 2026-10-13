@@ -122,12 +122,12 @@ proc apply(settings: Settings, code: Str, value: Str?) [fs, io, error, process, 
     "l" => next = {...next, line_length: leading_integer(value ?? "")}
     "e" => {
       let number = next.expressions + 1
-      let chunk: editing.Chunk = {text: bytes.from_text(value ?? ""), file: null, number: number}
+      let chunk: editing.Chunk = editing.Chunk(text: bytes.from_text(value ?? ""), file: null, number:)
       next = {...next, expressions: number, have_script: true, chunks: next.chunks + [chunk]}
     }
     "f" => {
       let name = value ?? ""
-      let chunk: editing.Chunk = {text: read_script_file(name), file: name, number: 0}
+      let chunk: editing.Chunk = editing.Chunk(text: read_script_file(name), file: name, number: 0)
       next = {...next, have_script: true, chunks: next.chunks + [chunk]}
     }
     _ => {}
@@ -183,7 +183,7 @@ proc long_option(settings: Settings, word: Str, rest: List[Str], at: Int) [fs, i
 }
 
 proc main(...argv: List[Str]) [fs, error, io, process, env] {
-  var settings: Settings = {quiet: false, extended: false, separate: false, null_data: false, in_place: false, suffix: "", follow: false, line_length: 70, sandbox: false, chunks: [], expressions: 0, operands: [], have_script: false}
+  var settings: Settings = Settings(quiet: false, extended: false, separate: false, null_data: false, in_place: false, suffix: "", follow: false, line_length: 70, sandbox: false, chunks: [], expressions: 0, operands: [], have_script: false)
   var at = 0
   var only_operands = false
   while at < argv.len() {
@@ -231,11 +231,11 @@ proc main(...argv: List[Str]) [fs, error, io, process, env] {
   if !settings.have_script {
     if operands.is_empty() { bad_usage("") }
     let number = settings.expressions + 1
-    let chunk: editing.Chunk = {text: bytes.from_text(operands[0]), file: null, number: number}
+    let chunk: editing.Chunk = editing.Chunk(text: bytes.from_text(operands[0]), file: null, number:)
     chunks += [chunk]
     operands = operands[1..]
   }
-  let options: editing.Options = {extended: settings.extended, sandbox: settings.sandbox, separate: settings.separate, null_data: settings.null_data, line_length: settings.line_length}
+  let options: editing.Options = editing.Options(extended: settings.extended, sandbox: settings.sandbox, separate: settings.separate, null_data: settings.null_data, line_length: settings.line_length)
   let parsed = match editing.compile(chunks, options) {
     Ok(value) => value
     Err(failure) => {

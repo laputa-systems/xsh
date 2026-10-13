@@ -508,7 +508,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
     }
     targets = valid
   } else if targets.is_empty() { targets = ["."] }
-  let policy: Policy = {all: opts.all, total: opts.total, apparent: opts.apparent or opts.bytes, count_links: opts.count_links, follow_all: opts.follow_all, follow_args: opts.follow_args, separate: opts.separate, one_file_system: opts.one_file_system, inodes: opts.inodes, depth: depth, threshold: threshold, negative: negative, units: units, excludes: patterns, ending: if opts.zero { "\0" } else { "\n" }, time: time_field, time_style: style}
+  let policy: Policy = Policy(all: opts.all, total: opts.total, apparent: opts.apparent or opts.bytes, count_links: opts.count_links, follow_all: opts.follow_all, follow_args: opts.follow_args, separate: opts.separate, one_file_system: opts.one_file_system, inodes: opts.inodes, depth:, threshold:, negative:, units:, excludes: patterns, ending: if opts.zero { "\0" } else { "\n" }, time: time_field, time_style: style)
   var links: Map[Bool] = {}
   var total = 0
   var latest = 0

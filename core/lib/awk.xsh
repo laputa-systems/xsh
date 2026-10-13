@@ -569,7 +569,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
   let token = peek(p)
   let begin = p
   p = advance(p)
-  var first: Parsed[Int] = {parser: p, value: 0}
+  var first: Parsed[Int] = Parsed(parser: p, value: 0)
   match token {
     TokNumber(number) => { first = expression_node(p, Number(number)) }
     TokText(content) => { first = expression_node(p, Text(content)) }
@@ -987,7 +987,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
       let site = label_here(p)
       if ! is_at(p, "{") { let next = expression(p, 0)?; p = next.parser; pattern = next.value }
       if is_at(p, ",") { let next = expression(skip_newlines(advance(p)), 0)?; p = next.parser; end = next.value }
-      var action: Parsed[Int] = {parser: p, value: 0}
+      var action: Parsed[Int] = Parsed(parser: p, value: 0)
       if is_at(p, "{") {
         p.context = "main"
         action = block(p)?
@@ -1146,7 +1146,7 @@ pure scalar_text(value: Scalar, conversion: Str) -> Result[Str] {
 
 type Format = {conversion: Str, width: Int, precision: Int?, left: Bool, plus: Bool, space: Bool, zero: Bool, alternate: Bool, argument: Int?}
 type ParsedFormat = {format: Format?, at: Int, argument: Int, literal: Str}
-const DEFAULT_FORMAT: Format = {conversion: "s", width: 0, precision: null, left: false, plus: false, space: false, zero: false, alternate: false, argument: null}
+const DEFAULT_FORMAT: Format = Format(conversion: "s", width: 0, precision: null, left: false, plus: false, space: false, zero: false, alternate: false, argument: null)
 
 # One conversion specification after "%". A specification GNU awk does not
 # recognize is returned as literal text and printed unchanged. Stars consume

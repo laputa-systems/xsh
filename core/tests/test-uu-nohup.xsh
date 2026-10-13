@@ -109,7 +109,7 @@ test test_uu_nohup_nohup_fallback_to_home { |ctx|
   uu.mkdir(s, "readonly_dir")
   uu.set_mode(s, "readonly_dir", 0o555)
   defer uu.set_mode(s, "readonly_dir", 0o755)
-  let readonly: uu.Scene = {ctx: ctx, root: uu.at(s, "readonly_dir")}
+  let readonly: uu.Scene = uu.Scene(ctx:, root: uu.at(s, "readonly_dir"))
   let home_dir = uu.at(s, "home").display()
   let r = invoke_terminal(readonly, ["echo", "fallback test"], {HOME: home_dir})?
   uu.set_mode(s, "readonly_dir", 0o755)

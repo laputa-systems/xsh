@@ -344,7 +344,7 @@ export proc execute(argv: List[Str]) {
       exit 1
     }
   }
-  let setup: Setup = {v6: v6, address: found[0].addr, base_port: base_port, overhead: overhead, numeric: opts.numeric, both: opts.both}
+  let setup: Setup = Setup(v6:, address: found[0].addr, base_port:, overhead:, numeric: opts.numeric, both: opts.both)
   let fd = match open_probe_socket(v6) {
     Ok(opened) => opened
     Err(failure) => {

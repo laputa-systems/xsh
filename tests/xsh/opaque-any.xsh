@@ -90,7 +90,7 @@ test test_opaque_any_rejects_ordering_chain_operands { |ctx|
 test test_opaque_any_keeps_storage_equality_and_keys {
   let raw: Any = {name: "demo"}
   let copied: Any = raw
-  let field: OpaqueAnyEnvelope = {value: raw}
+  let field: OpaqueAnyEnvelope = OpaqueAnyEnvelope(value: raw)
   let items: List[Any] = [raw, copied]
   let entries: Map[Any] = {one: raw}
   assert keep_opaque_any(field.value) == raw

@@ -404,7 +404,7 @@ pure debug_offset(seconds: Int) -> Str {
 # Parsing and tracing share one baseline, so relative values cannot cross a clock
 # tick between their starting value and the emitted instant.
 proc debug_date(text: Str, instant: date_parse.Instant, base: date_parse.Instant, utc: Bool) [time, env, error, process] -> Result[Unit] {
-  let style: DateStyle = {names: null, calendar: "gregorian"}
+  let style: DateStyle = DateStyle(names: null, calendar: "gregorian")
   let timezone = if utc { "UTC0" } else { env.get_or("TZ", "") ?? "" }
   let input_zone = if timezone == "UTC0" { "TZ=\"UTC0\" environment value or -u" } else if env.get("TZ") is Ok(_) { f"TZ=\"{timezone}\" environment value" } else { "system default" }
   let final_zone = if timezone == "UTC0" { "Universal Time" } else if env.get("TZ") is Ok(_) { f"TZ=\"{timezone}\" environment value" } else { "system default" }

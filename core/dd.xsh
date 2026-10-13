@@ -71,7 +71,7 @@ pure assignment_separator(arg: Bytes) -> Int? {
 }
 
 proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
-  var opts: Options = {input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, input_directory: false, bs: 0, input_flags: [], output_flags: [], input_nocache: false, output_nocache: false}
+  var opts: Options = Options(input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, input_directory: false, bs: 0, input_flags: [], output_flags: [], input_nocache: false, output_nocache: false)
   for arg_index in range(argv.len()) {
     let raw_arg = argv[arg_index]
     let separator = assignment_separator(raw_arg)

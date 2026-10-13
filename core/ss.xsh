@@ -1245,7 +1245,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
     }
   }
   let ports = sockets.local_port_range()
-  let context: Context = {low: ports.low, high: ports.high, devices: devices, cgroups: group_ids}
+  let context: Context = Context(low: ports.low, high: ports.high, devices:, cgroups: group_ids)
 
   let want_info = config.info
   var found: List[sockets.DiagSocket] = []

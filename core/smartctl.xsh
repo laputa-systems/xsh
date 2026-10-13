@@ -82,28 +82,7 @@ type Clock = {epoch: Int, text: Str}
 # the exit status bits it contributed.
 type Session = {text: Str, members: List[j.Member], messages: List[Str], notes: List[Str], status: Int}
 
-const DEFAULT_OPTIONS: Options = {
-  json: false,
-  compact: false,
-  info: false,
-  health: false,
-  capabilities: false,
-  attributes: false,
-  all: false,
-  xall: false,
-  scan: false,
-  scan_open: false,
-  abort: false,
-  device_type: "auto",
-  type_count: 0,
-  logs: [],
-  test: null,
-  smart_switch: null,
-  quiet: "",
-  brief: false,
-  badsum: "warn",
-  device: null,
-}
+const DEFAULT_OPTIONS: Options = Options(json: false, compact: false, info: false, health: false, capabilities: false, attributes: false, all: false, xall: false, scan: false, scan_open: false, abort: false, device_type: "auto", type_count: 0, logs: [], test: null, smart_switch: null, quiet: "", brief: false, badsum: "warn", device: null)
 
 pure invalid(option: Str, value: Str, valid: Str) -> Failure {
   {lines: [f"=======> INVALID ARGUMENT TO {option}: {value}", f"=======> VALID ARGUMENTS ARE: {valid} <======="], native: true}
@@ -1311,7 +1290,7 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
       }
     }
   }
-  var session: Session = {text: "", members: [], messages: [], notes: [], status: 0}
+  var session: Session = Session(text: "", members: [], messages: [], notes: [], status: 0)
   if kind == "nvme" {
     session = nvme_session(options, fd, nsid_hint, clock_now)
   } else if kind == "scsi" {

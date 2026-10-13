@@ -360,12 +360,7 @@ export proc run_corpus(xsh_bin: Path, script: Path, corpus: Path, root: Path, wo
       position += 1
       continue when position % parts != part
       let stored = json.decode(line)?.require(Stored)?
-      let c: Case = {
-        name: stored.name,
-        flags: stored.flags,
-        input: stored_bytes(stored.input, stored.input_hex),
-        args: stored.args,
-      }
+      let c: Case = Case(name: stored.name, flags: stored.flags, input: stored_bytes(stored.input, stored.input_hex), args: stored.args)
       continue when "n" in c.flags and identity.euid == 0
       let seen = invoke(xsh_bin, script, root, work, c)?
       let status = stored.status

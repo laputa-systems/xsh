@@ -2295,7 +2295,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
         }
       }
     }
-    var reader: SortMergeReader = {fd: fd, name: input.name, pending: b"", pending_at: 0, eof: false, current: null, current_order: null}
+    var reader: SortMergeReader = SortMergeReader(fd:, name: input.name, pending: b"", pending_at: 0, eof: false, current: null, current_order: null)
     loop {
       match advance_sort_merge_reader(reader, opts.zero_terminated) {
         Ok(next) => {

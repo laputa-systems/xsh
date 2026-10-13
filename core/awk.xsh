@@ -214,7 +214,7 @@ proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Ex
 type Given = {name: Str, value: Str?}
 
 proc main(...args: List[Str]) [fs, process, env, error, io, time] {
-  var settings: Settings = {pieces: [], assignments: [], operands: [], sandbox: false, version: false, help: false}
+  var settings: Settings = Settings(pieces: [], assignments: [], operands: [], sandbox: false, version: false, help: false)
   var index = 0
   var program_given = false
   var include_found = []

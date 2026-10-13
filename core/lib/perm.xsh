@@ -252,13 +252,13 @@ proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, names
     if (required.uid != null and required.uid != meta.uid) or (required.gid != null and required.gid != meta.gid) {
       if opts.verbosity == "verbose" {
         let noun = if names.user != null { "ownership" } else if names.group != null { "group" } else { "ownership" }
-        let retained: Owner = {uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null }}
+        let retained: Owner = Owner(uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null })
         gnu.write_text(f"{noun} of {gnu.quote(name)} retained as {owner_label(retained, names.user == null)}\n")
       }
       return true
     }
   }
-  let old: Owner = {uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null }}
+  let old: Owner = Owner(uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null })
   let changed = (ids.uid != null and ids.uid != meta.uid) or (ids.gid != null and ids.gid != meta.gid)
   let noun = if names.user != null { "ownership" } else if names.group != null { "group" } else { "ownership" }
   let result = fs.set_owner(target, uid: ids.uid, gid: ids.gid, follow_symlinks: opts.dereference)
@@ -312,9 +312,9 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
   if opts.version { gnu.version(command); return }
   if opts.operands.is_empty() { gnu.missing_operand() }
   if opts.reference == null and opts.operands.len() < 2 { missing_operand_after_bytes(opts.operands[0]) }
-  var ids: Owner = {uid: null, gid: null}
+  var ids: Owner = Owner(uid: null, gid: null)
   var targets = opts.operands
-  var names: OwnerNames = {user: null, group: null}
+  var names: OwnerNames = OwnerNames(user: null, group: null)
   if let reference = opts.reference {
     let reference_path = reference as Path
     match fs.stat(reference_path, follow_symlinks: true) {

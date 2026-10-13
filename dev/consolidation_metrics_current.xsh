@@ -74,7 +74,7 @@ pure ident_start(value: Str) -> Bool {
 pure first(value: Str) -> Str { value.split("").get(0) ?? "" }
 pure ident_part(value: Str) -> Bool { ident_start(value) or (value != "" and value in "0123456789") }
 # Missing lookahead is an explicit end-of-input token.
-const end_token: Token = {text: "", start: 0, end: 0, line: 0, last_line: 0, literal: false}
+const end_token: Token = Token(text: "", start: 0, end: 0, line: 0, last_line: 0, literal: false)
 proc invalid(source_path: Str, line: Int, detail: Str) [error] -> Result[Unit] { Err(MetricError.Invalid(path: source_path, line:, detail:)) }
 
 # Literal contents never enter the token stream as identifiers or delimiters.
@@ -305,7 +305,7 @@ proc production_cfg(source_path: Str, lexed: Lexed, predicates: List[CfgPredicat
       index += 1
     }
   }
-  let cfg_source: Lexed = {tokens: cfg_tokens, mates: cfg_mates, size: lexed.size, lines: lexed.lines}
+  let cfg_source: Lexed = Lexed(tokens: cfg_tokens, mates: cfg_mates, size: lexed.size, lines: lexed.lines)
   var atoms: List[Str] = []
   for predicate in predicates {
     let end = predicate.end
@@ -488,7 +488,7 @@ proc dead_code_allowance_analysis(source_path: Str, lexed: Lexed, spans: List[Sp
   var items: List[ItemAllowance] = []
   for attr in attrs {
     if inside(lexed.tokens[attr.start], spans) or ! attr.condition_active or ! attribute_allows_dead_code(lexed, attr) { continue }
-    var target: AttributeTarget = {kind: "", name: "", first: 0, last: 0}
+    var target: AttributeTarget = AttributeTarget(kind: "", name: "", first: 0, last: 0)
     var is_scope = attr.inner
     var detail = "allow(dead_code) inner scope"
     if attr.inner {

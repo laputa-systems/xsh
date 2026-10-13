@@ -303,11 +303,11 @@ test test_typed_callable_is_returned_passed_and_stored {
 test test_typed_callable_record_field_is_called_like_a_method {
   assert get_holder().callback(7) == 21
 
-  var holder: Holder = {callback: double}
+  var holder: Holder = Holder(callback: double)
   holder.callback = triple
   assert holder.callback(3) == 9
 
-  var bundle: Bundle = {nested: Holder(callback: double)}
+  var bundle: Bundle = Bundle(nested: Holder(callback: double))
   bundle.nested.callback = triple
   assert bundle.nested.callback(3) == 9
 
@@ -327,7 +327,7 @@ test test_typed_callable_record_field_is_called_like_a_method {
 }
 
 pure apply_validated_collection(callbacks: NonEmpty[Scale]) -> Int {
-  var holder: CallbackCollection = {callbacks: [double]}
+  var holder: CallbackCollection = CallbackCollection(callbacks: [double])
   holder.callbacks = callbacks
   let updated = {...holder, callbacks: callbacks}
   updated.callbacks[0](7)
@@ -581,7 +581,7 @@ test test_alias_that_kept_its_signature_fits_a_callable_type {
 }
 
 test test_record_spread_keeps_a_compatible_callable_field {
-  let specific: SpecificBuilderRecord = {build: release_build}
+  let specific: SpecificBuilderRecord = SpecificBuilderRecord(build: release_build)
   let widened: BuilderRecord = {...specific}
   assert widened.build(/a)? == "release /a false"
 }
@@ -1068,7 +1068,7 @@ test test_path_read_checks_each_inline_path_result { |ctx|
   }
   assert updated_projection == "contents"
 
-  let checked_holder: PathHolder = {path: fp"{root}/note"}
+  let checked_holder: PathHolder = PathHolder(path: fp"{root}/note")
   var checked_projection = ""
   with text = checked_holder.path.read_text() {
     checked_projection = text

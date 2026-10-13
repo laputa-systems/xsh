@@ -122,7 +122,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         info = resolved?
       }
     }
-    let identity: DirectoryIdentity = {device: info.dev, inode: info.ino}
+    let identity: DirectoryIdentity = DirectoryIdentity(device: info.dev, inode: info.ino)
     if opts.recursive and info.kind == "dir" and identity in visit.ancestors {
       gnu.error(f"{fileattrs.quote_name(visit.name)}: directory cycle detected")
       success = false

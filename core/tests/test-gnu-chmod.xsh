@@ -75,7 +75,7 @@ test test_gnu_chmod_no_x_log { |ctx|
   let r = uu.invoke(s, "chmod", ["-R", "o=r", "d"])?
   uu.fails(r)
   assert r.stderr.utf8()?.replace("cannot access ", with: "").replace("cannot read directory ", with: "").replace("d/no-x/y", with: "d/no-x") == "chmod: 'd/no-x': Permission denied\n"
-  let child: uu.Scene = {ctx: ctx, root: uu.at(s, "a")}
+  let child: uu.Scene = uu.Scene(ctx:, root: uu.at(s, "a"))
   let words = uu.argv(child, "chmod", [p"a-x", p".", p"b"])?
   let out = uu.at(s, "out")
   let err = uu.at(s, "err")

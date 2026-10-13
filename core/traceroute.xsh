@@ -349,7 +349,7 @@ pure control_stamp(control: List[Control], level: Int, kind: Int) -> Int {
 
 proc open_clock() [process, net, error] -> Clock {
   let c = linux.net_constants()
-  let unusable: Clock = {fd: -1, address: {address: "", family: "unspec", port: 0, raw: b"", scope_id: 0}}
+  let unusable: Clock = Clock(fd: -1, address: {address: "", family: "unspec", port: 0, raw: b"", scope_id: 0})
 
   guard let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM) else { |failure|
     return unusable
@@ -1376,33 +1376,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     payload_len = packet_len - base
   }
 
-  let s: Settings = {
-    host: host,
-    target: target.addr,
-    v6: target.v6,
-    method: method,
-    numeric: opts.numeric,
-    first_ttl: first_ttl,
-    max_ttl: max_ttl,
-    queries: queries,
-    max_wait_ms: max_wait_ms,
-    here: here,
-    near: near,
-    send_wait_ms: send_wait_ms,
-    port: port,
-    source: source,
-    interface: opts.interface,
-    tos: tos,
-    dont_fragment: opts.dont_fragment,
-    bypass: opts.bypass,
-    debug: opts.debug,
-    fwmark: fwmark,
-    source_port: source_port,
-    gateways: gateways,
-    icmp_sockets: icmp_sockets,
-    payload_len: payload_len,
-    packet_len: packet_len,
-  }
+  let s: Settings = Settings(host:, target: target.addr, v6: target.v6, method:, numeric: opts.numeric, first_ttl:, max_ttl:, queries:, max_wait_ms:, here:, near:, send_wait_ms:, port:, source:, interface: opts.interface, tos:, dont_fragment: opts.dont_fragment, bypass: opts.bypass, debug: opts.debug, fwmark:, source_port:, gateways:, icmp_sockets:, payload_len:, packet_len:)
 
   let c = linux.net_constants()
   let protocol = if s.v6 { c.IPPROTO_ICMPV6 } else { c.IPPROTO_ICMP }

@@ -879,20 +879,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
   var left = settings.retries
   var wait_ms = settings.retry_delay ?? 1000
   while true {
-    let request: Request = {
-      method: method,
-      url: url,
-      headers: headers,
-      body: body,
-      timeout: settings.max_time,
-      connect_timeout: settings.connect_timeout,
-      idle_timeout: null,
-      redirects: if settings.location { settings.max_redirs } else { 0 },
-      return_redirects: !settings.location,
-      verify: !settings.insecure,
-      cacert: settings.cacert,
-      fail_status: settings.fail and !settings.fail_with_body and dest != null and !reply_needs_buffer,
-    }
+    let request: Request = Request(method:, url:, headers:, body:, timeout: settings.max_time, connect_timeout: settings.connect_timeout, idle_timeout: null, redirects: if settings.location { settings.max_redirs } else { 0 }, return_redirects: !settings.location, verify: !settings.insecure, cacert: settings.cacert, fail_status: settings.fail and !settings.fail_with_body and dest != null and !reply_needs_buffer)
     let result = attempt(settings, request, dest, resume_from, method, jar, reply_needs_buffer)
     return result.code when result.again == null or left == 0
     let reason = result.again
@@ -949,7 +936,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
       if meter or bar { emit("\n", settings.stderr_to_stdout) }
       show_error(settings, described.code, described.message)
       if settings.write_out != null {
-        let outcome: Outcome = {status: 0, reason: "", headers: [], bytes: 0, url: request.url, redirects: 0, millis: elapsed, code: described.code}
+        let outcome: Outcome = Outcome(status: 0, reason: "", headers: [], bytes: 0, url: request.url, redirects: 0, millis: elapsed, code: described.code)
         finish_write_out(settings, outcome, method)
       }
       return {code: described.code, again: described.again}
@@ -1061,7 +1048,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
       }
       if bar { emit(f"\r{BAR} 100.0%\n", settings.stderr_to_stdout) }
       if settings.write_out != null {
-        let outcome: Outcome = {status: reply.status, reason: reply.reason, headers: reply.headers, bytes: shown, url: reply.url, redirects: reply.redirects, millis: elapsed, code: code}
+        let outcome: Outcome = Outcome(status: reply.status, reason: reply.reason, headers: reply.headers, bytes: shown, url: reply.url, redirects: reply.redirects, millis: elapsed, code:)
         finish_write_out(settings, outcome, method)
       }
       if failed { show_error(settings, 22, f"The requested URL returned error: {reply.status}") }
