@@ -10,6 +10,10 @@ type Item = Union[Named, List[Str], Int, Str, Path]
 
 enum Mode: Str { Fast = "fast", Slow = "slow" }
 
+enum UnionTagChoice { UnionTagSome(Int), UnionTagEmpty }
+
+type UnionTagInput = Union[UnionTagChoice, Str]
+
 type Task = {tool: Str, args: List[Word], level: Union[Int, Mode]}
 
 type TextFirst = {mode: Union[Str, Mode]}
@@ -153,6 +157,18 @@ test test_union_narrows_on_both_sides_of_a_type_test {
   assert number_or_text(1) == "int"
   assert number_or_text(1.5) == "float"
   assert number_or_text("text") == "text"
+}
+
+test test_tag_patterns_match_a_member_of_a_narrowed_union_slot {
+  let value: UnionTagInput = UnionTagSome(7)
+  if value is UnionTagChoice {
+    match value {
+      UnionTagSome(number) => assert number == 7
+      UnionTagEmpty => assert false, "unexpected empty choice"
+    }
+  } else {
+    assert false, "expected the tag union member"
+  }
 }
 
 # Every form that carries a narrowing fact carries it for a union: `guard`,

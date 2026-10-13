@@ -8049,18 +8049,29 @@ impl<'a> FullDecoder<'a> {
         subject_type: Option<&Type>,
         type_name: Name,
     ) -> Result<(), IrVerifyError> {
-        if let Some(subject_type) = subject_type {
-            match subject_type {
-                Type::Any | Type::Unknown => {}
-                Type::Tag(actual) if *actual == type_name => {}
-                _ => {
-                    return Err(IrVerifyError::new(
-                        "tag pattern disagrees with its checked subject type",
-                    ));
-                }
-            }
+        if let Some(subject_type) = subject_type
+            && !Self::tag_pattern_may_match(subject_type, type_name)
+        {
+            return Err(IrVerifyError::new(
+                "tag pattern disagrees with its checked subject type",
+            ));
         }
         Ok(())
+    }
+
+    /// Whether a value of `subject_type` can be a tag from `type_name`.
+    ///
+    /// A narrowed slot retains its declared union in lowered IR, so one union
+    /// member must be able to hold the tag named by the pattern.
+    fn tag_pattern_may_match(subject_type: &Type, type_name: Name) -> bool {
+        match subject_type {
+            Type::Any | Type::Unknown => true,
+            Type::Tag(actual) => *actual == type_name,
+            Type::Union(members) => members
+                .iter()
+                .any(|member| Self::tag_pattern_may_match(member, type_name)),
+            _ => false,
+        }
     }
 
     fn verify_error_pattern_subject(
@@ -21312,6 +21323,30 @@ pure apply() -> Int {
             variant
         ));
         assert!(!FullDecoder::error_pattern_may_match(&Type::Str, family, variant));
+    }
+
+    #[test]
+    fn tag_pattern_subject_union_requires_a_member_with_the_tag_type() {
+        let owner = crate::symbol::SymbolOwner::new();
+        let _guard = owner.enter();
+        let type_name = Name::intern("Choice");
+        let other = Name::intern("OtherChoice");
+        let union = |members: Vec<Type>| Type::Union(members);
+
+        assert!(FullDecoder::tag_pattern_may_match(&Type::Tag(type_name), type_name));
+        assert!(FullDecoder::tag_pattern_may_match(
+            &union(vec![Type::Str, Type::Tag(type_name)]),
+            type_name,
+        ));
+        assert!(FullDecoder::tag_pattern_may_match(
+            &union(vec![Type::Str, union(vec![Type::Tag(type_name)])]),
+            type_name,
+        ));
+        assert!(!FullDecoder::tag_pattern_may_match(
+            &union(vec![Type::Str, Type::Tag(other)]),
+            type_name,
+        ));
+        assert!(!FullDecoder::tag_pattern_may_match(&Type::Str, type_name));
     }
 
     #[test]
