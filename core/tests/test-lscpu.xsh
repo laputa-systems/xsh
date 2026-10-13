@@ -49,7 +49,7 @@ test test_lscpu_fixture_preserves_cpu_identity_and_offline_selection { |ctx|
   let script = fp"{ctx.core_dir}/lscpu.xsh"
   let out = fp"{folder}/stdout"
   let command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--parse=CPU,ONLINE", "--all", "--sysroot", folder.display()],
+    [ctx.xsh_bin, script, "--parse=CPU,ONLINE", "--all", "--sysroot", folder],
     folder, {}, b"", out, fp"{folder}/stderr", timeout: 5s)
   assert process.run(command)?.exited_with(0)
   assert out.read_text()? == "# CPU,ONLINE\n0,Y\n1,N\n"
@@ -57,7 +57,7 @@ test test_lscpu_fixture_preserves_cpu_identity_and_offline_selection { |ctx|
   root.write(p"sys/devices/system/cpu/cpu1/topology/physical_package_id", "9\n")
   for index in range(2) { root.write(fp"sys/devices/system/cpu/cpu{index}/topology/core_id", "7\n") }
   let physical = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--parse=CPU,SOCKET,CORE", "--physical", "--all", "--sysroot", folder.display()],
+    [ctx.xsh_bin, script, "--parse=CPU,SOCKET,CORE", "--physical", "--all", "--sysroot", folder],
     folder, {}, b"", out, fp"{folder}/stderr", timeout: 5s)
   assert process.run(physical)?.exited_with(0)
   assert out.read_text()? == "# CPU,SOCKET,CORE\n0,4,7\n1,9,7\n"

@@ -40,10 +40,10 @@ test test_lspci_help_and_unsupported_register_reads_are_deterministic { |ctx|
   let script = fp"{ctx.core_dir}/lspci.xsh"
   let out = fp"{root}/out"
   let err = fp"{root}/err"
-  let help = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--help"], root, {}, b"", out, err, timeout: 5s)
+  let help = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--help"], root, {}, b"", out, err, timeout: 5s)
   assert process.run(help)?.exited_with(0)
   assert "Usage: lspci" in out.read_text()?
-  let registers = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "-xxx"], root, {}, b"", out, err, timeout: 5s)
+  let registers = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "-xxx"], root, {}, b"", out, err, timeout: 5s)
   assert process.run(registers)?.exited_with(1)
   assert "not supported" in err.read_text()?
 }

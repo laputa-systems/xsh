@@ -143,7 +143,7 @@ test test_split_filter_round_robin_stops_when_filters_exit { |ctx|
   let command = r"""yes | "$1" "$2" 1 "$1" "$3" --filter='head -c1 >$FILE.out' -n r/2 -"""
   let plan = process.command_argv(
     p"/bin/sh",
-    ["sh", "-c", command, "split-filter-round-robin", ctx.xsh_bin.display(), timeout.display(), split.display()],
+    ["sh", "-c", command, "split-filter-round-robin", ctx.xsh_bin, timeout, split],
     root,
     {LC_ALL: "C", TMPDIR: root, XSH_EXECUTION_PHRASE: ""},
     b"",
@@ -167,7 +167,7 @@ test test_split_filter_byte_chunks_keep_processing_until_timeout { |ctx|
   let command = r"""yes | "$1" "$2" -k .2 .5 "$1" "$3" -b 1000 --filter='printf x >>$FILE.started; sleep .02; head -c1 >/dev/null' -"""
   let plan = process.command_argv(
     p"/bin/sh",
-    ["sh", "-c", command, "split-filter-byte-chunks", ctx.xsh_bin.display(), timeout.display(), split.display()],
+    ["sh", "-c", command, "split-filter-byte-chunks", ctx.xsh_bin, timeout, split],
     root,
     {LC_ALL: "C", TMPDIR: root, XSH_EXECUTION_PHRASE: ""},
     b"",
@@ -194,7 +194,7 @@ test test_split_non_utf8_input_path { |ctx|
 
   let status = process.run(process.command_argv(
     p"/bin/sh",
-    ["sh", "-c", command, "split-raw-input", ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()],
+    ["sh", "-c", command, "split-raw-input", ctx.xsh_bin, fp"{ctx.core_dir}/split.xsh"],
     root,
     {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
     b"",
@@ -216,7 +216,7 @@ test test_split_non_utf8_prefix_and_additional_suffix { |ctx|
 
   let status = process.run(process.command_argv(
     p"/bin/sh",
-    ["sh", "-c", command, "split-raw-names", ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()],
+    ["sh", "-c", command, "split-raw-names", ctx.xsh_bin, fp"{ctx.core_dir}/split.xsh"],
     root,
     {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
     b"",
@@ -254,7 +254,7 @@ test test_split_numbered_device_reads_until_eof { |ctx|
   let script = fp"{ctx.core_dir}/split.xsh"
   for number in ["3", "l/3"] {
     let plan = process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), "-n", number, "/dev/zero"],
+      [ctx.xsh_bin, "--", script, "-n", number, "/dev/zero"],
       root, {LC_ALL: "C"}, b"", stdout, stderr)
     let handle = spawn plan?
     defer handle.cancel(signal: "KILL", kill_after: 0ms)
@@ -313,7 +313,7 @@ test test_split_non_utf8_equals_option_value_keeps_its_name { |ctx|
 
   let status = process.run(process.command_argv(
     p"/bin/sh",
-    ["sh", "-c", command, "split-raw-equals", ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()],
+    ["sh", "-c", command, "split-raw-equals", ctx.xsh_bin, fp"{ctx.core_dir}/split.xsh"],
     root,
     {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
     b"",
@@ -337,7 +337,7 @@ test test_split_stdin_redirected_from_the_output_is_refused { |ctx|
 
   let status = process.run(process.command_argv(
     p"/bin/sh",
-    ["sh", "-c", command, "split-stdin-guard", ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()],
+    ["sh", "-c", command, "split-stdin-guard", ctx.xsh_bin, fp"{ctx.core_dir}/split.xsh"],
     root,
     {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
     b"",

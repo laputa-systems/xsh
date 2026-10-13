@@ -37,7 +37,7 @@ test test_rfkill_invalid_command_is_rejected_before_inventory { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/rfkill.xsh"
   let err = fp"{root}/err"
-  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "toggle", "all"], root, {}, b"", fp"{root}/out", err, timeout: 5s)
+  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "toggle", "all"], root, {}, b"", fp"{root}/out", err, timeout: 5s)
   assert process.run(command)?.exited_with(1)
   assert "unsupported rfkill command" in err.read_text()?
 }

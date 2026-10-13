@@ -53,7 +53,7 @@ test test_getty_serial_flags_change_only_the_named_owned_terminal { |ctx|
   let root = test.temp_dir(ctx, name: "getty-serial")?
   let login = fp"{root}/login"
   login.write("#!/bin/sh\nexit 0\n", mode: 0o755)
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-i", "-n", "-h", "-L", "-l", login.display(), "0", pty.name], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "getty")?
+  let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-i", "-n", "-h", "-L", "-l", login, "0", pty.name], {XSH_MODULE_PATH: ctx.core_dir}, b"", "getty")?
   assert result.success, result.stderr
   let changed = unix.tty_attrs(pty.replica)?
   assert changed.cflag.bit_and(mask) == mask
@@ -64,7 +64,7 @@ test test_getty_serial_flags_change_only_the_named_owned_terminal { |ctx|
 
 test test_getty_modem_options_fail_before_terminal_or_login { |ctx|
   for option in ["-m", "-w"] {
-    let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, [option, "-i", "-n", "-l", "/missing-login", "0", "/missing-terminal"], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "getty")?
+    let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, [option, "-i", "-n", "-l", "/missing-login", "0", "/missing-terminal"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "getty")?
     assert ! result.success
     assert "not supported" in result.stderr
     assert "modem" in result.stderr
@@ -79,7 +79,7 @@ test test_getty_serial_flag_failure_prevents_login { |ctx|
   login.write(f"#!/bin/sh\nprintf ran > {marker}\n", mode: 0o755)
   let terminal_file = fp"{root}/not-a-terminal"
   terminal_file.write("original")
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-h", "-i", "-n", "-l", login.display(), "0", terminal_file.display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "getty")?
+  let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-h", "-i", "-n", "-l", login, "0", terminal_file], {XSH_MODULE_PATH: ctx.core_dir}, b"", "getty")?
   assert ! result.success
   assert ! marker.exists()?
   assert terminal_file.read_text()? == "original"
@@ -88,7 +88,7 @@ test test_getty_serial_flag_failure_prevents_login { |ctx|
 
 test test_getty_timeout_is_rejected_before_prompt_terminal_and_login { |ctx|
   for option in ["-t", "--timeout"] {
-    let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, [option, "1", "-I", "not-written", "-l", "/missing-login", "0", "/missing-terminal"], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "getty")?
+    let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, [option, "1", "-I", "not-written", "-l", "/missing-login", "0", "/missing-terminal"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "getty")?
     assert ! result.success
     assert "not supported" in result.stderr
     assert "timeout" in result.stderr
@@ -104,7 +104,7 @@ test test_getty_baud_changes_the_named_owned_terminal { |ctx|
   let root = test.temp_dir(ctx, name: "getty-baud")?
   let login = fp"{root}/login"
   login.write("#!/bin/sh\nexit 0\n", mode: 0o755)
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-i", "-n", "-l", login.display(), "9600", pty.name], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "getty")?
+  let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-i", "-n", "-l", login, "9600", pty.name], {XSH_MODULE_PATH: ctx.core_dir}, b"", "getty")?
   assert result.success, result.stderr
   let changed = unix.tty_attrs(pty.replica)?
   assert changed.ispeed == 9600
@@ -119,7 +119,7 @@ test test_getty_baud_changes_the_named_owned_terminal { |ctx|
 
 test test_getty_invalid_or_multiple_baud_rates_fail_before_login { |ctx|
   for baud in ["invalid", "9600,19200", "12345", "-1"] {
-    let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-i", "-n", "-l", "/missing-login", "--", baud, "/missing-terminal"], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "getty")?
+    let result = test.run_script(ctx, fp"{ctx.core_dir}/getty.xsh".read_text()?, ["-i", "-n", "-l", "/missing-login", "--", baud, "/missing-terminal"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "getty")?
     assert ! result.success
     assert "baud" in result.stderr
     assert "missing-login" not in result.stderr

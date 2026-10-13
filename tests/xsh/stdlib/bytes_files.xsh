@@ -10,7 +10,7 @@ assert bytes.zero_at(fifo, 0, 1, regular: true) is Err(_)
 assert bytes.resize(fifo, 1, regular: true) is Err(_)
 """))?
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--", fifo.display()], timeout: 2s))?
+    [ctx.xsh_bin, script, "--", fifo], timeout: 2s))?
   assert status.ok
   assert fs.stat(fifo)?.kind == "fifo"
   assert bytes.read_at(/dev/null, 0, 1, regular: true) is Err(_)

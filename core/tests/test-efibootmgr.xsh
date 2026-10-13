@@ -67,9 +67,9 @@ proc fixture(ctx: TestContext, name: Str) [fs, error] -> Path {
 proc invoke_with(ctx: TestContext, dir: Path, argv: List[Str], allow_any_dir: Bool, stdin: Bytes) [fs, process, error] -> Run {
   let source = fp"{ctx.core_dir}/efibootmgr.xsh".read_text()?
   if allow_any_dir {
-    return test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir.display(), EFIVARFS_PATH: dir.display(), EFIBOOTMGR_ALLOW_ANY_DIR: "1"}, stdin, "efibootmgr")?
+    return test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir, EFIVARFS_PATH: dir, EFIBOOTMGR_ALLOW_ANY_DIR: "1"}, stdin, "efibootmgr")?
   }
-  test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir.display(), EFIVARFS_PATH: dir.display()}, stdin, "efibootmgr")?
+  test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir, EFIVARFS_PATH: dir}, stdin, "efibootmgr")?
 }
 
 proc invoke(ctx: TestContext, dir: Path, argv: List[Str]) [fs, process, error] -> Run {

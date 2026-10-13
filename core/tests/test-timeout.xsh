@@ -82,7 +82,7 @@ test timeout_stops_a_cpu_bound_xsh_child_and_runs_its_cleanup { |ctx|
   child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nwhile time.now() >= 0 {}\n")
   let plan = process.command_argv(
     ctx.xsh_bin,
-    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/timeout.xsh", ".05", ctx.xsh_bin.display(), child.display(), marker.display()],
+    [ctx.xsh_bin, fp"{ctx.core_dir}/timeout.xsh", ".05", ctx.xsh_bin, child, marker],
     root,
     {},
     b"",
@@ -108,10 +108,10 @@ test timeout_stops_an_xsh_child_blocked_in_stdin_read { |ctx|
       "-c",
       "(printf x; while [ ! -e \"$4\" ]; do sleep 0.01; done) | \"$1\" \"$2\" .05 \"$1\" \"$3\" \"$4\"",
       "timeout-stdin-probe",
-      ctx.xsh_bin.display(),
-      fp"{ctx.core_dir}/timeout.xsh".display(),
-      child.display(),
-      marker.display(),
+      ctx.xsh_bin,
+      fp"{ctx.core_dir}/timeout.xsh",
+      child,
+      marker,
     ],
     root,
     {},

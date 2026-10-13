@@ -39,7 +39,7 @@ test test_named_argument_spread_handles_sixteen_thousand_fields_with_a_wall_guar
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let status = process.run(process.command_argv(
-    ctx.xsh_bin, [ctx.xsh_bin.display(), script.display()], root,
+    ctx.xsh_bin, [ctx.xsh_bin, script], root,
     stdout: stdout, stderr: stderr, timeout: 10s,
   ))?
   assert status.exited_with(0), stderr.read_text()?

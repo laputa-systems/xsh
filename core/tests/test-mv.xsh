@@ -87,7 +87,7 @@ test test_mv_interactive_decline_leaves_both_files { |ctx|
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-i", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-i", source, dest],
     root, {}, b"n\n", out, err)
   assert process.run(command)?.exited_with(1)
   assert source.read_text()? == "new"

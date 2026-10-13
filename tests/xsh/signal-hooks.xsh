@@ -65,7 +65,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
 
   let command = process.command_argv(
     ctx.xsh_bin,
-    [ctx.xsh_bin.display(), child_script.display(), ready.display()],
+    [ctx.xsh_bin, child_script, ready],
     root,
     {},
     b"",

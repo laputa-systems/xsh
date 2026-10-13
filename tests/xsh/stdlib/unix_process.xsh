@@ -151,7 +151,7 @@ test test_unix_credentials_transition_inside_namespace { |ctx|
       return
     }
   }
-  let probe = process.run(process.command_argv(unshare, [unshare.display(), "--mount", "--pid", "--fork", "--", "true"]))?
+  let probe = process.run(process.command_argv(unshare, [unshare, "--mount", "--pid", "--fork", "--", "true"]))?
   guard probe.ok else {
     test.skip("private mount and PID namespaces are unavailable")
     return
@@ -177,7 +177,7 @@ print "credentials-changed"
 """))?
   let output = test.temp_path(ctx, name: "credentials.stdout")
   let errors = test.temp_path(ctx, name: "credentials.stderr")
-  let status = process.run(process.command_argv(unshare, [unshare.display(), "--mount", "--pid", "--fork", "--", ctx.xsh_bin.display(), script.display()], stdout: output, stderr: errors))?
+  let status = process.run(process.command_argv(unshare, [unshare, "--mount", "--pid", "--fork", "--", ctx.xsh_bin, script], stdout: output, stderr: errors))?
   assert status.ok, errors.read_text()?
   assert output.read_text()? == "credentials-changed\n"
 }

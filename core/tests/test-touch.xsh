@@ -99,7 +99,7 @@ test test_touch_dash_updates_stdout_descriptor { |ctx|
   fs.set_times(reference, atime_ns: 1000000001, mtime_ns: 2000000002)
   let script = fp"{ctx.core_dir}/touch.xsh"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-h", "-r", reference.display(), "-"],
+    [ctx.xsh_bin, script, "-h", "-r", reference, "-"],
     root, {}, b"", stdout, stderr))?
   assert status.exited_with(0), stderr.read_text()?
   assert fs.stat(stdout)?.mtime_ns == 2000000002

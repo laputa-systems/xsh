@@ -4,7 +4,7 @@ type AppletRun = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_b
 
 proc run_applet(ctx: TestContext, argv: List[Str], log: Path) -> AppletRun {
   test.linux_fake(ctx, {log: log, hwclock_epoch_ms: 0, sysctl_value: "42"})
-  test.run_script(ctx, fp"{ctx.core_dir}/dmesg.xsh".read_text()?, argv, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "dmesg")?
+  test.run_script(ctx, fp"{ctx.core_dir}/dmesg.xsh".read_text()?, argv, {XSH_MODULE_PATH: ctx.core_dir}, b"", "dmesg")?
 }
 
 test test_dmesg_uses_native_messages_and_rejects_metadata_options { |ctx|
@@ -32,7 +32,7 @@ test test_dmesg_reports_a_denied_kernel_buffer_as_a_diagnostic { |ctx|
   if 34 in linux.privileges()?.effective {
     test.skip("CAP_SYSLOG permits reading the kernel buffer")
   }
-  let output = test.run_script(ctx, fp"{ctx.core_dir}/dmesg.xsh".read_text()?, [], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "dmesg")?
+  let output = test.run_script(ctx, fp"{ctx.core_dir}/dmesg.xsh".read_text()?, [], {XSH_MODULE_PATH: ctx.core_dir}, b"", "dmesg")?
   if output.success { test.skip("the host permits reading the kernel buffer") }
   assert output.status == 1, output.stderr
   assert output.stderr.ends_with(": read kernel buffer failed: Operation not permitted\n"), output.stderr

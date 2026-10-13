@@ -1,7 +1,7 @@
 type AppletRun = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}
 
 proc run_flock(ctx: TestContext, argv: List[Str]) -> AppletRun {
-  test.run_script(ctx, fp"{ctx.core_dir}/flock.xsh".read_text()?, argv, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "flock")?
+  test.run_script(ctx, fp"{ctx.core_dir}/flock.xsh".read_text()?, argv, {XSH_MODULE_PATH: ctx.core_dir}, b"", "flock")?
 }
 
 test test_flock_conflict_does_not_run_command_and_releases_on_exit { |ctx|

@@ -574,7 +574,7 @@ test test_uu_cp_dir_perm_race_with_preserve_mode_and_ownership { |ctx|
     let observed = fs.stat(uu.at(s, "dest/src"))?.mode
     let mask = if attr == "mode" { 0o022 } else { 0o077 }
     # Complete the FIFO copy before asserting, so a failed permission check cannot leave a child blocked.
-    let writer = process.command_argv("sh", ["sh", "-c", "printf done > \"$1\"", "sh", uu.at(s, "src/fifo").display()], timeout: 10s)
+    let writer = process.command_argv("sh", ["sh", "-c", "printf done > \"$1\"", "sh", uu.at(s, "src/fifo")], timeout: 10s)
     assert process.run(writer)?.exited_with(0)
     let finished = process.wait_timeout([child], 10s)?
     assert finished != null, "timed out waiting for FIFO copy"

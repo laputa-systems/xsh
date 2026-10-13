@@ -721,7 +721,7 @@ print ${status.exited_with(7)}
   outer.write(f"""process.set_signal_action("CHLD", "ignore")?
 unix.exec(process.command_argv("{xsh}", ["{xsh}", "{inner.display()}"]))?
 """)
-  let command = process.command_argv(ctx.xsh_bin, [xsh, outer.display()], stdout: out)
+  let command = process.command_argv(ctx.xsh_bin, [xsh, outer], stdout: out)
   assert process.run(command)?.exited_with(0)
   assert out.read_text()? == "true\n"
 }

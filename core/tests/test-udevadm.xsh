@@ -84,7 +84,7 @@ proc udevadm(ctx: TestContext, tree: Path, args: List[Str]) [fs, process, error]
   let script = fp"{ctx.core_dir}/udevadm.xsh"
   let status = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), script.display(), "--"].extend(args),
-    scratch, {XSH_UDEVADM_ROOT: tree.display()}, b"", output, errors, timeout: 20s))?
+    scratch, {XSH_UDEVADM_ROOT: tree}, b"", output, errors, timeout: 20s))?
   Ok({status: status.exit_code()?, stdout: output.read_text()?, stderr: errors.read_text()?})
 }
 

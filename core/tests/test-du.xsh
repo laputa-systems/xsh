@@ -63,7 +63,7 @@ test test_du_relative_symlink_and_error_continuation { |ctx|
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/du.xsh"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-b", "missing", "link", "file"],
+    [ctx.xsh_bin, "--", script, "-b", "missing", "link", "file"],
     root, {LC_ALL: "C"}, b"", out, err))?
   assert status.exited_with(1)
   assert out.read_text()? == "4\tlink\n6\tfile\n"
@@ -261,12 +261,12 @@ test test_du_files0_from_reports_gnu_open_and_operand_errors { |ctx|
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/du.xsh"
   let missing_run = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), f"--files0-from={missing}"],
+    [ctx.xsh_bin, script, f"--files0-from={missing}"],
     root, {LC_ALL: "C"}, b"", out, err))?
   assert missing_run.exited_with(1)
   assert err.read_text()? == f"du: cannot open '{missing}' for reading: No such file or directory\n"
   let extra_run = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--files0-from=-", "no-such"],
+    [ctx.xsh_bin, script, "--files0-from=-", "no-such"],
     root, {LC_ALL: "C"}, b"", out, err))?
   assert extra_run.exited_with(1)
   assert err.read_text()? == "du: extra operand 'no-such'\nfile operands cannot be combined with --files0-from\nTry 'du --help' for more information.\n"
@@ -282,7 +282,7 @@ test test_du_dotdot_operand_is_its_own_anchor { |ctx|
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/du.xsh"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-s", ".."],
+    [ctx.xsh_bin, script, "-s", ".."],
     sub, {LC_ALL: "C"}, b"", out, err))?
   assert status.exited_with(0), err.read_text()?
   assert err.read_text()? == ""
@@ -338,7 +338,7 @@ test test_du_reports_children_blocked_by_directory_search_permissions { |ctx|
   let inaccessible_out = fp"{root}/inaccessible.out"
   let inaccessible_err = fp"{root}/inaccessible.err"
   let inaccessible_status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-s", "d"],
+    [ctx.xsh_bin, "--", script, "-s", "d"],
     root, {LC_ALL: "C"}, b"", inaccessible_out, inaccessible_err))?
   assert inaccessible_status.exited_with(1)
   assert inaccessible_err.read_text()? == "du: cannot access 'd/no-x/y': Permission denied\n"
@@ -356,7 +356,7 @@ test test_du_reports_unreadable_directories { |ctx|
   let unreadable_out = fp"{root}/unreadable.out"
   let unreadable_err = fp"{root}/unreadable.err"
   let unreadable_status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "subdir/links"],
+    [ctx.xsh_bin, "--", script, "subdir/links"],
     root, {LC_ALL: "C"}, b"", unreadable_out, unreadable_err))?
   assert unreadable_status.exited_with(1)
   assert unreadable_err.read_text()? == "du: cannot read directory 'subdir/links': Permission denied\n"

@@ -254,7 +254,7 @@ test test_uu_mv_acl { |ctx|
   uu.touch(s, "a/file")
   let setter = match process.which("setfacl") { Ok(tool) => tool, Err(_) => { test.skip("setfacl is not installed"); p"/usr/bin/setfacl" } }
   # The original command resolves a outside the scene. Its failed setup skips.
-  let setup = process.run(process.command_argv(setter, [setter.display(), "-m", "group::rwx", "a"], stdout: uu.at(s, "acl-out"), stderr: uu.at(s, "acl-err")))?
+  let setup = process.run(process.command_argv(setter, [setter, "-m", "group::rwx", "a"], stdout: uu.at(s, "acl-out"), stderr: uu.at(s, "acl-err")))?
   if ! setup.exited_with(0) { test.skip("setfacl failed on its original working-directory operand") }
   uu.succeeds(uu.invoke(s, "mv", [uu.at(s, "a/file").display(), "b"])?)
   # The upstream comparison falls back to an empty list for absent paths.

@@ -36,7 +36,7 @@ test test_awk_numeric_strings_and_short_circuit { |ctx|
 }
 
 test test_awk_getline_reads_stdin_in_begin { |ctx|
-  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { getline x; print "got", x } { print "rest", $0 }"""], stdin: b"a\nb\n", env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { getline x; print "got", x } { print "rest", $0 }"""], stdin: b"a\nb\n", env: {XSH_MODULE_PATH: ctx.core_dir})?
   assert output.stdout == "got a\nrest b\n"
 }
 
@@ -72,7 +72,7 @@ test test_awk_numeric_conversion_formats { |ctx|
 
 test test_awk_function_next_and_exit_propagate { |ctx|
   let input = test.temp_file(ctx, name: "control", contents: b"skip\nkeep\nstop\nafter\n")?
-  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""function control() { if ($1=="skip") next; if ($1=="stop") exit 7 } { control(); print $1 } END { print "end", NR }""", input.display()], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""function control() { if ($1=="skip") next; if ($1=="stop") exit 7 } { control(); print $1 } END { print "end", NR }""", input], env: {XSH_MODULE_PATH: ctx.core_dir})?
   assert output.status == 7
   assert output.stdout == "keep\nend 3\n"
 }
@@ -195,7 +195,7 @@ test test_awk_argv_file_selection_matrix { |ctx|
   ]
 
   for scenario in cases {
-    let result = test.run_script(ctx, source, args: [item for item in [scenario.program] + scenario.files], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+    let result = test.run_script(ctx, source, args: [item for item in [scenario.program] + scenario.files], env: {XSH_MODULE_PATH: ctx.core_dir})?
     assert result.status == 0, f"{scenario.name}: {result.stderr}"
     assert result.stdout == scenario.stdout, scenario.name
   }
@@ -264,7 +264,7 @@ test test_awk_braces_are_literal_outside_intervals { |ctx|
 }
 
 test test_awk_print_redirects_only_to_standard_streams { |ctx|
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { print "err" > "/dev/stderr"; print "out" > "/dev/stdout" }"""], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+  let result = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { print "err" > "/dev/stderr"; print "out" > "/dev/stdout" }"""], env: {XSH_MODULE_PATH: ctx.core_dir})?
   assert result.status == 0
   assert result.stdout == "out\n"
   assert result.stderr == "err\n"

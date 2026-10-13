@@ -253,7 +253,7 @@ test test_df_gnu_size_diagnostics_type_order_and_c_locale_width { |ctx|
   file.write("")
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
-  let status = process.run(process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), fp"{ctx.core_dir}/df.xsh".display(), "--output=file,target", "äöü.txt"], root, {LC_ALL: "C"}, b"", out, err))?
+  let status = process.run(process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, fp"{ctx.core_dir}/df.xsh", "--output=file,target", "äöü.txt"], root, {LC_ALL: "C"}, b"", out, err))?
   assert status.exited_with(0), err.read_text()?
   assert out.read_text()?.lines().collect()[0] == "File Mounted on"
 }

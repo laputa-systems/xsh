@@ -89,7 +89,7 @@ test test_current_metrics_cli_measures_generated_pattern_rows { |ctx|
   fp"{root}/src/patterns.rs".write(pattern_table())
   let output_path = fp"{root}/current.json"
   let driver = p"dev/consolidation/metrics.xsh".read_text()?
-  let result = test.run_script(ctx, driver, ["measure", "--root", root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--output", output_path.display()])?
+  let result = test.run_script(ctx, driver, ["measure", "--root", root, "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--output", output_path])?
   assert result.success
   let report: metrics.Report = json.read(output_path)?.require(metrics.Report)?
   assert report_value(report, "pattern_variants") == 17

@@ -1027,7 +1027,7 @@ test test_uu_csplit_named_pipe_input_file { |ctx|
   let s = uu.scene(ctx)?
   fs.mkfifo(uu.at(s, "fifo"), 0o700)
   let writer_plan = process.command_argv(p"/bin/sh",
-    ["sh", "-c", "printf '%s' \"$1\" > \"$2\"", "writer", generate(1, 51), uu.at(s, "fifo").display()],
+    ["sh", "-c", "printf '%s' \"$1\" > \"$2\"", "writer", generate(1, 51), uu.at(s, "fifo")],
     s.root, {}, b"", uu.at(s, "writer-out"), uu.at(s, "writer-err"), timeout: 5s)
   let writer = spawn writer_plan?
   defer writer.cancel(signal: "KILL", kill_after: 0ms)

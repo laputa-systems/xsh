@@ -3,7 +3,7 @@ type FakeOutput = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_
 proc lsattr_fake(ctx: TestContext, args: List[Str], flags: Int, generation: Int = 7, project: Int = 19) [fs, process, error] -> FakeOutput {
   test.linux_fake(ctx, {file_attrs_flags: flags, file_version: generation, file_project: project})
   let source = fp"{ctx.core_dir}/lsattr.xsh".read_text()?
-  test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "lsattr")?
+  test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, b"", "lsattr")?
 }
 
 test test_lsattr_compact_long_and_generation_output { |ctx|

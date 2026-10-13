@@ -40,7 +40,7 @@ test test_install_intermediate_directories_keep_default_mode { |ctx|
   let default_mode = 0o777.clear_bits(0o002)
   let dest = fp"{root}/a/b/c"
   let directory_command = process.command_argv(p"/bin/sh",
-    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin.display(), script.display(), "--mode=200", "-d", dest.display()],
+    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin, script, "--mode=200", "-d", dest],
     root, {}, b"", fp"{root}/out", fp"{root}/err")
   assert process.run(directory_command)?.exited_with(0)
   assert fs.stat(fp"{root}/a")?.mode.bit_and(0o777) == default_mode
@@ -51,7 +51,7 @@ test test_install_intermediate_directories_keep_default_mode { |ctx|
   source.write("payload")
   let file = fp"{root}/d/e/file"
   let file_command = process.command_argv(p"/bin/sh",
-    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin.display(), script.display(), "--mode=200", "-D", source.display(), file.display()],
+    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin, script, "--mode=200", "-D", source, file],
     root, {}, b"", fp"{root}/out", fp"{root}/err")
   assert process.run(file_command)?.exited_with(0)
   assert fs.stat(fp"{root}/d")?.mode.bit_and(0o777) == default_mode
@@ -181,7 +181,7 @@ test test_install_compare_copies_fifo_source_symlink_in_bounded_chunks { |ctx|
   dest.chmod(0o755)
   let script = fp"{ctx.core_dir}/install.xsh"
   let reader_command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-C", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-C", source, dest],
     root, {}, b"", fp"{root}/out", fp"{root}/err", timeout: 3s)
   let status = process.run(reader_command)?
   assert status.exited_with(0)
@@ -196,7 +196,7 @@ test test_install_reads_stdin_descriptor_alias { |ctx|
   let dest = fp"{root}/dest"
   let payload = b"stream\0payload\n"
   let command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-m", "640", "/dev/fd/0", dest.display()],
+    [ctx.xsh_bin, script, "-m", "640", "/dev/fd/0", dest],
     root, {}, payload, fp"{root}/out", fp"{root}/err")
   assert process.run(command)?.exited_with(0)
   assert dest.read_bytes()? == payload

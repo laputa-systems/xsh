@@ -557,7 +557,7 @@ proc start_failure(command: Path) [fs, process] -> Str {
   if has_slash {
     return match fs.stat(command) { Ok(_) => "Permission denied"; Err(failure) => gnu.strerror(failure) }
   }
-  if process.which(command.display()) is Err(_) { "No such file or directory" } else { "Permission denied" }
+  if process.which(command) is Err(_) { "No such file or directory" } else { "Permission denied" }
 }
 
 # Run a command and report whether it exited 0. A command that cannot be

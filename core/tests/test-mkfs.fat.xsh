@@ -47,7 +47,7 @@ test test_fat_allocation_checker_repairs_lost_cluster { |ctx|
 test test_mkfs_fat_cli_reproducible_image { |ctx|
   let root = test.temp_dir(ctx, name: "mkfs-fat-cli")?
   let image = fp"{root}/image"
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/mkfs.fat.xsh".read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-C", "--invariant", "-F12", "-n", "TEST", image.display(), "1440"])?
+  let result = test.run_script(ctx, fp"{ctx.core_dir}/mkfs.fat.xsh".read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-C", "--invariant", "-F12", "-n", "TEST", image, "1440"])?
   assert result.status == 0, result.stderr
   assert vfat.inspect(image)?.label == "TEST"
   assert vfat.inspect(image)?.serial == 0
@@ -103,8 +103,8 @@ test test_mkfs_fat_cli_invalid_values_leave_target_absent { |ctx|
   let root = test.temp_dir(ctx, name: "mkfs-fat-invalid")?
   let image = fp"{root}/image"
   let script = fp"{ctx.core_dir}/mkfs.fat.xsh".read_text()?
-  assert test.run_script(ctx, script, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-C", image.display(), "invalid"])?.status == 1
-  assert test.run_script(ctx, script, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-C", "-i", "invalid", image.display(), "1440"])?.status == 1
+  assert test.run_script(ctx, script, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-C", image, "invalid"])?.status == 1
+  assert test.run_script(ctx, script, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-C", "-i", "invalid", image, "1440"])?.status == 1
   assert ! image.exists()?
 }
 

@@ -219,7 +219,7 @@ for action in ["default", "ignore"] {
   }
 }
 """,
-    env: {SEQ_SCRIPT: fp"{ctx.core_dir}/seq.xsh".display(), PIPELINE: pipeline},
+    env: {SEQ_SCRIPT: fp"{ctx.core_dir}/seq.xsh", PIPELINE: pipeline},
   )?
   assert output.success, output.stderr
   let broken = "seq: write error: Broken pipe|status=1"

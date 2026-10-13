@@ -2,7 +2,7 @@ type AppletRun = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_b
 
 proc run_applet(ctx: TestContext, argv: List[Str], log: Path) -> AppletRun {
   test.linux_fake(ctx, {log: log, hwclock_epoch_ms: 0, sysctl_value: "42"})
-  test.run_script(ctx, fp"{ctx.core_dir}/sysctl.xsh".read_text()?, argv, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "sysctl")?
+  test.run_script(ctx, fp"{ctx.core_dir}/sysctl.xsh".read_text()?, argv, {XSH_MODULE_PATH: ctx.core_dir}, b"", "sysctl")?
 }
 
 test test_sysctl_reads_writes_and_loads_configuration_through_native_keys { |ctx|

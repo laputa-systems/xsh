@@ -70,13 +70,13 @@ test test_ln_interactive_respects_last_force_option { |ctx|
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let decline = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-sfi", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-sfi", source, dest],
     root, {}, b"n\n", out, err)
   assert process.run(decline)?.exited_with(1)
   assert dest.read_text()? == "old"
   assert err.read_text()? == f"ln: replace '{dest}'? "
   let force = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-sif", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-sif", source, dest],
     root, {}, b"n\n", out, err)
   assert process.run(force)?.exited_with(0)
   assert dest.readlink()? == source
@@ -93,7 +93,7 @@ test test_ln_abbreviated_option_values_are_not_overwrite_controls { |ctx|
   dest.write("old")
   let script = fp"{ctx.core_dir}/ln.xsh"
   let command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-s", "--for", "--target-d", "-i", source.display()],
+    [ctx.xsh_bin, script, "-s", "--for", "--target-d", "-i", source],
     root, {}, b"n\n", fp"{root}/out", fp"{root}/err")
   assert process.run(command)?.exited_with(0)
   assert dest.readlink()? == source
@@ -294,13 +294,13 @@ test test_ln_backup_type_errors_list_gnu_choices { |ctx|
   let err = fp"{root}/stderr"
   let choices = "Valid arguments are:\n  - 'none', 'off'\n  - 'simple', 'never'\n  - 'existing', 'nil'\n  - 'numbered', 't'\nTry 'ln --help' for more information.\n"
   let explicit = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--backup=bogus", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "--backup=bogus", source, dest],
     root, {LC_ALL: "C"}, b"", out, err)
   assert process.run(explicit)?.exited_with(1)
   assert err.read_text()? == f"ln: invalid argument 'bogus' for 'backup type'\n{choices}", err.read_text()?
 
   let inherited = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-b", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-b", source, dest],
     root, {LC_ALL: "C", VERSION_CONTROL: "bogus"}, b"", out, err)
   assert process.run(inherited)?.exited_with(1)
   assert err.read_text()? == f"ln: invalid argument 'bogus' for '$VERSION_CONTROL'\n{choices}", err.read_text()?
@@ -318,7 +318,7 @@ test test_ln_bare_backup_and_empty_value_take_version_control { |ctx|
   for option in ["--backup", "--backup="] {
     dest.write("old")
     let command = process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), script.display(), option, source.display(), dest.display()],
+      [ctx.xsh_bin, script, option, source, dest],
       root, {LC_ALL: "C", VERSION_CONTROL: "numbered"}, b"", out, err)
     assert process.run(command)?.exited_with(0)
     assert fp"{dest}.~1~".read_text()? == "old"
@@ -328,7 +328,7 @@ test test_ln_bare_backup_and_empty_value_take_version_control { |ctx|
 
   dest.write("old")
   let unset = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--backup", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "--backup", source, dest],
     root, {LC_ALL: "C", VERSION_CONTROL: ""}, b"", out, err)
   assert process.run(unset)?.exited_with(0)
   assert fp"{dest}~".read_text()? == "old"
@@ -351,7 +351,7 @@ test test_ln_empty_backup_suffix_means_tilde { |ctx|
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let inherited = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-b", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-b", source, dest],
     root, {LC_ALL: "C", SIMPLE_BACKUP_SUFFIX: ""}, b"", out, err)
   assert process.run(inherited)?.exited_with(0)
   assert fp"{dest}~".read_text()? == "old"

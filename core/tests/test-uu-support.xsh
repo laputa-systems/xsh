@@ -84,7 +84,7 @@ test test_uu_support_file_text_assertion_rejects_invalid_utf8 { |ctx|
   uu.write_bytes(s, "invalid", b"\xff")
   let checked = test.run_script(ctx,
     "use support.uu as uu\nlet root = Path(args[0])\nlet context: TestContext = {name: \"assertion probe\", file: root, temp_root: root, core_dir: root, xsh_bin: root}\nlet s: uu.Scene = {ctx: context, root: root}\nuu.file_is(s, \"invalid\", \"(non-UTF-8 output)\")\n",
-    args: [s.root.display()], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
+    args: [s.root], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
   assert ! checked.success
   assert "AssertionError" in checked.stderr, checked.stderr
 }
@@ -229,7 +229,7 @@ test test_uu_support_child_umask_rejects_non_permission_bits { |ctx|
   for mask in [-1, 512] {
     let checked = test.run_script(ctx,
       "use support.uu as uu\nlet root = Path(args[0])\nlet context: TestContext = {name: \"mask probe\", file: root, temp_root: root, core_dir: root, xsh_bin: root}\nlet s: uu.Scene = {ctx: context, root: root}\nlet _ = uu.command(s, \"mkdir\", [\"rejected\"], umask: " + f"{mask}" + ")?\n",
-      args: [s.root.display()], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
+      args: [s.root], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
     assert ! checked.success
     assert "umask must contain only permission bits" in checked.stderr, checked.stderr
   }

@@ -1241,7 +1241,7 @@ test test_uu_install_install_from_fifo { |ctx|
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   # Opening the writer supplies exactly one stream and closes it at completion.
   let writer_command = process.command_argv(p"/bin/sh",
-    ["sh", "-c", "printf '%s' \"$1\" > \"$2\"", "writer", "Hello, world!\n", uu.at(s, "pipe").display()],
+    ["sh", "-c", "printf '%s' \"$1\" > \"$2\"", "writer", "Hello, world!\n", uu.at(s, "pipe")],
     s.root, {}, b"", uu.at(s, "writer-out"), uu.at(s, "writer-err"), timeout: 5s)
   let writer = spawn writer_command?
   defer writer.cancel(signal: "KILL", kill_after: 0ms)

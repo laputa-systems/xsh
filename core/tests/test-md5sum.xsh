@@ -130,7 +130,7 @@ test test_md5sum_check_preserves_leading_space_filename { |ctx|
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/md5sum.xsh"
   let plan = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--", "--strict", "--check", list.display()],
+    [ctx.xsh_bin, script, "--", "--strict", "--check", list],
     root, {LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   assert status.exit_code()? == 0
@@ -149,7 +149,7 @@ test test_md5sum_check_accepts_bsd_alternate_format { |ctx|
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/md5sum.xsh"
   let plan = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--", "--strict", "--check", list.display()],
+    [ctx.xsh_bin, script, "--", "--strict", "--check", list],
     root, {LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   assert status.exit_code()? == 0

@@ -51,7 +51,7 @@ test test_source_equality_and_growth_keep_the_measured_report_and_raw_audit { |c
 
   for current in [report(20, 30, 1, 0), report(21, 30, 1, 0), report(20, 31, 1, 0), report(21, 31, 1, 0)] {
     json.write(current_path, current)
-    assert test.run_script(ctx, driver, ["check", @flags, "--envelope", envelope_path.display()])?.success
+    assert test.run_script(ctx, driver, ["check", @flags, "--envelope", envelope_path])?.success
     let saved: metrics.Report = json.read(output_path)?.require(metrics.Report)?
     assert metric_value(saved, "source_lines_src") == metric_value(current, "source_lines_src")
     assert metric_value(saved, "source_lines_xsht") == metric_value(current, "source_lines_xsht")
@@ -89,7 +89,7 @@ test test_structural_rises_stay_hard_under_envelopes_and_reports_are_validated {
   let limit = {metric: "manual_payload_calls", ceiling: 2, approval: "fixture owner", reason: "bounded fixture", remove_when: "fixture ends"}
   json.write(envelope_path, {start_commit: "fixture", limits: [limit]})
   assert ! test.run_script(ctx, driver, ["check", @flags])?.success
-  assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", envelope_path.display()])?.success
+  assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", envelope_path])?.success
   let rises = json.get(json.read(audit_path)?, ["rises"])?.require(List[AuditRise])?
   assert rises.len() == 1
   assert rises[0].metric == "manual_payload_calls" and rises[0].baseline == 1 and rises[0].current == 2

@@ -30,12 +30,12 @@ test test_lsusb_help_and_invalid_node_are_deterministic { |ctx|
   let script = fp"{ctx.core_dir}/lsusb.xsh"
   let out = fp"{root}/out"
   let err = fp"{root}/err"
-  let help = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--help"], root, {}, b"", out, err, timeout: 5s)
+  let help = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--help"], root, {}, b"", out, err, timeout: 5s)
   assert process.run(help)?.exited_with(0)
   assert "Usage: lsusb" in out.read_text()?
   let file = fp"{root}/descriptor"
   file.write(b"descriptor")
-  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "-D", file.display()], root, {}, b"", out, err, timeout: 5s)
+  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "-D", file], root, {}, b"", out, err, timeout: 5s)
   assert process.run(command)?.exited_with(1)
   assert "descriptor dump files are not supported" in err.read_text()?
 }

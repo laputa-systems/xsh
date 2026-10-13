@@ -172,7 +172,7 @@ test test_rm_posix_operands_do_not_override_interactive_mode { |ctx|
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/rm.xsh"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-i", file.display(), "-f"],
+    [ctx.xsh_bin, script, "-i", file, "-f"],
     root, {POSIXLY_CORRECT: "1", LC_ALL: "C"}, b"n\n", stdout, stderr))?
   assert status.exited_with(1)
   assert file.exists()?
@@ -188,14 +188,14 @@ test test_rm_relative_names_and_stdout_failure { |ctx|
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/rm.xsh"
   let prompted = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-ri", "directory"],
+    [ctx.xsh_bin, script, "-ri", "directory"],
     root, {LC_ALL: "C"}, b"y\ny\ny\n", stdout, stderr))?
   assert prompted.exited_with(0), stderr.read_text()?
   assert stderr.read_text()? == "rm: descend into directory 'directory'? rm: remove regular file 'directory/file'? rm: remove directory 'directory'? "
   directory.mkdir()
   fp"{directory}/file".write("remove")
   let broken = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-rv", "directory///"],
+    [ctx.xsh_bin, script, "-rv", "directory///"],
     root, {LC_ALL: "C"}, b"", p"/dev/full", stderr))?
   assert broken.exited_with(1)
   assert ! directory.exists()?
@@ -209,7 +209,7 @@ test test_rm_dash_filename_hint_and_option_errors { |ctx|
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/rm.xsh"
   let invalid = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-z"],
+    [ctx.xsh_bin, script, "-z"],
     root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: "rm"}, b"", stdout, stderr))?
   assert invalid.exited_with(1)
   assert stderr.read_text()? == "rm: invalid option -- 'z'\nTry 'rm ./-z' to remove the file '-z'.\nTry 'rm --help' for more information.\n"
@@ -336,7 +336,7 @@ test test_rm_verbose_preserves_one_operand_trailing_slash { |ctx|
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/rm.xsh".display(), "-rv", "a///"],
+    [ctx.xsh_bin, fp"{ctx.core_dir}/rm.xsh", "-rv", "a///"],
     root, {LC_ALL: "C"}, b"", out, err))?
   assert status.exited_with(0), err.read_text()?
   assert out.read_text()? == "removed 'a/x'\nremoved directory 'a/'\n"

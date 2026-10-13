@@ -2049,7 +2049,7 @@ proc write_temp_run(root: FsRoot, name: Str, contents: Bytes, compress: Str?) [f
     root.write(fp"{name}", contents)
     root.chmod(fp"{name}", 0o600)
   }
-  {name: bytes.from_text(run_path.display()), path: run_path, stdin: false, compressed: compress}
+  {name: run_path.bytes(), path: run_path, stdin: false, compressed: compress}
 }
 
 ## A plain file that was merged into can become a run only after compression; the plain copy is then removed.
@@ -2059,7 +2059,7 @@ proc compress_temp_run(root: FsRoot, name: Str, plain: Path, compress: Str?) [fs
     plain.remove()
     stored
   } else {
-    {name: bytes.from_text(plain.display()), path: plain, stdin: false, compressed: null}
+    {name: plain.bytes(), path: plain, stdin: false, compressed: null}
   }
 }
 
@@ -2068,7 +2068,7 @@ proc plain_sort_input(root: FsRoot, input: SortInput, name: Str) [fs, process, e
   if let program = input.compressed {
     let plain = sort_temp_path(root, name)
     run_compress_program(program, [program, "-d"], input.path.read_bytes()?, plain)
-    {name: bytes.from_text(plain.display()), path: plain, stdin: false, compressed: null}
+    {name: plain.bytes(), path: plain, stdin: false, compressed: null}
   } else {
     input
   }

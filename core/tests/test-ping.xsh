@@ -357,7 +357,7 @@ test test_ping_interrupt_prints_the_statistics_and_the_reply_status { |ctx|
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let entry = fp"{ctx.core_dir}/ping.xsh"
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), entry.display(), "-i", "0.2", "127.0.0.1"], root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err)
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, entry, "-i", "0.2", "127.0.0.1"], root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err)
   let handle = spawn plan?
   let started = time.now()
   while "icmp_seq=2 " not in out.read_text()? {
