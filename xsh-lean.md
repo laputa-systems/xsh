@@ -1,8 +1,8 @@
 # XSH semantic soundness campaign
 
-**Status:** Active foundations, authorized 2026-10-13 after preflight. Toolchain setup, private bridge fixtures, provisional inventory, and independent scalar and environment proofs run while consolidation finishes, with disjoint ownership and coordinated build/memory slots. The owner requested wider staggered lanes on 2026-10-13. Consolidation acceptance remains an independent gate. Source freezing, Rust semantic repairs, conformance, and dependent proof closure use the actual post-consolidation tree.
+**Status:** Active staggered foundations, authorized 2026-10-13 after preflight. The pinned toolchain, private bridge fixtures, provisional inventory, and scalar, validation, environment/store, and effects fragments are integrated. The consolidation campaign has repaired runtime, constant-folding, and fuzz-oracle Float equality to IEEE semantics; its Lean scalar model states the same equality over raw Float bits. Consolidation acceptance and G0b source freezing remain independent gates. The owner requested wider staggered lanes; continue on disjoint domains with the coordinated build and memory limits. No Rust conformance or full-language theorem is claimed, and all 72 inventoried full theorem obligations remain planned.
 **Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
-**Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and lowering obligations, and connect those independent statements to the Rust implementation with conformance and certified artifacts. The project now contains foundational word/identity and scalar proofs. They do not establish whole-language soundness or Rust conformance.
+**Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and lowering obligations, and connect those independent statements to the Rust implementation with conformance and certified artifacts. The current word, scalar, validation, environment/store, and effect modules are partial foundations only. They do not close a full-language obligation or establish Rust conformance.
 
 ## Deliverables
 
@@ -36,7 +36,7 @@ For each major theorem, review its elaborated statement and definition closure, 
 
 ### Owner decisions — 2026-10-13
 
-1. **Float equality:** XSH `==` and `!=` use IEEE value equality: `+0 == -0`, and every NaN comparison is unequal, including identical NaN bit patterns. Scalar, structural, constant-folded, and fuzzer-semantic comparisons must agree. Preserve raw Float bits in serialization and preserve IEEE total-sort order. The future campaign is authorized to make the smallest runtime/equality repair and add native and formal regressions. Do not apply it during this preflight or current consolidation.
+1. **Float equality:** XSH `==` and `!=` use IEEE value equality: `+0 == -0`, and every NaN comparison is unequal, including identical NaN bit patterns. Scalar, structural, constant-folded, and fuzzer-semantic comparisons must agree. Preserve raw Float bits in serialization and preserve IEEE total-sort order. This decision authorized the minimal runtime/equality repair and native and formal regressions; the runtime, constant-folding, and fuzz-oracle repair is now integrated. The independent Lean scalar model does not establish Rust conformance.
 2. **Lexical effect bounds:** Preserve the existing static, lexical `without` contract. Checked/classified calls and callbacks are charged at their lexical source invocation; a delayed stream producer's body obligation is charged at its creation/call origin and its causal obligation follows the suspended work through consumption. This is not a runtime sandbox or a consumer-side effect API. `EFF-LATENT` and `EFF-SEMANTIC` must prove the stated connection. Do not reduce them to a graph-only result, a few calls, or a trace with no required observations. A stronger dynamic-region rule was declined and is out of scope.
 
 ### Prescribed decisions
@@ -57,9 +57,9 @@ The integrator chooses file splits and proof lemmas within the domains and owner
 
 ## Baseline
 
-G0a may establish the pinned Lean/Lake/checker invocation, validate the private test-only bridge seam, and prepare schema/scenario fixtures after this preflight closes. Independent value-domain and environment/store proofs and provisional source inventory may overlap on disjoint files; review their statements and reconcile the inventory again at G0b. Keep coordinated build slots. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
+G0a established the pinned Lean/Lake/checker setup, private test-only bridge, provisional source inventory, and initial scalar foundation. Continue reconciling the imported theorem modules, inventory mutation controls, and audit results as foundations grow. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
 
-The known semantic red to preserve is the Float equality disagreement: runtime `FloatValue` equality uses bits, constant equality uses IEEE `f64` equality, and the independent fuzzer accepts either bit equality or IEEE equality. After consolidation closes, run fresh source-level witnesses for `+0/-0`, same-bit NaN, and structural Float values, and record each actual result. They remain visibly red until the authorized minimal repair and must never be entered as a passing baseline.
+The initial Float equality disagreement has been repaired: runtime, constant-folded, and fuzz-oracle equality now use IEEE value equality, while raw Float representation and total-sort order stay intact. The specification states this contract, and the Lean scalar fragment models it over raw bits. After consolidation closes, run fresh source-level witnesses for `+0/-0`, same-bit NaN, and structural Float values against the frozen source and record the results as finite evidence. The repair and model do not by themselves establish Rust conformance.
 
 Record measured startup, exact-name native gate, fresh Rust build, Lean changed-module check, and clean Lean build as each becomes available. Warm changed Lean-module check target: at most 60 seconds. Exact-name Rust/native check target: at most 30 seconds unless an external/process boundary requires more. If a repeated core loop exceeds 120 seconds or twice its measured baseline, repair the loop before broad lane work. Do not report a benchmark claim from one run. Performance is measured and logged during parity work; optimization gates begin only after feature and test parity. Final performance gates run only when `perf-gate-ready` passes immediately before and `perf-gate-ready -1` passes immediately after; if the host remains busy, report `perf gate deferred: host busy`. Memory and binary-size gates always run.
 
@@ -74,21 +74,22 @@ routing, and cross-workstream Rust paths.
 
 ### G0 — Ground (integrator only)
 
-Start G0a after this preflight closes. Validate the pinned toolchain/checker
-invocation and prepare a private bridge fixture with exact integer, Float-bit,
-and native-byte round trips. The fixture must map arena names to text and Lean
-binders deterministically and test parser/printer projection; it must not
-export private runtime structures through a product API. FullStore, FullProgram,
-and FullVerifier are private and have no portable encoder. Prefer a
-`#[cfg(test)]` exporter/decoder beside verifier tests; do not use the
-default-enabled `native-tests` feature. G0b starts after consolidation closes:
-rebuild the post-close source; inventory every core syntax/type/call/control/
-stage/IR variant and the exclusion boundary; retain Float red witnesses;
-validate closed wire/scenario forms, proof root, audit controls, gate routing,
-and loop costs. Rust's typed `FullTag` cannot carry arbitrary unknown raw tag
-bytes: reject those at the Lean transport boundary and cover typed-representable
-corruptions in Rust. No unresolved core item may disappear from
-`formal/coverage.json`.
+G0a has started after this preflight. The pinned toolchain, private typed test
+bridge, and provisional inventory are in place; continue validating their
+controls and keep every formal module reachable from the root. The bridge maps
+arena names to text and Lean binders deterministically and tests parser/printer
+projection without exporting private runtime structures through a product API.
+FullStore, FullProgram, and FullVerifier are private and have no portable
+encoder. Prefer a `#[cfg(test)]` exporter/decoder beside verifier tests; do not
+use the default-enabled `native-tests` feature. G0b starts after consolidation
+closes: rebuild the post-close source; inventory every core syntax/type/call/
+control/stage/IR variant and the exclusion boundary; retain the signed-zero,
+NaN, and structural Float equality regressions and record their post-repair
+results; validate closed wire/scenario forms, proof root, audit controls, gate
+routing, and loop costs. Rust's typed `FullTag` cannot carry arbitrary unknown
+raw tag bytes: reject those at the Lean transport boundary and cover
+typed-representable corruptions in Rust. No unresolved core item may disappear
+from `formal/coverage.json`.
 
 ### G1 — Semantic foundation (one dedicated owner)
 
@@ -355,6 +356,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 ### Append-only decision log
 
 - 2026-10-13 — Owner chose IEEE Float equality across all semantic paths; authorize only the minimal repair and regressions during the future campaign.
+- 2026-10-13 — The authorized runtime, constant-folding, and fuzz-oracle Float equality repair is integrated. This implementation status does not claim Rust conformance.
 - 2026-10-13 — Owner confirmed lexical `without` bounds and producer-origin effect charging; retain causal latent-effect proof, reject runtime-sandbox redesign.
 - 2026-10-13 — Pin Lean 4.34.1/Lake 5.0.0-src; bundle the checker and audit axioms separately.
 - 2026-10-13 — No Mathlib by default; use only after a named missing theorem and a bounded maintenance/trust/build-cost case.
@@ -365,8 +367,8 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 |---|---|---|
 | Preflight | Lean 4.34.1 fresh `Init.Prelude` recheck; pinned release hello execution/JSONL trace; private typed-callable verifier regression passed. `mdtool check --untracked xsh-lean.md`: zero errors; planned-path/symbol warnings and known dangling-fixture notes. Independent review found no P1/P2 blocker. | Exporter and project do not yet exist; G0a proves those foundations before dependent work. |
 | G0a | Pinned project, module-wide axiom audit, guarded fresh-check runner, and exact scalar foundation merged. Private Rust bridge and provisional inventory have focused checks and independent review; integration fixes remain. | Include every theorem module in the fresh-check root. Finish reference and inventory mutation controls; G0b waits for consolidation close. |
-| Staggered foundations | Scalar bit/key round trips, lexical lookup and scope restoration, cell-reference captures, and membership-guarded store laws merged. The provisional inventory checks 77 owner sets and leaves all 72 complete theorem obligations planned; its 13 mutation tests pass. The private bridge has strict JSON limits, table bounds, and ghost-reference rejection tests. | Whole syntax, typing, operational semantics, the common invariant, Rust conformance, and artifact certification remain open. |
+| Staggered foundations | Scalar bit/key round trips, lexical lookup and scope restoration, cell-reference captures, membership-guarded store laws, `NonEmpty` and bounded-integer validation boundaries, finite effect-lattice and recursive-summary fragments, and lexical bounds with delayed-work origins are integrated. The provisional inventory checks 77 owner sets and leaves all 72 complete theorem obligations planned; its 13 mutation tests pass. The private bridge has strict JSON limits, table bounds, and ghost-reference rejection tests. | These fragments do not close G2 or G3, establish Rust conformance, or supply the shared whole-language invariant. Whole syntax, typing, operational semantics, and artifact certification remain open. |
 
 ## For the owner afterwards
 
-Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust/artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. After this preflight is accepted, start G0a with disjoint ownership and coordinated build slots; start G0b from the post-consolidation tree.
+Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust/artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Continue the staggered foundations and close G0a controls; start G0b from the post-consolidation tree. Keep all 72 full theorem obligations planned until their complete proofs and required evidence pass.

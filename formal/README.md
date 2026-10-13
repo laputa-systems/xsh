@@ -2,15 +2,15 @@
 
 This is the Lean foundation for the XSH soundness campaign. It is pinned to
 Lean 4.34.1 and uses only Lean's bundled libraries; no XSH runtime or product
-build depends on it. The current foundation proves exact round trips for
-32-bit words, binder IDs, name IDs, and signed 64-bit values. The scalar model
-also defines bounded UInt and Duration values, raw Float bits with IEEE
-equality and total ordering, and NUL-free native paths. These are independent
-value-domain proofs. The environment foundation distinguishes lexical binders
-from dynamic cells, retains cell identities in captures, and proves that writes
-admitted by a cell's declared type preserve other cells and rejected writes
-commit nothing. These fragments have no Rust conformance or whole-language
-soundness claim.
+build depends on it. Current independent fragments cover exact word and
+identity round trips; bounded scalar values and raw Float bits with IEEE
+equality and total ordering; `NonEmpty` and bounded-integer validation
+boundaries; lexical binders, captured cells, and typed-store writes; and the
+effect lattice, recursive summary equations, lexical bounds, and delayed-work
+origins. The effect models do not establish Rust checker classification,
+diagnostics, or conformance. The provisional inventory still marks all 72
+complete theorem obligations planned. No Rust conformance or whole-language
+soundness claim is made.
 
 From this directory, keep Lake's metadata, manifest, cache, build outputs, and
 temporary files under the repository's ignored `.work/` directory. Add that
