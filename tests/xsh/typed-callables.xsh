@@ -307,6 +307,8 @@ test test_typed_callable_is_returned_passed_and_stored {
 }
 
 test test_typed_callable_record_field_is_called_like_a_method {
+  assert Holder(double).callback(4) == 8
+
   let positional: Holder = Holder(double)
   assert positional.callback(4) == 8
 
