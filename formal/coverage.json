@@ -3033,6 +3033,15 @@
       "boundary": "No Rust equality conformance, general collection behavior, or source evaluator claim."
     },
     {
+      "id": "fragment.Xsh.Values.float_value_eq_spec",
+      "module": "Xsh.Values.FloatEquality",
+      "declaration": "Xsh.Values.float_value_eq_spec",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Executable IEEE Float equality over raw bits and its Boolean specification.",
+      "boundary": "No Rust runtime, constant-folder, fuzzer, or source evaluator conformance claim."
+    },
+    {
       "id": "fragment.Xsh.Values.IntegerOps.negative_division_truncates_toward_zero",
       "module": "Xsh.Values.IntegerOps",
       "declaration": "Xsh.Values.IntegerOps.negative_division_truncates_toward_zero",
