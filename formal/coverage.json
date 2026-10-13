@@ -3051,6 +3051,78 @@
       "boundary": "Only the integer operation fragment is covered; checker integration and Rust conformance remain open."
     },
     {
+      "id": "fragment.Xsh.Values.IntegerOps.checkedInt_total",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.checkedInt_total",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked conversion preserves representable signed integers and classifies out-of-range inputs as overflow.",
+      "boundary": "Only validateInt? and the independent signed-range model are covered; no Rust conversion or runtime conformance is proved."
+    },
+    {
+      "id": "fragment.Xsh.Values.IntegerOps.addition_total",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.addition_total",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked addition returns the exact mathematical sum when representable and reports signed-range overflow otherwise.",
+      "boundary": "Only the modeled checked operation and signed range are covered; no Rust arithmetic conformance is proved."
+    },
+    {
+      "id": "fragment.Xsh.Values.IntegerOps.subtraction_total",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.subtraction_total",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked subtraction returns the exact mathematical difference when representable and reports signed-range overflow otherwise.",
+      "boundary": "Only the modeled checked operation and signed range are covered; no Rust arithmetic conformance is proved."
+    },
+    {
+      "id": "fragment.Xsh.Values.IntegerOps.multiplication_total",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.multiplication_total",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked multiplication returns the exact mathematical product when representable and reports signed-range overflow otherwise.",
+      "boundary": "Only the modeled checked operation and signed range are covered; no Rust arithmetic conformance is proved."
+    },
+    {
+      "id": "fragment.Xsh.Values.IntegerOps.division_total",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.division_total",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked division separates zero divisors from representable truncating quotients and signed-range overflow.",
+      "boundary": "Only Int.tdiv and the modeled checked operation are covered; no Rust arithmetic conformance is proved."
+    },
+    {
+      "id": "fragment.Xsh.Values.IntegerOps.remainder_total",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.remainder_total",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked remainder separates zero divisors and signed-minimum divided by negative-one overflow from truncating remainder outcomes.",
+      "boundary": "Only Int.tmod and the modeled checked operation are covered; no Rust arithmetic conformance is proved."
+    },
+    {
+      "id": "fragment.Xsh.Values.IntegerOps.checked_add_rejects_wraparound",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.checked_add_rejects_wraparound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete max-plus-one witness distinguishes checked-add overflow from wrapping to signed minimum.",
+      "boundary": "Concrete mutation witness over the Lean integer model only; no Rust arithmetic conformance is proved."
+    },
+    {
+      "id": "fragment.Xsh.Values.IntegerOps.euclidean_remainder_mutation_changes_sign",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.euclidean_remainder_mutation_changes_sign",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete negative-numerator witness distinguishes truncating remainder from Euclidean remainder.",
+      "boundary": "Concrete mutation witness over Lean Int operations only; no Rust arithmetic conformance is proved."
+    },
+    {
       "id": "fragment.Xsh.Semantics.Environments.scope_exit_restores_shadowed_outer",
       "module": "Xsh.Semantics.Environments",
       "declaration": "Xsh.Semantics.Environments.scope_exit_restores_shadowed_outer",

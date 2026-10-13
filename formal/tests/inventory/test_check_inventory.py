@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(95, len(result["fragment_roots"]))
+        self.assertEqual(103, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -139,6 +139,24 @@ class InventoryCheckerTests(unittest.TestCase):
         reachable = CHECKER.reachable_lean_modules(module_sources)
         root_ids = CHECKER.validate_fragment_roots(roots, module_sources, reachable)
         self.assertEqual(len(roots), len(root_ids))
+        integer_ops_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Values.IntegerOps"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Values.IntegerOps.negative_division_truncates_toward_zero",
+                "Xsh.Values.IntegerOps.checkedInt_total",
+                "Xsh.Values.IntegerOps.addition_total",
+                "Xsh.Values.IntegerOps.subtraction_total",
+                "Xsh.Values.IntegerOps.multiplication_total",
+                "Xsh.Values.IntegerOps.division_total",
+                "Xsh.Values.IntegerOps.remainder_total",
+                "Xsh.Values.IntegerOps.checked_add_rejects_wraparound",
+                "Xsh.Values.IntegerOps.euclidean_remainder_mutation_changes_sign",
+            },
+            integer_ops_roots,
+        )
         self.assertTrue(
             any(
                 "pending_integer_frames_reject_noninteger_mutations_fragment"

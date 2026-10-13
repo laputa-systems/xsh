@@ -56,11 +56,16 @@ bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. The inventory names 95 rooted Lean
-fragment declarations. Its 50 Python tests check inventory shape, root
-reachability, mutation controls, and finite-case evidence boundaries; they are
-not semantic or Rust conformance tests. No full G1 closure or whole-language
-soundness claim is made.
+72 complete theorem obligations planned. Integer operation fragments prove
+checked conversion's exact signed-range split and total outcomes for addition,
+subtraction, multiplication, division, and remainder. Concrete mutation
+witnesses distinguish checked overflow from wrapping addition and truncating
+remainder from Euclidean remainder. These are results about the Lean integer
+model; they do not establish Rust arithmetic conformance or checker integration.
+The inventory names 103 rooted Lean fragment declarations. Its 50 Python tests
+check inventory shape, root reachability, mutation controls, and finite-case
+evidence boundaries; they are not semantic or Rust conformance tests. No full
+G1 closure or whole-language soundness claim is made.
 
 The base-machine fragment includes a typed `time.now()` request for signed
 epoch milliseconds. `Xsh.Semantics.BaseHostTrace` labels internal steps,
