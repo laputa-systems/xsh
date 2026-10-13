@@ -21,6 +21,14 @@ inductive BaseType where
   | bytes
   deriving DecidableEq
 
+/-- `time.now()` requests signed epoch milliseconds from the host. Clock accuracy and the
+correspondence between the answer and the host clock remain external assumptions. -/
+inductive BaseHostRequest : BaseType → Type where
+  | timeNow : BaseHostRequest .integer
+
+def BaseHostRequest.responseType {responseType : BaseType}
+    (_request : BaseHostRequest responseType) : BaseType := responseType
+
 def hasBaseType : BaseType → CompositeValue → Prop
   | .null, .null => True
   | .boolean, .boolean _ => True
@@ -55,6 +63,7 @@ def scalarTypedValue? : CompositeValue → Option BaseTypedValue
 inductive BaseExpr where
   | integerLiteral (value : Int)
   | scalarLiteral (value : CompositeValue)
+  | timeNow
   | identifier (name : Xsh.Syntax.RawName)
   | negate (operand : BaseExpr)
   | binary (operator : IntegerBinaryOp) (left right : BaseExpr)
@@ -66,6 +75,7 @@ inductive BaseFault where
   | missingCell (cell : CellId)
   | unsupportedScalarLiteral
   | expectedInteger
+  | hostResponseTypeMismatch
   | arithmetic (fault : IntegerFault)
   deriving DecidableEq
 
@@ -88,6 +98,7 @@ def inferBaseType? (names : LexicalEnvironment) (activations : ActivationEnviron
   | .integerLiteral value =>
     (validateInt? value).map (fun _ => BaseType.integer)
   | .scalarLiteral value => (scalarTypedValue? value).map TypedValue.typeTag
+  | .timeNow => some .integer
   | .identifier name =>
     match lookupBaseValue names activations store name with
     | .ok value => some value.typeTag
@@ -113,6 +124,7 @@ def checkBaseExpr (names : LexicalEnvironment) (activations : ActivationEnvironm
     (store : BaseStore) : BaseExpr → Bool
   | .integerLiteral value => (validateInt? value).isSome
   | .scalarLiteral value => (scalarTypedValue? value).isSome
+  | .timeNow => true
   | .identifier name => (lookupBaseValue names activations store name).isOk
   | .negate operand => checkIntegerExpr names activations store operand
   | .binary _ left right =>
@@ -121,6 +133,7 @@ def checkBaseExpr (names : LexicalEnvironment) (activations : ActivationEnvironm
 inductive BaseControl where
   | evaluate (expression : BaseExpr)
   | returned (value : BaseTypedValue)
+  | awaitingHost {responseType : BaseType} (request : BaseHostRequest responseType)
   | failed (fault : BaseFault)
 
 inductive BaseFrame where
@@ -135,6 +148,12 @@ structure MachineConfig where
   control : BaseControl
   continuation : List BaseFrame
 
+structure BaseHostWait where
+  responseType : BaseType
+  request : BaseHostRequest responseType
+  config : MachineConfig
+  awaiting : config.control = .awaitingHost request
+
 inductive BaseOutcome where
   | value (value : BaseTypedValue)
   | fault (fault : BaseFault)
@@ -146,6 +165,7 @@ def terminalOutcome (config : MachineConfig) : Option BaseOutcome :=
     match config.continuation with
     | [] => some (.value value)
     | _ :: _ => none
+  | .awaitingHost _ => none
   | .evaluate _ => none
 
 def controlOfIntegerResult (result : IntegerResult) : BaseControl :=
@@ -158,9 +178,33 @@ def integerPayload? (value : BaseTypedValue) : Option IntValue :=
   | .integer, .integer integer => some integer
   | _, _ => none
 
+structure BaseHostResponse where
+  value : BaseTypedValue
+
+def checkedHostResponse? {responseType : BaseType}
+    (request : BaseHostRequest responseType) (response : BaseHostResponse) :
+    Option BaseTypedValue :=
+  if response.value.typeTag = request.responseType then some response.value else none
+
 def updateState (config : MachineConfig) (control : BaseControl)
     (continuation : List BaseFrame) : MachineConfig :=
   ⟨config.names, config.activations, config.store, control, continuation⟩
+
+def resumeHostRequest (config : MachineConfig) (response : BaseHostResponse) :
+    Option MachineConfig :=
+  match config.control with
+  | .awaitingHost request =>
+    some (updateState config
+      (match checkedHostResponse? request response with
+       | some value => .returned value
+       | none => .failed .hostResponseTypeMismatch)
+      config.continuation)
+  | _ => none
+
+def pendingHostWait? (config : MachineConfig) : Option BaseHostWait :=
+  match control : config.control with
+  | .awaitingHost request => some ⟨_, request, config, control⟩
+  | _ => none
 
 def step (config : MachineConfig) : Option MachineConfig :=
   match config.control with
@@ -174,6 +218,7 @@ def step (config : MachineConfig) : Option MachineConfig :=
          | some typed => .returned typed
          | none => .failed .unsupportedScalarLiteral)
         config.continuation)
+    | .timeNow => some (updateState config (.awaitingHost .timeNow) config.continuation)
     | .identifier name =>
       some (updateState config
         (match lookupBaseValue config.names config.activations config.store name with
@@ -207,6 +252,7 @@ def step (config : MachineConfig) : Option MachineConfig :=
            | some integer => controlOfIntegerResult (applyBinary operator left integer)
            | none => .failed .expectedInteger)
           rest)
+  | .awaitingHost _ => none
   | .failed _ => none
 
 def initialConfig (names : LexicalEnvironment) (activations : ActivationEnvironment)
@@ -229,13 +275,14 @@ def controlFitsContinuation (names : LexicalEnvironment) (activations : Activati
     match control with
     | .evaluate expression => checkIntegerExpr names activations store expression
     | .returned value => (integerPayload? value).isSome
+    | .awaitingHost request => request.responseType == .integer
     | .failed _ => true
 
 def wellFormed (config : MachineConfig) : Prop :=
   (match config.control with
    | .evaluate expression =>
      checkBaseExpr config.names config.activations config.store expression = true
-   | .returned _ | .failed _ => True) ∧
+   | .returned _ | .awaitingHost _ | .failed _ => True) ∧
   continuationChecked config.names config.activations config.store config.continuation = true ∧
   controlFitsContinuation config.names config.activations config.store config.control
     config.continuation = true
@@ -248,6 +295,7 @@ inductive MachineSteps : Nat → MachineConfig → MachineConfig → Prop where
 
 inductive RunResult where
   | completed (outcome : BaseOutcome)
+  | hostRequest (waiting : BaseHostWait)
   | outOfFuel
   | internalStuck
 
@@ -256,11 +304,14 @@ def runFuel : Nat → MachineConfig → RunResult
     match terminalOutcome config with
     | some outcome => .completed outcome
     | none =>
-      match fuel with
-      | 0 => .outOfFuel
-      | remaining + 1 =>
-        match step config with
-        | some next => runFuel remaining next
-        | none => .internalStuck
+      match pendingHostWait? config with
+      | some waiting => .hostRequest waiting
+      | none =>
+        match fuel with
+        | 0 => .outOfFuel
+        | remaining + 1 =>
+          match step config with
+          | some next => runFuel remaining next
+          | none => .internalStuck
 
 end Xsh.Semantics.BaseMachine

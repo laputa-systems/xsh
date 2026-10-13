@@ -30,6 +30,7 @@ theorem integer_checker_implies_supported_checker_fragment
     | some typed =>
       cases typed.typeTag <;>
         simp [checkIntegerExpr, checkBaseExpr, inferBaseType?, found] at accepted ⊢
+  | timeNow => rfl
   | identifier name =>
     cases found : lookupBaseValue names activations store name with
     | error fault => simp [checkIntegerExpr, inferBaseType?, found] at accepted
@@ -78,8 +79,20 @@ private theorem typed_integer_payload_is_present (value : BaseTypedValue)
     | string => simp at integerTag
     | bytes => simp at integerTag
 
+private theorem checked_host_response_has_requested_type
+    {responseType : BaseType} (request : BaseHostRequest responseType)
+    (response : BaseHostResponse) (value : BaseTypedValue)
+    (accepted : checkedHostResponse? request response = some value) :
+    value.typeTag = responseType := by
+  unfold checkedHostResponse? at accepted
+  split at accepted
+  · cases accepted
+    assumption
+  · contradiction
+
 theorem machine_progress_fragment (config : MachineConfig) :
-    terminalOutcome config ≠ none ∨ ∃ next, step config = some next := by
+    terminalOutcome config ≠ none ∨ (∃ next, step config = some next) ∨
+      ∃ waiting : BaseHostWait, pendingHostWait? config = some waiting := by
   cases config with
   | mk names activations store control continuation =>
     cases control with
@@ -90,6 +103,9 @@ theorem machine_progress_fragment (config : MachineConfig) :
       | nil => simp [terminalOutcome]
       | cons frame rest =>
         cases frame <;> simp [terminalOutcome, step]
+    | awaitingHost request =>
+      exact Or.inr (Or.inr ⟨⟨_, request, ⟨names, activations, store,
+        .awaitingHost request, continuation⟩, rfl⟩, rfl⟩)
     | failed fault => simp [terminalOutcome]
 
 theorem wellFormed_preserved_fragment {config next : MachineConfig}
@@ -132,6 +148,12 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
                 checkIntegerExpr, inferBaseType?]
             | null | boolean | float | duration | string | bytes =>
               simp_all [controlFitsContinuation, checkIntegerExpr, inferBaseType?]
+      | timeNow =>
+        simp only [step] at takesStep
+        cases takesStep
+        cases continuation <;>
+          simp_all [wellFormed, updateState, controlFitsContinuation,
+            BaseHostRequest.responseType]
       | identifier name =>
         cases continuation with
         | nil =>
@@ -220,7 +242,41 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
               cases rest <;>
                 simp_all [wellFormed, updateState, controlOfIntegerResult,
                   controlFitsContinuation, integerPayload?, typedInteger]
+    | awaitingHost request => simp [step] at takesStep
     | failed fault => simp [step] at takesStep
+
+theorem resumeHostRequest_preserved_fragment {config next : MachineConfig}
+    {response : BaseHostResponse}
+    (wellFormedConfig : wellFormed config)
+    (resumed : resumeHostRequest config response = some next) :
+    wellFormed next := by
+  cases config with
+  | mk names activations store control continuation =>
+    cases control with
+    | evaluate expression => simp [resumeHostRequest] at resumed
+    | returned value => simp [resumeHostRequest] at resumed
+    | failed fault => simp [resumeHostRequest] at resumed
+    | awaitingHost request =>
+      cases request with
+      | timeNow =>
+        have continuationWellFormed :
+            continuationChecked names activations store continuation = true :=
+          wellFormedConfig.2.1
+        simp only [resumeHostRequest] at resumed
+        cases accepted : checkedHostResponse? BaseHostRequest.timeNow response with
+        | none =>
+          simp [accepted] at resumed
+          cases resumed
+          cases continuation <;>
+            simp_all [wellFormed, updateState, controlFitsContinuation]
+        | some value =>
+          simp [accepted] at resumed
+          cases resumed
+          have valueHasIntegerTag := checked_host_response_has_requested_type
+            BaseHostRequest.timeNow response value accepted
+          have valueHasIntegerPayload := typed_integer_payload_is_present value valueHasIntegerTag
+          cases continuation <;>
+            simp_all [wellFormed, updateState, controlFitsContinuation, integerPayload?]
 
 theorem machine_runner_never_stuck_fragment {fuel : Nat} {config : MachineConfig}
     (wellFormedConfig : wellFormed config) :
@@ -228,17 +284,32 @@ theorem machine_runner_never_stuck_fragment {fuel : Nat} {config : MachineConfig
   induction fuel generalizing config with
   | zero =>
     unfold runFuel
-    cases terminalOutcome config <;> simp
+    cases terminal : terminalOutcome config with
+    | some outcome => simp
+    | none =>
+      cases pending : pendingHostWait? config with
+      | some waiting => simp
+      | none => simp
   | succ fuel inductionHypothesis =>
     unfold runFuel
     cases terminal : terminalOutcome config with
     | some outcome => simp
     | none =>
       have notFinal : ¬ terminalOutcome config ≠ none := by simp [terminal]
-      obtain ⟨next, takesStep⟩ :=
-        (machine_progress_fragment config).resolve_left notFinal
-      rw [takesStep]
-      exact inductionHypothesis (wellFormed_preserved_fragment wellFormedConfig takesStep)
+      cases pending : pendingHostWait? config with
+      | some waiting => simp
+      | none =>
+        have notRequest :
+            ¬ ∃ waiting : BaseHostWait, pendingHostWait? config = some waiting := by
+          intro request
+          rcases request with ⟨waiting, isPending⟩
+          rw [pending] at isPending
+          cases isPending
+        obtain ⟨next, takesStep⟩ :=
+          (machine_progress_fragment config).resolve_left notFinal |>.resolve_right notRequest
+        rw [takesStep]
+        simpa [pending] using
+          inductionHypothesis (wellFormed_preserved_fragment wellFormedConfig takesStep)
 
 theorem runner_soundness_fragment {fuel : Nat} {config : MachineConfig}
     {outcome : BaseOutcome}
@@ -253,7 +324,10 @@ theorem runner_soundness_fragment {fuel : Nat} {config : MachineConfig}
       simp [terminal] at completed
       subst outcome
       exact ⟨0, config, Nat.zero_le _, .refl config, terminal⟩
-    | none => simp [terminal] at completed
+    | none =>
+      cases pending : pendingHostWait? config with
+      | some waiting => simp [terminal, pending] at completed
+      | none => simp [terminal, pending] at completed
   | succ fuel inductionHypothesis =>
     unfold runFuel at completed
     cases terminal : terminalOutcome config with
@@ -262,12 +336,15 @@ theorem runner_soundness_fragment {fuel : Nat} {config : MachineConfig}
       subst outcome
       exact ⟨0, config, Nat.zero_le _, .refl config, terminal⟩
     | none =>
-      cases takesStep : step config with
-      | none => simp [terminal, takesStep] at completed
-      | some next =>
-        simp [terminal, takesStep] at completed
-        obtain ⟨used, final, withinFuel, steps, isFinal⟩ := inductionHypothesis completed
-        exact ⟨used + 1, final, Nat.succ_le_succ withinFuel, .step takesStep steps, isFinal⟩
+      cases pending : pendingHostWait? config with
+      | some waiting => simp [terminal, pending] at completed
+      | none =>
+        cases takesStep : step config with
+        | none => simp [terminal, pending, takesStep] at completed
+        | some next =>
+          simp [terminal, pending, takesStep] at completed
+          obtain ⟨used, final, withinFuel, steps, isFinal⟩ := inductionHypothesis completed
+          exact ⟨used + 1, final, Nat.succ_le_succ withinFuel, .step takesStep steps, isFinal⟩
 
 private def exampleSmall (value : Int)
     (inRange : signed64Min ≤ value ∧ value < signed64Limit) : IntValue :=
@@ -345,7 +422,7 @@ private def oldWellFormedInvariant (config : MachineConfig) : Prop :=
   (match config.control with
    | .evaluate expression =>
      checkBaseExpr config.names config.activations config.store expression = true
-   | .returned _ | .failed _ => True) ∧
+   | .returned _ | .awaitingHost _ | .failed _ => True) ∧
   continuationChecked config.names config.activations config.store config.continuation = true
 
 private def booleanUnderNegate : MachineConfig :=
@@ -368,12 +445,82 @@ theorem pending_integer_frames_reject_noninteger_mutations_fragment :
     typedBooleanValue, positiveZeroTypedValue, oldWellFormedInvariant, wellFormed,
     controlFitsContinuation, continuationChecked, integerPayload?, step, updateState]
 
+private def timeNowConfig : MachineConfig :=
+  initialConfig [] [] (fun _ => none) .timeNow
+
+private def timeNowWaitingConfig : MachineConfig :=
+  updateState timeNowConfig (.awaitingHost .timeNow) []
+
+private def timeNowIntegerResponse : BaseHostResponse := ⟨typedInteger exampleFive⟩
+private def timeNowBooleanResponse : BaseHostResponse := ⟨typedBooleanValue⟩
+
+theorem time_now_is_a_typed_host_request_fragment :
+    checkBaseExpr [] [] (fun _ => none) .timeNow = true ∧
+      inferBaseType? [] [] (fun _ => none) .timeNow = some .integer ∧
+      runFuel 1 timeNowConfig = .hostRequest
+        ⟨BaseType.integer, BaseHostRequest.timeNow, timeNowWaitingConfig, rfl⟩ := by
+  exact ⟨rfl, rfl, rfl⟩
+
+theorem time_now_accepts_only_an_integer_host_response_fragment :
+    checkedHostResponse? BaseHostRequest.timeNow timeNowIntegerResponse =
+        some (typedInteger exampleFive) ∧
+      checkedHostResponse? BaseHostRequest.timeNow timeNowBooleanResponse = none ∧
+      resumeHostRequest timeNowWaitingConfig timeNowIntegerResponse =
+        some (updateState timeNowWaitingConfig (.returned (typedInteger exampleFive)) []) ∧
+      resumeHostRequest timeNowWaitingConfig timeNowBooleanResponse =
+        some (updateState timeNowWaitingConfig (.failed .hostResponseTypeMismatch) []) := by
+  exact ⟨rfl, rfl, rfl, rfl⟩
+
+private def uncheckedHostResponseMutant? (_request : BaseHostRequest .integer)
+    (response : BaseHostResponse) : Option BaseTypedValue := some response.value
+
+theorem boolean_response_type_mutation_is_rejected_fragment :
+    uncheckedHostResponseMutant? BaseHostRequest.timeNow timeNowBooleanResponse =
+        some typedBooleanValue ∧
+      checkedHostResponse? BaseHostRequest.timeNow timeNowBooleanResponse = none ∧
+      runFuel 0 (updateState timeNowWaitingConfig
+        (.failed .hostResponseTypeMismatch) []) =
+        .completed (.fault .hostResponseTypeMismatch) := by
+  exact ⟨rfl, rfl, rfl⟩
+
+private def twoClockExpression : BaseExpr := .binary .add .timeNow .timeNow
+
+private def twoClockInitialConfig : MachineConfig :=
+  initialConfig [] [] (fun _ => none) twoClockExpression
+
+private def firstClockWaitingConfig : MachineConfig :=
+  updateState twoClockInitialConfig (.awaitingHost .timeNow)
+    [.binaryLeft .add .timeNow]
+
+private def afterFirstClockResponseConfig : MachineConfig :=
+  updateState firstClockWaitingConfig (.returned (typedInteger exampleTwo))
+    [.binaryLeft .add .timeNow]
+
+private def evaluateSecondClockConfig : MachineConfig :=
+  updateState afterFirstClockResponseConfig (.evaluate .timeNow)
+    [.binaryRight .add exampleTwo]
+
+private def secondClockWaitingConfig : MachineConfig :=
+  updateState evaluateSecondClockConfig (.awaitingHost .timeNow)
+    [.binaryRight .add exampleTwo]
+
+theorem host_requests_are_observed_in_machine_order_fragment :
+    runFuel 2 twoClockInitialConfig = .hostRequest
+      ⟨BaseType.integer, BaseHostRequest.timeNow, firstClockWaitingConfig, rfl⟩ ∧
+      resumeHostRequest firstClockWaitingConfig ⟨typedInteger exampleTwo⟩ =
+        some afterFirstClockResponseConfig ∧
+      step afterFirstClockResponseConfig = some evaluateSecondClockConfig ∧
+      step evaluateSecondClockConfig = some secondClockWaitingConfig ∧
+      runFuel 0 secondClockWaitingConfig = .hostRequest
+        ⟨BaseType.integer, BaseHostRequest.timeNow, secondClockWaitingConfig, rfl⟩ := by
+  exact ⟨rfl, rfl, rfl, rfl, rfl⟩
+
 theorem scalar_literal_runs_to_its_typed_payload_fragment
     (value : CompositeValue) (typed : BaseTypedValue)
     (supported : scalarTypedValue? value = some typed) :
     runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral value)) =
       .completed (.value typed) := by
-  simp [runFuel, terminalOutcome, initialConfig, step, updateState, supported]
+  simp [runFuel, terminalOutcome, pendingHostWait?, initialConfig, step, updateState, supported]
 
 theorem scalar_checker_accepts_exact_float_literal_fragment :
     checkBaseExpr [] [] (fun _ => none) (.scalarLiteral positiveZeroValue) = true := by
