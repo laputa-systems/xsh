@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -123,9 +123,9 @@ fn trace_sink() -> Option<Arc<Mutex<TraceSink>>> {
     TRACE_SINK
         .get_or_init(|| {
             let path = std::env::var_os("XSH_W9_CACHE_TRACE")?;
-            let file = File::create(&path).unwrap_or_else(|error| {
+            let file = open_new_trace_file(std::path::Path::new(&path)).unwrap_or_else(|error| {
                 panic!(
-                    "create XSH_W9_CACHE_TRACE file {}: {error}",
+                    "create new XSH_W9_CACHE_TRACE file {}: {error}",
                     std::path::Path::new(&path).display()
                 )
             });
@@ -135,6 +135,19 @@ fn trace_sink() -> Option<Arc<Mutex<TraceSink>>> {
             })))
         })
         .clone()
+}
+
+/// Claim a fresh trace path so an existing file or symlink is never truncated.
+fn open_new_trace_file(path: &std::path::Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    options.open(path)
 }
 
 #[cfg(test)]
@@ -157,7 +170,22 @@ impl Write for CaptureWriter {
 
 #[cfg(test)]
 mod tests {
-    use super::CacheTrace;
+    use super::{open_new_trace_file, CacheTrace};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TRACE_PATH: AtomicU64 = AtomicU64::new(0);
+
+    fn trace_path(label: &str) -> PathBuf {
+        let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        fs::create_dir_all(&directory).expect("create ignored W9 trace test directory");
+        directory.join(format!(
+            "w9-cache-trace-{label}-{}-{}",
+            std::process::id(),
+            NEXT_TRACE_PATH.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
 
     #[test]
     fn trace_rows_include_a_distinct_cache_owner_and_complete_key() {
@@ -196,5 +224,30 @@ mod tests {
         assert!(first_text.contains("\t4\tprivate\tchecked\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
         assert!(second_text.contains("\t5\tshared\tprepared\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
         assert!(second_text.contains("\t5\tshared\tchecked\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
+    }
+
+    #[test]
+    fn trace_file_creation_rejects_existing_files_and_symlinks() {
+        let existing_file = trace_path("existing");
+        fs::write(&existing_file, b"keep this trace").expect("write existing trace");
+        let error = open_new_trace_file(&existing_file).expect_err("existing trace must fail");
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&existing_file).expect("read existing trace"), b"keep this trace");
+        fs::remove_file(&existing_file).expect("remove existing trace");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            let target = trace_path("symlink-target");
+            let link = trace_path("symlink");
+            fs::write(&target, b"keep symlink target").expect("write symlink target");
+            symlink(&target, &link).expect("create trace symlink");
+            let error = open_new_trace_file(&link).expect_err("trace symlink must fail");
+            assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+            assert_eq!(fs::read(&target).expect("read symlink target"), b"keep symlink target");
+            fs::remove_file(&link).expect("remove trace symlink");
+            fs::remove_file(&target).expect("remove symlink target");
+        }
     }
 }

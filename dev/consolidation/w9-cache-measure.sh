@@ -3,16 +3,16 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: dev/consolidation/w9-cache-measure.sh XSHT_BIN LAPUTA_ROOT [OUTPUT_DIR]
+Usage: dev/consolidation/w9-cache-measure.sh XSHT_BIN BUILD_RECEIPT LAPUTA_ROOT [OUTPUT_DIR]
 
 Run check and default lint in normal and traced modes for this checkout and
-Laputa. Build XSHT_BIN from this checkout's frozen source with the pinned
-runner. OUTPUT_DIR must be fresh, under this checkout's .work/, and have an
-existing parent directory.
+Laputa. Create BUILD_RECEIPT with w9-cache-build.sh build using the pinned
+runner. The receipt must match this clean source tree and XSHT_BIN. OUTPUT_DIR
+must be fresh, under this checkout's .work/, and have an existing parent.
 USAGE
 }
 
-if [[ $# -lt 2 || $# -gt 3 ]]; then
+if [[ $# -lt 3 || $# -gt 4 ]]; then
   usage
   exit 2
 fi
@@ -24,7 +24,12 @@ if [[ ! -x "$xsht_bin" ]]; then
   printf 'xsht binary is not executable: %s\n' "$xsht_bin" >&2
   exit 2
 fi
-laputa_root=$(cd -- "$2" && pwd -P)
+build_receipt=$2
+case "$build_receipt" in
+  /*) ;;
+  *) build_receipt="$xsh_root/$build_receipt" ;;
+esac
+laputa_root=$(cd -- "$3" && pwd -P)
 if [[ -n "$(git -C "$xsh_root" status --porcelain)" ]]; then
   printf 'XSH source checkout must be clean before measurement\n' >&2
   exit 2
@@ -35,8 +40,9 @@ if [[ -n "$(git -C "$laputa_root" status --porcelain)" ]]; then
 fi
 xsh_commit=$(git -C "$xsh_root" rev-parse HEAD)
 laputa_commit=$(git -C "$laputa_root" rev-parse HEAD)
-if [[ $# -eq 3 ]]; then
-  output_dir=$3
+"$script_dir/w9-cache-build.sh" verify "$xsht_bin" "$build_receipt"
+if [[ $# -eq 4 ]]; then
+  output_dir=$4
   case "$output_dir" in
     /*) ;;
     *) output_dir="$xsh_root/$output_dir" ;;
@@ -70,6 +76,7 @@ mkdir -p -- "$output_dir"
   printf 'laputa_root=%s\n' "$laputa_root"
   printf 'laputa_commit=%s\n' "$laputa_commit"
   printf 'xsht_bin=%s\n' "$xsht_bin"
+  printf 'build_receipt=%s\n' "$build_receipt"
   printf 'commands=check .; lint .\n'
 } > "$output_dir/run.txt"
 
