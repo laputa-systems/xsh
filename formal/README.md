@@ -21,8 +21,23 @@ bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. No full G1 closure or whole-language
-soundness claim is made.
+72 complete theorem obligations planned. The inventory names 47 rooted Lean
+fragment declarations. Its 29 Python tests check inventory shape, root
+reachability, and mutation controls; they are not semantic or Rust conformance
+tests. No full G1 closure or whole-language soundness claim is made.
+
+The base-machine fragment includes a typed `time.now()` request for signed
+epoch milliseconds: it models the wait state, typed response check, resumption,
+sequential request order, and rejection of a mismatched response. Whether a
+response reflects an accurate clock remains an external assumption; this
+fragment proves no Rust, operating-system, or concrete clock behavior. The
+executable Float comparator
+in `Xsh.Values.FloatEquality` is specified against the raw-bit IEEE value
+relation, with symmetry, transitivity, and reflexivity exactly for non-NaNs.
+Signed zeros compare equal while retaining distinct raw bits, transport
+encodings, and total-sort order. `tests/xsh/float-equality.xsh` includes a
+constant-folding regression for signed zeros, NaNs, and nested values. These
+Lean laws and the source regression do not establish Rust conformance.
 
 From this directory, keep Lake's metadata, manifest, cache, build outputs, and
 temporary files under the repository's ignored `.work/` directory. Add that
@@ -71,7 +86,14 @@ The fresh-check runner enforces a 180-second wall limit and an 8 GiB maximum
 address space for Lake and the checker process. If the time limit expires, it
 terminates the whole process group.
 
-The fixed source/IR corpus, scenario tests, and replay runner have not been
-introduced yet. Direct Lake builds and the axiom controls above are the
-available bootstrap checks; later campaign work will add those runners under
-`formal/`.
+Check the provisional inventory and its Python tests from the repository root:
+
+```sh
+python3 formal/scripts/check-inventory.py
+python3 formal/tests/inventory/test_check_inventory.py
+```
+
+The fixed source/IR corpus, semantic scenario tests, and replay runner have
+not been introduced yet. The inventory tests above validate inventory
+structure and root reachability only. Direct Lake builds and the axiom
+controls above remain the available proof bootstrap checks.

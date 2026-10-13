@@ -6,12 +6,14 @@ scalar and base-machine fragments, validation, environment/store, effects,
 raw-IR, and transport codec/law fragments are integrated.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
 runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
-and the Lean scalar model states it over raw Float bits. Consolidation
+and `Xsh.Values.FloatEquality` defines an executable raw-bit comparator with
+Lean laws for that rule. A source regression now covers runtime and
+constant-folded signed-zero, NaN, and nested comparisons. Consolidation
 acceptance and the post-consolidation G0b source freeze remain pending gates.
 The owner requested wider staggered lanes; continue on disjoint domains with
 the coordinated build and memory limits. No Rust conformance or full-language
 theorem is claimed, and all 72 inventoried full theorem obligations remain
-planned.
+planned. No `BASE-*` obligation is complete.
 **Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
 **Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and
 lowering obligations, and connect those independent statements to the Rust
@@ -77,7 +79,7 @@ The integrator chooses file splits and proof lemmas within the domains and owner
 
 G0a established the pinned Lean/Lake/checker setup, private test-only bridge, provisional source inventory, and initial scalar foundation. Continue reconciling the imported theorem modules, inventory mutation controls, and audit results as foundations grow. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
 
-The initial Float equality disagreement has been repaired: the XSH language contract defines Float equality by IEEE value equality, and runtime, constant-folded, and fuzz-oracle comparisons implement that rule while raw Float representation and total-sort order stay intact. The Lean scalar fragment models the same language rule over raw bits. After consolidation closes, run fresh source-level witnesses for `+0/-0`, same-bit NaN, and structural Float values against the frozen source and record the results as finite evidence. The repair and model do not by themselves establish Rust conformance.
+The initial Float equality disagreement has been repaired: the XSH language contract defines Float equality by IEEE value equality, and runtime, constant-folded, and fuzz-oracle comparisons implement that rule while raw Float representation and total-sort order stay intact. `formal/Xsh/Values/FloatEquality.lean` defines the executable Boolean comparator and proves its agreement with the raw-bit relation, symmetry, transitivity, and reflexivity exactly for non-NaNs. It also proves that signed-zero equality preserves distinct payloads, wire encodings, and total-sort order. `tests/xsh/float-equality.xsh` now contains the runtime and constant-folding witnesses, including signed zero, same-bit NaN, and nested values. After consolidation closes, run these source witnesses against the frozen source and record the results as finite evidence. The repair and Lean laws do not establish Rust conformance.
 
 Record measured startup, exact-name native gate, fresh Rust build, Lean changed-module check, and clean Lean build as each becomes available. Warm changed Lean-module check target: at most 60 seconds. Exact-name Rust/native check target: at most 30 seconds unless an external/process boundary requires more. If a repeated core loop exceeds 120 seconds or twice its measured baseline, repair the loop before broad lane work. Do not report a benchmark claim from one run. Performance is measured and logged during parity work; optimization gates begin only after feature and test parity. Final performance gates run only when `perf-gate-ready` passes immediately before and `perf-gate-ready -1` passes immediately after; if the host remains busy, report `perf gate deferred: host busy`. Memory and binary-size gates always run.
 
@@ -102,9 +104,10 @@ encoder. Prefer a `#[cfg(test)]` exporter/decoder beside verifier tests; do not
 use the default-enabled `native-tests` feature. G0b starts after consolidation
 closes: rebuild the post-close source; inventory every core syntax/type/call/
 control/stage/IR variant and the exclusion boundary; retain the signed-zero,
-NaN, and structural Float equality regressions and record their post-repair
-results; validate closed wire/scenario forms, proof root, audit controls, gate
-routing, and loop costs. Rust's typed `FullTag` cannot carry arbitrary unknown
+NaN, and structural Float equality regressions in
+`tests/xsh/float-equality.xsh` and record their post-repair results; validate
+closed wire/scenario forms, proof root, audit controls, gate routing, and loop
+costs. Rust's typed `FullTag` cannot carry arbitrary unknown
 raw tag bytes: reject those at the Lean transport boundary and cover
 typed-representable corruptions in Rust. No unresolved core item may disappear
 from `formal/coverage.json`.
@@ -362,7 +365,7 @@ This map was checked at `120f8b44e98b4fa3cb87ab2ee6fc75da2b3d07c4`; the campaign
 | Effects, bounds and streams | `src/sema/check/infer_effects.rs`, `src/sema/check/effect_bounds.rs` (`enter_block_effect_bound`, `check_effect_not_excluded`), `src/sema/check/stream.rs`, `src/sema/check/module_driver.rs`; `AstArena::block_effect_bound`. |
 | Lowering, indexed schema and verify | `src/runtime/eval/lower.rs`, `src/runtime/eval/indexed.rs`, `src/runtime/eval/indexed/semantic.rs`, `src/runtime/eval/indexed/full.rs` (`FullVerifier::verify`, `verify_callable_slot_initializers`), `src/runtime/eval/indexed/full/schema.rs`, `src/runtime/eval/indexed/full/decode.rs`. |
 | Execution and host lifecycle | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `indexed_run/explicit_run.rs`, `indexed_run/producer.rs`, `indexed_run/serial_pipeline.rs`, `src/runtime/process.rs`, `src/runtime/run.rs`, `src/runtime/signal.rs`, `src/runtime/value/resource_values.rs`, `src/trace.rs`. |
-| Float mismatch | `src/runtime/value.rs::FloatValue::eq`, `src/sema/constants.rs::constant_values_equal` and constant `B::Eq/B::Ne`, `crates/xsh-fuzz/src/eval.rs::values_equal`; current native witnesses include `tests/xsh/basic.xsh` and `tests/xsh/comparison-chain.xsh`. |
+| Float equality implementation and witnesses | `src/runtime/value.rs::FloatValue::eq`, `src/sema/constants.rs::constant_values_equal` and constant `B::Eq/B::Ne`, `crates/xsh-fuzz/src/eval.rs::values_equal`; Lean comparator laws are in `formal/Xsh/Values/FloatEquality.lean`; runtime and constant-folded regressions are in `tests/xsh/float-equality.xsh` (`test_float_runtime_equality_uses_ieee_values`, `test_float_constant_equality_uses_ieee_values`). Run these against the post-consolidation source and record finite evidence; they do not establish Rust conformance by themselves. |
 | Existing behavior/conformance cases | `tests/xsh/{effects,private-proc-effects,resource-ownership,error-resource-ownership,with-resource,stream-producers,checker-streams,lowering-coverage,signal-hooks}.xsh`; `tests/grammar.rs`; verifier corruption tests in `src/runtime/eval/indexed/full.rs`; independent soundness oracle and harness under `crates/xsh-fuzz/`. |
 
 The existing runtime applies verified indexed execution, uses heap-backed frames and a verifier-bounded in-place path (currently height 128), and retains program ownership for suspended producers. Resource/effect/lowering facts are behavior-bearing; prove their preservation rather than expanding hot rows by default. Re-resolve callable provenance and temporary-writer verifier checks at campaign start.
@@ -387,6 +390,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | G0a | Pinned project, module-wide axiom audit, guarded fresh-check runner, and exact scalar foundation merged. Private Rust bridge and provisional inventory have focused checks and independent review; integration fixes remain. | Include every theorem module in the fresh-check root. Finish reference and inventory mutation controls; G0b waits for consolidation close. |
 | Staggered foundations | Scalar bit/key round trips, lexical lookup and scope restoration, cell-reference captures, membership-guarded store laws, `NonEmpty` and bounded-integer validation boundaries, finite effect-lattice and recursive-summary fragments, and lexical bounds with delayed-work origins are integrated. The provisional inventory contains 89 owner rows and leaves all 72 complete theorem obligations planned; its 13 mutation tests pass. The private bridge has strict JSON limits, table bounds, and ghost-reference rejection tests. | These fragments do not close G2 or G3, establish Rust conformance, or supply the shared whole-language invariant. Whole syntax, typing, operational semantics, and artifact certification remain open. |
 | Rooted machine, raw IR, and transport foundations | Commits `9d475279b`, `7de4804c4`, `7e2e91947`, `1e434d815`, `d8b24f16e`, `9bc73a8a2`, and `0107c8158` add the validated store, integer base machine, raw IR word/table/range/row fragments, and strict transport codecs with accepted-value re-encoding laws; each module is imported by `formal/Xsh.lean`. Follow-ups `8a6b70d42` and `2aa2069c8` preserve exact typed scalar values in the base-machine fragment and constrain controls under pending integer frames, with witnesses for rejected non-integer frame mutations. Arithmetic in that machine remains integer-only. No `BASE-*` obligation is complete; all 72 full theorem obligations remain planned. | Root reachability is recorded, but these fragments do not establish parser/exporter or Rust conformance, whole-language adequacy, artifact certification, G0b source freeze, or full G1 closure. Begin G0b only after consolidation acceptance and freeze the post-consolidation source. |
+| Float laws, constant-folding regression, and typed clock wait | Commits `32f52b839`, `c1f50d041`, `7fe558c5e`, `0ab68c5d0`, `ccc19d054`, and `711031963` add 47 inventoried fragment theorem roots, executable Boolean IEEE Float comparison laws, the typed signed epoch-millisecond `time.now()` request/wait/resume/order/mismatch fragment, and a source regression for runtime and constant-folded Float comparisons. `python3 formal/scripts/check-inventory.py` reports 89 owner sets, 47 Lean fragment roots, and 72 planned obligations; `python3 formal/tests/inventory/test_check_inventory.py` passes all 29 tests. These results validate the inventory checker and its cases, not Rust or clock behavior. | Clock accuracy and correspondence with real time are external assumptions; no Rust or OS clock conformance is claimed. Run the Float source regressions against the frozen post-consolidation source. All 72 full obligations remain planned, and no `BASE-*` obligation is complete. |
 
 ## For the owner afterwards
 
