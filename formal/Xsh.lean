@@ -5,6 +5,7 @@ import Xsh.Values.Composite
 import Xsh.Semantics.Environments
 import Xsh.Validation.Boundary
 import Xsh.Effects.Lattice
+import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
 import Xsh.Conformance.Transport.Codecs
 import Xsh.Conformance.Transport.Laws
