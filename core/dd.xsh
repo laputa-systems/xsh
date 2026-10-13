@@ -29,7 +29,7 @@ proc rich_diagnostics_enabled() [env, process] -> Bool {
 
 ## Reconstruct the operand location because dd parses each KEY=VALUE argument directly.
 proc render_operand_error(argv: List[Bytes], arg_index: Int, message: Str, span_start: Int, span_length: Int, label: Str?, help: Str, usage: Bool, status: Int) [env, process, error] {
-  if ! rich_diagnostics_enabled() {
+  guard rich_diagnostics_enabled() else {
     gnu.error(message)
     if usage { gnu.try_help() }
     exit status
