@@ -20,9 +20,10 @@ results and statuses, and the files a session leaves behind. `xshi` ported
 ranking, listing, denv); it does not embed `ish` or its shell engine and does
 not shell out for work the shell owns.
 
-The differential PTY scenarios in §14 are the executable form of this section.
-A behavior that differs from `ish` is either a bug or one of the deviations
-below; every deviation is covered by an `xshi`-only test.
+The retained PTY transcripts in §14 record behavior captured from `ish`; their
+replay driver is absent from this repository, so they are reference evidence,
+not executable tests. A behavior that differs from `ish` is either a bug or
+one of the deviations below; every deviation is covered by an `xshi`-only test.
 
 Where `ish`'s README documents behavior its implementation lacks, `xshi`
 follows the README:
@@ -413,7 +414,7 @@ change, and after `denv reload`; leaving the tree restores previous values.
 The state is exported as `__DENV_*` variables; `__DENV_DIRTY=1` shows the red
 prompt marker.
 
-`z` reads its scores from the same history (§11).
+`z` reads its scores from the same history (§8).
 
 ## 14. Tests
 
@@ -424,27 +425,14 @@ prompt marker.
 
 The interactive implementation is opt-in through `laputa-asterinas`; ordinary
 builds retain the disabled stub. Linux gates run in the pinned test image as
-described in `TESTING.md`. PTY parity goldens remain in
-`tests/fixtures/interactive-parity/<os>/`, but their scenario drivers are absent
-from this tree, so the available gates do not establish end-to-end terminal parity.
+described in `TESTING.md`. The files in
+`tests/fixtures/interactive-parity/<os>/` are historical PTY transcripts from
+`ish`; they record terminal frames and session effects, but cannot be replayed
+in this repository because their driver is absent. The available gates do not
+establish end-to-end terminal parity.
 
-The recorded scenarios drove a real shell through a PTY (`laputa-ptytest`: a `vt100` screen
-model, event-driven waits, no sleeps), records frames — visible rows, styled
-runs, cursor position and visibility — and effects (files, history, directory
-listings, exit status), and compares the transcript with the golden recorded
-from `ish`. Each run uses an isolated `HOME`; normalization is limited to the
-scratch path, host name, shell name in messages, process-group ids, and the
-timestamps, session ids, and random suffixes of persisted files.
-
-- `XSHI_PARITY_ISH_BIN=/path/to/ish` also runs every scenario against `ish` and
-  requires `ish` == golden == `xshi`.
-- `XSHI_PARITY_RECORD=1` (with the variable above) rewrites goldens.
-- `XSHI_PARITY_FULL=1` prints whole transcripts on a mismatch.
-- A second shell sharing the `HOME` (`spawn_peer`) covers cross-session history.
-
-`xshi`-only tests use the same harness through `run_xshi_only` or the piped
-session. History concurrency (many shells appending, syncing, compacting, and
-resetting), torn and stale files, and 200,000-line logs are exercised in
+History concurrency (many shells appending, syncing, compacting, and resetting),
+torn and stale files, and 200,000-line logs are exercised in
 `history/tests.rs` against real files.
 
 ## 15. Deferrals
