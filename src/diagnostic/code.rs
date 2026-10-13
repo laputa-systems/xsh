@@ -549,7 +549,7 @@ diagnostic_codes! {
         LintLookupFallback = "lint.lookup-fallback", warning, "Remove the fallback argument from lookup calls, which no longer accept one";
         LintMissingEffects = "lint.missing-effects", warning, "Flag a proc whose declared effects are incomplete and suggest the full effect list";
         LintMissingFPrefix = "lint.missing-f-prefix", warning, "Add the `f` prefix to a string whose `{name}` names a binding in scope";
-        LintNeedlessAnnotation = "lint.needless-annotation", warning, "Remove a type annotation that the initializer or checked constraints already fix";
+        LintNeedlessAnnotation = "lint.needless-annotation", warning, "Remove a redundant binding annotation; preserve typed discard assertions";
         LintOrganizeTopLevelConsts = "lint.organize-top-level-consts", warning, "Group safe immutable top-level constants after imports and before functions";
         LintPathConstructor = "lint.path-constructor", warning, "Prefer a `p` string literal or path interpolation over `Path(...)`";
         LintPathDisplayEquality = "lint.path-display-equality", warning, "Compare a Path with a string literal directly instead of through `.display()`";
