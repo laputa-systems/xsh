@@ -54,7 +54,7 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
           state = if src.decimal_digits(value) { report.RangeFailure } else { report.Malformed }
           break
         }
-        yield parsed ?? 0
+        yield parsed
       }
     }
     if state != null {
@@ -81,9 +81,9 @@ export proc collect(root: FsRoot) [fs, error] -> NetworkSource {
       interfaces += [{...item, ifindex: null}]
       continue
     }
-    let raw = (source.observation.value ?? "").trim()
+    let raw = (source.observation.value).trim()
     let parsed_index = src.parse_integer(raw)
-    if parsed_index == null or (parsed_index ?? 0) <= 0 {
+    if parsed_index == null or (parsed_index) <= 0 {
       let state = if src.decimal_digits(raw) { report.RangeFailure } else { report.Malformed }
       issues += [src.issue(f"network.{item.name}.ifindex", state, "invalid_interface_index", null)]
       interfaces += [{...item, ifindex: null}]

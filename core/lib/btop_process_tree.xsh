@@ -45,13 +45,13 @@ pure add_rate(left: rates.Rate, right: rates.Rate) -> rates.Rate {
   if left.state != .Observed or right.state != .Observed or left.value == null or right.value == null {
     return {state: rates.Unavailable, value: null}
   }
-  {state: rates.Observed, value: (left.value ?? 0.0) + (right.value ?? 0.0)}
+  {state: rates.Observed, value: (left.value) + (right.value)}
 }
 
 pure add_bytes(left: Int?, right: Int?) -> Int? {
   return null when left == null or right == null
-  let a = left ?? 0
-  let b = right ?? 0
+  let a = left
+  let b = right
   return null when a < 0 or b < 0 or a > 9223372036854775807 - b
   a + b
 }

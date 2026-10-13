@@ -71,12 +71,12 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       gnu.error(f"Invalid number: {gnu.quote_value(raw)}{detail}")
       exit 1
     }
-    quantity = parsed ?? 0
+    quantity = parsed
     if quantity == 0 and operation in ["/", "%"] { gnu.error("division by zero"); exit 1 }
   }
   var reference = 0
   if opts.reference != null {
-    let name = argument_bytes(opts.reference ?? "", prepared.raw)
+    let name = argument_bytes(opts.reference, prepared.raw)
     let info = fs.stat(name as Path, follow_symlinks: true)
     if let Err(failure) = info { cannot_stat(name, failure); exit 1 }
     reference = info?.size

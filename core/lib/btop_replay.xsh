@@ -59,7 +59,7 @@ proc capture_frame(
 
 pure captured_capacity_bytes(value: Str?) -> Result[Int?, Error] {
   return Ok(null) when value == null
-  let text = value ?? ""
+  let text = value
   let parsed = src.parse_integer(text)
   let parsed_value = parsed ?? -1
   if parsed == null or parsed_value < 0 or f"{parsed_value}" != text {
@@ -73,7 +73,7 @@ proc read_captured_usage(root: FsRoot, frames: List[ReplayTimestamp]) [fs, error
   if file.observation.state != .Observed or file.observation.value == null {
     return Err(error.failure("btop replay requires a complete observations.jsonl file"))
   }
-  let observations_text = file.observation.value ?? ""
+  let observations_text = file.observation.value
   let lines = if observations_text == "" { [] } else { observations_text.lines() }
   if lines.len() > 65536 {
     return Err(error.failure("btop replay captured observations exceed their row limit"))
@@ -133,7 +133,7 @@ export proc load(bundle_path: Path) [fs, error] -> Result[Bundle, Error] {
   if manifest_source.observation.state != .Observed or manifest_source.observation.value == null {
     return Err(error.failure("btop replay requires a complete bounded manifest.json file"))
   }
-  let manifest_text = manifest_source.observation.value ?? ""
+  let manifest_text = manifest_source.observation.value
   guard let decoded = json.decode(manifest_text) else { |failure|
     return Err(error.failure(f"invalid btop replay manifest: {failure.message}"))
   }

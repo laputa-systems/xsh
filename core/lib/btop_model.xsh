@@ -221,7 +221,7 @@ pure network_metrics(
 pure find_network_metric(values: List[NetworkMetric], name: Str?) -> NetworkMetric? {
   return null when name == null
   for value in values {
-    return value when value.name == (name ?? "")
+    return value when value.name == (name)
   }
   null
 }
@@ -305,7 +305,7 @@ pure process_rate(
 
     let core_count = current.cpu.stat.cores.len()
     return rates.process_percent(
-      row.cpu_ticks ?? 0,
+      row.cpu_ticks,
       older.cpu_ticks,
       current.cpu.stat.aggregate,
       before.cpu.stat.aggregate,
@@ -322,11 +322,11 @@ pure process_average_rate(current: Observation, row: processes.Process) -> rates
     return rate(rates.Unavailable)
   }
   let ticks_per_second = current.clock_ticks_per_second.float()
-  let elapsed_seconds = (current.cpu.uptime.seconds ?? 0.0) - row.start_ticks.float() / ticks_per_second
+  let elapsed_seconds = (current.cpu.uptime.seconds) - row.start_ticks.float() / ticks_per_second
   return rate(rates.Invalid) when elapsed_seconds <= 0.0
   {
     state: rates.Observed,
-    value: (row.cpu_ticks ?? 0).float() / ticks_per_second / elapsed_seconds * 100.0,
+    value: (row.cpu_ticks).float() / ticks_per_second / elapsed_seconds * 100.0,
   }
 }
 
@@ -350,7 +350,7 @@ pure cached_uid(row: processes.Process, current: Observation, cache: MetadataCac
 
 pure process_sort_rate_tenths(row: ProcessRow) -> Int {
   if row.cpu_percent.state == .Observed and row.cpu_percent.value != null {
-    if let Ok(tenth) = ((row.cpu_percent.value ?? 0.0) * 10.0).round() { -tenth } else { 0 }
+    if let Ok(tenth) = ((row.cpu_percent.value) * 10.0).round() { -tenth } else { 0 }
   } else {
     0
   }

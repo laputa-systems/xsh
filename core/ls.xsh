@@ -1949,7 +1949,7 @@ proc terminal_has_color() [process, env] -> Bool {
   let term_value = env_text("TERM")
   return false when term_value == null or term_value == ""
 
-  let term = term_value ?? ""
+  let term = term_value
   let patterns = [
     "Eterm",
     "ansi",

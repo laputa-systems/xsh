@@ -535,7 +535,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         sentence = found
       }
       Err(failure) => {
-        gnu.error(f"Invalid regular expression (for regexp {gnu.quote(opts.sentence ?? "")})")
+        gnu.error(f"Invalid regular expression (for regexp {gnu.quote(opts.sentence)})")
         exit 1
       }
     }

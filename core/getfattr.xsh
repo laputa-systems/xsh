@@ -11,7 +11,7 @@ type Printed = {success: Bool, absolute_warning: Bool}
 proc print_attributes(name: Str, opts: Options, pattern: Regex, warned: Bool) [fs, process, env, error, io] -> Printed {
   let target = fp"{name}"
   var names = []
-  if opts.name != null { names = [opts.name ?? ""] } else {
+  if opts.name != null { names = [opts.name] } else {
     let listed = fs.xattr_list(target, follow_symlinks: ! opts.nofollow)
     if let Err(failure) = listed { fileattrs.report(name, failure); return {success: false, absolute_warning: warned} }
     for attribute in listed? { if pattern.matches(attribute) { names += [attribute] } }

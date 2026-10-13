@@ -599,7 +599,7 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
       let device = udev.load(root, devpath)?
       continue when device == null
 
-      let facts = device ?? {devpath: "", sysname: "", subsystem: null, driver: null, devnode: null, major: null, minor: null, symlinks: [], link_priority: 0, tags: [], properties: []}
+      let facts = device
       let subsystem = facts.subsystem ?? ""
       if ! opts.subsystem_match.is_empty() {
         continue when ! matches_any(opts.subsystem_match, subsystem)
@@ -701,7 +701,7 @@ proc settle(argv: List[Str]) [fs, env, process, io, time, error] -> Result[Unit,
 
   var seconds = 120
   if opts.timeout != null {
-    let text = opts.timeout ?? ""
+    let text = opts.timeout
     match text.parse_uint() {
       Ok(value) => seconds = value
       Err(_) => {

@@ -95,8 +95,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let passes = parsed?
   var size = null
   if opts.size != null {
-    size = fs_misc.size_value(opts.size ?? "")
-    if size == null { gnu.error(f"invalid file size: {gnu.quote_value(opts.size ?? "")}"); exit 1 }
+    size = fs_misc.size_value(opts.size)
+    if size == null { gnu.error(f"invalid file size: {gnu.quote_value(opts.size)}"); exit 1 }
   }
   var remove = opts.remove ?? (if opts.unlink { "wipesync" } else { "" })
   if remove != "" {
@@ -107,7 +107,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if matches.len() != 1 { gnu.error(f"invalid argument {gnu.quote(remove)} for 'remove'"); exit 1 }
     remove = matches[0]
   }
-  let source_bytes = if opts.source == null { b"/dev/urandom" } else { gnu.argument_bytes(opts.source ?? "", prepared.raw) }
+  let source_bytes = if opts.source == null { b"/dev/urandom" } else { gnu.argument_bytes(opts.source, prepared.raw) }
   let source = source_bytes as Path
   if opts.source != null {
     let info = fs.stat(source, follow_symlinks: true)

@@ -138,12 +138,12 @@ proc read_program(name: Str, kind: Str) [fs, io, env, error] -> Loaded {
     Err(failure) => {
       var reason = failure.message
       let cut = reason.find(" (os error")
-      if cut != null { reason = reason.byte_slice(0, length: cut ?? 0) }
+      if cut != null { reason = reason.byte_slice(0, length: cut) }
       var tail = reason
       loop {
         let at = tail.find(": ")
         break when at == null
-        tail = tail.byte_slice((at ?? 0) + 2)
+        tail = tail.byte_slice((at) + 2)
       }
       eprint f"awk: fatal: cannot open {kind} `{name}' for reading: {tail}"
       exit 2
@@ -185,7 +185,7 @@ proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Ex
     }
     let wanted = directive_operand(lines[index], "@include")
     continue when wanted == null
-    let name = wanted ?? ""
+    let name = wanted
     let found = find_program(name)
     if found == null {
       eprint f"awk: {source.label}:{index + 1}: error: cannot open source file `{name}' for reading: No such file or directory"
@@ -231,8 +231,8 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
         var value = null
         let equals = body.find("=")
         if equals != null {
-          value = body.byte_slice((equals ?? 0) + 1)
-          body = body.byte_slice(0, length: equals ?? 0)
+          value = body.byte_slice((equals) + 1)
+          body = body.byte_slice(0, length: equals)
         }
         let candidates = [name for name in LONG_OPTIONS if name.starts_with(body)]
         var option = ""

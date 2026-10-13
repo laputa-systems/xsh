@@ -441,7 +441,7 @@ proc parse(cmd: Str, own: List[Str], argv: List[Str]) [process, env, io] -> Pars
     if word.starts_with("--") {
       let body = word.byte_slice(2)
       let split = body.find("=")
-      let option = if split == null { body } else { body.byte_slice(0, split ?? 0) }
+      let option = if split == null { body } else { body.byte_slice(0, split) }
       var matches = []
       for spec in specs {
         let long = long_name(spec)
@@ -462,7 +462,7 @@ proc parse(cmd: Str, own: List[Str], argv: List[Str]) [process, env, io] -> Pars
       } else {
         var text = ""
         if split != null {
-          text = body.byte_slice((split ?? 0) + 1)
+          text = body.byte_slice((split) + 1)
         } else {
           if index >= argv.len() { usage_failure(cmd, f"option requires an argument: {long}") }
           text = argv[index]
@@ -533,7 +533,7 @@ proc checked(long: Str, kind: Str, text: Str) [process, env, io] -> Str {
     eprint f"Expected {name} argument for '{long}' but got '{text}'!"
     exit 1
   }
-  var amount = parsed ?? 0
+  var amount = parsed
   if kind == "byte" {
     if amount < 0 or amount > 255 {
       eprint f"Expected {name} argument for '{long}' but got '{text}'!"

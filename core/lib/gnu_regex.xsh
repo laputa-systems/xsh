@@ -1224,7 +1224,7 @@ export pure alternation(programs: List[Program]) -> Str? {
     let literal = program.literal
     return null when literal == null or program.backrefs
     let quoted = collect {
-      for byte in literal ?? b"" {
+      for byte in literal {
         if byte in [92, 94, 36, 46, 91, 93, 124, 40, 41, 42, 43, 63, 123, 125] { yield 92 }
         yield byte
       }

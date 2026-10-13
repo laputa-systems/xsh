@@ -311,7 +311,7 @@ proc directive_text(entry: Entry, segment: Segment) [fs, time, error] -> Result[
     "t" => Ok(pad_text(bytes.from_text(ctime_field(meta.mtime_ns)?), flags, width, precision))
     "A" => Ok(pad_text(bytes.from_text(time_field(meta.atime_ns, segment.sub)?), flags, width, precision))
     "C" => Ok(pad_text(bytes.from_text(time_field(meta.ctime_ns, segment.sub)?), flags, width, precision))
-    "B" => Ok(pad_text(if meta.birth_ns == null { b"" } else { bytes.from_text(time_field(meta.birth_ns ?? 0, segment.sub)?) }, flags, width, precision))
+    "B" => Ok(pad_text(if meta.birth_ns == null { b"" } else { bytes.from_text(time_field(meta.birth_ns, segment.sub)?) }, flags, width, precision))
     _ => Ok(pad_text(bytes.from_text(time_field(meta.mtime_ns, segment.sub)?), flags, width, precision))
   }
 }

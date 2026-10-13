@@ -38,7 +38,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     if let Err(failure) = record { fileattrs.report(name, failure); success = false; continue }
     let value = record?
     var text = name + " " + capability.format(value)
-    if opts.rootid and value.rootid != null { text += f" [rootid={value.rootid ?? 0}]" }
+    if opts.rootid and value.rootid != null { text += f" [rootid={value.rootid}]" }
     gnu.write_text(text + "\n")
   }
   if ! success { exit 1 }

@@ -100,8 +100,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   var mode = 0o666
   if opts.mode != null {
-    let parsed = fs_misc.mode_for(opts.mode ?? "", mode, false, umask: fs.umask()?)
-    if parsed is Err(_) { mode_error(argv, opts.mode ?? ""); exit 1 }
+    let parsed = fs_misc.mode_for(opts.mode, mode, false, umask: fs.umask()?)
+    if parsed is Err(_) { mode_error(argv, opts.mode); exit 1 }
     mode = parsed?
     if mode > 0o777 { gnu.error("mode must specify only file permission bits"); exit 1 }
   }

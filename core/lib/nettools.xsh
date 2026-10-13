@@ -199,7 +199,7 @@ export pure ether_parse(text: Str) -> Bytes? {
       for digit in part.lower() {
         let at = HEX.find(digit)
         return null when at == null
-        value = value * 16 + (at ?? 0)
+        value = value * 16 + (at)
       }
       yield value
     }

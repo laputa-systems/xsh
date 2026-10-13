@@ -853,7 +853,7 @@ pure format_events(argv: List[Str]) -> List[FormatEvent] {
     if arg.starts_with("--") {
       let body = arg.byte_slice(2)
       let equals = body.find("=")
-      let name = if equals == null { body } else { body.byte_slice(0, length: equals ?? 0) }
+      let name = if equals == null { body } else { body.byte_slice(0, length: equals) }
       var resolved = ""
       var candidates = []
       for known in FORMAT_LONGS + VALUE_LONGS + OTHER_LONGS + ["digits"] {
@@ -865,7 +865,7 @@ pure format_events(argv: List[Str]) -> List[FormatEvent] {
       if resolved in FORMAT_LONGS {
         var value = ""
         if equals != null {
-          value = body.byte_slice((equals ?? 0) + 1)
+          value = body.byte_slice((equals) + 1)
         } else {
           index += 1
           value = argv.get(index) ?? ""
@@ -964,7 +964,7 @@ proc usage_trouble(message: Str) [process, env] -> Unit {
 # A count option, or the usage error GNU gives for a bad value.
 proc count_option(text: Str, what: Str, minimum: Int) [process, env] -> Int {
   let value = parse_count(text)
-  if value == null or (value ?? 0) < minimum { usage_trouble(f"invalid {what} {locale_quote(text)}") }
+  if value == null or (value) < minimum { usage_trouble(f"invalid {what} {locale_quote(text)}") }
   value ?? 0
 }
 
@@ -1096,8 +1096,8 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
         broken = true
         continue
       }
-      let key = item.byte_slice(0, length: equals ?? 0)
-      let value = item.byte_slice((equals ?? 0) + 1)
+      let key = item.byte_slice(0, length: equals)
+      let value = item.byte_slice((equals) + 1)
       var known = false
       for position in range(names.len()) {
         if names[position] == key {
@@ -1138,7 +1138,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   for pattern in opts.ignore_matching + function_patterns {
     let problem = regex_problem(pattern)
     if problem != null {
-      gnu.error(f"'{pattern}': {problem ?? ""}")
+      gnu.error(f"'{pattern}': {problem}")
       exit 2
     }
     if let Err(_) = regex.find_bytes(pattern, b"") {

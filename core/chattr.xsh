@@ -32,15 +32,15 @@ proc changed(name: Str, changes: Changes, descendant: Bool) [fs, process, env, e
     return false
   }
   if changes.generation != null {
-    if changes.verbose { gnu.write_text(f"Version of {name} set as {changes.generation ?? 0}\n") }
-    if let Err(failure) = linux.set_file_version(target, changes.generation ?? 0) {
+    if changes.verbose { gnu.write_text(f"Version of {name} set as {changes.generation}\n") }
+    if let Err(failure) = linux.set_file_version(target, changes.generation) {
       if ! changes.quiet { gnu.error(f"{gnu.strerror(failure)} while setting version on {name}") }
       return false
     }
   }
   if changes.project != null {
-    if changes.verbose { gnu.write_text(f"Project of {name} set as {changes.project ?? 0}\n") }
-    if let Err(failure) = linux.set_file_project(target, changes.project ?? 0) {
+    if changes.verbose { gnu.write_text(f"Project of {name} set as {changes.project}\n") }
+    if let Err(failure) = linux.set_file_project(target, changes.project) {
       if ! changes.quiet { gnu.error(f"{gnu.strerror(failure)} while setting project on {name}") }
       return false
     }

@@ -181,7 +181,7 @@ pure attribute_header(brief: Bool) -> Str {
 }
 
 pure attribute_row(attribute: smart.Attribute, brief: Bool) -> Str {
-  let threshold = if attribute.threshold == null { "---" } else { smart.zero_pad(attribute.threshold ?? 0, 3) }
+  let threshold = if attribute.threshold == null { "---" } else { smart.zero_pad(attribute.threshold, 3) }
   let numbers = f"{smart.zero_pad(attribute.value, 3)}   {smart.zero_pad(attribute.worst, 3)}   {threshold}"
   let head = f"{smart.pad_start(f"{attribute.id}", 3)} {smart.pad_end(attribute.name, 24)}"
   if brief {

@@ -300,7 +300,7 @@ pure pair_value(pairs: List[List[Str]], key: Str) -> Str? {
 }
 pure expected_bytes(case: MatrixCase, channel: Str) -> Result[Bytes] {
   let override = pair_value(case.xsh, channel)
-  return Ok(bytes.from_text(override ?? "")) when override != null
+  return Ok(bytes.from_text(override)) when override != null
   let packed = if channel == "stdout" { case.stdout_b64 } else { case.stderr_b64 }
   return Ok(packed.base64_decode()?) unless packed.is_empty()
   Ok(bytes.from_text(if channel == "stdout" { case.stdout } else { case.stderr }))

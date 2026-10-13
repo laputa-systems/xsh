@@ -115,7 +115,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   if opts.version { gnu.version("mktemp"); return }
   if opts.templates.len() > 1 { gnu.usage_error("too many templates") }
   let pattern = if opts.templates.is_empty() { b"tmp.XXXXXXXXXX" } else { gnu.argument_bytes(opts.templates[0], prepared.raw) }
-  let option_suffix = if opts.suffix == null { b"" } else { gnu.argument_bytes(opts.suffix ?? "", prepared.raw) }
+  let option_suffix = if opts.suffix == null { b"" } else { gnu.argument_bytes(opts.suffix, prepared.raw) }
   if opts.suffix != null and !pattern.ends_with(b"X") { gnu.error(f"with --suffix, template {gnu.quote_bytes(pattern)} must end in X"); exit 1 }
   var end = pattern.len()
   while end > 0 and pattern.byte_at(end - 1) != 88 { end -= 1 }
@@ -129,7 +129,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let configured_tmpdir = env.path("TMPDIR", p"")?.bytes()
   let has_tmpdir = !configured_tmpdir.is_empty()
   let default_dir = if has_tmpdir { configured_tmpdir } else { b"/tmp" }
-  var directory = if opts.parent != null { gnu.argument_bytes(opts.parent ?? "", prepared.raw) } else if opts.tmpdir != null { gnu.argument_bytes(opts.tmpdir ?? "", prepared.raw) } else { b"" }
+  var directory = if opts.parent != null { gnu.argument_bytes(opts.parent, prepared.raw) } else if opts.tmpdir != null { gnu.argument_bytes(opts.tmpdir, prepared.raw) } else { b"" }
   directory = directory_option(argv, directory)
   let use_dir = opts.tmpdir != null or opts.parent != null or opts.legacy or opts.templates.is_empty()
   if opts.legacy and has_tmpdir { directory = default_dir }

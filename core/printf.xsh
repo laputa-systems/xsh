@@ -199,9 +199,9 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
 
   while at < body.byte_len() {
     let digit = digit_value(body.byte_slice(at, length: 1))
-    break when digit == null or (digit ?? 99) >= base
+    break when digit == null or (digit) >= base
     found = true
-    let next_digit = digit ?? 0
+    let next_digit = digit
     if ! overflow {
       if (sign < 0 and (value < cutoff or (value == cutoff and next_digit > cutlim))) or (sign > 0 and (value > cutoff or (value == cutoff and next_digit > cutlim))) {
         overflow = true
@@ -417,7 +417,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
       while at < text.len() and count < 2 {
         let digit = digit_value(text[at..at + 1].utf8() ?? "")
         break when digit == null
-        value = value * 16 + (digit ?? 0)
+        value = value * 16 + (digit)
         at += 1
         count += 1
       }
@@ -439,7 +439,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
         var valid = true
         for at in range(digits) {
           let digit = digit_value(raw[at..at + 1].utf8() ?? "")
-          if digit == null { valid = false } else { value = value * 16 + (digit ?? 0) }
+          if digit == null { valid = false } else { value = value * 16 + (digit) }
         }
         let invalid_scalar = value > 1114111 or (value >= 55296 and value <= 57343)
         if ! valid or invalid_scalar {
@@ -714,7 +714,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
 
       var width = spec.width
       if spec.width_dynamic {
-        let index = if spec.width_position == null { argument_index } else { indexed_argument(first_argument, spec.width_position ?? 0, values.len()) }
+        let index = if spec.width_position == null { argument_index } else { indexed_argument(first_argument, spec.width_position, values.len()) }
         let width_argument: PrintfArgument = if index < values.len() { values[index] } else { printf_argument(b"0")? }
         let width_text = width_argument.text
         let parsed_width = argument_integer(width_argument, true, utf8_locale())
@@ -743,7 +743,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
       }
       var precision = spec.precision
       if spec.precision_dynamic {
-        let index = if spec.precision_position == null { argument_index } else { indexed_argument(first_argument, spec.precision_position ?? 0, values.len()) }
+        let index = if spec.precision_position == null { argument_index } else { indexed_argument(first_argument, spec.precision_position, values.len()) }
         let precision_value: PrintfArgument = if index < values.len() { values[index] } else { printf_argument(b"-1")? }
         let precision_argument = precision_value.text
         let parsed_precision = argument_integer(precision_value, true, utf8_locale())
@@ -765,7 +765,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
           next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
         } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       }
-      let index = if spec.position == null { argument_index } else { indexed_argument(first_argument, spec.position ?? 0, values.len()) }
+      let index = if spec.position == null { argument_index } else { indexed_argument(first_argument, spec.position, values.len()) }
       let value: PrintfArgument = if index < values.len() { values[index] } else if spec.conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A"] { printf_argument(b"0")? } else { printf_argument(b"")? }
       if spec.position == null {
         argument_index += 1

@@ -774,7 +774,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     }
     io.flush_stdout()
   } else {
-    let dest = opts.output ?? p""
+    let dest = opts.output
     if "nocreat" in opts.conv and ! dest.exists() { gnu.error(f"failed to open {quoted_path(dest)}: No such file or directory"); exit 1 }
     if ! ("notrunc" in opts.conv) {
       if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"") }

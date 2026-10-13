@@ -392,7 +392,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       node.kind = "count"
       node.text = "uid"
       let numeric = plain_number(value)
-      if numeric != null { node.number = numeric ?? 0 } else if all_digits(value) {
+      if numeric != null { node.number = numeric } else if all_digits(value) {
         search.reject(f"invalid user name or UID argument to -user: '{value}'")
       } else if let Ok(account) = user.lookup(value) { node.number = account.uid } else {
         search.reject(f"invalid user name or UID argument to -user: '{value}'")
@@ -402,7 +402,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       node.kind = "count"
       node.text = "gid"
       let numeric = plain_number(value)
-      if numeric != null { node.number = numeric ?? 0 } else if all_digits(value) {
+      if numeric != null { node.number = numeric } else if all_digits(value) {
         search.reject(f"invalid group name or GID argument to -group: '{value}'")
       } else if let Ok(account) = group.lookup(value) { node.number = account.gid } else {
         search.reject(f"invalid group name or GID argument to -group: '{value}'")
@@ -565,7 +565,7 @@ proc start_failure(command: Path) [fs, process] -> Str {
 # false result rather than a failure of the whole run.
 proc command_succeeds(words: List[Path], directory: Path?) [fs, process, env, error] -> Result[Bool, Error] {
   let command = words[0]
-  let plan = if directory != null { process.command_argv(command, words, directory ?? p".") } else { process.command_argv(command, words) }
+  let plan = if directory != null { process.command_argv(command, words, directory) } else { process.command_argv(command, words) }
   let status = process.run(plan)?
   if status.signaled() {
     gnu.error(f"{gnu.quote_bytes(command.bytes())} terminated by signal {status.signal_number() ?? 0}")

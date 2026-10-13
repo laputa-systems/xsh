@@ -91,14 +91,14 @@ pure command_text(row: model.ProcessRow, values: LocalDisplayIndex) -> Str {
 
 pure user_text(row: model.ProcessRow, values: LocalDisplayIndex) -> Str {
   if let value = indexed_local_display(row, values) { return value.user_name }
-  if row.uid == null { "?" } else { f"{row.uid ?? 0}" }
+  if row.uid == null { "?" } else { f"{row.uid}" }
 }
 
 pure matches(row: model.ProcessRow, filter: Str, values: LocalDisplayIndex) -> Bool {
   return true when filter == ""
   let needle = filter.lower()
   f"{row.pid}".find(needle) != null or
-    (if row.uid == null { "?" } else { f"{row.uid ?? 0}" }).lower().find(needle) != null or
+    (if row.uid == null { "?" } else { f"{row.uid}" }).lower().find(needle) != null or
     row.command.lower().find(needle) != null or
     command_text(row, values).lower().find(needle) != null or
     user_text(row, values).lower().find(needle) != null
@@ -332,7 +332,7 @@ pure active_collapses(state: State, value: model.Model) -> Set[Str] {
 pure active_network_interface(state: State, value: model.Model) -> Str? {
   if state.network_interface != null {
     for interface in value.network.interfaces {
-      return state.network_interface when interface.name == (state.network_interface ?? "")
+      return state.network_interface when interface.name == (state.network_interface)
     }
   }
   value.network.interface_name
@@ -350,8 +350,8 @@ export pure network_total_bytes(state: State, interface: model.NetworkMetric?, r
     if state.network_offset_interface != selected.name or state.network_offset_ifindex != selected.ifindex { return current }
     let offset = if receive { state.network_rx_offset } else { state.network_tx_offset }
     return current when offset == null
-    return null when current < (offset ?? 0)
-    return current - (offset ?? 0)
+    return null when current < (offset)
+    return current - (offset)
   }
   null
 }
@@ -408,7 +408,7 @@ pure select_network_interface(state: State, value: model.Model, direction: Int) 
 pure collapse_selected(state: State, value: model.Model, action: Str) -> State {
   return state when state.selected == null
   let tree = process_tree.build(value.processes)
-  let selected = state.selected ?? {pid: 0, start_ticks: 0}
+  let selected = state.selected
   if let Ok(node) = tree.nodes.get(selected.pid) {
     if node.row.start_ticks != selected.start_ticks or node.children.is_empty() { return state }
     let key = identity_key(selected)
@@ -430,7 +430,7 @@ pure collapse_selected(state: State, value: model.Model, action: Str) -> State {
 pure toggle_selected_children(state: State, value: model.Model) -> State {
   return state when state.selected == null
   let tree = process_tree.build(value.processes)
-  let selected = state.selected ?? {pid: 0, start_ticks: 0}
+  let selected = state.selected
   if let Ok(node) = tree.nodes.get(selected.pid) {
     return state when node.row.start_ticks != selected.start_ticks
     var collapsed = state.collapsed

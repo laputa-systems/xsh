@@ -47,7 +47,7 @@ pure parse_address(word: Str) -> Bytes? {
     for part in parts {
       let value = nettools.decimal(part)
       return null when value == null
-      yield value ?? 0
+      yield value
     }
   }
   let octets = collect {
@@ -140,7 +140,7 @@ proc set_entry(options: Options, host: Str, hardware: Str, words: List[Str]) [fs
       eprint "arp: invalid hardware address"
       exit 255
     }
-    mac = parsed ?? b""
+    mac = parsed
   }
   var flags = 6
   var mask = null
@@ -262,7 +262,7 @@ proc show(options: Options) [fs, process, env, io, error] {
   }
   if shown == 0 {
     if wanted != null and !options.bsd {
-      gnu.write_text(f"{wanted ?? ""} ({wanted_address}) -- no entry\n")
+      gnu.write_text(f"{wanted} ({wanted_address}) -- no entry\n")
     } else if wanted != null or options.device != null or options.hw_given {
       gnu.write_text(f"arp: in {entries.len()} entries no match found.\n")
     }
@@ -333,7 +333,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
               eprint f"arp: {value}: unknown hardware type."
               exit 255
             }
-            options = {...options, hw: number ?? 1, hw_given: true}
+            options = {...options, hw: number, hw_given: true}
           }
         }
         else => {
@@ -389,7 +389,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
               eprint f"arp: {value}: unknown hardware type."
               exit 255
             }
-            options = {...options, hw: number ?? 1, hw_given: true}
+            options = {...options, hw: number, hw_given: true}
           }
         }
         else => {

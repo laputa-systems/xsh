@@ -52,7 +52,7 @@ pure hex_value(text: Str) -> Int? {
   for digit in text.lower() {
     let number = "0123456789abcdef".find(digit)
     return null when number == null
-    value = value * 16 + (number ?? 0)
+    value = value * 16 + (number)
   }
   value
 }
@@ -70,7 +70,7 @@ pure parse_delimiter(spec: Str) -> Int? {
     return if value != null and rest.byte_len() <= 3 { value } else { null }
   }
   let value = octal_value(rest)
-  if value != null and rest.byte_len() <= 3 and (value ?? 256) < 256 { value } else { null }
+  if value != null and rest.byte_len() <= 3 and (value) < 256 { value } else { null }
 }
 
 # Split a chunk of input into items: blanks and newlines separate them, quotes
@@ -218,8 +218,8 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
       at += 1
       let body = arg.byte_slice(2)
       let eq = body.find("=")
-      let name = if eq == null { body } else { body.byte_slice(0, eq ?? 0) }
-      var value: Str? = if eq == null { null } else { body.byte_slice((eq ?? 0) + 1) }
+      let name = if eq == null { body } else { body.byte_slice(0, eq) }
+      var value: Str? = if eq == null { null } else { body.byte_slice((eq) + 1) }
       var matches: List[LongOption] = []
       for candidate in LONG_OPTIONS {
         if candidate.long == name { matches = [candidate]; break }
@@ -275,7 +275,7 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
         "d" => {
           let parsed = parse_delimiter(value)
           if parsed == null { gnu.error(delimiter_error(value)); exit 1 }
-          cfg.delimiter = parsed ?? 0
+          cfg.delimiter = parsed
         }
         "a" => cfg.input_file = value
         "e" | "E" => cfg.eof = value
@@ -363,7 +363,7 @@ proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument
 # items, unless they came from a file (-a), which leaves standard input free.
 proc start(argv: List[Path], inherit_stdin: Bool, use_tty: Bool, slot_var: Str?, slot: Int) [process, env, error] -> Result[ProcessHandle, Error] {
   var words = argv
-  if slot_var != null { words = [fp"env", fp"{slot_var ?? ""}={slot}"] + argv }
+  if slot_var != null { words = [fp"env", fp"{slot_var}={slot}"] + argv }
   let target = words[0]
   let tail = words[1..]
   let handle = if use_tty { spawn run $target @tail < /dev/tty ? } else if inherit_stdin { spawn run $target @tail ? } else { spawn run $target @tail < /dev/null ? }
@@ -426,7 +426,7 @@ proc ask(command_line: Str) [io, process, env, error] -> Result[Bool, Error] {
 proc require_command(command: Str) [fs, process, env] -> Unit {
   let problem = unrunnable(command)
   if problem != null {
-    let found = problem ?? {status: 127, reason: ""}
+    let found = problem
     gnu.error(f"failed to run command {gnu.quote(command)}: {found.reason}")
     exit found.status
   }
@@ -466,12 +466,12 @@ proc main(...operands: List[Bytes]) {
   var failure = ""
   var checked = false
   var file_offset = 0
-  let reader: Path? = if cfg.input_file == null { null } else { Path.parse_bytes(gnu.argument_bytes(cfg.input_file ?? "", raw)) ?? p"." }
+  let reader: Path? = if cfg.input_file == null { null } else { Path.parse_bytes(gnu.argument_bytes(cfg.input_file, raw)) ?? p"." }
   let limit = if cfg.max_procs == 0 { 1000000 } else { cfg.max_procs }
   let outcome = try {
     var source_size = -1
     if reader != null {
-      match fs.stat(reader ?? p"", follow_symlinks: true) {
+      match fs.stat(reader, follow_symlinks: true) {
         Ok(meta) => { source_size = if meta.kind == "file" and meta.size > 0 { meta.size } else { -2 } }
         Err(problem) => { gnu.error(f"Cannot open input file {gnu.quote(cfg.input_file ?? "")}: {gnu.strerror(problem)}"); exit 1 }
       }
@@ -479,10 +479,10 @@ proc main(...operands: List[Bytes]) {
     while ! stopped {
       var data = b""
       if reader == null { data = io.stdin_read(65536)? } else if source_size == -2 {
-        if file_offset == 0 { data = match (reader ?? p"").read_bytes() { Ok(bytes_read) => bytes_read; Err(_) => b"" } }
+        if file_offset == 0 { data = match (reader).read_bytes() { Ok(bytes_read) => bytes_read; Err(_) => b"" } }
       } else if file_offset < source_size {
         let left = source_size - file_offset
-        data = bytes.read_at(reader ?? p"", file_offset, if left < 65536 { left } else { 65536 })?
+        data = bytes.read_at(reader, file_offset, if left < 65536 { left } else { 65536 })?
       }
       file_offset += data.len()
       let eof = data.is_empty()

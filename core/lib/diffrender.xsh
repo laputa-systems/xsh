@@ -754,7 +754,7 @@ pure char_spec(raw: Bytes, at: Int) -> Literal? {
     return {value: value % 256, at: cursor + 1}
   }
   return null when raw.byte_at(at + 2) != 39
-  {value: first ?? 0, at: at + 3}
+  {value: first, at: at + 3}
 }
 
 # Scan a group format from `at` until `stop` (a byte, or -1 for the end of the
@@ -778,7 +778,7 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
       at += 1
       continue
     }
-    let letter = after ?? 0
+    let letter = after
     if letter == 37 {
       if emit { out += [b"%"] }
       at += 2
@@ -816,7 +816,7 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
               well_formed = false
               break
             }
-            yield named ?? 0
+            yield named
             cursor += 1
           }
           let expected = if side == 0 { 61 } else { 63 }
@@ -871,7 +871,7 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
       if (conversion == 100 or conversion == 111 or conversion == 120 or conversion == 88) and named != null {
         if emit {
           let kind = raw[cursor..cursor + 1].utf8() ?? "d"
-          out += [bytes.from_text(integer_text(named ?? 0, kind, left, zero, width.value, precision))]
+          out += [bytes.from_text(integer_text(named, kind, left, zero, width.value, precision))]
         }
         at = cursor + 2
       } else {
@@ -904,7 +904,7 @@ pure line_text(raw: Bytes, line: Bytes, terminated: Bool, number: Int) -> Bytes 
         continue
       }
 
-      let letter = after ?? 0
+      let letter = after
       if letter == 37 {
         yield b"%"
         at += 2

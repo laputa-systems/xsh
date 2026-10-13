@@ -47,8 +47,8 @@ pure rate_sample(at_ns: Int, value: rates.Rate) -> graph.Sample {
 }
 
 pure memory_sample(value: model.Model) -> graph.Sample {
-  if value.memory.total_bytes != null and (value.memory.total_bytes ?? 0) > 0 and value.memory.used_bytes.value != null {
-    let percent = (value.memory.used_bytes.value ?? 0).float() * 100.0 / (value.memory.total_bytes ?? 1).float()
+  if value.memory.total_bytes != null and (value.memory.total_bytes) > 0 and value.memory.used_bytes.value != null {
+    let percent = (value.memory.used_bytes.value).float() * 100.0 / (value.memory.total_bytes).float()
     return {at_ns: value.at_ns, value: percent, state: graph.Observed}
   }
   {at_ns: value.at_ns, value: null, state: graph.Unavailable}
@@ -56,7 +56,7 @@ pure memory_sample(value: model.Model) -> graph.Sample {
 
 pure temperature_sample(value: model.Model) -> graph.Sample {
   if value.telemetry.temperature.state == .Observed and value.telemetry.temperature.package_millidegrees != null {
-    let celsius = (value.telemetry.temperature.package_millidegrees ?? 0).float() / 1000.0
+    let celsius = (value.telemetry.temperature.package_millidegrees).float() / 1000.0
     return {at_ns: value.at_ns, value: celsius, state: graph.Observed}
   }
   {at_ns: value.at_ns, value: null, state: graph.Unavailable}
@@ -76,7 +76,7 @@ pure disk_sum_rate(device: disks.Device?) -> rates.Rate {
     let read = current.read_bytes_per_second
     let write = current.write_bytes_per_second
     if read.state == .Observed and write.state == .Observed and read.value != null and write.value != null {
-      return {state: rates.Observed, value: (read.value ?? 0.0) + (write.value ?? 0.0)}
+      return {state: rates.Observed, value: (read.value) + (write.value)}
     }
     if read.state == .Gap or write.state == .Gap { return {state: rates.Gap, value: null} }
     if read.state == .Reset or write.state == .Reset { return {state: rates.Reset, value: null} }

@@ -1224,7 +1224,7 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
       var valid = digits != ""
       for letter in digits.lower().split("") {
         let digit = "0123456789abcdef".find(letter)
-        if digit == null { valid = false } else { value = value * 16 + (digit ?? 0) }
+        if digit == null { valid = false } else { value = value * 16 + (digit) }
       }
       if !valid or value < 1 or value > 4294967295 {
         fault = {lines: [f"{name}: Invalid NVMe namespace id in '{requested}'", f"=======> VALID ARGUMENTS ARE: {DEVICE_TYPES} <======="], native: true}

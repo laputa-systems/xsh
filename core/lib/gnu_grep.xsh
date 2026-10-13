@@ -417,17 +417,17 @@ pure apply_capability(base: Colors, name: Str, value: Str?) -> Colors {
   var c = base
   match name {
     "mt" => {
-      if value != null { c.selected_match = value ?? "" }
+      if value != null { c.selected_match = value }
       c.context_match = c.selected_match
     }
-    "ms" => { if value != null { c.selected_match = value ?? "" } }
-    "mc" => { if value != null { c.context_match = value ?? "" } }
-    "sl" => { if value != null { c.selected_line = value ?? "" } }
-    "cx" => { if value != null { c.context_line = value ?? "" } }
-    "fn" => { if value != null { c.filename = value ?? "" } }
-    "ln" => { if value != null { c.line_number = value ?? "" } }
-    "bn" => { if value != null { c.byte_offset = value ?? "" } }
-    "se" => { if value != null { c.separator = value ?? "" } }
+    "ms" => { if value != null { c.selected_match = value } }
+    "mc" => { if value != null { c.context_match = value } }
+    "sl" => { if value != null { c.selected_line = value } }
+    "cx" => { if value != null { c.context_line = value } }
+    "fn" => { if value != null { c.filename = value } }
+    "ln" => { if value != null { c.line_number = value } }
+    "bn" => { if value != null { c.byte_offset = value } }
+    "se" => { if value != null { c.separator = value } }
     "rv" => c.reversed = true
     "ne" => c.erase = false
     _ => {}
@@ -452,7 +452,7 @@ pure parse_colors(spec: Str, base: Colors) -> Colors {
     } else if value == null {
       name += ch
     } else if ch == ";" or (ch >= "0" and ch <= "9") {
-      value = (value ?? "") + ch
+      value = (value) + ch
     } else { return c }
   }
   c
@@ -688,7 +688,7 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
     # can match at all, so the rest skip per-record matching.
     let possible = collect {
       if ctx.prefilter != null and ! zap and ctx.eol == 10 and ! records.is_empty() {
-        match regex.find_bytes(ctx.prefilter ?? "", data, extended: true, ignore_case: o.ignore_case) {
+        match regex.find_bytes(ctx.prefilter, data, extended: true, ignore_case: o.ignore_case) {
           Ok(found) => {
             var cursor = 0
             var record_begin = 0
@@ -731,7 +731,7 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
           var first = lineno
           if ! ring_lines.is_empty() { first = ring_numbers[0] }
           if ctx.ctx_given and used and first != lastout + 1 and o.group_separator != null {
-            emit(bytes.concat([paint(ctx, ctx.c.separator, o.group_separator ?? b""), b"\n"]))
+            emit(bytes.concat([paint(ctx, ctx.c.separator, o.group_separator), b"\n"]))
           }
           for index in range(ring_lines.len()) {
             let prior = gnu_regex.subject(ctx.m, ring_lines[index])
@@ -867,7 +867,7 @@ proc search_input(ctx: Context, progress: Run, real: Path?, show_name: Bool, lab
   var size = 0
   var width = 0
   var width_source = p"/proc/self/fd/0"
-  if real != null { width_source = real ?? p"/proc/self/fd/0" }
+  if real != null { width_source = real }
   if ctx.o.tabs {
     let meta = fs.stat(width_source, follow_symlinks: true)
     var digits = 19
@@ -878,7 +878,7 @@ proc search_input(ctx: Context, progress: Run, real: Path?, show_name: Bool, lab
     width = digits
   }
   if real != null {
-    let meta = fs.stat(real ?? p"", follow_symlinks: true)
+    let meta = fs.stat(real, follow_symlinks: true)
     match meta {
       Ok(stat) => {
         mode = if stat.kind == "file" { "seek" } else { "whole" }

@@ -417,7 +417,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
         while at < length and digits < 2 {
           let nibble = "0123456789abcdef".find(stat_format_byte(data, at).lower())
           break when nibble == null
-          value = value * 16 + (nibble ?? 0)
+          value = value * 16 + (nibble)
           at += 1
           digits += 1
         }
@@ -527,8 +527,8 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       "X" => stat_time(meta.atime_ns, precision, width, left, zero)
       "Y" => stat_time(meta.mtime_ns, precision, width, left, zero)
       "Z" => stat_time(meta.ctime_ns, precision, width, left, zero)
-      "w" => if meta.birth_ns == null { "-" } else { time.format(meta.birth_ns ?? 0, "%Y-%m-%d %H:%M:%S.%N %z")? }
-      "W" => if meta.birth_ns == null { "0" } else { f"{(meta.birth_ns ?? 0) / 1000000000}" }
+      "w" => if meta.birth_ns == null { "-" } else { time.format(meta.birth_ns, "%Y-%m-%d %H:%M:%S.%N %z")? }
+      "W" => if meta.birth_ns == null { "0" } else { f"{(meta.birth_ns) / 1000000000}" }
       "x" => time.format(meta.atime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
       "y" => time.format(meta.mtime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
       "z" => time.format(meta.ctime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
@@ -553,7 +553,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
     if code in ["X", "Y", "Z"] {
       output = bytes.concat([output, bytes.from_text(value)])
     } else if specifier == "n" and precision != null {
-      let size = precision ?? 0
+      let size = precision
       let length = if size < name.len() { size } else { name.len() }
       output = bytes.concat([output, name[..length]])
     } else if specifier == "n" {

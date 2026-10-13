@@ -35,7 +35,7 @@ proc main(...argv: List[Str]) {
   var failed = false
   for item in operations {
     let outcome = if item.value == null { linux.sysctl_get(item.key) } else {
-      match linux.sysctl_set(item.key, item.value ?? "") { Ok(_) => Ok(item.value ?? ""), Err(failure) => Err(failure) }
+      match linux.sysctl_set(item.key, item.value) { Ok(_) => Ok(item.value), Err(failure) => Err(failure) }
     }
     match outcome {
       Ok(value) => {

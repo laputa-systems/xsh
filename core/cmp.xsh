@@ -74,7 +74,7 @@ pure option_events(argv: List[Str]) -> List[Event] {
     if arg.starts_with("--") {
       let body = arg.byte_slice(2)
       let equals = body.find("=")
-      let name = if equals == null { body } else { body.byte_slice(0, length: equals ?? 0) }
+      let name = if equals == null { body } else { body.byte_slice(0, length: equals) }
       var resolved = ""
       var candidates = []
       for known in LONGS {
@@ -89,7 +89,7 @@ pure option_events(argv: List[Str]) -> List[Event] {
       } else if resolved == "bytes" or resolved == "ignore-initial" {
         var value = ""
         if equals != null {
-          value = body.byte_slice((equals ?? 0) + 1)
+          value = body.byte_slice((equals) + 1)
         } else {
           index += 1
           value = argv.get(index) ?? ""
@@ -127,13 +127,13 @@ type Initial = {first: Int, second: Int, bad: Str?}
 pure parse_initial(text: Str) -> Initial {
   let head = diffutils.parse_size(text)
   return {first: 0, second: 0, bad: text} when head == null
-  let found = head ?? {value: 0, rest: ""}
+  let found = head
   return {first: found.value, second: found.value, bad: null} when found.rest == ""
   return {first: 0, second: 0, bad: text} unless found.rest.starts_with(":")
   let tail = found.rest.byte_slice(1)
   let second = diffutils.parse_size(tail)
   return {first: 0, second: 0, bad: tail} when second == null
-  let other = second ?? {value: 0, rest: ""}
+  let other = second
   return {first: 0, second: 0, bad: tail} when other.rest != ""
   {first: found.value, second: other.value, bad: null}
 }
@@ -142,7 +142,7 @@ pure parse_initial(text: Str) -> Initial {
 pure parse_skip(text: Str) -> Int? {
   let parsed = diffutils.parse_size(text)
   return null when parsed == null
-  let found = parsed ?? {value: 0, rest: "x"}
+  let found = parsed
   return null when found.rest != ""
   found.value
 }

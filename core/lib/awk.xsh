@@ -503,16 +503,16 @@ pure constant_value(program: Program, id: Int) -> Float? {
     Unary(op, child) => {
       let inner = constant_value(program, child)
       return null when inner == null
-      return 0.0 - (inner ?? 0.0) when op == "-"
-      return if (inner ?? 0.0) == 0.0 { 1.0 } else { 0.0 } when op == "!"
+      return 0.0 - (inner) when op == "-"
+      return if (inner) == 0.0 { 1.0 } else { 0.0 } when op == "!"
       null
     }
     Binary(op, left, right) => {
       let a = constant_value(program, left)
       let b = constant_value(program, right)
       return null when a == null or b == null
-      let x = a ?? 0.0
-      let y = b ?? 0.0
+      let x = a
+      let y = b
       return x + y when op == "+"
       return x - y when op == "-"
       return x * y when op == "*"
@@ -1293,7 +1293,7 @@ pure printf(format: Str, values: List[Scalar], conversion: Str) -> Result[Str] {
     argument = parsed.argument
     at = parsed.at
     var index = argument
-    if used.argument != null { index = (used.argument ?? 1) - 1 }
+    if used.argument != null { index = (used.argument) - 1 }
     if index >= values.len() or index < 0 {
       let pad = padding(" ", begin + 1)
       return Err(runtime(f"not enough arguments to satisfy format string\n\t`{format}'\n\t{pad}^ ran out for this one"))
@@ -1382,14 +1382,14 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
       return Err(ere_error("Trailing backslash")) when at + 1 >= chars.len()
       # Escaped bytes of a multibyte character, or stray bytes, stand for the same characters as in the subject.
       let first = escape_byte(chars, at)
-      if first != null and (first ?? {value: 0, at: 0}).value >= 128 {
-        var raw: List[Int] = [(first ?? {value: 0, at: 0}).value]
-        var cursor = (first ?? {value: 0, at: 0}).at
+      if first != null and (first).value >= 128 {
+        var raw: List[Int] = [(first).value]
+        var cursor = (first).at
         loop {
           let more = escape_byte(chars, cursor)
-          break when more == null or (more ?? {value: 0, at: 0}).value < 128
-          raw += [(more ?? {value: 0, at: 0}).value]
-          cursor = (more ?? {value: 0, at: 0}).at
+          break when more == null or (more).value < 128
+          raw += [(more).value]
+          cursor = (more).at
         }
         for character in decode_lossy(bytes.from_ints(raw)?)?.split("") { out += [literal_char(character, alphabet)] }
         at = cursor
@@ -1776,7 +1776,7 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
   if is_ascii_text(content) and is_ascii_text(pattern) {
     let translated = rx_translate(pattern, NO_ALPHABET)?
     let caps = regex.captures_bytes(translated, bytes.from_text(content), 0, extended: true, ignore_case: ignore_case)?
-    return Ok([if item == null { null } else { {start: (item ?? {start: 0, end: 0}).start, end: (item ?? {start: 0, end: 0}).end} } for item in caps])
+    return Ok([if item == null { null } else { {start: (item).start, end: (item).end} } for item in caps])
   }
   let alphabet = make_alphabet(pattern, content)
   let translated = rx_translate(pattern, alphabet)?
@@ -1794,7 +1794,7 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
   }
   offsets += [position]
   let caps = regex.captures_bytes(translated, bytes.from_ints(mapped)?, 0, extended: true, ignore_case: ignore_case)?
-  Ok([if item == null { null } else { {start: offsets[(item ?? {start: 0, end: 0}).start], end: offsets[(item ?? {start: 0, end: 0}).end]} } for item in caps])
+  Ok([if item == null { null } else { {start: offsets[(item).start], end: offsets[(item).end]} } for item in caps])
 }
 
 
@@ -1957,7 +1957,7 @@ pure scan_record(text: Str, position: Int, separator: Str, done: Bool, ignore_ca
       while end > at and text.byte_at(end - 1) == 10 { end -= 1 }
       return Ok({kind: 1, content: text.byte_slice(at, length: end - at), next: size, terminator: ""})
     }
-    let first = blank ?? 0
+    let first = blank
     var after = first + 2
     while after < size and text.byte_at(after) == 10 { after += 1 }
     if after >= size and ! done { return Ok({kind: 0, content: "", next: at, terminator: ""}) }
@@ -1969,7 +1969,7 @@ pure scan_record(text: Str, position: Int, separator: Str, done: Bool, ignore_ca
       return Ok({kind: 0, content: "", next: position, terminator: ""}) unless done
       return Ok({kind: 1, content: text.byte_slice(position), next: size, terminator: ""})
     }
-    let at = found ?? 0
+    let at = found
     return Ok({kind: 1, content: text.byte_slice(position, length: at - position), next: at + separator.byte_len(), terminator: separator})
   }
   let rest = text.byte_slice(position)
@@ -2058,7 +2058,7 @@ pure string_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[
   for at in range(keys.len()) {
     var grow = false
     if events == null { grow = (at + 1) / size > 10 } else {
-      let recorded = events ?? []
+      let recorded = events
       if pointer < recorded.len() and recorded[pointer] <= seqs[at] { grow = true; pointer += 1 }
     }
     if grow {
@@ -2089,7 +2089,7 @@ pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List
   for at in range(keys.len()) {
     var grow = false
     if events == null { grow = (at + 1) / size > 10 } else {
-      let recorded = events ?? []
+      let recorded = events
       if pointer < recorded.len() and recorded[pointer] <= seqs[at] { grow = true; pointer += 1 }
     }
     if grow {
@@ -2431,18 +2431,18 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
     CommandInput(command, target) => {
       let source = compile_expression(x, names, command)?
       return Ok(source + [OpGetlineCommand(SpotRecord)]) when target == null
-      let place = compile_place(x, names, target ?? 0)?
+      let place = compile_place(x, names, target)?
       Ok(source + place.ops + [OpGetlineCommand(place.spot)])
     }
     GetlineMain(target) => {
       return Ok([OpGetlineMain(SpotRecord)]) when target == null
-      let place = compile_place(x, names, target ?? 0)?
+      let place = compile_place(x, names, target)?
       Ok(place.ops + [OpGetlineMain(place.spot)])
     }
     GetlineFile(target, file) => {
       let source = compile_expression(x, names, file)?
       return Ok(source + [OpGetlineFile(SpotRecord)]) when target == null
-      let place = compile_place(x, names, target ?? 0)?
+      let place = compile_place(x, names, target)?
       Ok(source + place.ops + [OpGetlineFile(place.spot)])
     }
     Call(name, args) => compile_call(x, names, name, args)
@@ -2620,7 +2620,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       for child in args { ops += compile_expression(x, names, child)? }
       var redirect = 0
       if target != null {
-        ops += compile_expression(x, names, target ?? 0)?
+        ops += compile_expression(x, names, target)?
         redirect = if mode == ">" { 1 } else if mode == ">>" { 2 } else { 3 }
       }
       Ok(ops + [OpPrint(args.len(), redirect, target != null, formatted_output)])
@@ -2628,7 +2628,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
     If(condition, yes, no) => {
       let then_part = compile_statement(x, s, names, yes)?
       if no == null { return Ok(site + compile_condition(x, names, condition, then_part.len())? + then_part) }
-      let else_part = compile_statement(x, s, names, no ?? 0)?
+      let else_part = compile_statement(x, s, names, no)?
       Ok(site + compile_condition(x, names, condition, then_part.len() + 1)? + then_part + [OpJump(else_part.len())] + else_part)
     }
     While(condition, body) => {
@@ -2647,10 +2647,10 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
     }
     For(initial, condition, step, body) => {
       var init_ops: List[Op] = []
-      if initial != null { init_ops = compile_expression(x, names, initial ?? 0)? + [OpPop] }
+      if initial != null { init_ops = compile_expression(x, names, initial)? + [OpPop] }
       var step_ops: List[Op] = []
       if step != null {
-        match x[step ?? 0] {
+        match x[step] {
           Increment(target, delta, post) => {
             match x[target] {
               Variable(name) => {
@@ -2661,12 +2661,12 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
           }
           _ => {}
         }
-        if step_ops.is_empty() { step_ops = compile_expression(x, names, step ?? 0)? + [OpPop] }
+        if step_ops.is_empty() { step_ops = compile_expression(x, names, step)? + [OpPop] }
       }
       let inner = compile_statement(x, s, names, body)?
       # [condition + jump] [body] [step] [Jump back]
       var gate: List[Op] = []
-      if condition != null { gate = compile_condition(x, names, condition ?? 0, inner.len() + step_ops.len() + 1)? }
+      if condition != null { gate = compile_condition(x, names, condition, inner.len() + step_ops.len() + 1)? }
       let total = gate.len() + inner.len() + step_ops.len() + 1
       let patched = patch_markers(inner, total - gate.len(), inner.len())
       Ok(site + init_ops + gate + patched + step_ops + [OpJump(0 - total)])
@@ -2684,8 +2684,8 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       let slot = slot_of(names, array)
       if keys == null { return Ok(site + [OpDeleteAll(if slot >= 0 { SpotLocal(slot, array) } else { SpotGlobal(array) })]) }
       var ops = site
-      for key in keys ?? [] { ops += compile_expression(x, names, key)? }
-      let count = (keys ?? []).len()
+      for key in keys { ops += compile_expression(x, names, key)? }
+      let count = (keys).len()
       Ok(ops + [OpDelete(if slot >= 0 { SpotIndexLocal(slot, array, count) } else { SpotIndexGlobal(array, count) })])
     }
     Next => Ok(site + [OpNext])
@@ -2694,11 +2694,11 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
     Continue => Ok([OpContinueMarker])
     Exit(child) => {
       return Ok(site + [OpExit(false)]) when child == null
-      Ok(site + compile_expression(x, names, child ?? 0)? + [OpExit(true)])
+      Ok(site + compile_expression(x, names, child)? + [OpExit(true)])
     }
     Return(child) => {
       return Ok(site + [OpReturnEmpty]) when child == null
-      Ok(site + compile_expression(x, names, child ?? 0)? + [OpReturn])
+      Ok(site + compile_expression(x, names, child)? + [OpReturn])
     }
   }
 }
@@ -2720,12 +2720,12 @@ pure link(program: Program) -> Result[Linked] {
     labels += [rule.site]
     let action = compile_statement(x, s, [], rule.action)?
     if rule.pattern == null { rule_ops += [OpSetSite(label)] + action; continue }
-    let cond_ops = compile_expression(x, [], rule.pattern ?? 0)?
+    let cond_ops = compile_expression(x, [], rule.pattern)?
     if rule.end == null {
-      rule_ops += [OpSetSite(label)] + compile_condition(x, [], rule.pattern ?? 0, action.len())? + action
+      rule_ops += [OpSetSite(label)] + compile_condition(x, [], rule.pattern, action.len())? + action
       continue
     }
-    let stop = compile_expression(x, [], rule.end ?? 0)?
+    let stop = compile_expression(x, [], rule.end)?
     let index = range_index
     range_index += 1
     # [RangeActive -> check] [start] [JumpFalse skip] [SetRange true]
@@ -2763,12 +2763,12 @@ pure no_writer() -> Writer { Writer(fd: -1, pending: "", job: null, name: "", co
 pure reason_of(failure: Error) -> Str {
   var text = failure.message
   let cut = text.find(" (os error")
-  if cut != null { text = text.byte_slice(0, length: cut ?? 0) }
+  if cut != null { text = text.byte_slice(0, length: cut) }
   var tail = text
   loop {
     let at = tail.find(": ")
     break when at == null
-    tail = tail.byte_slice((at ?? 0) + 2)
+    tail = tail.byte_slice((at) + 2)
   }
   tail
 }
@@ -2898,7 +2898,7 @@ export pure binding_name(content: Str) -> Bool {
 pure assignment_operand(argument: Str) -> Bool {
   let equals = argument.find("=")
   return false when equals == null
-  binding_name(argument.byte_slice(0, length: equals ?? 0))
+  binding_name(argument.byte_slice(0, length: equals))
 }
 
 
@@ -3409,7 +3409,7 @@ proc make_time(spec: Str, utc: Bool) -> Result[Int] {
       continue when word.is_empty()
       let number = leading_integer(word)
       return Ok(-1) when number == null
-      yield number ?? 0
+      yield number
     }
   }
   return Ok(-1) when parts.len() < 6
@@ -4115,7 +4115,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           stdin_reader = got.stdin
           if got.state.reader.lossy or got.stdin.lossy { lossy = true }
           if got.filename != null {
-            globals["FILENAME"] = String(got.filename ?? "")
+            globals["FILENAME"] = String(got.filename)
             globals["ARGIND"] = Numeric(got.argind.float())
             globals["FNR"] = Numeric(0.0)
           }
@@ -4137,7 +4137,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             globals["FNR"] = Numeric(number(globals.get("FNR") ?? Empty)? + 1.0)
             globals["RT"] = String(got.terminator)
             pending = 6
-            pending_value = String(got.record ?? "")
+            pending_value = String(got.record)
           }
         }
         OpNext => {
@@ -4251,7 +4251,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           stdin_reader = got.stdin
           if got.state.reader.lossy or got.stdin.lossy { lossy = true }
           if got.filename != null {
-            globals["FILENAME"] = String(got.filename ?? "")
+            globals["FILENAME"] = String(got.filename)
             globals["ARGIND"] = Numeric(got.argind.float())
             globals["FNR"] = Numeric(0.0)
           }
@@ -4276,7 +4276,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             pending_name = target.name
             pending_slot = target.slot
             pending_key = target.key
-            pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
+            pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
             result = Numeric(1.0)
           }
           produced = true
@@ -4315,7 +4315,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                   pending_name = target.name
                   pending_slot = target.slot
                   pending_key = target.key
-                  pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
+                  pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
                   result = Numeric(1.0)
                 }
               }
@@ -4347,7 +4347,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 pending_name = target.name
                 pending_slot = target.slot
                 pending_key = target.key
-                pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
+                pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
                 result = Numeric(1.0)
               }
             }
@@ -4383,7 +4383,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var wanted = scalar_text(values[1], conversion)?
             if fold_case(globals) { content = lower_text(content); wanted = lower_text(wanted) }
             let found = content.find(wanted)
-            result = Numeric(if found == null { 0.0 } else { (content.byte_slice(0, length: found ?? 0).count_chars() + 1).float() })
+            result = Numeric(if found == null { 0.0 } else { (content.byte_slice(0, length: found).count_chars() + 1).float() })
           } else if name == "tolower" or name == "toupper" {
             if count != 1 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
             let text = scalar_text(values[0], conversion)?

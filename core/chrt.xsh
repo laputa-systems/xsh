@@ -302,7 +302,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
         return when listed == null
 
-        targets = listed ?? []
+        targets = listed
       }
 
       for target in targets {
@@ -354,7 +354,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    targets = listed ?? []
+    targets = listed
   }
 
   for target in targets {

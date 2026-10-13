@@ -39,7 +39,7 @@ pure parse_counter_fields(words: List[Str]) -> CounterParse {
       let state = if src.decimal_digits(word) { report.RangeFailure } else { report.Malformed }
       return {state: state, fields: []}
     }
-    fields += [parsed ?? 0]
+    fields += [parsed]
   }
 
   {state: report.Observed, fields: fields}
@@ -93,7 +93,7 @@ export pure parse_stat(source: src.SourceRead) -> CpuStat {
       continue
     }
 
-    let cpu_id = id ?? 0
+    let cpu_id = id
     if cpu_id in seen_ids {
       issues += [src.issue(f"cpu.stat.{label}", report.Malformed, "duplicate_cpu_row", null)]
       continue
@@ -168,7 +168,7 @@ export pure parse_loadavg(source: src.SourceRead) -> LoadAverage {
   for word in words |> take(3) {
     let value = decimal_seconds(word)
     return {state: report.Malformed, values: []} when value == null
-    values += [value ?? 0.0]
+    values += [value]
   }
   {state: report.Observed, values: values}
 }

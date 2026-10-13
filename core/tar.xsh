@@ -600,7 +600,7 @@ proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] -> 
     if opts.archive_path == null {
       gnu.write_bytes(data)
     } else {
-      fp"{opts.archive_path ?? ""}".write(data)
+      fp"{opts.archive_path}".write(data)
     }
     return Ok()
   }
@@ -612,7 +612,7 @@ proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] -> 
       archive.compress(raw, packed, format: opts.compression, overwrite: true)
       gnu.write_bytes(packed.read_bytes()?)
     } else {
-      archive.compress(raw, fp"{opts.archive_path ?? ""}", format: opts.compression, overwrite: true)
+      archive.compress(raw, fp"{opts.archive_path}", format: opts.compression, overwrite: true)
     }
   }
   Ok()

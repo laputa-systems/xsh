@@ -197,7 +197,7 @@ proc parse_header(settings: Settings, line: Str) [io, error] -> Settings {
     }
     return settings
   }
-  let at = colon ?? 0
+  let at = colon
   let name = line.byte_slice(0, at).trim()
   let value = line.byte_slice(at + 1).trim()
   {...settings, headers: settings.headers.extend([{name: name, value: if value == "" { REMOVE_MARK } else { value }}])}
@@ -234,15 +234,15 @@ proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error
 proc urlencoded_part(value: Str) [io, fs, error] -> Bytes {
   let equals = value.find("=")
   let at = value.find("@")
-  if equals != null and (at == null or (equals ?? 0) < (at ?? 0)) {
-    let name = value.byte_slice(0, equals ?? 0)
-    let content = bytes.from_text(value.byte_slice((equals ?? 0) + 1))
+  if equals != null and (at == null or (equals) < (at)) {
+    let name = value.byte_slice(0, equals)
+    let content = bytes.from_text(value.byte_slice((equals) + 1))
     let encoded = http_transfer.percent_encode(content, true)
     return bytes.from_text(if name == "" { encoded } else { f"{name}={encoded}" })
   }
   if at != null {
-    let name = value.byte_slice(0, at ?? 0)
-    let content = data_part("--data-urlencode", value.byte_slice(at ?? 0), false, true)
+    let name = value.byte_slice(0, at)
+    let content = data_part("--data-urlencode", value.byte_slice(at), false, true)
     let encoded = http_transfer.percent_encode(content, true)
     return bytes.from_text(if name == "" { encoded } else { f"{name}={encoded}" })
   }
@@ -798,7 +798,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
   if scheme == null {
     url = f"http://{url}"
   } else if scheme not in ["http", "https"] {
-    show_error(settings, 1, f"Protocol \"{scheme ?? ""}\" not supported")
+    show_error(settings, 1, f"Protocol \"{scheme}\" not supported")
     return 1
   }
   if !settings.globoff and (url.find("[") != null or url.find("{") != null) {
@@ -896,7 +896,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     }
     let result = attempt(settings, request, dest, resume_from, method, jar, reply_needs_buffer)
     return result.code when result.again == null or left == 0
-    let reason = result.again ?? ""
+    let reason = result.again
     let eligible = reason in ["HTTP error", "timeout"] or (reason == "connection refused" and settings.retry_connrefused) or settings.retry_all_errors
     return result.code unless eligible
     warn(settings, f"Problem : {reason}. Retrying in {plural(wait_ms / 1000, "second", "seconds")}. {plural(left, "retry", "retries")} left.")
@@ -941,7 +941,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
   if meter { emit(f"{METER_HEADER}\r{meter_line(0, 0, 0, 0)}", settings.stderr_to_stdout) }
 
   let streamed = dest != null and !buffered
-  let result = if streamed { http_transfer.fetch_to(request, dest ?? p"") } else { http_transfer.fetch(request) }
+  let result = if streamed { http_transfer.fetch_to(request, dest) } else { http_transfer.fetch(request) }
   let elapsed = time.now() - started
 
   match result {

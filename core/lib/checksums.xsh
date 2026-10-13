@@ -181,7 +181,7 @@ pure unescape(name: Str) -> Str? {
     let tail = name.byte_slice(at)
     let slash = tail.find("\\")
     return result + tail when slash == null
-    let distance = slash ?? 0
+    let distance = slash
     result += tail.byte_slice(0, length: distance)
     at += distance + 1
     return null when at >= name.byte_len()
@@ -198,7 +198,7 @@ pure last_separator(line: Str) -> Separator? {
   while offset < line.byte_len() {
     let next = line.byte_slice(offset).find(")")
     break when next == null
-    let close = offset + (next ?? 0)
+    let close = offset + (next)
     var after = close + 1
     while after < line.byte_len() and line.byte_slice(after, length: 1) == " " { after += 1 }
     if after < line.byte_len() and line.byte_slice(after, length: 1) == "=" {
@@ -228,7 +228,7 @@ pure last_byte_separator(line: Bytes) -> Separator? {
   while offset < line.len() {
     let next = byte_index(line, 41, offset)
     break when next == null
-    let close = next ?? 0
+    let close = next
     var after = close + 1
     while after < line.len() and line.byte_at(after) == 32 { after += 1 }
     if after < line.len() and line.byte_at(after) == 61 {
@@ -432,7 +432,7 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
       Err(_) => null
     }
     return null when parsed == null
-    let item = parsed ?? {digest: "", base64: false, path: b"", alternate_path: null, algorithm: "", length: 0}
+    let item = parsed
     return {...item, path: content[open + 1..separator.close], alternate_path: null}
   }
 
@@ -448,7 +448,7 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
     Err(_) => null
   }
   return null when parsed == null
-  let item = parsed ?? {digest: "", base64: false, path: b"", alternate_path: null, algorithm: "", length: 0}
+  let item = parsed
   let alternate: Bytes? = if !alternate_format and marker == 32 and content.byte_at(name_start) != 42 { content[separator + 1..] } else if !alternate_format and marker == 42 { content[separator + 2..] } else { null }
   {...item, path: content[name_start..], alternate_path: alternate}
 }

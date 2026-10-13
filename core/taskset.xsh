@@ -127,7 +127,7 @@ pure parse_mask(text: Str) -> List[Int]? {
 
       return null when digit == null
 
-      let value = digit ?? 0
+      let value = digit
 
       for bit in range(4) {
         let weight = [1, 2, 4, 8][bit]
@@ -341,7 +341,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    requested = wanted ?? []
+    requested = wanted
   }
 
   if ! opts.pid {
@@ -383,7 +383,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     # A process without a task directory has nothing to report or change.
     return when listed == null
 
-    targets = listed ?? []
+    targets = listed
   }
 
   for target in targets {

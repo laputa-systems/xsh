@@ -147,7 +147,7 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
         let suffix = decode(data[position..], kind, ignore)?
         return Ok({data: bytes.concat([prefix.data, suffix.data]), valid: suffix.valid})
       }
-      yield value ?? 0
+      yield value
     }
   }
   var out = []

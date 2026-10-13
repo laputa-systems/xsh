@@ -191,7 +191,7 @@ export pure entry_number(family: Family, name: Str) -> EntryName? {
   let number = parse_hex(digits)
   return null when number == null or ! HEX_DIGITS.matches(digits)
 
-  {number: number ?? 0, lower: digits != digits.upper()}
+  {number: number, lower: digits != digits.upper()}
 }
 
 ## `Boot0001`-style name of an entry number.
@@ -209,7 +209,7 @@ export proc entry_names(store: Store, family: Family) [fs, error] -> Result[List
       let decoded = entry_number(family, name)
       continue when decoded == null
 
-      let item = decoded ?? {number: 0, lower: false}
+      let item = decoded
       yield {number: item.number, name: name, lower: item.lower}
     }
   }

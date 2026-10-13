@@ -45,7 +45,7 @@ type StatmParse = {rss_bytes: Int?, issues: List[src.Issue]}
 
 pure page_bytes(pages: Int?, page_size_bytes: Int) -> Int? {
   return null when pages == null or (pages ?? -1) < 0 or page_size_bytes <= 0
-  let count = pages ?? 0
+  let count = pages
   return null when count > 9223372036854775807 / page_size_bytes
   count * page_size_bytes
 }
@@ -88,7 +88,7 @@ pure stat_matches_process(source: src.SourceRead, process_row: Process) -> Bool 
   if source.observation.state != .Observed or source.observation.value == null {
     return false
   }
-  if let Ok(stat) = live.parse_proc_stat_for_monitor(source.observation.value ?? "") {
+  if let Ok(stat) = live.parse_proc_stat_for_monitor(source.observation.value) {
     return stat.pid == process_row.pid and stat.start_ticks == process_row.start_ticks
   }
   false
@@ -107,7 +107,7 @@ export proc collect_local_display(root: FsRoot, process_rows: List[Process]) [fs
       var command_line = null
       if stat_matches_process(before, row) and stat_matches_process(after, row) and
           command.state == "observed" and command.data != null {
-        let text = display_bytes(command.data ?? b"")
+        let text = display_bytes(command.data)
         if text != "" {
           command_line = if command.truncated { f"{text} …" } else { text }
         }
@@ -115,7 +115,7 @@ export proc collect_local_display(root: FsRoot, process_rows: List[Process]) [fs
       let user_name = if row.uid == null {
         "?"
       } else {
-        let uid = row.uid ?? 0
+        let uid = row.uid
         if let Ok(name) = user_names.get(uid) {
           name
         } else {
@@ -192,7 +192,7 @@ pure parse_statm(source: src.SourceRead, page_size_bytes: Int, pid: Int) -> Stat
         let state = if src.decimal_digits(field) { report.RangeFailure } else { report.Malformed }
         return {rss_bytes: null, issues: [src.issue(f"processes.{pid}.statm", state, "invalid_statm_page_count", null)]}
       }
-      yield value ?? 0
+      yield value
     }
   }
   let resident = page_bytes(parsed[1], page_size_bytes)
@@ -302,11 +302,11 @@ export proc collect(root: FsRoot, page_size_bytes: Int) [fs, error] -> ProcessSo
     let name = directory.name()
     continue when ! src.decimal_digits(name)
     let parsed_pid = src.parse_integer(name)
-    if parsed_pid == null or (parsed_pid ?? 0) <= 0 {
+    if parsed_pid == null or (parsed_pid) <= 0 {
       issues += [src.issue(f"processes.{name}.pid", report.RangeFailure, "invalid_pid", null)]
       continue
     }
-    let pid = parsed_pid ?? 0
+    let pid = parsed_pid
     let row = process_read(root, directory, pid, page_size_bytes)
     issues = issues.extend(row.issues)
     if let process_row = row.process {

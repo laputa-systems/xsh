@@ -98,7 +98,7 @@ pure state_text(state: report.ObservationState) -> Str {
 
 pure rate_text(value: rates.Rate) -> Str {
   if value.state == .Observed and value.value != null {
-    return f"{(value.value ?? 0.0).format(precision: 1)}%"
+    return f"{(value.value).format(precision: 1)}%"
   }
 
   match value.state {
@@ -112,7 +112,7 @@ pure rate_text(value: rates.Rate) -> Str {
 
 pure byte_rate_text(value: rates.Rate) -> Str {
   if value.state == .Observed and value.value != null {
-    let amount = value.value ?? 0.0
+    let amount = value.value
     return f"{(amount / 1048576.0).format(precision: 2)} MiB/s" when amount >= 1048576.0
     return f"{(amount / 1024.0).format(precision: 2)} KiB/s" when amount >= 1024.0
     return f"{amount.format(precision: 2)} B/s"
@@ -129,7 +129,7 @@ pure byte_rate_text(value: rates.Rate) -> Str {
 
 pure bytes_text(value: Int?) -> Str {
   return "unavailable" when value == null
-  let amount = value ?? 0
+  let amount = value
   if amount >= 1073741824 {
     return f"{(amount.float() / 1073741824.0).format(precision: 2)} GiB"
   }
@@ -156,7 +156,7 @@ pure counter_text(value: rates.ByteValue) -> Str {
 
 pure uptime_text(value: syscpu.Uptime) -> Str {
   return state_text(value.state) when value.seconds == null
-  f"{(value.seconds ?? 0.0).format(precision: 1)} s"
+  f"{(value.seconds).format(precision: 1)} s"
 }
 
 pure load_text(value: syscpu.LoadAverage) -> Str {
@@ -168,7 +168,7 @@ pure load_text(value: syscpu.LoadAverage) -> Str {
 
 pure temperature_text(value: sensors.CpuTemperature) -> Str {
   return f"Temperature {state_text(value.state)}" when value.package_millidegrees == null
-  let display = sensors.temperature_display(value.package_millidegrees ?? 0, "celsius")
+  let display = sensors.temperature_display(value.package_millidegrees, "celsius")
   if let temperature = display {
     f"Temperature {temperature.value}{temperature.unit}"
   } else {
@@ -192,7 +192,7 @@ pure core_temperature_text(value: sensors.CpuTemperature) -> Str {
 pure frequency_text(value: sensors.CpuFrequency) -> Str {
   return f"Frequency {state_text(value.state)}" when value.state != .Observed
   if value.minimum_mhz != null and value.maximum_mhz != null {
-    return f"Frequency {sensors.format_frequency_mhz(value.minimum_mhz ?? 0.0)} - {sensors.format_frequency_mhz(value.maximum_mhz ?? 0.0)}"
+    return f"Frequency {sensors.format_frequency_mhz(value.minimum_mhz)} - {sensors.format_frequency_mhz(value.maximum_mhz)}"
   }
   if let mhz = value.value_mhz {
     return f"Frequency {sensors.format_frequency_mhz(mhz)}"
@@ -202,8 +202,8 @@ pure frequency_text(value: sensors.CpuFrequency) -> Str {
 
 pure battery_text(value: sensors.Battery) -> Str {
   return f"Battery {state_text(value.state)}" when value.state != .Observed
-  let percent = if value.capacity_percent == null { "?" } else { f"{value.capacity_percent ?? 0}%" }
-  let power = if value.power_watts == null { "" } else { f" {(value.power_watts ?? 0.0).format(precision: 2)} W" }
+  let percent = if value.capacity_percent == null { "?" } else { f"{value.capacity_percent}%" }
+  let power = if value.power_watts == null { "" } else { f" {(value.power_watts).format(precision: 2)} W" }
   f"Battery {value.name ?? "?"} {percent} {value.status ?? "unknown"}{power}"
 }
 
@@ -219,7 +219,7 @@ pure process_text(
   } else if row.uid == null {
     "?"
   } else {
-    f"{row.uid ?? 0}"
+    f"{row.uid}"
   }
   let user_label = if row.uid_state == .Stale { f"~{account}" } else { account }
   let command = if let display = ui.local_display(row, local_display) {
@@ -238,8 +238,8 @@ pure process_text(
   let rss_bytes = if state.aggregate_children { entry.rss_total_bytes } else { row.rss_bytes }
   let rss = if state.process_memory_bytes {
     bytes_text(rss_bytes)
-  } else if rss_bytes != null and value.memory.total_bytes != null and (value.memory.total_bytes ?? 0) > 0 {
-    f"{((rss_bytes ?? 0).float() * 100.0 / (value.memory.total_bytes ?? 1).float()).format(precision: 1)}%"
+  } else if rss_bytes != null and value.memory.total_bytes != null and (value.memory.total_bytes) > 0 {
+    f"{((rss_bytes).float() * 100.0 / (value.memory.total_bytes).float()).format(precision: 1)}%"
   } else {
     "unavailable"
   }
@@ -257,8 +257,8 @@ pure process_text(
 }
 
 pure memory_percent_text(value: model.Model) -> Str {
-  if value.memory.total_bytes != null and (value.memory.total_bytes ?? 0) > 0 and value.memory.used_bytes.value != null {
-    let percent = (value.memory.used_bytes.value ?? 0).float() * 100.0 / (value.memory.total_bytes ?? 1).float()
+  if value.memory.total_bytes != null and (value.memory.total_bytes) > 0 and value.memory.used_bytes.value != null {
+    let percent = (value.memory.used_bytes.value).float() * 100.0 / (value.memory.total_bytes).float()
     return f"{percent.format(precision: 1)}%"
   }
   match value.memory.used_bytes.state {
@@ -474,16 +474,16 @@ pure network_graph_maximum(history: graph.History) -> Float {
 
 pure compact_bytes(value: Int?) -> Str {
   return "?" when value == null
-  let amount = (value ?? 0).float()
+  let amount = (value).float()
   return f"{(amount / 1073741824.0).format(precision: 0)}G" when amount >= 1073741824.0
   return f"{(amount / 1048576.0).format(precision: 0)}M" when amount >= 1048576.0
   return f"{(amount / 1024.0).format(precision: 0)}K" when amount >= 1024.0
-  f"{value ?? 0}B"
+  f"{value}B"
 }
 
 pure compact_rate(value: rates.Rate) -> Str {
   if value.state == .Observed and value.value != null {
-    let amount = value.value ?? 0.0
+    let amount = value.value
     return f"{(amount / 1073741824.0).format(precision: 0)}G/s" when amount >= 1073741824.0
     return f"{(amount / 1048576.0).format(precision: 0)}M/s" when amount >= 1048576.0
     return f"{(amount / 1024.0).format(precision: 0)}K/s" when amount >= 1024.0
