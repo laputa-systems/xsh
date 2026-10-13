@@ -128,3 +128,23 @@ print ${raw ?? "missing"}
  ready 
 """
 }
+
+test guarded_expression_break_analysis_preserves_valid_loop_execution { |ctx|
+  let source = r"""pure identity(value: Int) -> Int { value }
+pure choose() -> Int {
+  while true {
+    return identity(if false { break } else { 17 })
+  }
+}
+print ${choose()}
+"""
+  let file = test.temp_file(ctx, name: "guarded-expression-flow.xsh", contents: bytes.from_text(source))?
+  let checked = run.capture --text "xsht" check $file
+  let {status: checked_status, stderr: checked_diagnostics, ..} = checked
+  assert checked_status.exited_with(0), checked_diagnostics
+  let result = test.run_script(ctx, source)?
+  let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
+  assert succeeded, diagnostics
+  assert output == """17
+"""
+}

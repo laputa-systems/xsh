@@ -382,6 +382,7 @@ pub use resource::{ResourceTransferFacts, ResourceTransferSite};
 mod set;
 #[path = "check/stmt.rs"]
 mod stmt;
+pub(crate) use stmt::block_never_falls_through_arena;
 #[path = "check/stream.rs"]
 mod stream;
 #[path = "check/typed_callable.rs"]

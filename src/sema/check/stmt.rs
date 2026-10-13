@@ -10,9 +10,9 @@ use super::{
 use super::{Binding, TypeDefBody, tail_type_matches_expected};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef,
-    ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar, AssignTargetId,
-    BindingTargetId, BlockId, ExprId, StmtId, TypeExprId,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun,
+    ArenaFunctionDef, ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar,
+    AssignTargetId, BindingTargetId, BlockId, ExprId, StmtId, TypeExprId,
 };
 use crate::syntax::node::AssignOp;
 use rustc_hash::FxHashMap;
@@ -33,412 +33,365 @@ fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     )
 }
 
-/// Proves that a block cannot fall through; a loop without a reachable break
-/// also satisfies this because it never completes normally.
+/// Proves that a block has no reachable normal completion.
 #[allow(dead_code)]
-pub(super) fn block_always_returns_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
-    let block = arena.arena.block(block_id);
-    arena
-        .arena
-        .stmt_ids(block.statements)
-        .any(|id| stmt_always_returns_arena(arena, id))
+pub(crate) fn block_never_falls_through_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
+    !block_control_flow(arena, block_id).completes
 }
 
-#[allow(dead_code)]
-pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> bool {
-    match arena.arena.stmt(id).kind {
-        ArenaStmtKind::Sugar { expansion, .. } => stmt_always_returns_arena(arena, expansion),
-        ArenaStmtKind::Return(_) => true,
-        ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
-            ArenaExprKind::ErrorContext { block, .. } => block_always_returns_arena(arena, block),
-            ArenaExprKind::Loop { block } => {
-                !block_has_reachable_break_target_arena(arena, block)
-            }
-            ArenaExprKind::Null
-            | ArenaExprKind::Bool(_)
-            | ArenaExprKind::Int(_)
-            | ArenaExprKind::Float(_)
-            | ArenaExprKind::Duration(_)
-            | ArenaExprKind::Str(_)
-            | ArenaExprKind::PathStr(_)
-            | ArenaExprKind::GlobStr(_)
-            | ArenaExprKind::FmtString(_)
-            | ArenaExprKind::PathFmtString(_)
-            | ArenaExprKind::Bytes(_)
-            | ArenaExprKind::Regex(_)
-            | ArenaExprKind::Ident(_)
-            | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
-            | ArenaExprKind::List(_)
-            | ArenaExprKind::ListComp { .. }
-            | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
-            | ArenaExprKind::Record(_)
-            | ArenaExprKind::If { .. }
-            | ArenaExprKind::Match { .. }
-            | ArenaExprKind::PatternTest { .. }
-            | ArenaExprKind::PatternCondition { .. }
-            | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
-            | ArenaExprKind::Binary { .. }
-            | ArenaExprKind::Call { .. }
-            | ArenaExprKind::ValuePipelineCall { .. }
-            | ArenaExprKind::Field { .. }
-            | ArenaExprKind::NullSafeField { .. }
-            | ArenaExprKind::Index { .. }
-            | ArenaExprKind::Slice { .. }
-            | ArenaExprKind::EnvString(_)
-            | ArenaExprKind::EnvPathList
-            | ArenaExprKind::Pipeline { .. }
-            | ArenaExprKind::StructuredPipeline { .. }
-            | ArenaExprKind::Run(_)
-            | ArenaExprKind::Spawn(_)
-            | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
-            | ArenaExprKind::Try(_)
-            | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
-            | ArenaExprKind::Convert { .. }
-            | ArenaExprKind::Collect { .. }
-            | ArenaExprKind::Retry { .. }
-            | ArenaExprKind::ValueBlock(_)
-            | ArenaExprKind::ContextScope { .. }
-            | ArenaExprKind::TempDirScope { .. }
-            | ArenaExprKind::ResourceScope { .. } => false,
-        },
+#[derive(Clone, Copy, Debug, Default)]
+struct ControlFlow {
+    breaks_target: bool,
+    completes: bool,
+}
 
-        ArenaStmtKind::If {
-            branches,
-            else_block: Some(else_block),
-        } => {
-            arena
-                .arena
-                .if_branches(branches)
-                .iter()
-                // A branch whose condition is the literal `false` never runs.
-                .filter(|branch| {
-                    !matches!(
-                        arena.arena.expr(branch.condition).kind,
-                        ArenaExprKind::Bool(false)
-                    )
-                })
-                .all(|branch| block_always_returns_arena(arena, branch.block))
-                && block_always_returns_arena(arena, else_block)
+impl ControlFlow {
+    const NONE: Self = Self {
+        breaks_target: false,
+        completes: false,
+    };
+    const NORMAL: Self = Self {
+        breaks_target: false,
+        completes: true,
+    };
+
+    fn then(self, next: Self) -> Self {
+        Self {
+            breaks_target: self.breaks_target || (self.completes && next.breaks_target),
+            completes: self.completes && next.completes,
         }
-        ArenaStmtKind::Match { arms, .. } => arena
-            .arena
-            .match_arms(arms)
-            .iter()
-            .all(|arm| block_always_returns_arena(arena, arm.block)),
-        ArenaStmtKind::With {
-            body, else_block, ..
-        } => {
-            block_always_returns_arena(arena, body) && block_always_returns_arena(arena, else_block)
+    }
+
+    fn either(self, other: Self) -> Self {
+        Self {
+            breaks_target: self.breaks_target || other.breaks_target,
+            completes: self.completes || other.completes,
         }
-        ArenaStmtKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
-        ArenaStmtKind::While { condition, block }
-            if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(true)) =>
-        {
-            !block_has_reachable_break_target_arena(arena, block)
-        }
-        ArenaStmtKind::Use(_)
-        | ArenaStmtKind::Export(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::Const { .. }
-        | ArenaStmtKind::Let { .. }
-        | ArenaStmtKind::Var { .. }
-        | ArenaStmtKind::Assign { .. }
-        | ArenaStmtKind::ProcDef(_)
-        | ArenaStmtKind::CliMain(_)
-        | ArenaStmtKind::PureDef(_)
-        | ArenaStmtKind::StreamDef(_)
-        | ArenaStmtKind::SignalHook(_)
-        | ArenaStmtKind::If {
-            else_block: None, ..
-        }
-        | ArenaStmtKind::While { .. }
-        | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::Guard { .. }
-        | ArenaStmtKind::Yield(_)
-        | ArenaStmtKind::YieldDelegate(_)
-        | ArenaStmtKind::Defer(..)
-        | ArenaStmtKind::Assert { .. }
-        | ArenaStmtKind::Break { .. }
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::Exit(_)
-        | ArenaStmtKind::Command(_)
-        | ArenaStmtKind::TailBareIdent(_) => false,
     }
 }
 
-/// Only breaks that this loop can receive make its body fall through. Nested
-/// loops consume their own breaks, while deferred bodies run after control
-/// leaves their scope and cannot provide an exit path for the loop body.
-fn block_has_reachable_break_target_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
+/// Summarizes reachable exits for the loop currently being checked. Sequence
+/// flow prunes unreachable expressions, while nested loops consume their own
+/// breaks and deferred actions stay outside the current execution path.
+fn block_control_flow(arena: &ArenaProgram, block_id: BlockId) -> ControlFlow {
+    let mut flow = ControlFlow::NORMAL;
     for id in arena.arena.stmt_ids(arena.arena.block(block_id).statements) {
-        if stmt_has_reachable_break_target_arena(arena, id) {
-            return true;
+        if !flow.completes {
+            break;
         }
-        if stmt_never_falls_through_arena(arena, id) {
-            return false;
-        }
+        flow = flow.then(stmt_control_flow(arena, id));
     }
-    false
+    flow
 }
 
-fn block_never_falls_through_arena(arena: &ArenaProgram, block: BlockId) -> bool {
-    arena
-        .arena
-        .stmt_ids(arena.arena.block(block).statements)
-        .any(|id| stmt_never_falls_through_arena(arena, id))
-}
-
-fn stmt_never_falls_through_arena(arena: &ArenaProgram, id: StmtId) -> bool {
+fn stmt_control_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
     match arena.arena.stmt(id).kind {
-        ArenaStmtKind::Return(_)
-        | ArenaStmtKind::Break { .. }
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::Exit(_) => true,
-        ArenaStmtKind::Sugar { expansion, .. } => {
-            stmt_never_falls_through_arena(arena, expansion)
+        ArenaStmtKind::Sugar { expansion, .. } => stmt_control_flow(arena, expansion),
+        ArenaStmtKind::Return(_) | ArenaStmtKind::Exit(_) => {
+            stmt_children_flow(arena, id).then(ControlFlow {
+                breaks_target: false,
+                completes: false,
+            })
         }
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            for branch in arena.arena.if_branches(branches) {
-                let condition = arena.arena.expr(branch.condition).kind;
-                if matches!(condition, ArenaExprKind::Bool(false)) {
-                    continue;
-                }
-                if !block_never_falls_through_arena(arena, branch.block) {
-                    return false;
-                }
-                if matches!(condition, ArenaExprKind::Bool(true)) {
-                    return true;
-                }
+        ArenaStmtKind::Break { .. } => {
+            let value = stmt_children_flow(arena, id);
+            ControlFlow {
+                breaks_target: value.breaks_target || value.completes,
+                completes: false,
             }
-            else_block.is_some_and(|block| block_never_falls_through_arena(arena, block))
         }
-        ArenaStmtKind::Match { arms, .. } => arena
-            .arena
-            .match_arms(arms)
-            .iter()
-            .all(|arm| block_never_falls_through_arena(arena, arm.block)),
-        ArenaStmtKind::With {
-            body, else_block, ..
-        } => {
-            block_never_falls_through_arena(arena, body)
-                && block_never_falls_through_arena(arena, else_block)
-        }
-        ArenaStmtKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
-        ArenaStmtKind::While { condition, block }
-            if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(true)) =>
-        {
-            !block_has_reachable_break_target_arena(arena, block)
-        }
-        ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
-            ArenaExprKind::Loop { block } => {
-                !block_has_reachable_break_target_arena(arena, block)
-            }
-            _ => false,
+        ArenaStmtKind::Continue => ControlFlow {
+            breaks_target: false,
+            completes: false,
         },
-        ArenaStmtKind::Use(_)
-        | ArenaStmtKind::Export(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::Const { .. }
-        | ArenaStmtKind::Let { .. }
-        | ArenaStmtKind::Var { .. }
-        | ArenaStmtKind::Assign { .. }
-        | ArenaStmtKind::ProcDef(_)
-        | ArenaStmtKind::CliMain(_)
-        | ArenaStmtKind::PureDef(_)
-        | ArenaStmtKind::StreamDef(_)
-        | ArenaStmtKind::SignalHook(_)
-        | ArenaStmtKind::While { .. }
-        | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::Guard { .. }
-        | ArenaStmtKind::Yield(_)
-        | ArenaStmtKind::YieldDelegate(_)
-        | ArenaStmtKind::Defer(..)
-        | ArenaStmtKind::Assert { .. }
-        | ArenaStmtKind::Command(_)
-        | ArenaStmtKind::TailBareIdent(_) => false,
-    }
-}
-
-fn stmt_has_reachable_break_target_arena(arena: &ArenaProgram, id: StmtId) -> bool {
-    match arena.arena.stmt(id).kind {
-        ArenaStmtKind::Break { .. } => true,
-        ArenaStmtKind::Sugar { expansion, .. } => {
-            stmt_has_reachable_break_target_arena(arena, expansion)
-        }
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            let mut has_break = false;
+        ArenaStmtKind::Defer(..) => ControlFlow::NORMAL,
+        ArenaStmtKind::If { branches, else_block } => {
+            let fallback = else_block.map_or(ControlFlow::NORMAL, |block| {
+                block_control_flow(arena, block)
+            });
+            let mut remaining = ControlFlow::NORMAL;
+            let mut outcomes = ControlFlow::NONE;
             for branch in arena.arena.if_branches(branches) {
-                let condition = arena.arena.expr(branch.condition).kind;
-                if matches!(condition, ArenaExprKind::Bool(false)) {
-                    continue;
+                if !remaining.completes {
+                    break;
                 }
-                has_break |= block_has_reachable_break_target_arena(arena, branch.block);
-                if matches!(condition, ArenaExprKind::Bool(true)) {
-                    return has_break;
+                let condition = expr_control_flow(arena, branch.condition);
+                let evaluated = remaining.then(condition);
+                let literal = bool_literal(arena, branch.condition);
+                match literal {
+                    Some(false) => remaining = evaluated,
+                    Some(true) => {
+                        outcomes = outcomes
+                            .either(evaluated.then(block_control_flow(arena, branch.block)));
+                        remaining = ControlFlow::NONE;
+                        break;
+                    }
+                    None => {
+                        outcomes = outcomes
+                            .either(evaluated.then(block_control_flow(arena, branch.block)));
+                        remaining = evaluated;
+                    }
                 }
             }
-            has_break
-                || else_block.is_some_and(|block| {
-                    block_has_reachable_break_target_arena(arena, block)
-                })
+            outcomes.either(remaining.then(fallback))
         }
-        ArenaStmtKind::Match { arms, .. } => arena
-            .arena
-            .match_arms(arms)
-            .iter()
-            .any(|arm| block_has_reachable_break_target_arena(arena, arm.block)),
-        ArenaStmtKind::With {
-            body, else_block, ..
-        } => {
-            block_has_reachable_break_target_arena(arena, body)
-                || block_has_reachable_break_target_arena(arena, else_block)
+        ArenaStmtKind::Match { value, arms } => {
+            let subject = expr_control_flow(arena, value);
+            let mut arms_flow = ControlFlow::NONE;
+            for arm in arena.arena.match_arms(arms) {
+                if arm
+                    .guard
+                    .is_some_and(|guard| bool_literal(arena, guard) == Some(false))
+                {
+                    continue;
+                }
+                let guard = arm
+                    .guard
+                    .map_or(ControlFlow::NORMAL, |guard| expr_control_flow(arena, guard));
+                arms_flow = arms_flow.either(guard.then(block_control_flow(arena, arm.block)));
+            }
+            subject.then(arms_flow)
+        }
+        ArenaStmtKind::With { body, else_block, .. } => {
+            let inputs = stmt_expression_children_flow(arena, id);
+            inputs.then(
+                block_control_flow(arena, body).either(block_control_flow(arena, else_block)),
+            )
         }
         ArenaStmtKind::Guard { else_block, .. } => {
-            block_has_reachable_break_target_arena(arena, else_block)
+            let inputs = stmt_expression_children_flow(arena, id);
+            inputs.then(ControlFlow::NORMAL.either(block_control_flow(arena, else_block)))
         }
-        ArenaStmtKind::Expr(expr) => expr_has_reachable_break_target_arena(arena, expr),
-        ArenaStmtKind::Let {
-            initializer: ArenaExprOrRun::Expr(expr),
-            ..
+        ArenaStmtKind::Assert { condition, message } => {
+            let condition_flow = expr_control_flow(arena, condition);
+            let condition_literal = bool_literal(arena, condition);
+            let success = if condition_literal == Some(false) {
+                ControlFlow::NONE
+            } else {
+                ControlFlow::NORMAL
+            };
+            let failure = if condition_literal == Some(true) {
+                ControlFlow::NONE
+            } else {
+                message
+                    .map_or(ControlFlow::NORMAL, |message| expr_control_flow(arena, message))
+                    .then(ControlFlow {
+                        breaks_target: false,
+                        completes: false,
+                    })
+            };
+            condition_flow.then(success.either(failure))
         }
-        | ArenaStmtKind::Var {
-            initializer: ArenaExprOrRun::Expr(expr),
-            ..
+        ArenaStmtKind::Loop { block } => {
+            let body = block_control_flow(arena, block);
+            ControlFlow {
+                breaks_target: false,
+                completes: body.breaks_target,
+            }
         }
-        | ArenaStmtKind::Assign {
-            value: ArenaExprOrRun::Expr(expr),
-            ..
-        } => expr_has_reachable_break_target_arena(arena, expr),
-        ArenaStmtKind::Loop { .. }
-        | ArenaStmtKind::While { .. }
-        | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::Defer(..)
-        | ArenaStmtKind::Use(_)
-        | ArenaStmtKind::Export(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::Const { .. }
-        | ArenaStmtKind::Let {
-            initializer: ArenaExprOrRun::Run(_),
-            ..
+        ArenaStmtKind::While { condition, block } => {
+            let condition_flow = expr_control_flow(arena, condition);
+            let body = block_control_flow(arena, block);
+            let can_skip = bool_literal(arena, condition) != Some(true);
+            ControlFlow {
+                breaks_target: false,
+                completes: condition_flow.breaks_target
+                    || (condition_flow.completes && (can_skip || body.breaks_target)),
+            }
         }
-        | ArenaStmtKind::Var {
-            initializer: ArenaExprOrRun::Run(_),
-            ..
+        ArenaStmtKind::For { iter, .. } => {
+            let iter = expr_control_flow(arena, iter);
+            ControlFlow {
+                breaks_target: iter.breaks_target,
+                completes: iter.completes,
+            }
         }
-        | ArenaStmtKind::Assign {
-            value: ArenaExprOrRun::Run(_),
-            ..
-        }
-        | ArenaStmtKind::ProcDef(_)
+        ArenaStmtKind::ProcDef(_)
         | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_)
-        | ArenaStmtKind::SignalHook(_)
-        | ArenaStmtKind::Return(_)
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::SignalHook(_) => ControlFlow::NORMAL,
+        ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::Use(_)
+        | ArenaStmtKind::TailBareIdent(_) => ControlFlow::NORMAL,
+        ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::Export(_)
         | ArenaStmtKind::Yield(_)
         | ArenaStmtKind::YieldDelegate(_)
-        | ArenaStmtKind::Assert { .. }
         | ArenaStmtKind::Command(_)
-        | ArenaStmtKind::TailBareIdent(_) => false,
+        | ArenaStmtKind::Expr(_) => stmt_children_flow(arena, id),
     }
 }
 
-fn expr_has_reachable_break_target_arena(arena: &ArenaProgram, id: ExprId) -> bool {
+fn stmt_children_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
+    let mut flow = ControlFlow::NORMAL;
+    arena
+        .arena
+        .for_each_stmt_child(id, crate::syntax::arena::SugarView::Core, |child| {
+            if flow.completes {
+                flow = flow.then(child_control_flow(arena, child));
+            }
+        });
+    flow
+}
+
+fn stmt_expression_children_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
+    let mut flow = ControlFlow::NORMAL;
+    arena
+        .arena
+        .for_each_stmt_child(id, crate::syntax::arena::SugarView::Core, |child| {
+            if flow.completes {
+                if let ArenaChild::Expr(expr) = child {
+                    flow = flow.then(expr_control_flow(arena, expr));
+                }
+            }
+        });
+    flow
+}
+
+fn child_control_flow(arena: &ArenaProgram, child: ArenaChild) -> ControlFlow {
+    match child {
+        ArenaChild::Stmt(stmt) => stmt_control_flow(arena, stmt),
+        ArenaChild::Expr(expr) => expr_control_flow(arena, expr),
+        ArenaChild::Block(block) => block_control_flow(arena, block),
+        ArenaChild::AssignTarget(target) => assign_target_control_flow(arena, target),
+        ArenaChild::BindingTarget(_) | ArenaChild::Pattern(_) | ArenaChild::TypeExpr(_)
+        | ArenaChild::BuilderBlock(_) => ControlFlow::NORMAL,
+    }
+}
+
+fn assign_target_control_flow(
+    arena: &ArenaProgram,
+    id: crate::syntax::arena::AssignTargetId,
+) -> ControlFlow {
+    match arena.arena.assign_target(id).kind {
+        ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => ControlFlow::NORMAL,
+        ArenaAssignTargetKind::Field { base, .. } => assign_target_control_flow(arena, base),
+        ArenaAssignTargetKind::Index { base, index } => {
+            assign_target_control_flow(arena, base).then(expr_control_flow(arena, index))
+        }
+    }
+}
+
+fn bool_literal(arena: &ArenaProgram, expr: ExprId) -> Option<bool> {
+    match arena.arena.expr(expr).kind {
+        ArenaExprKind::Bool(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn expr_if_control_flow(
+    arena: &ArenaProgram,
+    branches: crate::syntax::arena::ArenaRange,
+    fallback: ExprId,
+) -> ControlFlow {
+    let mut remaining = ControlFlow::NORMAL;
+    let mut outcomes = ControlFlow::NONE;
+    for branch in arena.arena.if_expr_branches(branches) {
+        if !remaining.completes {
+            break;
+        }
+        let condition = expr_control_flow(arena, branch.condition);
+        let evaluated = remaining.then(condition);
+        match bool_literal(arena, branch.condition) {
+            Some(false) => remaining = evaluated,
+            Some(true) => {
+                outcomes = outcomes
+                    .either(evaluated.then(expr_control_flow(arena, branch.value)));
+                remaining = ControlFlow::NONE;
+                break;
+            }
+            None => {
+                outcomes = outcomes
+                    .either(evaluated.then(expr_control_flow(arena, branch.value)));
+                remaining = evaluated;
+            }
+        }
+    }
+    outcomes.either(remaining.then(expr_control_flow(arena, fallback)))
+}
+
+fn expr_control_flow(arena: &ArenaProgram, id: ExprId) -> ControlFlow {
     match arena.arena.expr(id).kind {
         ArenaExprKind::If {
             branches,
             else_value,
-        } => {
-            let mut has_break = false;
-            for branch in arena.arena.if_expr_branches(branches) {
-                let condition = arena.arena.expr(branch.condition).kind;
-                if matches!(condition, ArenaExprKind::Bool(false)) {
+        } => expr_if_control_flow(arena, branches, else_value),
+        ArenaExprKind::Match { value, arms } => {
+            let subject = expr_control_flow(arena, value);
+            let mut outcomes = ControlFlow::NONE;
+            for arm in arena.arena.match_expr_arms(arms) {
+                if arm
+                    .guard
+                    .is_some_and(|guard| bool_literal(arena, guard) == Some(false))
+                {
                     continue;
                 }
-                has_break |= expr_has_reachable_break_target_arena(arena, branch.value);
-                if matches!(condition, ArenaExprKind::Bool(true)) {
-                    return has_break;
-                }
+                let guard = arm
+                    .guard
+                    .map_or(ControlFlow::NORMAL, |guard| expr_control_flow(arena, guard));
+                outcomes = outcomes.either(guard.then(expr_control_flow(arena, arm.value)));
             }
-            has_break || expr_has_reachable_break_target_arena(arena, else_value)
+            subject.then(outcomes)
         }
-        ArenaExprKind::Match { arms, .. } => arena
-            .arena
-            .match_expr_arms(arms)
-            .iter()
-            .any(|arm| expr_has_reachable_break_target_arena(arena, arm.value)),
-        ArenaExprKind::Capture(block)
-        | ArenaExprKind::ValueBlock(block)
-        | ArenaExprKind::Collect { block }
-        | ArenaExprKind::ErrorContext { block, .. }
-        | ArenaExprKind::ContextScope { block, .. }
-        | ArenaExprKind::TempDirScope { block, .. }
-        | ArenaExprKind::ResourceScope { block, .. }
-        | ArenaExprKind::Retry { block, .. } => {
-            block_has_reachable_break_target_arena(arena, block)
+        ArenaExprKind::PatternTest { value, arms }
+        | ArenaExprKind::PatternCondition { value, arms } => {
+            let subject = expr_control_flow(arena, value);
+            let mut arm_flow = ControlFlow::NONE;
+            for arm in arena.arena.match_expr_arms(arms) {
+                if arm
+                    .guard
+                    .is_some_and(|guard| bool_literal(arena, guard) == Some(false))
+                {
+                    continue;
+                }
+                let guard = arm
+                    .guard
+                    .map_or(ControlFlow::NORMAL, |guard| expr_control_flow(arena, guard));
+                arm_flow = arm_flow.either(guard.then(expr_control_flow(arena, arm.value)));
+            }
+            let mut flow = subject.then(arm_flow);
+            if subject.completes {
+                flow.completes = true;
+            }
+            flow
         }
-        ArenaExprKind::Try(inner) => expr_has_reachable_break_target_arena(arena, inner),
-        ArenaExprKind::Null
-        | ArenaExprKind::Bool(_)
-        | ArenaExprKind::Int(_)
-        | ArenaExprKind::Float(_)
-        | ArenaExprKind::Duration(_)
-        | ArenaExprKind::Str(_)
-        | ArenaExprKind::PathStr(_)
-        | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::FmtString(_)
-        | ArenaExprKind::PathFmtString(_)
-        | ArenaExprKind::Bytes(_)
-        | ArenaExprKind::Regex(_)
-        | ArenaExprKind::Ident(_)
-        | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
-        | ArenaExprKind::List(_)
-        | ArenaExprKind::ListComp { .. }
-        | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
-        | ArenaExprKind::Record(_)
-        | ArenaExprKind::PatternTest { .. }
-        | ArenaExprKind::PatternCondition { .. }
-        | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
-        | ArenaExprKind::Binary { .. }
-        | ArenaExprKind::Call { .. }
-        | ArenaExprKind::ValuePipelineCall { .. }
-        | ArenaExprKind::Field { .. }
-        | ArenaExprKind::NullSafeField { .. }
-        | ArenaExprKind::Index { .. }
-        | ArenaExprKind::Slice { .. }
-        | ArenaExprKind::EnvString(_)
-        | ArenaExprKind::EnvPathList
-        | ArenaExprKind::Pipeline { .. }
-        | ArenaExprKind::StructuredPipeline { .. }
-        | ArenaExprKind::Run(_)
-        | ArenaExprKind::Spawn(_)
-        | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
-        | ArenaExprKind::Loop { .. }
-        | ArenaExprKind::Require { .. }
-        | ArenaExprKind::Convert { .. }
-        => false,
+        ArenaExprKind::Loop { block } => {
+            let body = block_control_flow(arena, block);
+            ControlFlow {
+                breaks_target: false,
+                completes: body.breaks_target,
+            }
+        }
+        ArenaExprKind::Binary { op, left, right }
+            if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::ResultFallback) =>
+        {
+            let lhs = expr_control_flow(arena, left);
+            let rhs = expr_control_flow(arena, right);
+            let (may_skip, may_run) = match (op, bool_literal(arena, left)) {
+                (BinaryOp::And, Some(false)) | (BinaryOp::Or, Some(true)) => (true, false),
+                (BinaryOp::And, Some(true)) | (BinaryOp::Or, Some(false)) => (false, true),
+                _ => (true, true),
+            };
+            ControlFlow {
+                breaks_target: lhs.breaks_target
+                    || (lhs.completes && rhs.breaks_target && may_run),
+                completes: lhs.completes && (may_skip || rhs.completes),
+            }
+        }
+        _ => {
+            let mut flow = ControlFlow::NORMAL;
+            arena.arena.for_each_expr_child(id, |child| {
+                if flow.completes {
+                    flow = flow.then(child_control_flow(arena, child));
+                }
+            });
+            flow
+        }
     }
 }
 
@@ -2672,7 +2625,7 @@ impl Checker {
                 }
             } else if expected != &Type::Unit
                 && !expected.is_result_unit()
-                && !block_always_returns_arena(arena, block_id)
+                && !block_never_falls_through_arena(arena, block_id)
             {
                 self.error(
                     block_span,
@@ -4172,7 +4125,7 @@ impl Checker {
         let always_returns = if self.inferred_returns.is_some() {
             self.return_inference_block_returns(arena, block_id)
         } else {
-            block_always_returns_arena(arena, block_id)
+            block_never_falls_through_arena(arena, block_id)
         };
         if !reachable || always_returns {
             Type::Unknown
@@ -4752,7 +4705,7 @@ impl Checker {
             match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts())
                 && arm_list
                     .iter()
-                    .all(|arm| block_always_returns_arena(arena, arm.block));
+                    .all(|arm| block_never_falls_through_arena(arena, arm.block));
         let infer_branches = self.inferred_returns.is_some() && expected.is_none();
         let mut inferred: Option<Type> = None;
         for arm in arm_list {
@@ -5328,6 +5281,83 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn a_break_in_a_returned_if_value_makes_the_loop_reachable_afterward() {
+        let source = "pure choose(stop: Bool) -> Int {\n  while true {\n    return if stop { break } else { 1 }\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn static_false_expression_break_does_not_reach_the_loop() {
+        let source = "pure identity(value: Int) -> Int { value }\npure choose() -> Int {\n  while true {\n    return identity(if false { break } else { 17 })\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_in_a_call_argument_makes_the_loop_reachable_afterward() {
+        let source = "pure identity(value: Int) -> Int { value }\npure choose(stop: Bool) -> Int {\n  while true {\n    return identity(if stop { break } else { 1 })\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_in_a_binary_operand_makes_the_loop_reachable_afterward() {
+        let source = "pure choose(stop: Bool) -> Int {\n  while true {\n    return 1 + if stop { break } else { 2 }\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn breaks_in_conditions_and_match_guards_are_reachable() {
+        let sources = [
+            "pure choose(stop: Bool) -> Int {\n  loop {\n    if (if stop { break } else { true }) { return 1 }\n  }\n}\n",
+            "pure choose(stop: Bool) -> Int {\n  loop {\n    match 0 {\n      0 if (if stop { break } else { true }) => { return 1 }\n      _ => { return 2 }\n    }\n  }\n}\n",
+        ];
+        for source in sources {
+            let diagnostics = diagnostics(source);
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+                "{diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_break_in_a_match_subject_is_reachable() {
+        let source = "pure choose(stop: Bool) -> Int {\n  loop {\n    match (if stop { break } else { 0 }) {\n      0 => { return 1 }\n      _ => { return 2 }\n    }\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn a_break_in_a_match_arm_targets_the_enclosing_loop() {
         let source = "pure choose(stop: Bool) -> Int {\n  loop {\n    match stop {\n      true => { break }\n      false => { return 1 }\n    }\n  }\n}\n";
         let diagnostics = diagnostics(source);
@@ -5378,6 +5408,30 @@ mod return_flow_tests {
     #[test]
     fn a_break_after_an_unconditional_continue_is_unreachable() {
         let source = "pure choose() -> Int {\n  loop {\n    if true { continue }\n    break\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_in_a_false_match_guard_is_unreachable() {
+        let source = "pure choose() -> Int {\n  while true {\n    match 0 {\n      _ if false => { break }\n      _ => {}\n    }\n    return 1\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_in_a_true_assert_message_is_unreachable() {
+        let source = "pure choose() -> Int {\n  while true {\n    assert true, if false { break } else { \"ok\" }\n    return 1\n  }\n}\n";
         let diagnostics = diagnostics(source);
         assert!(
             !diagnostics

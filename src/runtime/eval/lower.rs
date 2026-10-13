@@ -6,6 +6,7 @@ use crate::sema::check::{
     BindingId, BindingKind, CheckBundleView, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, Conversion,
     ResourceTransferSite,
 };
+use crate::sema::check::block_never_falls_through_arena;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
@@ -2602,11 +2603,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             return Err(CompactFunctionBlocker::Body);
         }
-        let can_return = {
-            let scratch = self.scratch.borrow();
-            lowered_body_can_return(&scratch, &body)
-        };
-        if !can_return {
+        let body_never_falls_through = block_never_falls_through_arena(self.program, def.body);
+        if !body_never_falls_through {
             if matches!(return_kind, LoweredReturnKind::Plain(LoweredType::Stream)) {
             } else if lowered_return_kind_accepts_unit_fallthrough(return_kind) {
                 body.push(push_build_row!(
@@ -6370,119 +6368,6 @@ pub(super) fn top_level_slots(
     slots
 }
 
-/// without an `else` (or a non-exhaustive `match`) can fall through. So a body
-/// "can return" only when every reachable path provably ends in a `Return`.
-pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[BuildStmtId]) -> bool {
-    statements
-        .iter()
-        .any(|stmt| match &scratch.statements[stmt.index()] {
-            BuildStmtRow::Return { .. } => true,
-            BuildStmtRow::Defer { .. } => false,
-            BuildStmtRow::Yield { .. } | BuildStmtRow::YieldDelegate { .. } => false,
-            BuildStmtRow::ScanLines { .. } => false,
-            BuildStmtRow::ScanBytes { .. } => false,
-            BuildStmtRow::Break | BuildStmtRow::BreakValue { .. } => false,
-            BuildStmtRow::Continue => false,
-            BuildStmtRow::If {
-                branches,
-                else_body,
-            } => lowered_branch_chain_can_return(
-                scratch,
-                branches.iter().map(|(condition, body)| {
-                    (
-                        lowered_expr_bool_literal(scratch, condition),
-                        body.as_slice(),
-                    )
-                }),
-                else_body.as_deref(),
-            ),
-            BuildStmtRow::PatternIf {
-                branches,
-                else_body,
-                ..
-            } => lowered_branch_chain_can_return(
-                scratch,
-                branches.iter().map(|(condition, body, _)| {
-                    (
-                        lowered_expr_bool_literal(scratch, condition),
-                        body.as_slice(),
-                    )
-                }),
-                else_body.as_deref(),
-            ),
-            BuildStmtRow::IfBool {
-                branches,
-                else_body,
-            } => lowered_branch_chain_can_return(
-                scratch,
-                branches.iter().map(|(condition, body)| {
-                    (
-                        lowered_bool_row_literal(scratch, condition),
-                        body.as_slice(),
-                    )
-                }),
-                else_body.as_deref(),
-            ),
-            BuildStmtRow::While { body, .. }
-            | BuildStmtRow::PatternWhile { body, .. }
-            | BuildStmtRow::WhileBool { body, .. }
-            | BuildStmtRow::For { body, .. }
-            | BuildStmtRow::ForRecord { body, .. }
-            | BuildStmtRow::ForStrLines { body, .. } => {
-                let _ = body;
-                false
-            }
-            BuildStmtRow::Cd { body, .. } | BuildStmtRow::Env { body, .. } => {
-                lowered_body_can_return(scratch, body)
-            }
-            BuildStmtRow::Match { arms, .. } => lowered_match_body_can_return(scratch, arms),
-            BuildStmtRow::StrMatch { arms, fallback, .. } => {
-                !arms.is_empty()
-                    && arms
-                        .values()
-                        .all(|body| lowered_body_can_return(scratch, body))
-                    && fallback
-                        .as_ref()
-                        .is_some_and(|body| lowered_body_can_return(scratch, body))
-            }
-            BuildStmtRow::TagMatch { arms, fallback, .. } => {
-                !arms.is_empty()
-                    && arms
-                        .values()
-                        .all(|body| lowered_body_can_return(scratch, body))
-                    && fallback
-                        .as_ref()
-                        .is_some_and(|body| lowered_body_can_return(scratch, body))
-            }
-            // A guard's success path falls through to later statements, so the
-            // guard alone never guarantees a return.
-            BuildStmtRow::Guard { .. } => false,
-            BuildStmtRow::With {
-                body, else_body, ..
-            } => {
-                lowered_body_can_return(scratch, body)
-                    && lowered_body_can_return(scratch, else_body)
-            }
-            BuildStmtRow::DefaultParameter { .. }
-            | BuildStmtRow::Let { .. }
-            | BuildStmtRow::LetRecord { .. }
-            | BuildStmtRow::LetInt { .. }
-            | BuildStmtRow::LetBool { .. }
-            | BuildStmtRow::Assign { .. }
-            | BuildStmtRow::AssignInt { .. }
-            | BuildStmtRow::AssignField { .. }
-            | BuildStmtRow::AssignFieldInt { .. }
-            | BuildStmtRow::AssignPath { .. }
-            | BuildStmtRow::AssignBool { .. }
-            | BuildStmtRow::Value { .. }
-            | BuildStmtRow::Assert { .. }
-            | BuildStmtRow::Expr { .. }
-            | BuildStmtRow::Run { .. }
-            | BuildStmtRow::Print { .. }
-            | BuildStmtRow::Loop { .. } => false,
-        })
-}
-
 fn lowered_return_kind_accepts_unit_fallthrough(kind: LoweredReturnKind) -> bool {
     matches!(
         kind,
@@ -6495,52 +6380,6 @@ fn lowered_return_kind_accepts_unit_fallthrough(kind: LoweredReturnKind) -> bool
             | LoweredReturnKind::Result(LoweredType::Any)
             | LoweredReturnKind::OptionalResult
     )
-}
-
-fn lowered_expr_bool_literal(scratch: &BuildScratch, expr: &BuildExprId) -> Option<bool> {
-    match &scratch.expressions[expr.index()] {
-        BuildExprRow::Bool(value) => Some(*value),
-        _ => None,
-    }
-}
-
-fn lowered_bool_row_literal(scratch: &BuildScratch, expr: &BuildBoolId) -> Option<bool> {
-    match &scratch.bools[expr.index()] {
-        BuildBoolRow::Bool(value) => Some(*value),
-        _ => None,
-    }
-}
-
-/// Whether an `if`-style chain returns on every reachable path. A
-/// literal-false condition is unreachable, and a literal-true one makes every
-/// later branch and the else unreachable; a no-else chain can fall through.
-fn lowered_branch_chain_can_return<'a>(
-    scratch: &BuildScratch,
-    branches: impl Iterator<Item = (Option<bool>, &'a [BuildStmtId])>,
-    else_body: Option<&[BuildStmtId]>,
-) -> bool {
-    for (literal, body) in branches {
-        match literal {
-            Some(false) => continue,
-            Some(true) => return lowered_body_can_return(scratch, body),
-            None => {
-                if !lowered_body_can_return(scratch, body) {
-                    return false;
-                }
-            }
-        }
-    }
-    else_body.is_some_and(|body| lowered_body_can_return(scratch, body))
-}
-
-pub(super) fn lowered_match_body_can_return(
-    scratch: &BuildScratch,
-    arms: &[(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)],
-) -> bool {
-    !arms.is_empty()
-        && arms
-            .iter()
-            .all(|(_, _, body)| lowered_body_can_return(scratch, body))
 }
 
 pub(super) fn cleanup_lowered_pattern_slots(slots: &mut SlotScope, cleanup: Vec<(Name, usize)>) {
