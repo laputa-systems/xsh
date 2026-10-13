@@ -21,6 +21,7 @@ class InventoryCheckerTests(unittest.TestCase):
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         result = CHECKER.validate_coverage(ROOT, coverage)
         self.assertEqual(set(CHECKER.OWNER_SPECS), set(result["owners"]))
+        self.assertEqual(77, len(result["owners"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
@@ -50,6 +51,39 @@ class InventoryCheckerTests(unittest.TestCase):
         live = CHECKER.extract_enum(changed, "Type")
         with self.assertRaises(CHECKER.InventoryError):
             CHECKER.compare_owner_items("types.fixture", inventoried, live)
+
+    def test_lowered_value_variant_requires_exactly_one_codec_route(self) -> None:
+        source = (ROOT / "src/runtime/eval.rs").read_text()
+        changed = source.replace(
+            "    ResultErr(Box<Value>),",
+            "    ResultErr(Box<Value>),\n    Unrouted,",
+        )
+        self.assertNotEqual(source, changed)
+        enum_items = CHECKER.extract_enum(changed, "LoweredValue")
+        schema_source = (ROOT / "src/runtime/eval/indexed/full.rs").read_text()
+        schema_items = CHECKER.parse_lowered_value_schema(schema_source)
+        with self.assertRaisesRegex(CHECKER.InventoryError, "codec routes differ"):
+            CHECKER.reconcile_lowered_value_routes(enum_items, schema_items)
+
+    def test_lowered_set_payload_is_derived_from_live_enum(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        inventoried_enum = coverage["core_inventory"]["ir.lowered_value"]["items"]
+        inventoried_schema = coverage["core_inventory"]["ir.values"]["items"]
+        source = (ROOT / "src/runtime/eval.rs").read_text()
+        changed = source.replace(
+            "Set(Arc<BTreeSet<MapKey>>)", "Set(Arc<Vec<MapKey>>)"
+        )
+        self.assertNotEqual(source, changed)
+        changed_enum = CHECKER.extract_enum(changed, "LoweredValue")
+        schema_source = (ROOT / "src/runtime/eval/indexed/full.rs").read_text()
+        changed_schema = CHECKER.reconcile_lowered_value_routes(
+            changed_enum, CHECKER.parse_lowered_value_schema(schema_source)
+        )
+        self.assertIn("Set=19|custom:Arc<Vec<MapKey>>", changed_schema)
+        with self.assertRaisesRegex(CHECKER.InventoryError, "ir.lowered_value"):
+            CHECKER.compare_owner_items("ir.lowered_value", inventoried_enum, changed_enum)
+        with self.assertRaisesRegex(CHECKER.InventoryError, "ir.values"):
+            CHECKER.compare_owner_items("ir.values", inventoried_schema, changed_schema)
 
     def test_named_raw_instruction_schema_rows_parse(self) -> None:
         fixture = (ROOT / "formal/tests/inventory/fixtures/instruction_schema.rs").read_text()

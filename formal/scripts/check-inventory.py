@@ -175,6 +175,9 @@ OWNER_SPECS: dict[str, OwnerSpec] = {
         "pipeline_stage_schema!",
         "pipeline-stage-schema",
     ),
+    "ir.lowered_value": OwnerSpec(
+        "src/runtime/eval.rs", "LoweredValue", "rust-enum"
+    ),
     "ir.values": OwnerSpec(
         "src/runtime/eval/indexed/full.rs",
         "lowered_value_schema!",
@@ -411,6 +414,20 @@ def extract_enum(source: str, enum_name: str) -> list[str]:
                 raise InventoryError(f"unrecognized {enum_name} variant tail {tokens[index]!r}")
             index += 1
     return ensure_unique(names, enum_name)
+
+
+def self_variant_from_pattern(tokens: list[str], label: str) -> str:
+    variants = [
+        tokens[index + 2]
+        for index in range(len(tokens) - 2)
+        if tokens[index : index + 2] == ["Self", "::"]
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", tokens[index + 2])
+    ]
+    if len(variants) != 1:
+        raise InventoryError(
+            f"{label} must route exactly one Self variant, found={variants}"
+        )
+    return variants[0]
 
 
 def ensure_unique(items: list[str], label: str) -> list[str]:
@@ -803,14 +820,27 @@ def parse_lowered_value_schema(source: str) -> list[str]:
         row_end = matching(tokens, cursor + 3)
         fields_index = tokens.index("fields", cursor + 4, row_end)
         fields_open = tokens.index("{", fields_index + 1, row_end)
-        fields, _ = parse_field_group(tokens, fields_open, "{")
+        fields, fields_end = parse_field_group(tokens, fields_open, "{")
+        encode_index = tokens.index("encode", fields_end, row_end)
+        encode_open = tokens.index("{", encode_index + 1, row_end)
+        encode_end = matching(tokens, encode_open)
+        encode_arrow = find_top_level(tokens, encode_open + 1, encode_end, "=>")
+        encoded_variant = self_variant_from_pattern(
+            tokens[encode_open + 1 : encode_arrow], f"encoded lowered value row {tag}"
+        )
+        if encoded_variant != tag:
+            raise InventoryError(
+                f"lowered value row {tag} encodes {encoded_variant}"
+            )
         rows.append(f"{tag}={ordinal}|{','.join(fields)}")
         cursor = row_end + 1
 
     cursor = aliases_open + 1
     while cursor < aliases_end:
         arrow = find_top_level(tokens, cursor, aliases_end, "=>")
-        pattern = compact_tokens(tokens[cursor:arrow])
+        pattern_tokens = tokens[cursor:arrow]
+        pattern = compact_tokens(pattern_tokens)
+        self_variant_from_pattern(pattern_tokens, "lowered value alias")
         tag = tokens[arrow + 1]
         if tag not in seen_tags:
             raise InventoryError(f"lowered value alias {pattern} names unknown tag {tag}")
@@ -838,13 +868,27 @@ def parse_lowered_value_schema(source: str) -> list[str]:
         cursor += 3
         if tokens[cursor] != "{":
             raise InventoryError(f"custom lowered value row {tag} body missing")
-        cursor = matching(tokens, cursor) + 1
+        custom_end_row = matching(tokens, cursor)
+        encode_index = tokens.index("encode", cursor + 1, custom_end_row)
+        encode_open = tokens.index("{", encode_index + 1, custom_end_row)
+        encode_end = matching(tokens, encode_open)
+        encode_arrow = find_top_level(tokens, encode_open + 1, encode_end, "=>")
+        encoded_variant = self_variant_from_pattern(
+            tokens[encode_open + 1 : encode_arrow], f"custom lowered value row {tag}"
+        )
+        if encoded_variant != tag:
+            raise InventoryError(
+                f"custom lowered value row {tag} encodes {encoded_variant}"
+            )
+        cursor = custom_end_row + 1
 
     cursor = reject_open + 1
     while cursor < reject_end:
         arrow = find_top_level(tokens, cursor, reject_end, "=>")
-        for pattern in split_top_level(tokens[cursor:arrow], "|"):
-            rows.append(f"reject:{compact_tokens(pattern)}")
+        for pattern_tokens in split_top_level(tokens[cursor:arrow], "|"):
+            self_variant_from_pattern(pattern_tokens, "rejected lowered value pattern")
+            pattern = compact_tokens(pattern_tokens)
+            rows.append(f"reject:{pattern}")
         cursor = arrow + 1
         if tokens[cursor] != "{":
             raise InventoryError("lowered value reject row has no body")
@@ -854,6 +898,77 @@ def parse_lowered_value_schema(source: str) -> list[str]:
                 raise InventoryError("lowered value reject rows require commas")
             cursor += 1
     return ensure_unique(rows, "lowered value schema")
+
+
+def lowered_value_variant_name(item: str) -> str:
+    name = re.match(r"[A-Za-z_][A-Za-z0-9_]*", item)
+    if name is None:
+        raise InventoryError(f"malformed LoweredValue variant {item!r}")
+    return name.group(0)
+
+
+def lowered_value_payload(item: str) -> str:
+    name = lowered_value_variant_name(item)
+    if item.startswith(name + "(") and item.endswith(")"):
+        return item[len(name) + 1 : -1]
+    if item.startswith(name + "{") and item.endswith("}"):
+        return item[len(name) + 1 : -1]
+    return ""
+
+
+def reconcile_lowered_value_routes(
+    enum_items: list[str], schema_items: list[str]
+) -> list[str]:
+    """Require one codec route for each live value variant and bind custom payloads."""
+    routes: list[tuple[str, str]] = []
+    for item in schema_items:
+        if item.startswith("alias:"):
+            pattern = item[len("alias:") :].split("=>", 1)[0]
+            match = re.search(r"Self::([A-Za-z_][A-Za-z0-9_]*)", pattern)
+            if match is None:
+                raise InventoryError(f"unrecognized lowered value alias route {item}")
+            routes.append((match.group(1), "alias"))
+        elif item.startswith("reject:"):
+            pattern = item[len("reject:") :]
+            match = re.search(r"Self::([A-Za-z_][A-Za-z0-9_]*)", pattern)
+            if match is None:
+                raise InventoryError(f"unrecognized lowered value reject route {item}")
+            routes.append((match.group(1), "rejected"))
+        else:
+            row, separator, details = item.partition("|")
+            variant, equals, ordinal = row.partition("=")
+            if not separator or not equals or not ordinal.isdecimal():
+                raise InventoryError(f"malformed lowered value schema route {item}")
+            route = "custom" if details == "custom" else "encoded"
+            routes.append((variant, route))
+
+    route_names = [variant for variant, _ in routes]
+    ensure_unique(route_names, "LoweredValue codec routes")
+    variants = [lowered_value_variant_name(item) for item in enum_items]
+    ensure_unique(variants, "LoweredValue variants")
+    if set(route_names) != set(variants):
+        raise InventoryError(
+            "LoweredValue codec routes differ from the live enum: "
+            f"missing={sorted(set(variants) - set(route_names))}, "
+            f"unknown={sorted(set(route_names) - set(variants))}"
+        )
+
+    enum_by_name = dict(zip(variants, enum_items, strict=True))
+    reconciled: list[str] = []
+    for item in schema_items:
+        row, separator, details = item.partition("|")
+        variant = row.split("=", 1)[0]
+        if separator and details == "custom":
+            payload = lowered_value_payload(enum_by_name[variant])
+            if not payload:
+                raise InventoryError(
+                    f"custom LoweredValue route {variant} has no enum payload"
+                )
+            ordinal = row.split("=", 1)[1]
+            reconciled.append(f"{variant}={ordinal}|custom:{payload}")
+        else:
+            reconciled.append(item)
+    return reconciled
 
 
 def find_top_level(tokens: list[str], start: int, end: int, target: str) -> int:
@@ -984,6 +1099,9 @@ def expected_owner_items(root: Path) -> dict[str, list[str]]:
         if not items:
             raise InventoryError(f"owner {owner_id} has no inventoried items")
         expected[owner_id] = items
+    expected["ir.values"] = reconcile_lowered_value_routes(
+        expected["ir.lowered_value"], expected["ir.values"]
+    )
     return expected
 
 

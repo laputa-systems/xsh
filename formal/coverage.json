@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "source_state": "provisional-during-consolidation",
-  "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results.",
+  "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results.",
   "core_inventory": {
     "control.eval_flow": {
       "source": "src/runtime/eval.rs",
@@ -346,7 +346,7 @@
         "alias:Self::StrView(value)=>Str|Arc::<str>::from(value.as_str())",
         "alias:Self::BytesView(value)=>Bytes|Arc::<[u8]>::from(value.as_slice())",
         "alias:Self::SharedList(value)=>List|value.as_ref()",
-        "Set=19|custom",
+        "Set=19|custom:Arc<BTreeSet<MapKey>>",
         "reject:Self::OmittedArgument",
         "reject:Self::Digest(_)",
         "reject:Self::Status(_)",
@@ -1535,6 +1535,50 @@
         "Union(Vec<Type>)",
         "Callable(Arc<TypedCallable>)",
         "Validated(Box<super::validated::ValidatedType>)"
+      ]
+    },
+    "ir.lowered_value": {
+      "source": "src/runtime/eval.rs",
+      "declaration": "LoweredValue",
+      "extractor": "rust-enum",
+      "items": [
+        "OmittedArgument",
+        "Null",
+        "Unit",
+        "Int(i64)",
+        "Float(FloatValue)",
+        "Duration(DurationValue)",
+        "Bool(bool)",
+        "Str(Arc<str>)",
+        "StrView(LoweredStrView)",
+        "Bytes(Arc<[u8]>)",
+        "BytesView(LoweredBytesView)",
+        "Digest(Box<DigestValue>)",
+        "Regex(Box<RegexValue>)",
+        "Status(Box<ProcessStatus>)",
+        "Path(PathValue)",
+        "FsEntry(crate::runtime::value::FsEntryValue)",
+        "Command(Box<CommandPlan>)",
+        "ProcessHandle(Box<ProcessHandleValue>)",
+        "NetJob(Box<NetJobValue>)",
+        "FsRoot(FsRootValue)",
+        "FsLock(Box<FsLockValue>)",
+        "Stream(Box<StreamValue>)",
+        "Pure(FunctionName)",
+        "Proc(FunctionName)",
+        "Error(Box<Value>)",
+        "Record(Arc<BTreeMap<Arc<str>,LoweredValue>>)",
+        "RecordVec(Arc<Vec<(Name,LoweredValue)>>)",
+        "Stats{blanks:i64,code:i64,comments:i64}",
+        "StatsBlob(Box<LoweredStatsValue>)",
+        "Module(Arc<BTreeMap<Arc<str>,LoweredValue>>)",
+        "List(Vec<LoweredValue>)",
+        "SharedList(Arc<Vec<LoweredValue>>)",
+        "Map(Arc<BTreeMap<MapKey,LoweredValue>>)",
+        "Set(Arc<BTreeSet<MapKey>>)",
+        "Tag(Box<LoweredTagValue>)",
+        "ResultOk(Box<LoweredValue>)",
+        "ResultErr(Box<Value>)"
       ]
     }
   },
