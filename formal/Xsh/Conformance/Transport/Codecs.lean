@@ -128,6 +128,196 @@ def OptionalBridgeId.toHex (id : OptionalBridgeId) : String := encodeHex32 id.ra
 def OptionalBridgeId.fromHex? (text : String) : Option OptionalBridgeId :=
   (decodeHex32? text).bind OptionalBridgeId.fromRaw?
 
+/-- A canonical encoded hex character is an ASCII digit or a lowercase `a` through `f`. -/
+def IsCanonicalHexDigit (character : Char) : Prop :=
+  (48 ≤ character.toNat ∧ character.toNat ≤ 57) ∨
+  (97 ≤ character.toNat ∧ character.toNat ≤ 102)
+
+private theorem char_ofNat_small_toNat (code : Nat) (bound : code < 55296) :
+    (Char.ofNat code).toNat = code := by
+  have valid : Nat.isValidChar code := by unfold Nat.isValidChar; omega
+  simp [Char.ofNat, Char.ofNatAux, Nat.isValidChar, valid]
+
+private theorem hexDigit_toNat (digit : Nat) (bound : digit < 16) :
+    (hexDigit digit).toNat = if digit < 10 then 48 + digit else 87 + digit := by
+  unfold hexDigit
+  by_cases decimal : digit < 10
+  · rw [ite_eq_left decimal, char_ofNat_small_toNat _ (by omega)]
+  · rw [ite_eq_right decimal, char_ofNat_small_toNat _ (by omega)]
+
+private theorem decode_hex_digit (digit : Nat) (bound : digit < 16) :
+    hexDigit? (hexDigit digit) = some ⟨digit, bound⟩ := by
+  by_cases decimal : digit < 10
+  · have charBounds : 48 ≤ 48 + digit ∧ 48 + digit ≤ 57 := by omega
+    have charCode : (hexDigit digit).toNat = 48 + digit := by
+      rw [hexDigit_toNat digit bound]
+      simp [decimal]
+    have firstDigit : 48 ≤ 48 + digit ∧ 48 + digit ≤ 57 := charBounds
+    simp [hexDigit?, charCode, firstDigit]
+  · have charBounds : 97 ≤ 87 + digit ∧ 87 + digit ≤ 102 := by omega
+    have charCode : (hexDigit digit).toNat = 87 + digit := by
+      rw [hexDigit_toNat digit bound]
+      simp [decimal]
+    have notDecimal : ¬(48 ≤ 87 + digit ∧ 87 + digit ≤ 57) := by omega
+    simp [hexDigit?, charCode, notDecimal, charBounds] <;> omega
+
+private theorem fixedHexCharacters_succ (width value : Nat) :
+    fixedHexCharacters (width + 1) value =
+      hexDigit (value / 16 ^ width % 16) :: fixedHexCharacters width value := by
+  simp [fixedHexCharacters, List.range_succ]
+
+private theorem fixedHexCharacters_length (width value : Nat) :
+    (fixedHexCharacters width value).length = width := by
+  simp [fixedHexCharacters]
+
+private theorem decodeHexAcc_fixedHexCharacters (width value accumulator : Nat) :
+    decodeHexAcc accumulator (fixedHexCharacters width value) =
+      some (accumulator * 16 ^ width + value % 16 ^ width) := by
+  induction width generalizing accumulator with
+  | zero => simp [fixedHexCharacters, decodeHexAcc, Nat.mod_one]
+  | succ width ih =>
+      rw [fixedHexCharacters_succ]
+      have digitBound : value / 16 ^ width % 16 < 16 := Nat.mod_lt _ (by decide)
+      simp only [decodeHexAcc, decode_hex_digit _ digitBound]
+      simp
+      rw [ih, Nat.mod_pow_succ, Nat.pow_succ]
+      simp [Nat.mul_add, Nat.mul_assoc, Nat.mul_comm, Nat.add_comm, Nat.add_left_comm]
+
+private theorem fixedHexCharacters_canonical (width value : Nat) :
+    ∀ character ∈ fixedHexCharacters width value, IsCanonicalHexDigit character := by
+  induction width with
+  | zero => simp [fixedHexCharacters]
+  | succ width ih =>
+      rw [fixedHexCharacters_succ]
+      intro character membership
+      simp only [List.mem_cons] at membership
+      rcases membership with rfl | membership
+      · have digitBound : value / 16 ^ width % 16 < 16 := Nat.mod_lt _ (by decide)
+        have code := hexDigit_toNat _ digitBound
+        unfold IsCanonicalHexDigit
+        by_cases decimal : value / 16 ^ width % 16 < 10
+        · rw [code]
+          simp only [ite_eq_left decimal]
+          left
+          omega
+        · rw [code]
+          simp only [ite_eq_right decimal]
+          right
+          omega
+      · exact ih character membership
+
+private theorem hexDigit_isCanonical (digit : Nat) (bound : digit < 16) :
+    IsCanonicalHexDigit (hexDigit digit) := by
+  have code := hexDigit_toNat digit bound
+  unfold IsCanonicalHexDigit
+  by_cases decimal : digit < 10
+  · rw [code]
+    simp only [ite_eq_left decimal]
+    left
+    omega
+  · rw [code]
+    simp only [ite_eq_right decimal]
+    right
+    omega
+
+private theorem encodeByteList_canonical (bytes : List WireByte) :
+    ∀ character ∈ encodeByteList bytes, IsCanonicalHexDigit character := by
+  induction bytes with
+  | nil => simp [encodeByteList]
+  | cons byte rest ih =>
+      intro character membership
+      simp only [encodeByteList, List.mem_append] at membership
+      rcases membership with pairMembership | restMembership
+      · simp only [encodeByte, List.mem_cons, List.mem_nil_iff, or_false] at pairMembership
+        rcases pairMembership with high | low
+        · subst character
+          apply hexDigit_isCanonical
+          have bound := byte.isLt
+          omega
+        · subst character
+          apply hexDigit_isCanonical
+          exact Nat.mod_lt _ (by decide)
+      · exact ih character restMembership
+
+private theorem encodeByteList_length (bytes : List WireByte) :
+    (encodeByteList bytes).length = 2 * bytes.length := by
+  induction bytes with
+  | nil => rfl
+  | cons byte rest ih => simp [encodeByteList, encodeByte, ih] <;> omega
+
+private theorem decodeByteList_encodeByteList (bytes : List WireByte) :
+    decodeByteList (encodeByteList bytes) = some bytes := by
+  induction bytes with
+  | nil => rfl
+  | cons byte rest ih =>
+      have highBound : byte.val / 16 < 16 := by have bound := byte.isLt; omega
+      have lowBound : byte.val % 16 < 16 := Nat.mod_lt _ (by decide)
+      simp only [encodeByteList, encodeByte, List.cons_append,
+        List.nil_append, decodeByteList, decode_hex_digit _ highBound,
+        decode_hex_digit _ lowBound]
+      simp [ih]
+      apply Fin.ext
+      simpa [Nat.mul_comm] using Nat.div_add_mod byte.val 16
+
+theorem encode_hex32_width (value : Xsh.Foundation.Word32) :
+    (encodeHex32 value).toList.length = 8 := by
+  simp [encodeHex32, fixedHexCharacters_length]
+
+theorem encode_hex64_width (value : Word64) :
+    (encodeHex64 value).toList.length = 16 := by
+  simp [encodeHex64, fixedHexCharacters_length]
+
+theorem encode_hex_bytes_width (bytes : List WireByte) :
+    (encodeHexBytes bytes).toList.length = 2 * bytes.length := by
+  simp [encodeHexBytes, encodeByteList_length]
+
+theorem encode_hex32_is_canonical_lowercase (value : Xsh.Foundation.Word32) :
+    ∀ character ∈ (encodeHex32 value).toList, IsCanonicalHexDigit character := by
+  simpa [encodeHex32] using fixedHexCharacters_canonical 8 value.val
+
+theorem encode_hex64_is_canonical_lowercase (value : Word64) :
+    ∀ character ∈ (encodeHex64 value).toList, IsCanonicalHexDigit character := by
+  simpa [encodeHex64] using fixedHexCharacters_canonical 16 value.val
+
+theorem encode_hex_bytes_is_canonical_lowercase (bytes : List WireByte) :
+    ∀ character ∈ (encodeHexBytes bytes).toList, IsCanonicalHexDigit character := by
+  simpa [encodeHexBytes] using encodeByteList_canonical bytes
+
+theorem decode_encode_hex_bytes (bytes : List WireByte) :
+    decodeHexBytes? (encodeHexBytes bytes) = some bytes := by
+  simp [decodeHexBytes?, encodeHexBytes, decodeByteList_encodeByteList]
+
+theorem decode_encode_hex32 (value : Xsh.Foundation.Word32) :
+    decodeHex32? (encodeHex32 value) = some value := by
+  have width : 16 ^ 8 = 4294967296 := by decide
+  have valueBound : value.val < 16 ^ 8 := by rw [width]; exact value.isLt
+  have decoded : decodeHexAcc 0 (fixedHexCharacters 8 value.val) = some value.val := by
+    rw [decodeHexAcc_fixedHexCharacters]
+    simp [Nat.mod_eq_of_lt valueBound]
+  simp [decodeHex32?, encodeHex32, fixedHexCharacters_length, decoded,
+    Xsh.Foundation.Word32.decode?, value.isLt]
+
+theorem decode_encode_hex64 (value : Word64) :
+    decodeHex64? (encodeHex64 value) = some value := by
+  have width : 16 ^ 16 = 18446744073709551616 := by decide
+  have valueBound : value.val < 16 ^ 16 := by rw [width]; exact value.isLt
+  have decoded : decodeHexAcc 0 (fixedHexCharacters 16 value.val) = some value.val := by
+    rw [decodeHexAcc_fixedHexCharacters]
+    simp [Nat.mod_eq_of_lt valueBound]
+  simp [decodeHex64?, encodeHex64, fixedHexCharacters_length, decoded, value.isLt]
+
+theorem canonical_reencode_hex32 (value : Xsh.Foundation.Word32) :
+    (decodeHex32? (encodeHex32 value)).map encodeHex32 = some (encodeHex32 value) := by
+  simp [decode_encode_hex32]
+
+theorem canonical_reencode_hex64 (value : Word64) :
+    (decodeHex64? (encodeHex64 value)).map encodeHex64 = some (encodeHex64 value) := by
+  simp [decode_encode_hex64]
+
+theorem canonical_reencode_hex_bytes (bytes : List WireByte) :
+    (decodeHexBytes? (encodeHexBytes bytes)).map encodeHexBytes = some (encodeHexBytes bytes) := by
+  simp [decode_encode_hex_bytes]
+
 theorem decode_hex32_zero : decodeHex32? "00000000" = some ⟨0, by decide⟩ := by decide
 
 theorem decode_hex32_max :
