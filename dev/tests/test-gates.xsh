@@ -119,7 +119,7 @@ test test_batch_automatic_checks_use_retained_repository_gates {
   assert retained.native_files.is_empty()
 }
 
-test test_docker_gate_captures_repository_root_before_inspecting_image { |ctx|
+test test_docker_gate_evaluates_context_root_path_expression { |ctx|
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "docker-gate-tools")?
   let log = fp"{tools}/docker.log"

@@ -147,14 +147,13 @@ export proc run_internal(
   privileged: Bool,
   extra: List[Str],
 ) [fs, process, env, error, io] -> Result[Unit, Error] {
-  let root = ctx.root
   let image = ensure_image(ctx)?
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
   var common_git = null
   if operation in ["gate-lane", "gate-batch"] {
-    cd root {
+    cd (ctx.root) {
       let output = run.text git rev-parse --path-format=absolute --git-common-dir
       common_git = fp"{output.trim()}"
     }
