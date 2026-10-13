@@ -16,13 +16,13 @@ examples. It deliberately does not claim to enumerate all of `ArenaExprKind`,
 stages, or their parser/lowering metadata. In particular, a represented term
 is not evidence that the Rust parser produced it or that the checker accepts
 it. Record binding targets retain nested field selections; free-name traversal
-is explicitly fuel-bounded and can return a prefix when the caller gives too
-little fuel. The examples prove their results for the chosen bounds; no
-general adequacy theorem connects the bound to source size yet. Extend this
-layer only alongside the current source and owner inventory. Blocks here have
-statement bodies but no general parameter list, so callable defaults, stage
-parameters, and the error parameter of a `with` handler are not covered by
-the free-name function.
+is fuel-bounded by recursive depth and may omit names from a subtree while
+retaining names from later siblings. The examples prove their results for the
+chosen bounds; no general adequacy theorem connects the bound to source size
+yet. Extend this layer only alongside the current source and owner inventory.
+Blocks here have statement bodies but no general parameter list, so callable
+defaults, stage parameters, and the error parameter of a `with` handler are
+not covered by the free-name function.
 -/
 
 namespace Xsh.Syntax
@@ -108,11 +108,13 @@ inductive TypeExpr where
 /-- A source binding target contains names, not resolved declaration IDs. -/
 inductive BindingTarget where
   | name (name : RawName)
+  | discard
   | record (fields : List (RawName × BindingTarget)) (hasRest : Bool)
 
 def BindingTarget.namesFuel : Nat → BindingTarget → List RawName
   | 0, _ => []
   | _fuel + 1, .name n => [n]
+  | _fuel + 1, .discard => []
   | fuel + 1, .record fields _ => fields.flatMap fun (_, target) =>
       target.namesFuel fuel
 
@@ -215,6 +217,7 @@ mutual
   inductive Expr where
     | literal (value : Literal)
     | ident (name : RawName)
+    | valuePipelineHole
     | item
     | lastStatus
     | list (elements : List Expr)
@@ -226,7 +229,7 @@ mutual
     | comparisonChain (first : Expr) (rest : List (BinaryOp × Expr))
     | binary (op : BinaryOp) (left right : Expr)
     | call (callee : Expr) (arguments : List CallArgument)
-    | valuePipelineCall (input call hole : Expr)
+    | valuePipelineCall (input call : Expr)
     | field (base : Expr) (name : RawName)
     | nullSafeField (base : Expr) (name : RawName)
     | index (base index : Expr) (guarded : Bool)
@@ -249,8 +252,8 @@ mutual
     | valueBlock (body : List Statement)
     | errorContext (message : Expr) (body : List Statement)
     | contextScope (kind : ContextScopeKind) (input : Expr) (body : List Statement)
-    | tempDirScope (path : Option Expr) (parameter : RawName) (body : List Statement)
-    | resourceScope (bindings : List (RawName × Expr)) (body : List Statement)
+    | tempDirScope (path : Option Expr) (parameter : Option RawName) (body : List Statement)
+    | resourceScope (bindings : List (Option RawName × Expr)) (body : List Statement)
     | listComp (value : Expr) (qualifiers : List Qualifier)
     | mapComp (key value : Expr) (qualifiers : List Qualifier)
     | setComp (value : Expr) (qualifiers : List Qualifier)
@@ -270,7 +273,7 @@ mutual
         (otherwise : Option (List Statement))
     | whileStmt (condition : Expr) (body : List Statement)
     | forStmt (target : BindingTarget) (iterable : Expr) (body : List Statement)
-    | withScope (bindings : List (RawName × Expr))
+    | withScope (bindings : List (Option RawName × Expr))
         (body : List Statement) (otherwise : List Statement)
     | loopStmt (body : List Statement)
     | guardStmt (target : BindingTarget) (annotation : Option TypeExpr)
@@ -311,12 +314,13 @@ def withoutBoundNames (bound : List RawName) (names : List RawName) : List RawNa
   names.filter fun name => !(bound.contains name)
 
 mutual
-  /-- Fuel-bounded traversal keeps this executable even before parser parity. -/
+  /-- Depth-bounded traversal keeps this executable even before parser parity. -/
   def freeExprFuel : Nat → List RawName → Expr → List RawName
     | 0, _, _ => []
     | fuel + 1, bound, expression => match expression with
       | .literal _ => []
       | .ident name => withoutBoundNames bound [name]
+      | .valuePipelineHole => []
       | .item => []
       | .lastStatus => []
       | .list elements => freeExprsFuel fuel bound elements
@@ -339,9 +343,8 @@ mutual
       | .binary _ left right => freeExprFuel fuel bound left ++ freeExprFuel fuel bound right
       | .call callee arguments =>
           freeExprFuel fuel bound callee ++ freeCallArgumentsFuel fuel bound arguments
-      | .valuePipelineCall input call hole =>
-          freeExprFuel fuel bound input ++ freeExprFuel fuel bound call ++
-            freeExprFuel fuel bound hole
+      | .valuePipelineCall input call =>
+          freeExprFuel fuel bound input ++ freeExprFuel fuel bound call
       | .field base _ => freeExprFuel fuel bound base
       | .nullSafeField base _ => freeExprFuel fuel bound base
       | .index base index _ => freeExprFuel fuel bound base ++ freeExprFuel fuel bound index
@@ -377,7 +380,7 @@ mutual
           freeExprFuel fuel bound input ++ freeStatementsFuel fuel bound body
       | .tempDirScope path parameter body =>
           path.toList.flatMap (freeExprFuel fuel bound) ++
-            freeStatementsFuel fuel (parameter :: bound) body
+            freeStatementsFuel fuel (parameter.toList ++ bound) body
       | .resourceScope bindings body =>
           let (bindingUses, bodyBound) := freeNamedBindingsFuel fuel bound bindings
           bindingUses ++ freeStatementsFuel fuel bodyBound body
@@ -486,13 +489,13 @@ mutual
     | fuel + 1, bound, .when condition :: rest, results =>
         freeExprFuel fuel bound condition ++ freeComprehensionFuel fuel bound rest results
 
-  /-- Named resource initializers see only bindings earlier in their list. -/
-  def freeNamedBindingsFuel : Nat → List RawName → List (RawName × Expr) →
+  /-- Resource initializers see only earlier named bindings in their list. -/
+  def freeNamedBindingsFuel : Nat → List RawName → List (Option RawName × Expr) →
       List RawName × List RawName
     | 0, bound, _ => ([], bound)
     | _fuel + 1, bound, [] => ([], bound)
     | fuel + 1, bound, (name, initializer) :: rest =>
-        let (laterUses, finalBound) := freeNamedBindingsFuel fuel (name :: bound) rest
+        let (laterUses, finalBound) := freeNamedBindingsFuel fuel (name.toList ++ bound) rest
         (freeExprFuel fuel bound initializer ++ laterUses, finalBound)
 
   def freeAssignTargetFuel : Nat → List RawName → AssignTarget → List RawName
@@ -505,7 +508,7 @@ mutual
       | .env _ => []
 end
 
-/-- A caller supplies a traversal bound; exhausted traversals return a prefix. -/
+/-- A caller supplies a recursive-depth bound; exhausted subtrees contribute no names. -/
 def freeNamesFuel (fuel : Nat) (expression : Expr) : List RawName :=
   freeExprFuel fuel [] expression
 
@@ -567,9 +570,42 @@ theorem guard_binding_is_visible_afterward_but_not_in_else :
 
 theorem with_initializers_see_earlier_bindings_only :
     freeNamesFuel 32 (.valueBlock [
-      .withScope [(nameX, .ident nameY), (nameY, .ident nameX)]
+      .withScope [(some nameX, .ident nameY), (some nameY, .ident nameX)]
         [.expression (.ident nameY)] []
     ]) = [nameY] := by
+  decide
+
+theorem let_discard_does_not_bind :
+    freeNamesFuel 16 (.valueBlock [
+      .binding .letBinding .discard none (.ident nameY),
+      .expression (.ident nameX)
+    ]) = [nameY, nameX] := by
+  decide
+
+theorem tempdir_discard_does_not_bind :
+    freeNamesFuel 16 (.tempDirScope none none [.expression (.ident nameX)]) = [nameX] := by
+  decide
+
+theorem resource_discard_does_not_bind :
+    freeNamesFuel 24 (.resourceScope [(none, .ident nameY)]
+      [.expression (.ident nameX)]) = [nameY, nameX] := by
+  decide
+
+theorem with_discard_does_not_bind :
+    freeNamesFuel 24 (.valueBlock [
+      .withScope [(none, .ident nameY)] [.expression (.ident nameX)] []
+    ]) = [nameY, nameX] := by
+  decide
+
+theorem value_pipeline_hole_is_not_a_free_name_or_second_visit :
+    freeNamesFuel 16 (.valuePipelineCall (.ident nameX)
+      (.call (.ident nameY) [.positional .valuePipelineHole])) = [nameX, nameY] := by
+  decide
+
+theorem depth_bound_can_omit_earlier_subtree_and_retain_later_siblings :
+    freeNamesFuel 3 (.binary .add
+      (.unary .not (.unary .not (.ident nameX)))
+      (.binary .add (.ident nameY) (.ident nameZ))) = [nameY, nameZ] := by
   decide
 
 theorem name_and_binder_numeric_payloads_may_match :
