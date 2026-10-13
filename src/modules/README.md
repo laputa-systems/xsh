@@ -2,16 +2,17 @@
 
 This directory contains host helpers for standard modules. Public API shape is
 declared in `crates/xsh-registry/src/signature/*`; `src/modules/signature.rs`
-adapts that registry into checker/runtime types. Runtime dispatch lives in
-`src/runtime/eval/modules.rs` and
-`src/runtime/eval/methods.rs` when evaluator state is needed.
+adapts registry entries into checker/runtime types. Evaluator-dependent module
+operations are dispatched from `src/runtime/eval/lowered_run.rs` and split by
+domain under `src/runtime/eval/lowered_run/module_*.rs`.
 
 ## Routing
 
 | Change | Start here |
 |---|---|
-| add or change a module function | `crates/xsh-registry/src/signature/modules.rs`, then matching `src/modules/<name>.rs` |
-| add or change a value method | `crates/xsh-registry/src/signature/methods.rs`, then `src/runtime/eval/methods.rs` |
+| add or change a module signature | `crates/xsh-registry/src/signature/modules.rs` |
+| change a native module helper | the matching implementation under `src/modules/` |
+| add or change a value method | `crates/xsh-registry/src/signature/methods.rs`, then `src/runtime/eval/lowered_run.rs` and `src/runtime/eval/lowered_run/indexed_run/values.rs` |
 | add a stream stage signature | `crates/xsh-registry/src/signature/streams.rs` |
 | add a runtime operation ID | `crates/xsh-registry/src/runtime_op.rs` |
 | add standard record schemas | `crates/xsh-registry/src/records.rs` |

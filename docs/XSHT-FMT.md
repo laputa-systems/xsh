@@ -74,8 +74,11 @@ contract stays in `docs/SPEC.md`.
   `lint --fix`.
 - Output has exactly the parentheses `syntax::grouping::needs_parens` requires,
   the same rule `check.redundant-parens` enforces on source, and adjacent
-  tokens are joined through `lexer::join_tokens`. `format_proofs` checks the
-  rule over every slot and expression form and over generated trees.
+  tokens are joined through `lexer::join_tokens`. `xsht fmt` ignores only
+  `check.redundant-parens`; every other checker diagnostic, including
+  `check.mixed-logical`, blocks formatting, so the formatter never chooses
+  grouping for the author. `format_proofs` checks the rule over every slot and
+  expression form and over generated trees.
 - Formatting is idempotent. A conditional branch kept on one line as
   `{ value }` never breaks inside the value; when the value cannot fit, every
   branch breaks, in an assigned value and in an operand as in an initializer.

@@ -26,17 +26,20 @@ macOS calls `openat` with `O_RESOLVE_BENEATH`. An existing file needs exactly
 one pathname-opening syscall after `Root::open`; there is no component walker
 and no older-kernel fallback.
 
-This is not a sandbox: it does not stop code using `std::fs` directly, restrict
-mounts or device nodes below the root, or provide directory traversal,
-mutation, or other filesystem policy.
+This is path-resolution protection, not a sandbox. It confines only opens made
+through `Root`; it cannot stop other code from using `std::fs`, and it does not
+restrict mount points or device nodes beneath the root or enforce higher-level
+authorization or mutation policy.
 
-To verify syscall count manually, trace a small program that calls
-`root.open_file("a/b/c")` after constructing the root:
+To inspect the pathname-opening calls in the example, build it and trace it:
 
-```text
-Linux: strace -e trace=openat2 ./target/debug/examples/open_bench
-macOS: sudo dtruss -t openat ./target/debug/examples/open_bench
+```sh
+cargo build -p xsh-root --example open_bench
+strace -e trace=openat2 ./target/debug/examples/open_bench
+sudo dtruss -t openat ./target/debug/examples/open_bench
 ```
 
-The traced rooted shallow and deep opens should each show one `openat2` on
-Linux, or one `openat(..., O_RESOLVE_BENEATH, ...)` on macOS.
+Each rooted label makes 100,000 `Root::open_file` calls, each through one
+pathname-opening syscall: `openat2` on Linux or `openat(...,
+O_RESOLVE_BENEATH, ...)` on macOS. The example compares path depths rather than
+making one sample call.

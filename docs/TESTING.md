@@ -187,7 +187,7 @@ repository corpus checks and the existing repository lint budget remain active.
 | Command | Runs |
 |---|---|
 | `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the command repository contracts, `check-docs` (with release binaries), `git diff --check` |
-| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the command repository contracts, then `check-docs` with release binaries |
+| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no non-note findings within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the command repository contracts, then `check-docs` with release binaries |
 | `make test` (`cargo dev test`) | filtered root process targets, debug `--lib`, `xsht` integration, fixed-seed soundness, then one full native suite |
 | `cargo dev test xsh` | build verification products for the selected target, then one full native suite |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |
@@ -234,9 +234,18 @@ cargo build --release --target aarch64-apple-darwin -p xsh --bins -p xsht --bin 
 export PATH="$PWD/target/aarch64-apple-darwin/release:$PATH"
 ```
 
-Linux build and test verification uses `cargo dev test linux` inside the pinned
-`Dockerfile.test` image for `x86_64-unknown-linux-musl`; an out-of-image build
-is not evidence of Linux support.
+On x86-64 Linux, build the release products in the pinned `Dockerfile.test`
+image with the host-native musl target:
+
+```sh
+cargo dev dist --docker always
+export PATH="$PWD/target/x86_64-unknown-linux-musl/dist:$PATH"
+```
+
+The command builds `xsh`, `xsht`, and `xshi` under
+`target/x86_64-unknown-linux-musl/dist/`. For verification, run
+`cargo dev test linux` in the same pinned image; a build outside it is not
+evidence of Linux support.
 
 ## Grammar proofs
 

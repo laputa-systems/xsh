@@ -139,7 +139,40 @@ a note explaining why no automatic rewrite is offered.
 
 When reported, a `note` leaves the exit status at 0 and is counted separately
 in the closing `xsht lint: N findings, M notes` line; `--deny-notes` makes an
-otherwise successful run with notes exit 1. Per-rule descriptions are in the generated
+otherwise successful run with notes exit 1. Per-file `lint_diagnostics_status`
+ignores notes, while `lint_files_timed` counts emitted notes and applies
+`--deny-notes`. `cargo dev check` uses the lint command's status, and the
+`lint_performance` gate allows note-only reports. `lint.prefer-rel-path` and
+`lint.prefer-text-pattern` are opt-in notes because they can produce broad sets
+of migration candidates; `[lint]` keys or `--only` select them.
+The always-on notes have narrower evidence boundaries:
+
+- `lint.prefer-non-empty-argv` reports a spliced `run` target or pipeline
+  segment typed as `List[T]`; `NonEmpty[T]` must come from the binding,
+  parameter and callers, `.require(NonEmpty[T])?`, or a checked type
+  narrowing.
+- `lint.prefer-typed-callable` applies to private top-level `Proc` or `Pure`
+  parameters whose in-module callers all pass top-level functions with one
+  signature; it skips the candidate when that function's name is used as a
+  value or any call to it uses splice/spread. The body can then call the
+  parameter directly instead of using `.call(...)`.
+- `lint.prefer-within` reports a statement list only when every `run` form has
+  the same `--timeout` and at least two such statements; `within` bounds the
+  commands with one deadline instead of giving each its own timeout, and
+  reports that deadline as the scope's `Result`.
+- `lint.prefer-env-path-list` proposes `List[Path]` for a colon-formatted
+  search path as a dangerous manual fix. When unset, the string adds an empty
+  entry (searched as the current directory) while the list omits it. A
+  non-UTF-8 environment value falls back to `""`, and an interpolated `Path`
+  uses display text; the list preserves their bytes. An entry containing `:`
+  splits in the string but fails in the list.
+- `lint.empty-sentinel` reports a `let` or `var` initialized from a `Str?` or
+  `Result[Str]` with `SOURCE ?? ""`, then tested for emptiness later in that
+  same block with `== ""`, `!= ""`, or `.is_empty()`. It suggests
+  `if let NAME = SOURCE` or `if let Ok(NAME) = SOURCE` for a `Result`, keeping
+  a missing value distinct from a present empty string.
+
+Per-rule summaries are in the generated
 [`docs/reference/lints.md`](reference/lints.md).
 A fix round is accepted when the rewritten file has no check diagnostic the
 file did not have before, whether or not `--only` selects its code. SIGINT or
@@ -170,6 +203,8 @@ A safe fix:
 When a rule cannot preserve nearby comments, it reports without a fix. Lint
 diagnostics are invariant under formatting; a rule that measures source shape
 measures the formatter's spelling. Shapes the formatter owns are not lint rules.
+`lint.error-fallback-block` keeps a multiline expression handler inside the
+replacement's lazy `Result` `??` block, preserving its continuation lines.
 `lint.prefer-guard` reports a postfix guard only when the guarded statement fits
 88 columns, because the formatter has no readable multiline layout for a longer
 one; a longer guard stays an `if` block.
