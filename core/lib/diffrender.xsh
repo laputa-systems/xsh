@@ -39,18 +39,18 @@ type Layout = {half: Int, second: Int}
 # `-I` expression.
 pure trivial_line(line: Bytes, fmt: Format) -> Bool {
   if fmt.ignore_blank {
-    if line.is_empty() { return true }
+    return true when line.is_empty()
     if fmt.blank_skips_space {
       var blank = true
       for index in range(line.len()) {
-        if !gnudiff.is_space(line.byte_at(index) ?? 0) { blank = false; break }
+        guard gnudiff.is_space(line.byte_at(index) ?? 0) else { blank = false; break }
       }
-      if blank { return true }
+      return true when blank
     }
   }
   for pattern in fmt.patterns {
     let found = regex.find_bytes(pattern, line)
-    if found is Ok(_) and (found ?? []).len() > 0 { return true }
+    return true when found is Ok(_) and ! (found ?? []).is_empty()
   }
   false
 }
@@ -69,12 +69,12 @@ pure analyze(chain: List[gnudiff.Change], first: gnudiff.Source, second: gnudiff
     to += item.inserted
     if trivial {
       for index in range(item.line0, l0 + 1) {
-        if !trivial_line(first.lines[index], fmt) { trivial = false; break }
+        guard trivial_line(first.lines[index], fmt) else { trivial = false; break }
       }
     }
     if trivial {
       for index in range(item.line1, l1 + 1) {
-        if !trivial_line(second.lines[index], fmt) { trivial = false; break }
+        guard trivial_line(second.lines[index], fmt) else { trivial = false; break }
       }
     }
   }
@@ -86,7 +86,7 @@ pure analyze(chain: List[gnudiff.Change], first: gnudiff.Source, second: gnudiff
 ## an ignore expression), which decides the exit status.
 export pure significant(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format) -> Bool {
   for item in script {
-    if analyze([item], first, second, fmt).changes != 0 { return true }
+    return true when analyze([item], first, second, fmt).changes != 0
   }
   false
 }
@@ -99,50 +99,51 @@ pure terminated(source: gnudiff.Source, index: Int) -> Bool {
 # Tab expansion of one output line: tabs become spaces to the next stop, a
 # carriage return restarts the column and, when a flag is shown, repeats it.
 pure expand(line: Bytes, tabsize: Int, repeat_flag: Bytes?, utf8: Bool) -> Bytes {
-  var chunks: List[Bytes] = []
   var column = 0
   var start = 0
   let size = line.len()
   var index = 0
-  while index < size {
-    let value = line.byte_at(index) ?? 0
-    if value == 9 {
-      chunks += [line[start..index]]
-      let pad = tabsize - column % tabsize
-      for _ in range(pad) { chunks += [b" "] }
-      column += pad
-      start = index + 1
-      index += 1
-    } else if value == 13 {
-      chunks += [line[start..index + 1]]
-      start = index + 1
-      column = 0
-      if let flag = repeat_flag {
-        if index + 1 < size { chunks += [flag] }
-      }
-      index += 1
-    } else if value == 8 {
-      if column == 0 {
-        chunks += [line[start..index]]
+  let chunks = collect {
+    while index < size {
+      let value = line.byte_at(index) ?? 0
+      if value == 9 {
+        yield line[start..index]
+        let pad = tabsize - column % tabsize
+        repeat pad times { yield b" " }
+        column += pad
         start = index + 1
+        index += 1
+      } else if value == 13 {
+        yield line[start..index + 1]
+        start = index + 1
+        column = 0
+        if let flag = repeat_flag {
+          yield flag when index + 1 < size
+        }
+        index += 1
+      } else if value == 8 {
+        if column == 0 {
+          yield line[start..index]
+          start = index + 1
+        } else {
+          column -= 1
+        }
+        index += 1
       } else {
-        column -= 1
+        let unit = gnudiff.unit_at(line, index, utf8)
+        column += unit.columns
+        index += unit.bytes
       }
-      index += 1
-    } else {
-      let unit = gnudiff.unit_at(line, index, utf8)
-      column += unit.columns
-      index += unit.bytes
     }
+    yield line[start..size]
   }
-  chunks += [line[start..size]]
   bytes.concat(chunks)
 }
 
 ## Wrap text in the colour of palette slot `slot` (1 header, 2 added, 3
 # deleted, 4 line numbers); plain when colour is off or the slot is 0.
 export pure paint(fmt: Format, slot: Int, text: Bytes) -> Bytes {
-  if fmt.palette.is_empty() or slot == 0 { return text }
+  return text when fmt.palette.is_empty() or slot == 0
   bytes.concat([b"\x1b[", bytes.from_text(fmt.palette[slot]), b"m", text, b"\x1b[", bytes.from_text(fmt.palette[0]), b"m"])
 }
 
@@ -152,7 +153,7 @@ export pure paint(fmt: Format, slot: Int, text: Bytes) -> Bytes {
 # `slot` is the palette slot the line text is painted with (0 for none).
 pure render_line(flag: Str, line: Bytes, open: Bool, fmt: Format, slot: Int) -> Bytes {
   var prefix = b""
-  var repeat: Bytes? = null
+  var repeat = null
   if flag != "" {
     let sep = if fmt.initial_tab { "\t" } else if fmt.style == "unified" { "" } else { " " }
     if fmt.suppress_blank_empty and line.is_empty() {
@@ -193,9 +194,7 @@ pure function_heading(first: gnudiff.Source, from: Int, floor: Int, last_match: 
   while index >= floor {
     for pattern in patterns {
       let found = regex.find_bytes(pattern, first.lines[index])
-      if found is Ok(_) and (found ?? []).len() > 0 {
-        return {line: index, search_from: from}
-      }
+      return {line: index, search_from: from} when found is Ok(_) and ! (found ?? []).is_empty()
     }
     index -= 1
   }
@@ -206,7 +205,7 @@ pure function_heading(first: gnudiff.Source, from: Int, floor: Int, last_match: 
 # joins the one before it when fewer than `2 * context + 1` lines separate
 # them, or fewer than `context` when the later change is ignorable.
 pure hunk_groups(script: List[gnudiff.Change], flags: List[Bool], context: Int) -> List[List[Int]] {
-  var groups: List[List[Int]] = []
+  var groups = []
   var index = 0
   let count = script.len()
   while index < count {
@@ -214,7 +213,7 @@ pure hunk_groups(script: List[gnudiff.Change], flags: List[Bool], context: Int) 
     var prev = index
     while true {
       let next = prev + 1
-      if next >= count { break }
+      break when next >= count
       let top0 = script[prev].line0 + script[prev].deleted
       let threshold = if flags[next] { context } else { 2 * context + 1 }
       if script[next].line0 - top0 < threshold {
@@ -232,8 +231,9 @@ pure hunk_groups(script: List[gnudiff.Change], flags: List[Bool], context: Int) 
 
 # Flags saying which changes of the script are individually ignorable.
 pure ignorable(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format) -> List[Bool] {
-  var flags: List[Bool] = []
-  for item in script { flags += [analyze([item], first, second, fmt).changes == 0] }
+  let flags = collect {
+    for item in script { yield analyze([item], first, second, fmt).changes == 0 }
+  }
   flags
 }
 
@@ -260,82 +260,82 @@ pure heading_text(first: gnudiff.Source, at: Int, state: Heading, fmt: Format) -
 # Print a script as unified or context hunks. `header` is written before the
 # first hunk that is actually printed.
 pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format, header: Bytes, unified: Bool) -> Bytes {
-  var out: List[Bytes] = []
   var wrote_header = false
   let flags = ignorable(first, second, script, fmt)
-  var state: Heading = {search_from: 0, line: -1}
+  var state: Heading = Heading(search_from: 0, line: -1)
   let n0 = first.lines.len()
   let n1 = second.lines.len()
-  for members in hunk_groups(script, flags, fmt.context) {
-    var chain: List[gnudiff.Change] = []
-    for member in members { chain += [script[member]] }
-    let hunk = analyze(chain, first, second, fmt)
-    if hunk.changes == 0 { continue }
-    var first0 = hunk.first0 - fmt.context
-    if first0 < 0 { first0 = 0 }
-    var first1 = hunk.first1 - fmt.context
-    if first1 < 0 { first1 = 0 }
-    let last0 = if hunk.last0 < n0 - fmt.context { hunk.last0 + fmt.context } else { n0 - 1 }
-    let last1 = if hunk.last1 < n1 - fmt.context { hunk.last1 + fmt.context } else { n1 - 1 }
-    let title = heading_text(first, first0, state, fmt)
-    state = title.state
-    if !wrote_header {
-      out += [header]
-      wrote_header = true
-    }
-    if unified {
-      let line = f"@@ -{unified_range(first0, last0)} +{unified_range(first1, last1)} @@"
-      out += [paint(fmt, 4, bytes.from_text(line))]
-      if !title.text.is_empty() { out += [b" ", title.text] }
-      out += [b"\n"]
-      var cursor = 0
-      var i = first0
-      var j = first1
-      while i <= last0 or j <= last1 {
-        if cursor >= chain.len() or i < chain[cursor].line0 {
-          let blank = fmt.suppress_blank_empty and first.lines[i].is_empty()
-          if !blank { out += [if fmt.initial_tab { b"\t" } else { b" " }] }
-          out += [render_line("", first.lines[i], !terminated(first, i), fmt, 0)]
-          i += 1
-          j += 1
-        } else {
-          let item = chain[cursor]
-          for _ in range(item.deleted) {
-            out += [render_line("-", first.lines[i], !terminated(first, i), fmt, 3)]
+  let out = collect {
+    for members in hunk_groups(script, flags, fmt.context) {
+      var chain: List[gnudiff.Change] = [script[member] for member in members]
+      let hunk = analyze(chain, first, second, fmt)
+      continue when hunk.changes == 0
+      var first0 = hunk.first0 - fmt.context
+      if first0 < 0 { first0 = 0 }
+      var first1 = hunk.first1 - fmt.context
+      if first1 < 0 { first1 = 0 }
+      let last0 = if hunk.last0 < n0 - fmt.context { hunk.last0 + fmt.context } else { n0 - 1 }
+      let last1 = if hunk.last1 < n1 - fmt.context { hunk.last1 + fmt.context } else { n1 - 1 }
+      let title = heading_text(first, first0, state, fmt)
+      state = title.state
+      if !wrote_header {
+        yield header
+        wrote_header = true
+      }
+      if unified {
+        let line = f"@@ -{unified_range(first0, last0)} +{unified_range(first1, last1)} @@"
+        yield paint(fmt, 4, bytes.from_text(line))
+        if !title.text.is_empty() { yield @[b" ", title.text] }
+        yield b"\n"
+        var cursor = 0
+        var i = first0
+        var j = first1
+        while i <= last0 or j <= last1 {
+          if cursor >= chain.len() or i < chain[cursor].line0 {
+            let blank = fmt.suppress_blank_empty and first.lines[i].is_empty()
+            if !blank { yield if fmt.initial_tab { b"\t" } else { b" " } }
+            yield render_line("", first.lines[i], !terminated(first, i), fmt, 0)
             i += 1
-          }
-          for _ in range(item.inserted) {
-            out += [render_line("+", second.lines[j], !terminated(second, j), fmt, 2)]
             j += 1
+          } else {
+            let item = chain[cursor]
+            repeat item.deleted times {
+              yield render_line("-", first.lines[i], !terminated(first, i), fmt, 3)
+              i += 1
+            }
+            repeat item.inserted times {
+              yield render_line("+", second.lines[j], !terminated(second, j), fmt, 2)
+              j += 1
+            }
+            cursor += 1
           }
-          cursor += 1
         }
-      }
-    } else {
-      out += [b"***************"]
-      if !title.text.is_empty() { out += [b" ", title.text] }
-      out += [b"\n", paint(fmt, 4, bytes.from_text(f"*** {range_pair(first0, last0)} ****")), b"\n"]
-      if hunk.changes.bit_and(OLD) != 0 {
-        var cursor = 0
-        for i in range(first0, last0 + 1) {
-          while cursor < chain.len() and chain[cursor].line0 + chain[cursor].deleted <= i { cursor += 1 }
-          var flag = " "
-          if cursor < chain.len() and chain[cursor].line0 <= i {
-            flag = if chain[cursor].inserted > 0 { "!" } else { "-" }
+      } else {
+        yield b"***************"
+        if !title.text.is_empty() { yield @[b" ", title.text] }
+        yield @[b"\n", paint(fmt, 4, bytes.from_text(f"*** {range_pair(first0, last0)} ****")), b"\n"]
+        if hunk.changes.bit_and(OLD) != 0 {
+          var cursor = 0
+          for i in range(first0, last0 + 1) {
+            while cursor < chain.len() and chain[cursor].line0 + chain[cursor].deleted <= i { cursor += 1 }
+            var flag = " "
+            if cursor < chain.len() and chain[cursor].line0 <= i {
+              flag = if chain[cursor].inserted > 0 { "!" } else { "-" }
+            }
+            yield render_line(flag, first.lines[i], !terminated(first, i), fmt, 3)
           }
-          out += [render_line(flag, first.lines[i], !terminated(first, i), fmt, 3)]
         }
-      }
-      out += [paint(fmt, 4, bytes.from_text(f"--- {range_pair(first1, last1)} ----")), b"\n"]
-      if hunk.changes.bit_and(NEW) != 0 {
-        var cursor = 0
-        for i in range(first1, last1 + 1) {
-          while cursor < chain.len() and chain[cursor].line1 + chain[cursor].inserted <= i { cursor += 1 }
-          var flag = " "
-          if cursor < chain.len() and chain[cursor].line1 <= i {
-            flag = if chain[cursor].deleted > 0 { "!" } else { "+" }
+        yield @[paint(fmt, 4, bytes.from_text(f"--- {range_pair(first1, last1)} ----")), b"\n"]
+        if hunk.changes.bit_and(NEW) != 0 {
+          var cursor = 0
+          for i in range(first1, last1 + 1) {
+            while cursor < chain.len() and chain[cursor].line1 + chain[cursor].inserted <= i { cursor += 1 }
+            var flag = " "
+            if cursor < chain.len() and chain[cursor].line1 <= i {
+              flag = if chain[cursor].deleted > 0 { "!" } else { "+" }
+            }
+            yield render_line(flag, second.lines[i], !terminated(second, i), fmt, 2)
           }
-          out += [render_line(flag, second.lines[i], !terminated(second, i), fmt, 2)]
         }
       }
     }
@@ -345,58 +345,78 @@ pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[
 
 # Normal, ed and RCS formats: each change is printed on its own.
 pure render_simple(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format) -> Bytes {
-  var out: List[Bytes] = []
-  var order: List[Int] = []
-  if fmt.style == "ed" {
-    var at = script.len() - 1
-    while at >= 0 {
-      order += [at]
-      at -= 1
-    }
-  } else {
-    for index in range(script.len()) { order += [index] }
-  }
-  for index in order {
-    let hunk = analyze([script[index]], first, second, fmt)
-    if hunk.changes == 0 { continue }
-    if fmt.style == "normal" {
-      let letter = if hunk.changes == OLD { "d" } else if hunk.changes == NEW { "a" } else { "c" }
-      out += [paint(fmt, 4, bytes.from_text(f"{range_pair(hunk.first0, hunk.last0)}{letter}{range_pair(hunk.first1, hunk.last1)}")), b"\n"]
-      if hunk.changes.bit_and(OLD) != 0 {
-        for i in range(hunk.first0, hunk.last0 + 1) { out += [render_line("<", first.lines[i], !terminated(first, i), fmt, 3)] }
-      }
-      if hunk.changes == CHANGED { out += [b"---\n"] }
-      if hunk.changes.bit_and(NEW) != 0 {
-        for i in range(hunk.first1, hunk.last1 + 1) { out += [render_line(">", second.lines[i], !terminated(second, i), fmt, 2)] }
-      }
-    } else if fmt.style == "ed" {
-      let letter = if hunk.changes == OLD { "d" } else if hunk.changes == NEW { "a" } else { "c" }
-      out += [bytes.from_text(f"{range_pair(hunk.first0, hunk.last0)}{letter}\n")]
-      if hunk.changes != OLD {
-        var insert_mode = true
-        for i in range(hunk.first1, hunk.last1 + 1) {
-          if !insert_mode {
-            out += [b"a\n"]
-            insert_mode = true
-          }
-          if second.lines[i] == b"." and terminated(second, i) {
-            out += [b"..\n.\ns/.//\n"]
-            insert_mode = false
-          } else {
-            out += [render_line("", second.lines[i], !terminated(second, i), fmt, 0)]
-          }
-        }
-        if insert_mode { out += [b".\n"] }
+  let order = collect {
+    if fmt.style == "ed" {
+      var at = script.len() - 1
+      while at >= 0 {
+        yield at
+        at -= 1
       }
     } else {
-      let from0 = hunk.first0 + 1
-      let to0 = hunk.last0 + 1
-      if hunk.changes.bit_and(OLD) != 0 {
-        out += [bytes.from_text(f"d{from0} {to0 - from0 + 1}\n")]
-      }
-      if hunk.changes.bit_and(NEW) != 0 {
-        out += [bytes.from_text(f"a{to0} {hunk.last1 - hunk.first1 + 1}\n")]
-        for i in range(hunk.first1, hunk.last1 + 1) { out += [render_line("", second.lines[i], !terminated(second, i), fmt, 0)] }
+      for index in range(script.len()) { yield index }
+    }
+  }
+
+  let out = collect {
+    for index in order {
+      let hunk = analyze([script[index]], first, second, fmt)
+      continue when hunk.changes == 0
+      if fmt.style == "normal" {
+        let letter = if hunk.changes == OLD { "d" } else if hunk.changes == NEW { "a" } else { "c" }
+        yield @[
+          paint(
+            fmt,
+            4,
+            bytes.from_text(f"{range_pair(hunk.first0, hunk.last0)}{letter}{range_pair(hunk.first1, hunk.last1)}"),
+          ),
+          b"\n",
+        ]
+        if hunk.changes.bit_and(OLD) != 0 {
+          for i in range(hunk.first0, hunk.last0 + 1) {
+            yield render_line("<", first.lines[i], ! terminated(first, i), fmt, 3)
+          }
+        }
+
+        yield b"---\n" when hunk.changes == CHANGED
+        if hunk.changes.bit_and(NEW) != 0 {
+          for i in range(hunk.first1, hunk.last1 + 1) {
+            yield render_line(">", second.lines[i], ! terminated(second, i), fmt, 2)
+          }
+        }
+      } else if fmt.style == "ed" {
+        let letter = if hunk.changes == OLD { "d" } else if hunk.changes == NEW { "a" } else { "c" }
+        yield bytes.from_text(f"{range_pair(hunk.first0, hunk.last0)}{letter}\n")
+        if hunk.changes != OLD {
+          var insert_mode = true
+          for i in range(hunk.first1, hunk.last1 + 1) {
+            if ! insert_mode {
+              yield b"a\n"
+              insert_mode = true
+            }
+
+            if second.lines[i] == b"." and terminated(second, i) {
+              yield b"..\n.\ns/.//\n"
+              insert_mode = false
+            } else {
+              yield render_line("", second.lines[i], ! terminated(second, i), fmt, 0)
+            }
+          }
+
+          yield b".\n" when insert_mode
+        }
+      } else {
+        let from0 = hunk.first0 + 1
+        let to0 = hunk.last0 + 1
+        if hunk.changes.bit_and(OLD) != 0 {
+          yield bytes.from_text(f"d{from0} {to0 - from0 + 1}\n")
+        }
+
+        if hunk.changes.bit_and(NEW) != 0 {
+          yield bytes.from_text(f"a{to0} {hunk.last1 - hunk.first1 + 1}\n")
+          for i in range(hunk.first1, hunk.last1 + 1) {
+            yield render_line("", second.lines[i], ! terminated(second, i), fmt, 0)
+          }
+        }
       }
     }
   }
@@ -406,19 +426,20 @@ pure render_simple(first: gnudiff.Source, second: gnudiff.Source, script: List[g
 # Pad from column `from` to column `to` with tabs (unless tabs are expanded)
 # and then spaces. Returns the target column even when `from` is past it.
 pure tab_from_to(from: Int, to: Int, fmt: Format) -> Piece {
-  var chunks: List[Bytes] = []
   var at = from
-  if !fmt.expand_tabs {
-    var stop = from + fmt.tabsize - from % fmt.tabsize
-    while stop <= to {
-      chunks += [b"\t"]
-      at = stop
-      stop += fmt.tabsize
+  let chunks = collect {
+    if !fmt.expand_tabs {
+      var stop = from + fmt.tabsize - from % fmt.tabsize
+      while stop <= to {
+        yield b"\t"
+        at = stop
+        stop += fmt.tabsize
+      }
     }
-  }
-  while at < to {
-    chunks += [b" "]
-    at += 1
+    while at < to {
+      yield b" "
+      at += 1
+    }
   }
   {text: bytes.concat(chunks), column: to}
 }
@@ -426,55 +447,56 @@ pure tab_from_to(from: Int, to: Int, fmt: Format) -> Piece {
 # One half of a side-by-side line, cut to `bound` columns. Returns the bytes and
 # the column the output ends at.
 pure half_line(line: Bytes, indent: Int, bound: Int, fmt: Format) -> Piece {
-  var chunks: List[Bytes] = []
   var in_position = 0
   var out_position = 0
   var index = 0
   let size = line.len()
-  while index < size {
-    let value = line.byte_at(index) ?? 0
-    if value == 9 {
-      let spaces = fmt.tabsize - in_position % fmt.tabsize
-      if in_position == out_position {
-        var stop = out_position + spaces
-        if fmt.expand_tabs {
-          if bound < stop { stop = bound }
-          while out_position < stop {
-            chunks += [b" "]
-            out_position += 1
+  let chunks = collect {
+    while index < size {
+      let value = line.byte_at(index) ?? 0
+      if value == 9 {
+        let spaces = fmt.tabsize - in_position % fmt.tabsize
+        if in_position == out_position {
+          var stop = out_position + spaces
+          if fmt.expand_tabs {
+            if bound < stop { stop = bound }
+            while out_position < stop {
+              yield b" "
+              out_position += 1
+            }
+          } else if stop < bound {
+            out_position = stop
+            yield b"\t"
           }
-        } else if stop < bound {
-          out_position = stop
-          chunks += [b"\t"]
         }
-      }
-      in_position += spaces
-      index += 1
-    } else if value == 13 {
-      chunks += [b"\r"]
-      let pad = tab_from_to(0, indent, fmt)
-      chunks += [pad.text]
-      in_position = 0
-      out_position = 0
-      index += 1
-    } else if value == 8 {
-      if in_position != 0 {
-        let matched = in_position == out_position
-        in_position -= 1
-        if matched {
-          out_position -= 1
-          chunks += [b"\x08"]
+        in_position += spaces
+        index += 1
+      } else if value == 13 {
+        yield b"\r"
+        let pad = tab_from_to(0, indent, fmt)
+        yield pad.text
+        in_position = 0
+        out_position = 0
+        index += 1
+      } else if value == 8 {
+        if in_position != 0 {
+          let matched = in_position == out_position
+          in_position -= 1
+          if matched {
+            out_position -= 1
+            yield b"\x08"
+          }
         }
+        index += 1
+      } else {
+        let unit = gnudiff.unit_at(line, index, fmt.utf8)
+        if in_position + unit.columns <= bound {
+          yield line[index..index + unit.bytes]
+          out_position = in_position + unit.columns
+        }
+        in_position += unit.columns
+        index += unit.bytes
       }
-      index += 1
-    } else {
-      let unit = gnudiff.unit_at(line, index, fmt.utf8)
-      if in_position + unit.columns <= bound {
-        chunks += [line[index..index + unit.bytes]]
-        out_position = in_position + unit.columns
-      }
-      in_position += unit.columns
-      index += unit.bytes
     }
   }
   {text: bytes.concat(chunks), column: out_position}
@@ -485,8 +507,8 @@ pure half_line(line: Bytes, indent: Int, bound: Int, fmt: Format) -> Piece {
 pure sdiff_layout(fmt: Format) -> Layout {
   let width = fmt.width
   let base = if width > 3 { (width - 3) / 2 } else { 0 }
-  if base == 0 { return {half: 0, second: width} }
-  if fmt.expand_tabs { return {half: base, second: width - base} }
+  return {half: 0, second: width} when base == 0
+  return {half: base, second: width - base} when fmt.expand_tabs
   var offset = fmt.tabsize * ((width + 3 + fmt.tabsize) / (2 * fmt.tabsize))
   if offset > width { offset = width }
   var half = if offset - 3 < width - offset { offset - 3 } else { width - offset }
@@ -497,9 +519,8 @@ pure sdiff_layout(fmt: Format) -> Layout {
 
 pure sdiff_line(left: Bytes?, left_open: Bool, mark: Str, right: Bytes?, right_open: Bool, fmt: Format) -> Bytes {
   let layout = sdiff_layout(fmt)
-  let half = layout.half
-  let second = layout.second
-  var chunks: List[Bytes] = []
+  let {half, second, ..} = layout
+  var chunks = []
   var column = 0
   var newline = false
   var sep = mark
@@ -540,77 +561,97 @@ pure sdiff_line(left: Bytes?, left_open: Bool, mark: Str, right: Bytes?, right_o
 
 # Side-by-side output: common lines, then each hunk's paired and unpaired lines.
 pure render_sdiff(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format) -> Bytes {
-  var out: List[Bytes] = []
   var next0 = 0
   var next1 = 0
   let n0 = first.lines.len()
   let n1 = second.lines.len()
   var cursor = 0
-  while cursor <= script.len() {
-    var limit0 = n0
-    var limit1 = n1
-    var hunk: Hunk = {first0: 0, last0: -1, first1: 0, last1: -1, changes: 0}
-    if cursor < script.len() {
-      hunk = analyze([script[cursor]], first, second, fmt)
-      if hunk.changes == 0 {
-        cursor += 1
-        continue
-      }
-      limit0 = hunk.first0
-      limit1 = hunk.first1
-    }
-    if !fmt.suppress_common and (next0 != limit0 or next1 != limit1) {
-      var i0 = next0
-      var i1 = next1
-      while i0 < limit0 and i1 < limit1 {
-        if fmt.left_column {
-          out += [sdiff_line(first.lines[i0], !terminated(first, i0), "(", null, false, fmt)]
-        } else {
-          out += [sdiff_line(first.lines[i0], !terminated(first, i0), " ", second.lines[i1], !terminated(second, i1), fmt)]
+  let out = collect {
+    while cursor <= script.len() {
+      var limit0 = n0
+      var limit1 = n1
+      var hunk: Hunk = Hunk(first0: 0, last0: -1, first1: 0, last1: -1, changes: 0)
+      if cursor < script.len() {
+        hunk = analyze([script[cursor]], first, second, fmt)
+        if hunk.changes == 0 {
+          cursor += 1
+          continue
         }
-        i0 += 1
-        i1 += 1
+
+        limit0 = hunk.first0
+        limit1 = hunk.first1
       }
-      while i1 < limit1 {
-        out += [sdiff_line(null, false, ")", second.lines[i1], !terminated(second, i1), fmt)]
-        i1 += 1
+
+      if ! fmt.suppress_common and (next0 != limit0 or next1 != limit1) {
+        var i0 = next0
+        var i1 = next1
+        while i0 < limit0 and i1 < limit1 {
+          if fmt.left_column {
+            yield sdiff_line(first.lines[i0], ! terminated(first, i0), "(", null, false, fmt)
+          } else {
+            yield sdiff_line(
+              first.lines[i0],
+              ! terminated(first, i0),
+              " ",
+              second.lines[i1],
+              ! terminated(second, i1),
+              fmt,
+            )
+          }
+
+          i0 += 1
+          i1 += 1
+        }
+
+        while i1 < limit1 {
+          yield sdiff_line(null, false, ")", second.lines[i1], ! terminated(second, i1), fmt)
+          i1 += 1
+        }
+
+        while i0 < limit0 {
+          yield sdiff_line(first.lines[i0], ! terminated(first, i0), "(", null, false, fmt)
+          i0 += 1
+        }
       }
-      while i0 < limit0 {
-        out += [sdiff_line(first.lines[i0], !terminated(first, i0), "(", null, false, fmt)]
-        i0 += 1
+
+      next0 = limit0
+      next1 = limit1
+      break when cursor >= script.len()
+      var changes = hunk.changes
+      var i = hunk.first0
+      var j = hunk.first1
+      if changes == CHANGED {
+        while i <= hunk.last0 and j <= hunk.last1 {
+          yield sdiff_line(first.lines[i], ! terminated(first, i), "|", second.lines[j], ! terminated(second, j), fmt)
+          i += 1
+          j += 1
+        }
+
+        changes = (if i <= hunk.last0 { OLD } else { 0 }) + (if j <= hunk.last1 { NEW } else { 0 })
+        next0 = i
+        next1 = j
       }
+
+      if changes.bit_and(NEW) != 0 {
+        while j <= hunk.last1 {
+          yield sdiff_line(null, false, ">", second.lines[j], ! terminated(second, j), fmt)
+          j += 1
+        }
+
+        next1 = j
+      }
+
+      if changes.bit_and(OLD) != 0 {
+        while i <= hunk.last0 {
+          yield sdiff_line(first.lines[i], ! terminated(first, i), "<", null, false, fmt)
+          i += 1
+        }
+
+        next0 = i
+      }
+
+      cursor += 1
     }
-    next0 = limit0
-    next1 = limit1
-    if cursor >= script.len() { break }
-    var changes = hunk.changes
-    var i = hunk.first0
-    var j = hunk.first1
-    if changes == CHANGED {
-      while i <= hunk.last0 and j <= hunk.last1 {
-        out += [sdiff_line(first.lines[i], !terminated(first, i), "|", second.lines[j], !terminated(second, j), fmt)]
-        i += 1
-        j += 1
-      }
-      changes = (if i <= hunk.last0 { OLD } else { 0 }) + (if j <= hunk.last1 { NEW } else { 0 })
-      next0 = i
-      next1 = j
-    }
-    if changes.bit_and(NEW) != 0 {
-      while j <= hunk.last1 {
-        out += [sdiff_line(null, false, ">", second.lines[j], !terminated(second, j), fmt)]
-        j += 1
-      }
-      next1 = j
-    }
-    if changes.bit_and(OLD) != 0 {
-      while i <= hunk.last0 {
-        out += [sdiff_line(first.lines[i], !terminated(first, i), "<", null, false, fmt)]
-        i += 1
-      }
-      next0 = i
-    }
-    cursor += 1
   }
   bytes.concat(out)
 }
@@ -637,10 +678,10 @@ pure is_digit(value: Int) -> Bool {
 
 pure pad_to(text: Str, width: Int, left: Bool, zero: Bool) -> Str {
   var out = text
-  if out.byte_len() >= width { return out }
+  return out when out.byte_len() >= width
   let fill = width - out.byte_len()
   var padding = ""
-  for _ in range(fill) { padding += if zero and !left { "0" } else { " " } }
+  repeat fill times { padding += if zero and !left { "0" } else { " " } }
   if left { out + padding } else if zero and out.starts_with("-") { "-" + padding + out.byte_slice(1) } else { padding + out }
 }
 
@@ -670,11 +711,11 @@ pure group_value(letter: Int, span: Span) -> Int? {
   let kind = if upper { letter + 32 } else { letter }
   let beg = if upper { span.beg1 } else { span.beg0 }
   let end = if upper { span.end1 } else { span.end0 }
-  if kind == 102 { return beg + 1 }
-  if kind == 108 { return end }
-  if kind == 110 { return end - beg }
-  if kind == 101 { return beg }
-  if kind == 109 { return end + 1 }
+  return beg + 1 when kind == 102
+  return end when kind == 108
+  return end - beg when kind == 110
+  return beg when kind == 101
+  return end + 1 when kind == 109
   null
 }
 
@@ -694,37 +735,37 @@ pure number_at(raw: Bytes, at: Int) -> Digits {
 # A `%c'C'` or `%c'\OOO'` character at `at` (just after the `c`), as the byte
 # and the position after the closing quote; null when malformed.
 pure char_spec(raw: Bytes, at: Int) -> Literal? {
-  if raw.byte_at(at) != 39 { return null }
+  return null when raw.byte_at(at) != 39
   let first = raw.byte_at(at + 1)
-  if first == null { return null }
+  return null when first == null
   if first == 92 {
     var cursor = at + 2
     var value = 0
     var count = 0
     while count < 3 and cursor < raw.len() {
       let digit = raw.byte_at(cursor) ?? 0
-      if digit < 48 or digit > 55 { break }
+      break when digit < 48 or digit > 55
       value = value * 8 + (digit - 48)
       cursor += 1
       count += 1
     }
-    if count == 0 or raw.byte_at(cursor) != 39 { return null }
+    return null when count == 0 or raw.byte_at(cursor) != 39
     return {value: value % 256, at: cursor + 1}
   }
-  if raw.byte_at(at + 2) != 39 { return null }
-  {value: first ?? 0, at: at + 3}
+  return null when raw.byte_at(at + 2) != 39
+  {value: first, at: at + 3}
 }
 
 # Scan a group format from `at` until `stop` (a byte, or -1 for the end of the
 # text), writing to the result only when `emit` is true. Unknown or malformed
 # directives are copied through as they were written.
 pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Scan {
-  var out: List[Bytes] = []
+  var out = []
   var at = start
   let size = raw.len()
   while at < size {
     let value = raw.byte_at(at) ?? 0
-    if value == stop { break }
+    break when value == stop
     if value != 37 {
       if emit { out += [raw[at..at + 1]] }
       at += 1
@@ -736,7 +777,7 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
       at += 1
       continue
     }
-    let letter = after ?? 0
+    let letter = after
     if letter == 37 {
       if emit { out += [b"%"] }
       at += 2
@@ -761,28 +802,29 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
       }
     } else if letter == 40 {
       var cursor = at + 2
-      var values: List[Int] = []
       var well_formed = true
-      for side in range(2) {
-        let number = number_at(raw, cursor)
-        if number.seen {
-          values += [number.value]
-          cursor = number.at
-        } else {
-          let named = group_value(raw.byte_at(cursor) ?? 0, span)
-          if named == null {
+      let values = collect {
+        for side in range(2) {
+          let number = number_at(raw, cursor)
+          if number.seen {
+            yield number.value
+            cursor = number.at
+          } else {
+            let named = group_value(raw.byte_at(cursor) ?? 0, span)
+            if named == null {
+              well_formed = false
+              break
+            }
+            yield named
+            cursor += 1
+          }
+          let expected = if side == 0 { 61 } else { 63 }
+          if raw.byte_at(cursor) != expected {
             well_formed = false
             break
           }
-          values += [named ?? 0]
           cursor += 1
         }
-        let expected = if side == 0 { 61 } else { 63 }
-        if raw.byte_at(cursor) != expected {
-          well_formed = false
-          break
-        }
-        cursor += 1
       }
       if !well_formed {
         if emit { out += [b"%"] }
@@ -828,7 +870,7 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
       if (conversion == 100 or conversion == 111 or conversion == 120 or conversion == 88) and named != null {
         if emit {
           let kind = raw[cursor..cursor + 1].utf8() ?? "d"
-          out += [bytes.from_text(integer_text(named ?? 0, kind, left, zero, width.value, precision))]
+          out += [bytes.from_text(integer_text(named, kind, left, zero, width.value, precision))]
         }
         at = cursor + 2
       } else {
@@ -843,73 +885,79 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
 # One line through a line format: `%L` the line with its newline, `%l` without,
 # `%n` (with printf flags) the line number, `%c'C'` and `%%`.
 pure line_text(raw: Bytes, line: Bytes, terminated: Bool, number: Int) -> Bytes {
-  var out: List[Bytes] = []
   var at = 0
   let size = raw.len()
-  while at < size {
-    let value = raw.byte_at(at) ?? 0
-    if value != 37 {
-      out += [raw[at..at + 1]]
-      at += 1
-      continue
-    }
-    let after = raw.byte_at(at + 1)
-    if after == null {
-      out += [b"%"]
-      at += 1
-      continue
-    }
-    let letter = after ?? 0
-    if letter == 37 {
-      out += [b"%"]
-      at += 2
-    } else if letter == 76 {
-      out += [line, if terminated { b"\n" } else { b"" }]
-      at += 2
-    } else if letter == 108 {
-      out += [line]
-      at += 2
-    } else if letter == 99 {
-      let spec = char_spec(raw, at + 2)
-      if spec == null {
-        out += [b"%"]
+  let out = collect {
+    while at < size {
+      let value = raw.byte_at(at) ?? 0
+      if value != 37 {
+        yield raw[at..at + 1]
         at += 1
-      } else {
-        let found = spec ?? {value: 0, at: at}
-        out += [bytes.from_ints([found.value]) ?? b""]
-        at = found.at
+        continue
       }
-    } else {
-      var cursor = at + 1
-      var left = false
-      var zero = false
-      while cursor < size {
-        let flag = raw.byte_at(cursor) ?? 0
-        if flag == 45 {
-          left = true
-        } else if flag == 48 {
-          zero = true
+
+      let after = raw.byte_at(at + 1)
+      if after == null {
+        yield b"%"
+        at += 1
+        continue
+      }
+
+      let letter = after
+      if letter == 37 {
+        yield b"%"
+        at += 2
+      } else if letter == 76 {
+        yield @[line, if terminated { b"\n" } else { b"" }]
+        at += 2
+      } else if letter == 108 {
+        yield line
+        at += 2
+      } else if letter == 99 {
+        let spec = char_spec(raw, at + 2)
+        if spec == null {
+          yield b"%"
+          at += 1
         } else {
-          break
+          let found = spec ?? {value: 0, at: at}
+          yield bytes.from_ints([found.value]) ?? b""
+          at = found.at
         }
-        cursor += 1
-      }
-      let width = number_at(raw, cursor)
-      cursor = width.at
-      var precision = -1
-      if raw.byte_at(cursor) == 46 {
-        let digits = number_at(raw, cursor + 1)
-        precision = digits.value
-        cursor = digits.at
-      }
-      let conversion = raw.byte_at(cursor) ?? 0
-      if (conversion == 100 or conversion == 111 or conversion == 120 or conversion == 88) and raw.byte_at(cursor + 1) == 110 {
-        let kind = raw[cursor..cursor + 1].utf8() ?? "d"
-        out += [bytes.from_text(integer_text(number, kind, left, zero, width.value, precision))]
-        at = cursor + 2
       } else {
-        out += [b"%"]
-        at += 1
+        var cursor = at + 1
+        var left = false
+        var zero = false
+        while cursor < size {
+          let flag = raw.byte_at(cursor) ?? 0
+          if flag == 45 {
+            left = true
+          } else if flag == 48 {
+            zero = true
+          } else {
+            break
+          }
+
+          cursor += 1
+        }
+
+        let width = number_at(raw, cursor)
+        cursor = width.at
+        var precision = -1
+        if raw.byte_at(cursor) == 46 {
+          let digits = number_at(raw, cursor + 1)
+          precision = digits.value
+          cursor = digits.at
+        }
+
+        let conversion = raw.byte_at(cursor) ?? 0
+        if (conversion == 100 or conversion == 111 or conversion == 120 or conversion == 88) and raw.byte_at(cursor + 1) == 110 {
+          let kind = raw[cursor..cursor + 1].utf8() ?? "d"
+          yield bytes.from_text(integer_text(number, kind, left, zero, width.value, precision))
+          at = cursor + 2
+        } else {
+          yield b"%"
+          at += 1
+        }
       }
     }
   }
@@ -918,10 +966,11 @@ pure line_text(raw: Bytes, line: Bytes, terminated: Bool, number: Int) -> Bytes 
 
 # The lines `from` up to `to` of one file through a line format.
 pure group_lines(layout_text: Str, source: gnudiff.Source, from: Int, to: Int) -> Bytes {
-  var out: List[Bytes] = []
   let raw = bytes.from_text(layout_text)
-  for index in range(from, to) {
-    out += [line_text(raw, source.lines[index], terminated(source, index), index + 1)]
+  let out = collect {
+    for index in range(from, to) {
+      yield line_text(raw, source.lines[index], terminated(source, index), index + 1)
+    }
   }
   bytes.concat(out)
 }
@@ -929,24 +978,51 @@ pure group_lines(layout_text: Str, source: gnudiff.Source, from: Int, to: Int) -
 ## Merged-file output: unchanged stretches and changed groups through the group
 # formats, each changed group chosen by what it changes.
 export pure render_ifdef(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format, templates: Templates) -> Bytes {
-  var out: List[Bytes] = []
   var next0 = 0
   var next1 = 0
   let n0 = first.lines.len()
   let n1 = second.lines.len()
-  for item in script {
-    let hunk = analyze([item], first, second, fmt)
-    if hunk.changes == 0 { continue }
-    if next0 < hunk.first0 {
-      out += [group_scan(bytes.from_text(templates.unchanged_group), 0, -1, true, {first: first, second: second, beg0: next0, end0: hunk.first0, beg1: next1, end1: hunk.first1, templates: templates}).text]
+  let out = collect {
+    for item in script {
+      let hunk = analyze([item], first, second, fmt)
+      continue when hunk.changes == 0
+      if next0 < hunk.first0 {
+        yield group_scan(
+          bytes.from_text(templates.unchanged_group),
+          0,
+          -1,
+          true,
+          {first: first, second: second, beg0: next0, end0: hunk.first0, beg1: next1, end1: hunk.first1, templates: templates},
+        ).text
+      }
+
+      next0 = hunk.last0 + 1
+      next1 = hunk.last1 + 1
+      let pattern = if hunk.changes == OLD {
+        templates.old_group
+      } else if hunk.changes == NEW {
+        templates.new_group
+      } else {
+        templates.changed_group
+      }
+      yield group_scan(
+        bytes.from_text(pattern),
+        0,
+        -1,
+        true,
+        {first: first, second: second, beg0: hunk.first0, end0: next0, beg1: hunk.first1, end1: next1, templates: templates},
+      ).text
     }
-    next0 = hunk.last0 + 1
-    next1 = hunk.last1 + 1
-    let pattern = if hunk.changes == OLD { templates.old_group } else if hunk.changes == NEW { templates.new_group } else { templates.changed_group }
-    out += [group_scan(bytes.from_text(pattern), 0, -1, true, {first: first, second: second, beg0: hunk.first0, end0: next0, beg1: hunk.first1, end1: next1, templates: templates}).text]
-  }
-  if next0 < n0 {
-    out += [group_scan(bytes.from_text(templates.unchanged_group), 0, -1, true, {first: first, second: second, beg0: next0, end0: n0, beg1: next1, end1: n1, templates: templates}).text]
+
+    if next0 < n0 {
+      yield group_scan(
+        bytes.from_text(templates.unchanged_group),
+        0,
+        -1,
+        true,
+        {first: first, second: second, beg0: next0, end0: n0, beg1: next1, end1: n1, templates: templates},
+      ).text
+    }
   }
   bytes.concat(out)
 }
@@ -956,6 +1032,6 @@ export pure render_ifdef(first: gnudiff.Source, second: gnudiff.Source, script: 
 export pure render(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format, header: Bytes) -> Bytes {
   if fmt.style == "unified" { return render_context(first, second, script, fmt, header, true) }
   if fmt.style == "context" { return render_context(first, second, script, fmt, header, false) }
-  if fmt.style == "sdiff" { return render_sdiff(first, second, script, fmt) }
+  return render_sdiff(first, second, script, fmt) when fmt.style == "sdiff"
   render_simple(first, second, script, fmt)
 }

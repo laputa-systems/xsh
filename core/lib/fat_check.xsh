@@ -17,30 +17,30 @@ pure issue(state: State, message: Str, safe: Bool) -> State {
 }
 
 pure value(state: State, cluster: Int) -> Result[Int] {
-  if cluster in state.changes { return Ok(state.changes[cluster]) }
+  return Ok(state.changes[cluster]) when cluster in state.changes
   geom.table_get(state.table, state.layout, cluster)
 }
 
 pure chain(initial: State, start: Int, owner: Int, safe_empty: Bool) -> Result[Chain] {
   var state = initial
-  var clusters: List[Int] = []
+  var clusters = []
   var current = start
   while true {
-    if ! geom.valid(state.layout, current) {
+    guard geom.valid(state.layout, current) else {
       state = issue(state, f"invalid cluster {current} in entry {owner}", ! clusters.is_empty() or safe_empty)
-      if state.repair and ! clusters.is_empty() { state.changes[clusters[clusters.len() - 1]] = geom.eoc(state.layout) }
+      if state.repair and ! clusters.is_empty() { state.changes[clusters[-1]] = geom.eoc(state.layout) }
       break
     }
     if current in state.owners {
       let kind = if state.owners[current] == owner { "loop" } else { "cross-link" }
       state = issue(state, f"cluster {current}: {kind} in entry {owner}", ! clusters.is_empty() or safe_empty)
-      if state.repair and ! clusters.is_empty() { state.changes[clusters[clusters.len() - 1]] = geom.eoc(state.layout) }
+      if state.repair and ! clusters.is_empty() { state.changes[clusters[-1]] = geom.eoc(state.layout) }
       break
     }
     let next = value(state, current)?
     if next == geom.bad(state.layout) {
       state = issue(state, f"bad cluster {current} in entry {owner}", ! clusters.is_empty() or safe_empty)
-      if state.repair and ! clusters.is_empty() { state.changes[clusters[clusters.len() - 1]] = geom.eoc(state.layout) }
+      if state.repair and ! clusters.is_empty() { state.changes[clusters[-1]] = geom.eoc(state.layout) }
       break
     }
     state.owners[current] = owner
@@ -73,12 +73,12 @@ pure valid_lfn(parts: List[geom.Patch], short_name: Bytes) -> Result[Bool] {
     index -= 1
     for offset in [1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30] {
       let unit = geom.number(parts[index].data, offset, 2)?
-      if terminated { if unit != 65535 { return Ok(false) }; continue }
-      if unit == 0 { if high_surrogate { return Ok(false) }; terminated = true; continue }
+      if terminated { return Ok(false) when unit != 65535; continue }
+      if unit == 0 { return Ok(false) when high_surrogate; terminated = true; continue }
       if unit == 65535 or unit < 32 or unit in [34, 42, 47, 58, 60, 62, 63, 92, 124] { return Ok(false) }
       length += 1
       if high_surrogate {
-        if unit < 56320 or unit > 57343 { return Ok(false) }
+        return Ok(false) when unit < 56320 or unit > 57343
         high_surrogate = false
       } else if unit >= 55296 and unit <= 56319 { high_surrogate = true } else if unit >= 56320 and unit <= 57343 { return Ok(false) }
     }
@@ -88,7 +88,7 @@ pure valid_lfn(parts: List[geom.Patch], short_name: Bytes) -> Result[Bool] {
 
 proc bad_lfn(image: Path, state: State, parts: List[geom.Patch]) -> Result[State] {
   let updated = issue(state, f"invalid long-filename chain at byte {parts[0].offset}", true)
-  if state.repair { for part in parts { image_io.write_region(image, part.offset, b"\xe5")? } }
+  if state.repair { for part in parts { image_io.write_region(image, part.offset, b"\xe5") } }
   Ok(updated)
 }
 
@@ -96,14 +96,14 @@ proc directories(image: Path, initial: State) -> Result[State] {
   var state = initial
   let layout = state.layout
   var queue: List[Directory] = [{cluster: layout.root_cluster, parent: 0, root: true}]
-  var visited: Map[Int, Bool] = {}
+  var visited: Set[Int] = set.empty()
   var next_directory = 0
   while next_directory < queue.len() {
     let directory = queue[next_directory]
     next_directory += 1
     if directory.cluster in visited { state = issue(state, f"directory cycle at cluster {directory.cluster}", false); continue }
-    visited[directory.cluster] = true
-    var offsets: List[Int] = []
+    visited = visited.add(directory.cluster)
+    var offsets = []
     let length = if directory.root and layout.bits != 32 { layout.roots * 32 } else { geom.cluster_bytes(layout) }
     if directory.root and layout.bits != 32 { offsets = [geom.root_offset(layout)] } else {
       let walked = chain(state, directory.cluster, -directory.cluster - 1, false)?
@@ -125,16 +125,16 @@ proc directories(image: Path, initial: State) -> Result[State] {
         if first == 229 { if ! parts.is_empty() { state = bad_lfn(image, state, parts)?; parts = [] }; continue }
         let attributes = geom.byte(entry, 11)?
         if attributes == 15 { parts += [{offset: at, data: entry}]; continue }
-        if ! parts.is_empty() { if ! valid_lfn(parts, entry.slice(0, length: 11))? { state = bad_lfn(image, state, parts)? }; parts = [] }
+        if ! parts.is_empty() { if ! valid_lfn(parts, entry[..11]) { state = bad_lfn(image, state, parts)? }; parts = [] }
         let cluster = geom.number(entry, 20, 2)? * 65536 + geom.number(entry, 26, 2)?
         let size = geom.number(entry, 28, 4)?
         if attributes.bit_and(192) != 0 or (layout.bits != 32 and geom.number(entry, 20, 2)? != 0) { state = issue(state, f"invalid directory entry at byte {at}", false) }
         if attributes.bit_and(8) != 0 {
-          if directory.root { state.labels += [{offset: at, data: entry.slice(0, length: 11)}] } else { state = issue(state, f"volume label outside root at byte {at}", false) }
+          if directory.root { state.labels += [{offset: at, data: entry[..11]}] } else { state = issue(state, f"volume label outside root at byte {at}", false) }
           if attributes != 8 or cluster != 0 or size != 0 { state = issue(state, f"invalid volume-label entry at byte {at}", false) }
           continue
         }
-        let short_name = entry.slice(0, length: 11)
+        let short_name = entry[..11]
         if short_name in [b".          ", b"..         "] {
           let dot = short_name == b".          "
           if dot { found_dot = true } else { found_parent = true }
@@ -146,24 +146,24 @@ proc directories(image: Path, initial: State) -> Result[State] {
               entry = geom.put(entry, 26, 2, expected % 65536)?
               entry = geom.put(entry, 28, 4, 0)?
               entry = geom.put(entry, 11, 1, 16)?
-              image_io.write_region(image, at, entry)?
+              image_io.write_region(image, at, entry)
             }
           }
           continue
         }
-        var invalid_name = short_name.slice(0, length: 8) == b"        " or geom.byte(entry, 12)?.clear_bits(24) != 0
+        var invalid_name = short_name[..8] == b"        " or geom.byte(entry, 12)?.clear_bits(24) != 0
         for name_at in range(11) {
           let byte = geom.byte(short_name, name_at)?
           if (byte < 32 and ! (name_at == 0 and byte == 5)) or byte in [34, 42, 43, 44, 46, 47, 58, 59, 60, 61, 62, 63, 91, 92, 93, 124] { invalid_name = true }
         }
         if invalid_name { state = issue(state, f"invalid short filename at byte {at}", false) }
         if attributes.bit_and(16) != 0 {
-          if size != 0 { state = issue(state, f"nonzero directory size at byte {at}", true); if state.repair { entry = geom.put(entry, 28, 4, 0)?; image_io.write_region(image, at, entry)? } }
+          if size != 0 { state = issue(state, f"nonzero directory size at byte {at}", true); if state.repair { entry = geom.put(entry, 28, 4, 0)?; image_io.write_region(image, at, entry) } }
           if ! geom.valid(layout, cluster) { state = issue(state, f"invalid directory cluster {cluster} at byte {at}", false) } else { queue += [{cluster, parent: if directory.root { 0 } else { directory.cluster }, root: false}] }
           continue
         }
         if cluster == 0 {
-          if size != 0 { state = issue(state, f"nonempty file without cluster at byte {at}", true); if state.repair { entry = geom.put(entry, 28, 4, 0)?; image_io.write_region(image, at, entry)? } }
+          if size != 0 { state = issue(state, f"nonempty file without cluster at byte {at}", true); if state.repair { entry = geom.put(entry, 28, 4, 0)?; image_io.write_region(image, at, entry) } }
           continue
         }
         let walked = chain(state, cluster, at, true)?
@@ -171,7 +171,7 @@ proc directories(image: Path, initial: State) -> Result[State] {
         if state.repair and walked.clusters.is_empty() {
           entry = geom.put(entry, 20, 2, 0)?
           entry = geom.put(entry, 26, 2, 0)?
-          image_io.write_region(image, at, entry)?
+          image_io.write_region(image, at, entry)
         }
         let capacity = walked.clusters.len() * geom.cluster_bytes(layout)
         let required = (size + geom.cluster_bytes(layout) - 1) / geom.cluster_bytes(layout)
@@ -180,13 +180,13 @@ proc directories(image: Path, initial: State) -> Result[State] {
           if state.repair {
             entry = geom.put(entry, 28, 4, capacity)?
             if walked.clusters.is_empty() { entry = geom.put(entry, 20, 2, 0)?; entry = geom.put(entry, 26, 2, 0)? }
-            image_io.write_region(image, at, entry)?
+            image_io.write_region(image, at, entry)
           }
         }
         if walked.clusters.len() > required {
           state = issue(state, f"file chain exceeds size at byte {at}", true)
           if state.repair {
-            if required == 0 { entry = geom.put(entry, 20, 2, 0)?; entry = geom.put(entry, 26, 2, 0)?; image_io.write_region(image, at, entry)? } else { state.changes[walked.clusters[required - 1]] = geom.eoc(layout) }
+            if required == 0 { entry = geom.put(entry, 20, 2, 0)?; entry = geom.put(entry, 26, 2, 0)?; image_io.write_region(image, at, entry) } else { state.changes[walked.clusters[required - 1]] = geom.eoc(layout) }
             for chain_index in range(walked.clusters.len()) { if chain_index >= required { let discarded = walked.clusters[chain_index]; state.changes[discarded] = 0; state.owners = state.owners.remove(discarded) } }
           }
         }
@@ -198,7 +198,7 @@ proc directories(image: Path, initial: State) -> Result[State] {
   Ok(state)
 }
 
-proc flush_changes(image: Path, state: State) -> Result[Unit] {
+proc flush_changes(image: Path, state: State) {
   let layout = state.layout
   for {key: cluster, value: replacement} in state.changes {
     var offset = 0
@@ -208,7 +208,7 @@ proc flush_changes(image: Path, state: State) -> Result[Unit] {
       let packed = if cluster % 2 == 0 { replacement % 4096 + value(state, cluster + 1)? % 16 * 4096 } else { value(state, cluster - 1)? / 256 % 16 + replacement % 4096 * 16 }
       encoded = bytes.pack_le(packed, 2)?
     } else { let change = geom.table_patch(state.table, layout, cluster, replacement)?; offset = change.offset; encoded = change.data }
-    for copy in range(layout.fats) { image_io.write_region(image, (layout.reserved + copy * layout.fat_sectors) * layout.sector + offset, encoded)? }
+    for copy in range(layout.fats) { image_io.write_region(image, (layout.reserved + copy * layout.fat_sectors) * layout.sector + offset, encoded) }
   }
   Ok()
 }
@@ -227,13 +227,13 @@ export proc check(image: Path, repair = false) -> Result[Report, Error] {
   for copy in range(layout.fats) {
     continue when copy == 0
     let offset = (layout.reserved + copy * layout.fat_sectors) * layout.sector
-    if image_io.read_region(image, offset, state.table.len())? != state.table { state = issue(state, f"FAT copy {copy} differs from first FAT", true); if repair { image_io.write_region(image, offset, state.table)? } }
+    if image_io.read_region(image, offset, state.table.len())? != state.table { state = issue(state, f"FAT copy {copy} differs from first FAT", true); if repair { image_io.write_region(image, offset, state.table) } }
   }
   state = directories(image, state)?
   let label_at = if layout.bits == 32 { 71 } else { 43 }
   let root_label = if state.labels.is_empty() { b"NO NAME    " } else { state.labels[0].data }
-  if boot.slice(label_at, length: 11) != root_label { state = issue(state, "boot and root directory volume labels differ", true); if repair { boot = geom.replace(boot, label_at, root_label); image_io.write_region(image, 0, boot)? } }
-  for index in range(state.labels.len()) { if index > 0 { let offset = state.labels[index].offset; state = issue(state, f"duplicate root volume label at byte {offset}", true); if repair { image_io.write_region(image, offset, b"\xe5")? } } }
+  if boot.slice(label_at, length: 11) != root_label { state = issue(state, "boot and root directory volume labels differ", true); if repair { boot = geom.replace(boot, label_at, root_label); image_io.write_region(image, 0, boot) } }
+  for index in range(state.labels.len()) { if index > 0 { let offset = state.labels[index].offset; state = issue(state, f"duplicate root volume label at byte {offset}", true); if repair { image_io.write_region(image, offset, b"\xe5") } } }
   var lost = 0
   var first_lost = 0
   var free = 0
@@ -246,7 +246,7 @@ export proc check(image: Path, repair = false) -> Result[Report, Error] {
   }
   if lost > 0 { state = issue(state, f"{lost} lost clusters, first cluster {first_lost}", true) }
   if layout.bits == 32 {
-    if image_io.read_region(image, layout.backup * layout.sector, layout.sector)? != boot { state = issue(state, "backup boot sector differs", true); if repair { image_io.write_region(image, layout.backup * layout.sector, boot)? } }
+    if image_io.read_region(image, layout.backup * layout.sector, layout.sector)? != boot { state = issue(state, "backup boot sector differs", true); if repair { image_io.write_region(image, layout.backup * layout.sector, boot) } }
     for sector in [layout.fsinfo, layout.backup + layout.fsinfo] {
       continue when sector >= layout.reserved
       let info = image_io.read_region(image, sector * layout.sector, layout.sector)?
@@ -255,10 +255,10 @@ export proc check(image: Path, repair = false) -> Result[Report, Error] {
       let invalid_count = known != 4294967295 and (known > layout.clusters or (sector == layout.fsinfo and known != free))
       if geom.number(info, 0, 4)? != 1096897106 or geom.number(info, 484, 4)? != 1631679090 or geom.number(info, 508, 4)? != 2857697280 or invalid_count or (next != 4294967295 and ! geom.valid(layout, next)) {
         state = issue(state, f"invalid FSInfo sector {sector}", true)
-        if repair { image_io.write_region(image, sector * layout.sector, geom.fsinfo(layout, free, next_free)?)? }
+        if repair { image_io.write_region(image, sector * layout.sector, geom.fsinfo(layout, free, next_free)?) }
       }
     }
   }
-  if repair and state.repaired > 0 { flush_changes(image, state)?; fs.fsync(image)? }
+  if repair and state.repaired > 0 { flush_changes(image, state); fs.fsync(image) }
   Ok({issues: state.issues, repaired: state.repaired, unresolved: state.unresolved})
 }

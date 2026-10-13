@@ -2,7 +2,7 @@
 use lib.gnu
 use lib.system_control as control
 
-proc main(...argv: List[Str]) -> Result[Unit] {
+proc main(...argv: List[Str]) {
   let opts = cli.applet(argv, {
     gnu: {permute: false, unsupported: {"-c": "acquiring a controlling terminal is not available", "--ctty": "acquiring a controlling terminal is not available"}},
     fork: {form: "-f --fork", default: false}, wait: {form: "-w --wait", default: false},
@@ -15,7 +15,7 @@ proc main(...argv: List[Str]) -> Result[Unit] {
   if ! opts.fork {
     match process.new_session() {
       Ok(_) => { unix.exec(direct_command); return }
-      Err(failure) => { if gnu.errno(failure) != 1 { return Err(failure) } }
+      Err(failure) => return Err(failure) when gnu.errno(failure) != 1
     }
   }
   let command = control.command(opts.operands, new_session: true, detach: ! opts.wait)?
@@ -25,5 +25,4 @@ proc main(...argv: List[Str]) -> Result[Unit] {
     exit control.status_code(status)?
   }
   let _ = process.spawn(command)?
-  return
 }

@@ -104,7 +104,7 @@ export pure controller(page: Bytes) -> Controller {
 }
 
 pure text(page: Bytes, offset: Int, length: Int) -> Str {
-  let raw = page.slice(offset, length: length)
+  let raw = page.slice(offset, length:)
   let decoded = raw.utf8() ?? ""
   decoded.trim()
 }
@@ -112,14 +112,15 @@ pure text(page: Bytes, offset: Int, length: Int) -> Str {
 ## Decodes the identify namespace page (4096 bytes).
 export pure namespace(page: Bytes) -> Namespace {
   let count = smart.at(page, 25) + 1
-  var formats: List[LbaFormat] = []
-  for index in range(count) {
-    let base = 128 + index * 4
-    formats += [{
-      metadata_size: smart.le(page, base, 2),
-      data_bytes: smart.pow2(smart.at(page, base + 2)),
-      relative_performance: smart.at(page, base + 3) % 4,
-    }]
+  let formats: List[LbaFormat] = collect {
+    for index in range(count) {
+      let base = 128 + index * 4
+      yield {
+        metadata_size: smart.le(page, base, 2),
+        data_bytes: smart.pow2(smart.at(page, base + 2)),
+        relative_performance: smart.at(page, base + 3) % 4,
+      }
+    }
   }
   let formatted = smart.at(page, 26) % 16
   let current = if formatted < formats.len() { formats[formatted].data_bytes } else { 512 }
@@ -137,10 +138,11 @@ export pure namespace(page: Bytes) -> Namespace {
 
 ## Decodes the SMART/health information log page (512 bytes).
 export pure health(page: Bytes) -> Health {
-  var sensors: List[Int] = []
-  for index in range(8) {
-    let kelvin = smart.le(page, 200 + index * 2, 2)
-    sensors += [if kelvin == 0 { 0 } else { kelvin - 273 }]
+  let sensors = collect {
+    for index in range(8) {
+      let kelvin = smart.le(page, 200 + index * 2, 2)
+      yield if kelvin == 0 { 0 } else { kelvin - 273 }
+    }
   }
   let kelvin = smart.le(page, 1, 2)
   {
@@ -169,43 +171,45 @@ export pure health(page: Bytes) -> Health {
 
 ## Decodes the error information log, skipping unused entries.
 export pure error_records(page: Bytes) -> List[ErrorRecord] {
-  var found: List[ErrorRecord] = []
-  for index in range(page.len() / ERROR_ENTRY_BYTES) {
-    let base = index * ERROR_ENTRY_BYTES
-    let count = smart.le(page, base, 8)
-    continue when count == 0
-    found += [{
-      count: count,
-      queue_id: smart.le(page, base + 8, 2),
-      command_id: smart.le(page, base + 10, 2),
-      status: smart.le(page, base + 12, 2) / 2,
-      location: smart.le(page, base + 14, 2),
-      lba: smart.le(page, base + 16, 8),
-      nsid: smart.le(page, base + 24, 4),
-      vendor: smart.at(page, base + 28),
-    }]
+  let found: List[ErrorRecord] = collect {
+    for index in range(page.len() / ERROR_ENTRY_BYTES) {
+      let base = index * ERROR_ENTRY_BYTES
+      let count = smart.le(page, base, 8)
+      continue when count == 0
+      yield {
+        count: count,
+        queue_id: smart.le(page, base + 8, 2),
+        command_id: smart.le(page, base + 10, 2),
+        status: smart.le(page, base + 12, 2) / 2,
+        location: smart.le(page, base + 14, 2),
+        lba: smart.le(page, base + 16, 8),
+        nsid: smart.le(page, base + 24, 4),
+        vendor: smart.at(page, base + 28),
+      }
+    }
   }
   found
 }
 
 ## Decodes the device self-test log page (564 bytes).
 export pure self_test_log(page: Bytes) -> SelfTestLog {
-  var entries: List[SelfTestRecord] = []
-  for index in range(20) {
-    let base = 4 + index * SELF_TEST_ENTRY_BYTES
-    let status = smart.at(page, base)
-    continue when status / 16 == 15
-    entries += [{
-      code: status % 16,
-      result: status / 16,
-      segment: smart.at(page, base + 1),
-      flags: smart.at(page, base + 2),
-      hours: smart.le(page, base + 4, 8),
-      nsid: smart.le(page, base + 12, 4),
-      lba: smart.le(page, base + 16, 8),
-      sct: smart.at(page, base + 24) % 8,
-      sc: smart.at(page, base + 25),
-    }]
+  let entries: List[SelfTestRecord] = collect {
+    for index in range(20) {
+      let base = 4 + index * SELF_TEST_ENTRY_BYTES
+      let status = smart.at(page, base)
+      continue when status / 16 == 15
+      yield {
+        code: status % 16,
+        result: status / 16,
+        segment: smart.at(page, base + 1),
+        flags: smart.at(page, base + 2),
+        hours: smart.le(page, base + 4, 8),
+        nsid: smart.le(page, base + 12, 4),
+        lba: smart.le(page, base + 16, 8),
+        sct: smart.at(page, base + 24) % 8,
+        sc: smart.at(page, base + 25),
+      }
+    }
   }
   {operation: smart.at(page, 0) % 16, completion: smart.at(page, 1) % 128, entries: entries}
 }
@@ -215,7 +219,7 @@ export pure version_text(version: Int) -> Str {
   let major = version / 65536
   let minor = version / 256 % 256
   let tertiary = version % 256
-  if tertiary != 0 { return f"{major}.{minor}.{tertiary}" }
+  return f"{major}.{minor}.{tertiary}" when tertiary != 0
   f"{major}.{minor}"
 }
 
@@ -280,9 +284,10 @@ export pure info_text(ctrl: Controller, ns: Namespace?, nsid: Int, local_time: S
 }
 
 pure flag_names(value: Int, names: List[Str]) -> Str {
-  var out: List[Str] = []
-  for index in range(names.len()) {
-    if smart.bit_set(value, index) { out += [names[index]] }
+  let out = collect {
+    for index in range(names.len()) {
+      yield names[index] when smart.bit_set(value, index)
+    }
   }
   out.join(" ")
 }
@@ -290,9 +295,7 @@ pure flag_names(value: Int, names: List[Str]) -> Str {
 pure power_text(units: Int, scale: Int) -> Str {
   # `scale` is 0.0001 W per unit (1) or 0.01 W per unit (2); other values do
   # not describe a power figure.
-  if scale == 1 {
-    return f"{units / 10000}.{smart.zero_pad(units % 10000, 4)}W"
-  }
+  return f"{units / 10000}.{smart.zero_pad(units % 10000, 4)}W" when scale == 1
   f"{units / 100}.{smart.zero_pad(units % 100, 2)}W"
 }
 
@@ -350,14 +353,15 @@ export pure capabilities_text(ctrl: Controller, ns: Namespace?, nsid: Int, ident
 
 ## The reasons a nonzero critical warning byte names, in bit order.
 export pure warning_reasons(warning: Int) -> List[Str] {
-  var reasons: List[Str] = []
-  if smart.bit_set(warning, 0) { reasons += ["- available spare has fallen below threshold"] }
-  if smart.bit_set(warning, 1) { reasons += ["- temperature is above or below threshold"] }
-  if smart.bit_set(warning, 2) { reasons += ["- NVM subsystem reliability has been degraded"] }
-  if smart.bit_set(warning, 3) { reasons += ["- media has been placed in read only mode"] }
-  if smart.bit_set(warning, 4) { reasons += ["- volatile memory backup device has failed"] }
-  if smart.bit_set(warning, 5) { reasons += ["- persistent memory region has become read-only or unreliable"] }
-  if warning / 64 != 0 { reasons += [f"- unknown critical warning(s) (0x{smart.hex(warning / 64 * 64, 2)})"] }
+  let reasons = collect {
+    yield "- available spare has fallen below threshold" when smart.bit_set(warning, 0)
+    yield "- temperature is above or below threshold" when smart.bit_set(warning, 1)
+    yield "- NVM subsystem reliability has been degraded" when smart.bit_set(warning, 2)
+    yield "- media has been placed in read only mode" when smart.bit_set(warning, 3)
+    yield "- volatile memory backup device has failed" when smart.bit_set(warning, 4)
+    if smart.bit_set(warning, 5) { yield "- persistent memory region has become read-only or unreliable" }
+    if warning / 64 != 0 { yield f"- unknown critical warning(s) (0x{smart.hex(warning / 64 * 64, 2)})" }
+  }
   reasons
 }
 
@@ -424,7 +428,7 @@ export pure status_message(status: Int) -> Str {
       128 => return "LBA Out of Range"
       129 => return "Capacity Exceeded"
       130 => return "Namespace Not Ready"
-      _ => return "Unknown"
+      else => return "Unknown"
     }
   }
   if kind == 2 {
@@ -436,7 +440,7 @@ export pure status_message(status: Int) -> Str {
       132 => return "End-to-end Reference Tag Check Error"
       133 => return "Compare Failure"
       134 => return "Access Denied"
-      _ => return "Unknown"
+      else => return "Unknown"
     }
   }
   "Unknown"
@@ -445,7 +449,7 @@ export pure status_message(status: Int) -> Str {
 ## The `Error Information` block. `read` entries of `capacity` were fetched.
 export pure error_log_text(records: List[ErrorRecord], read: Int, capacity: Int, entries: Int) -> Str {
   var out = f"Error Information (NVMe Log 0x01, {read} of {capacity} entries)\n"
-  if entries == 0 and records.is_empty() { return out + "No Errors Logged\n\n" }
+  return out + "No Errors Logged\n\n" when entries == 0 and records.is_empty()
   out += "Num   ErrCount  SQId   CmdId  Status  PELoc          LBA  NSID    VS  Message\n"
   for index in range(records.len()) {
     let record = records[index]
@@ -464,7 +468,7 @@ pure self_test_name(code: Int) -> Str {
     1 => "Short"
     2 => "Extended"
     14 => "Vendor specific"
-    _ => f"Unknown (0x{smart.hex(code, 1)})"
+    else => f"Unknown (0x{smart.hex(code, 1)})"
   }
 }
 
@@ -480,7 +484,7 @@ pure self_test_result(result: Int) -> Str {
     7 => "Completed: failed segments"
     8 => "Aborted: unknown reason"
     9 => "Aborted: sanitize operation"
-    _ => f"Unknown result (0x{smart.hex(result, 1)})"
+    else => f"Unknown result (0x{smart.hex(result, 1)})"
   }
 }
 
@@ -492,7 +496,7 @@ export pure self_test_log_text(log: SelfTestLog, nsid: Int) -> Str {
   } else {
     out += f"Self-test status: {self_test_progress(log.operation)} ({log.completion}% completed)\n"
   }
-  if log.entries.is_empty() { return out + "No Self-tests Logged\n\n" }
+  return out + "No Self-tests Logged\n\n" when log.entries.is_empty()
   out += "Num  Test_Description  Status                       Power_on_Hours  Failing_LBA  NSID Seg SCT Code\n"
   for index in range(log.entries.len()) {
     let entry = log.entries[index]
@@ -511,7 +515,7 @@ pure self_test_progress(code: Int) -> Str {
     1 => "Short self-test in progress"
     2 => "Extended self-test in progress"
     14 => "Vendor specific self-test in progress"
-    _ => f"Unknown (0x{smart.hex(code, 1)}) self-test in progress"
+    else => f"Unknown (0x{smart.hex(code, 1)}) self-test in progress"
   }
 }
 
@@ -554,8 +558,7 @@ export pure info_json(ctrl: Controller, ns: Namespace?, nsid: Int, serials: Bool
 
 ## JSON members for the health log and the summaries derived from it.
 export pure health_json(log: Health) -> List[j.Member] {
-  var sensors: List[Int] = []
-  for temperature in log.sensors { if temperature != 0 { sensors += [temperature] } }
+  var sensors = [temperature for temperature in log.sensors if temperature != 0]
   var members: List[j.Member] = [
     j.m("critical_warning", log.critical_warning),
     j.m("temperature", log.temperature),
@@ -586,17 +589,18 @@ export pure health_json(log: Health) -> List[j.Member] {
 
 ## JSON members for the error information log.
 export pure error_log_json(records: List[ErrorRecord], read: Int, capacity: Int, entries: Int) -> List[j.Member] {
-  var table: List[j.Object] = []
-  for record in records {
-    table += [j.object([
-      j.m("error_count", record.count),
-      j.m("submission_queue_id", record.queue_id),
-      j.m("command_id", record.command_id),
-      j.m("status_field", j.object([j.m("value", record.status), j.m("string", status_message(record.status))])),
-      j.m("parm_error_location", record.location),
-      j.m("lba", j.object([j.m("value", record.lba)])),
-      j.m("nsid", record.nsid),
-    ])]
+  let table: List[j.Object] = collect {
+    for record in records {
+      yield j.object([
+        j.m("error_count", record.count),
+        j.m("submission_queue_id", record.queue_id),
+        j.m("command_id", record.command_id),
+        j.m("status_field", j.object([j.m("value", record.status), j.m("string", status_message(record.status))])),
+        j.m("parm_error_location", record.location),
+        j.m("lba", j.object([j.m("value", record.lba)])),
+        j.m("nsid", record.nsid),
+      ])
+    }
   }
   [j.m("nvme_error_information_log", j.object([
     j.m("size", capacity),

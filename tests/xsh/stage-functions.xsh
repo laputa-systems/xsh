@@ -1,5 +1,7 @@
 test test_stage_functions_keep_alias_captures_configuration_order_and_nested_item_context { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.expect(
+    ctx,
+    r"""
 let prefix = "captured:"
 type Row = {value: Str, rank: Int}
 pure render(item: Row, suffix: Str = "!") -> Str { prefix + item.value + suffix }
@@ -12,8 +14,9 @@ let rendered = rows |> sort-by(block: rank, desc: direction()) |> map(block: aga
 print rendered[0] rendered[1]
 let nested = [rows, rows] |> map { |items| items |> map(format) }
 print nested[0][0] nested[1][1]
-""")?
-  assert output.success, output.stderr
+""",
+    status: 0,
+  )?
   assert output.stdout == "configuration\ncaptured:second! captured:first!\ncaptured:first! captured:second!\n"
 }
 
@@ -26,14 +29,18 @@ export pure render(item: Str, suffix: Str = "!") -> Str { prefix + item + suffix
 ## Preserve the declared callback signature.
 export let format = render
 """)
-  let output = test.run_script(ctx, r"""
+  let output = test.expect(
+    ctx,
+    r"""
 use helpers
 let format = helpers.format
 print ${(["direct"] |> map(helpers.render))[0]}
 print ${(["exported"] |> map(helpers.format))[0]}
 print ${(["local"] |> map(format))[0]}
-""", env: {XSH_MODULE_PATH: root})?
-  assert output.success, output.stderr
+""",
+    status: 0,
+    env: {XSH_MODULE_PATH: root},
+  )?
   assert output.stdout == "module:direct!\nmodule:exported!\nmodule:local!\n"
 }
 

@@ -384,7 +384,7 @@ test test_linux_modules_streams_the_host_text {
 # Minimal ELF64 section table: .modinfo is the only source of module fields.
 pure linux_module_fixture(metadata: Bytes) -> Result[Bytes] {
   let prefix = "f0VMRgIBAQAAAAAAAAAAAAEAPgABAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAEAAAAAAAEAAAwABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACwAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAFAEAAAAAAAA=".base64_decode()?
-  return bytes.concat([prefix, bytes.pack_le(metadata.len(), 8)?, bytes.zero(24)?, b"\0.shstrtab\0.modinfo\0", metadata])
+  bytes.concat([prefix, bytes.pack_le(metadata.len(), 8)?, bytes.zero(24)?, b"\0.shstrtab\0.modinfo\0", metadata])
 }
 
 test test_linux_module_policy_uses_the_configured_tree { |ctx|

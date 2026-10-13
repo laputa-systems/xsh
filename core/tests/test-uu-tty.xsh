@@ -1,5 +1,5 @@
 ##! Native ports of the uutils tty integration tests.
-use support.uu as uu
+use support.uu
 
 type ClosedOutput = {status: Status, stderr: Bytes}
 
@@ -15,14 +15,14 @@ proc closed_input(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Res
 # Close the only pipe reader after spawn, before the delayed exec writes.
 # The FIFO supplies the same EPIPE boundary while its child status stays typed.
 proc closed_output(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[ClosedOutput, Error] {
-  uu.mkfifo(s, "stdout-pipe")?
+  uu.mkfifo(s, "stdout-pipe")
   let reader = unix.open_fd(uu.at(s, "stdout-pipe"), nonblock: true)?
   let target_argv = uu.argv(s, "tty", [Path(word) for word in args])?
   let command = [p"sh", p"-c", Path(r"""sleep 0.2; exec "$@"
 """), p"tty-pipe"].extend(target_argv)
   let plan = process.command_argv(p"sh", command, s.root, {}, b"", uu.at(s, "stdout-pipe"), uu.at(s, "stderr"), timeout: 5s)
   let child = spawn plan?
-  unix.close_fd(reader)?
+  unix.close_fd(reader)
   let status = wait child?
   Ok({status: status, stderr: uu.read(s, "stderr")?})
 }

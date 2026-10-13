@@ -1,7 +1,7 @@
 #!/bin/xsh
-use lib.gnu
-use lib.fileattrs
 use lib.acl
+use lib.fileattrs
+use lib.gnu
 use lib.perm
 
 enum ActionKind { Modify, Remove, Replace, StripExtended, StripDefault }
@@ -9,18 +9,29 @@ type Action = {kind: ActionKind, entries: List[acl.Entry]}
 type Work = {name: Str, actions: List[Action], mask_policy: Str, recursive: Bool, traversal: Str, testing: Bool}
 type Restore = {name: Str, entries: List[acl.Entry], uid: Int?, gid: Int?, special: Int}
 
-proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool, recursive = false) [fs, process, io, error] -> Result[Unit, Error] {
+proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool, recursive = false) [fs, process, io, error] {
   let stat = fs.stat(target, follow_symlinks: true)?
   var entries = acl.read(target)?
   var access_mask = false; var default_mask = false; var access_changed = false; var default_changed = false
   for action in actions {
     let updates = acl.resolve_execute(action.entries, stat.mode, stat.kind == "dir")
-    for entry in updates { if entry.default { default_changed = true } else { access_changed = true }; if entry.tag == acl.AclMask { if entry.default { default_mask = action.kind != Remove } else { access_mask = action.kind != Remove } } }
+    for entry in updates { if entry.default { default_changed = true } else { access_changed = true }; if entry.tag == .AclMask { if entry.default { default_mask = action.kind != Remove } else { access_mask = action.kind != Remove } } }
     match action.kind {
       StripExtended => {
         access_changed = true; default_changed = true; access_mask = false; default_mask = false
-        var base: List[acl.Entry] = []
-        for entry in entries { if ! entry.default and entry.tag in [acl.AclOwner, acl.AclGroupOwner, acl.AclOther] { base += [{tag: entry.tag, id: entry.id, permissions: acl.effective(entry, entries), default: false, conditional_execute: false}] } }
+        let base: List[acl.Entry] = collect {
+          for entry in entries {
+            if ! entry.default and entry.tag in [acl.AclOwner, acl.AclGroupOwner, acl.AclOther] {
+              yield {
+                tag: entry.tag,
+                id: entry.id,
+                permissions: acl.effective(entry, entries),
+                default: false,
+                conditional_execute: false,
+              }
+            }
+          }
+        }
         entries = base
       }
       StripDefault => { default_changed = true; default_mask = false; entries = collect { for entry in entries { yield entry when ! entry.default } } }
@@ -50,39 +61,44 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
     for entry in entries {
       continue when entry.default != default
       if entry.tag in [acl.AclUser, acl.AclGroup] { named = true }
-      if entry.tag == acl.AclMask { has_mask = true }
-      if entry.tag == acl.AclGroupOwner { group_permissions = entry.permissions }
+      if entry.tag == .AclMask { has_mask = true }
+      if entry.tag == .AclGroupOwner { group_permissions = entry.permissions }
     }
     if named and ! has_mask { entries += [{tag: acl.AclMask, id: null, permissions: group_permissions, default: default, conditional_execute: false}] }
   }
   if mask_policy != "none" {
     let calculated = acl.calculate_mask(entries, force: mask_policy == "force")
-    var explicit: List[acl.Entry] = []
-    for entry in entries { if entry.tag == acl.AclMask and ((entry.default and default_mask) or (! entry.default and access_mask)) { explicit += [entry] } }
+    let explicit: List[acl.Entry] = collect {
+      for entry in entries {
+        if entry.tag == .AclMask and ((entry.default and default_mask) or (! entry.default and access_mask)) {
+          yield entry
+        }
+      }
+    }
     entries = collect { for entry in calculated { yield entry when (! entry.default and access_changed) or (entry.default and default_changed) } }.extend(collect { for entry in entries { yield entry when (! entry.default and ! access_changed) or (entry.default and ! default_changed) } })
     if mask_policy != "force" { entries = acl.merge(entries, explicit) }
   }
-  acl.validate(entries)?
+  acl.validate(entries)
   if testing {
-    var access: List[Str] = []; var defaults: List[Str] = []
+    var access = []; var defaults = []
     for entry in acl.canonical(entries) { if entry.default { defaults += [acl.text(entry).replace("default:", with: "d:").replace("user:", with: "u:").replace("group:", with: "g:").replace("mask:", with: "m:").replace("other:", with: "o:")] } else { access += [acl.text(entry).replace("default:", with: "d:").replace("user:", with: "u:").replace("group:", with: "g:").replace("mask:", with: "m:").replace("other:", with: "o:")] } }
     gnu.write_text(target.display() + ": " + access.join(",") + "," + (if defaults.is_empty() { "*" } else { defaults.join(",") }) + "\n")
-    return Ok()
+    return
   }
-  acl.store(target, entries)?
+  acl.store(target, entries)
   Ok()
 }
 
 # Restore input is parsed and validated in full before its first inode changes.
 proc parse_restore(text: Str) [fs, error] -> Result[List[Restore], Error] {
   var records: List[Restore] = []
-  var name: Str? = null; var lines: List[Str] = []
-  var uid: Int? = null; var gid: Int? = null; var special = 0
+  var name = null; var lines = []
+  var uid = null; var gid = null; var special = 0
   for line in text.lines().extend(["# file: "]) {
     if line.starts_with("# file: ") {
       if let previous = name {
         let entries = acl.parse(lines.join("\n"))?
-        acl.validate(entries)?
+        acl.validate(entries)
         for default in [false, true] {
           let selected = collect { for entry in entries { yield entry when entry.default == default } }
           if ! selected.is_empty() { let encoded = acl.encode(selected)? }
@@ -104,18 +120,18 @@ proc parse_restore(text: Str) [fs, error] -> Result[List[Restore], Error] {
   records
 }
 
-proc restore_record(target: Path, record: Restore) [fs, error] -> Result[Unit, Error] {
-  acl.store(target, record.entries)?
-  if record.uid != null or record.gid != null { fs.set_owner(target, uid: record.uid, gid: record.gid)? }
-  target.chmod(acl.mode(record.entries)? + record.special)?
+proc restore_record(target: Path, record: Restore) [fs, error] {
+  acl.store(target, record.entries)
+  if record.uid != null or record.gid != null { fs.set_owner(target, uid: record.uid, gid: record.gid) }
+  target.chmod(acl.mode(record.entries)? + record.special)
   Ok()
 }
 
 proc main(...argv: List[Str]) [fs, process, env, io, error] {
-  var actions: List[Action] = []; var names: List[Str] = []; var works: List[Work] = []; var saw_files = false
+  var actions: List[Action] = []; var names = []; var works: List[Work] = []; var saw_files = false
   var mask_policy = "auto"; var defaults = false; var recursive = false; var traversal = "H"; var testing = false
-  var restore: Str? = null; var stopped = false; var at = 0
-  var words: List[Str] = []
+  var restore = null; var stopped = false; var at = 0
+  var words = []
   var literal = false; var argument = false
   for word in argv {
     if argument { words += [word]; argument = false; continue }
@@ -140,7 +156,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     if saw_files { actions = []; saw_files = false }
     if word in ["--help", "-h"] { gnu.help("Usage: setfacl [-RLPdn] [-m ACL|-x ACL|-M FILE|-X FILE] FILE...\n       setfacl --set=ACL FILE... | --set-file=FILE FILE...\n       setfacl [-b|-k] FILE... | --restore=FILE\n--mask recalculates masks; -n preserves masks; -d selects default entries; --test displays results without mutation.\n"); return }
     if word in ["--version", "-v"] { gnu.version("setfacl"); return }
-    var option = word; var attached: Str? = null
+    var option = word; var attached = null
     if let equal = word.find("=") { option = word.byte_slice(0, length: equal); attached = word.byte_slice(equal + 1) }
     if option.starts_with("--") {
       let known = ["--modify", "--remove", "--modify-file", "--remove-file", "--set", "--set-file", "--restore", "--remove-all", "--remove-default", "--no-mask", "--mask", "--default", "--recursive", "--logical", "--physical", "--test"]
@@ -153,7 +169,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
       if option == "--restore" { restore = value; continue }
       let remove = option in ["-x", "--remove", "-X", "--remove-file"]
       let source = if option in ["-M", "--modify-file", "-X", "--remove-file", "--set-file"] { gnu.read_operand(value)?.utf8()? } else { value }
-      let entries = acl.parse(source, remove: remove, defaults: defaults)
+      let entries = acl.parse(source, remove:, defaults:)
       if let Err(failure) = entries { gnu.error(failure.message); exit 2 }
       actions += [{kind: if remove { .Remove } else if option in ["--set", "--set-file"] { .Replace } else { .Modify }, entries: entries?}]
       continue

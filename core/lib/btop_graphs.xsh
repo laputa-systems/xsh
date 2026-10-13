@@ -2,10 +2,10 @@
 ##!
 ##! Each model timestamp contributes one point per series; missing readings
 ##! remain explicit and rendering never advances this state.
+use btop_disks as disks
 use btop_graph as graph
 use btop_model as model
 use btop_rates as rates
-use btop_disks as disks
 use system_report as report
 
 ## Keeps the independent sample history for each default panel graph.
@@ -39,26 +39,24 @@ export pure empty() -> Histories {
 }
 
 pure rate_sample(at_ns: Int, value: rates.Rate) -> graph.Sample {
-  if value.state == rates.Observed and value.value != null {
+  if value.state == .Observed and value.value != null {
     return {at_ns: at_ns, value: value.value, state: graph.Observed}
   }
-  if value.state == rates.Gap {
-    return {at_ns: at_ns, value: null, state: graph.Gap}
-  }
+  return {at_ns: at_ns, value: null, state: graph.Gap} when value.state == .Gap
   {at_ns: at_ns, value: null, state: graph.Unavailable}
 }
 
 pure memory_sample(value: model.Model) -> graph.Sample {
-  if value.memory.total_bytes != null and (value.memory.total_bytes ?? 0) > 0 and value.memory.used_bytes.value != null {
-    let percent = (value.memory.used_bytes.value ?? 0).float() * 100.0 / (value.memory.total_bytes ?? 1).float()
+  if value.memory.total_bytes != null and value.memory.total_bytes > 0 and value.memory.used_bytes.value != null {
+    let percent = value.memory.used_bytes.value.float() * 100.0 / value.memory.total_bytes.float()
     return {at_ns: value.at_ns, value: percent, state: graph.Observed}
   }
   {at_ns: value.at_ns, value: null, state: graph.Unavailable}
 }
 
 pure temperature_sample(value: model.Model) -> graph.Sample {
-  if value.telemetry.temperature.state == report.Observed and value.telemetry.temperature.package_millidegrees != null {
-    let celsius = (value.telemetry.temperature.package_millidegrees ?? 0).float() / 1000.0
+  if value.telemetry.temperature.state == .Observed and value.telemetry.temperature.package_millidegrees != null {
+    let celsius = value.telemetry.temperature.package_millidegrees.float() / 1000.0
     return {at_ns: value.at_ns, value: celsius, state: graph.Observed}
   }
   {at_ns: value.at_ns, value: null, state: graph.Unavailable}
@@ -67,7 +65,7 @@ pure temperature_sample(value: model.Model) -> graph.Sample {
 # Pins the one device whose identity owns the monitor's bounded disk graph.
 pure first_disk(devices: List[disks.Device]) -> disks.Device? {
   for device in devices {
-    if device.identity != null { return device }
+    return device when device.identity != null
   }
   null
 }
@@ -75,15 +73,14 @@ pure first_disk(devices: List[disks.Device]) -> disks.Device? {
 # Keeps a combined disk graph unavailable unless both byte-rate directions exist.
 pure disk_sum_rate(device: disks.Device?) -> rates.Rate {
   if let current = device {
-    let read = current.read_bytes_per_second
-    let write = current.write_bytes_per_second
-    if read.state == rates.Observed and write.state == rates.Observed and read.value != null and write.value != null {
-      return {state: rates.Observed, value: (read.value ?? 0.0) + (write.value ?? 0.0)}
+    let {read_bytes_per_second: read, write_bytes_per_second: write, ..} = current
+    if read.state == .Observed and write.state == .Observed and read.value != null and write.value != null {
+      return {state: rates.Observed, value: read.value + write.value}
     }
-    if read.state == rates.Gap or write.state == rates.Gap { return {state: rates.Gap, value: null} }
-    if read.state == rates.Reset or write.state == rates.Reset { return {state: rates.Reset, value: null} }
-    if read.state == rates.Invalid or write.state == rates.Invalid { return {state: rates.Invalid, value: null} }
-    if read.state == rates.Warming or write.state == rates.Warming { return {state: rates.Warming, value: null} }
+    return {state: rates.Gap, value: null} when read.state == .Gap or write.state == .Gap
+    if read.state == .Reset or write.state == .Reset { return {state: rates.Reset, value: null} }
+    if read.state == .Invalid or write.state == .Invalid { return {state: rates.Invalid, value: null} }
+    if read.state == .Warming or write.state == .Warming { return {state: rates.Warming, value: null} }
   }
   {state: rates.Unavailable, value: null}
 }
@@ -97,8 +94,8 @@ export pure observe(
   let selected_name = if interface_name == null { value.network.interface_name } else { interface_name }
   let selected = model.network_metric(value.network, selected_name)
   let network_changed = histories.network_interface != selected_name
-  let same_sample = histories.cpu.samples.len() > 0 and
-    histories.cpu.samples[histories.cpu.samples.len() - 1].at_ns == value.at_ns
+  let same_sample = ! histories.cpu.samples.is_empty() and
+    histories.cpu.samples[-1].at_ns == value.at_ns
   let disk = first_disk(value.storage.devices)
   let disk_identity = if let current = disk { current.identity } else { null }
   let disk_changed = histories.disk_identity != disk_identity

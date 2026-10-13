@@ -1,6 +1,6 @@
 ##! Transcribed zero-increment tests from the uutils coreutils suite.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_seq::test_zero_step
 test test_uu_seq_zero_step { |ctx|

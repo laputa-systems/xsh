@@ -1,12 +1,12 @@
 ##! Native ports of the uutils dd integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_dd::test_atoe_and_lcase_conv_spec_test
 test test_uu_dd_atoe_and_lcase_conv_spec_test { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")?
-  uu.fixture(s, "dd", "lcase-ebcdic.test", "expected")?
+  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")
+  uu.fixture(s, "dd", "lcase-ebcdic.test", "expected")
   let r = uu.invoke(s, "dd", ["conv=ebcdic,lcase"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -15,8 +15,8 @@ test test_uu_dd_atoe_and_lcase_conv_spec_test { |ctx|
 # origin: uutils test_dd::test_atoe_and_ucase_conv_spec_test
 test test_uu_dd_atoe_and_ucase_conv_spec_test { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")?
-  uu.fixture(s, "dd", "ucase-ebcdic.test", "expected")?
+  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")
+  uu.fixture(s, "dd", "ucase-ebcdic.test", "expected")
   let r = uu.invoke(s, "dd", ["conv=ebcdic,ucase"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -25,8 +25,8 @@ test test_uu_dd_atoe_and_ucase_conv_spec_test { |ctx|
 # origin: uutils test_dd::test_atoe_conv_spec_test
 test test_uu_dd_atoe_conv_spec_test { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")?
-  uu.fixture(s, "dd", "gnudd-conv-atoe-seq-byte-values.spec", "expected")?
+  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")
+  uu.fixture(s, "dd", "gnudd-conv-atoe-seq-byte-values.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=ebcdic"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -35,8 +35,8 @@ test test_uu_dd_atoe_conv_spec_test { |ctx|
 # origin: uutils test_dd::test_atoibm_and_lcase_conv_spec_test
 test test_uu_dd_atoibm_and_lcase_conv_spec_test { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")?
-  uu.fixture(s, "dd", "lcase-ibm.test", "expected")?
+  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")
+  uu.fixture(s, "dd", "lcase-ibm.test", "expected")
   let r = uu.invoke(s, "dd", ["conv=ibm,lcase"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -45,8 +45,8 @@ test test_uu_dd_atoibm_and_lcase_conv_spec_test { |ctx|
 # origin: uutils test_dd::test_atoibm_and_ucase_conv_spec_test
 test test_uu_dd_atoibm_and_ucase_conv_spec_test { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")?
-  uu.fixture(s, "dd", "ucase-ibm.test", "expected")?
+  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")
+  uu.fixture(s, "dd", "ucase-ibm.test", "expected")
   let r = uu.invoke(s, "dd", ["conv=ibm,ucase"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -55,8 +55,8 @@ test test_uu_dd_atoibm_and_ucase_conv_spec_test { |ctx|
 # origin: uutils test_dd::test_atoibm_conv_spec_test
 test test_uu_dd_atoibm_conv_spec_test { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")?
-  uu.fixture(s, "dd", "gnudd-conv-atoibm-seq-byte-values.spec", "expected")?
+  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")
+  uu.fixture(s, "dd", "gnudd-conv-atoibm-seq-byte-values.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=ibm"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -65,8 +65,8 @@ test test_uu_dd_atoibm_conv_spec_test { |ctx|
 # origin: uutils test_dd::test_block_cbs16
 test test_uu_dd_block_cbs16 { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "dd-block-cbs16.test", "input")?
-  uu.fixture(s, "dd", "dd-block-cbs16.spec", "expected")?
+  uu.fixture(s, "dd", "dd-block-cbs16.test", "input")
+  uu.fixture(s, "dd", "dd-block-cbs16.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=block", "cbs=16"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -75,8 +75,8 @@ test test_uu_dd_block_cbs16 { |ctx|
 # origin: uutils test_dd::test_block_cbs16_as_cbs8
 test test_uu_dd_block_cbs16_as_cbs8 { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "dd-block-cbs16.test", "input")?
-  uu.fixture(s, "dd", "dd-block-cbs8.spec", "expected")?
+  uu.fixture(s, "dd", "dd-block-cbs16.test", "input")
+  uu.fixture(s, "dd", "dd-block-cbs8.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=block", "cbs=8"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -85,8 +85,8 @@ test test_uu_dd_block_cbs16_as_cbs8 { |ctx|
 # origin: uutils test_dd::test_block_consecutive_nl
 test test_uu_dd_block_consecutive_nl { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "dd-block-consecutive-nl.test", "input")?
-  uu.fixture(s, "dd", "dd-block-consecutive-nl-cbs16.spec", "expected")?
+  uu.fixture(s, "dd", "dd-block-consecutive-nl.test", "input")
+  uu.fixture(s, "dd", "dd-block-consecutive-nl-cbs16.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=block", "cbs=16"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -95,8 +95,8 @@ test test_uu_dd_block_consecutive_nl { |ctx|
 # origin: uutils test_dd::test_block_lower
 test test_uu_dd_block_lower { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "dd-block8-lowercase.test", "input")?
-  uu.fixture(s, "dd", "dd-block8-lowercase.spec", "expected")?
+  uu.fixture(s, "dd", "dd-block8-lowercase.test", "input")
+  uu.fixture(s, "dd", "dd-block8-lowercase.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=block,lcase", "cbs=8"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -105,7 +105,7 @@ test test_uu_dd_block_lower { |ctx|
 # origin: uutils test_dd::test_bytes_oseek_bytes_oflag
 test test_uu_dd_bytes_oseek_bytes_oflag { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "dd-bytes-alphabet-null.spec", "expected")?
+  uu.fixture(s, "dd", "dd-bytes-alphabet-null.spec", "expected")
   let r = uu.invoke(s, "dd", ["oseek=8", "oflag=seek_bytes", "bs=2"], stdin: b"abcdefghijklm")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -114,7 +114,7 @@ test test_uu_dd_bytes_oseek_bytes_oflag { |ctx|
 # origin: uutils test_dd::test_bytes_oseek_seek_not_additive
 test test_uu_dd_bytes_oseek_seek_not_additive { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "dd-bytes-alphabet-null.spec", "expected")?
+  uu.fixture(s, "dd", "dd-bytes-alphabet-null.spec", "expected")
   let r = uu.invoke(s, "dd", ["oseek=8", "seek=8", "oflag=seek_bytes", "bs=2"], stdin: b"abcdefghijklm")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -123,8 +123,8 @@ test test_uu_dd_bytes_oseek_seek_not_additive { |ctx|
 # origin: uutils test_dd::test_deadbeef_32k_conv_sync_ibs_gt_obs
 test test_uu_dd_deadbeef_32k_conv_sync_ibs_gt_obs { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")?
-  uu.fixture(s, "dd", "gnudd-conv-sync-ibs-1031-obs-521-deadbeef.spec", "expected")?
+  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")
+  uu.fixture(s, "dd", "gnudd-conv-sync-ibs-1031-obs-521-deadbeef.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=sync", "ibs=1031", "obs=521", "if=deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -133,8 +133,8 @@ test test_uu_dd_deadbeef_32k_conv_sync_ibs_gt_obs { |ctx|
 # origin: uutils test_dd::test_deadbeef_32k_conv_sync_obs_gt_ibs
 test test_uu_dd_deadbeef_32k_conv_sync_obs_gt_ibs { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")?
-  uu.fixture(s, "dd", "gnudd-conv-sync-ibs-521-obs-1031-deadbeef.spec", "expected")?
+  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")
+  uu.fixture(s, "dd", "gnudd-conv-sync-ibs-521-obs-1031-deadbeef.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=sync", "ibs=521", "obs=1031", "if=deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -143,8 +143,8 @@ test test_uu_dd_deadbeef_32k_conv_sync_obs_gt_ibs { |ctx|
 # origin: uutils test_dd::test_deadbeef_32k_to_12345_test_count_bytes
 test test_uu_dd_deadbeef_32k_to_12345_test_count_bytes { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")?
-  uu.fixture(s, "dd", "gnudd-deadbeef-first-12345.spec", "expected")?
+  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")
+  uu.fixture(s, "dd", "gnudd-deadbeef-first-12345.spec", "expected")
   let r = uu.invoke(s, "dd", ["ibs=531", "obs=1031", "count=12345", "iflag=count_bytes", "if=deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -153,8 +153,8 @@ test test_uu_dd_deadbeef_32k_to_12345_test_count_bytes { |ctx|
 # origin: uutils test_dd::test_deadbeef_32k_to_16k_test_count_reads
 test test_uu_dd_deadbeef_32k_to_16k_test_count_reads { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")?
-  uu.fixture(s, "dd", "gnudd-deadbeef-first-16k.spec", "expected")?
+  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")
+  uu.fixture(s, "dd", "gnudd-deadbeef-first-16k.spec", "expected")
   let r = uu.invoke(s, "dd", ["ibs=1024", "obs=1031", "count=16", "if=deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -163,8 +163,8 @@ test test_uu_dd_deadbeef_32k_to_16k_test_count_reads { |ctx|
 # origin: uutils test_dd::test_deadbeef_all_32k_test_count_bytes
 test test_uu_dd_deadbeef_all_32k_test_count_bytes { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")?
-  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "expected")?
+  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")
+  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "expected")
   let r = uu.invoke(s, "dd", ["ibs=531", "obs=1031", "count=32x1024", "oflag=count_bytes", "if=deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -173,8 +173,8 @@ test test_uu_dd_deadbeef_all_32k_test_count_bytes { |ctx|
 # origin: uutils test_dd::test_deadbeef_all_32k_test_count_reads
 test test_uu_dd_deadbeef_all_32k_test_count_reads { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")?
-  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "expected")?
+  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test")
+  uu.fixture(s, "dd", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "expected")
   let r = uu.invoke(s, "dd", ["bs=1024", "count=32", "if=deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -183,8 +183,8 @@ test test_uu_dd_deadbeef_all_32k_test_count_reads { |ctx|
 # origin: uutils test_dd::test_etoa_conv_spec_test
 test test_uu_dd_etoa_conv_spec_test { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")?
-  uu.fixture(s, "dd", "gnudd-conv-etoa-seq-byte-values.spec", "expected")?
+  uu.fixture(s, "dd", "seq-byte-values-b632a992d3aed5d8d1a59cc5a5a455ba.test", "input")
+  uu.fixture(s, "dd", "gnudd-conv-etoa-seq-byte-values.spec", "expected")
   let r = uu.invoke(s, "dd", ["conv=ascii"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -193,8 +193,8 @@ test test_uu_dd_etoa_conv_spec_test { |ctx|
 # origin: uutils test_dd::test_lcase_ascii_to_ucase_ascii
 test test_uu_dd_lcase_ascii_to_ucase_ascii { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "lcase-ascii.test", "input")?
-  uu.fixture(s, "dd", "ucase-ascii.test", "expected")?
+  uu.fixture(s, "dd", "lcase-ascii.test", "input")
+  uu.fixture(s, "dd", "ucase-ascii.test", "expected")
   let r = uu.invoke(s, "dd", ["conv=ucase"], stdin: uu.read(s, "input")?)?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
@@ -204,7 +204,7 @@ test test_uu_dd_lcase_ascii_to_ucase_ascii { |ctx|
 test test_uu_dd_identity { |ctx|
   let s = uu.scene(ctx)?
   for name in ["zeros-620f0b67a91f7f74151bc5be745b7110.test", "ones-6ae59e64850377ee5470c854761551ea.test", "deadbeef-18d99661a1de1fc9af21b0ec2cd67ba3.test", "random-5828891cb1230748e146f34223bbd3b5.test"] {
-    uu.fixture(s, "dd", name, name)?
+    uu.fixture(s, "dd", name, name)
     let r = uu.invoke(s, "dd", [f"if={name}"])?
     uu.succeeds(r)
     uu.stdout_is_bytes(r, uu.read(s, name)?)
@@ -214,7 +214,7 @@ test test_uu_dd_identity { |ctx|
 # origin: uutils test_dd::test_all_valid_ascii_ebcdic_ascii_roundtrip_conv_test
 test test_uu_dd_all_valid_ascii_ebcdic_ascii_roundtrip_conv_test { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "all-valid-ascii-chars-37eff01866ba3f538421b30b7cbefcac.test", "input")?
+  uu.fixture(s, "dd", "all-valid-ascii-chars-37eff01866ba3f538421b30b7cbefcac.test", "input")
   let first = uu.invoke(s, "dd", ["ibs=128", "obs=1024", "conv=ebcdic"], stdin: uu.read(s, "input")?)?
   uu.succeeds(first)
   let r = uu.invoke(s, "dd", ["ibs=256", "obs=1024", "conv=ascii"], stdin: first.stdout)?
@@ -407,7 +407,7 @@ test test_uu_dd_invalid_file_arg_gnu_compatibility { |ctx|
 # origin: uutils test_dd::test_excl_causes_failure_when_present
 test test_uu_dd_excl_causes_failure_when_present { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dd", "this-file-exists-excl.txt", "this-file-exists-excl.txt")?
+  uu.fixture(s, "dd", "this-file-exists-excl.txt", "this-file-exists-excl.txt")
   let r = uu.invoke(s, "dd", ["of=this-file-exists-excl.txt", "conv=excl"], stdin: b"")?
   uu.fails(r)
 }
@@ -415,8 +415,8 @@ test test_uu_dd_excl_causes_failure_when_present { |ctx|
 # origin: uutils test_dd::test_existing_file_truncated
 test test_uu_dd_existing_file_truncated { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "this-file-exists-truncated.txt", bytes.zero(256)?)?
-  uu.fixture(s, "dd", "null.txt", "null.txt")?
+  uu.write_bytes(s, "this-file-exists-truncated.txt", bytes.zero(256)?)
+  uu.fixture(s, "dd", "null.txt", "null.txt")
   let r = uu.invoke(s, "dd", ["status=none", "if=null.txt", "of=this-file-exists-truncated.txt"], stdin: b"")?
   uu.succeeds(r)
   uu.no_output(r)
@@ -427,7 +427,7 @@ test test_uu_dd_existing_file_truncated { |ctx|
 test test_uu_dd_ascii_10k_to_stdout { |ctx|
   let s = uu.scene(ctx)?
   let input = bytes.from_ints([i % 128 for i in range(1048576)])?
-  uu.fixture(s, "dd", "ascii-10k.txt", "ascii-10k.txt")?
+  uu.fixture(s, "dd", "ascii-10k.txt", "ascii-10k.txt")
   let r = uu.invoke(s, "dd", ["status=none", "if=ascii-10k.txt"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, input)
@@ -448,7 +448,7 @@ test test_uu_dd_ascii_521k_to_file { |ctx|
 test test_uu_dd_iflag_direct_read_uses_aligned_buffer { |ctx|
   let s = uu.scene(ctx)?
   let input = bytes.from_ints([i % 128 for i in range(8192)])?
-  uu.write_bytes(s, "direct-in.bin", input)?
+  uu.write_bytes(s, "direct-in.bin", input)
   let r = uu.invoke(s, "dd", ["if=direct-in.bin", "of=direct-out.bin", "iflag=direct", "bs=4096"], stdin: b"")?
   uu.succeeds(r)
   assert uu.read(s, "direct-out.bin")? == input
@@ -457,7 +457,7 @@ test test_uu_dd_iflag_direct_read_uses_aligned_buffer { |ctx|
 # origin: uutils test_dd::test_block_record_across_reads
 test test_uu_dd_block_record_across_reads { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "1234\n56\n123456789\n78")?
+  uu.write(s, "in", "1234\n56\n123456789\n78")
   let r = uu.invoke(s, "dd", ["if=in", "conv=block", "cbs=6", "ibs=2", "obs=2"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_is(r, "1234  56    12345678    ")
@@ -467,7 +467,7 @@ test test_uu_dd_block_record_across_reads { |ctx|
 # origin: uutils test_dd::test_block_sync_small_ibs
 test test_uu_dd_block_sync_small_ibs { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "ab\ncdefg\nh")?
+  uu.write(s, "in", "ab\ncdefg\nh")
   let r = uu.invoke(s, "dd", ["if=in", "ibs=3", "cbs=4", "conv=block,sync", "status=noxfer"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_is(r, "ab  cdefh   ")
@@ -551,14 +551,14 @@ test test_uu_dd_final_stats_unspec { |ctx|
   let r = uu.invoke(s, "dd", [], stdin: b"")?
   uu.succeeds(r)
   uu.stderr_contains(r, "0+0 records in\n0+0 records out\n0 bytes copied, ")
-  assert rx"[0-9](\.[0-9]+)?(e-[0-9][0-9])? s, ".matches(r.stderr.utf8()?)
+  assert rx"[0-9](\.[0-9]+)?(e-[0-9][0-9])? s, ".matches(r.stderr as Str)
   uu.stderr_contains(r, "0.0 kB/s")
 }
 
 # origin: uutils test_dd::test_count_bytes_with_expanding_block_conv
 test test_uu_dd_count_bytes_with_expanding_block_conv { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input.txt", ["a" for _ in range(1000)].join("") + ["Z" for _ in range(24)].join(""))?
+  uu.write(s, "input.txt", ["a" for _ in range(1000)].join("") + ["Z" for _ in range(24)].join(""))
   let r = uu.invoke(s, "dd", ["if=input.txt", "of=output.bin", "conv=block", "cbs=1024", "count=1000", "iflag=count_bytes"], stdin: b"")?
   uu.succeeds(r)
   let output = uu.read(s, "output.bin")?
@@ -582,7 +582,7 @@ test test_uu_dd_locale_aware_case_conversion { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "dd", ["conv=lcase", "status=none"], stdin: b"\xd0\x0a" , vars: {LC_ALL: "tr_TR.iso8859-9"})?
   uu.succeeds(r)
-  assert r.stdout.len() > 0
+  assert ! r.stdout.is_empty()
 }
 
 # origin: uutils test_dd::test_french_locale_case_conversion
@@ -591,7 +591,7 @@ test test_uu_dd_french_locale_case_conversion { |ctx|
   for pair in [{input: 192, conv: "lcase"}, {input: 224, conv: "ucase"}, {input: 199, conv: "lcase"}] {
     let r = uu.invoke(s, "dd", [f"conv={pair.conv}", "status=none"], stdin: bytes.from_ints([pair.input, 10])?, vars: {LC_ALL: "fr_FR.iso8859-1"})?
     uu.succeeds(r)
-    assert r.stdout.len() > 0
+    assert ! r.stdout.is_empty()
   }
 }
 
@@ -618,7 +618,7 @@ test test_uu_dd_iso8859_1_case_conversion { |ctx|
 # origin: uutils test_dd::test_iflag_directory_fails_when_file_is_passed_via_std_in
 test test_uu_dd_iflag_directory_fails_when_file_is_passed_via_std_in { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "input")?
+  uu.touch(s, "input")
   let r = uu.invoke_from_path(s, "dd", ["iflag=directory", "count=0"], stdin: uu.at(s, "input"))?
   uu.fails(r)
   uu.stderr_only(r, "dd: setting flags for 'standard input': Not a directory\n")
@@ -655,7 +655,7 @@ test test_uu_dd_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "dd: unrecognized operand 'bsx=1'\n")
   uu.stderr_contains(r, "--help' for more information.")
-  assert ! ("╭─" in r.stderr.utf8()?)
+  assert ! ("╭─" in r.stderr as Str)
 }
 
 # origin: uutils test_dd::diagnostics::test_unknown_mode_leaves_the_terminal_in_charge
@@ -664,7 +664,7 @@ test test_uu_dd_diagnostics_unknown_mode_leaves_the_terminal_in_charge { |ctx|
   let r = uu.invoke(s, "dd", ["bsx=1"], stdin: b"" , vars: {UUTILS_DIAG: "sometimes"})?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "dd: unrecognized operand 'bsx=1'\n")
-  assert ! ("╭─" in r.stderr.utf8()?)
+  assert ! ("╭─" in r.stderr as Str)
 }
 
 # origin: uutils test_dd::help
@@ -674,7 +674,7 @@ test test_uu_dd_help { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, "\n  bs=BYTES")
   uu.stdout_contains(r, "\nEach CONV symbol may be:\n")
-  assert ! ("###" in r.stdout.utf8()?)
-  assert ! ("```" in r.stdout.utf8()?)
+  assert ! ("###" in r.stdout as Str)
+  assert ! ("```" in r.stdout as Str)
 }
 

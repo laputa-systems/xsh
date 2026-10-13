@@ -160,7 +160,7 @@ test test_csplit_operand_and_format_errors { |ctx|
 }
 
 test test_csplit_stdout_write_error { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "csplit")?
   fp"{root}/n".write(numbers(1, 5))
@@ -227,7 +227,7 @@ test test_csplit_matches_gnu_current_line_rules { |ctx|
 
 test test_csplit_non_utf8_operand_names_the_file_by_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "csplit-non-utf8")?
-  let name = Path.parse_bytes(b"\xff\xfe")?
+  let name = b"\xff\xfe" as Path
   Path.parse_bytes(bytes.concat([bytes.from_text(f"{root}/"), b"\xff\xfe"]))?.write(b"line1\nline2\nline3\nline4\nline5\n")
 
   let words: List[Union[Str, Path]] = [ctx.xsh_bin, fp"{ctx.core_dir}/csplit.xsh", name, "3"]
@@ -238,11 +238,11 @@ test test_csplit_non_utf8_operand_names_the_file_by_bytes { |ctx|
 }
 
 test test_csplit_write_error_removes_the_file_it_opened { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "csplit-full-file")?
   fp"{root}/n".write(numbers(1, 3))
-  fs.symlink(p"/dev/full", fp"{root}/xx01")?
+  fp"{root}/xx01".symlink(to: p"/dev/full")
 
   let failed = csplit_run(ctx, root, ["n", "1"])?
   assert failed.status == 1
@@ -254,7 +254,7 @@ test test_csplit_write_error_removes_the_file_it_opened { |ctx|
 test test_csplit_directory_in_the_way_is_not_removed { |ctx|
   let root = test.temp_dir(ctx, name: "csplit-directory")?
   fp"{root}/n".write(numbers(1, 3))
-  fp"{root}/xx01".mkdir()?
+  fp"{root}/xx01".mkdir()
 
   let failed = csplit_run(ctx, root, ["n", "1"])?
   assert failed.status == 1

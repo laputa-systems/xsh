@@ -30,18 +30,16 @@ pure empty_stat(state: report.ObservationState, issues: List[src.Issue] = []) ->
 }
 
 pure parse_counter_fields(words: List[Str]) -> CounterParse {
-  if words.len() < 4 {
-    return {state: report.Malformed, fields: []}
-  }
+  return {state: report.Malformed, fields: []} when words.len() < 4
 
-  var fields: List[Int] = []
+  var fields = []
   for word in words {
     let parsed = src.parse_integer(word)
     if parsed == null or (parsed ?? -1) < 0 {
       let state = if src.decimal_digits(word) { report.RangeFailure } else { report.Malformed }
       return {state: state, fields: []}
     }
-    fields += [parsed ?? 0]
+    fields += [parsed]
   }
 
   {state: report.Observed, fields: fields}
@@ -95,7 +93,7 @@ export pure parse_stat(source: src.SourceRead) -> CpuStat {
       continue
     }
 
-    let cpu_id = id ?? 0
+    let cpu_id = id
     if cpu_id in seen_ids {
       issues += [src.issue(f"cpu.stat.{label}", report.Malformed, "duplicate_cpu_row", null)]
       continue
@@ -135,9 +133,7 @@ pure decimal_seconds(value: Str) -> Float? {
       dot_seen = true
       continue
     }
-    if character < "0" or character > "9" {
-      return null
-    }
+    return null when character < "0" or character > "9"
     digits += 1
   }
   return null when digits == 0
@@ -155,13 +151,9 @@ export pure parse_uptime(source: src.SourceRead) -> Uptime {
     return {state: source.observation.state, seconds: null}
   }
   let words = src.parse_words(source.observation.value)
-  if words.is_empty() {
-    return {state: report.Malformed, seconds: null}
-  }
+  return {state: report.Malformed, seconds: null} when words.is_empty()
   let seconds = decimal_seconds(words[0])
-  if seconds == null {
-    return {state: report.Malformed, seconds: null}
-  }
+  return {state: report.Malformed, seconds: null} when seconds == null
   {state: report.Observed, seconds: seconds}
 }
 
@@ -171,16 +163,12 @@ export pure parse_loadavg(source: src.SourceRead) -> LoadAverage {
     return {state: source.observation.state, values: []}
   }
   let words = src.parse_words(source.observation.value)
-  if words.len() < 3 {
-    return {state: report.Malformed, values: []}
-  }
-  var values: List[Float] = []
+  return {state: report.Malformed, values: []} when words.len() < 3
+  var values = []
   for word in words |> take(3) {
     let value = decimal_seconds(word)
-    if value == null {
-      return {state: report.Malformed, values: []}
-    }
-    values += [value ?? 0.0]
+    return {state: report.Malformed, values: []} when value == null
+    values += [value]
   }
   {state: report.Observed, values: values}
 }

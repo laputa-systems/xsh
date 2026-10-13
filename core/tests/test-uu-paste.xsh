@@ -1,5 +1,5 @@
 ##! Native ports of the uutils paste integration tests.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_paste::test_invalid_arg
 test test_uu_paste_invalid_arg { |ctx|
@@ -11,8 +11,8 @@ test test_uu_paste_invalid_arg { |ctx|
 # origin: uutils test_paste::test_delimiter_hyphen_leading_as_separate_arg
 test test_uu_paste_delimiter_hyphen_leading_as_separate_arg { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f1", "a\nb\n")?
-  uu.write(s, "f2", "1\n2\n")?
+  uu.write(s, "f1", "a\nb\n")
+  uu.write(s, "f2", "1\n2\n")
   let r = uu.invoke(s, "paste", ["-d", "-x", "f1", "f2"])?
   uu.succeeds(r)
   uu.stdout_is(r, "a-1\nb-2\n")
@@ -21,7 +21,7 @@ test test_uu_paste_delimiter_hyphen_leading_as_separate_arg { |ctx|
 # origin: uutils test_paste::test_combine_pairs_of_lines
 test test_uu_paste_combine_pairs_of_lines { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "paste", "html_colors.txt", "html_colors.txt")?
+  uu.fixture(s, "paste", "html_colors.txt", "html_colors.txt")
   let expected = fp"{ctx.core_dir}/tests/data/uutils/paste/html_colors.expected".read_bytes()?
   for serial in ["-s", "--serial"] {
     for d in ["-d", "--delimiters"] {
@@ -47,8 +47,8 @@ test test_uu_paste_multi_stdin { |ctx|
 # origin: uutils test_paste::test_delimiter_list_ending_with_escaped_backslash
 test test_uu_paste_delimiter_list_ending_with_escaped_backslash { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in0", "a\n")?
-  uu.write(s, "in1", "b\n")?
+  uu.write(s, "in0", "a\n")
+  uu.write(s, "in1", "b\n")
   for d in ["-d", "--delimiters"] {
     let r = uu.invoke(s, "paste", [d, "\\\\", "in0", "in1"])?
     uu.succeeds(r)
@@ -103,9 +103,9 @@ test test_uu_paste_delimiter_truncation { |ctx|
 # origin: uutils test_paste::test_serial_delimiter_list_resets_per_file
 test test_uu_paste_serial_delimiter_list_resets_per_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f1", "a\nb\n")?
-  uu.write(s, "f2", "c\nd\ne\n")?
-  uu.write(s, "f3", "f\ng\n")?
+  uu.write(s, "f1", "a\nb\n")
+  uu.write(s, "f2", "c\nd\ne\n")
+  uu.write(s, "f3", "f\ng\n")
   for d in ["-d", "--delimiters"] {
     for serial in ["-s", "--serial"] {
       let r = uu.invoke(s, "paste", [d, ":|", serial, "f1", "f2", "f3"])?
@@ -158,7 +158,7 @@ test test_uu_paste_paste_delimiter_escape_sequences { |ctx|
 test test_uu_paste_multi_byte_delimiter { |ctx|
   let s = uu.scene(ctx)?
   for d in ["-d", "--delimiters"] {
-    let r = uu.invoke(s, "paste", [d, "!ß@", "-s"], stdin: bytes.from_text("1\n2\n3\n4\n5\n6\n"), vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", [d, "!ß@", "-s"], stdin: bytes.from_text("1\n2\n3\n4\n5\n6\n"), vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_only(r, "1!2ß3@4!5ß6\n")
   }
@@ -168,186 +168,186 @@ test test_uu_paste_multi_byte_delimiter { |ctx|
 test test_uu_paste_data { |ctx|
   let s = uu.scene(ctx)?
   # no-nl-1
-  uu.write(s, "in0", "a")?
-  uu.write(s, "in1", "b")?
+  uu.write(s, "in0", "a")
+  uu.write(s, "in1", "b")
   {
-    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\n")
   }
   # no-nl-2
-  uu.write(s, "in0", "a\n")?
-  uu.write(s, "in1", "b")?
+  uu.write(s, "in0", "a\n")
+  uu.write(s, "in1", "b")
   {
-    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\n")
   }
   # no-nl-3
-  uu.write(s, "in0", "a")?
-  uu.write(s, "in1", "b\n")?
+  uu.write(s, "in0", "a")
+  uu.write(s, "in1", "b\n")
   {
-    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\n")
   }
   # no-nl-4
-  uu.write(s, "in0", "a\n")?
-  uu.write(s, "in1", "b\n")?
+  uu.write(s, "in0", "a\n")
+  uu.write(s, "in1", "b\n")
   {
-    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\n")
   }
   # zno-nl-1
-  uu.write(s, "in0", "a")?
-  uu.write(s, "in1", "b")?
+  uu.write(s, "in0", "a")
+  uu.write(s, "in1", "b")
   {
-    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\0")
   }
   # zno-nl-2
-  uu.write(s, "in0", "a\0")?
-  uu.write(s, "in1", "b")?
+  uu.write(s, "in0", "a\0")
+  uu.write(s, "in1", "b")
   {
-    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\0")
   }
   # zno-nl-3
-  uu.write(s, "in0", "a")?
-  uu.write(s, "in1", "b\0")?
+  uu.write(s, "in0", "a")
+  uu.write(s, "in1", "b\0")
   {
-    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\0")
   }
   # zno-nl-4
-  uu.write(s, "in0", "a\0")?
-  uu.write(s, "in1", "b\0")?
+  uu.write(s, "in0", "a\0")
+  uu.write(s, "in1", "b\0")
   {
-    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\0")
   }
   # no-nla-1
-  uu.write(s, "in0", "1\na")?
-  uu.write(s, "in1", "2\nb")?
+  uu.write(s, "in0", "1\na")
+  uu.write(s, "in1", "2\nb")
   {
-    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\na b\n")
   }
   # no-nla-2
-  uu.write(s, "in0", "1\na\n")?
-  uu.write(s, "in1", "2\nb")?
+  uu.write(s, "in0", "1\na\n")
+  uu.write(s, "in1", "2\nb")
   {
-    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\na b\n")
   }
   # no-nla-3
-  uu.write(s, "in0", "1\na")?
-  uu.write(s, "in1", "2\nb\n")?
+  uu.write(s, "in0", "1\na")
+  uu.write(s, "in1", "2\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\na b\n")
   }
   # no-nla-4
-  uu.write(s, "in0", "1\na\n")?
-  uu.write(s, "in1", "2\nb\n")?
+  uu.write(s, "in0", "1\na\n")
+  uu.write(s, "in1", "2\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\na b\n")
   }
   # zno-nla1
-  uu.write(s, "in0", "1\0a")?
-  uu.write(s, "in1", "2\0b")?
+  uu.write(s, "in0", "1\0a")
+  uu.write(s, "in1", "2\0b")
   {
-    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\0a b\0")
   }
   # zno-nla2
-  uu.write(s, "in0", "1\0a\0")?
-  uu.write(s, "in1", "2\0b")?
+  uu.write(s, "in0", "1\0a\0")
+  uu.write(s, "in1", "2\0b")
   {
-    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\0a b\0")
   }
   # zno-nla3
-  uu.write(s, "in0", "1\0a")?
-  uu.write(s, "in1", "2\0b\0")?
+  uu.write(s, "in0", "1\0a")
+  uu.write(s, "in1", "2\0b\0")
   {
-    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\0a b\0")
   }
   # zno-nla4
-  uu.write(s, "in0", "1\0a\0")?
-  uu.write(s, "in1", "2\0b\0")?
+  uu.write(s, "in0", "1\0a\0")
+  uu.write(s, "in1", "2\0b\0")
   {
-    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\0a b\0")
   }
   # multibyte-delim
-  uu.write(s, "in0", "1\na\n")?
-  uu.write(s, "in1", "2\nb\n")?
+  uu.write(s, "in0", "1\na\n")
+  uu.write(s, "in1", "2\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "💣", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "💣", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1💣2\na💣b\n")
   }
   # multibyte-delim-serial
-  uu.write(s, "in0", "1\na\n")?
-  uu.write(s, "in1", "2\nb\n")?
+  uu.write(s, "in0", "1\na\n")
+  uu.write(s, "in1", "2\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "💣", "-s", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "💣", "-s", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1💣a\n2💣b\n")
   }
   # trailing whitespace
-  uu.write(s, "in0", "1 \na \n")?
-  uu.write(s, "in1", "2\t\nb\t\n")?
+  uu.write(s, "in0", "1 \na \n")
+  uu.write(s, "in1", "2\t\nb\t\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "|", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "|", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 |2\t\na |b\t\n")
   }
   # utf8-2byte-delim
-  uu.write(s, "in0", "1\n2\n")?
-  uu.write(s, "in1", "a\nb\n")?
+  uu.write(s, "in0", "1\n2\n")
+  uu.write(s, "in1", "a\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "¢", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "¢", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1¢a\n2¢b\n")
   }
   # utf8-3byte-delim
-  uu.write(s, "in0", "1\n2\n")?
-  uu.write(s, "in1", "a\nb\n")?
+  uu.write(s, "in0", "1\n2\n")
+  uu.write(s, "in1", "a\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "€", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "€", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1€a\n2€b\n")
   }
   # utf8-4byte-delim
-  uu.write(s, "in0", "1\n2\n3\n")?
+  uu.write(s, "in0", "1\n2\n3\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "😀", "-s", "in0"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "😀", "-s", "in0"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1😀2😀3\n")
   }
   # utf8-multi-delim-cycle
-  uu.write(s, "in0", "a\nb\nc\n")?
-  uu.write(s, "in1", "1\n2\n3\n")?
-  uu.write(s, "in2", "x\ny\nz\n")?
+  uu.write(s, "in0", "a\nb\nc\n")
+  uu.write(s, "in1", "1\n2\n3\n")
+  uu.write(s, "in2", "x\ny\nz\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "¢€", "in0", "in1", "in2"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "¢€", "in0", "in1", "in2"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a¢1€x\nb¢2€y\nc¢3€z\n")
   }
@@ -356,10 +356,10 @@ test test_uu_paste_data { |ctx|
 # origin: uutils test_paste::test_non_utf8_delimiter
 test test_uu_paste_non_utf8_delimiter { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f1", "1\n2\n")?
-  uu.write(s, "f2", "a\nb\n")?
-  let delimiter = Path.parse_bytes(bytes.from_ints([162, 227])?)?
-  let r = uu.invoke_paths(s, "paste", [p"-d", delimiter, p"f1", p"f2"], vars: {"LC_ALL": "zh_CN.gb18030"})?
+  uu.write(s, "f1", "1\n2\n")
+  uu.write(s, "f2", "a\nb\n")
+  let delimiter = bytes.from_ints([162, 227])? as Path
+  let r = uu.invoke_paths(s, "paste", [p"-d", delimiter, p"f1", p"f2"], vars: {LC_ALL: "zh_CN.gb18030"})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, bytes.concat([b"1", bytes.from_ints([162, 227])?, b"a\n2", bytes.from_ints([162, 227])?, b"b\n"]))
 }
@@ -369,8 +369,8 @@ test test_uu_paste_paste_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let first = uu.at_bytes(s, bytes.from_ints([255, 254])?)?
   let second = uu.at_bytes(s, bytes.from_ints([240, 144])?)?
-  first.write(b"line1\nline2\n")?
-  second.write(b"col1\ncol2\n")?
+  first.write(b"line1\nline2\n")
+  second.write(b"col1\ncol2\n")
   let r = uu.invoke_paths(s, "paste", [first, second])?
   uu.succeeds(r)
   uu.stdout_is(r, "line1\tcol1\nline2\tcol2\n")
@@ -403,8 +403,8 @@ test test_uu_paste_crlf_input_in_serial_mode { |ctx|
 # origin: uutils test_paste::test_crlf_input_in_parallel_mode
 test test_uu_paste_crlf_input_in_parallel_mode { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "a", b"1\r\n2\r\n")?
-  uu.write_bytes(s, "b", b"3\r\n4\r\n")?
+  uu.write_bytes(s, "a", b"1\r\n2\r\n")
+  uu.write_bytes(s, "b", b"3\r\n4\r\n")
   let r = uu.invoke(s, "paste", ["a", "b"])?
   uu.succeeds(r)
   uu.stdout_is(r, "1\r\t3\r\n2\r\t4\r\n")
@@ -421,7 +421,7 @@ test test_uu_paste_crlf_kept_when_input_is_zero_terminated { |ctx|
 # origin: uutils test_paste::test_crlf_input_of_a_single_file_is_copied
 test test_uu_paste_crlf_input_of_a_single_file_is_copied { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "a", b"1\r\n2\r\n")?
+  uu.write_bytes(s, "a", b"1\r\n2\r\n")
   let r = uu.invoke(s, "paste", ["a"])?
   uu.succeeds(r)
   uu.stdout_is(r, "1\r\n2\r\n")

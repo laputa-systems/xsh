@@ -9,11 +9,11 @@ proc main(...argv: List[Str]) [process, error] {
   let omitted = if opts.omit == null { [] } else { procps.ids(opts.omit)? }
   let self_pid = process.current_pid()?
   let rows: List[ProcessEntry] = process.list()? |> collect
-  var found: List[Int] = []
+  var found = []
   for name in opts.operands {
     for row in rows |> sort-by(desc: true) .pid {
       if row.pid != self_pid and row.pid not in omitted and (row.command == name or row.argv0 == name or fp"{row.argv0}".name() == name) {
-        if row.pid not in found { found = found.push(row.pid) }
+        if row.pid not in found { found += [row.pid] }
         break when opts.single
       }
     }

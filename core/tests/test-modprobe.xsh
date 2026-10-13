@@ -43,11 +43,25 @@ test test_modprobe_dry_run_missing_module_in_empty_tree { |ctx|
   guard system.uname()?.sysname == "Linux" else { test.skip("module planning requires Linux"); return }
   let root = test.temp_dir(ctx, name: "modprobe-empty")?
   let source = fp"{ctx.core_dir}/modprobe.xsh".read_text()?
-  let output = test.run_script(ctx, source, ["--dry-run", "absent-module"], {XSH_MODULE_PATH: ctx.core_dir, XSH_MODULES_DIR: root}, b"", "modprobe")?
-  assert output.status == 1
-  assert "could not be resolved" in output.stderr
+  let output = test.expect(
+    ctx,
+    source,
+    status: 1,
+    stderr: ["could not be resolved"],
+    args: ["--dry-run", "absent-module"],
+    env: {XSH_MODULE_PATH: ctx.core_dir, XSH_MODULES_DIR: root},
+    stdin: b"",
+    name: "modprobe",
+  )?
   assert output.stdout == ""
-  let quiet = test.run_script(ctx, source, ["--quiet", "--dry-run", "absent-module"], {XSH_MODULE_PATH: ctx.core_dir, XSH_MODULES_DIR: root}, b"", "modprobe")?
-  assert quiet.status == 1
+  let quiet = test.expect(
+    ctx,
+    source,
+    status: 1,
+    args: ["--quiet", "--dry-run", "absent-module"],
+    env: {XSH_MODULE_PATH: ctx.core_dir, XSH_MODULES_DIR: root},
+    stdin: b"",
+    name: "modprobe",
+  )?
   assert quiet.stderr == ""
 }

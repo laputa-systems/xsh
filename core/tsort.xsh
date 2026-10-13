@@ -173,11 +173,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   var ids: Map[Str, Int] = {}
-  var labels: List[Bytes] = []
-  var keys: List[Str] = []
+  var labels = []
+  var keys = []
   var succ: List[List[Int]] = []
   var preds: List[Int] = []
-  var ends: List[Int] = []
+  var ends = []
   let text_mode = data.utf8() is Ok(_)
 
   for token in tokens {
@@ -225,7 +225,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var head = 0
   var remaining = total
   var looped = false
-  var out: List[Bytes] = []
+  var out = []
 
   while remaining > 0 {
     if head >= queue.len() {

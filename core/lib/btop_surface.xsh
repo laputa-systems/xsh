@@ -2,9 +2,9 @@
 ##!
 ##! Rows are sanitized and padded at construction, while the committed surface
 ##! changes only after the complete update has reached the output sink.
-use tui
 use btop_color as color
 use btop_terminal as terminal
+use tui
 
 const MAX_DIMENSION = 2000
 const MAX_CELLS = 200000
@@ -25,19 +25,20 @@ pure valid_dimensions(width: Int, height: Int) -> Bool {
   if width < 0 or height < 0 or width > MAX_DIMENSION or height > MAX_DIMENSION {
     return false
   }
-  if width == 0 { return true }
+  return true when width == 0
   height <= MAX_CELLS / width
 }
 
 pure repeated(character: Str, count: Int) -> Str {
   var result = ""
-  for _ in range(count) { result += character }
+  repeat count times { result += character }
   result
 }
 
 pure no_roles(height: Int) -> List[color.Role?] {
-  var roles: List[color.Role?] = []
-  for _ in range(height) { roles += [null] }
+  let roles: List[color.Role?] = collect {
+    repeat height times { yield null }
+  }
   roles
 }
 
@@ -47,12 +48,13 @@ pure fit(value: Str, width: Int) -> Str {
 
 ## Creates a blank surface after checking its total cell bound.
 export pure blank(width: Int, height: Int) -> Result[Surface, Error] {
-  if ! valid_dimensions(width, height) {
+  guard valid_dimensions(width, height) else {
     return Err(error.failure("surface dimensions exceed the cell bound"))
   }
   let line = repeated(" ", width)
-  var lines: List[Str] = []
-  for _ in range(height) { lines += [line] }
+  let lines = collect {
+    repeat height times { yield line }
+  }
   Ok({width: width, height: height, lines: lines, roles: no_roles(height)})
 }
 
@@ -61,10 +63,11 @@ export pure from_lines(width: Int, height: Int, source: List[Str]) -> Result[Sur
   if ! valid_dimensions(width, height) or source.len() > height {
     return Err(error.failure("surface rows do not fit the requested geometry"))
   }
-  var lines: List[Str] = []
-  for row in range(height) {
-    let value = if row < source.len() { source[row] } else { "" }
-    lines += [fit(value, width)]
+  let lines = collect {
+    for row in range(height) {
+      let value = if row < source.len() { source[row] } else { "" }
+      yield fit(value, width)
+    }
   }
   Ok({width: width, height: height, lines: lines, roles: no_roles(height)})
 }
@@ -80,9 +83,10 @@ export pure from_lines_with_roles(
   if roles.len() > height {
     return Err(error.failure("surface palette roles exceed the row bound"))
   }
-  var row_roles: List[color.Role?] = []
-  for row in range(height) {
-    row_roles += [if row < roles.len() { roles[row] } else { null }]
+  let row_roles: List[color.Role?] = collect {
+    for row in range(height) {
+      yield if row < roles.len() { roles[row] } else { null }
+    }
   }
   Ok({width: plain.width, height: plain.height, lines: plain.lines, roles: row_roles})
 }
@@ -112,30 +116,31 @@ pure valid_rect(rect: Rect) -> Bool {
 
 ## Returns the cell intersection or null for invalid or disjoint rectangles.
 export pure intersect(left: Rect, right: Rect) -> Rect? {
-  if ! valid_rect(left) or ! valid_rect(right) { return null }
+  return null when ! valid_rect(left) or ! valid_rect(right)
   let x = if left.x > right.x { left.x } else { right.x }
   let y = if left.y > right.y { left.y } else { right.y }
   let right_edge = if left.x + left.width < right.x + right.width { left.x + left.width } else { right.x + right.width }
   let bottom_edge = if left.y + left.height < right.y + right.height { left.y + left.height } else { right.y + right.height }
-  if x >= right_edge or y >= bottom_edge { return null }
+  return null when x >= right_edge or y >= bottom_edge
   {x: x, y: y, width: right_edge - x, height: bottom_edge - y}
 }
 
 ## Clips a surface to its intersection with a cell rectangle.
 export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Error] {
-  if ! valid_rect(rectangle) {
+  guard valid_rect(rectangle) else {
     return Err(error.failure("surface clip rectangle exceeds the geometry bound"))
   }
   let clipped = intersect(
     {x: 0, y: 0, width: surface.width, height: surface.height},
     rectangle,
   )
-  if clipped == null { return blank(0, 0) }
-  let area = clipped ?? {x: 0, y: 0, width: 0, height: 0}
-  var lines: List[Str] = []
-  for y in range(area.y, area.y + area.height) {
-    lines += [tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)]
+  guard let area = clipped else {
+    return blank(0, 0)
   }
+  var lines = [
+    tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)
+    for y in range(area.y, area.y + area.height)
+  ]
   var roles: List[color.Role?] = []
   for y in range(area.y, area.y + area.height) {
     roles += [if y < surface.roles.len() { surface.roles[y] } else { null }]
@@ -145,10 +150,11 @@ export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Erro
 
 ## Draws a bounded ASCII meter; missing or non-finite values use question marks.
 export pure meter(value: Float?, width: Int) -> Str {
-  if width <= 0 or width > MAX_DIMENSION { return "" }
-  if value == null { return "?" + repeated(" ", width - 1) }
-  let amount = value ?? 0.0
-  if amount != amount { return "?" + repeated(" ", width - 1) }
+  return "" when width <= 0 or width > MAX_DIMENSION
+  guard let amount = value else {
+    return "?" + repeated(" ", width - 1)
+  }
+  return "?" + repeated(" ", width - 1) when amount != amount
   let bounded = if amount < 0.0 { 0.0 } else if amount > 100.0 { 100.0 } else { amount }
   let filled = (bounded * width.float() / 100.0).floor() ?? 0
   repeated("#", filled) + repeated("-", width - filled)
@@ -156,7 +162,7 @@ export pure meter(value: Float?, width: Int) -> Str {
 
 ## Builds one padded table row from columns with explicit cell widths.
 export pure table_row(columns: List[Str], widths: List[Int], separator: Str = " ") -> Result[Str, Error] {
-  if columns.len() != widths.len() {
+  guard columns.len() == widths.len() else {
     return Err(error.failure("table column and width counts differ"))
   }
   var row = ""
@@ -173,27 +179,28 @@ export pure table_row(columns: List[Str], widths: List[Int], separator: Str = " 
 
 ## Adds a selection marker and clips the value to one terminal row.
 export pure selected_row(value: Str, selected: Bool, width: Int) -> Str {
-  if width <= 0 { return "" }
+  return "" when width <= 0
   let marker = if selected { "> " } else { "  " }
-  if width == 1 { return if selected { ">" } else { " " } }
+  return if selected { ">" } else { " " } when width == 1
   tui.cell_right_pad(marker + tui.cell_clip(tui.safe_single_line(value), width - 2), width)
 }
 
 ## Returns a bounded viewport with blank rows after the visible input ends.
 export pure viewport(rows: List[Str], offset: Int, height: Int) -> List[Str] {
-  if height <= 0 or height > MAX_DIMENSION { return [] }
+  return [] when height <= 0 or height > MAX_DIMENSION
   let start = if offset < 0 { 0 } else { offset }
-  var visible: List[Str] = []
-  for row in range(height) {
-    let at = start + row
-    visible += [if at < rows.len() { rows[at] } else { "" }]
+  let visible = collect {
+    for row in range(height) {
+      let at = start + row
+      yield if at < rows.len() { rows[at] } else { "" }
+    }
   }
   visible
 }
 
 ## Shows a cell-positioned cursor while scrolling long input through a fixed field.
 export pure input_field(value: Str, cursor_cell: Int, width: Int) -> Str {
-  if width <= 0 or width > MAX_DIMENSION { return "" }
+  return "" when width <= 0 or width > MAX_DIMENSION
   let safe = tui.safe_single_line(value)
   let cursor = if cursor_cell < 0 { 0 } else { cursor_cell }
   let start = if cursor >= width { cursor - width + 1 } else { 0 }

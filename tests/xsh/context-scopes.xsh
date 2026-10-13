@@ -59,7 +59,7 @@ print "done"
 
 test test_scope_run_capture_assignment_to_outer_binding { |ctx|
   let repo = test.temp_dir(ctx)?
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc inspect(repo: Path) [env, process, error] -> Result[Str] {
   var revision = ""
@@ -70,9 +70,9 @@ test test_scope_run_capture_assignment_to_outer_binding { |ctx|
 let repo = Path(args[0])
 print ${inspect(repo)?}
 """,
-    [repo],
+    status: 0,
+    args: [repo],
   )?
-  assert output.success, output.stderr
   assert output.stdout == repo.display() + "\n", output.stdout
 }
 

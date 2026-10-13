@@ -10,8 +10,9 @@ use patch_parse
 
 ## Canonical comparison forms of the input file lines, one per line.
 export pure keys(lines: List[Bytes], loose_space: Bool) -> List[Bytes] {
-  var output: List[Bytes] = []
-  for line in lines { output += [line_key(line, loose_space)] }
+  let output = collect {
+    for line in lines { yield line_key(line, loose_space) }
+  }
   output
 }
 
@@ -26,19 +27,20 @@ pure is_blank(byte: Int) -> Bool {
 ## ignored.
 export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
   var text = line
-  if !loose_space { return text }
+  return text unless loose_space
   # Loose matching also ignores the line end: a final line without one
   # matches the same line with one.
   let content = if text.ends_with(b"\n") { text[0..text.len() - 1] } else { text }
-  var pieces: List[Int] = []
   var in_blanks = false
-  for byte in content {
-    if is_blank(byte) {
-      in_blanks = true
-    } else {
-      if in_blanks { pieces += [32] }
-      in_blanks = false
-      pieces += [byte]
+  let pieces = collect {
+    for byte in content {
+      if is_blank(byte) {
+        in_blanks = true
+      } else {
+        yield 32 when in_blanks
+        in_blanks = false
+        yield byte
+      }
     }
   }
   bytes.from_ints(pieces) ?? b""
@@ -46,9 +48,10 @@ export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
 
 ## The old-side lines of a hunk: its context and removed lines.
 export pure pattern(hunk: patch_parse.Hunk) -> List[Bytes] {
-  var output: List[Bytes] = []
-  for index in range(hunk.kinds.len()) {
-    if hunk.kinds[index] != 2 { output += [hunk.texts[index]] }
+  let output = collect {
+    for index in range(hunk.kinds.len()) {
+      yield hunk.texts[index] when hunk.kinds[index] != 2
+    }
   }
   output
 }
@@ -59,8 +62,8 @@ export pure reversed(hunk: patch_parse.Hunk) -> patch_parse.Hunk {
   var out = hunk
   # Within a change group removed lines come first, as in a hunk read
   # straight from a diff.
-  var kinds: List[Int] = []
-  var texts: List[Bytes] = []
+  var kinds = []
+  var texts = []
   var at = 0
   let total = hunk.kinds.len()
   while at < total {
@@ -97,8 +100,8 @@ pure matches_at(input: List[Bytes], wanted: List[Bytes], base: Int, prefix_fuzz:
   var i = base + prefix_fuzz
   let total = input.len()
   while p < lines {
-    if i < 1 or i > total { return false }
-    if input[i - 1] != wanted[p] { return false }
+    return false when i < 1 or i > total
+    return false when input[i - 1] != wanted[p]
     p += 1
     i += 1
   }
@@ -111,7 +114,7 @@ pure matches_at(input: List[Bytes], wanted: List[Bytes], base: Int, prefix_fuzz:
 export pure locate(input: List[Bytes], wanted: List[Bytes], hunk: patch_parse.Hunk, fuzz: Int, in_offset: Int, last_frozen: Int) -> Int {
   let first_guess = hunk.old_first + in_offset
   let pat_lines = wanted.len()
-  if pat_lines == 0 { return first_guess }
+  return first_guess when pat_lines == 0
   let context = if hunk.prefix < hunk.suffix { hunk.suffix } else { hunk.prefix }
   let prefix_fuzz = fuzz + hunk.prefix - context
   let suffix_fuzz = fuzz + hunk.suffix - context
@@ -129,14 +132,14 @@ export pure locate(input: List[Bytes], wanted: List[Bytes], hunk: patch_parse.Hu
   if prefix_fuzz < 0 {
     # Fewer leading than trailing context: the hunk starts the file.
     let offset = 1 - first_guess
-    if offset > max_pos_offset or -offset > max_neg_offset { return 0 }
+    return 0 when offset > max_pos_offset or -offset > max_neg_offset
     if matches_at(input, wanted, first_guess + offset, 0, suffix_fuzz) { return first_guess + offset }
     return 0
   }
   if suffix_fuzz < 0 {
     # Fewer trailing than leading context: the hunk ends the file.
     let offset = input_lines - pat_lines + 1 - first_guess
-    if offset > max_pos_offset or -offset > max_neg_offset { return 0 }
+    return 0 when offset > max_pos_offset or -offset > max_neg_offset
     if matches_at(input, wanted, first_guess + offset, prefix_fuzz, 0) { return first_guess + offset }
     return 0
   }

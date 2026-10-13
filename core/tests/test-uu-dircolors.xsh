@@ -1,36 +1,34 @@
 ##! Transcribed from the uutils dircolors integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc fixture_output(s: uu.Scene, r: uu.Ran, name: Str) [fs, error] {
-  uu.remove(s, "expected")?
-  uu.fixture(s, "dircolors", name, "expected")?
+  uu.remove(s, "expected")
+  uu.fixture(s, "dircolors", name, "expected")
   uu.stdout_is_bytes(r, uu.read(s, "expected")?)
 }
 
 # origin: uutils test_dircolors::test1
 test test_uu_dircolors_test1 { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dircolors", "test1.txt", "test1.txt")?
+  uu.fixture(s, "dircolors", "test1.txt", "test1.txt")
   for item in [{flag: "-c", suffix: "csh"}, {flag: "-b", suffix: "sh"}] {
-    let flag = item.flag
-    let suffix = item.suffix
+    let {flag, suffix, ..} = item
     let r = uu.invoke(s, "dircolors", [flag, "test1.txt"], vars: {TERM: "gnome"})?
     uu.succeeds(r)
-    fixture_output(s, r, f"test1.{suffix}.expected")?
+    fixture_output(s, r, f"test1.{suffix}.expected")
   }
 }
 
 # origin: uutils test_dircolors::test_keywords
 test test_uu_dircolors_keywords { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "dircolors", "keywords.txt", "keywords.txt")?
+  uu.fixture(s, "dircolors", "keywords.txt", "keywords.txt")
   for item in [{flag: "-c", suffix: "csh"}, {flag: "-b", suffix: "sh"}] {
-    let flag = item.flag
-    let suffix = item.suffix
+    let {flag, suffix, ..} = item
     let r = uu.invoke(s, "dircolors", [flag, "keywords.txt"], vars: {TERM: ""})?
     uu.succeeds(r)
-    fixture_output(s, r, f"keywords.{suffix}.expected")?
+    fixture_output(s, r, f"keywords.{suffix}.expected")
   }
 }
 
@@ -39,7 +37,7 @@ test test_uu_dircolors_internal_db { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "dircolors", ["-p"])?
   uu.succeeds(r)
-  fixture_output(s, r, "internal.expected")?
+  fixture_output(s, r, "internal.expected")
 }
 
 # origin: uutils test_dircolors::test_ls_colors
@@ -47,7 +45,7 @@ test test_uu_dircolors_ls_colors { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "dircolors", ["--print-ls-colors"])?
   uu.succeeds(r)
-  fixture_output(s, r, "ls_colors.expected")?
+  fixture_output(s, r, "ls_colors.expected")
 }
 
 # origin: uutils test_dircolors::test_bash_default
@@ -55,7 +53,7 @@ test test_uu_dircolors_bash_default { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "dircolors", ["-b"], vars: {TERM: "screen"})?
   uu.succeeds(r)
-  fixture_output(s, r, "bash_def.expected")?
+  fixture_output(s, r, "bash_def.expected")
 }
 
 # origin: uutils test_dircolors::test_csh_default
@@ -63,18 +61,17 @@ test test_uu_dircolors_csh_default { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "dircolors", ["-c"], vars: {TERM: "screen"})?
   uu.succeeds(r)
-  fixture_output(s, r, "csh_def.expected")?
+  fixture_output(s, r, "csh_def.expected")
 }
 
 # origin: uutils test_dircolors::test_overridable_args
 test test_uu_dircolors_overridable_args { |ctx|
   let s = uu.scene(ctx)?
   for item in [{flag: "-bc", name: "csh_def.expected"}, {flag: "-cb", name: "bash_def.expected"}] {
-    let flag = item.flag
-    let name = item.name
+    let {flag, name, ..} = item
     let r = uu.invoke(s, "dircolors", [flag], vars: {TERM: "screen"})?
     uu.succeeds(r)
-    fixture_output(s, r, name)?
+    fixture_output(s, r, name)
   }
 }
 
@@ -131,9 +128,7 @@ test test_uu_dircolors_extra_operand { |ctx|
 test test_uu_dircolors_term_matching { |ctx|
   let s = uu.scene(ctx)?
   for item in [{pattern: "matches", term: "matches", matched: true}, {pattern: "matches", term: "no_match", matched: false}, {pattern: "[!a]_negation", term: "a_negation", matched: false}, {pattern: "[!a]_negation", term: "b_negation", matched: true}, {pattern: "[^a]_negation", term: "a_negation", matched: false}, {pattern: "[^a]_negation", term: "b_negation", matched: true}] {
-    let pattern = item.pattern
-    let term = item.term
-    let matched = item.matched
+    let {pattern, term, matched, ..} = item
     let theme = f"\nTERM {pattern}\n\n.term_matching    00;38;5;61\n"
     let r = uu.invoke(s, "dircolors", ["-b", "-"], bytes.from_text(theme), vars: {TERM: term})?
     uu.succeeds(r)
@@ -180,8 +175,8 @@ test test_uu_dircolors_invalid_term_glob { |ctx|
 test test_uu_dircolors_dircolors_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
-  filename.write(b"NORMAL 00\n*.txt 32\n")?
-  let r = uu.invoke_paths(s, "dircolors", [Path.parse_bytes(b"\xff\xfe")?], vars: {SHELL: "bash"})?
+  filename.write(b"NORMAL 00\n*.txt 32\n")
+  let r = uu.invoke_paths(s, "dircolors", [b"\xff\xfe" as Path], vars: {SHELL: "bash"})?
   uu.succeeds(r)
   uu.stdout_contains(r, "LS_COLORS=")
   uu.stdout_contains(r, "*.txt=32")

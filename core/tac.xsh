@@ -32,7 +32,7 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 # Keep the option prefix visible when a separator is attached to its option.
 # Short options before `s` must be flags because `s` consumes the rest.
 pure separator_offset(argument: Bytes) -> Int {
-  if argument.len() < 2 or argument.byte_at(0) != 45 { return 0 }
+  return 0 when argument.len() < 2 or argument.byte_at(0) != 45
 
   if argument.byte_at(1) == 45 {
     for at in range(2, argument.len()) {
@@ -46,7 +46,7 @@ pure separator_offset(argument: Bytes) -> Int {
 
   for at in range(1, argument.len()) {
     let option = argument.byte_at(at) ?? -1
-    if option == 115 { return at + 1 }
+    return at + 1 when option == 115
     return 0 when option not in [98, 114]
   }
 
@@ -55,7 +55,7 @@ pure separator_offset(argument: Bytes) -> Int {
 
 # Keep raw operands and separator bytes while the option parser sees safe text markers.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   var options = true
   var separator_next = false
@@ -63,17 +63,16 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
   for index in range(argv.len()) {
     let argument = argv[index]
     let offset = if options and ! separator_next { separator_offset(argument) } else { 0 }
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0tac-raw-argument-{index}\0"
-        if offset > 0 {
-          text += [f"{argument[0..offset].utf8() ?? ""}{marker}"]
-          raw += [{marker: marker, value: argument[offset..]}]
-        } else {
-          text += [marker]
-          raw += [{marker: marker, value: argument}]
-        }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0tac-raw-argument-{index}\0"
+      if offset > 0 {
+        text += [f"{argument[0..offset].utf8() ?? ""}{marker}"]
+        raw += [{marker: marker, value: argument[offset..]}]
+      } else {
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
       }
     }
 
@@ -95,7 +94,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
 
   bytes.from_text(value)
@@ -106,7 +105,7 @@ proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
     return tio.open_source(text)
   }
 
-  let input_path = Path.parse_bytes(name)?
+  let input_path = name as Path
   let target = input_path.resolve()?
   let entry = target.metadata()?
   let kind = entry.mode / 4096 % 16
@@ -220,7 +219,7 @@ pure previous_boundary(data: Bytes, at: Int) -> Int {
 # Map each byte to one scalar so the text regex engine can search invalid
 # UTF-8 data while preserving offsets into the source bytes.
 proc regex_byte_text(data: Bytes) [error] -> Result[RegexText] {
-  var chars: List[Bytes] = []
+  var chars = []
   var source_offsets = [0]
 
   for index in range(data.len()) {
@@ -235,7 +234,7 @@ proc regex_byte_text(data: Bytes) [error] -> Result[RegexText] {
     source_offsets += [index + 1]
   }
 
-  Ok({text: bytes.concat(chars).utf8()?, source_offsets: source_offsets})
+  Ok({text: bytes.concat(chars) as Str, source_offsets: source_offsets})
 }
 
 # GNU tac searches regex separators backward, using each prior match start as
@@ -253,8 +252,8 @@ proc regex_cuts_in_text(text: Str, pattern: Str, source_offsets: List[Int]) [err
   }
 
   var cursor = text_bytes.len()
-  var reversed_starts: List[Int] = []
-  var reversed_ends: List[Int] = []
+  var reversed_starts = []
+  var reversed_ends = []
 
   loop {
     var at = cursor
@@ -365,7 +364,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       continue
     }
 
-    var chunks: List[Bytes] = []
+    var chunks = []
     var offset = 0
 
     loop {

@@ -1,6 +1,6 @@
 type Outcome = {status: Int, stdout: Str, stderr: Str}
 
-proc run_applet(ctx: TestContext, root: Path, args: List[Str], logical_pwd: Str = "") [fs, process, error] -> Result[Outcome] {
+proc run_applet(ctx: TestContext, root: Path, args: List[Str], logical_pwd = "") [fs, process, error] -> Result[Outcome] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/pwd.xsh"
@@ -15,7 +15,7 @@ proc run_applet_in_deleted_directory(ctx: TestContext, root: Path) [fs, process,
   let script = fp"{ctx.core_dir}/pwd.xsh"
   let setup = "mkdir child && cd child && rmdir ../child && exec \"$@\""
   let argv = ["sh", "-c", setup, "sh", ctx.xsh_bin.display(), script.display(), "--"]
-  let plan = process.command_argv(p"/bin/sh", argv, root, {PWD: root.display(), LC_ALL: "C"}, b"", out, err)
+  let plan = process.command_argv(p"/bin/sh", argv, root, {PWD: root, LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?})
 }

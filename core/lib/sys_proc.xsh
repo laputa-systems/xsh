@@ -45,49 +45,50 @@ type StatmParse = {rss_bytes: Int?, issues: List[src.Issue]}
 
 pure page_bytes(pages: Int?, page_size_bytes: Int) -> Int? {
   return null when pages == null or (pages ?? -1) < 0 or page_size_bytes <= 0
-  let count = pages ?? 0
+  let count = pages
   return null when count > 9223372036854775807 / page_size_bytes
   count * page_size_bytes
 }
 
 pure display_bytes(data: Bytes) -> Str {
-  var parts: List[Str] = []
   var start = 0
-  for at in range(data.len()) {
-    if data.byte_at(at) == 0 {
-      if at > start {
-        let argument = data[start..at]
-        let text = if let Ok(decoded) = argument.utf8() {
-          decoded
-        } else if let Ok(display_path) = Path.parse_bytes(argument) {
-          display_path.display()
-        } else {
-          "?"
+  let parts = collect {
+    for at in range(data.len()) {
+      if data.byte_at(at) == 0 {
+        if at > start {
+          let argument = data[start..at]
+          let text = if let Ok(decoded) = argument.utf8() {
+            decoded
+          } else if let Ok(display_path) = Path.parse_bytes(argument) {
+            display_path.display()
+          } else {
+            "?"
+          }
+          yield text
         }
-        parts += [text]
+        start = at + 1
       }
-      start = at + 1
     }
-  }
-  if start < data.len() {
-    let argument = data[start..data.len()]
-    let text = if let Ok(decoded) = argument.utf8() {
-      decoded
-    } else if let Ok(display_path) = Path.parse_bytes(argument) {
-      display_path.display()
-    } else {
-      "?"
+    if start < data.len() {
+      let argument = data[start..data.len()]
+      let text = if let Ok(decoded) = argument.utf8() {
+        decoded
+      } else if let Ok(display_path) = Path.parse_bytes(argument) {
+        display_path.display()
+      } else {
+        "?"
+      }
+      yield text
     }
-    parts += [text]
   }
   parts.join(" ")
 }
 
 pure stat_matches_process(source: src.SourceRead, process_row: Process) -> Bool {
-  if source.observation.state != report.Observed or source.observation.value == null {
+  if source.observation.state != .Observed or source.observation.value == null {
     return false
   }
-  if let Ok(stat) = live.parse_proc_stat_for_monitor(source.observation.value ?? "") {
+  if let Ok(stat) = live.parse_proc_stat_for_monitor(source.observation.value) {
     return stat.pid == process_row.pid and stat.start_ticks == process_row.start_ticks
   }
   false
@@ -96,37 +97,35 @@ pure stat_matches_process(source: src.SourceRead, process_row: Process) -> Bool 
 ## Reads display-only text from the host procfs and verifies its process lifetime.
 ## Command-line bytes stay outside observations because they can contain secrets.
 export proc collect_local_display(root: FsRoot, process_rows: List[Process]) [fs, error] -> List[LocalProcessDisplay] {
-  var displays: List[LocalProcessDisplay] = []
   var user_names: Map[Int, Str] = {}
-  for row in process_rows {
-    let process_path = fp"proc/{row.pid}"
-    let before = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
-    let command = root.read_result(fp"{process_path}/cmdline", max_bytes: 4096)?
-    let after = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
-    var command_line: Str? = null
-    if stat_matches_process(before, row) and stat_matches_process(after, row) and
-        command.state == "observed" and command.data != null {
-      let text = display_bytes(command.data ?? b"")
-      if text != "" {
-        command_line = if command.truncated { f"{text} …" } else { text }
-      }
-    }
-    let user_name = if row.uid == null {
-      "?"
-    } else {
-      let uid = row.uid ?? 0
-      if let Ok(name) = user_names.get(uid) {
-        name
-      } else {
-        let name = match user.by_uid(uid) {
-          Ok(account) => account.name
-          Err(_) => f"{uid}"
+  let displays: List[LocalProcessDisplay] = collect {
+    for row in process_rows {
+      let process_path = fp"proc/{row.pid}"
+      let before = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
+      let command = root.read_result(fp"{process_path}/cmdline", max_bytes: 4096)?
+      let after = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
+      var command_line = null
+      if stat_matches_process(before, row) and stat_matches_process(after, row) and
+          command.state == "observed" and command.data != null {
+        let text = display_bytes(command.data)
+        if text != "" {
+          command_line = if command.truncated { f"{text} …" } else { text }
         }
-        user_names = user_names.set(uid, name)
-        name
       }
+      let user_name = if row.uid == null {
+        "?"
+      } else {
+        let uid = row.uid
+        if let Ok(name) = user_names.get(uid) {
+          name
+        } else {
+          let name = if let Ok(account) = user.by_uid(uid) { account.name } else { f"{uid}" }
+          user_names = user_names.set(uid, name)
+          name
+        }
+      }
+      yield {pid: row.pid, start_ticks: row.start_ticks, command_line: command_line, user_name: user_name}
     }
-    displays += [{pid: row.pid, start_ticks: row.start_ticks, command_line: command_line, user_name: user_name}]
   }
   displays
 }
@@ -139,7 +138,7 @@ pure parse_status_uid(source: src.SourceRead, pid: Int) -> UidParse {
     }
   }
   var rows = 0
-  var uid: Int? = null
+  var uid = null
   var issue: src.Issue? = null
   for line in source.observation.value.lines() {
     continue when ! line.starts_with("Uid:")
@@ -183,14 +182,15 @@ pure parse_statm(source: src.SourceRead, page_size_bytes: Int, pid: Int) -> Stat
       issues: [src.issue(f"processes.{pid}.statm", report.Malformed, "invalid_statm_row", null)],
     }
   }
-  var parsed: List[Int] = []
-  for field in fields {
-    let value = src.parse_integer(field)
-    if value == null or (value ?? -1) < 0 {
-      let state = if src.decimal_digits(field) { report.RangeFailure } else { report.Malformed }
-      return {rss_bytes: null, issues: [src.issue(f"processes.{pid}.statm", state, "invalid_statm_page_count", null)]}
+  let parsed = collect {
+    for field in fields {
+      let value = src.parse_integer(field)
+      if value == null or (value ?? -1) < 0 {
+        let state = if src.decimal_digits(field) { report.RangeFailure } else { report.Malformed }
+        return {rss_bytes: null, issues: [src.issue(f"processes.{pid}.statm", state, "invalid_statm_page_count", null)]}
+      }
+      yield value
     }
-    parsed += [value ?? 0]
   }
   let resident = page_bytes(parsed[1], page_size_bytes)
   if resident == null {
@@ -213,7 +213,7 @@ export pure process_read_from_tape(pid: Int, page_size_bytes: Int, tape: Process
   }
   let before = live.parse_proc_stat_for_monitor(before_source.observation.value)
   if let Ok(stat) = before {
-    if stat.pid != pid {
+    guard stat.pid == pid else {
       return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "pid_directory_reused", null)]}
     }
 
@@ -285,7 +285,7 @@ proc process_read(root: FsRoot, directory: Path, pid: Int, page_size_bytes: Int)
 
 ## Enumerates numeric PID directories and discards rows whose identity changed mid-read.
 export proc collect(root: FsRoot, page_size_bytes: Int) [fs, error] -> ProcessSource {
-  if page_size_bytes <= 0 {
+  guard page_size_bytes > 0 else {
     return {state: report.Malformed, processes: [], issues: [src.issue("processes.page_size", report.Malformed, "invalid_page_size", null)]}
   }
   let listing = root.children(p"proc", max_entries: 65536)?
@@ -299,13 +299,13 @@ export proc collect(root: FsRoot, page_size_bytes: Int) [fs, error] -> ProcessSo
     let name = directory.name()
     continue when ! src.decimal_digits(name)
     let parsed_pid = src.parse_integer(name)
-    if parsed_pid == null or (parsed_pid ?? 0) <= 0 {
+    if parsed_pid == null or parsed_pid <= 0 {
       issues += [src.issue(f"processes.{name}.pid", report.RangeFailure, "invalid_pid", null)]
       continue
     }
-    let pid = parsed_pid ?? 0
+    let pid = parsed_pid
     let row = process_read(root, directory, pid, page_size_bytes)
-    issues = issues.extend(row.issues)
+    issues += row.issues
     if let process_row = row.process {
       processes += [process_row]
     }

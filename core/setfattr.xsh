@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fileattrs
+use lib.gnu
 
 type Options = {name: Str?, remove: Str?, value: Str?, restore: Str?, raw: Bool, nofollow: Bool, help: Bool, version: Bool, files: List[Str]}
 
@@ -17,7 +17,7 @@ proc apply(name: Str, attribute: Str, value: Bytes, remove: Bool, follow: Bool) 
 # Dump entries are applied in source order; a failed entry does not suppress
 # later operands. An invalid encoding is rejected before its attribute changes.
 proc restore_dump(data: Bytes, follow: Bool, raw: Bool) [fs, process, error] -> Bool {
-  var name: Str? = null
+  var name = null
   var success = true
   var at = 0
   while at < data.len() {
@@ -46,7 +46,7 @@ proc restore_dump(data: Bytes, follow: Bool, raw: Bool) [fs, process, error] -> 
       if raw { Ok(line[equal + 1..]) } else { fileattrs.decode_bytes(line[equal + 1..]) }
     } else { Ok(b"") }
     if let Err(failure) = value { gnu.error(failure.message); success = false; continue }
-    if ! apply(name ?? "", attribute?, value?, false, follow) { success = false }
+    if ! apply(name, attribute?, value?, false, follow) { success = false }
   }
   success
 }
@@ -68,8 +68,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.version { gnu.version("setfattr"); return }
   if opts.restore != null {
     if ! opts.files.is_empty() { gnu.extra_operand(opts.files[0], status: 2) }
-    let input = gnu.read_operand(opts.restore ?? "")
-    if let Err(failure) = input { fileattrs.report(opts.restore ?? "", failure); exit 1 }
+    let input = gnu.read_operand(opts.restore)
+    if let Err(failure) = input { fileattrs.report(opts.restore, failure); exit 1 }
     if ! restore_dump(input?, ! opts.nofollow, opts.raw) { exit 1 }
     return
   }

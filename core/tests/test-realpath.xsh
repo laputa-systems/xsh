@@ -1,6 +1,6 @@
 type Outcome = {status: Int, stdout: Str, stderr: Str}
 
-proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "") [fs, process, error] -> Result[Outcome] {
+proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir = "") [fs, process, error] -> Result[Outcome] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/realpath.xsh"
@@ -18,7 +18,7 @@ test test_realpath { |ctx|
 
 test test_realpath_physical_logical_relative_and_missing { |ctx|
   let root = test.temp_dir(ctx, name: "realpath-resolution")?
-  fp"{root}/dir/inner".mkdir(parents: true)
+  fp"{root}/dir/inner".mkdir()
   fp"{root}/alias".symlink(to: p"dir/inner")
   assert run_applet(ctx, root, ["alias/.."])?.stdout == root.display() + "/dir\n"
   assert run_applet(ctx, root, ["-L", "alias/.."])?.stdout == root.display() + "\n"
@@ -49,7 +49,7 @@ test test_realpath_empty_relative_options_fail { |ctx|
 
 test test_realpath_accepts_non_utf8_existing_paths { |ctx|
   let root = test.temp_dir(ctx, name: "realpath-invalid-utf8")?.resolve()?
-  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]))?
+  let target = bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]) as Path
   target.write("ok")
   let script = fp"{ctx.core_dir}/realpath.xsh"
   let stdout = fp"{root}/stdout"

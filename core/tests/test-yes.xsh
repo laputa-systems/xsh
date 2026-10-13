@@ -60,7 +60,7 @@ test test_yes_write_errors_name_standard_output { |ctx|
   let script = fp"{ctx.core_dir}/yes.xsh"
   for size in [1, 16384] {
     let word = [ "x" for _ in range(size) ].join("")
-    let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), word], root, {LC_ALL: "C"}, b"", p"/dev/full", err)
+    let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, word], root, {LC_ALL: "C"}, b"", p"/dev/full", err)
     let status = process.run(plan)?
     assert status.exit_code()? == 1, f"size {size}"
     assert err.read_text()? == "yes: standard output: No space left on device\n", f"size {size}"

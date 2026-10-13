@@ -13,14 +13,14 @@ proc main(...argv: List[Str]) [process, env, time, error, io] {
   let interval = if parsed? < 0.1 { 0.1 } else { parsed? }
   let command = opts.operands[0]
   let command_args = opts.operands |> drop(1)
-  var previous: Str? = null
+  var previous = null
   while true {
     let captured = run.capture --text $command @command_args
     gnu.write_text("\u{1b}[H\u{1b}[2J")
     if ! opts.no_title { print f"Every {interval.format(1)}s: {opts.operands.join(" ")}\n" }
     gnu.write_text(captured.stdout)
     gnu.write_text(captured.stderr)
-    io.flush_stdout()?
+    io.flush_stdout()
     if opts.exit_error and ! captured.status.exited_with(0) { exit 1 }
     let combined = captured.stdout + captured.stderr
     # The first run only establishes the baseline; a later differing run ends the loop.

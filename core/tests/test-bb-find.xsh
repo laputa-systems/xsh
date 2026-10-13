@@ -3,8 +3,8 @@ use support.uu
 # origin: busybox find/find ./// -name .
 test test_bb_find_find_name_9fe1cb1f { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "find.tempdir")?
-  uu.touch(s, "find.tempdir/testfile")?
+  uu.mkdir(s, "find.tempdir")
+  uu.touch(s, "find.tempdir/testfile")
   let r = uu.invoke(s, "find", [".///", "-name", "."], timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only(r, ".///\n")
@@ -13,8 +13,8 @@ test test_bb_find_find_name_9fe1cb1f { |ctx|
 # origin: busybox find/find ./// -name .///
 test test_bb_find_find_name_b975c3ea { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "find.tempdir")?
-  uu.touch(s, "find.tempdir/testfile")?
+  uu.mkdir(s, "find.tempdir")
+  uu.touch(s, "find.tempdir/testfile")
   let r = uu.invoke(s, "find", [".///", "-name", ".///"], timeout: 5s)?
   uu.succeeds(r)
   uu.no_output(r)

@@ -44,8 +44,8 @@ export type Capabilities = {
 export type Session = {attrs: UnixTtyAttrs, inputs: Inputs, capabilities: Capabilities}
 
 pure locale(inputs: Inputs) -> Str {
-  if inputs.lc_all != "" { return inputs.lc_all }
-  if inputs.lc_ctype != "" { return inputs.lc_ctype }
+  return inputs.lc_all when inputs.lc_all != ""
+  return inputs.lc_ctype when inputs.lc_ctype != ""
   inputs.lang
 }
 
@@ -116,13 +116,13 @@ proc start(selected: Inputs?) [env, process, io, error] -> Result[Session, Error
   var output_may_be_active = false
   defer {
     if ! transferred {
-      defer { unix.set_tty_attrs(attrs, fd: 0)? }
+      defer { unix.set_tty_attrs(attrs, fd: 0) }
       if output_may_be_active {
         gnu.write_text(cleanup_sequences())
       }
     }
   }
-  unix.set_tty_attrs(raw, fd: 0)?
+  unix.set_tty_attrs(raw, fd: 0)
   output_may_be_active = true
   gnu.write_text("\u{1b}[?1049h\u{1b}[?25l\u{1b}[?2004h\u{1b}[2J\u{1b}[H")
   transferred = true
@@ -142,8 +142,7 @@ export proc begin_with(inputs: Inputs) [env, process, io, error] -> Result[Sessi
 ## Restores terminal state even when a mode-reset write fails.
 export proc finish(session: Session) [process, io, error] -> Result[Unit, Error] {
   defer { gnu.write_text(cleanup_sequences()) }
-  unix.set_tty_attrs(session.attrs, fd: 0)?
-  return
+  unix.set_tty_attrs(session.attrs, fd: 0)
 }
 
 ## Closes synchronized output on errors while a frame is being written.

@@ -14,16 +14,23 @@ pure tag_from(value: Int) -> Result[Tag, Error] {
 
 ## Canonical kernel order: owner, named users, group, named groups, mask, other.
 export pure canonical(entries: List[Entry]) -> List[Entry] {
-  var result: List[Entry] = []
-  for default in [false, true] {
-    for number in [1, 2, 4, 8, 16, 32] {
-      var selected: List[Entry] = []
-      for entry in entries { if entry.default == default and tag_number(entry.tag) == number { selected += [entry] } }
-      while ! selected.is_empty() {
-        var best = 0
-        for index in range(selected.len()) { if (selected[index].id ?? -1) < (selected[best].id ?? -1) { best = index } }
-        result += [selected[best]]
-        selected = selected[0..best].extend(selected[best + 1..])
+  let result: List[Entry] = collect {
+    for default in [false, true] {
+      for number in [1, 2, 4, 8, 16, 32] {
+        var selected: List[Entry] = [
+          entry
+          for entry in entries
+          if entry.default == default and tag_number(entry.tag) == number
+        ]
+        while ! selected.is_empty() {
+          var best = 0
+          for index in range(selected.len()) {
+            if (selected[index].id ?? -1) < (selected[best].id ?? -1) { best = index }
+          }
+
+          yield selected[best]
+          selected = selected[0..best].extend(selected[best + 1..])
+        }
       }
     }
   }
@@ -32,19 +39,20 @@ export pure canonical(entries: List[Entry]) -> List[Entry] {
 
 ## Require complete, unique entries and a mask whenever a named identity occurs.
 export pure validate(entries: List[Entry], allow_empty = false) -> Result[Unit, Error] {
-  if entries.is_empty() and allow_empty { return Ok() }
-  var keys: List[Str] = []
+  return when entries.is_empty() and allow_empty
+  var keys = []
   for entry in entries {
     return Err(AclError.Invalid("permissions outside ACL range")) when entry.permissions < 0 or entry.permissions > 7
     let named = entry.tag == AclUser or entry.tag == AclGroup
-    return Err(AclError.Invalid("invalid ACL identity")) when (named and (entry.id == null or (entry.id ?? -1) < 0 or (entry.id ?? 0) >= 4294967295)) or (! named and entry.id != null)
+    return Err(AclError.Invalid("invalid ACL identity")) when (named and (entry.id == null or (entry.id ?? -1) < 0 or entry.id >= 4294967295)) or (! named and entry.id != null)
     let key = f"{entry.default}:{tag_number(entry.tag)}:{entry.id ?? -1}"
     return Err(AclError.Invalid("duplicate ACL entry")) when key in keys
     keys += [key]
   }
   for default in [false, true] {
-    var tags: List[Tag] = []
-    for entry in entries { if entry.default == default { tags += [entry.tag] } }
+    let tags: List[Tag] = collect {
+      for entry in entries { yield entry.tag when entry.default == default }
+    }
     continue when default and tags.is_empty()
     return Err(AclError.Invalid("ACL requires owner, group and other entries")) when AclOwner not in tags or AclGroupOwner not in tags or AclOther not in tags
     return Err(AclError.Invalid("named ACL entries require a mask")) when (AclUser in tags or AclGroup in tags) and AclMask not in tags
@@ -56,16 +64,23 @@ export pure validate(entries: List[Entry], allow_empty = false) -> Result[Unit, 
 export pure decode(data: Bytes, default = false) -> Result[List[Entry], Error] {
   return Err(AclError.Invalid("invalid ACL version or length")) when data.len() < 4 or (data.len() - 4) % 8 != 0
   return Err(AclError.Invalid("unsupported ACL version")) when bytes.unpack_le(data[0..4], 4)? != 2
-  var entries: List[Entry] = []
-  for index in range((data.len() - 4) / 8) {
-    let at = 4 + index * 8
-    let tag = tag_from(bytes.unpack_le(data[at..at + 2], 2)?)?
-    let id = bytes.unpack_le(data[at + 4..at + 8], 4)?
-    entries += [{tag: tag, id: if id == 4294967295 { null } else { id }, permissions: bytes.unpack_le(data[at + 2..at + 4], 2)?, default: default, conditional_execute: false}]
+  let entries: List[Entry] = collect {
+    for index in range((data.len() - 4) / 8) {
+      let at = 4 + index * 8
+      let tag = tag_from(bytes.unpack_le(data[at..at + 2], 2)?)?
+      let id = bytes.unpack_le(data[at + 4..at + 8], 4)?
+      yield {
+        tag: tag,
+        id: if id == 4294967295 { null } else { id },
+        permissions: bytes.unpack_le(data[at + 2..at + 4], 2)?,
+        default: default,
+        conditional_execute: false,
+      }
+    }
   }
   # Default records are validated as a complete standalone ACL.
   let validation = collect { for entry in entries { yield {tag: entry.tag, id: entry.id, permissions: entry.permissions, default: false, conditional_execute: false} } }
-  validate(validation)?
+  validate(validation)
   entries
 }
 
@@ -74,7 +89,7 @@ export pure encode(entries: List[Entry]) -> Result[Bytes, Error] {
   for entry in entries { return Err(AclError.Invalid("conditional execute requires inode mode resolution")) when entry.conditional_execute }
   for entry in entries { return Err(AclError.Invalid("cannot encode mixed access and default ACLs")) when entry.default != entries[0].default }
   let validation = collect { for entry in entries { yield {tag: entry.tag, id: entry.id, permissions: entry.permissions, default: false, conditional_execute: false} } }
-  validate(validation)?
+  validate(validation)
   var chunks: List[Bytes] = [bytes.pack_le(2, 4)?]
   for entry in canonical(entries) { chunks += [bytes.pack_le(tag_number(entry.tag), 2)?, bytes.pack_le(entry.permissions, 2)?, bytes.pack_le(entry.id ?? 4294967295, 4)?] }
   bytes.concat(chunks)
@@ -82,7 +97,7 @@ export pure encode(entries: List[Entry]) -> Result[Bytes, Error] {
 
 ## Parse rwx positional permissions, symbolic subsets, or a single octal digit.
 export pure parse_permissions(text: Str) -> Result[Int, Error] {
-  if rx"^[0-7]$".matches(text) { return text.parse_int()? }
+  return text as Int when rx"^[0-7]$".matches(text)
   return Err(AclError.Invalid("invalid ACL permissions")) when text == "" or ! rx"^[rwxX-]+$".matches(text)
   var value = 0
   for ch in text { value = value.bit_or(if ch == "r" { 4 } else if ch == "w" { 2 } else if ch in ["x", "X"] { 1 } else { 0 }) }
@@ -105,7 +120,7 @@ export proc parse(text: Str, remove = false, defaults = false) [fs, error] -> Re
     let identity = parts[1].trim()
     let kind = parts[0].trim()
     var tag: Tag = AclOther
-    var id: Int? = null
+    var id = null
     if kind in ["u", "user"] { tag = if identity == "" { AclOwner } else { AclUser }; if identity != "" { id = perm.uid(identity)? } } else if kind in ["g", "group"] { tag = if identity == "" { AclGroupOwner } else { AclGroup }; if identity != "" { id = perm.gid(identity)? } } else if kind in ["m", "mask"] and identity == "" { tag = AclMask } else if kind in ["o", "other"] and identity == "" { tag = AclOther } else { return Err(AclError.Invalid("invalid ACL tag or identity")) }
     entries += [{tag: tag, id: id, permissions: if parts.len() == 3 { parse_permissions(parts[2].trim())? } else { 0 }, default: default, conditional_execute: parts.len() == 3 and "X" in parts[2]}]
   }
@@ -149,8 +164,8 @@ export pure calculate_mask(entries: List[Entry], force = false) -> List[Entry] {
 
 ## Project an access ACL onto owner, masked group, and other mode bits.
 export pure mode(entries: List[Entry]) -> Result[Int, Error] {
-  validate(entries)?
-  var owner = 0; var group_bits = 0; var other = 0; var mask: Int? = null
+  validate(entries)
+  var owner = 0; var group_bits = 0; var other = 0; var mask = null
   for entry in entries {
     continue when entry.default
     if entry.tag == AclOwner { owner = entry.permissions }
@@ -164,11 +179,18 @@ export pure mode(entries: List[Entry]) -> Result[Int, Error] {
 ## Read access/default records with missing attributes distinguished from failures.
 export proc read(target: Path) [fs, error] -> Result[List[Entry], Error] {
   let stat = fs.stat(target, follow_symlinks: true)?
-  var entries: List[Entry] = []
-  for default in [false, true] {
-    let found = fs.xattr_get(target, if default { "system.posix_acl_default" } else { "system.posix_acl_access" })
-    if let Ok(payload) = found { entries += decode(payload, default: default)? } else if let Err(failure) = found {
-      if failure.errno == 61 or failure.errno == 93 { if ! default { entries += from_mode(stat.mode) } } else { return Err(failure) }
+  let entries: List[Entry] = collect {
+    for default in [false, true] {
+      let found = fs.xattr_get(target, if default { "system.posix_acl_default" } else { "system.posix_acl_access" })
+      if let Ok(payload) = found {
+        yield @decode(payload, default:)?
+      } else if let Err(failure) = found {
+        if failure.errno == 61 or failure.errno == 93 {
+          yield @from_mode(stat.mode) unless default
+        } else {
+          return Err(failure)
+        }
+      }
     }
   }
   canonical(entries)
@@ -176,15 +198,15 @@ export proc read(target: Path) [fs, error] -> Result[List[Entry], Error] {
 
 ## Validate both records and the directory constraint before making any syscall.
 export proc store(target: Path, entries: List[Entry]) [fs, error] -> Result[Unit, Error] {
-  validate(entries)?
+  validate(entries)
   let stat = fs.stat(target, follow_symlinks: true)?
   let access = collect { for entry in entries { yield entry when ! entry.default } }
   let defaults = collect { for entry in entries { yield entry when entry.default } }
   return Err(AclError.Invalid("only directories can have a default ACL")) when ! defaults.is_empty() and stat.kind != "dir"
   let payload = encode(access)?
   let default_payload = if defaults.is_empty() { b"" } else { encode(defaults)? }
-  fs.xattr_set(target, "system.posix_acl_access", payload)?
-  if ! defaults.is_empty() { fs.xattr_set(target, "system.posix_acl_default", default_payload)? } else if "system.posix_acl_default" in fs.xattr_list(target)? { fs.xattr_remove(target, "system.posix_acl_default")? }
+  fs.xattr_set(target, "system.posix_acl_access", payload)
+  if ! defaults.is_empty() { fs.xattr_set(target, "system.posix_acl_default", default_payload) } else if "system.posix_acl_default" in fs.xattr_list(target)? { fs.xattr_remove(target, "system.posix_acl_default") }
   Ok()
 }
 
@@ -205,7 +227,7 @@ export proc text(entry: Entry, numeric = false) [fs] -> Str {
 
 ## Group-class permissions are limited by the mask in the same ACL scope.
 export pure effective(entry: Entry, entries: List[Entry]) -> Int {
-  if entry.tag not in [AclGroupOwner, AclGroup, AclUser] { return entry.permissions }
+  return entry.permissions when entry.tag not in [AclGroupOwner, AclGroup, AclUser]
   for mask in entries { return entry.permissions.bit_and(mask.permissions) when mask.tag == AclMask and mask.default == entry.default }
   entry.permissions
 }
@@ -215,7 +237,7 @@ type Visit = {name: Str, top: Bool, ancestors: List[Str]}
 ## Follow policy affects top-level links separately from recursive descendants.
 export proc visit_names(names: List[Str], recursive: Bool, traversal: Str) [fs, error] -> Result[List[Str], Error] {
   var pending: List[Visit] = collect { for name in names { yield {name: name, top: true, ancestors: []} } }
-  var result: List[Str] = []
+  var result = []
   while ! pending.is_empty() {
     let visit = pending[0]; pending = pending[1..]
     let target = fp"{visit.name}"

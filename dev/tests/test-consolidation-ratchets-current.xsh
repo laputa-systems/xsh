@@ -68,18 +68,7 @@ proc install_blanket_baseline(root: Path, original: metrics.Report, corrected: m
   })
   let blanket = corrected.metrics |> where .name == "blanket_dead_code_lines" |> collect
   assert blanket.len() == 1
-  let provenance: metrics.BlanketBaselineProvenance = {
-    schema: 1,
-    start_commit: "fixture",
-    source_manifest_sha256: source_manifest_hash,
-    original_baseline_path: "dev/consolidation/baseline.json",
-    original_baseline_sha256: original_hash,
-    corrected_baseline_path: "dev/consolidation/baseline-blanket-scope.json",
-    corrected_baseline_sha256: corrected_hash,
-    corrected_blanket_lines: blanket[0].value,
-    scanner_sha256: hash.sha256(fp"{root}/dev/consolidation_metrics.xsh")?.hex().lower(),
-    ratchet_tests_sha256: hash.sha256(fp"{root}/dev/tests/test-consolidation-ratchets.xsh")?.hex().lower(),
-  }
+  let provenance: metrics.BlanketBaselineProvenance = metrics.BlanketBaselineProvenance(schema: 1, start_commit: "fixture", source_manifest_sha256: source_manifest_hash, original_baseline_path: "dev/consolidation/baseline.json", original_baseline_sha256: original_hash, corrected_baseline_path: "dev/consolidation/baseline-blanket-scope.json", corrected_baseline_sha256: corrected_hash, corrected_blanket_lines: blanket[0].value, scanner_sha256: hash.sha256(fp"{root}/dev/consolidation_metrics.xsh")?.hex().lower(), ratchet_tests_sha256: hash.sha256(fp"{root}/dev/tests/test-consolidation-ratchets.xsh")?.hex().lower())
   let provenance_path = fp"{root}/dev/consolidation/blanket-metric-provenance.json"
   json.write(provenance_path, provenance)
   let metric_values = collect { for row in corrected.metrics { yield {name: row.name, value: row.value} } }
@@ -423,12 +412,12 @@ test test_malformed_lexical_forms_and_eligibility_cfg_attr_fail_loudly {
 }
 
 test test_structural_rise_fails_with_the_metric_and_values { |ctx|
-  let baseline: metrics.Report = {schema: 1, sources: [], metrics: [
+  let baseline: metrics.Report = metrics.Report(schema: 1, sources: [], metrics: [
     {name: "blanket_dead_code_lines", value: 0, evidence: []},
     {name: "manual_payload_calls", value: 1, evidence: []},
     {name: "source_lines_src", value: 5, evidence: []},
     {name: "source_lines_xsht", value: 5, evidence: []},
-  ], reviews: []}
+  ], reviews: [])
   let current: metrics.Report = {...baseline, metrics: collect {
     for row in baseline.metrics { yield if row.name == "manual_payload_calls" { {...row, value: 2} } else { row } }
   }}
@@ -437,7 +426,7 @@ test test_structural_rise_fails_with_the_metric_and_values { |ctx|
     Err(metrics.MetricError.Rise {name, before, after}) => assert name == "manual_payload_calls" and before == 1 and after == 2
     Err(error) => test.fail(error.message)
   }
-  metrics.assert_not_risen(baseline, current)?
+  metrics.assert_not_risen(baseline, current)
   let root = tree(ctx)?; fp"{root}/dev/consolidation".mkdir()
   json.write(fp"{root}/base.json", baseline); json.write(fp"{root}/current.json", current)
   json.write(fp"{root}/dev/consolidation/baseline-metadata.json", {start_commit: "fixture"})
@@ -446,21 +435,21 @@ test test_structural_rise_fails_with_the_metric_and_values { |ctx|
   assert ! test.run_script(ctx, driver, ["check", @flags])?.success
   let approved = {metric: "manual_payload_calls", ceiling: 2, approval: "fixture owner", reason: "bounded fixture", remove_when: "fixture ends"}
   json.write(fp"{root}/envelope.json", {start_commit: "fixture", limits: [approved]})
-  assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
+  assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json"])?.success
   let rises = json.get(json.read(fp"{root}/audit.json")?, ["rises"])?.require(List[Any])?
   assert rises.len() == 1
-  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
-  json.write(fp"{root}/envelope.json", {start_commit: "fixture", limits: [{...approved, metric: "unknown"}]}); assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
+  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--envelope", fp"{root}/envelope.json"])?.success
+  json.write(fp"{root}/envelope.json", {start_commit: "fixture", limits: [{...approved, metric: "unknown"}]}); assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json"])?.success
 }
 
 test test_corrected_blanket_baseline_requires_provenance_and_changes_only_its_metric { |ctx|
   let root = tree(ctx)?
-  let original: metrics.Report = {schema: 1, sources: [], metrics: [
+  let original: metrics.Report = metrics.Report(schema: 1, sources: [], metrics: [
     {name: "blanket_dead_code_lines", value: 7, evidence: [{path: "src/lib.rs", line: 1, detail: "old blanket scope"}]},
     {name: "manual_payload_calls", value: 1, evidence: []},
     {name: "source_lines_src", value: 5, evidence: []},
     {name: "source_lines_xsht", value: 5, evidence: []},
-  ], reviews: []}
+  ], reviews: [])
   let corrected: metrics.Report = {...original, metrics: collect {
     for row in original.metrics { yield if row.name == "blanket_dead_code_lines" { {...row, value: 3, evidence: []} } else { row } }
   }}
@@ -496,19 +485,19 @@ test test_corrected_blanket_baseline_requires_provenance_and_changes_only_its_me
   let flags = ["--root", root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--input", current_path.display(), "--baseline", baseline_path.display(), "--output", fp"{root}/saved.json".display(), "--audit", fp"{root}/audit.json".display()]
   assert ! test.run_script(ctx, driver, ["check", @flags])?.success
   let valid_provenance = json.read(provenance_path)?.require(metrics.BlanketBaselineProvenance)?
-  assert test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
+  assert test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path])?.success
 
   let unrelated_change: metrics.Report = {...corrected, metrics: collect {
     for row in corrected.metrics { yield if row.name == "manual_payload_calls" { {...row, value: 9} } else { row } }
   }}
   json.write(baseline_path, unrelated_change)
   json.write(provenance_path, {...valid_provenance, corrected_baseline_sha256: hash.sha256(baseline_path)?.hex().lower()})
-  assert ! test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
+  assert ! test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path])?.success
 
   json.write(baseline_path, corrected)
   json.write(provenance_path, valid_provenance)
   fp"{root}/dev/consolidation_metrics.xsh".write("tampered scanner fixture\n")
-  assert ! test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
+  assert ! test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path])?.success
 }
 
 type ReviewFixture = {root: Path, commit: Str, sources: List[metrics.ReviewSource], artifact: metrics.ReviewArtifact}
@@ -549,13 +538,7 @@ proc review_fixture(ctx: TestContext) [fs, process, error] -> Result[ReviewFixtu
   }
   let artifact_path = ".work/proofs/review.txt"
   fp"{root}/{artifact_path}".write("synthetic review evidence\n")
-  let artifact: metrics.ReviewArtifact = {
-    path: artifact_path,
-    sha256: hash.sha256(fp"{root}/{artifact_path}")?.hex(),
-    command: "xsht test dev/tests/test-consolidation-ratchets-current.xsh",
-    method: "native fixture assertion",
-    result: "verified",
-  }
+  let artifact: metrics.ReviewArtifact = metrics.ReviewArtifact(path: artifact_path, sha256: hash.sha256(fp"{root}/{artifact_path}")?.hex(), command: "xsht test dev/tests/test-consolidation-ratchets-current.xsh", method: "native fixture assertion", result: "verified")
   {root: root, commit: commit, sources: sources, artifact: artifact}
 }
 
@@ -634,7 +617,7 @@ test test_final_close_requires_structural_zeros_and_keeps_source_totals_advisory
   assert "manual_payload_calls" in final_close_failure({...closed, metrics: closed.metrics + [closed.metrics[2]]}, baseline)
   assert final_close_failure(closed, {...baseline, metrics: baseline.metrics |> where .name != "manual_payload_calls" |> collect}) == "expected one manual_payload_calls metric"
   assert "manual_payload_calls" in final_close_failure(closed, {...baseline, metrics: baseline.metrics + [baseline.metrics[2]]})
-  metrics.assert_final_close(closed, baseline)?
+  metrics.assert_final_close(closed, baseline)
 }
 
 test test_review_evidence_requires_all_unique_verified_rows_and_hashed_workspace_artifacts { |ctx|
@@ -698,15 +681,15 @@ test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates
   fp"{fixture.root}/dev/consolidation/baseline-metadata.json".write("{\"start_commit\":\"fixture\"}")
   let flags = ["--root", fixture.root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--input", fp"{fixture.root}/current.json".display(), "--baseline", fp"{fixture.root}/baseline.json".display(), "--output", fp"{fixture.root}/saved.json".display(), "--audit", fp"{fixture.root}/audit.json".display()]
   assert ! test.run_script(ctx, driver, ["final-close", @flags])?.success
-  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
   let unresolved = {...proof, rows: collect { for row in proof.rows { yield if row.name == "timings" { {...row, status: "open"} } else { row } } }}
   json.write(proof_path, unresolved)
-  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
   json.write(proof_path, proof)
   for name in ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"] {
     json.write(fp"{fixture.root}/current.json", with_metric(report, name, 1))
     json.write(fp"{fixture.root}/baseline.json", with_metric(baseline, name, 2))
-    assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+    assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
   }
   json.write(fp"{fixture.root}/current.json", report)
   json.write(fp"{fixture.root}/baseline.json", baseline)
@@ -720,7 +703,7 @@ test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates
   }
   json.write(fp"{fixture.root}/current.json", equal_src)
   json.write(proof_path, proof)
-  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
   let source_growth: metrics.Report = {
     ...report,
     metrics: collect {
@@ -730,8 +713,8 @@ test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates
     },
   }
   json.write(fp"{fixture.root}/current.json", source_growth)
-  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
-  let saved: metrics.Report = json.read(fp"{fixture.root}/saved.json")?.require(metrics.Report)?
+  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
+  let saved: metrics.Report = json.read(fp"{fixture.root}/saved.json")?.require()?
   assert report_metric(saved, "source_lines_src") == report_metric(source_growth, "source_lines_src")
   let rises = json.get(json.read(fp"{fixture.root}/audit.json")?, ["rises"])?.require(List[AuditRise])?
   assert rises.len() == 1
@@ -747,5 +730,5 @@ test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates
     },
   }
   json.write(fp"{fixture.root}/current.json", blanket_remaining)
-  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
 }

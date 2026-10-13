@@ -1,16 +1,16 @@
-use support.uu as uu
+use support.uu
 
 test test_uu_support_append_creates_and_preserves_exact_bytes { |ctx|
   let s = uu.scene(ctx)?
-  uu.append(s, "created", "é\0\n")?
+  uu.append(s, "created", "é\0\n")
   assert uu.at(s, "created").read_bytes()? == bytes.from_text("é\0\n")
-  uu.write_bytes(s, "binary", b"\xff\0prefix")?
+  uu.write_bytes(s, "binary", b"\xff\0prefix")
   let file = uu.at(s, "binary")
   let before = fs.stat(file)?
   let reader = unix.open_fd(file)?
   defer unix.close_fd(reader)
   assert unix.read_fd(reader, 2)? == b"\xff\0"
-  uu.append(s, "binary", "é\0\n")?
+  uu.append(s, "binary", "é\0\n")
   assert fs.stat(file)?.ino == before.ino
   assert unix.read_fd(reader, 100)? == bytes.concat([b"prefix", bytes.from_text("é\0\n")])
   assert file.read_bytes()? == bytes.concat([b"\xff\0prefix", bytes.from_text("é\0\n")])
@@ -19,12 +19,12 @@ test test_uu_support_append_creates_and_preserves_exact_bytes { |ctx|
 test test_uu_support_append_only_requires_write_permission { |ctx|
   if unix.id()?.uid == 0 { test.skip("write-only permissions require an unprivileged runner") }
   let s = uu.scene(ctx)?
-  uu.write(s, "write-only", "prefix")?
+  uu.write(s, "write-only", "prefix")
   let file = uu.at(s, "write-only")
-  file.chmod(0o200)?
+  file.chmod(0o200)
   defer file.chmod(0o600)
-  uu.append(s, "write-only", "suffix")?
-  file.chmod(0o600)?
+  uu.append(s, "write-only", "suffix")
+  file.chmod(0o600)
   assert file.read_bytes()? == b"prefixsuffix"
 }
 
@@ -44,9 +44,9 @@ test test_uu_support_directory_stdin { |ctx|
 
 test test_uu_support_non_utf8_argv { |ctx|
   let s = uu.scene(ctx)?
-  let name = Path.parse_bytes(b"file\xff")?
+  let name = b"file\xff" as Path
   let file = uu.at_bytes(s, b"file\xff")?
-  file.write(b"data\xff")?
+  file.write(b"data\xff")
   let r = uu.invoke_paths(s, "cat", [name])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"data\xff")
@@ -54,7 +54,7 @@ test test_uu_support_non_utf8_argv { |ctx|
 
 test test_uu_support_redirected_stdout { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "out", "first\n")?
+  uu.write(s, "out", "first\n")
   let r = uu.invoke(s, "cat", [], stdin: b"second\n",
     stdout: uu.at(s, "out"), stdout_append: true)?
   uu.succeeds(r)
@@ -81,10 +81,10 @@ test test_uu_support_text_assertions_reject_invalid_utf8 { |ctx|
 
 test test_uu_support_file_text_assertion_rejects_invalid_utf8 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "invalid", b"\xff")?
+  uu.write_bytes(s, "invalid", b"\xff")
   let checked = test.run_script(ctx,
     "use support.uu as uu\nlet root = Path(args[0])\nlet context: TestContext = {name: \"assertion probe\", file: root, temp_root: root, core_dir: root, xsh_bin: root}\nlet s: uu.Scene = {ctx: context, root: root}\nuu.file_is(s, \"invalid\", \"(non-UTF-8 output)\")\n",
-    args: [s.root.display()], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
+    args: [s.root], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
   assert ! checked.success
   assert "AssertionError" in checked.stderr, checked.stderr
 }
@@ -95,8 +95,8 @@ test test_uu_support_clears_environment_and_preserves_defaults { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, "LC_ALL=C\n")
   uu.stdout_contains(r, "TZ=UTC\n")
-  assert "HOME=" not in r.stdout.utf8()?
-  assert "TMPDIR=" not in r.stdout.utf8()?
+  assert "HOME=" not in r.stdout as Str
+  assert "TMPDIR=" not in r.stdout as Str
   for line in r.stdout.utf8()?.split("\n") {
     if line != "" {
       assert line.split("=")[0] in ["LC_ALL", "TZ", "PATH", "LD_PRELOAD", "LLVM_PROFILE_FILE"]
@@ -117,9 +117,9 @@ test test_uu_support_clears_environment_and_preserves_defaults { |ctx|
 
 test test_uu_support_path_stdin_redirected_streams { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "second\n")?
-  uu.write(s, "out", "first\n")?
-  uu.write(s, "err", "prior error\n")?
+  uu.write(s, "input", "second\n")
+  uu.write(s, "out", "first\n")
+  uu.write(s, "err", "prior error\n")
   let r = uu.invoke_from_path(s, "cat", [], uu.at(s, "input"),
     stdout: uu.at(s, "out"), stderr: uu.at(s, "err"),
     stdout_append: true, stderr_append: true)?
@@ -131,7 +131,7 @@ test test_uu_support_path_stdin_redirected_streams { |ctx|
 
 test test_uu_support_same_input_append_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file", "content")?
+  uu.write(s, "file", "content")
   let file = uu.at(s, "file")
   let r = uu.invoke_from_path(s, "cat", [], file, stdout: file, stdout_append: true)?
   uu.fails(r)
@@ -145,14 +145,14 @@ test test_uu_support_preserves_leading_double_dash { |ctx|
   let s = uu.scene(ctx)?
   uu.stdout_only(uu.invoke(s, "echo", ["--", "-n", "text"])?, "-- -n text\n")
   uu.stdout_only(uu.invoke_paths(s, "echo", [p"--", p"-n", p"text"])?, "-- -n text\n")
-  uu.write(s, "input", "ignored")?
+  uu.write(s, "input", "ignored")
   uu.stdout_only(uu.invoke_from_path(s, "echo", ["--", "-n", "text"], uu.at(s, "input"))?, "-- -n text\n")
 }
 
 
 test test_uu_support_timeout_bounds_every_launch_shape { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "")?
+  uu.write(s, "input", "")
   for result in [
     uu.invoke(s, "sleep", ["1"], timeout: 50ms),
     uu.invoke_paths(s, "sleep", [p"1"], timeout: 50ms),
@@ -166,12 +166,13 @@ test test_uu_support_timeout_bounds_every_launch_shape { |ctx|
 test test_uu_support_command_preserves_parallel_input_and_append_output { |ctx|
   let s = uu.scene(ctx)?
   let output = uu.at(s, "output")
-  output.write("")?
-  var children: List[ProcessHandle] = []
-  for index in range(3) {
-    let plan = uu.command(s, "cat", [], stdin: bytes.from_text(f"child-{index}\n"),
-      stdout: output, stderr: uu.at(s, f"stderr-{index}"), stdout_append: true, timeout: 2s)?
-    children += [spawn plan?]
+  output.write("")
+  let children = collect {
+    for index in range(3) {
+      let plan = uu.command(s, "cat", [], stdin: bytes.from_text(f"child-{index}\n"),
+        stdout: output, stderr: uu.at(s, f"stderr-{index}"), stdout_append: true, timeout: 2s)?
+      yield spawn plan?
+    }
   }
   for child in children { assert (wait child?).exited_with(0) }
   let lines = [line for line in output.read_text()?.split("\n") if line != ""] |> sort
@@ -206,18 +207,19 @@ test test_uu_support_child_umask_preserves_runner_and_launch_contract { |ctx|
 
 test test_uu_support_child_umask_applies_to_path_and_parallel_commands { |ctx|
   let s = uu.scene(ctx)?
-  let raw = Path.parse_bytes(b"raw\xff")?
+  let raw = b"raw\xff" as Path
   uu.stdout_only_bytes(uu.invoke_paths(s, "echo", [raw], umask: 0o077)?, b"raw\xff\n")
   uu.succeeds(uu.invoke_paths(s, "mkdir", [p"from-path"], umask: 0o077)?)
   assert uu.mode(s, "from-path")? == 0o700
-  uu.write(s, "input", "")?
+  uu.write(s, "input", "")
   uu.succeeds(uu.invoke_from_path(s, "mkdir", ["from-input"], uu.at(s, "input"), umask: 0o027)?)
   assert uu.mode(s, "from-input")? == 0o750
-  var children: List[ProcessHandle] = []
-  for index in range(3) {
-    let plan = uu.command(s, "mkdir", [f"parallel-{index}"], umask: 0o022,
-      stdout: uu.at(s, f"stdout-{index}"), stderr: uu.at(s, f"stderr-{index}"))?
-    children += [spawn plan?]
+  let children = collect {
+    for index in range(3) {
+      let plan = uu.command(s, "mkdir", [f"parallel-{index}"], umask: 0o022,
+        stdout: uu.at(s, f"stdout-{index}"), stderr: uu.at(s, f"stderr-{index}"))?
+      yield spawn plan?
+    }
   }
   for child in children { assert (wait child?).exited_with(0) }
   for index in range(3) { assert uu.mode(s, f"parallel-{index}")? == 0o755 }
@@ -229,7 +231,7 @@ test test_uu_support_child_umask_rejects_non_permission_bits { |ctx|
   for mask in [-1, 512] {
     let checked = test.run_script(ctx,
       "use support.uu as uu\nlet root = Path(args[0])\nlet context: TestContext = {name: \"mask probe\", file: root, temp_root: root, core_dir: root, xsh_bin: root}\nlet s: uu.Scene = {ctx: context, root: root}\nlet _ = uu.command(s, \"mkdir\", [\"rejected\"], umask: " + f"{mask}" + ")?\n",
-      args: [s.root.display()], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
+      args: [s.root], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
     assert ! checked.success
     assert "umask must contain only permission bits" in checked.stderr, checked.stderr
   }
@@ -249,7 +251,7 @@ test test_uu_support_argv_shell_wrapper_preserves_launch_contract { |ctx|
   assert status.exited_with(0)
   assert output.read_bytes()? == b"POSIX\nUTC\npreserved\n"
   assert error.read_bytes()? == b""
-  let raw = Path.parse_bytes(b"raw\xff")?
+  let raw = b"raw\xff" as Path
   let echo = [p"/bin/sh", p"-c", Path(r"""exec "$@"; """), p"uu-wrapper"]
     .extend(uu.argv(s, "echo", [p"--", raw])?)
   assert process.run(process.command_argv(p"/bin/sh", echo, s.root,
@@ -265,8 +267,8 @@ test test_uu_support_argv_shell_wrapper_preserves_launch_contract { |ctx|
 
 test test_uu_support_dir_alias_preserves_name_and_defaults { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a b", "")?
-  uu.write(s, "c", "")?
+  uu.write(s, "a b", "")
+  uu.write(s, "c", "")
   uu.stdout_only(uu.invoke(s, "dir", [])?, "a\\ b  c\n")
   let invalid = uu.invoke(s, "dir", ["-/"])?
   uu.fails_with_code(invalid, 2)

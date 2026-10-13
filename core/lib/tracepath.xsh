@@ -105,7 +105,7 @@ pure host_column(name: Str, address: Str, both: Bool) -> Str {
 proc host_name(address: Str) [net] -> Str {
   let found = dns.reverse(address)
   if let Ok(list) = found {
-    if ! list.is_empty() { return list[0] }
+    return list[0] unless list.is_empty()
   }
   address
 }
@@ -114,7 +114,7 @@ proc host_name(address: Str) [net] -> Str {
 # router quoting the datagram back returns to us.
 pure probe_payload(size: Int, hops: Int, stamp_ms: Int) -> Result[Bytes, Error] {
   let header = bytes.concat([bytes.pack_le(hops, 4)?, bytes.zero(4)?, bytes.pack_le(stamp_ms / 1000, 8)?, bytes.pack_le(stamp_ms % 1000 * 1000, 8)?])
-  if size <= PROBE_HEADER { return Ok(header.slice(0, size)) }
+  return Ok(header.slice(0, size)) when size <= PROBE_HEADER
   Ok(bytes.concat([header, bytes.zero(size - PROBE_HEADER)?]))
 }
 
@@ -129,7 +129,7 @@ proc read_answers(fd: Int, ttl: Int, start: Walk, setup: Setup, clock: icmp.Cloc
     let received_ns = entry.stamp_ns ?? icmp.clock_ns(clock)?
     let slot = entry.port - setup.base_port
     var sent_hops = -1
-    var sent_ns: Int? = null
+    var sent_ns = null
     if slot >= 0 and slot < HISTORY_SLOTS - 1 and slot in walk.history {
       let known = walk.history.get(slot)?
       sent_hops = known.hops
@@ -249,7 +249,7 @@ proc probe(fd: Int, ttl: Int, start: Walk, setup: Setup, clock: icmp.Clock) [net
     }
     let reading = read_answers(fd, ttl, walk, setup, clock)?
     walk = {...reading.walk, history: reading.walk.history.remove(walk.slot)}
-    if reading.progress == 0 { return Ok({walk: walk, progress: 0}) }
+    return Ok({walk: walk, progress: 0}) when reading.progress == 0
     if reading.progress > 0 and restarts < 10 {
       restarts += 1
       failures = 0
@@ -344,13 +344,10 @@ export proc execute(argv: List[Str]) {
       exit 1
     }
   }
-  let setup: Setup = {v6: v6, address: found[0].addr, base_port: base_port, overhead: overhead, numeric: opts.numeric, both: opts.both}
-  let fd = match open_probe_socket(v6) {
-    Ok(opened) => opened
-    Err(failure) => {
-      gnu.error(f"socket: {gnu.strerror(failure)}")
-      exit 1
-    }
+  let setup: Setup = Setup(v6:, address: found[0].addr, base_port:, overhead:, numeric: opts.numeric, both: opts.both)
+  let fd = open_probe_socket(v6) ?? { |failure|
+    gnu.error(f"socket: {gnu.strerror(failure)}")
+    exit 1
   }
   defer unix.close_fd(fd)
   let c = linux.net_constants()
@@ -361,12 +358,12 @@ export proc execute(argv: List[Str]) {
   while ttl <= max_hops and ! finished {
     linux.setsockopt_int(fd, if v6 { c.SOL_IPV6 } else { c.SOL_IP }, if v6 { c.IPV6_UNICAST_HOPS } else { c.IP_TTL }, ttl)
     var progress = -1
-    for _ in range(3) {
+    repeat 3 times {
       let before = walk.mtu
       let reading = probe(fd, ttl, walk, setup, clock)?
       walk = reading.walk
       progress = reading.progress
-      if walk.mtu == before { break }
+      break when walk.mtu == before
     }
     if progress == 0 {
       finished = true

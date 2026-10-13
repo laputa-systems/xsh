@@ -37,7 +37,7 @@ pure parse_su_args(argv: List[Str]) -> Result[SuOptions] {
   }
 
   let target = if operands.is_empty() { "root" } else { operands[0] }
-  let empty_rest: List[Str] = []
+  let empty_rest = []
   let rest = if operands.len() <= 1 { empty_rest } else { operands |> drop(1) }
 
   {

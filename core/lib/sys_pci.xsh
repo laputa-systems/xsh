@@ -202,7 +202,7 @@ pure section_state(enumeration: Str, issues: List[src.Issue]) -> report.SectionS
 
 ## Resolves the bridge immediately before a PCI function in its sysfs path.
 export pure parent_bridge_address(target: Path, child_address: Str) -> Str? {
-  var previous: Str? = null
+  var previous = null
   for component in target.display().split("/") {
     return previous when component == child_address
 
@@ -259,7 +259,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
   let listing = root.children(p"sys/bus/pci/devices")?
   var issues: List[src.Issue] = []
   var functions: List[report.PciFunction] = []
-  var parent_addresses: List[Str?] = []
+  var parent_addresses = []
 
   if listing.state != "complete" {
     let state = src.source_state(listing.state, false)
@@ -323,7 +323,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
 
     let driver = optional_link_name(root, fp"{device_path}/driver")
     let parent_source = root.readlink_result(device_path)?
-    var parent_target: Str? = null
+    var parent_target = null
     if parent_source.state == "observed" and parent_source.target != null {
       parent_target = parent_bridge_address(parent_source.target, address_text)
     } else if parent_source.state == "observed" {
@@ -412,7 +412,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       ]
     }
 
-    var numa_node: Int? = null
+    var numa_node = null
     if numa.value != -1 {
       numa_node = numa.value
     }
@@ -465,7 +465,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
   let linked_functions: List[report.PciFunction] = collect {
     while position < functions.len() {
       let parent_address = parent_addresses[position]
-      var parent_index: Int? = null
+      var parent_index = null
       if parent_address != null {
         if parent_address in function_index_by_address {
           parent_index = function_index_by_address.get(parent_address)?
@@ -492,7 +492,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
 
 ## Finds the last PCI function address in a sysfs symlink target.
 export pure address_in_target(target: Path) -> Str? {
-  var address: Str? = null
+  var address = null
   for component in target.display().split("/") {
     match parse_address(component) {
       Ok(_) => address = component

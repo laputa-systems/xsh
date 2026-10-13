@@ -21,13 +21,17 @@ Built-in programs:
 # of an applet; directories, this front end, and names with other dots such as
 # README.md are not applets.
 proc applet_names(dir: Path) [fs, error] -> Result[List[Str]] {
-  var names: List[Str] = []
+  let names = collect {
+    for entry in fs.children(dir)? {
+      let name = if entry.name.ends_with(".xsh") {
+        entry.name.byte_slice(0, entry.name.byte_len() - 4)
+      } else {
+        entry.name
+      }
 
-  for entry in fs.children(dir)? {
-    let name = if entry.name.ends_with(".xsh") { entry.name.byte_slice(0, entry.name.byte_len() - 4) } else { entry.name }
-
-    if entry.kind != "dir" and name != "coreutils" and (name.find(".") ?? -1) < 0 {
-      names += [name]
+      if entry.kind != "dir" and name != "coreutils" and (name.find(".") ?? -1) < 0 {
+        yield name
+      }
     }
   }
 
@@ -43,15 +47,11 @@ proc applet_file(dir: Path, program: Str) [fs, error] -> Result[Path?] {
 
   let installed = fp"{dir}/{program}"
 
-  if installed.is_file() ?? false {
-    return Ok(installed)
-  }
+  return Ok(installed) when installed.is_file() ?? false
 
   let source = fp"{dir}/{program}.xsh"
 
-  if source.is_file() ?? false {
-    return Ok(source)
-  }
+  return Ok(source) when source.is_file() ?? false
 
   Ok(null)
 }
@@ -72,7 +72,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io, fs] {
   # A non-UTF-8 argument reads as a NUL marker, which no applet name can match.
   # `words` and `operands` stay in step: operands keep the raw bytes forwarded
   # to the applet.
-  var words: List[Str] = []
+  var words = []
   var operands = argv
 
   for arg in argv {
@@ -125,13 +125,13 @@ proc main(...argv: List[Bytes]) [process, env, error, io, fs] {
   var forwarded: List[Path] = [file]
 
   for operand in operands {
-    forwarded += [Path.parse_bytes(operand)?]
+    forwarded += [operand as Path]
   }
 
   let plan = process.command_argv(file, forwarded)
 
   if let Err(failure) = unix.exec(plan) {
-    eprint f"coreutils: cannot run '{file.display()}': {failure.message}"
+    eprint f"coreutils: cannot run '{file}': {failure.message}"
     exit 126
   }
 }

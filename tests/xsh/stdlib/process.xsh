@@ -99,7 +99,7 @@ print accepted
 }
 
 test test_process_command_construction_preserves_operand_order { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc mark(label: Str, value: Str) [io] -> Str {
   print $label
@@ -122,8 +122,8 @@ let builder = process.command {
 }
 print "constructed"
 """,
+    status: 0,
   )?
-  assert output.status == 0, output.stderr
   assert output.stdout == """argv-target
 argv-zero
 argv-one
@@ -138,7 +138,7 @@ constructed
 }
 
 test test_process_command_construction_supports_forced_frames { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let argv = process.command_argv(
   "true",
@@ -152,8 +152,8 @@ let builder = process.command {
   run true
 }
 """,
+    status: 0,
   )?
-  assert output.status == 0, output.stderr
   assert output.stdout == "", output.stdout
 }
 
@@ -717,11 +717,11 @@ test test_children_are_waited_for_when_sigchld_is_inherited_ignored { |ctx|
   let xsh = ctx.xsh_bin.display()
   inner.write(r"""let status = process.run(process.command_argv("sh", ["sh", "-c", "exit 7"]))?
 print ${status.exited_with(7)}
-""")?
+""")
   outer.write(f"""process.set_signal_action("CHLD", "ignore")?
-unix.exec(process.command_argv("{xsh}", ["{xsh}", "{inner.display()}"]))?
-""")?
-  let command = process.command_argv(ctx.xsh_bin, [xsh, outer.display()], stdout: out)
+unix.exec(process.command_argv("{xsh}", ["{xsh}", "{inner}"]))?
+""")
+  let command = process.command_argv(ctx.xsh_bin, [xsh, outer], stdout: out)
   assert process.run(command)?.exited_with(0)
   assert out.read_text()? == "true\n"
 }
@@ -733,13 +733,13 @@ test test_spawn_same_group_stays_in_the_callers_group_and_cancels_only_the_child
   let leader_plan = process.command_argv("sleep", ["sleep", "10"])
   let leader = spawn leader_plan?
   assert process.group_id(leader.pid)? == leader.pid
-  leader.cancel(signal: "KILL", kill_after: 0ms)?
+  leader.cancel(signal: "KILL", kill_after: 0ms)
 
   let shared_plan = process.command_argv("sleep", ["sleep", "10"], same_group: true)
   let shared = spawn shared_plan?
   assert process.group_id(shared.pid)? == own
   let shared_pid = shared.pid
-  shared.cancel(signal: "TERM", kill_after: 0ms)?
+  shared.cancel(signal: "TERM", kill_after: 0ms)
   test.error_kind(process.kill(shared_pid, signal: "0"), "process-missing")
 }
 

@@ -1,19 +1,19 @@
 ##! Builds one complete semantic monitor frame without terminal side effects.
 ##!
 ##! G4a fixes the default panel geometry and buffers every row before output.
-use btop_model as model
 use btop_color as color
-use btop_rates as rates
+use btop_defaults as defaults
+use btop_disks as disks
 use btop_graph as graph
 use btop_graphs as graph_series
+use btop_model as model
+use btop_rates as rates
 use btop_sensors as sensors
 use btop_surface as surface
 use btop_terminal as terminal
 use btop_ui as ui
-use btop_defaults as defaults
-use btop_disks as disks
-use sys_proc as processes
 use sys_cpu as syscpu
+use sys_proc as processes
 use system_report as report
 use tui
 
@@ -28,7 +28,7 @@ export type Screen = {
 
 pure repeated(character: Str, count: Int) -> Str {
   var text = ""
-  for _ in range(count) {
+  repeat count times {
     text += character
   }
   text
@@ -39,9 +39,7 @@ pure safe_line(value: Str) -> Str {
 }
 
 pure fit(value: Str, width: Int) -> Str {
-  if width <= 0 {
-    return ""
-  }
+  return "" when width <= 0
   tui.cell_right_pad(tui.cell_clip(safe_line(value), width), width)
 }
 
@@ -99,8 +97,8 @@ pure state_text(state: report.ObservationState) -> Str {
 }
 
 pure rate_text(value: rates.Rate) -> Str {
-  if value.state == rates.Observed and value.value != null {
-    return f"{(value.value ?? 0.0).format(precision: 1)}%"
+  if value.state == .Observed and value.value != null {
+    return f"{value.value.format(precision: 1)}%"
   }
 
   match value.state {
@@ -113,14 +111,10 @@ pure rate_text(value: rates.Rate) -> Str {
 }
 
 pure byte_rate_text(value: rates.Rate) -> Str {
-  if value.state == rates.Observed and value.value != null {
-    let amount = value.value ?? 0.0
-    if amount >= 1048576.0 {
-      return f"{(amount / 1048576.0).format(precision: 2)} MiB/s"
-    }
-    if amount >= 1024.0 {
-      return f"{(amount / 1024.0).format(precision: 2)} KiB/s"
-    }
+  if value.state == .Observed and value.value != null {
+    let amount = value.value
+    return f"{(amount / 1048576.0).format(precision: 2)} MiB/s" when amount >= 1048576.0
+    return f"{(amount / 1024.0).format(precision: 2)} KiB/s" when amount >= 1024.0
     return f"{amount.format(precision: 2)} B/s"
   }
 
@@ -134,31 +128,24 @@ pure byte_rate_text(value: rates.Rate) -> Str {
 }
 
 pure bytes_text(value: Int?) -> Str {
-  if value == null {
+  guard let amount = value else {
     return "unavailable"
   }
-  let amount = value ?? 0
   if amount >= 1073741824 {
     return f"{(amount.float() / 1073741824.0).format(precision: 2)} GiB"
   }
-  if amount >= 1048576 {
-    return f"{(amount.float() / 1048576.0).format(precision: 2)} MiB"
-  }
-  if amount >= 1024 {
-    return f"{(amount.float() / 1024.0).format(precision: 2)} KiB"
-  }
+  return f"{(amount.float() / 1048576.0).format(precision: 2)} MiB" when amount >= 1048576
+  return f"{(amount.float() / 1024.0).format(precision: 2)} KiB" when amount >= 1024
   f"{amount} B"
 }
 
 pure field_text(value: Int?, state: report.ObservationState) -> Str {
-  if value == null {
-    return state_text(state)
-  }
+  return state_text(state) when value == null
   bytes_text(value)
 }
 
 pure counter_text(value: rates.ByteValue) -> Str {
-  if value.value == null {
+  guard value.value != null else {
     return match value.state {
       rates.Invalid => "invalid"
       rates.Reset => "reset"
@@ -169,24 +156,18 @@ pure counter_text(value: rates.ByteValue) -> Str {
 }
 
 pure uptime_text(value: syscpu.Uptime) -> Str {
-  if value.seconds == null {
-    return state_text(value.state)
-  }
-  f"{(value.seconds ?? 0.0).format(precision: 1)} s"
+  return state_text(value.state) when value.seconds == null
+  f"{value.seconds.format(precision: 1)} s"
 }
 
 pure load_text(value: syscpu.LoadAverage) -> Str {
-  if value.state != report.Observed or value.values.len() < 3 {
-    return state_text(value.state)
-  }
+  return state_text(value.state) when value.state != .Observed or value.values.len() < 3
   f"{value.values[0].format(precision: 2)} {value.values[1].format(precision: 2)} {value.values[2].format(precision: 2)}"
 }
 
 pure temperature_text(value: sensors.CpuTemperature) -> Str {
-  if value.package_millidegrees == null {
-    return f"Temperature {state_text(value.state)}"
-  }
-  let display = sensors.temperature_display(value.package_millidegrees ?? 0, "celsius")
+  return f"Temperature {state_text(value.state)}" when value.package_millidegrees == null
+  let display = sensors.temperature_display(value.package_millidegrees, "celsius")
   if let temperature = display {
     f"Temperature {temperature.value}{temperature.unit}"
   } else {
@@ -195,9 +176,7 @@ pure temperature_text(value: sensors.CpuTemperature) -> Str {
 }
 
 pure core_temperature_text(value: sensors.CpuTemperature) -> Str {
-  if value.cores.is_empty() {
-    return "Core temperatures unavailable"
-  }
+  return "Core temperatures unavailable" when value.cores.is_empty()
   let readings: List[Str] = collect {
     for core in value.cores {
       let display = sensors.temperature_display(core.millidegrees, "celsius")
@@ -210,11 +189,9 @@ pure core_temperature_text(value: sensors.CpuTemperature) -> Str {
 }
 
 pure frequency_text(value: sensors.CpuFrequency) -> Str {
-  if value.state != report.Observed {
-    return f"Frequency {state_text(value.state)}"
-  }
+  return f"Frequency {state_text(value.state)}" when value.state != .Observed
   if value.minimum_mhz != null and value.maximum_mhz != null {
-    return f"Frequency {sensors.format_frequency_mhz(value.minimum_mhz ?? 0.0)} - {sensors.format_frequency_mhz(value.maximum_mhz ?? 0.0)}"
+    return f"Frequency {sensors.format_frequency_mhz(value.minimum_mhz)} - {sensors.format_frequency_mhz(value.maximum_mhz)}"
   }
   if let mhz = value.value_mhz {
     return f"Frequency {sensors.format_frequency_mhz(mhz)}"
@@ -223,11 +200,9 @@ pure frequency_text(value: sensors.CpuFrequency) -> Str {
 }
 
 pure battery_text(value: sensors.Battery) -> Str {
-  if value.state != report.Observed {
-    return f"Battery {state_text(value.state)}"
-  }
-  let percent = if value.capacity_percent == null { "?" } else { f"{value.capacity_percent ?? 0}%" }
-  let power = if value.power_watts == null { "" } else { f" {(value.power_watts ?? 0.0).format(precision: 2)} W" }
+  return f"Battery {state_text(value.state)}" when value.state != .Observed
+  let percent = if value.capacity_percent == null { "?" } else { f"{value.capacity_percent}%" }
+  let power = if value.power_watts == null { "" } else { f" {value.power_watts.format(precision: 2)} W" }
   f"Battery {value.name ?? "?"} {percent} {value.status ?? "unknown"}{power}"
 }
 
@@ -243,9 +218,9 @@ pure process_text(
   } else if row.uid == null {
     "?"
   } else {
-    f"{row.uid ?? 0}"
+    f"{row.uid}"
   }
-  let user_label = if row.uid_state == model.Stale { f"~{account}" } else { account }
+  let user_label = if row.uid_state == .Stale { f"~{account}" } else { account }
   let command = if let display = ui.local_display(row, local_display) {
     display.command_line ?? row.command
   } else {
@@ -262,8 +237,8 @@ pure process_text(
   let rss_bytes = if state.aggregate_children { entry.rss_total_bytes } else { row.rss_bytes }
   let rss = if state.process_memory_bytes {
     bytes_text(rss_bytes)
-  } else if rss_bytes != null and value.memory.total_bytes != null and (value.memory.total_bytes ?? 0) > 0 {
-    f"{((rss_bytes ?? 0).float() * 100.0 / (value.memory.total_bytes ?? 1).float()).format(precision: 1)}%"
+  } else if rss_bytes != null and value.memory.total_bytes != null and value.memory.total_bytes > 0 {
+    f"{(rss_bytes.float() * 100.0 / value.memory.total_bytes.float()).format(precision: 1)}%"
   } else {
     "unavailable"
   }
@@ -281,8 +256,8 @@ pure process_text(
 }
 
 pure memory_percent_text(value: model.Model) -> Str {
-  if value.memory.total_bytes != null and (value.memory.total_bytes ?? 0) > 0 and value.memory.used_bytes.value != null {
-    let percent = (value.memory.used_bytes.value ?? 0).float() * 100.0 / (value.memory.total_bytes ?? 1).float()
+  if value.memory.total_bytes != null and value.memory.total_bytes > 0 and value.memory.used_bytes.value != null {
+    let percent = value.memory.used_bytes.value.float() * 100.0 / value.memory.total_bytes.float()
     return f"{percent.format(precision: 1)}%"
   }
   match value.memory.used_bytes.state {
@@ -325,8 +300,8 @@ pure process_content(
     ui.CpuLazy => "CPU lazy"
   }
   let direction = match state.sort {
-    ui.Pid | ui.ThreadCount | ui.Memory | ui.CpuDirect | ui.CpuLazy => if state.reverse { "ascending" } else { "descending" }
-    ui.Name | ui.Cmd | ui.UserName => if state.reverse { "descending" } else { "ascending" }
+    ui.Pid | .ThreadCount | .Memory | .CpuDirect | .CpuLazy => if state.reverse { "ascending" } else { "descending" }
+    ui.Name | .Cmd | .UserName => if state.reverse { "descending" } else { "ascending" }
   }
   let sort_line = f"Sort {sort_name} {direction} | r reverse"
   let filter_line = if state.editing_filter {
@@ -338,7 +313,7 @@ pure process_content(
   }
   let cpu_column = if state.process_cpu_per_core { "CPU/core%" } else { "CPU%" }
   var lines = [f"PID USER {cpu_column} RSS COMMAND", filter_line]
-  if value.process_state != report.Observed {
+  if value.process_state != .Observed {
     lines += [f"Processes {state_text(value.process_state)}"]
   } else if value.processes.is_empty() {
     lines += ["No visible processes"]
@@ -363,7 +338,7 @@ pure process_content(
 
 ## Returns the process rows that fit below the pinned default CPU panel.
 export pure process_capacity(height: Int) -> Int {
-  if height < 24 { return 0 }
+  return 0 when height < 24
   let cpu_height = if (height * 32 + 99) / 100 < 8 { 8 } else { (height * 32 + 99) / 100 }
   let process_height = height - cpu_height
   if process_height <= 4 { 0 } else { process_height - 4 }
@@ -414,7 +389,7 @@ pure cpu_content(
   let summary = f"Usage {rate_text(value.cpu_percent)} | Uptime {uptime_text(value.uptime)} | Load {load_text(value.load)}"
   let sensors = f"{temperature_text(value.telemetry.temperature)} | {frequency_text(value.telemetry.frequency)}"
   let details = f"{core_temperature_text(value.telemetry.temperature)} | {battery_text(value.telemetry.battery)}"
-  Ok([summary] + cpu_graph + temperature_graph + [sensors, details])
+  Ok([summary, @cpu_graph, @temperature_graph, sensors, details])
 }
 
 pure memory_panel_content(
@@ -425,18 +400,12 @@ pure memory_panel_content(
 ) -> Result[List[Str], Error] {
   let graph_width = if width > 0 { width } else { 1 }
   let used_graph = history_rows(history, capabilities, graph_width, 2, false, 100.0)?
-  let swap = if value.memory.swap_total_state == report.Absent and value.memory.swap_free_state == report.Absent {
+  let swap = if value.memory.swap_total_state == .Absent and value.memory.swap_free_state == .Absent {
     "Swap absent"
   } else {
     f"Swap {counter_text(value.memory.swap_used_bytes)}"
   }
-  Ok([
-    f"Used {memory_percent_text(value)}",
-  ] + used_graph + [
-    f"Total {field_text(value.memory.total_bytes, value.memory.total_state)}",
-    f"Available {field_text(value.memory.available_bytes, value.memory.available_state)}",
-    swap,
-  ])
+  Ok([f"Used {memory_percent_text(value)}", @used_graph, f"Total {field_text(value.memory.total_bytes, value.memory.total_state)}", f"Available {field_text(value.memory.available_bytes, value.memory.available_state)}", swap])
 }
 
 pure network_panel_content(
@@ -487,7 +456,7 @@ pure network_panel_content(
 pure network_graph_maximum(history: graph.History) -> Float {
   var maximum = 0.0
   for sample in history.samples {
-    if sample.state == graph.Observed {
+    if sample.state == .Observed {
       if let value = sample.value {
         if value > maximum { maximum = value }
       }
@@ -497,20 +466,20 @@ pure network_graph_maximum(history: graph.History) -> Float {
 }
 
 pure compact_bytes(value: Int?) -> Str {
-  if value == null { return "?" }
-  let amount = (value ?? 0).float()
-  if amount >= 1073741824.0 { return f"{(amount / 1073741824.0).format(precision: 0)}G" }
-  if amount >= 1048576.0 { return f"{(amount / 1048576.0).format(precision: 0)}M" }
-  if amount >= 1024.0 { return f"{(amount / 1024.0).format(precision: 0)}K" }
-  f"{value ?? 0}B"
+  return "?" when value == null
+  let amount = value.float()
+  return f"{(amount / 1073741824.0).format(precision: 0)}G" when amount >= 1073741824.0
+  return f"{(amount / 1048576.0).format(precision: 0)}M" when amount >= 1048576.0
+  return f"{(amount / 1024.0).format(precision: 0)}K" when amount >= 1024.0
+  f"{value}B"
 }
 
 pure compact_rate(value: rates.Rate) -> Str {
-  if value.state == rates.Observed and value.value != null {
-    let amount = value.value ?? 0.0
-    if amount >= 1073741824.0 { return f"{(amount / 1073741824.0).format(precision: 0)}G/s" }
-    if amount >= 1048576.0 { return f"{(amount / 1048576.0).format(precision: 0)}M/s" }
-    if amount >= 1024.0 { return f"{(amount / 1024.0).format(precision: 0)}K/s" }
+  if value.state == .Observed and value.value != null {
+    let amount = value.value
+    return f"{(amount / 1073741824.0).format(precision: 0)}G/s" when amount >= 1073741824.0
+    return f"{(amount / 1048576.0).format(precision: 0)}M/s" when amount >= 1048576.0
+    return f"{(amount / 1024.0).format(precision: 0)}K/s" when amount >= 1024.0
     return f"{amount.format(precision: 0)}B/s"
   }
   match value.state {
@@ -529,7 +498,7 @@ pure device_line(device: disks.Device) -> Str {
 }
 
 pure device_usage_line(device: disks.Device) -> Str {
-  let capacity = if device.capacity_state == report.Observed and device.total_bytes != null and device.used_bytes != null {
+  let capacity = if device.capacity_state == .Observed and device.total_bytes != null and device.used_bytes != null {
     f"{compact_bytes(device.used_bytes)}/{compact_bytes(device.total_bytes)}"
   } else {
     state_text(device.capacity_state)
@@ -545,19 +514,19 @@ pure disk_panel_content(
   width: Int,
   height: Int,
 ) -> Result[List[Str], Error] {
-  if ! state.show_disks { return Ok(["Disks hidden"]) }
+  return Ok(["Disks hidden"]) unless state.show_disks
   if value.storage.devices.is_empty() {
-    if value.storage.mount_state == report.Observed and value.storage.block_state == report.Observed {
+    if value.storage.mount_state == .Observed and value.storage.block_state == .Observed {
       return Ok(["No mounted block devices"])
     }
-    let source_state = if value.storage.mount_state != report.Observed { value.storage.mount_state } else { value.storage.block_state }
+    let source_state = if value.storage.mount_state != .Observed { value.storage.mount_state } else { value.storage.block_state }
     return Ok([f"Storage {state_text(source_state)}"])
   }
 
   let graph_count = if state.disk_io_mode { 2 } else { 1 }
   let device_slots = (height - graph_count) / 2
   let shown_devices = if device_slots < value.storage.devices.len() { device_slots } else { value.storage.devices.len() }
-  var lines: List[Str] = []
+  var lines = []
   for index in range(shown_devices) {
     let device = value.storage.devices[index]
     lines += [device_line(device), device_usage_line(device)]
@@ -637,8 +606,7 @@ export pure render_view_with_graphs(
     process_content(value, view, process_capacity(height), process_width - 2, local_display),
   )
   var lines = cpu_rows
-  var row_roles: List[color.Role?] = []
-  for _ in range(cpu_height) { row_roles += [color.Cpu] }
+  var row_roles: List[color.Role?] = [color.Cpu for _ in range(cpu_height)]
   for index in range(lower_height) {
     let left = if index < memory_height {
       memory_rows[index]

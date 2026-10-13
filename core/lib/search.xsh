@@ -19,7 +19,7 @@ export pure basename_bytes(raw: Bytes) -> Bytes {
 
 ## Join a parent with a raw filename without decoding it.
 export pure child(parent: Path, name: Bytes) -> Result[Path, Error] {
-  let leaf = Path.parse_bytes(name)?
+  let leaf = name as Path
   Ok(if parent.bytes().byte_at(parent.bytes().len() - 1) == 47 { fp"{parent}{leaf}" } else { fp"{parent}/{leaf}" })
 }
 
@@ -42,7 +42,7 @@ pure glob_at(pattern: Bytes, text: Bytes, p: Int, t: Int, insensitive: Bool) -> 
   }
   return false when t >= text.len()
   let value = fold(text.byte_at(t) ?? -1, insensitive)
-  if char == 63 { return glob_at(pattern, text, p + 1, t + 1, insensitive) }
+  return glob_at(pattern, text, p + 1, t + 1, insensitive) when char == 63
   if char == 91 {
     var at = p + 1
     let negate = pattern.byte_at(at) == 33 or pattern.byte_at(at) == 94
@@ -81,7 +81,7 @@ export pure find_fixed(text: Bytes, needle: Bytes, offset = 0, insensitive = fal
   for at in range(offset, text.len() - needle.len() + 1) {
     var same = true
     for index in range(needle.len()) {
-      if fold(text.byte_at(at + index) ?? -1, insensitive) != fold(needle.byte_at(index) ?? -1, insensitive) {
+      guard fold(text.byte_at(at + index) ?? -1, insensitive) == fold(needle.byte_at(index) ?? -1, insensitive) else {
         same = false
         break
       }
@@ -93,7 +93,7 @@ export pure find_fixed(text: Bytes, needle: Bytes, offset = 0, insensitive = fal
 
 ## Split records without inventing an extra record after a final delimiter.
 export pure records(data: Bytes, delimiter: Int) -> List[Bytes] {
-  var out: List[Bytes] = []
+  var out = []
   var start = 0
   for at in range(data.len()) {
     if data.byte_at(at) == delimiter { out += [data[start..at]]; start = at + 1 }

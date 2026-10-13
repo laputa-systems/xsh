@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.file_magic
+use lib.gnu
 
 type Options = {brief: Bool, mime: Bool, mime_type: Bool, mime_encoding: Bool, follow: Bool, no_follow: Bool, zero: Bool, separator: Str, list: Str?, error: Bool, help: Bool, version: Bool, files: List[Str]}
 type Identification = {description: Str, mime: Str, encoding: Str}
@@ -10,7 +10,7 @@ proc identify(name: Str, follow: Bool) [fs, io, error] -> Result[Identification]
     var sample = b""
     while sample.len() < 8192 {
       let chunk = io.stdin_read(8192 - sample.len())?
-      if chunk.len() == 0 { break }
+      break when chunk.is_empty()
       sample = bytes.concat([sample, chunk])
     }
     return Ok(file_magic.classify(sample))

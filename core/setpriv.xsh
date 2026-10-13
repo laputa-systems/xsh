@@ -117,7 +117,7 @@ pure base_name(entry: capability.CapabilityName) -> Str { entry.name.byte_slice(
 # knows; later ones print as cap_N, which the parser also accepts.
 pure cap_name(number: Int) -> Str {
   for entry in capability.CAPABILITIES {
-    if entry.bit == number { return base_name(entry) }
+    return base_name(entry) when entry.bit == number
   }
   f"cap_{number}"
 }
@@ -130,7 +130,7 @@ pure cap_list(numbers: List[Int]) -> Str {
 pure cap_number(name: Str, last: Int) -> Int? {
   let lower = name.lower()
   for entry in capability.CAPABILITIES {
-    if base_name(entry) == lower { return entry.bit }
+    return entry.bit when base_name(entry) == lower
   }
   if rx"^cap_[0-9]+$".matches(lower) {
     let number = lower.byte_slice(4).parse_int() ?? -1
@@ -142,40 +142,42 @@ pure cap_number(name: Str, last: Int) -> Int? {
 # Items are comma separated and each carries a `+` or `-`, as in util-linux.
 proc parse_caps(text: Str) [process, env, error] -> List[Edit] {
   let last = read_state().last_capability
-  var edits: List[Edit] = []
-  for item in text.split(",") {
-    if item == "" or ! (item.starts_with("+") or item.starts_with("-")) {
-      usage_fail("bad capability string")
-    }
-    let add = item.starts_with("+")
-    let name = item.byte_slice(1)
-    if name == "all" {
-      edits += [{add: add, all: true, cap: 0}]
-    } else if let number = cap_number(name, last) {
-      edits += [{add: add, all: false, cap: number}]
-    } else {
-      usage_fail(f"unknown capability \"{name}\"")
+  let edits: List[Edit] = collect {
+    for item in text.split(",") {
+      if item == "" or ! (item.starts_with("+") or item.starts_with("-")) {
+        usage_fail("bad capability string")
+      }
+      let add = item.starts_with("+")
+      let name = item.byte_slice(1)
+      if name == "all" {
+        yield {add: add, all: true, cap: 0}
+      } else if let number = cap_number(name, last) {
+        yield {add: add, all: false, cap: number}
+      } else {
+        usage_fail(f"unknown capability \"{name}\"")
+      }
     }
   }
   edits
 }
 
 proc parse_securebits(text: Str) [process, env, error] -> List[FlagEdit] {
-  var edits: List[FlagEdit] = []
-  for item in text.split(",") {
-    if item == "" or ! (item.starts_with("+") or item.starts_with("-")) {
-      usage_fail("bad securebits string")
+  let edits: List[FlagEdit] = collect {
+    for item in text.split(",") {
+      if item == "" or ! (item.starts_with("+") or item.starts_with("-")) {
+        usage_fail("bad securebits string")
+      }
+      let add = item.starts_with("+")
+      let name = item.byte_slice(1)
+      if name == "all" {
+        if add { usage_fail("+all securebits is not allowed") }
+      } else if name in ["keep_caps"] {
+        usage_fail("adjusting keep_caps does not make sense")
+      } else if ! (name in SECUREBIT_NAMES) {
+        usage_fail("unrecognized securebit")
+      }
+      yield {add: add, name: name}
     }
-    let add = item.starts_with("+")
-    let name = item.byte_slice(1)
-    if name == "all" {
-      if add { usage_fail("+all securebits is not allowed") }
-    } else if name in ["keep_caps"] {
-      usage_fail("adjusting keep_caps does not make sense")
-    } else if ! (name in SECUREBIT_NAMES) {
-      usage_fail("unrecognized securebit")
-    }
-    edits += [{add: add, name: name}]
   }
   edits
 }
@@ -185,7 +187,7 @@ proc parse_securebits(text: Str) [process, env, error] -> List[FlagEdit] {
 proc parse_user(kind: Str, text: Str) [process, env, fs, error] -> Int {
   if rx"^[0-9]+$".matches(text) {
     let number = text.parse_int() ?? -1
-    if number >= 0 and number < 4294967295 { return number }
+    return number when number >= 0 and number < 4294967295
   } else if text != "" {
     if let Ok(account) = user.lookup(text) { return account.uid }
   }
@@ -196,7 +198,7 @@ proc parse_user(kind: Str, text: Str) [process, env, fs, error] -> Int {
 proc parse_group(kind: Str, text: Str) [process, env, fs, error] -> Int {
   if rx"^[0-9]+$".matches(text) {
     let number = text.parse_int() ?? -1
-    if number >= 0 and number < 4294967295 { return number }
+    return number when number >= 0 and number < 4294967295
   } else if text != "" {
     if let Ok(entry) = group.lookup(text) { return entry.gid }
   }
@@ -205,16 +207,17 @@ proc parse_group(kind: Str, text: Str) [process, env, fs, error] -> Int {
 }
 
 proc parse_group_list(text: Str) [process, env, fs, error] -> List[Int] {
-  var ids: List[Int] = []
-  for item in text.split(",") {
-    var found: Int? = null
-    if rx"^[0-9]+$".matches(item) {
-      let number = item.parse_int() ?? -1
-      if number >= 0 and number < 4294967295 { found = number }
-    } else if item != "" {
-      if let Ok(entry) = group.lookup(item) { found = entry.gid }
+  let ids = collect {
+    for item in text.split(",") {
+      var found = null
+      if rx"^[0-9]+$".matches(item) {
+        let number = item.parse_int() ?? -1
+        if number >= 0 and number < 4294967295 { found = number }
+      } else if item != "" {
+        if let Ok(entry) = group.lookup(item) { found = entry.gid }
+      }
+      if let id = found { yield id } else { usage_fail(f"Invalid supplementary group id: '{item}'") }
     }
-    if let id = found { ids += [id] } else { usage_fail(f"Invalid supplementary group id: '{item}'") }
   }
   ids
 }
@@ -237,11 +240,11 @@ proc signal_number(name: Str) [process, env, error] -> Int {
   }
   if rx"^RTMIN\+[0-9]+$".matches(text) {
     let offset = text.byte_slice(6).parse_int() ?? 1000
-    if low + offset <= high { return low + offset }
+    return low + offset when low + offset <= high
   }
   if rx"^RTMAX-[0-9]+$".matches(text) {
     let offset = text.byte_slice(6).parse_int() ?? 1000
-    if high - offset >= low { return high - offset }
+    return high - offset when high - offset >= low
   }
   usage_fail(f"unknown signal: {name}")
   exit 1
@@ -251,7 +254,7 @@ pure signal_label(number: Int, table: List[SignalEntry]) -> Str {
   return "[none]" when number == 0
   return "UNUSED" when number == 31
   for entry in table {
-    if entry.number == number and number < 32 and number > 0 { return entry.name }
+    return entry.name when entry.number == number and number < 32 and number > 0
   }
   f"{number}"
 }
@@ -265,10 +268,10 @@ pure canonical(option: Str) -> Str {
 # aliases of one option never make a prefix ambiguous.
 proc resolve_option(name: Str) [process, env, error] -> Str {
   let known = OPTIONS
-  if name in known { return canonical(name) }
+  return canonical(name) when name in known
   let matches = collect { for option in known { yield option when option.starts_with(name) } }
   let distinct = collect { for option in matches { yield canonical(option) } }.to_set().to_list()
-  if distinct.len() == 1 { return distinct[0] }
+  return distinct[0] when distinct.len() == 1
   if matches.len() > 1 {
     let listed = collect { for option in matches { yield f"'--{option}'" } }.join(" ")
     gnu.usage_error(f"option '--{name}' is ambiguous; possibilities: {listed}")
@@ -282,19 +285,19 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
   var list_caps = 0
   var no_new_privs = false
   var reset_env = false
-  var ruid: Int? = null
-  var euid: Int? = null
-  var rgid: Int? = null
-  var egid: Int? = null
-  var group_mode: Str? = null
+  var ruid = null
+  var euid = null
+  var rgid = null
+  var egid = null
+  var group_mode = null
   var group_mode_name = ""
-  var groups: List[Int] = []
+  var groups = []
   var inheritable: List[Edit]? = null
   var ambient: List[Edit]? = null
   var bounding: List[Edit]? = null
   var securebits: List[FlagEdit]? = null
-  var pdeathsig: Str? = null
-  var ptracer: Int? = null
+  var pdeathsig = null
+  var ptracer = null
   var others = false
   var index = 0
   while index < argv.len() {
@@ -303,10 +306,10 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
       index += 1
       break
     }
-    if ! word.starts_with("-") or word == "-" { break }
+    break when ! word.starts_with("-") or word == "-"
     index += 1
-    var names: List[Str] = []
-    var attached: Str? = null
+    var names = []
+    var attached = null
     if word.starts_with("--") {
       let body = word.byte_slice(2)
       let equal = body.find("=")
@@ -315,7 +318,7 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
       if let at = equal { attached = body.byte_slice(at + 1) }
       names = [option]
     } else {
-      for letter in word.byte_slice(1).split("") {
+      for letter in word.byte_slice(1) {
         if letter == "d" { names += ["dump"] } else if letter == "h" { names += ["help"] } else if letter == "V" { names += ["version"] } else {
           gnu.usage_error(f"invalid option -- '{letter}'")
         }
@@ -428,7 +431,7 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
   if (rgid != null or egid != null) and group_mode == null {
     usage_fail("--[re]gid requires --keep-groups, --clear-groups, --init-groups, or --groups")
   }
-  var init_user: Int? = null
+  var init_user = null
   if group_mode == "init" {
     if ruid == null { usage_fail("--init-groups requires --ruid or --reuid") }
     init_user = ruid
@@ -517,20 +520,17 @@ proc apply_securebits(edits: List[FlagEdit]) [process, env, error] {
 # The user whose account supplies --init-groups must exist before anything
 # changes, so a missing account leaves the process untouched.
 proc init_group_ids(uid: Int) [process, env, fs, error] -> List[Int] {
-  match user.by_uid(uid) {
-    Ok(account) => {
-      match user.groups(account.name, primary_gid: account.gid) {
-        Ok(ids) => ids
-        Err(failure) => {
-          die_with("initgroups failed", failure)
-          exit 127
-        }
+  if let Ok(account) = user.by_uid(uid) {
+    match user.groups(account.name, primary_gid: account.gid) {
+      Ok(ids) => ids
+      Err(failure) => {
+        die_with("initgroups failed", failure)
+        exit 127
       }
     }
-    Err(_) => {
-      usage_fail(f"uid {uid} not found, --init-groups requires an user that can be found on the system")
-      exit 1
-    }
+  } else {
+    usage_fail(f"uid {uid} not found, --init-groups requires an user that can be found on the system")
+    exit 1
   }
 }
 
@@ -548,13 +548,13 @@ proc apply_groups(request: Request, init_ids: List[Int]) [process, env, error] {
 # The saved ID follows the effective ID when one is given and is otherwise
 # left alone, so a lone --ruid keeps the old effective and saved IDs.
 proc apply_uids(request: Request) [process, env, error] {
-  if request.ruid == null and request.euid == null { return }
+  return when request.ruid == null and request.euid == null
   let applied = unix.set_resuid(real: request.ruid, effective: request.euid, saved: request.euid)
   if let Err(failure) = applied { die_with("setresuid failed", failure) }
 }
 
 proc apply_gids(request: Request) [process, env, error] {
-  if request.rgid == null and request.egid == null { return }
+  return when request.rgid == null and request.egid == null
   let applied = unix.set_resgid(real: request.rgid, effective: request.egid, saved: request.egid)
   if let Err(failure) = applied { die_with("setresgid failed", failure) }
 }
@@ -654,10 +654,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     gnu.write_text(collect { for entry in capability.CAPABILITIES { yield base_name(entry) } }.join("\n") + "\n")
     return
   }
-  let original_uid = match unix.id() {
-    Ok(ids) => ids.uid
-    Err(_) => 0
-  }
+  let original_uid = if let Ok(ids) = unix.id() { ids.uid } else { 0 }
   let init_ids = if let uid = request.init_user { init_group_ids(uid) } else { [] }
   let death_signal = if let choice = request.pdeathsig {
     if choice == "keep" { read_state().parent_death_signal } else if choice == "clear" { 0 } else { signal_number(choice) }

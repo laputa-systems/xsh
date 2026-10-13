@@ -1,6 +1,6 @@
 type Outcome = {status: Int, stdout: Str, stderr: Str}
 
-proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "") [fs, process, error] -> Result[Outcome] {
+proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir = "") [fs, process, error] -> Result[Outcome] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/dirname.xsh"
@@ -37,13 +37,13 @@ test test_dirname_invalid_utf8_paths { |ctx|
   let script = fp"{ctx.core_dir}/dirname.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let first_name = Path.parse_bytes(b"test_\xff\xfe/file.txt")?
+  let first_name = b"test_\xff\xfe/file.txt" as Path
   let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", first_name]
   let first = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert first.exit_code()? == 0
   assert stdout.read_bytes()? == b"test_\xff\xfe\n"
 
-  let second_name = Path.parse_bytes(b"/test_\xff\xfe/.")?
+  let second_name = b"/test_\xff\xfe/." as Path
   let second_words: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", second_name]
   let second = process.run(process.command_argv(ctx.xsh_bin, second_words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert second.exit_code()? == 0

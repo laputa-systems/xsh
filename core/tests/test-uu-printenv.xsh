@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_printenv.rs.
 ##! Each test names its origin; assertions preserve the upstream observables.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_printenv::test_get_all
 test test_uu_printenv_get_all { |ctx|
@@ -66,7 +66,7 @@ test test_uu_printenv_null_separator { |ctx|
 # origin: uutils test_printenv::test_non_utf8_value
 test test_uu_printenv_non_utf8_value { |ctx|
   let s = uu.scene(ctx)?
-  let value = Path.parse_bytes(b"/tmp/lib.so\xff")?
+  let value = b"/tmp/lib.so\xff" as Path
   let r = uu.invoke(s, "printenv", ["LD_PRELOAD"], vars: {LD_PRELOAD: value})?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, b"/tmp/lib.so\xff\n")
@@ -75,7 +75,7 @@ test test_uu_printenv_non_utf8_value { |ctx|
 # origin: uutils test_printenv::test_non_utf8_env_vars
 test test_uu_printenv_non_utf8_env_vars { |ctx|
   let s = uu.scene(ctx)?
-  let value = Path.parse_bytes(b"hello\x80world")?
+  let value = b"hello\x80world" as Path
   let r = uu.invoke(s, "printenv", [], vars: {NON_UTF8_VAR: value})?
   uu.succeeds(r)
   assert b"NON_UTF8_VAR=hello\x80world" in r.stdout

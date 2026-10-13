@@ -25,9 +25,10 @@ proc removal_reason(target: Path, failure: Error) [fs, error] -> Str {
     let trimmed = fp"{name.byte_slice(0, length: end)}"
     if let Ok(meta) = fs.stat(trimmed) {
       if meta.kind == "symlink" {
-        match fs.stat(trimmed, follow_symlinks: true) {
-          Ok(referent) => { return "Symbolic link not followed" when referent.kind == "dir" }
-          Err(_) => return "Symbolic link not followed"
+        if let Ok(referent) = fs.stat(trimmed, follow_symlinks: true) {
+          return "Symbolic link not followed" when referent.kind == "dir"
+        } else {
+          return "Symbolic link not followed"
         }
       }
     }
@@ -72,7 +73,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var current = bytes.from_text(name)
     var ancestor = false
     loop {
-      let directory = Path.parse_bytes(current)?
+      let directory = current as Path
       if opts.verbose { gnu.write_text(f"rmdir: removing directory, {gnu.quote_bytes(current)}\n") }
       match directory.remove_dir() {
         Ok(_) => {}

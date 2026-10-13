@@ -17,16 +17,13 @@ proc tracepath(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result
 
 # Skips the test unless UDP over the loopback address of `family` can be
 # bound, which the probes need.
-proc need_loopback(family: Str) [process, net, error] -> Result[Unit] {
+proc need_loopback(family: Str) [process, net, error] {
   let c = linux.net_constants()
   let domain = if family == "inet6" { c.AF_INET6 } else { c.AF_INET }
   let address = if family == "inet6" { "::1" } else { "127.0.0.1" }
-  let probe = match linux.socket(domain, c.SOCK_DGRAM) {
-    Ok(fd) => fd
-    Err(failure) => {
-      test.skip(f"UDP over {family} is not available ({failure.message})")
-      return Ok()
-    }
+  let probe = linux.socket(domain, c.SOCK_DGRAM) ?? { |failure|
+    test.skip(f"UDP over {family} is not available ({failure.message})")
+    return
   }
   defer unix.close_fd(probe)
   if let Err(failure) = linux.bind(probe, {family: family, address: address, port: 0}) {
@@ -84,7 +81,7 @@ test test_tracepath_discovers_the_ipv6_loopback_mtu { |ctx|
   # the MTU and the hop is probed again at that size.
   let reached = [line for line in lines if rx"^ 1:  ::1 +[0-9]+\.[0-9]{3}ms reached$".matches(line)]
   assert reached.len() >= 1, ran.stdout
-  assert rx"^     Resume: pmtu [0-9]+ hops 1 back 1 $".matches(lines[lines.len() - 2]), ran.stdout
+  assert rx"^     Resume: pmtu [0-9]+ hops 1 back 1 $".matches(lines[-2]), ran.stdout
   for line in lines {
     if line.starts_with(" 1?:") {
       assert rx"^ 1\?: \[LOCALHOST\] +[0-9]+\.[0-9]{3}ms pmtu [0-9]+$".matches(line), line

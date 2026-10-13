@@ -3,7 +3,7 @@ use core.lib.capability
 test test_file_capability_revisions_round_trip_and_reject_invalid { |ctx|
   for revision in [1, 2, 3] {
     let fixture = capability.parse("cap_chown,cap_net_raw=ep cap_setuid=ei", rootid: if revision == 3 { 1000 } else { null })?
-    let record: capability.FileCaps = {revision: capability.revision(revision)?, effective: fixture.effective, permitted: fixture.permitted, inheritable: fixture.inheritable, rootid: fixture.rootid}
+    let record: capability.FileCaps = capability.FileCaps(revision: capability.revision(revision)?, effective: fixture.effective, permitted: fixture.permitted, inheritable: fixture.inheritable, rootid: fixture.rootid)
     let payload = capability.encode(record)?
     assert payload.len() == (if revision == 1 { 12 } else if revision == 2 { 20 } else { 24 })
     assert capability.decode(payload)? == record

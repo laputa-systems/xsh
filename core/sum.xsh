@@ -8,17 +8,16 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 # The shared option parser takes text, so map undecodable operands through
 # NUL-marked placeholders; OS arguments cannot contain NUL and cannot collide.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0sum-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0sum-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -26,7 +25,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
@@ -54,7 +53,7 @@ proc main(...argv: List[Bytes]) [fs, io, error, process, env] {
   if opts.version { gnu.version("sum"); return }
   var sysv = false
   for arg in argv {
-    if arg == b"--" { break }
+    break when arg == b"--"
     if arg == b"--sysv" { sysv = true }
     if arg.starts_with(b"-") and !arg.starts_with(b"--") {
       for index in range(1, arg.len()) {
@@ -64,12 +63,11 @@ proc main(...argv: List[Bytes]) [fs, io, error, process, env] {
     }
   }
   let algorithm = if sysv { "sysv" } else { "bsd" }
-  var files: List[Bytes] = []
-  for file in opts.files { files += [argument_bytes(file, prepared.raw)] }
+  var files = [argument_bytes(file, prepared.raw) for file in opts.files]
   if files.is_empty() { files = [b"-"] }
   var failed = false
   for name in files {
-    let result = if name == b"-" { hash.checksum_stdin(algorithm) } else { hash.checksum(Path.parse_bytes(name)?, algorithm) }
+    let result = if name == b"-" { hash.checksum_stdin(algorithm) } else { hash.checksum(name as Path, algorithm) }
     match result {
       Ok(value) => {
         let block_size = if sysv { 512 } else { 1024 }

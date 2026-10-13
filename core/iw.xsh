@@ -208,7 +208,7 @@ Do NOT screenscrape this tool, we don't consider its output stable.
 # The words that name the command in a usage line, with the device
 # placeholder where the command takes one.
 pure usage_words(command: Entry) -> Str {
-  var words: List[Str] = []
+  var words = []
   if command.idby == "dev" {
     words += ["dev <devname>"]
   } else if command.idby == "phy" {
@@ -233,32 +233,24 @@ pure usage_words(command: Entry) -> Str {
 # The commands `iw help WORDS` selects: a section command matches its section
 # word and then its name, and a plain command matches its name.
 pure selected(command: Entry, words: List[Str]) -> Bool {
-  if words.is_empty() {
-    return true
-  }
+  return true when words.is_empty()
   if command.section != "" {
-    if words[0] != command.section {
-      return false
-    }
-    if words.len() == 1 {
-      return true
-    }
+    return false when words[0] != command.section
+    return true when words.len() == 1
     return command.name != "" and words[1] == command.name
   }
   command.name == words[0]
 }
 
 pure usage_header() -> Str {
-  "Usage:\tiw [options] command\nOptions:\n\t--version\tshow version ({VERSION})\nCommands:\n".replace("{VERSION}", with: VERSION)
+  f"Usage:\tiw [options] command\nOptions:\n\t--version\tshow version ({VERSION})\nCommands:\n".replace(f"{VERSION}", with: VERSION)
 }
 
 # Full help text for `words`, or the bare command list when `brief`.
 pure help_text(words: List[Str], brief: Bool) -> Str {
   var text = usage_header()
   for command in COMMANDS {
-    if ! selected(command, words) {
-      continue
-    }
+    continue unless selected(command, words)
     text += f"\t{usage_words(command)}\n"
     if ! brief and ! command.help.is_empty() {
       for line in command.help {
@@ -308,15 +300,11 @@ proc resolve(client: nl.Client, kind: Str, name: Str) -> Result[Target?] {
       return Err(nl.errno_failure(2))
     }
     let found = nl.find_phy(client, name)?
-    if found == null {
-      return Ok(null)
-    }
+    return Ok(null) when found == null
     return Ok({kind: kind, index: found, name: name})
   }
   let found = nl.find_interface(client, name)?
-  if found == null {
-    return Ok(null)
-  }
+  return Ok(null) when found == null
   Ok({kind: kind, index: found.index, name: name})
 }
 
@@ -329,16 +317,14 @@ proc command_dev(client: nl.Client) -> Result[Int] {
 }
 
 proc command_list(client: nl.Client, filter: List[Bytes]) -> Result[Int] {
-  let messages = nl.request(client, nl.CMD.get_wiphy, [nl.attr_flag(nl.ATTRS.split)?] + filter, dump: true)?
+  let messages = nl.request(client, nl.CMD.get_wiphy, [nl.attr_flag(nl.ATTRS.split)?, @filter], dump: true)?
   emit(nl.phy_lines(messages))
   Ok(0)
 }
 
 proc command_info(client: nl.Client, target: Target) -> Result[Int] {
   let messages = nl.request(client, nl.CMD.get_interface, [nl.attr_u32(nl.ATTRS.ifindex, target.index)?])?
-  if messages.is_empty() {
-    return Err(nl.errno_failure(19))
-  }
+  return Err(nl.errno_failure(19)) when messages.is_empty()
   emit(nl.info_lines(messages[0]))
   Ok(0)
 }
@@ -405,21 +391,15 @@ proc command_scan(client: nl.Client, target: Target, request: nl.ScanRequest, un
     guard let scan_group = groups.get("scan") else {
       return Err(nl.errno_failure(2))
     }
-    nl.subscribe(client, scan_group)?
+    nl.subscribe(client, scan_group)
   }
   let _ = nl.request(client, nl.CMD.trigger_scan, nl.scan_attrs(target.index, request)?)?
-  if ! follow {
-    return Ok(0)
-  }
+  return Ok(0) unless follow
   while true {
     let event = nl.receive_event(client)?
-    if event == null {
-      continue
-    }
+    continue when event == null
     let index = nl.pick_uint(event.attrs, nl.ATTRS.ifindex)
-    if index != null and index != target.index {
-      continue
-    }
+    continue when index != null and index != target.index
     if event.cmd == nl.CMD.new_scan_results {
       return command_scan_dump(client, target, unknown)
     }
@@ -509,7 +489,7 @@ proc command_event(client: nl.Client, stamp: Str) -> Result[Int] {
   let groups = nl.multicast_groups(client)?
   for name in ["config", "scan", "regulatory", "mlme", "vendor", "nan"] {
     if let Ok(id) = groups.get(name) {
-      nl.subscribe(client, id)?
+      nl.subscribe(client, id)
     } else if name != "vendor" and name != "nan" {
       return Err(nl.errno_failure(2))
     }
@@ -521,9 +501,7 @@ proc command_event(client: nl.Client, stamp: Str) -> Result[Int] {
   var previous = time.now()
   while true {
     let event = nl.receive_event(client)?
-    if event == null {
-      continue
-    }
+    continue when event == null
     let now = time.now()
     var prefix = ""
     if stamp == "-t" {
@@ -553,12 +531,11 @@ pure scan_words() -> List[Str] {
 
 # Hex bytes written as `00:11:..`, or null when malformed.
 pure parse_hex_list(text: Str) -> Bytes? {
-  var values: List[Int] = []
-  for part in text.split(":") {
-    if ! rx"^[0-9A-Fa-f]{1,2}$".matches(part) {
-      return null
+  let values = collect {
+    for part in text.split(":") {
+      return null unless rx"^[0-9A-Fa-f]{1,2}$".matches(part)
+      yield ("0x" + part).parse_int() ?? 0
     }
-    values += [("0x" + part).parse_int() ?? 0]
   }
   if let Ok(packed) = bytes.from_ints(values) {
     return packed
@@ -569,108 +546,95 @@ pure parse_hex_list(text: Str) -> Bytes? {
 # The scan options of `iw scan` and `iw scan trigger`; null means the words
 # are not valid and the usage is shown.
 pure parse_scan(words: List[Str], trigger: Bool) -> nl.ScanRequest? {
-  var ssids: List[Str] = []
-  var freqs: List[Int] = []
+  var ssids = []
   var elements = b""
-  var duration: Int? = null
+  var duration = null
   var mandatory = false
   var flags = 0
   var passive = false
   var mode = "none"
   var index = 0
-  while index < words.len() {
-    let word = words[index]
-    if mode == "freq" {
-      let number = word.parse_int()
-      if let Ok(freq) = number {
-        freqs += [freq]
-        index += 1
-        continue
+  let freqs = collect {
+    while index < words.len() {
+      let word = words[index]
+      if mode == "freq" {
+        let number = word.parse_int()
+        if let Ok(freq) = number {
+          yield freq
+          index += 1
+          continue
+        }
+        mode = "none"
+      } else if mode == "ssid" {
+        guard word in scan_words() else {
+          ssids += [word]
+          index += 1
+          continue
+        }
+        mode = "none"
       }
-      mode = "none"
-    } else if mode == "ssid" {
-      if ! (word in scan_words()) {
-        ssids += [word]
-        index += 1
-        continue
+      match word {
+        "freq" => {
+          mode = "freq"
+        }
+        "ssid" => {
+          mode = "ssid"
+        }
+        "passive" => {
+          passive = true
+        }
+        "lowpri" => {
+          flags = flags.bit_or(nl.SCAN_FLAGS.lowpri)
+        }
+        "flush" => {
+          flags = flags.bit_or(nl.SCAN_FLAGS.flush)
+        }
+        "ap-force" => {
+          flags = flags.bit_or(nl.SCAN_FLAGS.ap_force)
+        }
+        "coloc" => {
+          return null unless trigger
+          flags = flags.bit_or(nl.SCAN_FLAGS.coloc)
+        }
+        "duration-mandatory" => {
+          mandatory = true
+        }
+        "duration" => {
+          index += 1
+          return null when index >= words.len()
+          let value = words[index].parse_int()
+          if let Ok(number) = value {
+            duration = number
+          } else {
+            return null
+          }
+        }
+        "ies" => {
+          index += 1
+          return null when index >= words.len()
+          let parsed = parse_hex_list(words[index])
+          return null when parsed == null
+          elements = bytes.concat([elements, parsed])
+        }
+        "meshid" => {
+          index += 1
+          return null when index >= words.len()
+          let id = bytes.from_text(words[index])
+          return null when id.len() > 32
+          if let Ok(header) = bytes.from_ints([114, id.len()]) {
+            elements = bytes.concat([elements, header, id])
+          } else {
+            return null
+          }
+        }
+        else => {
+          return null
+        }
       }
-      mode = "none"
+      index += 1
     }
-    match word {
-      "freq" => {
-        mode = "freq"
-      }
-      "ssid" => {
-        mode = "ssid"
-      }
-      "passive" => {
-        passive = true
-      }
-      "lowpri" => {
-        flags = flags.bit_or(nl.SCAN_FLAGS.lowpri)
-      }
-      "flush" => {
-        flags = flags.bit_or(nl.SCAN_FLAGS.flush)
-      }
-      "ap-force" => {
-        flags = flags.bit_or(nl.SCAN_FLAGS.ap_force)
-      }
-      "coloc" => {
-        if ! trigger {
-          return null
-        }
-        flags = flags.bit_or(nl.SCAN_FLAGS.coloc)
-      }
-      "duration-mandatory" => {
-        mandatory = true
-      }
-      "duration" => {
-        index += 1
-        if index >= words.len() {
-          return null
-        }
-        let value = words[index].parse_int()
-        if let Ok(number) = value {
-          duration = number
-        } else {
-          return null
-        }
-      }
-      "ies" => {
-        index += 1
-        if index >= words.len() {
-          return null
-        }
-        let parsed = parse_hex_list(words[index])
-        if parsed == null {
-          return null
-        }
-        elements = bytes.concat([elements, parsed])
-      }
-      "meshid" => {
-        index += 1
-        if index >= words.len() {
-          return null
-        }
-        let id = bytes.from_text(words[index])
-        if id.len() > 32 {
-          return null
-        }
-        if let Ok(header) = bytes.from_ints([114, id.len()]) {
-          elements = bytes.concat([elements, header, id])
-        } else {
-          return null
-        }
-      }
-      else => {
-        return null
-      }
-    }
-    index += 1
   }
-  if passive and ! ssids.is_empty() {
-    return null
-  }
+  return null when passive and ! ssids.is_empty()
   {ssids: ssids, freqs: freqs, elements: elements, duration: duration, mandatory: mandatory, flags: flags, passive: passive}
 }
 
@@ -680,13 +644,9 @@ type Identified = {key: Str, rest: List[Str]}
 
 pure identify(idby: Str, words: List[Str]) -> Identified {
   let none = {key: "", rest: []}
-  if words.is_empty() {
-    return none
-  }
+  return none when words.is_empty()
   if idby == "phy" {
-    if words[0] == "info" {
-      return {key: "phy.info", rest: words[1..]}
-    }
+    return {key: "phy.info", rest: words[1..]} when words[0] == "info"
     if words.len() >= 2 and words[0] == "reg" and words[1] == "get" {
       return {key: "phy.reg.get", rest: words[2..]}
     }
@@ -701,8 +661,8 @@ pure identify(idby: Str, words: List[Str]) -> Identified {
     return none
   }
   match words[0] {
-    "info" => return {key: "dev.info", rest: words[1..]}
-    "link" => return {key: "dev.link", rest: words[1..]}
+    "info" => {key: "dev.info", rest: words[1..]}
+    "link" => {key: "dev.link", rest: words[1..]}
     "scan" => {
       if words.len() >= 2 {
         match words[1] {
@@ -712,7 +672,7 @@ pure identify(idby: Str, words: List[Str]) -> Identified {
           else => {}
         }
       }
-      return {key: "scan", rest: words[1..]}
+      {key: "scan", rest: words[1..]}
     }
     "station" => {
       if words.len() >= 2 {
@@ -722,7 +682,7 @@ pure identify(idby: Str, words: List[Str]) -> Identified {
           else => {}
         }
       }
-      return none
+      none
     }
     "set" => {
       if words.len() >= 2 {
@@ -734,21 +694,17 @@ pure identify(idby: Str, words: List[Str]) -> Identified {
           else => {}
         }
       }
-      return none
+      none
     }
-    else => return none
+    else => none
   }
 }
 
 # Parses a trailing `[NOHT|HT20|HT40+|HT40-]` after a channel or frequency;
 # null when the word is not a mode.
 pure ht_mode(rest: List[Str]) -> Str? {
-  if rest.is_empty() {
-    return "NOHT"
-  }
-  if rest.len() > 1 {
-    return null
-  }
+  return "NOHT" when rest.is_empty()
+  return null when rest.len() > 1
   match rest[0] {
     "NOHT" | "HT20" | "HT40+" | "HT40-" => rest[0]
     else => null
@@ -760,64 +716,46 @@ pure ht_mode(rest: List[Str]) -> Str? {
 proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[Str]) -> Result[Int] {
   match key {
     "phy.info" => {
-      if ! rest.is_empty() {
-        return Ok(1)
-      }
-      return command_list(client, [nl.attr_u32(nl.ATTRS.wiphy, target.index)?])
+      return Ok(1) unless rest.is_empty()
+      command_list(client, [nl.attr_u32(nl.ATTRS.wiphy, target.index)?])
     }
     "phy.reg.get" => {
-      if ! rest.is_empty() {
-        return Ok(1)
-      }
-      return command_reg_get(client, target.index)
+      return Ok(1) unless rest.is_empty()
+      command_reg_get(client, target.index)
     }
     "dev.info" => {
-      if ! rest.is_empty() {
-        return Ok(1)
-      }
-      return command_info(client, target)
+      return Ok(1) unless rest.is_empty()
+      command_info(client, target)
     }
     "dev.link" => {
-      if ! rest.is_empty() {
-        return Ok(1)
-      }
-      return command_link(client, target)
+      return Ok(1) unless rest.is_empty()
+      command_link(client, target)
     }
     "station.dump" => {
-      if ! rest.is_empty() {
-        return Ok(1)
-      }
-      return command_station_dump(client, target)
+      return Ok(1) unless rest.is_empty()
+      command_station_dump(client, target)
     }
     "station.get" => {
-      if rest.len() != 1 {
-        return Ok(1)
-      }
+      return Ok(1) when rest.len() != 1
       let mac = nl.parse_mac(rest[0])
       if mac == null {
         eprint "invalid mac address"
         return Ok(2)
       }
-      return command_station_get(client, target, mac)
+      command_station_get(client, target, mac)
     }
     "scan.dump" => {
-      if rest.len() > 1 or (rest.len() == 1 and rest[0] != "-u") {
-        return Ok(1)
-      }
-      return command_scan_dump(client, target, ! rest.is_empty())
+      return Ok(1) when rest.len() > 1 or (rest.len() == 1 and rest[0] != "-u")
+      command_scan_dump(client, target, ! rest.is_empty())
     }
     "scan.abort" => {
-      if ! rest.is_empty() {
-        return Ok(1)
-      }
-      return command_scan_abort(client, target)
+      return Ok(1) unless rest.is_empty()
+      command_scan_abort(client, target)
     }
     "scan.trigger" => {
       let request = parse_scan(rest, true)
-      if request == null {
-        return Ok(1)
-      }
-      return command_scan(client, target, request, false, false)
+      return Ok(1) when request == null
+      command_scan(client, target, request, false, false)
     }
     "scan" => {
       var words = rest
@@ -827,77 +765,61 @@ proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[
         words = words[1..]
       }
       let request = parse_scan(words, false)
-      if request == null {
-        return Ok(1)
-      }
-      return command_scan(client, target, request, unknown, true)
+      return Ok(1) when request == null
+      command_scan(client, target, request, unknown, true)
     }
     "set.type" => {
-      if rest.len() != 1 {
-        return Ok(1)
-      }
+      return Ok(1) when rest.len() != 1
       let kind = nl.parse_iftype(rest[0])
       if kind == null {
         eprint f"invalid interface type {rest[0]}"
         return Ok(2)
       }
-      return command_set_type(client, target, kind)
+      command_set_type(client, target, kind)
     }
     "set.txpower" => {
-      if rest.is_empty() {
-        return Ok(1)
-      }
+      return Ok(1) when rest.is_empty()
       match rest[0] {
         "auto" => {
-          if rest.len() != 1 {
-            return Ok(1)
-          }
-          return command_set_txpower(client, target, nl.TX_POWER.auto, null)
+          return Ok(1) when rest.len() != 1
+          command_set_txpower(client, target, nl.TX_POWER.auto, null)
         }
         "fixed" | "limit" => {
-          if rest.len() < 2 {
+          guard rest.len() >= 2 else {
             eprint "Missing TX power level argument."
             return Ok(2)
           }
-          if rest.len() != 2 {
-            return Ok(1)
-          }
+          return Ok(1) when rest.len() != 2
           let level = rest[1].parse_int()
           if let Ok(mbm) = level {
             let setting = if rest[0] == "fixed" { nl.TX_POWER.fixed } else { nl.TX_POWER.limit }
             return command_set_txpower(client, target, setting, mbm)
           }
-          return Ok(1)
+          Ok(1)
         }
         else => {
           eprint f"Invalid parameter: {rest[0]}"
-          return Ok(2)
+          Ok(2)
         }
       }
     }
     "set.channel" | "set.freq" => {
-      if rest.is_empty() {
-        return Ok(1)
-      }
+      return Ok(1) when rest.is_empty()
       let number = rest[0].parse_int()
       guard let value = number else {
         return Ok(1)
       }
       let mode = ht_mode(rest[1..])
-      if mode == null {
-        return Ok(1)
-      }
+      return Ok(1) when mode == null
       var freq = value
       if key == "set.channel" {
         let converted = nl.channel_frequency(value)
-        if converted == null {
-          return Ok(1)
-        }
+        return Ok(1) when converted == null
         freq = converted
       }
-      return command_set_frequency(client, target, freq, mode)
+      command_set_frequency(client, target, freq, mode)
     }
-    else => return Ok(1)
+    else => Ok(1)
   }
 }
 
@@ -946,7 +868,7 @@ proc execute(tokens: List[Str]) -> Result[Int] {
   # Which selector the line begins with, and the words that remain.
   var idby = ""
   var name = ""
-  var words: List[Str] = []
+  var words = []
   if first == "dev" or first == "phy" or first == "wdev" {
     if tokens.len() == 1 {
       if first == "dev" {
@@ -961,16 +883,12 @@ proc execute(tokens: List[Str]) -> Result[Int] {
       }
       return Ok(show_usage("", "", 1))
     }
-    if tokens.len() == 2 or first == "wdev" {
-      return Ok(show_usage("", "", 1))
-    }
+    return Ok(show_usage("", "", 1)) when tokens.len() == 2 or first == "wdev"
     idby = first
     name = tokens[1]
     words = tokens[2..]
   } else if first == "list" {
-    if tokens.len() != 1 {
-      return Ok(show_usage("", "", 1))
-    }
+    return Ok(show_usage("", "", 1)) when tokens.len() != 1
     let client = nl.connect()?
     defer nl.disconnect(client)
     return command_list(client, [])
@@ -987,7 +905,7 @@ proc execute(tokens: List[Str]) -> Result[Int] {
       return Ok(0)
     }
     if tokens.len() == 3 and tokens[1] == "set" {
-      if tokens[2].byte_len() != 2 {
+      guard tokens[2].byte_len() == 2 else {
         eprint "not a valid ISO/IEC 3166-1 alpha2\nSpecial non-alpha2 usable entries:\n\t00\tWorld Regulatory domain"
         return Ok(2)
       }
@@ -995,9 +913,7 @@ proc execute(tokens: List[Str]) -> Result[Int] {
       defer nl.disconnect(client)
       return command_reg_set(client, tokens[2])
     }
-    if tokens.len() >= 2 and tokens[1] == "set" {
-      return Ok(show_usage("reg.set", "", 1))
-    }
+    return Ok(show_usage("reg.set", "", 1)) when tokens.len() >= 2 and tokens[1] == "set"
     return Ok(show_usage("", "", 1))
   } else if first == "event" {
     var stamp = ""
@@ -1029,23 +945,15 @@ proc execute(tokens: List[Str]) -> Result[Int] {
       target = resolve(client, "phy", name)?
       selector = "phy"
     }
-    if target == null {
-      return Ok(show_usage("", "", 1))
-    }
+    return Ok(show_usage("", "", 1)) when target == null
   } else {
     target = resolve(client, selector, name)?
-    if target == null {
-      return Err(nl.errno_failure(if selector == "dev" { 19 } else { 2 }))
-    }
+    return Err(nl.errno_failure(if selector == "dev" { 19 } else { 2 })) when target == null
   }
   let identified = identify(selector, words)
-  if identified.key == "" {
-    return Ok(show_usage("", "", 1))
-  }
+  return Ok(show_usage("", "", 1)) when identified.key == ""
   let status = run_device_command(client, target, identified.key, identified.rest)?
-  if status == 1 {
-    return Ok(show_usage(identified.key, selector, 1))
-  }
+  return Ok(show_usage(identified.key, selector, 1)) when status == 1
   Ok(status)
 }
 
@@ -1053,7 +961,7 @@ proc main(...argv: List[Str]) {
   let outcome = execute(argv)
   match outcome {
     Ok(status) => {
-      if status != 0 {
+      guard status == 0 else {
         exit status
       }
     }

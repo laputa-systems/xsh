@@ -28,16 +28,16 @@ proc invoke(ctx: TestContext, args: List[Str], input = b"", cwd: Path? = null, l
 
 # The fixture tree copied to a scratch directory with the pinned times.
 proc fixtures(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
-  let root = test.temp_dir(ctx, name: name)?
+  let root = test.temp_dir(ctx, name:)?
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/diff/fixtures", fp"{root}/fx")?
   # Names with a space or a non-ASCII letter are created here instead of being
   # stored, because path lists handled by tooling split on spaces.
-  fp"{root}/fx/d1/with space".write("a b\n")?
-  fp"{root}/fx/d2/with space".write("a c\n")?
-  fp"{root}/fx/caf\u{e9}".write("x\n")?
+  fp"{root}/fx/d1/with space".write("a b\n")
+  fp"{root}/fx/d2/with space".write("a c\n")
+  fp"{root}/fx/caf\u{e9}".write("x\n")
   for entry in fs.walk(fp"{root}/fx", hidden: true)? {
     if entry.kind == "file" {
-      fs.set_times(entry.path, mtime_ns: if entry.name.ends_with("2") { TIME_SECOND } else { TIME_FIRST })?
+      fs.set_times(entry.path, mtime_ns: if entry.name.ends_with("2") { TIME_SECOND } else { TIME_FIRST })
     }
   }
   Ok(fp"{root}/fx")
@@ -50,21 +50,22 @@ pure hex_value(pair: Str) -> Int {
 
 # Decode the escapes of a stored line: `\\` and `\xHH`.
 pure decode(text: Str) -> Bytes {
-  if text.find("\\") == null { return bytes.from_text(text) }
+  return bytes.from_text(text) when text.find("\\") == null
   let raw = bytes.from_text(text)
-  var values: List[Int] = []
   var at = 0
-  while at < raw.len() {
-    let value = raw.byte_at(at) ?? 0
-    if value == 92 and raw.byte_at(at + 1) == 92 {
-      values += [92]
-      at += 2
-    } else if value == 92 and raw.byte_at(at + 1) == 120 {
-      values += [hex_value(raw[at + 2..at + 4].utf8() ?? "00")]
-      at += 4
-    } else {
-      values += [value]
-      at += 1
+  let values = collect {
+    while at < raw.len() {
+      let value = raw.byte_at(at) ?? 0
+      if value == 92 and raw.byte_at(at + 1) == 92 {
+        yield 92
+        at += 2
+      } else if value == 92 and raw.byte_at(at + 1) == 120 {
+        yield hex_value(raw[at + 2..at + 4].utf8() ?? "00")
+        at += 4
+      } else {
+        yield value
+        at += 1
+      }
     }
   }
   bytes.from_ints(values) ?? b""
@@ -73,10 +74,11 @@ pure decode(text: Str) -> Bytes {
 # The stream bytes of stored lines: a lower-case tag ends the line with a
 # newline, an upper-case tag is a final line without one.
 pure joined(lines: List[Str], small: Str) -> Bytes {
-  var chunks: List[Bytes] = []
-  for line in lines {
-    chunks += [decode(line.byte_slice(2))]
-    if line.starts_with(small) { chunks += [b"\n"] }
+  let chunks = collect {
+    for line in lines {
+      yield decode(line.byte_slice(2))
+      yield b"\n" when line.starts_with(small)
+    }
   }
   bytes.concat(chunks)
 }
@@ -85,12 +87,13 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
   var cases: List[Recorded] = []
   var current: Recorded? = null
   for line in table.lines()? {
-    if line.starts_with("#") or line == "" { continue }
+    continue when line.starts_with("#") or line == ""
     if line.starts_with("@") {
       if let done = current { cases += [done] }
       let fields = line.byte_slice(1).split("\t")
-      var arguments: List[Str] = []
-      for field in fields[1..] { arguments += [decode(field).utf8() ?? ""] }
+      let arguments = collect {
+        for field in fields[1..] { yield decode(field).utf8() ?? "" }
+      }
       current = {id: fields[0], args: arguments, stdin: "", locale: "C", scrub: false, status: 0, out: [], err: []}
       continue
     }
@@ -104,9 +107,9 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
     } else if line.starts_with("status ") {
       current = {...found, status: line.byte_slice(7).parse_int() ?? 0}
     } else if line.starts_with("o:") or line.starts_with("O:") {
-      current = {...found, out: found.out + [line]}
+      current = {...found, out: [@found.out, line]}
     } else if line.starts_with("e:") or line.starts_with("E:") {
-      current = {...found, err: found.err + [line]}
+      current = {...found, err: [@found.err, line]}
     }
   }
   if let done = current { cases += [done] }
@@ -116,15 +119,16 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
 # Header lines of unified and context diffs carry a time that is not pinned for
 # standard input or devices; drop it on both sides.
 pure scrubbed(data: Bytes) -> Bytes {
-  var chunks: List[Bytes] = []
-  for line in data.lines() {
-    var cut = line.len()
-    if line.starts_with(b"--- ") or line.starts_with(b"+++ ") or line.starts_with(b"*** ") {
-      for index in range(line.len()) {
-        if line.byte_at(index) == 9 and cut == line.len() { cut = index }
+  let chunks = collect {
+    for line in data.lines() {
+      var cut = line.len()
+      if line.starts_with(b"--- ") or line.starts_with(b"+++ ") or line.starts_with(b"*** ") {
+        for index in range(line.len()) {
+          if line.byte_at(index) == 9 and cut == line.len() { cut = index }
+        }
       }
+      yield @[line[0..cut], b"\n"]
     }
-    chunks += [line[0..cut], b"\n"]
   }
   bytes.concat(chunks)
 }
@@ -151,7 +155,7 @@ proc check(ctx: TestContext, root: Path, entry: Recorded) [fs, process, error] -
 
 # Run every recorded case whose id starts with `prefix` and fail with the
 # differences of up to three of them.
-proc run_group(ctx: TestContext, prefix: Str) [fs, process, error] -> Result[Unit] {
+proc run_group(ctx: TestContext, prefix: Str) [fs, process, error] {
   let root = fixtures(ctx, f"diff-{prefix}")?
   let all = load(fp"{ctx.core_dir}/tests/data/diff/cases.txt")?
   let chosen = [item for item in all if item.id.starts_with(prefix + "_")]
@@ -164,82 +168,82 @@ proc run_group(ctx: TestContext, prefix: Str) [fs, process, error] -> Result[Uni
 }
 
 test test_diff_recorded_output_styles { |ctx|
-  run_group(ctx, "sty")?
+  run_group(ctx, "sty")
 }
 
 test test_diff_recorded_ignore_options { |ctx|
-  run_group(ctx, "ign")?
+  run_group(ctx, "ign")
 }
 
 test test_diff_recorded_output_formatting { |ctx|
-  run_group(ctx, "fmt")?
+  run_group(ctx, "fmt")
 }
 
 test test_diff_recorded_side_by_side_widths { |ctx|
-  run_group(ctx, "wid")?
+  run_group(ctx, "wid")
 }
 
 test test_diff_recorded_function_headings { |ctx|
-  run_group(ctx, "fn")?
+  run_group(ctx, "fn")
 }
 
 test test_diff_recorded_labels_binary_and_brief { |ctx|
-  run_group(ctx, "lab")?
-  run_group(ctx, "bin")?
-  run_group(ctx, "brf")?
+  run_group(ctx, "lab")
+  run_group(ctx, "bin")
+  run_group(ctx, "brf")
 }
 
 test test_diff_recorded_hunk_grouping_and_tab_comparison { |ctx|
-  run_group(ctx, "grp")?
+  run_group(ctx, "grp")
 }
 
 test test_diff_recorded_search_heuristics { |ctx|
-  run_group(ctx, "alg")?
+  run_group(ctx, "alg")
 }
 
 test test_diff_recorded_directories_and_operands { |ctx|
-  run_group(ctx, "dir")?
-  run_group(ctx, "opd")?
-  run_group(ctx, "exc")?
-  run_group(ctx, "stf")?
-  run_group(ctx, "srt")?
+  run_group(ctx, "dir")
+  run_group(ctx, "opd")
+  run_group(ctx, "exc")
+  run_group(ctx, "stf")
+  run_group(ctx, "srt")
 }
 
 test test_diff_recorded_standard_input { |ctx|
-  run_group(ctx, "sin")?
+  run_group(ctx, "sin")
 }
 
 test test_diff_recorded_errors_and_exit_statuses { |ctx|
-  run_group(ctx, "err")?
+  run_group(ctx, "err")
 }
 
 test test_diff_recorded_merged_output { |ctx|
-  run_group(ctx, "ifd")?
+  run_group(ctx, "ifd")
 }
 
 test test_diff_recorded_color { |ctx|
-  run_group(ctx, "col")?
+  run_group(ctx, "col")
 }
 
 test test_diff_recorded_utf8_locale { |ctx|
-  run_group(ctx, "mb")?
+  run_group(ctx, "mb")
 }
 
 test test_diff_recorded_devices { |ctx|
-  run_group(ctx, "dev")?
+  run_group(ctx, "dev")
 }
 
 test test_diff_special_files_in_directories_are_not_read { |ctx|
   let root = test.temp_dir(ctx, name: "diff-special")?
-  fp"{root}/f1".mkdir()?
-  fp"{root}/f2".mkdir()?
-  fs.mkfifo(fp"{root}/f1/p", 0o600)?
-  fs.mkfifo(fp"{root}/f2/p", 0o600)?
-  fp"{root}/f1/a".write("x\n")?
-  fp"{root}/f2/a".write("y\n")?
+  fp"{root}/f1".mkdir()
+  fp"{root}/f2".mkdir()
+  fs.mkfifo(fp"{root}/f1/p", 0o600)
+  fs.mkfifo(fp"{root}/f2/p", 0o600)
+  fp"{root}/f1/a".write("x\n")
+  fp"{root}/f2/a".write("y\n")
   let result = invoke(ctx, ["-r", "f1", "f2"], cwd: root)?
-  assert result.status == 1, result.stderr.utf8()?
-  assert result.stdout.utf8()? == "diff -r f1/a f2/a\n1c1\n< x\n---\n> y\nFile f1/p is a fifo while file f2/p is a fifo\n", result.stdout.utf8()?
+  assert result.status == 1, result.stderr as Str
+  assert result.stdout as Str == "diff -r f1/a f2/a\n1c1\n< x\n---\n> y\nFile f1/p is a fifo while file f2/p is a fifo\n", result.stdout as Str
 }
 
 test test_diff_unreadable_operand_is_trouble { |ctx|
@@ -249,24 +253,23 @@ test test_diff_unreadable_operand_is_trouble { |ctx|
   }
   let root = test.temp_dir(ctx, name: "diff-unreadable")?
   let secret = fp"{root}/secret"
-  secret.write("x\n")?
-  secret.chmod(0o000)?
-  fp"{root}/ok".write("y\n")?
+  secret.write("x\n", mode: 0o000)
+  fp"{root}/ok".write("y\n")
   let result = invoke(ctx, ["secret", "ok"], cwd: root)?
   assert result.status == 2
   assert result.stdout == b""
-  assert result.stderr.utf8()? == "diff: secret: Permission denied\n", result.stderr.utf8()?
+  assert result.stderr as Str == "diff: secret: Permission denied\n", result.stderr as Str
 }
 
 test test_diff_dangling_entries_report_the_first_name_only { |ctx|
   let root = test.temp_dir(ctx, name: "diff-dangling")?
-  fp"{root}/a".mkdir()?
-  fp"{root}/b".mkdir()?
-  fp"{root}/a/l".symlink(to: p"nowhere")?
-  fp"{root}/b/l".symlink(to: p"nowhere")?
+  fp"{root}/a".mkdir()
+  fp"{root}/b".mkdir()
+  fp"{root}/a/l".symlink(to: p"nowhere")
+  fp"{root}/b/l".symlink(to: p"nowhere")
   let result = invoke(ctx, ["a", "b"], cwd: root)?
   assert result.status == 2
-  assert result.stderr.utf8()? == "diff: a/l: No such file or directory\n", result.stderr.utf8()?
+  assert result.stderr as Str == "diff: a/l: No such file or directory\n", result.stderr as Str
 }
 
 # The tests below predate the recorded table and keep their names; where GNU
@@ -280,7 +283,7 @@ test test_diff_unified_normal_and_equal_status { |ctx|
   assert unified.stdout.utf8()?.find("-b\n+c\n") != null
   let normal = invoke(ctx, [left.display(), right.display()])?
   assert normal.status == 1
-  assert normal.stdout.utf8()? == "2c2\n< b\n---\n> c\n"
+  assert normal.stdout as Str == "2c2\n< b\n---\n> c\n"
   assert invoke(ctx, [left.display(), left.display()])?.status == 0
 }
 
@@ -294,8 +297,8 @@ test test_diff_stdin_and_brief { |ctx|
 test test_diff_insert_delete_labels_and_binary { |ctx|
   let empty = test.temp_file(ctx, name: "empty")?
   let one = test.temp_file(ctx, name: "one", contents: b"one\n")?
-  assert invoke(ctx, [empty.display(), one.display()])?.stdout.utf8()? == "0a1\n> one\n"
-  assert invoke(ctx, [one.display(), empty.display()])?.stdout.utf8()? == "1d0\n< one\n"
+  assert invoke(ctx, [empty.display(), one.display()])?.stdout as Str == "0a1\n> one\n"
+  assert invoke(ctx, [one.display(), empty.display()])?.stdout as Str == "1d0\n< one\n"
   let labeled = invoke(ctx, ["-u", "-L", "before", "-L", "after", empty.display(), one.display()])?
   assert labeled.stdout.utf8()?.starts_with("--- before\n+++ after\n")
   let binary_file = test.temp_file(ctx, name: "binary", contents: b"one\0")?
@@ -308,21 +311,21 @@ test test_diff_missing_file_and_option_conflicts_fail { |ctx|
   assert invoke(ctx, [present.display(), missing.display()])?.status == 2
   let conflict = invoke(ctx, ["-y", "-u", present.display(), present.display()])?
   assert conflict.status == 2
-  assert conflict.stderr.utf8()? == "diff: conflicting output style options\ndiff: Try 'diff --help' for more information.\n", conflict.stderr.utf8()?
+  assert conflict.stderr as Str == "diff: conflicting output style options\ndiff: Try 'diff --help' for more information.\n", conflict.stderr as Str
 }
 
 test test_diff_unified_short_context_takes_separate_value { |ctx|
   let left = test.temp_file(ctx, name: "context-left", contents: b"a\nb\n")?
   let right = test.temp_file(ctx, name: "context-right", contents: b"a\nc\n")?
   let result = invoke(ctx, ["-U", "0", left.display(), right.display()])?
-  assert result.status == 1, result.stderr.utf8()?
+  assert result.status == 1, result.stderr as Str
   assert result.stdout.utf8()?.find("@@ -2 +2 @@") != null
 }
 
 test test_diff_ignore_space_change_compares_whitespace_runs { |ctx|
   let old = test.temp_file(ctx, name: "space-old", contents: b"a \t c\n")?
   let same = invoke(ctx, ["-ub", old.display(), "-"], b"a\t \tc\n")?
-  assert same.status == 0, same.stderr.utf8()?
+  assert same.status == 0, same.stderr as Str
   assert same.stdout == b""
 
   let trailing = invoke(ctx, ["-ub", old.display(), "-"], b"a \t c   \n")?
@@ -335,26 +338,26 @@ test test_diff_ignore_space_change_compares_whitespace_runs { |ctx|
 test test_diff_ignore_space_change_at_end_of_file { |ctx|
   let old = test.temp_file(ctx, name: "eof-old", contents: b"abc")?
   let result = invoke(ctx, ["-ub", old.display(), "-"], b"abc ")?
-  assert result.status == 0, result.stderr.utf8()?
+  assert result.status == 0, result.stderr as Str
   assert result.stdout == b""
 }
 
 test test_diff_ignore_space_change_takes_context_from_old_file { |ctx|
   let input = test.temp_file(ctx, name: "context-new", contents: b"abc\na  c\ndef\n")?
   let result = invoke(ctx, ["-ub", "-L", "old", "-L", "new", "-", input.display()], b"a c\n")?
-  assert result.status == 1, result.stderr.utf8()?
-  assert result.stdout.utf8()? == "--- old\n+++ new\n@@ -1 +1,3 @@\n+abc\n a c\n+def\n", result.stdout.utf8()?
+  assert result.status == 1, result.stderr as Str
+  assert result.stdout as Str == "--- old\n+++ new\n@@ -1 +1,3 @@\n+abc\n a c\n+def\n", result.stdout as Str
 }
 
 test test_diff_ignore_blank_lines_drops_only_blank_changes { |ctx|
   let input = test.temp_file(ctx, name: "blank-new", contents: b"a\n")?
   let blank_only = invoke(ctx, ["-uB", "-", input.display()], b"\na\n\n")?
-  assert blank_only.status == 0, blank_only.stderr.utf8()?
+  assert blank_only.status == 0, blank_only.stderr as Str
   assert blank_only.stdout == b""
 
   let mixed = invoke(ctx, ["-uB", "-L", "old", "-L", "new", "-", input.display()], b"\nb\n\n")?
   assert mixed.status == 1
-  assert mixed.stdout.utf8()? == "--- old\n+++ new\n@@ -1,3 +1 @@\n-\n-b\n-\n+a\n", mixed.stdout.utf8()?
+  assert mixed.stdout as Str == "--- old\n+++ new\n@@ -1,3 +1 @@\n-\n-b\n-\n+a\n", mixed.stdout as Str
 }
 
 test test_diff_ignore_blank_lines_brief_and_single_line { |ctx|
@@ -366,73 +369,73 @@ test test_diff_ignore_blank_lines_brief_and_single_line { |ctx|
   let changed = test.temp_file(ctx, name: "single-changed", contents: b"0\n")?
   let text = invoke(ctx, ["-qB", "-", changed.display()], b"1\n")?
   assert text.status == 1
-  assert text.stdout.utf8()? == "Files - and " + changed.display() + " differ\n", text.stdout.utf8()?
+  assert text.stdout as Str == "Files - and " + changed.display() + " differ\n", text.stdout as Str
 }
 
 # Two trees whose differences exercise every directory-comparison report.
 # Names sort in byte order: bin, fd, ff, only, same, sub (and ronly in b).
 proc build_trees(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
-  let root = test.temp_dir(ctx, name: name)?
-  fp"{root}/a/sub".mkdir(parents: true)?
-  fp"{root}/b/sub".mkdir(parents: true)?
-  fp"{root}/a/same".mkdir()?
-  fp"{root}/b/same".mkdir()?
-  fp"{root}/a/same/q".write("same\n")?
-  fp"{root}/b/same/q".write("same\n")?
-  fp"{root}/a/sub/f".write("x\n")?
-  fp"{root}/b/sub/f".write("y\n")?
-  fp"{root}/a/only".write("left\n")?
-  fp"{root}/b/ronly".write("right\n")?
-  fp"{root}/a/bin".write(b"a\0b")?
-  fp"{root}/b/bin".write(b"a\0c")?
-  fp"{root}/a/fd".write("file\n")?
-  fp"{root}/b/fd".mkdir()?
+  let root = test.temp_dir(ctx, name:)?
+  fp"{root}/a/sub".mkdir()
+  fp"{root}/b/sub".mkdir()
+  fp"{root}/a/same".mkdir()
+  fp"{root}/b/same".mkdir()
+  fp"{root}/a/same/q".write("same\n")
+  fp"{root}/b/same/q".write("same\n")
+  fp"{root}/a/sub/f".write("x\n")
+  fp"{root}/b/sub/f".write("y\n")
+  fp"{root}/a/only".write("left\n")
+  fp"{root}/b/ronly".write("right\n")
+  fp"{root}/a/bin".write(b"a\0b")
+  fp"{root}/b/bin".write(b"a\0c")
+  fp"{root}/a/fd".write("file\n")
+  fp"{root}/b/fd".mkdir()
   Ok(root)
 }
 
 test test_diff_directories_without_recursion_lists_entries_and_common_subdirectories { |ctx|
   let root = build_trees(ctx, "diff-dirs")?
   let result = invoke(ctx, ["a", "b"], cwd: root)?
-  assert result.status == 1, result.stderr.utf8()?
-  assert result.stdout.utf8()? == "Binary files a/bin and b/bin differ\nFile a/fd is a regular file while file b/fd is a directory\nOnly in a: only\nOnly in b: ronly\nCommon subdirectories: a/same and b/same\nCommon subdirectories: a/sub and b/sub\n", result.stdout.utf8()?
+  assert result.status == 1, result.stderr as Str
+  assert result.stdout as Str == "Binary files a/bin and b/bin differ\nFile a/fd is a regular file while file b/fd is a directory\nOnly in a: only\nOnly in b: ronly\nCommon subdirectories: a/same and b/same\nCommon subdirectories: a/sub and b/sub\n", result.stdout as Str
 }
 
 test test_diff_recursive_prints_header_line_before_each_file_diff { |ctx|
   let root = build_trees(ctx, "diff-recursive")?
   let normal = invoke(ctx, ["-r", "a", "b"], cwd: root)?
-  assert normal.status == 1, normal.stderr.utf8()?
-  assert normal.stdout.utf8()? == "Binary files a/bin and b/bin differ\nFile a/fd is a regular file while file b/fd is a directory\nOnly in a: only\nOnly in b: ronly\ndiff -r a/sub/f b/sub/f\n1c1\n< x\n---\n> y\n", normal.stdout.utf8()?
+  assert normal.status == 1, normal.stderr as Str
+  assert normal.stdout as Str == "Binary files a/bin and b/bin differ\nFile a/fd is a regular file while file b/fd is a directory\nOnly in a: only\nOnly in b: ronly\ndiff -r a/sub/f b/sub/f\n1c1\n< x\n---\n> y\n", normal.stdout as Str
   let unified = invoke(ctx, ["-ru", "-L", "one", "-L", "two", "a", "b"], cwd: root)?
   assert unified.status == 1
-  assert unified.stdout.utf8()?.ends_with("diff -ru -L one -L two one two\n--- one\n+++ two\n@@ -1 +1 @@\n-x\n+y\n"), unified.stdout.utf8()?
+  assert unified.stdout.utf8()?.ends_with("diff -ru -L one -L two one two\n--- one\n+++ two\n@@ -1 +1 @@\n-x\n+y\n"), unified.stdout as Str
 }
 
 test test_diff_recursive_identical_trees_exit_zero_and_report_with_s { |ctx|
   let root = test.temp_dir(ctx, name: "diff-identical")?
-  fp"{root}/a/d".mkdir(parents: true)?
-  fp"{root}/b/d".mkdir(parents: true)?
-  fp"{root}/a/d/f".write("same\n")?
-  fp"{root}/b/d/f".write("same\n")?
+  fp"{root}/a/d".mkdir()
+  fp"{root}/b/d".mkdir()
+  fp"{root}/a/d/f".write("same\n")
+  fp"{root}/b/d/f".write("same\n")
   let quiet = invoke(ctx, ["-r", "a", "b"], cwd: root)?
-  assert quiet.status == 0, quiet.stderr.utf8()?
+  assert quiet.status == 0, quiet.stderr as Str
   assert quiet.stdout == b""
   let reported = invoke(ctx, ["-rs", "a", "b"], cwd: root)?
   assert reported.status == 0
-  assert reported.stdout.utf8()? == "Files a/d/f and b/d/f are identical\n", reported.stdout.utf8()?
+  assert reported.stdout as Str == "Files a/d/f and b/d/f are identical\n", reported.stdout as Str
 }
 
 test test_diff_recursive_brief_names_differing_files { |ctx|
   let root = build_trees(ctx, "diff-brief")?
   let result = invoke(ctx, ["-rq", "a/sub", "b/sub"], cwd: root)?
   assert result.status == 1
-  assert result.stdout.utf8()? == "Files a/sub/f and b/sub/f differ\n", result.stdout.utf8()?
+  assert result.stdout as Str == "Files a/sub/f and b/sub/f differ\n", result.stdout as Str
 }
 
 test test_diff_new_file_compares_absent_entries_as_empty { |ctx|
   let root = build_trees(ctx, "diff-new-file")?
   let result = invoke(ctx, ["-rN", "a", "b"], cwd: root)?
-  assert result.status == 1, result.stderr.utf8()?
-  let text = result.stdout.utf8()?
+  assert result.status == 1, result.stderr as Str
+  let text = result.stdout as Str
   assert text.find("Only in") == null, text
   assert text.find("diff -rN a/only b/only\n1d0\n< left\n") != null, text
   assert text.find("diff -rN a/ronly b/ronly\n0a1\n> right\n") != null, text
@@ -441,32 +444,32 @@ test test_diff_new_file_compares_absent_entries_as_empty { |ctx|
 test test_diff_exclude_patterns_and_exclude_file_skip_entries_by_name { |ctx|
   let root = build_trees(ctx, "diff-exclude")?
   let patterns = fp"{root}/patterns"
-  patterns.write("o*\nr*\n")?
+  patterns.write("o*\nr*\n")
   let result = invoke(ctx, ["-r", "-x", "bin", "--exclude=fd", "-X", patterns.display(), "-x", "sub", "a", "b"], cwd: root)?
-  assert result.status == 0, result.stdout.utf8()?
+  assert result.status == 0, result.stdout as Str
   assert result.stdout == b""
 }
 
 test test_diff_directory_against_file_compares_the_same_named_entry { |ctx|
   let root = build_trees(ctx, "diff-dir-file")?
-  fp"{root}/y".write("y\n")?
+  fp"{root}/y".write("y\n")
   let result = invoke(ctx, ["a/sub", "y"], cwd: root)?
-  assert result.status == 2, result.stdout.utf8()?
-  assert result.stderr.utf8()?.find("diff: a/sub/y: No such file or directory") != null, result.stderr.utf8()?
+  assert result.status == 2, result.stdout as Str
+  assert result.stderr.utf8()?.find("diff: a/sub/y: No such file or directory") != null, result.stderr as Str
   let same = invoke(ctx, ["b/sub", "b/sub/f"], cwd: root)?
-  assert same.status == 0, same.stderr.utf8()?
+  assert same.status == 0, same.stderr as Str
   let stdin = invoke(ctx, ["-", "a"], b"", cwd: root)?
   assert stdin.status == 2
-  assert stdin.stderr.utf8()?.find("cannot compare '-' to a directory") != null, stdin.stderr.utf8()?
+  assert stdin.stderr.utf8()?.find("cannot compare '-' to a directory") != null, stdin.stderr as Str
 }
 
 test test_diff_recursive_symlink_loop_is_reported_not_followed { |ctx|
   let root = test.temp_dir(ctx, name: "diff-loop")?
-  fp"{root}/a/x".mkdir(parents: true)?
-  fp"{root}/b/x".mkdir(parents: true)?
-  fp"{root}/a/x/up".symlink(to: p"..")?
-  fp"{root}/b/x/up".symlink(to: p"..")?
+  fp"{root}/a/x".mkdir()
+  fp"{root}/b/x".mkdir()
+  fp"{root}/a/x/up".symlink(to: p"..")
+  fp"{root}/b/x/up".symlink(to: p"..")
   let result = invoke(ctx, ["-r", "a", "b"], cwd: root)?
   assert result.status == 2
-  assert result.stderr.utf8()?.find("recursive directory loop") != null, result.stderr.utf8()?
+  assert result.stderr.utf8()?.find("recursive directory loop") != null, result.stderr as Str
 }

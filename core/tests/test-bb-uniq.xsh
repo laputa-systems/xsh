@@ -35,7 +35,7 @@ test test_bb_uniq_uniq_specify_stdin_97f3b1fa { |ctx|
 # origin: busybox uniq/uniq input (specify file)
 test test_bb_uniq_uniq_input_specify_file_3a31c1af { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "one\ntwo\ntwo\nthree\nthree\nthree\n")?
+  uu.write(s, "input", "one\ntwo\ntwo\nthree\nthree\nthree\n")
   let r = uu.invoke(s, "uniq", ["input"])?
   uu.succeeds(r)
   uu.stdout_only(r, "one\ntwo\nthree\n")
@@ -44,7 +44,7 @@ test test_bb_uniq_uniq_input_specify_file_3a31c1af { |ctx|
 # origin: busybox uniq/uniq input outfile (two files)
 test test_bb_uniq_uniq_input_outfile_two_files_a10dab1e { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "one\ntwo\ntwo\nthree\nthree\nthree\n")?
+  uu.write(s, "input", "one\ntwo\ntwo\nthree\nthree\nthree\n")
   let r = uu.invoke(s, "uniq", ["input", "actual"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -63,7 +63,7 @@ test test_bb_uniq_uniq_stdin_outfile_fc36d68b { |ctx|
 # origin: busybox uniq/uniq input - (specify stdout)
 test test_bb_uniq_uniq_input_specify_stdout_3ea60572 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "one\ntwo\ntwo\nthree\nthree\nthree\n")?
+  uu.write(s, "input", "one\ntwo\ntwo\nthree\nthree\nthree\n")
   let r = uu.invoke(s, "uniq", ["input", "-"])?
   uu.succeeds(r)
   uu.stdout_only(r, "one\ntwo\nthree\n")

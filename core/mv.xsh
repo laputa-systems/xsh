@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.file_publish as files
+use lib.gnu
 use lib.selinux
 
 type Options = {
@@ -46,25 +46,22 @@ pure child_path(parent: Path, child: Path) -> Path {
   if raw.byte_at(raw.len() - 1) == 47 { fp"{parent}{child}" } else { fp"{parent}/{child}" }
 }
 
-pure same_entry_display(value: Path, destination: Bool = false) -> Str {
+pure same_entry_display(value: Path, destination = false) -> Str {
   let shown = value.display()
   if shown == "./" { if destination { "./." } else { "." } } else { shown }
 }
 
-proc preserve_move_metadata(source: Path, target: Path, metadata: MoveMetadata) -> Result[Unit] {
+proc preserve_move_metadata(source: Path, target: Path, metadata: MoveMetadata) {
   let follow = metadata.kind != "symlink"
-  fs.set_owner(target, uid: metadata.uid, gid: metadata.gid, follow_symlinks: follow)?
-  let names = match fs.xattr_list(source, follow_symlinks: follow) {
-    Ok(names) => names
-    Err(failure) => {
-      if failure.errno == 95 { [] } else { return Err(failure) }
-    }
+  fs.set_owner(target, uid: metadata.uid, gid: metadata.gid, follow_symlinks: follow)
+  let names = fs.xattr_list(source, follow_symlinks: follow) ?? { |failure|
+    if failure.errno == 95 { [] } else { return Err(failure) }
   }
   for name in names {
     let value = fs.xattr_get(source, name, follow_symlinks: follow)?
-    fs.xattr_set(target, name, value, follow_symlinks: follow)?
+    fs.xattr_set(target, name, value, follow_symlinks: follow)
   }
-  if follow { target.chmod(metadata.mode.bit_and(0o7777))? }
+  if follow { target.chmod(metadata.mode.bit_and(0o7777)) }
   fs.set_times(target, atime_ns: metadata.atime_ns, mtime_ns: metadata.mtime_ns,
     follow_symlinks: follow)
 }
@@ -73,18 +70,18 @@ proc copy_move_node(source: Path, target: Path, copies: List[FileIdentity]) -> R
   let metadata = fs.stat(source)?
   if metadata.kind == "dir" {
     let parent = fs.open_root(target.parent().resolve()?)?
-    parent.mkdir(basename_path(target)?, mode: 0o700.clear_bits(fs.umask()?))?
+    parent.mkdir(basename_path(target)?, mode: 0o700.clear_bits(fs.umask()?))
     var copied = copies
     for entry in fs.children(source)? {
       let name = basename_path(entry.path)?
       copied = copy_move_node(child_path(source, name), child_path(target, name), copied)?
     }
-    preserve_move_metadata(source, target, metadata)?
+    preserve_move_metadata(source, target, metadata)
     return copied
   }
   if metadata.kind == "symlink" {
     target.symlink(to: source.readlink()?)
-    preserve_move_metadata(source, target, metadata)?
+    preserve_move_metadata(source, target, metadata)
     return copies
   }
   if metadata.kind == "file" {
@@ -93,44 +90,44 @@ proc copy_move_node(source: Path, target: Path, copies: List[FileIdentity]) -> R
       if previous.dev == metadata.dev and previous.ino == metadata.ino {
         if let Ok(previous_metadata) = fs.stat(previous.path) {
           if previous_metadata.dev == destination_dev {
-            fs.link(previous.path, target)?
+            fs.link(previous.path, target)
             return copies
           }
         }
       }
     }
     let _ = fs.copy_file(source, target, reflink: "auto", sparse: "auto", mode: 0o600)?
-    preserve_move_metadata(source, target, metadata)?
+    preserve_move_metadata(source, target, metadata)
     return copies + [{dev: metadata.dev, ino: metadata.ino, path: target}]
   }
   fs.mknod(target, metadata.kind, metadata.mode.bit_and(0o600),
-    major: fs.dev_major(metadata.rdev), minor: fs.dev_minor(metadata.rdev))?
-  preserve_move_metadata(source, target, metadata)?
+    major: fs.dev_major(metadata.rdev), minor: fs.dev_minor(metadata.rdev))
+  preserve_move_metadata(source, target, metadata)
   copies
 }
 
-proc remove_move_tree(entry_path: Path, verbose: Bool = false) -> Result[Unit] {
+proc remove_move_tree(entry_path: Path, verbose = false) {
   let metadata = fs.stat(entry_path)?
   if metadata.kind == "dir" {
     for entry in fs.children(entry_path)? {
       let name = basename_path(entry.path)?
-      remove_move_tree(child_path(entry_path, name), verbose)?
+      remove_move_tree(child_path(entry_path, name), verbose)
     }
-    entry_path.remove_dir()?
+    entry_path.remove_dir()
     if verbose { print f"removed directory {gnu.quote(entry_path.display())}" }
-    return Ok()
+    return
   }
-  entry_path.remove()?
+  entry_path.remove()
   if verbose { print f"removed {gnu.quote(entry_path.display())}" }
   Ok()
 }
 
-proc report_move_copy(source: Path, target: Path) -> Result[Unit] {
+proc report_move_copy(source: Path, target: Path) {
   if fs.stat(source)?.kind == "dir" {
     print f"created directory {gnu.quote(target.display())}"
     for entry in fs.children(source)? {
       let name = basename_path(entry.path)?
-      report_move_copy(child_path(source, name), child_path(target, name))?
+      report_move_copy(child_path(source, name), child_path(target, name))
     }
   } else {
     print f"copied {gnu.quote(source.display())} -> {gnu.quote(target.display())}"
@@ -150,7 +147,7 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
   if let Err(failure) = made {
     # GNU unlinks an existing destination before copying across devices, and a
     # directory that refuses the staging entry refuses that unlink too.
-    if gnu.errno(failure) in [1, 13] and files.present(target)? {
+    if gnu.errno(failure) in [1, 13] and files.present(target) {
       gnu.error(f"inter-device move failed: {gnu.quote(source.display())} to {gnu.quote(target.display())}; unable to remove target: {gnu.strerror(failure)}")
       return {outcome: Failed, copies}
     }
@@ -159,32 +156,33 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
   let staged = fp"{staged_dir}/entry"
   let copied = copy_move_node(source, staged, copies)
   if let Err(failure) = copied {
-    remove_move_tree(staged_dir)?
+    remove_move_tree(staged_dir)
     return Err(failure)
   }
   let updated = copied?
   let published = if policy == "skip" { fs.rename_noreplace(staged, target) } else { staged.rename(to: target, overwrite: true) }
   if let Err(failure) = published {
-    remove_move_tree(staged_dir)?
-    if policy == "skip" and gnu.errno(failure) == 17 { return {outcome: Skipped, copies} }
+    remove_move_tree(staged_dir)
+    return {outcome: Skipped, copies} when policy == "skip" and gnu.errno(failure) == 17
     return Err(failure)
   }
-  var published_copies: List[FileIdentity] = []
   let staged_bytes = staged.bytes()
-  for index in range(updated.len()) {
-    let entry = updated[index]
-    let published_path = if index < copies.len() {
-      entry.path
-    } else {
-      let raw = entry.path.bytes()
-      let suffix = raw[staged_bytes.len()..]
-      Path.parse_bytes(bytes.concat([target.bytes(), suffix]))?
+  let published_copies: List[FileIdentity] = collect {
+    for index in range(updated.len()) {
+      let entry = updated[index]
+      let published_path = if index < copies.len() {
+        entry.path
+      } else {
+        let raw = entry.path.bytes()
+        let suffix = raw[staged_bytes.len()..]
+        bytes.concat([target.bytes(), suffix]) as Path
+      }
+      yield {dev: entry.dev, ino: entry.ino, path: published_path}
     }
-    published_copies += [{dev: entry.dev, ino: entry.ino, path: published_path}]
   }
-  staged_dir.remove_dir()?
-  if verbose { report_move_copy(source, target)? }
-  remove_move_tree(source, verbose)?
+  staged_dir.remove_dir()
+  if verbose { report_move_copy(source, target) }
+  remove_move_tree(source, verbose)
   {outcome: Moved, copies: published_copies}
 }
 
@@ -192,8 +190,8 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
 proc confirm_protected(target: Path, mode: Int) -> Result[Bool] {
   let bits = mode.bit_and(0o777)
   let octal = f"0{bits / 64}{bits / 8 % 8}{bits % 8}"
-  io.write_stderr(f"mv: replace {gnu.quote(target.display())}, overriding mode {octal} ({permission_text(mode)})? ")?
-  io.flush_stderr()?
+  io.write_stderr(f"mv: replace {gnu.quote(target.display())}, overriding mode {octal} ({permission_text(mode)})? ")
+  io.flush_stderr()
   io.stdin_line()?.lower().starts_with("y")
 }
 
@@ -212,7 +210,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
       }
     }
     if metadata.dev == dest_meta.dev and metadata.ino == dest_meta.ino and
-      (backup in ["none", "off"] or files.same_entry(source, target)?) {
+      (backup in ["none", "off"] or files.same_entry(source, target)) {
       gnu.error(f"{gnu.quote(same_entry_display(source))} and {gnu.quote(same_entry_display(target, destination: true))} are the same file")
       return {outcome: Failed, copies}
     }
@@ -228,11 +226,11 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
       if opts.debug { print f"skipped {gnu.quote(target.display())}" }
       return {outcome: Skipped, copies}
     }
-    if policy == "interactive" and ! files.confirm(target)? { return {outcome: Failed, copies} }
+    if policy == "interactive" and ! files.confirm(target) { return {outcome: Failed, copies} }
     if policy == "default" and unix.isatty(0) and dest_meta.mode.bit_and(0o200) == 0 and
-      ! confirm_protected(target, dest_meta.mode)? { return {outcome: Failed, copies} }
+      ! confirm_protected(target, dest_meta.mode) { return {outcome: Failed, copies} }
     if opts.exchange {
-      fs.rename_exchange(source, target)?
+      fs.rename_exchange(source, target)
       if opts.verbose or opts.debug { print f"exchanged {gnu.quote(source.display())} <-> {gnu.quote(target.display())}" }
       return {outcome: Moved, copies}
     }
@@ -245,7 +243,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
       return {outcome: Failed, copies}
     }
   }
-  if opts.exchange { fs.rename_exchange(source, target)?; return {outcome: Moved, copies} }
+  if opts.exchange { fs.rename_exchange(source, target); return {outcome: Moved, copies} }
   if metadata.kind == "dir" and files.canonical(target)?.starts_with(source.resolve()?) {
     gnu.error(f"cannot move {gnu.quote(source.display())} to a subdirectory of itself, {gnu.quote(target.display())}")
     return {outcome: Failed, copies}
@@ -258,17 +256,17 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   }
   let suffix = opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~"
   if existing and backup in ["simple", "never", "existing", "nil"] and metadata.kind != "symlink" and
-    files.same_entry(source, fp"{target}{suffix}")? {
+    files.same_entry(source, fp"{target}{suffix}") {
     gnu.error(f"backing up {gnu.quote(target.display())} might destroy source;  {gnu.quote(source.display())} not moved")
     return {outcome: Failed, copies}
   }
   var moving_source = source
-  var saved: Path? = null
+  var saved = null
   if existing {
     saved = files.backup_name(target, backup, suffix)?
     if saved != null {
-      if files.same_entry(saved, source)? {
-        if metadata.kind != "symlink" {
+      if files.same_entry(saved, source) {
+        guard metadata.kind == "symlink" else {
           gnu.error(f"backing up {gnu.quote(target.display())} might destroy source;  {gnu.quote(source.display())} not moved")
           return {outcome: Failed, copies}
         }
@@ -308,7 +306,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     }
     if saved != null { saved.rename(to: target, overwrite: true) }
     if moving_source != source { moving_source.rename(to: source) }
-    if policy == "skip" and gnu.errno(failure) == 17 { return {outcome: Skipped, copies} }
+    return {outcome: Skipped, copies} when policy == "skip" and gnu.errno(failure) == 17
     return Err(failure)
   }
   if opts.verbose or opts.debug or (opts.progress and unix.tty_attrs(2) is Ok(_)) {
@@ -392,12 +390,12 @@ proc main(...argv: List[Str]) {
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   # Labelling the destination is not implemented, so --context is only accepted
   # where there is no SELinux to label for; GNU's no-op is then exact.
-  if opts.context and selinux.enabled()? {
+  if opts.context and selinux.enabled() {
     gnu.error("--context (-Z) is not supported on SELinux-enabled systems")
     exit 1
   }
   var failed = false
-  var seen: List[Path] = []
+  var seen = []
   var copies: List[FileIdentity] = []
   for text in sources {
     var stripped = text

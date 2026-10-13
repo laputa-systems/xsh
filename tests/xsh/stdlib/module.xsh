@@ -939,7 +939,7 @@ export pure failure() -> Error {
   HelperError.Failed(detail: "inside")
 }
 """)
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     """error LocalError = Failed(detail: Str) : LocalFacet
 use helper
@@ -959,10 +959,10 @@ match local {
   _ => print "wrong-local"
 }
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert result.success, result.stderr
   assert result.stdout == """qualified
 function
 local

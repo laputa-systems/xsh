@@ -146,11 +146,24 @@ type Outcome = {id: Str, status: Int, out: Str, err: Str}
 # would break the line format, `\xHH` for the rest.
 pure escape(data: Bytes) -> Str {
   let digits = "0123456789abcdef"
-  var pieces: List[Str] = []
-  for index in range(data.len()) {
-    let byte = data.byte_at(index) ?? 0
-    if byte == 92 { pieces += ["\\\\"] } else if byte == 10 { pieces += ["\\n"] } else if byte == 9 { pieces += ["\\t"] } else if byte == 13 { pieces += ["\\r"] } else if byte == 0 { pieces += ["\\0"] } else if byte >= 32 and byte < 127 { pieces += [data.slice(index, length: 1).utf8() ?? "?"] } else {
-      pieces += [f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"]
+  let pieces = collect {
+    for index in range(data.len()) {
+      let byte = data.byte_at(index) ?? 0
+      if byte == 92 {
+        yield "\\\\"
+      } else if byte == 10 {
+        yield "\\n"
+      } else if byte == 9 {
+        yield "\\t"
+      } else if byte == 13 {
+        yield "\\r"
+      } else if byte == 0 {
+        yield "\\0"
+      } else if byte >= 32 and byte < 127 {
+        yield data.slice(index, length: 1).utf8() ?? "?"
+      } else {
+        yield f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"
+      }
     }
   }
   pieces.join("")
@@ -159,7 +172,7 @@ pure escape(data: Bytes) -> Str {
 # Directory listing order is the file system's, so recursive cases compare
 # their records as a set (NUL-separated names count as records too).
 pure ordered(text: Str, enabled: Bool) -> Str {
-  if ! enabled { return text }
+  return text unless enabled
   let records = text.replace("\\0", with: "\\n").split("\\n")
   let sorted = records |> sort() |> collect()
   sorted.join("\\n")
@@ -167,22 +180,23 @@ pure ordered(text: Str, enabled: Bool) -> Str {
 
 proc load_cases(ctx: TestContext, family: Str) [fs, error] -> Result[List[Case]] {
   let source = fp"{ctx.core_dir}/tests/data/grep/cases.jsonl"
-  var cases: List[Case] = []
-  for line in source.read_lines()? {
-    let doc = json.decode(line)?
-    if json.get(doc, ["group"])?.require(Str)? != family { continue }
-    cases += [{
-      id: json.get(doc, ["id"])?.require(Str)?,
-      cmd: json.get(doc, ["cmd"])?.require(Str)?,
-      args: json.get(doc, ["args"])?.require(List[Str])?,
-      stdin: json.get(doc, ["stdin"])?.require(Str)?,
-      lc: json.get(doc, ["lc"])?.require(Str)?,
-      colors: json.get(doc, ["colors"])?.require(Str)?,
-      color: json.get(doc, ["color"])?.require(Str)?,
-      posixly: json.get(doc, ["posixly"])?.require(Bool)?,
-      sort: json.get(doc, ["sort"])?.require(Bool)?,
-      lstatus: json.get(doc, ["lstatus"])?.require(Bool)?,
-    }]
+  let cases: List[Case] = collect {
+    for line in source.read_lines()? {
+      let doc = json.decode(line)?
+      continue when json.get(doc, ["group"])?.require(Str)? != family
+      yield {
+        id: json.get(doc, ["id"])?.require(Str)?,
+        cmd: json.get(doc, ["cmd"])?.require(Str)?,
+        args: json.get(doc, ["args"])?.require(List[Str])?,
+        stdin: json.get(doc, ["stdin"])?.require(Str)?,
+        lc: json.get(doc, ["lc"])?.require(Str)?,
+        colors: json.get(doc, ["colors"])?.require(Str)?,
+        color: json.get(doc, ["color"])?.require(Str)?,
+        posixly: json.get(doc, ["posixly"])?.require(Bool)?,
+        sort: json.get(doc, ["sort"])?.require(Bool)?,
+        lstatus: json.get(doc, ["lstatus"])?.require(Bool)?,
+      }
+    }
   }
   Ok(cases)
 }
@@ -223,7 +237,7 @@ proc check_group(ctx: TestContext, family: Str) [fs, process, error] {
   let expected = expected_outcomes(ctx)?
   let scratch = test.temp_dir(ctx, name: f"grep-{family}")?
   let actual: List[Outcome] = cases |> par-map(jobs: 12) { |c| run_case(ctx, scratch, c) } |> collect()
-  var failures: List[Str] = []
+  var failures = []
   for index in range(cases.len()) {
     let c = cases[index]
     let got = actual[index]
@@ -239,25 +253,25 @@ proc check_group(ctx: TestContext, family: Str) [fs, process, error] {
   assert failures.is_empty(), f"{failures.len()} of {cases.len()} differ:\n{failures.join("\n")}"
 }
 
-test test_grep_differential_basic_selection_and_modes { |ctx| check_group(ctx, "basic")? }
-test test_grep_differential_basic_regular_expressions { |ctx| check_group(ctx, "bre")? }
-test test_grep_differential_extended_regular_expressions { |ctx| check_group(ctx, "ere")? }
-test test_grep_differential_fixed_words_lines_and_case { |ctx| check_group(ctx, "rxo")? }
-test test_grep_differential_input_shapes_and_binary_files { |ctx| check_group(ctx, "in")? }
-test test_grep_differential_binary_detection_details { |ctx| check_group(ctx, "bin")? }
-test test_grep_differential_locales_and_multibyte_text { |ctx| check_group(ctx, "loc")? }
-test test_grep_differential_context_and_separators { |ctx| check_group(ctx, "ctx")? }
-test test_grep_differential_operands_stdin_and_exit_status { |ctx| check_group(ctx, "files")? }
-test test_grep_differential_recursion_and_file_filters { |ctx| check_group(ctx, "rec")? }
-test test_grep_differential_color_output { |ctx| check_group(ctx, "color")? }
-test test_grep_differential_grep_colors_capabilities { |ctx| check_group(ctx, "colors")? }
-test test_grep_differential_option_parsing_and_diagnostics { |ctx| check_group(ctx, "opt")? }
-test test_grep_differential_exit_statuses { |ctx| check_group(ctx, "exit")? }
-test test_grep_differential_null_data_records { |ctx| check_group(ctx, "z")? }
-test test_grep_differential_egrep_wrapper { |ctx| check_group(ctx, "egrep")? }
-test test_grep_differential_fgrep_wrapper { |ctx| check_group(ctx, "fgrep")? }
-test test_grep_differential_operand_names_and_filters { |ctx| check_group(ctx, "names")? }
-test test_grep_differential_generated_expressions { |ctx| check_group(ctx, "fz")? }
+test test_grep_differential_basic_selection_and_modes { |ctx| check_group(ctx, "basic") }
+test test_grep_differential_basic_regular_expressions { |ctx| check_group(ctx, "bre") }
+test test_grep_differential_extended_regular_expressions { |ctx| check_group(ctx, "ere") }
+test test_grep_differential_fixed_words_lines_and_case { |ctx| check_group(ctx, "rxo") }
+test test_grep_differential_input_shapes_and_binary_files { |ctx| check_group(ctx, "in") }
+test test_grep_differential_binary_detection_details { |ctx| check_group(ctx, "bin") }
+test test_grep_differential_locales_and_multibyte_text { |ctx| check_group(ctx, "loc") }
+test test_grep_differential_context_and_separators { |ctx| check_group(ctx, "ctx") }
+test test_grep_differential_operands_stdin_and_exit_status { |ctx| check_group(ctx, "files") }
+test test_grep_differential_recursion_and_file_filters { |ctx| check_group(ctx, "rec") }
+test test_grep_differential_color_output { |ctx| check_group(ctx, "color") }
+test test_grep_differential_grep_colors_capabilities { |ctx| check_group(ctx, "colors") }
+test test_grep_differential_option_parsing_and_diagnostics { |ctx| check_group(ctx, "opt") }
+test test_grep_differential_exit_statuses { |ctx| check_group(ctx, "exit") }
+test test_grep_differential_null_data_records { |ctx| check_group(ctx, "z") }
+test test_grep_differential_egrep_wrapper { |ctx| check_group(ctx, "egrep") }
+test test_grep_differential_fgrep_wrapper { |ctx| check_group(ctx, "fgrep") }
+test test_grep_differential_operand_names_and_filters { |ctx| check_group(ctx, "names") }
+test test_grep_differential_generated_expressions { |ctx| check_group(ctx, "fz") }
 
 test test_grep_perl_regexp_is_refused_explicitly { |ctx|
   let root = test.temp_dir(ctx, name: "grep-perl")?
@@ -275,8 +289,8 @@ test test_grep_unreadable_file_is_reported_and_the_search_goes_on { |ctx|
   let open = fp"{root}/open"
   closed.write("needle\n")
   open.write("needle\n")
-  closed.chmod(0o000)?
-  if closed.read_bytes() is Ok(_) { return }
+  closed.chmod(0o000)
+  return when closed.read_bytes() is Ok(_)
   let ran = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/grep.xsh" -- needle $closed $open
   assert ran.status.exited_with(2)
   assert ran.stdout == f"{open}:needle\n"
@@ -295,11 +309,12 @@ test test_grep_binary_detection_works_per_buffer { |ctx|
   let root = test.temp_dir(ctx, name: "grep-buffers")?
   let file = fp"{root}/input"
   let padding = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  var data: List[Bytes] = []
-  for index in range(1100) {
-    data += [bytes.from_text(f"line {index:05} match {padding.byte_slice(0, 82)}\n")]
+  let data = collect {
+    for index in range(1100) {
+      yield bytes.from_text(f"line {index:05} match {padding.byte_slice(0, 82)}\n")
+    }
   }
-  file.write(bytes.concat(data + [b"tail\0 match\n"]))
+  file.write(bytes.concat([@data, b"tail\0 match\n"]))
   let ran = run.capture --bytes ${ctx.xsh_bin} fp"{ctx.core_dir}/grep.xsh" -- match $file
   assert ran.status.exited_with(0)
   assert ran.stdout.len() == 98300

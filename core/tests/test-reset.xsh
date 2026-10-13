@@ -20,8 +20,7 @@ test test_reset_sane_settings_use_mock { |ctx|
   let log = test.temp_path(ctx, name: "reset-mock-log")
   test.unix_fake(ctx, {log: log})
   let source = fp"{ctx.core_dir}/reset.xsh".read_text()?
-  let result = test.run_script(ctx, source, env: {TERM: "xterm", XSH_MODULE_PATH: ctx.core_dir.display()})?
-  assert result.success, result.stderr
+  let result = test.expect(ctx, source, status: 0, env: {TERM: "xterm", XSH_MODULE_PATH: ctx.core_dir})?
   assert result.stdout == "\x1bc\x1b[?25h"
   assert log.read_text()?.find("set_tty_attrs") != null
 }
@@ -29,8 +28,13 @@ test test_reset_sane_settings_use_mock { |ctx|
 test test_reset_no_initialization_still_restores_modes_with_mock { |ctx|
   let log = test.temp_path(ctx, name: "reset-no-init-log")
   test.unix_fake(ctx, {log: log})
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/reset.xsh".read_text()?, args: ["-I"], env: {TERM: "xterm", XSH_MODULE_PATH: ctx.core_dir.display()})?
-  assert result.success, result.stderr
+  let result = test.expect(
+    ctx,
+    fp"{ctx.core_dir}/reset.xsh".read_text()?,
+    status: 0,
+    args: ["-I"],
+    env: {TERM: "xterm", XSH_MODULE_PATH: ctx.core_dir},
+  )?
   assert result.stdout == ""
   assert log.read_text()?.find("set_tty_attrs") != null
 }

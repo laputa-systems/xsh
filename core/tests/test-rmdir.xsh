@@ -18,7 +18,7 @@ test test_rmdir_parent_failure_and_continuation { |ctx|
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/rmdir.xsh"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-p", nested.display(), other.display()],
+    [ctx.xsh_bin, script, "-p", nested, other],
     root, {LC_ALL: "C"}, b"", out, err))?
   assert status.exited_with(1)
   assert ! nested.exists()?
@@ -62,7 +62,7 @@ test test_rmdir_parents_walks_the_operand_text_with_trailing_slashes { |ctx|
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/rmdir.xsh".display(), "-p", "--ignore-fail-on-non-empty", "a/b/"],
+    [ctx.xsh_bin, fp"{ctx.core_dir}/rmdir.xsh", "-p", "--ignore-fail-on-non-empty", "a/b/"],
     root, {LC_ALL: "C"}, b"", out, err))?
   assert status.exited_with(0), err.read_text()?
   assert err.read_text()? == ""

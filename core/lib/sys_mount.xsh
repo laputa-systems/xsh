@@ -203,7 +203,7 @@ export pure cgroup_mount_inventory(table: MountTable) -> CgroupMountInventory {
 
 ## Applies recorded capacity only when each value identifies one raw mount row.
 export pure apply_captured_usage(table: MountTable, captured: List[CapturedUsage]) -> Result[MountTable, Error] {
-  if captured.len() != table.mounts.len() {
+  guard captured.len() == table.mounts.len() else {
     return Err(error.failure("captured mount capacity count does not match the raw mount table"))
   }
 
@@ -228,11 +228,11 @@ export pure apply_captured_usage(table: MountTable, captured: List[CapturedUsage
 
     let any_value = item.usage_total_bytes != null or item.usage_used_bytes != null or item.usage_available_bytes != null
     let all_values = item.usage_total_bytes != null and item.usage_used_bytes != null and item.usage_available_bytes != null
-    if item.usage_state == report.Observed {
+    if item.usage_state == .Observed {
       if ! all_values or (item.usage_total_bytes ?? -1) < 0 or (item.usage_used_bytes ?? -1) < 0 or
           (item.usage_available_bytes ?? -1) < 0 or
-          (item.usage_used_bytes ?? 0) > (item.usage_total_bytes ?? -1) or
-          (item.usage_available_bytes ?? 0) > (item.usage_total_bytes ?? -1) {
+          item.usage_used_bytes > (item.usage_total_bytes ?? -1) or
+          item.usage_available_bytes > (item.usage_total_bytes ?? -1) {
         return Err(error.failure("observed captured mount capacity requires bounded byte values"))
       }
     } else if any_value {
@@ -307,9 +307,9 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
       let target = decode_mount_field(fields[4])
       let source = decode_mount_field(fields[separator + 2])
       var usage_state = report.NotRequested
-      var usage_total_bytes: Int? = null
-      var usage_used_bytes: Int? = null
-      var usage_available_bytes: Int? = null
+      var usage_total_bytes = null
+      var usage_used_bytes = null
+      var usage_available_bytes = null
       if include_usage and mount_usage_safe(usage_index, ids) {
         if ! target.starts_with("/") {
           usage_state = report.Malformed

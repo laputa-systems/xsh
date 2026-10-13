@@ -136,8 +136,8 @@ export pure parse_descriptor_stream(data: Bytes) -> Result[List[DescriptorRecord
 ## Parses interface settings and endpoints without joining identical numbers across configurations.
 export proc parse_alternates(data: Bytes) [error] -> Result[List[DescriptorAlternate], Error] {
   let records = parse_descriptor_stream(data)?
-  var current_configuration: Int? = null
-  var current_configuration_end: Int? = null
+  var current_configuration = null
+  var current_configuration_end = null
   var active: DescriptorAlternate? = null
   let alternates: List[DescriptorAlternate] = collect {
     for descriptor in records {
@@ -312,7 +312,7 @@ export pure parent_indices(names: List[Str?], bus_numbers: List[Int?]) -> List[I
   let parents: List[Int?] = collect {
     for index in range(names.len()) {
       let parent = parent_name(names[index] ?? "", bus_numbers[index])
-      var parent_index: Int? = null
+      var parent_index = null
       if parent != null {
         if parent in by_name {
           if let Ok(found) = by_name.get(parent) {

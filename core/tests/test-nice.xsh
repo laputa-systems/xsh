@@ -201,12 +201,11 @@ test test_nice_command_tokens_that_look_like_adjustments_survive { |ctx|
 test test_nice_nonexecutable_path_match_is_126 { |ctx|
   let root = test.temp_dir(ctx, name: "path-permission")?
   let blocked = fp"{root}/blocked"
-  blocked.write("printf must-not-run\n")
-  blocked.chmod(384)?
+  blocked.write("printf must-not-run\n", mode: 384)
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/nice.xsh"
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "blocked"], root, {PATH: root, LC_ALL: "C"}, b"", out, err)
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "blocked"], root, {PATH: root, LC_ALL: "C"}, b"", out, err)
   assert process.run(plan)?.shell_code()? == 126
   assert out.read_text()? == ""
   assert err.read_text()? == "nice: 'blocked': Permission denied\n"
@@ -219,7 +218,7 @@ test test_nice_failed_advisory_write_stops_the_command { |ctx|
   let root = test.temp_dir(ctx, name: "nice-full")?
   let out = fp"{root}/stdout"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/nice.xsh".display(), "-n", "-1", "nice"],
+    [ctx.xsh_bin, fp"{ctx.core_dir}/nice.xsh", "-n", "-1", "nice"],
     root, {LC_ALL: "C"}, b"", out, p"/dev/full"))?
   assert status.exited_with(125)
   assert out.read_text()? == ""

@@ -6,20 +6,18 @@ type Options = {body: Str, header: Str, footer: Str, delimiter: Str, increment: 
 
 proc number(value: Str, what: Str, minimum: Int, maximum: Int) -> Int {
   if value == "-9223372036854775808" and minimum == -9223372036854775807 - 1 { return minimum }
-  match value.parse_int() {
-    Ok(parsed) => {
-      if parsed < minimum or parsed > maximum {
-        let reason = if parsed < minimum { ": Result not representable" } else { ": Value too large for data type" }
-        gnu.error(f"invalid {what}: {gnu.quote_value(value)}{reason}")
-        exit 1
-      }
-      parsed
-    }
-    Err(_) => {
-      let overflow = rx"^[+-]?[0-9]+$".matches(value)
-      gnu.error(f"invalid {what}: {gnu.quote_value(value)}{if overflow { ": Value too large for data type" } else { "" }}")
+  if let Ok(parsed) = value.parse_int() {
+    if parsed < minimum or parsed > maximum {
+      let reason = if parsed < minimum { ": Result not representable" } else { ": Value too large for data type" }
+      gnu.error(f"invalid {what}: {gnu.quote_value(value)}{reason}")
       exit 1
     }
+  
+    parsed
+  } else {
+    let overflow = rx"^[+-]?[0-9]+$".matches(value)
+    gnu.error(f"invalid {what}: {gnu.quote_value(value)}{if overflow { ": Value too large for data type" } else { "" }}")
+    exit 1
   }
 }
 
@@ -80,13 +78,14 @@ proc main(...argv: List[Bytes]) {
   let delimiter = if single_delimiter_character { bytes.concat([delimiter_arg, b":"]) } else { delimiter_arg }
   let separator = text.argument_bytes(arguments, opts.separator)
   let separator_count = character_count(separator)
-  var lines: List[Bytes] = []
   var failed = false
   let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
-  for name in paths {
-    match text.read_operand_bytes(name) {
-      Ok(data) => { lines += text.records(data) }
-      Err(failure) => { text.name_error_bytes(name, failure); failed = true }
+  let lines = collect {
+    for name in paths {
+      match text.read_operand_bytes(name) {
+        Ok(data) => { yield @text.records(data) }
+        Err(failure) => { text.name_error_bytes(name, failure); failed = true }
+      }
     }
   }
   var value = start

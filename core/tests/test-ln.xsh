@@ -70,13 +70,13 @@ test test_ln_interactive_respects_last_force_option { |ctx|
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let decline = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-sfi", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-sfi", source, dest],
     root, {}, b"n\n", out, err)
   assert process.run(decline)?.exited_with(1)
   assert dest.read_text()? == "old"
   assert err.read_text()? == f"ln: replace '{dest}'? "
   let force = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-sif", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-sif", source, dest],
     root, {}, b"n\n", out, err)
   assert process.run(force)?.exited_with(0)
   assert dest.readlink()? == source
@@ -93,7 +93,7 @@ test test_ln_abbreviated_option_values_are_not_overwrite_controls { |ctx|
   dest.write("old")
   let script = fp"{ctx.core_dir}/ln.xsh"
   let command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-s", "--for", "--target-d", "-i", source.display()],
+    [ctx.xsh_bin, script, "-s", "--for", "--target-d", "-i", source],
     root, {}, b"n\n", fp"{root}/out", fp"{root}/err")
   assert process.run(command)?.exited_with(0)
   assert dest.readlink()? == source
@@ -136,9 +136,9 @@ test test_ln_verbose_reports_backup_before_the_link { |ctx|
 
 test test_ln_preserves_non_utf8_source_and_destination_names { |ctx|
   let root = test.temp_dir(ctx)?
-  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
-  let hard_link = Path.parse_bytes(bytes.concat([root.bytes(), b"/hard\xff\xfe"]))?
-  let symbolic_link = Path.parse_bytes(bytes.concat([root.bytes(), b"/symbolic\xff\xfe"]))?
+  let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
+  let hard_link = bytes.concat([root.bytes(), b"/hard\xff\xfe"]) as Path
+  let symbolic_link = bytes.concat([root.bytes(), b"/symbolic\xff\xfe"]) as Path
   source.write("payload")
   let script = fp"{ctx.core_dir}/ln.xsh"
   let out = fp"{root}/stdout"
@@ -156,9 +156,9 @@ test test_ln_preserves_non_utf8_source_and_destination_names { |ctx|
 
 test test_ln_target_directory_accepts_non_utf8_source_name { |ctx|
   let root = test.temp_dir(ctx)?
-  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
+  let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
   let directory = fp"{root}/links"
-  let link = Path.parse_bytes(bytes.concat([directory.bytes(), b"/source\xff\xfe"]))?
+  let link = bytes.concat([directory.bytes(), b"/source\xff\xfe"]) as Path
   source.write("payload")
   directory.mkdir()
   let script = fp"{ctx.core_dir}/ln.xsh"
@@ -294,13 +294,13 @@ test test_ln_backup_type_errors_list_gnu_choices { |ctx|
   let err = fp"{root}/stderr"
   let choices = "Valid arguments are:\n  - 'none', 'off'\n  - 'simple', 'never'\n  - 'existing', 'nil'\n  - 'numbered', 't'\nTry 'ln --help' for more information.\n"
   let explicit = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--backup=bogus", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "--backup=bogus", source, dest],
     root, {LC_ALL: "C"}, b"", out, err)
   assert process.run(explicit)?.exited_with(1)
   assert err.read_text()? == f"ln: invalid argument 'bogus' for 'backup type'\n{choices}", err.read_text()?
 
   let inherited = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-b", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-b", source, dest],
     root, {LC_ALL: "C", VERSION_CONTROL: "bogus"}, b"", out, err)
   assert process.run(inherited)?.exited_with(1)
   assert err.read_text()? == f"ln: invalid argument 'bogus' for '$VERSION_CONTROL'\n{choices}", err.read_text()?
@@ -318,7 +318,7 @@ test test_ln_bare_backup_and_empty_value_take_version_control { |ctx|
   for option in ["--backup", "--backup="] {
     dest.write("old")
     let command = process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), script.display(), option, source.display(), dest.display()],
+      [ctx.xsh_bin, script, option, source, dest],
       root, {LC_ALL: "C", VERSION_CONTROL: "numbered"}, b"", out, err)
     assert process.run(command)?.exited_with(0)
     assert fp"{dest}.~1~".read_text()? == "old"
@@ -328,7 +328,7 @@ test test_ln_bare_backup_and_empty_value_take_version_control { |ctx|
 
   dest.write("old")
   let unset = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--backup", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "--backup", source, dest],
     root, {LC_ALL: "C", VERSION_CONTROL: ""}, b"", out, err)
   assert process.run(unset)?.exited_with(0)
   assert fp"{dest}~".read_text()? == "old"
@@ -351,7 +351,7 @@ test test_ln_empty_backup_suffix_means_tilde { |ctx|
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let inherited = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-b", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-b", source, dest],
     root, {LC_ALL: "C", SIMPLE_BACKUP_SUFFIX: ""}, b"", out, err)
   assert process.run(inherited)?.exited_with(0)
   assert fp"{dest}~".read_text()? == "old"
@@ -556,11 +556,11 @@ test test_ln_force_replaces_dangling_and_looping_symlinks_with_themselves { |ctx
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/ln.xsh"
   cd root {
-    p"loop".symlink(to: p"loop")?
+    p"loop".symlink(to: p"loop")
     run.text ${ctx.xsh_bin} $script -- -sf p"loop" p"loop"
     assert p"loop".readlink()? == p"loop"
 
-    p"dangle".symlink(to: p"missing")?
+    p"dangle".symlink(to: p"missing")
     run.text ${ctx.xsh_bin} $script -- -sf p"dangle" p"dangle"
     assert p"dangle".readlink()? == p"dangle"
   }
@@ -586,11 +586,11 @@ test test_ln_symbolic_replaces_a_link_to_the_source { |ctx|
   let script = fp"{ctx.core_dir}/ln.xsh"
   cd root {
     p"file1".write("one")
-    p"file2".symlink(to: p"file1")?
+    p"file2".symlink(to: p"file1")
     run.text ${ctx.xsh_bin} $script -- -srf p"file1" p"file2"
     assert p"file2".readlink()? == p"file1"
 
-    p"link".symlink(to: p"a")?
+    p"link".symlink(to: p"a")
     p"a".write("two")
     p"b".write("three")
     run.text ${ctx.xsh_bin} $script -- -sf p"b" p"link"
@@ -606,7 +606,7 @@ test test_ln_symbolic_same_file_only_for_the_same_entry { |ctx|
   cd root {
     p"a".write("data")
     fs.link(p"a", p"hard")
-    p"sl".symlink(to: p"a")?
+    p"sl".symlink(to: p"a")
     run.text ${ctx.xsh_bin} $script -- -sf p"a" p"hard"
     assert p"hard".readlink()? == p"a"
     run.text ${ctx.xsh_bin} $script -- -sf p"sl" p"sl"

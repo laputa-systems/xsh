@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fs_misc
+use lib.gnu
 
 type Options = {canonical: Bool, existing: Bool, missing: Bool, logical: Bool, physical: Bool, strip: Bool, quiet: Bool, zero: Bool, relative_to: Str?, relative_base: Str?, help: Bool, version: Bool, paths: List[Str]}
 type RawArgument = {marker: Str, value: Bytes}
@@ -8,17 +8,16 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 # The shared option parser takes text; NUL-marked operands preserve Unix argv bytes.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0realpath-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0realpath-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -26,21 +25,22 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
 
 pure path_components(name: Bytes) -> List[Bytes] {
-  var parts: List[Bytes] = []
   var begin = 0
-  for index in range(name.len()) {
-    if name.byte_at(index) == 47 {
-      if index > begin { parts += [name.slice(begin, length: index - begin)] }
-      begin = index + 1
+  let parts = collect {
+    for index in range(name.len()) {
+      if name.byte_at(index) == 47 {
+        yield name.slice(begin, length: index - begin) when index > begin
+        begin = index + 1
+      }
     }
+    yield name.slice(begin) when name.len() > begin
   }
-  if name.len() > begin { parts += [name.slice(begin)] }
   parts
 }
 
@@ -54,10 +54,9 @@ pure relative_path(target: Bytes, base: Bytes) -> Bytes {
   let base_parts = path_components(base)
   var common = 0
   while common < target_parts.len() and common < base_parts.len() and target_parts[common] == base_parts[common] { common += 1 }
-  var parts: List[Bytes] = []
-  for unused in range(base_parts.len() - common) { parts += [b".."] }
+  var parts = [b".." for unused in range(base_parts.len() - common)]
   for index in range(common, target_parts.len()) { parts += [target_parts[index]] }
-  if parts.is_empty() { return b"." }
+  return b"." when parts.is_empty()
   var output = parts[0]
   for index in range(1, parts.len()) { output = bytes.concat([output, b"/", parts[index]]) }
   output
@@ -98,13 +97,13 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var base = ""
   var to = ""
   if base_name != "" {
-    let result = fs_misc.canonical(base_name, missing, logical: logical, strip: opts.strip)
+    let result = fs_misc.canonical(base_name, missing, logical:, strip: opts.strip)
     if let Err(failure) = result { gnu.name_error(base_name, failure); exit 1 }
     base = result?
     if missing == "existing" and fs.stat(fp"{base}", follow_symlinks: true)?.kind != "dir" { gnu.error(f"{gnu.quote(base_name)}: Not a directory"); exit 1 }
   }
   if to_name != "" {
-    let result = fs_misc.canonical(to_name, missing, logical: logical, strip: opts.strip)
+    let result = fs_misc.canonical(to_name, missing, logical:, strip: opts.strip)
     if let Err(failure) = result { gnu.name_error(to_name, failure); exit 1 }
     to = result?
     if missing == "existing" and fs.stat(fp"{to}", follow_symlinks: true)?.kind != "dir" { gnu.error(f"{gnu.quote(to_name)}: Not a directory"); exit 1 }
@@ -113,7 +112,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   for operand in opts.paths {
     let name = argument_bytes(operand, prepared.raw)
     let result = if let Ok(text) = name.utf8() {
-      match fs_misc.canonical(text, missing, logical: logical, strip: opts.strip) { Ok(value) => Ok(bytes.from_text(value)), Err(failure) => Err(failure) }
+      match fs_misc.canonical(text, missing, logical:, strip: opts.strip) { Ok(value) => Ok(bytes.from_text(value)), Err(failure) => Err(failure) }
     } else {
       match Path.parse_bytes(name)?.resolve() { Ok(resolved_path) => Ok(resolved_path.bytes()), Err(failure) => Err(failure) }
     }

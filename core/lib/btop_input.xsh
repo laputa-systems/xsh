@@ -60,9 +60,9 @@ pure replacement() -> Event {
 }
 
 pure utf8_length(lead: Int) -> Int {
-  if lead >= 194 and lead <= 223 { return 2 }
-  if lead >= 224 and lead <= 239 { return 3 }
-  if lead >= 240 and lead <= 244 { return 4 }
+  return 2 when lead >= 194 and lead <= 223
+  return 3 when lead >= 224 and lead <= 239
+  return 4 when lead >= 240 and lead <= 244
   0
 }
 
@@ -71,11 +71,11 @@ pure valid_utf8_prefix(data: Bytes, expected: Int) -> Bool {
   let lead = data.byte_at(0) ?? 0
   for offset in range(1, data.len()) {
     let byte = data.byte_at(offset) ?? 0
-    if byte < 128 or byte > 191 { return false }
-    if offset == 1 and lead == 224 and byte < 160 { return false }
-    if offset == 1 and lead == 237 and byte > 159 { return false }
-    if offset == 1 and lead == 240 and byte < 144 { return false }
-    if offset == 1 and lead == 244 and byte > 143 { return false }
+    return false when byte < 128 or byte > 191
+    return false when offset == 1 and lead == 224 and byte < 160
+    return false when offset == 1 and lead == 237 and byte > 159
+    return false when offset == 1 and lead == 240 and byte < 144
+    return false when offset == 1 and lead == 244 and byte > 143
   }
   data.len() <= expected
 }
@@ -123,19 +123,19 @@ pure key_from_ss3(sequence: Bytes) -> Key? {
 }
 
 pure control_key(byte: Int) -> Key? {
-  if byte == 10 or byte == 13 { return Enter }
-  if byte == 8 or byte == 127 { return Backspace }
-  if byte == 9 { return Tab }
-  if byte == 3 { return Cancel }
-  if byte == 26 { return null }
+  return Enter when byte == 10 or byte == 13
+  return Backspace when byte == 8 or byte == 127
+  return Tab when byte == 9
+  return Cancel when byte == 3
+  return null when byte == 26
   Control(byte)
 }
 
 pure csi_final_at(data: Bytes) -> Int? {
   for at in range(2, data.len()) {
     let byte = data.byte_at(at) ?? 0
-    if byte >= 64 and byte <= 126 { return at }
-    if byte < 32 or byte > 63 { return -1 }
+    return at when byte >= 64 and byte <= 126
+    return -1 when byte < 32 or byte > 63
   }
   null
 }
@@ -143,74 +143,75 @@ pure csi_final_at(data: Bytes) -> Int? {
 # Decode all complete units already in pending, leaving only one partial unit.
 pure drain(state: State) -> Step {
   var current = state
-  var events: List[Event] = []
   var scanning = true
-  while scanning and !current.pending.is_empty() and !current.discarding_sequence {
-    let data = current.pending
-    let first = data.byte_at(0) ?? 0
-    if first == 27 {
-      if data.len() == 1 { scanning = false; continue }
-      let second = data.byte_at(1) ?? 0
-      if second == 91 {
-        let final_at = csi_final_at(data)
-        if final_at == -1 {
-          current = {...current, pending: b"", escape_deadline_ms: null}
-        } else if final_at == null {
-          if data.len() > MAX_SEQUENCE_BYTES {
-            current = {...current, pending: b"", discarding_sequence: true}
+  let events: List[Event] = collect {
+    while scanning and !current.pending.is_empty() and !current.discarding_sequence {
+      let data = current.pending
+      let first = data.byte_at(0) ?? 0
+      if first == 27 {
+        if data.len() == 1 { scanning = false; continue }
+        let second = data.byte_at(1) ?? 0
+        if second == 91 {
+          let final_at = csi_final_at(data)
+          if final_at == -1 {
+            current = {...current, pending: b"", escape_deadline_ms: null}
+          } else if final_at == null {
+            if data.len() > MAX_SEQUENCE_BYTES {
+              current = {...current, pending: b"", discarding_sequence: true}
+            } else {
+              scanning = false
+            }
           } else {
-            scanning = false
+            let sequence = data[..final_at + 1]
+            current = {...current, pending: b"", escape_deadline_ms: null}
+            if sequence == PASTE_START {
+              current = {...current, in_paste: true, paste_text: b"", paste_probe: b"", paste_truncated: false}
+            } else if let key = key_from_csi(sequence) {
+              yield Pressed(key)
+            }
+          }
+        } else if second == 79 {
+          let final_at = csi_final_at(data)
+          if final_at == -1 {
+            current = {...current, pending: b"", escape_deadline_ms: null}
+          } else if final_at == null {
+            if data.len() > MAX_SEQUENCE_BYTES {
+              current = {...current, pending: b"", discarding_sequence: true}
+            } else {
+              scanning = false
+            }
+          } else {
+            let sequence = data[..final_at + 1]
+            current = {...current, pending: b"", escape_deadline_ms: null}
+            if let key = key_from_ss3(sequence) { yield Pressed(key) }
           }
         } else {
-          let sequence = data[..(final_at ?? 0) + 1]
-          current = {...current, pending: b"", escape_deadline_ms: null}
-          if sequence == PASTE_START {
-            current = {...current, in_paste: true, paste_text: b"", paste_probe: b"", paste_truncated: false}
-          } else if let key = key_from_csi(sequence) {
-            events += [Pressed(key)]
-          }
+          current = {...current, pending: data[1..], escape_deadline_ms: null}
+          yield Pressed(Escape)
         }
-      } else if second == 79 {
-        let final_at = csi_final_at(data)
-        if final_at == -1 {
-          current = {...current, pending: b"", escape_deadline_ms: null}
-        } else if final_at == null {
-          if data.len() > MAX_SEQUENCE_BYTES {
-            current = {...current, pending: b"", discarding_sequence: true}
-          } else {
-            scanning = false
-          }
+      } else if first < 32 or first == 127 {
+        current = {...current, pending: data[1..]}
+        if let key = control_key(first) { yield Pressed(key) }
+      } else if first < 128 {
+        current = {...current, pending: data[1..]}
+        yield Pressed(Text(one_byte(first).utf8() ?? ""))
+      } else {
+        let size = utf8_length(first)
+        if size == 0 {
+          current = {...current, pending: data[1..]}
+          yield replacement()
+        } else if data.len() < size and valid_utf8_prefix(data, size) {
+          scanning = false
+        } else if data.len() < size {
+          current = {...current, pending: data[1..]}
+          yield replacement()
+        } else if let Ok(text) = data[..size].utf8() {
+          current = {...current, pending: data[size..]}
+          yield Pressed(Text(text))
         } else {
-          let sequence = data[..(final_at ?? 0) + 1]
-          current = {...current, pending: b"", escape_deadline_ms: null}
-          if let key = key_from_ss3(sequence) { events += [Pressed(key)] }
+          current = {...current, pending: data[1..]}
+          yield replacement()
         }
-      } else {
-        current = {...current, pending: data[1..], escape_deadline_ms: null}
-        events += [Pressed(Escape)]
-      }
-    } else if first < 32 or first == 127 {
-      current = {...current, pending: data[1..]}
-      if let key = control_key(first) { events += [Pressed(key)] }
-    } else if first < 128 {
-      current = {...current, pending: data[1..]}
-      events += [Pressed(Text(one_byte(first).utf8() ?? ""))]
-    } else {
-      let size = utf8_length(first)
-      if size == 0 {
-        current = {...current, pending: data[1..]}
-        events += [replacement()]
-      } else if data.len() < size and valid_utf8_prefix(data, size) {
-        scanning = false
-      } else if data.len() < size {
-        current = {...current, pending: data[1..]}
-        events += [replacement()]
-      } else if let Ok(text) = data[..size].utf8() {
-        current = {...current, pending: data[size..]}
-        events += [Pressed(Text(text))]
-      } else {
-        current = {...current, pending: data[1..]}
-        events += [replacement()]
       }
     }
   }
@@ -218,35 +219,37 @@ pure drain(state: State) -> Step {
 }
 
 pure store_paste_byte(state: State, byte: Int) -> State {
-  if state.paste_text.len() >= MAX_PASTE_BYTES {
-    return {...state, paste_truncated: true}
-  }
+  return {...state, paste_truncated: true} when state.paste_text.len() >= MAX_PASTE_BYTES
   {...state, paste_text: bytes.concat([state.paste_text, one_byte(byte)])}
 }
 
 # Match the paste terminator with only a six-byte look-behind buffer.
 pure paste_byte(state: State, byte: Int) -> Step {
   var current = {...state, paste_probe: bytes.concat([state.paste_probe, one_byte(byte)])}
-  var events: List[Event] = []
   var matching = true
-  while matching {
-    if current.paste_probe == PASTE_END {
-      let text = paste_text(current.paste_text)
-      events += [Paste(text, current.paste_truncated)]
-      current = {
-        ...current,
-        in_paste: false,
-        paste_text: b"",
-        paste_probe: b"",
-        paste_truncated: false,
-        escape_deadline_ms: null,
+  let events: List[Event] = collect {
+    while matching {
+      if current.paste_probe == PASTE_END {
+        let text = paste_text(current.paste_text)
+        yield Paste(text, current.paste_truncated)
+        current = {
+          ...current,
+          in_paste: false,
+          paste_text: b"",
+          paste_probe: b"",
+          paste_truncated: false,
+          escape_deadline_ms: null,
+        }
+        matching = false
+      } else if PASTE_END.starts_with(current.paste_probe) {
+        matching = false
+      } else {
+        current = store_paste_byte(
+          {...current, paste_probe: current.paste_probe[1..]},
+          current.paste_probe.byte_at(0) ?? 0,
+        )
+        if current.paste_probe.is_empty() { matching = false }
       }
-      matching = false
-    } else if PASTE_END.starts_with(current.paste_probe) {
-      matching = false
-    } else {
-      current = store_paste_byte({...current, paste_probe: current.paste_probe[1..]}, current.paste_probe.byte_at(0) ?? 0)
-      if current.paste_probe.is_empty() { matching = false }
     }
   }
   {state: current, events: events}
@@ -282,7 +285,7 @@ pure paste_text(data: Bytes) -> Str {
 }
 
 pure expire(state: State, now_ms: Int) -> Step {
-  if state.escape_deadline_ms == null or now_ms < (state.escape_deadline_ms ?? 0) {
+  if state.escape_deadline_ms == null or now_ms < state.escape_deadline_ms {
     return {state: state, events: []}
   }
   if state.pending == b"\x1b" {
@@ -336,17 +339,18 @@ export pure timeout(state: State, now_ms: Int) -> Step {
 ## Flush incomplete text safely, discard incomplete controls, then report EOF.
 export pure finish(state: State) -> Step {
   var current = state
-  var events: List[Event] = []
-  if current.in_paste {
-    for at in range(current.paste_probe.len()) {
-      current = store_paste_byte(current, current.paste_probe.byte_at(at) ?? 0)
+  let events: List[Event] = collect {
+    if current.in_paste {
+      for at in range(current.paste_probe.len()) {
+        current = store_paste_byte(current, current.paste_probe.byte_at(at) ?? 0)
+      }
+      yield Paste(paste_text(current.paste_text), true)
+    } else if current.pending == b"\x1b" {
+      yield Pressed(Escape)
+    } else if !current.pending.is_empty() and (current.pending.byte_at(0) ?? 0) >= 128 {
+      yield replacement()
     }
-    events += [Paste(paste_text(current.paste_text), true)]
-  } else if current.pending == b"\x1b" {
-    events += [Pressed(Escape)]
-  } else if !current.pending.is_empty() and (current.pending.byte_at(0) ?? 0) >= 128 {
-    events += [replacement()]
+    yield Eof
   }
-  events += [Eof]
   {state: initial(), events: events}
 }

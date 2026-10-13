@@ -28,8 +28,14 @@ test test_insmod_missing_file_reports_error_without_kernel_insert { |ctx|
   guard system.uname()?.sysname == "Linux" else { test.skip("module insertion requires Linux"); return }
   let root = test.temp_dir(ctx, name: "insmod-missing")?
   let source = fp"{ctx.core_dir}/insmod.xsh".read_text()?
-  let output = test.run_script(ctx, source, [f"{root}/missing.ko"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "insmod")?
-  assert output.status == 1
-  assert "could not insert module" in output.stderr
-  assert "No such file or directory" in output.stderr
+  test.expect(
+    ctx,
+    source,
+    status: 1,
+    stderr: ["could not insert module", "No such file or directory"],
+    args: [f"{root}/missing.ko"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "insmod",
+  )?
 }

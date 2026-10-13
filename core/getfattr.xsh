@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fileattrs
+use lib.gnu
 
 type Options = {name: Str?, dump: Bool, encoding: Str, pattern: Str, values: Bool, nofollow: Bool, absolute: Bool, recursive: Bool, logical: Bool, physical: Bool, help: Bool, version: Bool, files: List[Str]}
 enum WalkMode { Hybrid, Logical, Physical }
@@ -10,8 +10,8 @@ type Printed = {success: Bool, absolute_warning: Bool}
 
 proc print_attributes(name: Str, opts: Options, pattern: Regex, warned: Bool) [fs, process, env, error, io] -> Printed {
   let target = fp"{name}"
-  var names: List[Str] = []
-  if opts.name != null { names = [opts.name ?? ""] } else {
+  var names = []
+  if opts.name != null { names = [opts.name] } else {
     let listed = fs.xattr_list(target, follow_symlinks: ! opts.nofollow)
     if let Err(failure) = listed { fileattrs.report(name, failure); return {success: false, absolute_warning: warned} }
     for attribute in listed? { if pattern.matches(attribute) { names += [attribute] } }
@@ -102,8 +102,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
     option_at += 1
   }
-  var pending: List[Visit] = []
-  for name in opts.files { pending += [{name: name, ancestors: [], operand: true}] }
+  var pending: List[Visit] = [{name: name, ancestors: [], operand: true} for name in opts.files]
   var success = true
   var warned = false
   while ! pending.is_empty() {
@@ -122,7 +121,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         info = resolved?
       }
     }
-    let identity: DirectoryIdentity = {device: info.dev, inode: info.ino}
+    let identity: DirectoryIdentity = DirectoryIdentity(device: info.dev, inode: info.ino)
     if opts.recursive and info.kind == "dir" and identity in visit.ancestors {
       gnu.error(f"{fileattrs.quote_name(visit.name)}: directory cycle detected")
       success = false
@@ -134,8 +133,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     continue when ! opts.recursive or info.kind != "dir"
     let children = fs.children(target)
     if let Err(failure) = children { fileattrs.report(visit.name, failure); success = false; continue }
-    var descendants: List[Visit] = []
-    for child in children? { descendants += [{name: f"{visit.name}/{child.name}", ancestors: visit.ancestors.extend([identity]), operand: false}] }
+    let descendants: List[Visit] = collect {
+      for child in children? {
+        yield {name: f"{visit.name}/{child.name}", ancestors: visit.ancestors.extend([identity]), operand: false}
+      }
+    }
     pending = descendants.extend(pending)
   }
   if ! success { exit 1 }

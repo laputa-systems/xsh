@@ -7,16 +7,16 @@ export type Size = {value: Int, rest: Str}
 const LARGEST = 9223372036854775807
 
 pure digit_value(byte: Int) -> Int {
-  if byte >= 48 and byte <= 57 { return byte - 48 }
-  if byte >= 97 and byte <= 102 { return byte - 87 }
-  if byte >= 65 and byte <= 70 { return byte - 55 }
+  return byte - 48 when byte >= 48 and byte <= 57
+  return byte - 87 when byte >= 97 and byte <= 102
+  return byte - 55 when byte >= 65 and byte <= 70
   -1
 }
 
 # Multiply with saturation at `LARGEST`.
 pure scale(value: Int, factor: Int) -> Int {
-  if value == 0 or factor == 0 { return 0 }
-  if value > LARGEST / factor { return LARGEST }
+  return 0 when value == 0 or factor == 0
+  return LARGEST when value > LARGEST / factor
   value * factor
 }
 
@@ -24,8 +24,7 @@ pure scale(value: Int, factor: Int) -> Int {
 # letter is not a multiplier.
 pure multiplier_steps(letter: Str) -> Int {
   match letter {
-    "k" => 1
-    "K" => 1
+    "k" | "K" => 1
     "M" => 2
     "G" => 3
     "T" => 4
@@ -33,7 +32,7 @@ pure multiplier_steps(letter: Str) -> Int {
     "E" => 6
     "Z" => 7
     "Y" => 8
-    _ => 0
+    else => 0
   }
 }
 
@@ -49,7 +48,7 @@ export pure parse_size(text: Str) -> Size? {
   var at = 0
   while at < size and (raw.byte_at(at) == 32 or ((raw.byte_at(at) ?? 0) >= 9 and (raw.byte_at(at) ?? 0) <= 13)) { at += 1 }
   if at < size and raw.byte_at(at) == 43 { at += 1 }
-  if at >= size { return null }
+  return null when at >= size
   let leading = raw[at..at + 1].utf8() ?? ""
   let bare_multiplier = multiplier_steps(leading) > 0
   if !bare_multiplier and (digit_value(raw.byte_at(at) ?? 0) < 0 or digit_value(raw.byte_at(at) ?? 0) >= 10) { return null }
@@ -72,7 +71,7 @@ export pure parse_size(text: Str) -> Size? {
   var cursor = start
   while cursor < size and !bare_multiplier {
     let found = digit_value(raw.byte_at(cursor) ?? 0)
-    if found < 0 or found >= base { break }
+    break when found < 0 or found >= base
     value = if value > (LARGEST - found) / base { LARGEST } else { value * base + found }
     cursor += 1
   }
@@ -89,7 +88,7 @@ export pure parse_size(text: Str) -> Size? {
       used = 3
     }
     var power = 1
-    for _ in range(steps) { power = scale(power, factor) }
+    repeat steps times { power = scale(power, factor) }
     value = scale(value, power)
     cursor += used
   }
@@ -101,7 +100,7 @@ export proc skip_stdin(count: Int) [io, error] -> Result[Unit, Error] {
   var remaining = count
   while remaining > 0 {
     let chunk = io.stdin_read(if remaining < 65536 { remaining } else { 65536 })?
-    if chunk.len() == 0 { break }
+    break when chunk.is_empty()
     remaining -= chunk.len()
   }
   Ok()
@@ -109,14 +108,14 @@ export proc skip_stdin(count: Int) [io, error] -> Result[Unit, Error] {
 
 ## Count LF bytes: the number of completed lines.
 export pure newline_count(data: Bytes) -> Int {
-  data.count_lines() - (if data.len() > 0 and !data.ends_with(b"\n") { 1 } else { 0 })
+  data.count_lines() - (if ! data.is_empty() and !data.ends_with(b"\n") { 1 } else { 0 })
 }
 
 ## Display bytes with caret control notation and a meta prefix for the high bit.
 export pure display_byte(value: Int) -> Str {
   let lower = value % 128
   let prefix = if value >= 128 { "M-" } else { "" }
-  if lower == 127 { return prefix + "^?" }
+  return prefix + "^?" when lower == 127
   let ascii = if lower < 32 { lower + 64 } else { lower }
   prefix + (if lower < 32 { "^" } else { "" }) + ((bytes.from_ints([ascii]) ?? b"?").utf8() ?? "?")
 }

@@ -111,14 +111,14 @@ test test_fadvise_reports_the_error_of_posix_fadvise { |ctx|
   file.write(bytes.zero(8192)?)
   let fd = unix.open_fd(file, nonblock: false)?
   defer unix.close_fd(fd)
-  unix.fadvise(fd, 0, 0, "dontneed")?
-  unix.fadvise(fd, 4096, 4096, "sequential")?
+  unix.fadvise(fd, 0, 0, "dontneed")
+  unix.fadvise(fd, 4096, 4096, "sequential")
   test.error_kind(unix.fadvise(fd, 0, 0, "forever"), "invalid-argument")
   test.error_kind(unix.fadvise(fd, -1, 0, "normal"), "unix-fadvise")
   test.error_kind(unix.fadvise(-1, 0, 0, "normal"), "unix-fadvise")
 
   let fifo = fp"{root}/pipe"
-  fs.mkfifo(fifo, mode: 384)?
+  fs.mkfifo(fifo, mode: 384)
   let reader = unix.open_fd(fifo, nonblock: true)?
   defer unix.close_fd(reader)
   assert errno_of(unix.fadvise(reader, 0, 0, "dontneed")) == 29

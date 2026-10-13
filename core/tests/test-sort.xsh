@@ -20,7 +20,7 @@ test test_sort_fold_case_uses_raw_line_as_tie_breaker { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"A\na\n_\n"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-f"], root,
+    [ctx.xsh_bin, "--", script, "-f"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"A\na\n_\n"
@@ -28,7 +28,7 @@ test test_sort_fold_case_uses_raw_line_as_tie_breaker { |ctx|
 
   let unique_input = b"a\n_\n"
   let unique = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-fu"], root,
+    [ctx.xsh_bin, "--", script, "-fu"], root,
     {LC_ALL: "C"}, unique_input, stdout, stderr))?
   assert unique.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\n_\n"
@@ -42,7 +42,7 @@ test test_sort_dictionary_and_nonprinting_order { |ctx|
   let stderr = fp"{root}/stderr"
   let dictionary_input = b"./bbc\nbbd\nbbb\n"
   let dictionary = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-d"], root,
+    [ctx.xsh_bin, "--", script, "-d"], root,
     {LC_ALL: "C"}, dictionary_input, stdout, stderr))?
   assert dictionary.exit_code()? == 0
   assert stdout.read_bytes()? == b"bbb\n./bbc\nbbd\n"
@@ -50,7 +50,7 @@ test test_sort_dictionary_and_nonprinting_order { |ctx|
 
   let nonprinting_input = bytes.from_text("a👦🏻aa\naaaa\n")
   let nonprinting = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-i"], root,
+    [ctx.xsh_bin, "--", script, "-i"], root,
     {LC_ALL: "C"}, nonprinting_input, stdout, stderr))?
   assert nonprinting.exit_code()? == 0
   assert stdout.read_bytes()? == nonprinting_input
@@ -64,7 +64,7 @@ test test_sort_ignore_leading_blanks_preserves_utf8 { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"é\n a\n"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-b"], root,
+    [ctx.xsh_bin, "--", script, "-b"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b" a\né\n"
@@ -78,7 +78,7 @@ test test_sort_dictionary_and_nonprinting_conflict_with_numeric { |ctx|
   let stderr = fp"{root}/stderr"
   for args in [["-dn"], ["-in"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2
     assert stderr.read_text()? == f"sort: options '{args[0]}' are incompatible\n"
@@ -86,14 +86,14 @@ test test_sort_dictionary_and_nonprinting_conflict_with_numeric { |ctx|
   }
   for args in [["-dg"], ["-dM"], ["-ig"], ["-iM"], ["-k", "1d,1n"], ["-k", "1i,1M"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2, args.join(" ")
     assert stderr.read_text()?.starts_with("sort: options '-"), args.join(" ")
     assert stdout.read_bytes()?.is_empty()
   }
   let inherited = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-d", "-k", "1,1n"], root,
+    [ctx.xsh_bin, "--", script, "-d", "-k", "1,1n"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert inherited.exit_code()? == 0, stderr.read_text()?
 }
@@ -104,7 +104,7 @@ test test_sort_numeric_rejects_leading_plus_and_uses_line_tie_break { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n"], root,
+    [ctx.xsh_bin, "--", script, "-n"], root,
     {LC_ALL: "C"}, b"+2\n+1\n+10\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"+1\n+10\n+2\n"
@@ -118,7 +118,7 @@ test test_sort_general_numeric_exponents_and_extremes { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"1\n2e3\n1e-5\n0\n-1.7976931348623157e+308\n1.7976931348623157e+308\nNaN\ninf\n-inf\n64e+\n10E\n"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-g"], root,
+    [ctx.xsh_bin, "--", script, "-g"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"NaN\n-inf\n-1.7976931348623157e+308\n0\n1e-5\n1\n10E\n64e+\n2e3\n1.7976931348623157e+308\ninf\n"
@@ -132,7 +132,7 @@ test test_sort_general_numeric_stable_equal_values { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"1.0\n1\n1e0\n"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-gs"], root,
+    [ctx.xsh_bin, "--", script, "-gs"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == input
@@ -145,7 +145,7 @@ test test_sort_general_numeric_orders_past_double_precision { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-g"], root,
+    [ctx.xsh_bin, "--", script, "-g"], root,
     {LC_ALL: "C"}, b"10.000000000000004\n10\n1.0000000000000002e1\n-10.000000000000004\n-10\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"-10.000000000000004\n-10\n10\n1.0000000000000002e1\n10.000000000000004\n"
@@ -158,7 +158,7 @@ test test_sort_general_numeric_invalid_values_precede_nan_and_numbers { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-g"], root,
+    [ctx.xsh_bin, "--", script, "-g"], root,
     {LC_ALL: "C"}, b"\nword\nNaN\n-inf\n-2\n0\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"\nword\nNaN\n-inf\n-2\n0\n"
@@ -173,7 +173,7 @@ test test_sort_month_order_stability_and_uniqueness { |ctx|
   let input = b"JAn\nMAY\n000may\nJun\nFeb\nJul 2\nJul 1\nJul 3\n asdf\n"
   for args in [["-M"], ["--month-sort"], ["--sort=month"], ["--sort=mont"], ["--sort=m"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b" asdf\n000may\nJAn\nFeb\nMAY\nJun\nJul 1\nJul 2\nJul 3\n"
@@ -181,35 +181,35 @@ test test_sort_month_order_stability_and_uniqueness { |ctx|
   }
 
   let stable = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-Ms"], root,
+    [ctx.xsh_bin, "--", script, "-Ms"], root,
     {LC_ALL: "C"}, b"Jul 2\nJul 1\nJul 3\n", stdout, stderr))?
   assert stable.exit_code()? == 0
   assert stdout.read_bytes()? == b"Jul 2\nJul 1\nJul 3\n"
   assert stderr.read_bytes()?.is_empty()
 
   let unique = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-Mu"], root,
+    [ctx.xsh_bin, "--", script, "-Mu"], root,
     {LC_ALL: "C"}, b"JUNNNN\n\nAPR\nMAY\nJUN\nAUG\n", stdout, stderr))?
   assert unique.exit_code()? == 0
   assert stdout.read_bytes()? == b"\nAPR\nMAY\nJUNNNN\nAUG\n"
   assert stderr.read_bytes()?.is_empty()
 
   let sorted = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-cM"], root,
+    [ctx.xsh_bin, "--", script, "-cM"], root,
     {LC_ALL: "C"}, b"Jan\nFeb\n", stdout, stderr))?
   assert sorted.exit_code()? == 0
   assert stdout.read_bytes()?.is_empty()
   assert stderr.read_bytes()?.is_empty()
 
   let disorder = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-cM"], root,
+    [ctx.xsh_bin, "--", script, "-cM"], root,
     {LC_ALL: "C"}, b"Feb\nJan\n", stdout, stderr))?
   assert disorder.exit_code()? == 1
   assert stdout.read_bytes()?.is_empty()
   assert stderr.read_text()? == "sort: -:2: disorder: Jan\n"
 
   let duplicate = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-cuM"], root,
+    [ctx.xsh_bin, "--", script, "-cuM"], root,
     {LC_ALL: "C"}, b"Jan\nJAN\n", stdout, stderr))?
   assert duplicate.exit_code()? == 1
   assert stdout.read_bytes()?.is_empty()
@@ -226,24 +226,24 @@ test test_sort_files0_from_reads_raw_file_name_lists { |ctx|
   let names = fp"{root}/names0"
   first.write("mango\nkiwi")
   second.write("apple\nbanana\n")
-  names.write(bytes.concat([bytes.from_text(first.display()), b"\0", bytes.from_text(second.display()), b"\0"]))
+  names.write(bytes.concat([first.bytes(), b"\0", second.bytes(), b"\0"]))
 
   let from_file = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--files0-from", names.display()], root,
+    [ctx.xsh_bin, "--", script, "--files0-from", names], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert from_file.exit_code()? == 0
   assert stdout.read_bytes()? == b"apple\nbanana\nkiwi\nmango\n"
   assert stderr.read_bytes()?.is_empty()
 
   let from_stdin = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--files0-from=-"], root,
-    {LC_ALL: "C"}, bytes.concat([bytes.from_text(first.display()), b"\0", bytes.from_text(second.display())]), stdout, stderr))?
+    [ctx.xsh_bin, "--", script, "--files0-from=-"], root,
+    {LC_ALL: "C"}, bytes.concat([first.bytes(), b"\0", second.bytes()]), stdout, stderr))?
   assert from_stdin.exit_code()? == 0
   assert stdout.read_bytes()? == b"apple\nbanana\nkiwi\nmango\n"
   assert stderr.read_bytes()?.is_empty()
 
   let invalid = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--files0-from=-"], root,
+    [ctx.xsh_bin, "--", script, "--files0-from=-"], root,
     {LC_ALL: "C"}, b"first\0\0second\0", stdout, stderr))?
   assert invalid.exit_code()? == 2
   assert stdout.read_bytes()?.is_empty()
@@ -261,14 +261,14 @@ test test_sort_merge_orders_sorted_inputs_with_sort_options { |ctx|
   first.write("alpha\ngamma\n")
   second.write("beta\ndelta\n")
   let merged = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", first.display(), second.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", first, second], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert merged.exit_code()? == 0
   assert stdout.read_bytes()? == b"alpha\nbeta\ndelta\ngamma\n"
   assert stderr.read_bytes()?.is_empty()
 
   let checked = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-c", first.display(), second.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", "-c", first, second], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert checked.exit_code()? == 0
   assert stdout.read_bytes()?.is_empty()
@@ -277,7 +277,7 @@ test test_sort_merge_orders_sorted_inputs_with_sort_options { |ctx|
   first.write("9\n5\n1\n")
   second.write("8\n4\n2\n")
   let reversed = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-r", first.display(), second.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", "-r", first, second], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert reversed.exit_code()? == 0
   assert stdout.read_bytes()? == b"9\n8\n5\n4\n2\n1\n"
@@ -286,7 +286,7 @@ test test_sort_merge_orders_sorted_inputs_with_sort_options { |ctx|
   first.write("01 apple\n2 pear\n")
   second.write("1 banana\n3 plum\n")
   let stable = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-s", "-n", "-k1,1", first.display(), second.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", "-s", "-n", "-k1,1", first, second], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert stable.exit_code()? == 0
   assert stdout.read_bytes()? == b"01 apple\n1 banana\n2 pear\n3 plum\n"
@@ -295,7 +295,7 @@ test test_sort_merge_orders_sorted_inputs_with_sort_options { |ctx|
   first.write(b"alpha\0gamma\0")
   second.write(b"beta\0delta\0")
   let zero_terminated = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-z", first.display(), second.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", "-z", first, second], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert zero_terminated.exit_code()? == 0
   assert stdout.read_bytes()? == b"alpha\0beta\0delta\0gamma\0"
@@ -314,7 +314,7 @@ test test_sort_merge_unique_and_output_file { |ctx|
   first.write("1\n3\n5\n")
   second.write("1.0\n2\n3.0\n")
   let unique = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-n", "-u", first.display(), second.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", "-n", "-u", first, second], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert unique.exit_code()? == 0
   assert stdout.read_bytes()? == b"1\n2\n3\n5\n"
@@ -322,7 +322,7 @@ test test_sort_merge_unique_and_output_file { |ctx|
 
   output.write("stale contents that must be truncated\n")
   let redirected = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-o", output.display(), first.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", "-o", output, first], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert redirected.exit_code()? == 0
   assert stdout.read_bytes()?.is_empty()
@@ -364,7 +364,7 @@ test test_sort_merge_temp_directory_failure_names_the_directory { |ctx|
   let error = test.temp_path(ctx, name: "temp-error")
   let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -m --batch-size=2 -T $missing $first $second $third 2> $error
   assert status.exited_with(2)
-  assert error.read_text()?.starts_with(f"sort: cannot create temporary file in '{missing.display()}': ")
+  assert error.read_text()?.starts_with(f"sort: cannot create temporary file in '{missing}': ")
 }
 
 test test_sort_files0_from_extra_operand_has_usage_hint { |ctx|
@@ -382,14 +382,14 @@ test test_sort_batch_size_validation { |ctx|
   let stderr = fp"{root}/stderr"
 
   let minimum = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--batch-size=0"], root,
+    [ctx.xsh_bin, "--", script, "--batch-size=0"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert minimum.exit_code()? == 2
   assert stderr.read_text()? == "sort: invalid --batch-size argument '0'\nsort: minimum --batch-size argument is '2'\n"
   assert stdout.read_bytes()?.is_empty()
 
   let invalid = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "--batch-size=a"], root,
+    [ctx.xsh_bin, "--", script, "-m", "--batch-size=a"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert invalid.exit_code()? == 2
   assert stderr.read_text()? == "sort: invalid --batch-size argument 'a'\n"
@@ -402,7 +402,7 @@ test test_sort_buffer_size_rejects_percent_after_suffix { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--buffer-size=0x123%"], root,
+    [ctx.xsh_bin, "--", script, "--buffer-size=0x123%"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 2
   assert stderr.read_text()? == "sort: invalid suffix in -S argument '0x123%'\n"
@@ -416,14 +416,14 @@ test test_sort_buffer_size_accepts_leading_blanks { |ctx|
   let stderr = fp"{root}/stderr"
   let input = test.temp_file(ctx, name: "input", contents: b"b\na\n")?
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-S", " 5K", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-S", " 5K", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == "a\nb\n"
 }
 
 test test_sort_batched_merge_progresses_under_small_descriptor_limit { |ctx|
-  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  guard p"/bin/sh".exists() else { test.skip("requires /bin/sh"); return }
   let root = test.temp_dir(ctx, name: "sort-batch-descriptors")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -435,8 +435,8 @@ test test_sort_batched_merge_progresses_under_small_descriptor_limit { |ctx|
   second.write("b\n")
   third.write("c\n")
   let status = process.run(process.command_argv(p"/bin/sh",
-    ["sh", "-c", "ulimit -n 7 && exec \"$@\"", "sort-limit", ctx.xsh_bin.display(), "--", script.display(),
-      "--batch-size=2", "-m", first.display(), second.display(), third.display()],
+    ["sh", "-c", "ulimit -n 7 && exec \"$@\"", "sort-limit", ctx.xsh_bin, "--", script,
+      "--batch-size=2", "-m", first, second, third],
     root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert status.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == "a\nb\nc\n"
@@ -452,19 +452,19 @@ test test_sort_random_order_is_seeded_by_the_random_source { |ctx|
   let source = test.temp_file(ctx, name: "source", contents: b"0123456789abcdef")?
   let short = test.temp_file(ctx, name: "short", contents: b"0123456789abcde")?
   let first = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-R", f"--random-source={source}", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-R", f"--random-source={source}", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert first.exit_code()? == 0, stderr.read_text()?
   let first_out = stdout.read_text()?
   let second = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-R", f"--random-source={source}", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-R", f"--random-source={source}", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert second.exit_code()? == 0
   assert stdout.read_text()? == first_out
   assert first_out.lines().len() == 4
 
   let too_short = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-R", f"--random-source={short}", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-R", f"--random-source={short}", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert too_short.exit_code()? == 2
   assert stderr.read_text()? == f"sort: '{short}': end of file\n"
@@ -480,7 +480,7 @@ test test_sort_random_option_conflicts_match_gnu { |ctx|
   let letters = ["-nR", "-nR", "-dfgMnR"]
   for index in range(cases.len()) {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + cases[index], root,
+      [ctx.xsh_bin, "--", script, @cases[index]], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2
     assert stderr.read_text()? == f"sort: options '{letters[index]}' are incompatible\n"
@@ -494,13 +494,15 @@ test test_sort_buffer_size_spills_sorted_runs { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var input_lines: List[Str] = []
-  var expected_lines: List[Str] = []
-  for index in range(400) { expected_lines += [f"{index:04} {payload}"] }
-  for index in range(400) { input_lines += [expected_lines[399 - index]] }
+  let expected_lines = collect {
+    for index in range(400) { yield f"{index:04} {payload}" }
+  }
+  let input_lines = collect {
+    for index in range(400) { yield expected_lines[399 - index] }
+  }
   let input = bytes.from_text(input_lines.join("\n") + "\n")
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S", "1K", "-T", root.display()], root,
+    [ctx.xsh_bin, "--", script, "-n", "-S", "1K", "-T", root], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == bytes.from_text(expected_lines.join("\n") + "\n")
@@ -514,23 +516,24 @@ test test_sort_sigint_removes_external_runs { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var lines: List[Str] = []
-  for index in range(30000) { lines += [f"{index:05} {payload}"] }
+  let lines = collect {
+    for index in range(30000) { yield f"{index:05} {payload}" }
+  }
   input.write(lines.join("\n") + "\n")
 
   let child = spawn run @(["/bin/sh", "-c", "error_file=$1; shift; exec \"$@\" 2>\"$error_file\"", "sort-test",
     stderr.display(), ctx.xsh_bin.display(), "--", script.display(), "-S1", "-T", root.display(),
     "-o", stdout.display(), input.display()]) ?
   var saw_run = false
-  for _ in range(500) {
+  repeat 500 times {
     if fs.files(root, hidden: true)? |> any .name.starts_with("run-") {
       saw_run = true
       break
     }
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
   assert saw_run, "sort did not write its first spill run"
-  process.kill(child.pid, signal: "INT")?
+  process.kill(child.pid, signal: "INT")
   assert (wait child?).shell_code()? == 130
   assert stderr.read_text()?.is_empty(), "SIGINT emitted a cleanup diagnostic"
   assert ! (fs.files(root, hidden: true)? |> any .name.starts_with("run-")), "SIGINT left spill files behind"
@@ -542,11 +545,12 @@ test test_sort_buffer_size_requires_temporary_directory_when_spilling { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var input_lines: List[Str] = []
-  for index in range(400) { input_lines += [f"{399 - index:04} {payload}"] }
+  let input_lines = collect {
+    for index in range(400) { yield f"{399 - index:04} {payload}" }
+  }
   let input = bytes.from_text(input_lines.join("\n") + "\n")
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S1K", "-T", fp"{root}/missing".display()], root,
+    [ctx.xsh_bin, "--", script, "-n", "-S1K", "-T", fp"{root}/missing"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 2
   assert "cannot create temporary file" in stderr.read_text()?
@@ -559,14 +563,15 @@ test test_sort_merge_batch_size_merges_multiple_passes { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let inputs = ["a\ng\n", "b\nh\n", "c\ni\n", "d\nj\n", "e\nk\n", "f\nl\n"]
-  var paths: List[Str] = []
-  for index in range(inputs.len()) {
-    let input_path = fp"{root}/input{index}"
-    input_path.write(inputs[index])
-    paths += [input_path.display()]
+  let paths = collect {
+    for index in range(inputs.len()) {
+      let input_path = fp"{root}/input{index}"
+      input_path.write(inputs[index])
+      yield input_path.display()
+    }
   }
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "--batch-size=2"] + paths, root,
+    [ctx.xsh_bin, "--", script, "-m", "--batch-size=2", @paths], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n"
@@ -580,21 +585,21 @@ test test_sort_separator_null_and_invalid_character_counts { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"a\0z\nb\0a\n"
   let null_separator = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-k2", "-t", "\\0"], root,
+    [ctx.xsh_bin, "--", script, "-k2", "-t", "\\0"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert null_separator.exit_code()? == 0
   assert stdout.read_bytes()? == b"b\0a\na\0z\n"
   assert stderr.read_bytes()?.is_empty()
 
   let multiple_keys = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-k1,1", "-k3,3", "-t", "\\0"], root,
+    [ctx.xsh_bin, "--", script, "-k1,1", "-k3,3", "-t", "\\0"], root,
     {LC_ALL: "C"}, b"z\0a\0b\nz\0b\0a\na\0z\0z\n", stdout, stderr))?
   assert multiple_keys.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\0z\0z\nz\0b\0a\nz\0a\0b\n"
   assert stderr.read_bytes()?.is_empty()
 
   let attached_equals = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-t=", "-k2"], root,
+    [ctx.xsh_bin, "--", script, "-t=", "-k2"], root,
     {LC_ALL: "C"}, b"a=b=c\nb=a=d\n", stdout, stderr))?
   assert attached_equals.exit_code()? == 0
   assert stdout.read_bytes()? == b"b=a=d\na=b=c\n"
@@ -602,7 +607,7 @@ test test_sort_separator_null_and_invalid_character_counts { |ctx|
 
   for separator in ["==", "=a"] {
     let invalid = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), "-t", separator, "-k2"], root,
+      [ctx.xsh_bin, "--", script, "-t", separator, "-k2"], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert invalid.exit_code()? == 2
     let expected = if separator == "==" { "sort: multi-character tab '=='\n" } else { "sort: multi-character tab '=a'\n" }
@@ -619,7 +624,7 @@ test test_sort_field_separator_is_the_long_form_of_t { |ctx|
   let input = b"b:2\na:1\nc:3\n"
   for args in [["--field-separator=:", "-k2"], ["--field-separator", ":", "-k2"], ["-t:", "--field-separator=:", "-k2"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b"a:1\nb:2\nc:3\n"
@@ -627,7 +632,7 @@ test test_sort_field_separator_is_the_long_form_of_t { |ctx|
   }
 
   let null_separator = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--field-separator=\\0", "-k2"], root,
+    [ctx.xsh_bin, "--", script, "--field-separator=\\0", "-k2"], root,
     {LC_ALL: "C"}, b"a\0z\nb\0a\n", stdout, stderr))?
   assert null_separator.exit_code()? == 0
   assert stdout.read_bytes()? == b"b\0a\na\0z\n"
@@ -637,7 +642,7 @@ test test_sort_field_separator_is_the_long_form_of_t { |ctx|
     {args: ["-t:", "--field-separator=,"], message: "sort: incompatible tabs\n"},
   ] {
     let invalid = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + case.args, root,
+      [ctx.xsh_bin, "--", script, @case.args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert invalid.exit_code()? == 2
     assert stderr.read_text()? == case.message, case.message
@@ -653,7 +658,7 @@ test test_sort_parallel_is_validated_and_does_not_change_output { |ctx|
   let input = b"b\na\n"
   for value in ["1", "+2", " 3", "\t4", "4096"] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), f"--parallel={value}"], root,
+      [ctx.xsh_bin, "--", script, f"--parallel={value}"], root,
       {LC_ALL: "C"}, input, stdout, stderr))?
     assert result.exit_code()? == 0, value
     assert stdout.read_bytes()? == b"a\nb\n", value
@@ -661,7 +666,7 @@ test test_sort_parallel_is_validated_and_does_not_change_output { |ctx|
   }
 
   let separate = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--parallel", "2"], root,
+    [ctx.xsh_bin, "--", script, "--parallel", "2"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert separate.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\nb\n"
@@ -677,7 +682,7 @@ test test_sort_parallel_is_validated_and_does_not_change_output { |ctx|
     ["2 ", "sort: invalid suffix in --parallel argument '2 '\n"],
   ] {
     let invalid = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), f"--parallel={case[0]}"], root,
+      [ctx.xsh_bin, "--", script, f"--parallel={case[0]}"], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert invalid.exit_code()? == 2, case[0]
     assert stderr.read_text()? == case[1], case[0]
@@ -685,7 +690,7 @@ test test_sort_parallel_is_validated_and_does_not_change_output { |ctx|
   }
 
   let later_invalid = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--parallel=2", "--parallel=x"], root,
+    [ctx.xsh_bin, "--", script, "--parallel=2", "--parallel=x"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert later_invalid.exit_code()? == 2
   assert stderr.read_text()? == "sort: invalid --parallel argument 'x'\n"
@@ -699,7 +704,7 @@ test test_sort_key_option_suffixes_and_blank_boundaries { |ctx|
   let numeric_input = b"aa 3 cc\ndd 1 ff\ngg 2 cc\n"
   for args in [["-k", "2,2n"], ["-k", "2n,2"], ["-k", "2,2", "-n"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, numeric_input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b"dd 1 ff\ngg 2 cc\naa 3 cc\n"
@@ -709,7 +714,7 @@ test test_sort_key_option_suffixes_and_blank_boundaries { |ctx|
   let blank_start_input = b"aa   3 cc\ndd  1 ff\ngg         2 cc\n"
   for args in [["-k", "2b,2"], ["-k", "2,2", "-b"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, blank_start_input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b"dd  1 ff\ngg         2 cc\naa   3 cc\n"
@@ -717,7 +722,7 @@ test test_sort_key_option_suffixes_and_blank_boundaries { |ctx|
   }
 
   let blank_end = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-k", "1,2.1b", "-s"], root,
+    [ctx.xsh_bin, "--", script, "-k", "1,2.1b", "-s"], root,
     {LC_ALL: "C"}, b"a  b\na b\na   b\n", stdout, stderr))?
   assert blank_end.exit_code()? == 0
   assert stdout.read_bytes()? == b"a   b\na  b\na b\n"
@@ -741,7 +746,7 @@ test test_sort_key_spec_rejects_invalid_numbers_and_characters { |ctx|
   ]
   for case in cases {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), "-k", case[0]], root,
+      [ctx.xsh_bin, "--", script, "-k", case[0]], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2
     assert stderr.read_text()? == f"sort: {case[1]}\n"
@@ -750,7 +755,7 @@ test test_sort_key_spec_rejects_invalid_numbers_and_characters { |ctx|
 }
 
 test test_sort_merge_reports_stdout_write_failure { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "sort-merge-write-failure")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let first = fp"{root}/first"
@@ -760,7 +765,7 @@ test test_sort_merge_reports_stdout_write_failure { |ctx|
   first.write("a\n")
   second.write("b\n")
   let status = process.run(process.command_argv(p"/bin/sh",
-    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin.display(), "--", script.display(), "-m", first.display(), second.display()],
+    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin, "--", script, "-m", first, second],
     root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert status.exit_code()? == 2, stderr.read_text()?
   assert stderr.read_text()? == "sort: fflush failed: 'standard output': No space left on device\nsort: write error\n"
@@ -774,7 +779,7 @@ test test_sort_general_numeric_hexadecimal_values { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"0x123\n0x0\n0x2p10\n0x9p-10\n"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-g"], root,
+    [ctx.xsh_bin, "--", script, "-g"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"0x0\n0x9p-10\n0x123\n0x2p10\n"
@@ -788,7 +793,7 @@ test test_sort_general_numeric_mode_aliases_and_conflict { |ctx|
   let stderr = fp"{root}/stderr"
   for mode in ["--sort=g", "--sort=general", "--sort=general-numeric", "--sort=general-numeri"] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), mode], root,
+      [ctx.xsh_bin, "--", script, mode], root,
       {LC_ALL: "C"}, b"1e2\n2\n", stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b"2\n1e2\n"
@@ -796,7 +801,7 @@ test test_sort_general_numeric_mode_aliases_and_conflict { |ctx|
   }
 
   let conflict = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-ng"], root,
+    [ctx.xsh_bin, "--", script, "-ng"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert conflict.exit_code()? == 2
   assert stderr.read_text()? == "sort: options '-gn' are incompatible\n"
@@ -809,7 +814,7 @@ test test_sort_general_numeric_unique_compares_values { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-gu"], root,
+    [ctx.xsh_bin, "--", script, "-gu"], root,
     {LC_ALL: "C"}, b"1.0\n1\n1e0\n2\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"1.0\n2\n"
@@ -823,14 +828,14 @@ test test_sort_numeric_uses_decimal_values_and_prefixes { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"8.013\n1.444\n1.58590\n-8.90880\n1.040000000\n-.05\n10x\n2x\n"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n"], root,
+    [ctx.xsh_bin, "--", script, "-n"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"-8.90880\n-.05\n1.040000000\n1.444\n1.58590\n2x\n8.013\n10x\n"
   assert stderr.read_bytes()?.is_empty()
 
   let debug = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--debug", "-n"], root,
+    [ctx.xsh_bin, "--", script, "--debug", "-n"], root,
     {LC_ALL: "C"}, b"  2x\n  1x\n", stdout, stderr))?
   assert debug.exit_code()? == 0
   assert stdout.read_bytes()? == b"  1x\n  _\n____\n  2x\n  _\n____\n"
@@ -843,14 +848,14 @@ test test_sort_numeric_preserves_decimal_precision_and_uniqueness { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let precise = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n"], root,
+    [ctx.xsh_bin, "--", script, "-n"], root,
     {LC_ALL: "C"}, b"1.0000000000000000002\n1.0000000000000000001\n", stdout, stderr))?
   assert precise.exit_code()? == 0
   assert stdout.read_bytes()? == b"1.0000000000000000001\n1.0000000000000000002\n"
   assert stderr.read_bytes()?.is_empty()
 
   let unique = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-nu"], root,
+    [ctx.xsh_bin, "--", script, "-nu"], root,
     {LC_ALL: "C"}, b"1e0\n1.0\n1\n", stdout, stderr))?
   assert unique.exit_code()? == 0
   assert stdout.read_bytes()? == b"1e0\n"
@@ -863,7 +868,7 @@ test test_sort_numeric_unique_debug_annotates_only_the_numeric_key { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-nu", "--debug"], root,
+    [ctx.xsh_bin, "--", script, "-nu", "--debug"], root,
     {LC_ALL: "C"}, b"4\n2\n4\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"2\n_\n4\n_\n"
@@ -877,7 +882,7 @@ test test_sort_numeric_unique_keeps_first_equal_line_when_reversed { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"1\n00000001\n576,446.890\n576,446.88800000\n"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-nur"], root,
+    [ctx.xsh_bin, "--", script, "-nur"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"576,446.890\n1\n"
@@ -890,14 +895,14 @@ test test_sort_numeric_key_character_offset { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-k1.2"], root,
+    [ctx.xsh_bin, "--", script, "-n", "-k1.2"], root,
     {LC_ALL: "C"}, b"19\n21\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"21\n19\n"
   assert stderr.read_bytes()?.is_empty()
 
   let reverse_key = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-k1r"], root,
+    [ctx.xsh_bin, "--", script, "-n", "-k1r"], root,
     {LC_ALL: "C"}, b"19\n21\n3\n", stdout, stderr))?
   assert reverse_key.exit_code()? == 0
   assert stdout.read_bytes()? == b"3\n21\n19\n"
@@ -925,7 +930,7 @@ test test_sort_numeric_key_offset_can_start_inside_utf8 { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-k1.2"], root,
+    [ctx.xsh_bin, "--", script, "-n", "-k1.2"], root,
     {LC_ALL: "C"}, b"é2\na1\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"é2\na1\n"
@@ -940,7 +945,7 @@ test test_sort_human_numeric_units_and_aliases { |ctx|
   let input = b"1G\n1000M\n999K\n1K\n1\n"
   for option in ["-h", "--human-numeric-sort", "--sort=human-numeric", "--sort=human-numeri", "--sort=human", "--sort=h"] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), option], root,
+      [ctx.xsh_bin, "--", script, option], root,
       {LC_ALL: "C"}, input, stdout, stderr))?
     assert result.exit_code()? == 0
     assert stdout.read_bytes()? == b"1\n1K\n999K\n1000M\n1G\n"
@@ -955,14 +960,14 @@ test test_sort_human_numeric_unique_and_stable_zeros { |ctx|
   let stderr = fp"{root}/stderr"
   let stable_input = b"0M\n0K\n-0K\n-P\n-0M\n"
   let stable = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-hs"], root,
+    [ctx.xsh_bin, "--", script, "-hs"], root,
     {LC_ALL: "C"}, stable_input, stdout, stderr))?
   assert stable.exit_code()? == 0
   assert stdout.read_bytes()? == stable_input
   assert stderr.read_bytes()?.is_empty()
 
   let unique = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-hu"], root,
+    [ctx.xsh_bin, "--", script, "-hu"], root,
     {LC_ALL: "C"}, b"0M\n0K\n-P\n1K\n", stdout, stderr))?
   assert unique.exit_code()? == 0
   assert stdout.read_bytes()? == b"0M\n1K\n"
@@ -976,7 +981,7 @@ test test_sort_human_numeric_option_conflicts { |ctx|
   let stderr = fp"{root}/stderr"
   for pair in [["-hn", "-hn"], ["-hg", "-gh"], ["-hd", "-dh"], ["-hi", "-hi"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), pair[0]], root,
+      [ctx.xsh_bin, "--", script, pair[0]], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2
     assert stderr.read_text()? == f"sort: options '{pair[1]}' are incompatible\n"
@@ -990,14 +995,14 @@ test test_sort_stable_preserves_equal_primary_keys { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let numeric = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-ns"], root,
+    [ctx.xsh_bin, "--", script, "-ns"], root,
     {LC_ALL: "C"}, b"1\n01\n", stdout, stderr))?
   assert numeric.exit_code()? == 0
   assert stdout.read_bytes()? == b"1\n01\n"
   assert stderr.read_bytes()?.is_empty()
 
   let folded = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-fs"], root,
+    [ctx.xsh_bin, "--", script, "-fs"], root,
     {LC_ALL: "C"}, b"a\nA\n", stdout, stderr))?
   assert folded.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\nA\n"
@@ -1011,28 +1016,28 @@ test test_sort_version_order_and_stability { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"0.1\n0.02\n0.2\n0.002\n0.3\n"
   let sorted = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-V"], root,
+    [ctx.xsh_bin, "--", script, "-V"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert sorted.exit_code()? == 0
   assert stdout.read_bytes()? == b"0.1\n0.002\n0.02\n0.2\n0.3\n"
   assert stderr.read_bytes()?.is_empty()
 
   let mode = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--sort=version"], root,
+    [ctx.xsh_bin, "--", script, "--sort=version"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert mode.exit_code()? == 0
   assert stdout.read_bytes()? == b"0.1\n0.002\n0.02\n0.2\n0.3\n"
   assert stderr.read_bytes()?.is_empty()
 
   let stable = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-V", "--stable"], root,
+    [ctx.xsh_bin, "--", script, "-V", "--stable"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert stable.exit_code()? == 0
   assert stdout.read_bytes()? == input
   assert stderr.read_bytes()?.is_empty()
 
   let leading_dots = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-V"], root,
+    [ctx.xsh_bin, "--", script, "-V"], root,
     {LC_ALL: "C"}, b".\n..\n.a\na\n0\n", stdout, stderr))?
   assert leading_dots.exit_code()? == 0
   assert stdout.read_bytes()? == b".\n..\n.a\n0\na\n"
@@ -1045,28 +1050,28 @@ test test_sort_debug_annotates_ordering_keys { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let plain = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--debug"], root,
+    [ctx.xsh_bin, "--", script, "--debug"], root,
     {LC_ALL: "C"}, b"b\na\n", stdout, stderr))?
   assert plain.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\n_\nb\n_\n"
   assert stderr.read_bytes()?.is_empty()
 
   let folded = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-f", "--debug"], root,
+    [ctx.xsh_bin, "--", script, "-f", "--debug"], root,
     {LC_ALL: "C"}, b"a\nA\n", stdout, stderr))?
   assert folded.exit_code()? == 0
   assert stdout.read_bytes()? == b"A\n_\n_\na\n_\n_\n"
   assert stderr.read_bytes()?.is_empty()
 
   let version = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-V", "--debug"], root,
+    [ctx.xsh_bin, "--", script, "-V", "--debug"], root,
     {LC_ALL: "C"}, b"\n\t\t\t1.12.4\n", stdout, stderr))?
   assert version.exit_code()? == 0
   assert stdout.read_bytes()? == b"\n^ no match for key\n^ no match for key\n>>>1.12.4\n_________\n_________\n"
   assert stderr.read_bytes()?.is_empty()
 
   let unicode = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-k2,2", "--debug"], root,
+    [ctx.xsh_bin, "--", script, "-k2,2", "--debug"], root,
     {LC_ALL: "C"}, b"é x\n", stdout, stderr))?
   assert unicode.exit_code()? == 0
   assert stdout.read_bytes()? == b"é x\n  __\n____\n"
@@ -1079,10 +1084,10 @@ test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
   let missing = fp"{root}/missing"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  fs.mkfifo(fifo, mode: 0o600)?
+  fs.mkfifo(fifo, mode: 0o600)
   let plan = process.command_argv(
     ctx.xsh_bin,
-    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/sort.xsh".display(), fifo.display(), missing.display()],
+    [ctx.xsh_bin, fp"{ctx.core_dir}/sort.xsh", fifo, missing],
     root,
     {LC_ALL: "C"},
     b"",
@@ -1104,7 +1109,7 @@ test test_sort_check_reports_first_disorder_and_silent_mode { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let failed = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--check=diagnose-first", input.display()], root,
+    [ctx.xsh_bin, "--", script, "--check=diagnose-first", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert failed.exit_code()? == 1
   assert stderr.read_text()? == f"sort: {input}:3: disorder: 2\n"
@@ -1113,7 +1118,7 @@ test test_sort_check_reports_first_disorder_and_silent_mode { |ctx|
   let quiet_out = fp"{root}/quiet-stdout"
   let quiet_err = fp"{root}/quiet-stderr"
   let quiet = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-C", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-C", input], root,
     {LC_ALL: "C"}, b"", quiet_out, quiet_err))?
   assert quiet.exit_code()? == 1
   assert quiet_err.read_bytes()?.is_empty()
@@ -1121,7 +1126,7 @@ test test_sort_check_reports_first_disorder_and_silent_mode { |ctx|
 
   let sorted_input = test.temp_file(ctx, name: "sorted-input", contents: b"1\n2\n3\n")?
   let sorted = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-c", sorted_input.display()], root,
+    [ctx.xsh_bin, "--", script, "-c", sorted_input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert sorted.exit_code()? == 0
   assert stderr.read_bytes()?.is_empty()
@@ -1135,14 +1140,14 @@ test test_sort_check_conflicting_modes_match_gnu { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-c", "-C"], root,
+    [ctx.xsh_bin, "--", script, "-c", "-C"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 2
   assert stderr.read_text()? == "sort: options '-cC' are incompatible\n"
   assert stdout.read_bytes()?.is_empty()
 
   let long_check = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--check", "-C"], root,
+    [ctx.xsh_bin, "--", script, "--check", "-C"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert long_check.exit_code()? == 2
   assert stderr.read_text()? == "sort: options '-cC' are incompatible\n"
@@ -1155,7 +1160,7 @@ test test_sort_bare_check_leaves_following_operand_as_input { |ctx|
   let stderr = fp"{root}/stderr"
   let input = test.temp_file(ctx, name: "input", contents: b"1\n3\n2\n")?
   let failed = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--check", input.display()], root,
+    [ctx.xsh_bin, "--", script, "--check", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert failed.exit_code()? == 1
   assert stderr.read_text()? == f"sort: {input}:3: disorder: 2\n"
@@ -1163,13 +1168,13 @@ test test_sort_bare_check_leaves_following_operand_as_input { |ctx|
 }
 
 test test_sort_reports_default_stdout_write_failure { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "sort-default-write-failure")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let status = process.run(process.command_argv(p"/bin/sh",
-    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin.display(), "--", script.display()],
+    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin, "--", script],
     root, {LC_ALL: "C"}, b"hello\n", stdout, stderr))?
   assert status.exit_code()? == 2, stderr.read_text()?
   assert stderr.read_text()? == "sort: fflush failed: 'standard output': No space left on device\nsort: write error\n"
@@ -1183,7 +1188,7 @@ test test_sort_debug_shows_every_tab_as_a_marker { |ctx|
   let stderr = fp"{root}/stderr"
   let input = test.temp_file(ctx, name: "input", contents: b"A\tchr10\n\tb\n")?
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-s", "--debug", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-s", "--debug", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == ">b\n__\nA>chr10\n_______\n"
@@ -1196,7 +1201,7 @@ test test_sort_debug_underline_ignores_nul_bytes { |ctx|
   let stderr = fp"{root}/stderr"
   let input = test.temp_file(ctx, name: "input", contents: b"\0\ta\n")?
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-s", "-k2b,2", "--debug", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-s", "-k2b,2", "--debug", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_bytes()? == b"\0>a\n _\n"
@@ -1209,7 +1214,7 @@ test test_sort_blank_debug_annotations_skip_leading_blanks { |ctx|
   let stderr = fp"{root}/stderr"
   let input = test.temp_file(ctx, name: "input", contents: b"  a\nb\n")?
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-b", "--debug", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-b", "--debug", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stderr.read_bytes()?.is_empty()
@@ -1223,7 +1228,7 @@ test test_sort_check_zero_terminated_records { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let failed = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-z", "-c", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-z", "-c", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert failed.exit_code()? == 1
   assert stderr.read_bytes()? == bytes.from_text(f"sort: {input}:3: disorder: 0\0")
@@ -1231,7 +1236,7 @@ test test_sort_check_zero_terminated_records { |ctx|
 
   let sorted_input = test.temp_file(ctx, name: "sorted-input", contents: b"1\x002\x003\x00")?
   let sorted = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-z", "-c", sorted_input.display()], root,
+    [ctx.xsh_bin, "--", script, "-z", "-c", sorted_input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert sorted.exit_code()? == 0
   assert stderr.read_bytes()?.is_empty()
@@ -1244,7 +1249,7 @@ test test_sort_zero_terminated_output { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-z", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-z", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\x00b\x00"
@@ -1259,7 +1264,7 @@ test test_sort_keeps_unterminated_input_files_separate { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), first.display(), second.display()], root,
+    [ctx.xsh_bin, "--", script, first, second], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\nb\nb\n"
@@ -1273,7 +1278,7 @@ test test_sort_ignores_leading_blanks_before_raw_tie_break { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-b", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-b", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\n x\nx\n z\n"
@@ -1281,7 +1286,7 @@ test test_sort_ignores_leading_blanks_before_raw_tie_break { |ctx|
 
   let unsorted = test.temp_file(ctx, name: "unsorted", contents: b" z\na\n")?
   let checked = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-b", "-c", unsorted.display()], root,
+    [ctx.xsh_bin, "--", script, "-b", "-c", unsorted], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert checked.exit_code()? == 1
   assert stderr.read_text()? == f"sort: {unsorted}:2: disorder: a\n"
@@ -1294,7 +1299,7 @@ test test_sort_version_option { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--version"], root,
+    [ctx.xsh_bin, "--", script, "--version"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0
   assert "sort" in stdout.read_text()?
@@ -1310,7 +1315,7 @@ test test_sort_output_alias_and_duplicate_rules { |ctx|
   let stderr = fp"{root}/stderr"
 
   let via_alias = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--output", alias_output.display(), input.display()], root,
+    [ctx.xsh_bin, "--", script, "--output", alias_output, input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert via_alias.exit_code()? == 0
   assert stdout.read_bytes()?.is_empty()
@@ -1318,20 +1323,20 @@ test test_sort_output_alias_and_duplicate_rules { |ctx|
   assert stderr.read_bytes()?.is_empty()
 
   let long_dash = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--output", "--dash-file", input.display()], root,
+    [ctx.xsh_bin, "--", script, "--output", "--dash-file", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert long_dash.exit_code()? == 0
   assert fp"{root}/--dash-file".read_bytes()? == b"a\nb\n"
 
   let short_dash = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-o", "--another-dash-file", input.display()], root,
+    [ctx.xsh_bin, "--", script, "-o", "--another-dash-file", input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert short_dash.exit_code()? == 0
   assert fp"{root}/--another-dash-file".read_bytes()? == b"a\nb\n"
 
   let same_output = fp"{root}/same-output"
   let repeated = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-o", same_output.display(), "-o", same_output.display(), input.display()], root,
+    [ctx.xsh_bin, "--", script, "-o", same_output, "-o", same_output, input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert repeated.exit_code()? == 0
   assert same_output.read_bytes()? == b"a\nb\n"
@@ -1339,7 +1344,7 @@ test test_sort_output_alias_and_duplicate_rules { |ctx|
   let first_output = fp"{root}/first-output"
   let second_output = fp"{root}/second-output"
   let conflicting = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-o", first_output.display(), "-o", second_output.display(), input.display()], root,
+    [ctx.xsh_bin, "--", script, "-o", first_output, "-o", second_output, input], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert conflicting.exit_code()? == 2
   assert stderr.read_text()? == "sort: multiple output files specified\n"
@@ -1352,7 +1357,7 @@ test test_sort_reports_output_open_failure { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-o", output.display()], root,
+    [ctx.xsh_bin, "--", script, "-o", output], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 2
   assert stderr.read_text()? == f"sort: open failed: {output}: No such file or directory\n"
@@ -1360,7 +1365,7 @@ test test_sort_reports_output_open_failure { |ctx|
 }
 
 test test_sort_compress_program_wraps_every_spilled_run { |ctx|
-  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  guard p"/bin/sh".exists() else { test.skip("requires /bin/sh"); return }
   let root = test.temp_dir(ctx, name: "sort-compress-spill")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -1368,13 +1373,13 @@ test test_sort_compress_program_wraps_every_spilled_run { |ctx|
   let calls = fp"{root}/calls"
   let temp = test.temp_dir(ctx, name: "sort-compress-spill-tmp")?
   let compressor = fp"{root}/compress"
-  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls.display()}\ncat\n", mode: 0o755)
+  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls}\ncat\n", mode: 0o755)
   let numbers = collect { for n in range(1, 20001) { yield f"{20001 - n}" } }
   let input = test.temp_file(ctx, name: "input", contents: bytes.from_text(numbers.join("\n") + "\n"))?
   let expected = collect { for n in range(1, 20001) { yield f"{n}" } }
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S", "10", "-T", temp.display(),
-      "--compress-program", compressor.display(), input.display()],
+    [ctx.xsh_bin, "--", script, "-n", "-S", "10", "-T", temp,
+      "--compress-program", compressor, input],
     root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == expected.join("\n") + "\n"
@@ -1385,7 +1390,7 @@ test test_sort_compress_program_wraps_every_spilled_run { |ctx|
 }
 
 test test_sort_compress_program_wraps_batched_merge_runs { |ctx|
-  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  guard p"/bin/sh".exists() else { test.skip("requires /bin/sh"); return }
   let root = test.temp_dir(ctx, name: "sort-compress-merge")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -1393,7 +1398,7 @@ test test_sort_compress_program_wraps_batched_merge_runs { |ctx|
   let calls = fp"{root}/calls"
   let temp = test.temp_dir(ctx, name: "sort-compress-merge-tmp")?
   let compressor = fp"{root}/compress"
-  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls.display()}\ncat\n", mode: 0o755)
+  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls}\ncat\n", mode: 0o755)
   let first = fp"{root}/first"
   let second = fp"{root}/second"
   let third = fp"{root}/third"
@@ -1401,8 +1406,8 @@ test test_sort_compress_program_wraps_batched_merge_runs { |ctx|
   second.write("2\n5\n")
   third.write("3\n6\n")
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-m", "--batch-size=2", "-T", temp.display(),
-      "--compress-program", compressor.display(), first.display(), second.display(), third.display()],
+    [ctx.xsh_bin, "--", script, "-n", "-m", "--batch-size=2", "-T", temp,
+      "--compress-program", compressor, first, second, third],
     root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == "1\n2\n3\n4\n5\n6\n"
@@ -1420,8 +1425,8 @@ test test_sort_compress_program_missing_is_reported_and_sorting_continues { |ctx
   let input = test.temp_file(ctx, name: "input", contents: bytes.from_text(numbers.join("\n") + "\n"))?
   let expected = collect { for n in range(1, 20001) { yield f"{n}" } }
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S", "10", "-T", temp.display(),
-      "--compress-program", "sort-no-such-compress-program", input.display()],
+    [ctx.xsh_bin, "--", script, "-n", "-S", "10", "-T", temp,
+      "--compress-program", "sort-no-such-compress-program", input],
     root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stderr.read_text()? == "sort: could not run compress program 'sort-no-such-compress-program': No such file or directory\n"
@@ -1429,7 +1434,7 @@ test test_sort_compress_program_missing_is_reported_and_sorting_continues { |ctx
 }
 
 test test_sort_compress_program_failure_stops_the_sort { |ctx|
-  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  guard p"/bin/sh".exists() else { test.skip("requires /bin/sh"); return }
   let root = test.temp_dir(ctx, name: "sort-compress-failure")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -1440,8 +1445,8 @@ test test_sort_compress_program_failure_stops_the_sort { |ctx|
   let numbers = collect { for n in range(1, 20001) { yield f"{20001 - n}" } }
   let input = test.temp_file(ctx, name: "input", contents: bytes.from_text(numbers.join("\n") + "\n"))?
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S", "10", "-T", temp.display(),
-      "--compress-program", compressor.display(), input.display()],
+    [ctx.xsh_bin, "--", script, "-n", "-S", "10", "-T", temp,
+      "--compress-program", compressor, input],
     root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 2
   assert stderr.read_text()?.ends_with("terminated abnormally\n")
@@ -1455,14 +1460,14 @@ test test_sort_legacy_plus_key_is_read_unless_posix2_forbids_it { |ctx|
   let stderr = fp"{root}/stderr"
   let input = test.temp_file(ctx, name: "input", contents: b"1 c\n2 a\n3 b\n")?
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "+1", "-2", input.display()], root,
+    [ctx.xsh_bin, "--", script, "+1", "-2", input], root,
     {LC_ALL: "C", _POSIX2_VERSION: "200809"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == "2 a\n3 b\n1 c\n"
   assert stderr.read_bytes()?.is_empty()
 
   let withdrawn = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "+1", input.display()], root,
+    [ctx.xsh_bin, "--", script, "+1", input], root,
     {LC_ALL: "C", _POSIX2_VERSION: "200112"}, b"", stdout, stderr))?
   assert withdrawn.exit_code()? == 2
   assert stderr.read_text()? == f"sort: cannot read: +1: No such file or directory\n"
@@ -1475,7 +1480,7 @@ test test_sort_legacy_plus_key_saturates_oversized_positions { |ctx|
   let stderr = fp"{root}/stderr"
   let input = test.temp_file(ctx, name: "input", contents: b"bb\naa\n")?
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "+0.18446744073709551615R", input.display()], root,
+    [ctx.xsh_bin, "--", script, "+0.18446744073709551615R", input], root,
     {LC_ALL: "C", _POSIX2_VERSION: "200809"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == "aa\nbb\n"
@@ -1498,7 +1503,7 @@ test test_sort_multi_character_tab_is_a_gnu_diagnostic { |ctx|
     {args: ["-t:", "-tab"], message: "sort: multi-character tab 'ab'\n"},
   ] {
     let invalid = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), "-k2"] + case.args, root,
+      [ctx.xsh_bin, "--", script, "-k2", @case.args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert invalid.exit_code()? == 2, case.message
     assert stderr.read_text()? == case.message, case.message
@@ -1514,7 +1519,7 @@ test test_sort_long_options_accept_unambiguous_prefixes { |ctx|
   let input = b"b:2\na:1\nc:3\n"
   for args in [["--field-sep=:", "-k2"], ["--field-sep", ":", "--ke=2,2"], ["--par=1", "--field-s=:", "--key=2"]] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      [ctx.xsh_bin, "--", script, @args], root,
       {LC_ALL: "C"}, input, stdout, stderr))?
     assert result.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_bytes()? == b"a:1\nb:2\nc:3\n"
@@ -1528,7 +1533,7 @@ test test_sort_help_prints_gnu_usage { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--he"], root,
+    [ctx.xsh_bin, "--", script, "--he"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   let text = stdout.read_text()?
@@ -1543,7 +1548,7 @@ test test_sort_unrecognized_long_option_is_a_gnu_usage_error { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--misspelled"], root,
+    [ctx.xsh_bin, "--", script, "--misspelled"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 2
   assert stderr.read_text()? == "sort: unrecognized option '--misspelled'\nTry 'sort --help' for more information.\n"
@@ -1555,7 +1560,7 @@ test test_sort_debug_general_numeric_key_consumes_only_number { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-s", "-k2g", "--debug"], root,
+    [ctx.xsh_bin, "--", fp"{ctx.core_dir}/sort.xsh", "-s", "-k2g", "--debug"], root,
     {LC_ALL: "C"}, b"a\t 1.2junk\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"a> 1.2junk\n   ___\n"
@@ -1574,7 +1579,7 @@ test test_sort_buffer_size_and_file_list_diagnostics { |ctx|
     {args: ["--files0-from", "."], message: "cannot read file names from '.'"},
   ] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display()] + case.args, root,
+      [ctx.xsh_bin, "--", script, @case.args], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert result.exit_code()? == 2
     assert stderr.read_text()? == f"sort: {case.message}\n"
@@ -1583,7 +1588,7 @@ test test_sort_buffer_size_and_file_list_diagnostics { |ctx|
 }
 
 test test_sort_merge_reports_large_stdout_write_failure { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "sort-large-merge-write-failure")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let input = fp"{root}/input"
@@ -1591,7 +1596,7 @@ test test_sort_merge_reports_large_stdout_write_failure { |ctx|
   let stderr = fp"{root}/stderr"
   input.write(text.padding(10000, "000000\n"))
   let result = process.run(process.command_argv(p"/bin/sh",
-    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin.display(), "--", script.display(), "-m", input.display()],
+    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin, "--", script, "-m", input],
     root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 2, stderr.read_text()?
   assert stderr.read_text()? == "sort: write failed: 'standard output': No space left on device\nsort: write error\n"
@@ -1604,7 +1609,7 @@ test test_sort_general_numeric_rounds_to_native_precision { |ctx|
   let stderr = fp"{root}/stderr"
   let input = b"3.000000000000000000000000000000000000000000000000000000000000000004\n3\n"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-gs"], root,
+    [ctx.xsh_bin, "--", fp"{ctx.core_dir}/sort.xsh", "-gs"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == input
@@ -1616,7 +1621,7 @@ test test_sort_general_numeric_overflow_equals_infinity { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-gu"], root,
+    [ctx.xsh_bin, "--", fp"{ctx.core_dir}/sort.xsh", "-gu"], root,
     {LC_ALL: "C"}, b"1e6000\ninf\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"1e6000\n"
@@ -1634,13 +1639,13 @@ test test_sort_general_numeric_prepares_spilled_and_merge_keys { |ctx|
   first.write(f"{finite}\nc inf\n")
   second.write("b 1\nd 1e6000\n")
   let merged = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-s", "-k2g", first.display(), second.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", "-s", "-k2g", first, second], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert merged.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == f"{finite}\nb 1\nc inf\nd 1e6000\n"
   let input = bytes.from_text(text.padding(1000, f"{finite}\nb 1\nc inf\nd 1e6000\n"))
   let spilled = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-k2g", "-u", "-S1K", "-T", root.display()], root,
+    [ctx.xsh_bin, "--", script, "-k2g", "-u", "-S1K", "-T", root], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert spilled.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == f"{finite}\nc inf\n"
@@ -1651,7 +1656,7 @@ test test_sort_general_numeric_c_locale_preserves_non_ascii_whitespace { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-gs"], root,
+    [ctx.xsh_bin, "--", fp"{ctx.core_dir}/sort.xsh", "-gs"], root,
     {LC_ALL: "C"}, b"1\n 1\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b" 1\n1\n"
@@ -1665,18 +1670,18 @@ test test_sort_locale_numeric_decimal_point_and_category_precedence { |ctx|
   let script = fp"{ctx.core_dir}/sort.xsh"
   for mode in ["-gs", "-ns", "-hs"] {
     let comma = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), mode], root,
+      [ctx.xsh_bin, "--", script, mode], root,
       {LC_ALL: "", LC_NUMERIC: "fr_FR.UTF-8", LANG: "C"}, b"1,9\n1,10\n", stdout, stderr))?
     assert comma.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_bytes()? == b"1,10\n1,9\n"
     let period = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), mode], root,
+      [ctx.xsh_bin, "--", script, mode], root,
       {LC_ALL: "fr_FR.UTF-8", LC_NUMERIC: "C"}, b"1.9\n1.10\n", stdout, stderr))?
     assert period.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_bytes()? == b"1.9\n1.10\n"
   }
   let key_only = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-k1n"], root,
+    [ctx.xsh_bin, "--", script, "-k1n"], root,
     {LC_ALL: "", LC_NUMERIC: "fr_FR.UTF-8", LANG: "C"}, b"-1,9\n-1,1\n", stdout, stderr))?
   assert key_only.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_bytes()? == b"-1,9\n-1,1\n"
@@ -1693,7 +1698,7 @@ test test_sort_locale_month_abbreviations { |ctx|
     {locale: "ja_JP.UTF-8", input: "12月\n2月\n1月\n", expected: "1月\n2月\n12月\n"},
   ] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), "-M"], root,
+      [ctx.xsh_bin, "--", script, "-M"], root,
       {LC_ALL: "", LC_TIME: case.locale, LC_NUMERIC: "C", LANG: "C"}, bytes.from_text(case.input), stdout, stderr))?
     assert result.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_text()? == case.expected
@@ -1705,7 +1710,7 @@ test test_sort_human_numeric_plus_is_not_a_number { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-hs"], root,
+    [ctx.xsh_bin, "--", fp"{ctx.core_dir}/sort.xsh", "-hs"], root,
     {LC_ALL: "C"}, b"1\n+1234\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"+1234\n1\n"
@@ -1720,7 +1725,7 @@ test test_sort_numeric_locale_grouping_uses_only_single_byte_separator { |ctx|
     {locale: "fr_FR.UTF-8", input: "12\n1 234\n", expected: "1 234\n12\n"},
   ] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-ns"], root,
+      [ctx.xsh_bin, "--", fp"{ctx.core_dir}/sort.xsh", "-ns"], root,
       {LC_ALL: case.locale}, bytes.from_text(case.input), stdout, stderr))?
     assert result.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_text()? == case.expected
@@ -1732,7 +1737,7 @@ test test_sort_key_fields_exclude_leading_blank_pseudo_field { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-s", "-k2g", "--debug"], root,
+    [ctx.xsh_bin, "--", fp"{ctx.core_dir}/sort.xsh", "-s", "-k2g", "--debug"], root,
     {LC_ALL: "C"}, b"  a 2\n  z 1\n", stdout, stderr))?
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"  z 1\n    _\n  a 2\n    _\n"
@@ -1749,7 +1754,7 @@ test test_sort_debug_locale_uses_terminal_columns { |ctx|
     {input: "á\t2\n", expected: "á>2\n  _\n"},
   ] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), "-s", "-k2g", "--debug"], root,
+      [ctx.xsh_bin, "--", script, "-s", "-k2g", "--debug"], root,
       {LC_ALL: "", LC_CTYPE: "fr_FR.UTF-8", LC_NUMERIC: "C", LANG: "C"}, bytes.from_text(case.input), stdout, stderr))?
     assert result.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_text()? == case.expected
@@ -1764,7 +1769,7 @@ test test_sort_single_byte_locale_key_offset_counts_raw_bytes { |ctx|
   let separator = bytes.from_ints([160])?
   let input = bytes.concat([separator, b"2\n", separator, b"1\n"])
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-k1.2"], root,
+    [ctx.xsh_bin, "--", script, "-n", "-k1.2"], root,
     {LC_ALL: "sv_SE"}, input, stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_bytes()? == bytes.concat([separator, b"1\n", separator, b"2\n"])
@@ -1798,7 +1803,7 @@ test test_sort_stable_byte_order_distinguishes_invalid_and_valid_utf8 { |ctx|
   let invalid = bytes.from_ints([160])?
   let valid = bytes.from_ints([194, 160])?
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-s"], root,
+    [ctx.xsh_bin, "--", script, "-s"], root,
     {LC_ALL: "C.UTF-8"}, bytes.concat([valid, b"\n", invalid, b"\n"]), stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_bytes()? == bytes.concat([invalid, b"\n", valid, b"\n"])
@@ -1830,13 +1835,13 @@ test test_sort_check_reports_invalid_record_bytes_verbatim { |ctx|
   let stderr = fp"{root}/stderr"
   let high = bytes.from_ints([255, 10, 128, 10])?
   let source = fp"{root}/input"
-  source.write(high)?
+  source.write(high)
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-c", "-s", source.display()], root,
+    [ctx.xsh_bin, "--", script, "-c", "-s", source], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 1
   assert stderr.read_bytes()? == bytes.concat([
-    bytes.from_text(f"sort: {source.display()}:2: disorder: "),
+    bytes.from_text(f"sort: {source}:2: disorder: "),
     bytes.from_ints([128])?,
     b"\n",
   ])
@@ -1851,7 +1856,7 @@ test test_sort_debug_preserves_invalid_record_bytes { |ctx|
   let high = bytes.from_ints([255])?
   let input = bytes.concat([b"a\n", high, b"\n"])
   let result = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "--debug"], root,
+    [ctx.xsh_bin, "--", script, "--debug"], root,
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_bytes()? == bytes.concat([b"a\n_\n", high, b"\n_\n"])
@@ -1866,29 +1871,31 @@ test test_sort_invalid_utf8_spill_and_merge_roundtrip { |ctx|
   let tail = bytes.from_text(["x" for _ in range(128)].join(""))
   let first = bytes.concat([b"a", high, tail])
   let second = bytes.concat([b"z", high, tail])
-  var input: List[Bytes] = []
-  var expected: List[Bytes] = []
-  for _ in range(260) {
-    input += [second, b"\n", first, b"\n"]
+  let input = collect {
+    repeat 260 times {
+      yield @[second, b"\n", first, b"\n"]
+    }
   }
-  for _ in range(260) { expected += [first, b"\n"] }
-  for _ in range(260) { expected += [second, b"\n"] }
+  let expected = collect {
+    repeat 260 times { yield @[first, b"\n"] }
+    repeat 260 times { yield @[second, b"\n"] }
+  }
   let source = fp"{root}/source"
-  source.write(bytes.concat(input))?
+  source.write(bytes.concat(input))
   let spilled = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-S", "1K", source.display()], root,
+    [ctx.xsh_bin, "--", script, "-S", "1K", source], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert spilled.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_bytes()? == bytes.concat(expected)
 
   let left = fp"{root}/left"
   let right = fp"{root}/right"
-  left.write(bytes.concat([first, b"\n", second, b"\n"]))?
+  left.write(bytes.concat([first, b"\n", second, b"\n"]))
   let third = bytes.concat([b"b", high, tail])
   let fourth = bytes.concat([b"y", high, tail])
-  right.write(bytes.concat([third, b"\n", fourth, b"\n"]))?
+  right.write(bytes.concat([third, b"\n", fourth, b"\n"]))
   let merged = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "-m", left.display(), right.display()], root,
+    [ctx.xsh_bin, "--", script, "-m", left, right], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert merged.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_bytes()? == bytes.concat([first, b"\n", third, b"\n", fourth, b"\n", second, b"\n"])

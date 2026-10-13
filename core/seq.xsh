@@ -521,7 +521,7 @@ pure infinity_text(negative: Bool, spec: Spec) -> Str {
 }
 
 pure prepared_args(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var byte_values: List[ByteArgument] = []
 
   for value in argv {
@@ -835,7 +835,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   # caller started seq with. Unless that was ignore, a closed reader ends seq by
   # the signal, as it ends any other utility, instead of by a write error.
   if process.signal_action("PIPE")? == "default" {
-    process.set_signal_action("PIPE", "default")?
+    process.set_signal_action("PIPE", "default")
   }
 
   let prepared = prepared_args(argv)

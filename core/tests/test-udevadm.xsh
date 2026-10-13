@@ -49,9 +49,9 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 # A device list in the shape sysfs presents: class links, a bus device link,
 # `dev` number links, a controller with a disk and a partition below it, a
 # network interface, and a character device, with database records for some.
-proc ensure_directory(root: FsRoot, directory: Path) [fs, error] -> Result[Unit] {
-  if ! root.exists(directory)? {
-    root.mkdir(directory, parents: true)?
+proc ensure_directory(root: FsRoot, directory: Path) [fs, error] {
+  if ! root.exists(directory) {
+    root.mkdir(directory, parents: true)
   }
 }
 
@@ -59,21 +59,21 @@ proc build_tree(ctx: TestContext) [fs, error] -> Result[Path] {
   let base = test.temp_dir(ctx, name: "udev-tree")?
   let root = fs.open_root(base)?
   for item in TREE_FILES {
-    ensure_directory(root, fp"{item.path}".dirname())?
-    root.write(fp"{item.path}", item.text)?
+    ensure_directory(root, fp"{item.path}".dirname())
+    root.write(fp"{item.path}", item.text)
   }
 
   for item in TREE_LINKS {
-    ensure_directory(root, fp"{item.path}".dirname())?
-    root.symlink(target: fp"{item.target}", path: fp"{item.path}")?
+    ensure_directory(root, fp"{item.path}".dirname())
+    root.symlink(target: fp"{item.target}", path: fp"{item.path}")
   }
 
-  ensure_directory(root, p"sys/bus/pci/drivers/ahci")?
+  ensure_directory(root, p"sys/bus/pci/drivers/ahci")
   # Class directories also hold plain files, which scans must step over.
-  root.write(p"sys/class/net/bonding_masters", "")?
+  root.write(p"sys/class/net/bonding_masters", "")
   # A write-only attribute that the walk must not read.
-  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/secret", "x")?
-  fp"{base}/sys/devices/pci0000:00/0000:00:1f.2/secret".chmod(0o200)?
+  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/secret", "x")
+  fp"{base}/sys/devices/pci0000:00/0000:00:1f.2/secret".chmod(0o200)
   Ok(base)
 }
 
@@ -84,7 +84,7 @@ proc udevadm(ctx: TestContext, tree: Path, args: List[Str]) [fs, process, error]
   let script = fp"{ctx.core_dir}/udevadm.xsh"
   let status = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), script.display(), "--"].extend(args),
-    scratch, {XSH_UDEVADM_ROOT: tree.display()}, b"", output, errors, timeout: 20s))?
+    scratch, {XSH_UDEVADM_ROOT: tree}, b"", output, errors, timeout: 20s))?
   Ok({status: status.exit_code()?, stdout: output.read_text()?, stderr: errors.read_text()?})
 }
 
@@ -177,33 +177,36 @@ test test_udevadm_info_attribute_walk_climbs_parents { |ctx|
   let ran = udevadm(ctx, tree, ["info", "-a", "-p", "/class/block/sda1"])?
   assert ran.status == 0, ran.stderr
   # eudev opens the walk with a blank line, which a block string would drop.
-  assert ran.stdout == "\n" + """Udevadm info starts with the device specified by the devpath and then
-walks up the chain of parent devices. It prints for every device
-found, all possible attributes in the udev rules key format.
-A rule to match, can be composed by the attributes of the device
-and the attributes from one single parent device.
-
-  looking at device '/devices/pci0000:00/0000:00:1f.2/block/sda/sda1':
-    KERNEL=="sda1"
-    SUBSYSTEM=="block"
-    DRIVER==""
-    ATTR{partition}=="1"
-
-  looking at parent device '/devices/pci0000:00/0000:00:1f.2/block/sda':
-    KERNELS=="sda"
-    SUBSYSTEMS=="block"
-    DRIVERS==""
-    ATTRS{ro}=="0"
-    ATTRS{size}=="41943040"
-
-  looking at parent device '/devices/pci0000:00/0000:00:1f.2':
-    KERNELS=="0000:00:1f.2"
-    SUBSYSTEMS=="pci"
-    DRIVERS=="ahci"
-    ATTRS{device}=="0x2922"
-    ATTRS{vendor}=="0x8086"
-
-"""
+  assert ran.stdout == """
+    
+    Udevadm info starts with the device specified by the devpath and then
+    walks up the chain of parent devices. It prints for every device
+    found, all possible attributes in the udev rules key format.
+    A rule to match, can be composed by the attributes of the device
+    and the attributes from one single parent device.
+    
+      looking at device '/devices/pci0000:00/0000:00:1f.2/block/sda/sda1':
+        KERNEL==\"sda1\"
+        SUBSYSTEM==\"block\"
+        DRIVER==\"\"
+        ATTR{partition}==\"1\"
+    
+      looking at parent device '/devices/pci0000:00/0000:00:1f.2/block/sda':
+        KERNELS==\"sda\"
+        SUBSYSTEMS==\"block\"
+        DRIVERS==\"\"
+        ATTRS{ro}==\"0\"
+        ATTRS{size}==\"41943040\"
+    
+      looking at parent device '/devices/pci0000:00/0000:00:1f.2':
+        KERNELS==\"0000:00:1f.2\"
+        SUBSYSTEMS==\"pci\"
+        DRIVERS==\"ahci\"
+        ATTRS{device}==\"0x2922\"
+        ATTRS{vendor}==\"0x8086\"
+    
+    
+    """
   # Multi-line, unprintable, write-only, and link attributes are not printed.
   let lo = udevadm(ctx, tree, ["info", "-a", "-p", "/class/net/lo"])?.stdout
   assert "ATTR{mtu}==\"65536\"" in lo
@@ -225,10 +228,10 @@ test test_udevadm_info_export_db_lists_scanned_devices_and_cleanup_removes_recor
     "P: /devices/virtual/net/lo",
   ]
   fp"{tree}/run/udev/queue.bin".write("")
-  fp"{tree}/run/udev/links/disk/by-uuid".mkdir(parents: true)?
+  fp"{tree}/run/udev/links/disk/by-uuid".mkdir()
   fp"{tree}/run/udev/links/disk/by-uuid/1234".write("")
   let sticky = fp"{tree}/run/udev/data/c1:3"
-  sticky.chmod(0o1644)?
+  sticky.chmod(0o1644)
   let cleaned = udevadm(ctx, tree, ["info", "-c"])?
   assert cleaned.status == 0, cleaned.stderr
   assert ! fp"{tree}/run/udev/queue.bin".exists()?
@@ -383,7 +386,7 @@ test test_udevadm_settle_waits_for_queue_until_timeout_or_marker { |ctx|
   marker.write("")
   let stopped = udevadm(ctx, tree, ["settle", "-t", "5", "-E", marker.display()])?
   assert stopped.status == 0, stopped.stderr
-  fp"{tree}/run/udev/queue".remove()?
+  fp"{tree}/run/udev/queue".remove()
   assert udevadm(ctx, tree, ["settle", "-t", "5"])?.status == 0
 }
 
@@ -403,8 +406,15 @@ test test_udevadm_settle_rejects_bad_timeout_and_extra_operands { |ctx|
 test test_udevadm_monitor_prints_kernel_events_from_the_uevent_stream { |ctx|
   let source = fp"{ctx.core_dir}/udevadm.xsh".read_text()?
   test.linux_fake(ctx, {})
-  let plain = test.run_script(ctx, source, ["monitor"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "udevadm")?
-  assert plain.success, plain.stderr
+  let plain = test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["monitor"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "udevadm",
+  )?
   let lines = plain.stdout.lines().collect()
   assert lines[0] == "monitor will print the received events for:"
   assert lines[1] == "KERNEL - the kernel uevent"
@@ -412,8 +422,15 @@ test test_udevadm_monitor_prints_kernel_events_from_the_uevent_stream { |ctx|
   assert lines[3].starts_with("KERNEL[")
   assert lines[3].ends_with("] add      /devices/virtual/block/sda (block)")
 
-  let detailed = test.run_script(ctx, source, ["monitor", "-k", "-p"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "udevadm")?
-  assert detailed.success, detailed.stderr
+  let detailed = test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["monitor", "-k", "-p"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "udevadm",
+  )?
   assert detailed.stdout.ends_with("ACTION=add\nDEVNAME=sda\nDEVPATH=/devices/virtual/block/sda\nSUBSYSTEM=block\n\n")
 
   let filtered = test.run_script(ctx, source, ["monitor", "-s", "net"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "udevadm")?

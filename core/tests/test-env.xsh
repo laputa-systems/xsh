@@ -1,6 +1,6 @@
 type EnvResult = {status: Int, stdout: Str, stderr: Str}
 
-proc env_run(ctx: TestContext, args: List[Str], unset_probe: Bool = false) [fs, process, error] -> Result[EnvResult] {
+proc env_run(ctx: TestContext, args: List[Str], unset_probe = false) [fs, process, error] -> Result[EnvResult] {
   let root = test.temp_dir(ctx, name: "env-argv")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -77,11 +77,11 @@ test test_env_forwards_non_utf8_command_arguments { |ctx|
   let raw_format_stderr = fp"{root}/raw-format-stderr"
   let printf = fp"{ctx.core_dir}/printf.xsh"
   let env_script = fp"{ctx.core_dir}/env.xsh"
-  let invalid = Path.parse_bytes(b"\xff")?
-  let argv: List[Path] = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, p"%s", invalid]
+  let invalid = b"\xff" as Path
+  let argv = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, p"%s", invalid]
   let status = process.run(process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr))?
-  let raw_format = Path.parse_bytes(b"Swer \xff")?
-  let raw_format_argv: List[Path] = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, raw_format]
+  let raw_format = b"Swer \xff" as Path
+  let raw_format_argv = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, raw_format]
   let raw_format_status = process.run(process.command_argv(ctx.xsh_bin, raw_format_argv, root, {LC_ALL: "C"}, b"", raw_format_stdout, raw_format_stderr))?
 
   assert status.exit_code()? == 0
@@ -101,15 +101,30 @@ test test_env_split_string_rejects_unsupported_variable_syntax { |ctx|
 
   assert missing_brace.status == 125
   assert missing_brace.stdout == ""
-  assert missing_brace.stderr == r"env: only ${VARNAME} expansion is supported, error at: ${FOO" + "\n"
+  assert missing_brace.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \${FOO
+    
+    """
   assert default_value.status == 125
-  assert default_value.stderr == r"env: only ${VARNAME} expansion is supported, error at: ${FOO:-value}" + "\n"
+  assert default_value.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \${FOO:-value}
+    
+    """
   assert digit_name.status == 125
-  assert digit_name.stderr == r"env: only ${VARNAME} expansion is supported, error at: ${1FOO}" + "\n"
+  assert digit_name.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \${1FOO}
+    
+    """
   assert unexpected_character.status == 125
-  assert unexpected_character.stderr == r"env: only ${VARNAME} expansion is supported, error at: ${FOO?}" + "\n"
+  assert unexpected_character.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \${FOO?}
+    
+    """
   assert unbraced.status == 125
-  assert unbraced.stderr == r"env: only ${VARNAME} expansion is supported, error at: $TEST_VAR_12345" + "\n"
+  assert unbraced.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \$TEST_VAR_12345
+    
+    """
 }
 
 test test_env_split_string_double_quoted_escape_reports_backslash { |ctx|
@@ -343,7 +358,7 @@ test test_env_block_signal_validates_names_and_blocks_them_in_the_command { |ctx
   assert invalid.status == 125
   assert "'__ALL__': invalid signal" in invalid.stderr, invalid.stderr
 
-  if ! p"/proc/self/status".exists()? {
+  if ! p"/proc/self/status".exists() {
     test.skip("the host has no /proc/self/status")
   }
 
@@ -361,7 +376,7 @@ test test_env_block_signal_validates_names_and_blocks_them_in_the_command { |ctx
 test test_env_passes_non_utf8_values_through_unchanged { |ctx|
   let root = test.temp_dir(ctx, name: "env-raw")?
   let stdout = fp"{root}/stdout"
-  let raw = Path.parse_bytes(b"a\x80b")?
+  let raw = b"a\x80b" as Path
   let argv = [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/env.xsh".display()]
   let listed = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", PATH: "/bin:/usr/bin", RAW_VALUE: raw}, b"", stdout, fp"{root}/stderr")
   assert process.run(listed)?.exit_code()? == 0

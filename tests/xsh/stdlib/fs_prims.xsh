@@ -624,7 +624,7 @@ test test_copy_file_never_clones_by_default { |ctx|
 
 test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
   let source = /proc/version
-  if ! source.exists()? {
+  if ! source.exists() {
     test.skip("procfs is unavailable")
     return
   }
@@ -633,10 +633,10 @@ test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
   let proc_root = fs.open_root(/proc)?
   let expected = proc_root.read_bytes(p"version")?
   assert fs.stat(source)?.size == 0
-  assert expected.len() > 0
+  assert ! expected.is_empty()
   for sparse in ["auto", "always", "never"] {
     let dest = fp"{root}/{sparse}"
-    let report = fs.copy_file(source, dest, sparse: sparse, reflink: "auto")?
+    let report = fs.copy_file(source, dest, sparse:, reflink: "auto")?
     if sparse == "always" {
       assert report.offload_error == null
     } else {
@@ -650,7 +650,7 @@ test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
 
 test test_copy_file_does_not_pad_sysfs_files_to_their_reported_size { |ctx|
   let source = /sys/kernel/uevent_seqnum
-  if ! source.exists()? {
+  if ! source.exists() {
     test.skip("sysfs is unavailable")
     return
   }
@@ -658,10 +658,10 @@ test test_copy_file_does_not_pad_sysfs_files_to_their_reported_size { |ctx|
   let root = test.temp_dir(ctx, name: "fs-copy-sys")?
   for sparse in ["auto", "always", "never"] {
     let dest = fp"{root}/{sparse}"
-    let report = fs.copy_file(source, dest, sparse: sparse)?
+    let report = fs.copy_file(source, dest, sparse:)?
     let content = dest.read_bytes()?
     assert report.bytes == content.len()
-    assert content.len() > 0
+    assert ! content.is_empty()
     assert content.len() < fs.stat(source)?.size
     assert dest.read_text()?.ends_with("\n")
     assert ! (b"\0" in content)
@@ -710,14 +710,14 @@ test test_copy_file_streams_to_devices_without_truncating_or_claiming_holes { |c
   let payload = bytes.concat([bytes.zero(65536)?, b"payload"])
   source.write(payload)
   for sparse in ["auto", "always", "never"] {
-    let report = fs.copy_file(source, /dev/null, sparse: sparse, reflink: "auto")?
+    let report = fs.copy_file(source, /dev/null, sparse:, reflink: "auto")?
     assert report.bytes == payload.len()
     assert report.hole_bytes == 0
     assert report.method == "read_write"
     assert fs.stat(/dev/null)?.kind == "char"
   }
   assert fs.copy_file(source, /dev/null, reflink: "always") is Err(_)
-  if p"/dev/full".exists()? {
+  if p"/dev/full".exists() {
     let full = fs.copy_file(source, /dev/full)
     assert full is Err(_)
     if let Err(failure) = full {
@@ -729,7 +729,7 @@ test test_copy_file_streams_to_devices_without_truncating_or_claiming_holes { |c
 
 test test_copy_file_reflink_always_reports_the_kernel_errno_for_devices { |ctx|
   let root = test.temp_dir(ctx, name: "fs-copy-reflink-device")?
-  if p"/dev/full".exists()? {
+  if p"/dev/full".exists() {
     let device = fs.copy_file(/dev/null, /dev/full, reflink: "always")
     assert device is Err(_)
     test.error_kind(device, "fs-copy")
@@ -841,14 +841,13 @@ test test_copy_file_force_replaces_only_proven_final_symlink_loops { |ctx|
 }
 
 test test_copy_file_reports_cross_device_fallback_without_replacing_or_losing_bytes { |ctx|
-  if system.uname()?.sysname != "Linux" or ! p"/dev/shm".exists()? {
+  if system.uname()?.sysname != "Linux" or ! p"/dev/shm".exists() {
     test.skip("cross-device fallback requires Linux tmpfs")
     return
   }
   let root = test.temp_dir(ctx, name: "copy-cross-device")?
   let remote = fs.tempdir_in(/dev/shm)?
-  defer remote.close()
-  let remote_path = remote.host_path()?
+    let remote_path = remote.host_path()?
   if fs.stat(root)?.dev == fs.stat(remote_path)?.dev {
     test.skip("test root and tmpfs share a device")
     return

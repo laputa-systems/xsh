@@ -171,7 +171,7 @@ proc decimal_number(text: Str, status: Int) [process] -> Int {
 proc parse_request(argv: List[Str]) [process, io, env] -> Request {
   var values: Map[Str] = {}
   var flags: Set[Str] = set.empty()
-  var operands: List[Str] = []
+  var operands = []
   var at = 0
   var verbose = false
   while at < argv.len() {
@@ -182,7 +182,7 @@ proc parse_request(argv: List[Str]) [process, io, env] -> Request {
       let body = word.byte_slice(2)
       let equals = body.find("=")
       let name = if equals == null { body } else { body.byte_slice(0, equals) }
-      var matches: List[Str] = []
+      var matches = []
       for candidate in LONG.keys() {
         if candidate == name { matches = [candidate]; break }
         if candidate.starts_with(name) and name != "" { matches += [candidate] }
@@ -231,31 +231,17 @@ proc parse_request(argv: List[Str]) [process, io, env] -> Request {
   if "help" in flags { gnu.write_text(USAGE); exit 0 }
   if "version" in flags { gnu.write_text("version 18\n"); exit 0 }
   if "driver" in flags and "sysprep" in flags { stop(25, "efibootmgr: --sysprep and --driver may not be used together.") }
-  var bootnum: Int? = null
-  var bootnext: Int? = null
-  var timeout: Int? = null
-  var index: Int? = null
-  var part: Int? = null
+  var bootnum = null
+  var bootnext = null
+  var timeout = null
+  var index = null
+  var part = null
   if "bootnum" in values { bootnum = hex_number(values["bootnum"], "bootnum", 28, 29) }
   if "bootnext" in values { bootnext = hex_number(values["bootnext"], "BootNext", 35, 36) }
   if "timeout" in values { timeout = (decimal_number(values["timeout"], 38) % 65536 + 65536) % 65536 }
   if "index" in values { index = decimal_number(values["index"], 1) }
   if "part" in values { part = decimal_number(values["part"], 38) }
-  let request: Request = {
-    activate: "active" in flags, deactivate: "inactive" in flags, bootnum: bootnum,
-    delete: "delete-bootnum" in flags, create: "create" in flags, create_only: "create-only" in flags,
-    disk: if "disk" in values { values["disk"] } else { null }, remove_dups: "remove-dups" in flags,
-    reconnect: "reconnect" in flags, no_reconnect: "no-reconnect" in flags, index: index,
-    loader: if "loader" in values { values["loader"] } else { null },
-    label: if "label" in values { values["label"] } else { null }, bootnext: bootnext,
-    delete_bootnext: "delete-bootnext" in flags, bootorder: if "bootorder" in values { values["bootorder"] } else { null },
-    delete_bootorder: "delete-bootorder" in flags, part: part, quiet: "quiet" in flags,
-    driver: "driver" in flags, sysprep: "sysprep" in flags, timeout: timeout,
-    delete_timeout: "delete-timeout" in flags, unicode: "unicode" in flags, verbose: verbose,
-    file_dev_path: "file-dev-path" in flags,
-    append_file: if "append-binary-args" in values { values["append-binary-args"] } else { null },
-    operands: operands,
-  }
+  let request: Request = Request(activate: "active" in flags, deactivate: "inactive" in flags, bootnum:, delete: "delete-bootnum" in flags, create: "create" in flags, create_only: "create-only" in flags, disk: if "disk" in values { values["disk"] } else { null }, remove_dups: "remove-dups" in flags, reconnect: "reconnect" in flags, no_reconnect: "no-reconnect" in flags, index:, loader: if "loader" in values { values["loader"] } else { null }, label: if "label" in values { values["label"] } else { null }, bootnext:, delete_bootnext: "delete-bootnext" in flags, bootorder: if "bootorder" in values { values["bootorder"] } else { null }, delete_bootorder: "delete-bootorder" in flags, part:, quiet: "quiet" in flags, driver: "driver" in flags, sysprep: "sysprep" in flags, timeout:, delete_timeout: "delete-timeout" in flags, unicode: "unicode" in flags, verbose:, file_dev_path: "file-dev-path" in flags, append_file: if "append-binary-args" in values { values["append-binary-args"] } else { null }, operands:)
   request
 }
 
@@ -272,7 +258,7 @@ proc read_u16(store: efi.Store, name: Str) [fs, error] -> Result[Int?, Error] {
 }
 
 proc show(store: efi.Store, family: efi.Family, request: Request) [fs, error, process, io, env] {
-  var lines: List[Str] = []
+  var lines = []
   let names = efi.entry_names(store, family)?
   var lowercase = false
   for item in names { if item.lower { lowercase = true } }
@@ -374,7 +360,7 @@ proc option_of(store: efi.Store, name: Str) [fs, process, error] -> efi.LoadOpti
 }
 
 proc delete_entries(store: efi.Store, family: efi.Family, request: Request, names: List[efi.Named]) [fs, process, error] {
-  var numbers: List[Int] = []
+  var numbers = []
   if request.bootnum != null {
     numbers = [request.bootnum]
   } else if request.label != null {
@@ -493,7 +479,7 @@ proc change_entry(store: efi.Store, family: efi.Family, request: Request, names:
 # Parses `-o`: comma-separated hex entry numbers, each of which must name a
 # stored entry. Diagnostics point at the offending element.
 proc parse_order_list(text: Str, family: efi.Family, names: List[efi.Named]) [process] -> List[Int] {
-  var numbers: List[Int] = []
+  var numbers = []
   var offset = 0
   for token in text.split(",") {
     if token == "" { malformed(f"Malformed {family.order} order", text, offset, 8) }
@@ -571,7 +557,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if request.activate or request.deactivate or request.reconnect or request.no_reconnect { change_entry(store, family, request, names) }
   if request.remove_dups {
     let order = read_order_or_stop(store, family)
-    var unique: List[Int] = []
+    var unique = []
     for number in order { if number not in unique { unique += [number] } }
     if unique.len() != order.len() { store_order(store, family, unique) }
   }

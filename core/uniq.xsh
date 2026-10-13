@@ -280,9 +280,7 @@ proc print_counted_group(line: Bytes, count: Int, select: Selection, mark: Bytes
 proc count_record(state: CountState, line: Bytes, key: Key, select: Selection, mark: Bytes) [error, process, env, io] -> CountState {
   let compare = key_of(line, key)
 
-  if state.active and compare == state.compare {
-    return {...state, count: state.count + 1}
-  }
+  return {...state, count: state.count + 1} when state.active and compare == state.compare
 
   let printed = if state.active {
     print_counted_group(state.line, state.count, select, mark, state.printed)
@@ -402,7 +400,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     var offset = 0
     var pending = b""
-    var state: CountState = {line: b"", compare: b"", count: 0, printed: 0, active: false}
+    var state: CountState = CountState(line: b"", compare: b"", count: 0, printed: 0, active: false)
 
     loop {
       guard let chunk = tio.read_chunk(source, offset) else { |failure|
@@ -487,8 +485,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let records = split_records(data, sep)?
-  var out: List[Bytes] = []
-  var bunch: List[Bytes] = []
+  var out = []
+  var bunch = []
   var group_key = b""
   var printed = 0
 
@@ -503,7 +501,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     if ! bunch.is_empty() {
       let size = bunch.len()
-      var lines: List[Bytes] = []
+      var lines = []
 
       if select.group {
         lines = bunch

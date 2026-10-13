@@ -1,10 +1,10 @@
 ##! Transcribed from the uutils coreutils integration tests for tsort.
 
-use support.uu as uu
+use support.uu
 
 proc tsort_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "tsort", "call_graph.txt", "call_graph.txt")?
+  uu.fixture(s, "tsort", "call_graph.txt", "call_graph.txt")
   Ok(s)
 }
 
@@ -20,7 +20,7 @@ test test_uu_tsort_cycle { |ctx|
 # origin: uutils test_tsort::test_cycle_loop_from_file
 test test_uu_tsort_cycle_loop_from_file { |ctx|
   let s = tsort_scene(ctx)?
-  uu.write(s, "f", "t b\nt s\ns t\n")?
+  uu.write(s, "f", "t b\nt s\ns t\n")
   let r = uu.invoke(s, "tsort", ["f"], stdin: bytes.from_text(""))?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "s\nt\nb\n")
@@ -30,7 +30,7 @@ test test_uu_tsort_cycle_loop_from_file { |ctx|
 # origin: uutils test_tsort::test_cycle_loop_multiple_loops_from_file
 test test_uu_tsort_cycle_loop_multiple_loops_from_file { |ctx|
   let s = tsort_scene(ctx)?
-  uu.write(s, "f", "a a\na b\na c\nc a\nb a\n")?
+  uu.write(s, "f", "a a\na b\na c\nc a\nb a\n")
   let r = uu.invoke(s, "tsort", ["f"], stdin: bytes.from_text(""))?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "a\nc\nb\n")
@@ -40,7 +40,7 @@ test test_uu_tsort_cycle_loop_multiple_loops_from_file { |ctx|
 # origin: uutils test_tsort::test_cycle_loop_with_extra_node_from_file
 test test_uu_tsort_cycle_loop_with_extra_node_from_file { |ctx|
   let s = tsort_scene(ctx)?
-  uu.write(s, "f", "t x\nt s\ns t\n")?
+  uu.write(s, "f", "t x\nt s\ns t\n")
   let r = uu.invoke(s, "tsort", ["f"], stdin: bytes.from_text(""))?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "s\nt\nx\n")
@@ -50,7 +50,7 @@ test test_uu_tsort_cycle_loop_with_extra_node_from_file { |ctx|
 # origin: uutils test_tsort::test_error_on_dir
 test test_uu_tsort_error_on_dir { |ctx|
   let s = tsort_scene(ctx)?
-  uu.mkdir(s, "tsort_test_dir")?
+  uu.mkdir(s, "tsort_test_dir")
   let r = uu.invoke(s, "tsort", ["tsort_test_dir"])?
   uu.fails(r)
   uu.stderr_contains(r, "tsort: tsort_test_dir: read error: Is a directory")
@@ -78,7 +78,7 @@ test test_uu_tsort_invalid_arg { |ctx|
 # origin: uutils test_tsort::test_invalid_utf8_input
 test test_uu_tsort_invalid_utf8_input { |ctx|
   let s = tsort_scene(ctx)?
-  uu.write_bytes(s, "a", b"hrllo\nawuyues\napple\niphone\niphone\na\n\xff\n\xff\n")?
+  uu.write_bytes(s, "a", b"hrllo\nawuyues\napple\niphone\niphone\na\n\xff\n\xff\n")
   let r = uu.invoke(s, "tsort", ["a"])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"apple\nhrllo\n\xff\niphone\nawuyues\na\n")
@@ -148,8 +148,8 @@ test test_uu_tsort_odd_number_of_tokens { |ctx|
 # origin: uutils test_tsort::test_only_one_input_file
 test test_uu_tsort_only_one_input_file { |ctx|
   let s = tsort_scene(ctx)?
-  uu.touch(s, "f")?
-  uu.touch(s, "g")?
+  uu.touch(s, "f")
+  uu.touch(s, "g")
   let r = uu.invoke(s, "tsort", ["f", "g"])?
   uu.fails_with_code(r, 1)
   uu.stderr_only(r, "tsort: extra operand 'g'\nTry 'tsort --help' for more information.\n")
@@ -201,8 +201,8 @@ test test_uu_tsort_split_on_any_whitespace { |ctx|
 # origin: uutils test_tsort::test_tsort_non_utf8_paths
 test test_uu_tsort_tsort_non_utf8_paths { |ctx|
   let s = tsort_scene(ctx)?
-  let name = Path.parse_bytes(b"\xff\xfe")?
-  uu.at_bytes(s, b"\xff\xfe")?.write(b"a b\nb c\n")?
+  let name = b"\xff\xfe" as Path
+  uu.at_bytes(s, b"\xff\xfe")?.write(b"a b\nb c\n")
   let r = uu.invoke_paths(s, "tsort", [name])?
   uu.succeeds(r)
   uu.stdout_is(r, "a\nb\nc\n")
@@ -232,7 +232,7 @@ test test_uu_tsort_version_flag { |ctx|
 # origin: uutils test_tsort::test_write_error
 test test_uu_tsort_write_error { |ctx|
   let s = tsort_scene(ctx)?
-  uu.write(s, "input", "a d\n")?
+  uu.write(s, "input", "a d\n")
   let r = uu.invoke(s, "tsort", ["input"], stdout: p"/dev/full")?
   uu.fails(r)
   uu.stderr_contains(r, "write error")

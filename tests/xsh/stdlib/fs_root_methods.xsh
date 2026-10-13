@@ -2,8 +2,7 @@ test fs_root_methods_keep_child_independent_after_parent_close { |ctx|
   let root = fs.open_root(test.temp_dir(ctx, name: "root-methods")?)?
   root.mkdir(p"child")
   let child = root.open_root(p"child")?
-  defer child.close()
-  let erased: Any = root
+    let erased: Any = root
   let validated = erased.require(FsRoot)?
   validated.close()
   child.write(p"data", "payload")
@@ -19,12 +18,12 @@ test fs_tempdir_in_creates_a_private_child_and_removes_it_on_close { |ctx|
   let root_path = root.host_path()?
 
   assert fs.stat(root_path)?.mode.bit_and(0o777) == 0o700
-  root.write(p"chunk", "data")?
-  root.chmod(p"chunk", 0o600)?
+  root.write(p"chunk", "data")
+  root.chmod(p"chunk", 0o600)
   assert fs.stat(fp"{root_path}/chunk")?.mode.bit_and(0o777) == 0o600
   assert (fs.children(parent)? |> count()) == 1
 
-  root.close()?
+  root.close()
   assert (fs.children(parent)? |> count()) == 0
 }
 

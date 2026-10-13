@@ -45,8 +45,9 @@ export pure words(command: Int, values: List[Int]) -> Result[Bytes, Error] {
 
 ## The 32-bit words of a reply, starting after the command word.
 export pure unwords(data: Bytes, count: Int) -> Result[List[Int], Error] {
-  var found: List[Int] = []
-  for index in range(count) { found += [bytes.unpack_le(data, 4, 4 + index * 4)?] }
+  let found = collect {
+    for index in range(count) { yield bytes.unpack_le(data, 4, 4 + index * 4)? }
+  }
   Ok(found)
 }
 
@@ -61,8 +62,9 @@ export pure text_field(data: Bytes, at: Int, length: Int) -> Result[Str, Error] 
 ## Kernel strings of a string set: `count` fixed 32-byte entries after the
 ## three-word `ethtool_gstrings` header.
 export pure string_set(data: Bytes, count: Int) -> Result[List[Str], Error] {
-  var found: List[Str] = []
-  for index in range(count) { found += [text_field(data, 12 + index * 32, 32)?] }
+  let found = collect {
+    for index in range(count) { yield text_field(data, 12 + index * 32, 32)? }
+  }
   Ok(found)
 }
 
@@ -187,7 +189,7 @@ pure flag_of(name: Str) -> Int {
 ## feature itself, or every feature of an offload flag named by its short or
 ## long name. A flag the kernel has no feature for expands to nothing.
 export pure feature_names(word: Str, known: List[Str]) -> List[Str] {
-  if word in known { return [word] }
+  return [word] when word in known
 
   for index in range(FLAGS.len()) {
     if FLAGS[index].short == word or FLAGS[index].long == word {
@@ -287,7 +289,7 @@ export type Outcome = {lines: List[Str], changed: Bool, unsatisfied: Bool}
 
 ## Compares feature states before and after a `-K` request; see `Outcome`.
 export pure features_outcome(before: List[Feature], after: List[Feature], wanted: Map[Int, Bool]) -> Outcome {
-  var lines: List[Str] = []
+  var lines = []
   var changed = false
   var unsatisfied = false
   var noted = false
@@ -350,12 +352,13 @@ export pure drvinfo_lines(info: Driver) -> List[Str] {
 ## is reported as not set.
 export pure permaddr_line(reply: Bytes) -> Result[Str, Error] {
   let size = bytes.unpack_le(reply, 4, 4)?
-  var parts: List[Str] = []
   var any = false
-  for index in range(size) {
-    let value = reply.byte_at(8 + index) ?? 0
-    any = true when value != 0
-    parts += [hex(value, 2)]
+  let parts = collect {
+    for index in range(size) {
+      let value = reply.byte_at(8 + index) ?? 0
+      any = true when value != 0
+      yield hex(value, 2)
+    }
   }
   return Ok("Permanent address: not set") when ! any
 
@@ -373,8 +376,8 @@ pure or_na(value: Int) -> Str { if value == 0 { "n/a" } else { f"{value}" } }
 ## limits explains it.
 export pure channels_refusal(current: Bytes, requested: List[Int?], name_length: Int) -> Result[Str?, Error] {
   let v = unwords(current, 8)?
-  var counts: List[Int] = []
-  var offsets: List[Int] = []
+  var counts = []
+  var offsets = []
   var offset = 24 + (name_length + 4) / 4 * 4 + 4
   for index in range(4) {
     counts += [requested[index] ?? v[4 + index]]
@@ -460,8 +463,9 @@ export pure coalesce_lines(device: Str, reply: Bytes) -> Result[List[Str], Error
 ## `ethtool_coalesce` with the fields in `changes` (field position to value) replaced.
 export pure coalesce_set_request(reply: Bytes, changes: Map[Int, Int]) -> Result[Bytes, Error] {
   var values = unwords(reply, 22)?
-  var next: List[Int] = []
-  for index in range(22) { next += [changes.get(index) ?? values[index]] }
+  let next = collect {
+    for index in range(22) { yield changes.get(index) ?? values[index] }
+  }
   words(CMD.SCOALESCE, next)
 }
 
@@ -574,26 +578,32 @@ pure mode_any(mask: List[Int]) -> Bool {
 # continuation lines of a labelled block: `label` names the first line and
 # `pad` aligns the rest under it.
 pure mode_block(label: Str, mask: List[Int]) -> List[Str] {
-  var rows: List[Str] = []
   var row = ""
-  for index in range(LINK_MODES.len()) {
-    let name = LINK_MODES[index]
-    continue when name == "" or ! mode_set(mask, index)
+  let rows = collect {
+    for index in range(LINK_MODES.len()) {
+      let name = LINK_MODES[index]
+      continue when name == "" or ! mode_set(mask, index)
 
-    let pairs_with_previous = index > 0 and name.ends_with("/Full") and LINK_MODES[index - 1] == name.byte_slice(0, name.byte_len() - 5) + "/Half" and mode_set(mask, index - 1)
-    if pairs_with_previous {
-      row += f"{name} "
-    } else {
-      rows += [row] when row != ""
-      row = f"{name} "
+      let pairs_with_previous = index > 0 and name.ends_with("/Full") and LINK_MODES[index - 1] == name.byte_slice(
+        0,
+        name.byte_len() - 5,
+      ) + "/Half" and mode_set(mask, index - 1)
+      if pairs_with_previous {
+        row += f"{name} "
+      } else {
+        yield row when row != ""
+        row = f"{name} "
+      }
     }
+
+    yield row when row != ""
   }
-  rows += [row] when row != ""
   return [label + "Not reported"] when rows.is_empty()
 
-  var lines: List[Str] = []
   let blank = spaces(label.byte_len())
-  for index in range(rows.len()) { lines += [(if index == 0 { label } else { blank }) + rows[index]] }
+  let lines = collect {
+    for index in range(rows.len()) { yield (if index == 0 { label } else { blank }) + rows[index] }
+  }
   lines
 }
 
@@ -633,9 +643,9 @@ export pure link_settings_nwords(reply: Bytes) -> Int {
 ## Decodes a complete `ethtool_link_settings` reply.
 export pure link_settings_decode(reply: Bytes) -> Result[LinkSettings, Error] {
   let nwords = link_settings_nwords(reply)
-  var supported: List[Int] = []
-  var advertising: List[Int] = []
-  var partner: List[Int] = []
+  var supported = []
+  var advertising = []
+  var partner = []
   for index in range(nwords) {
     supported += [bytes.unpack_le(reply, 4, 48 + index * 4)?]
     advertising += [bytes.unpack_le(reply, 4, 48 + (nwords + index) * 4)?]
@@ -670,8 +680,7 @@ pure port_name(port: Int) -> Str {
 
 ## The link-settings block of `ethtool DEV`.
 export pure settings_lines(settings: LinkSettings) -> List[Str] {
-  let supported = settings.supported
-  let advertising = settings.advertising
+  let {supported, advertising, ..} = settings
   let ports = [mode.name for mode in LM_PORTS if mode_set(supported, mode.bit)]
   var lines: List[Str] = [f"\tSupported ports: [ {ports.join(" ")} ]"]
   for line in mode_block("Supported link modes:   ", supported) { lines += ["\t" + line] }
@@ -733,8 +742,9 @@ export pure wol_lines(reply: Bytes) -> Result[List[Str], Error] {
   let options = bytes.unpack_le(reply, 4, 8)?
   var lines: List[Str] = [f"\tSupports Wake-on: {wol_letters(supported)}", f"\tWake-on: {wol_letters(options)}"]
   if bit(supported, 6) and bit(options, 6) {
-    var parts: List[Str] = []
-    for index in range(6) { parts += [hex(reply.byte_at(12 + index) ?? 0, 2)] }
+    let parts = collect {
+      for index in range(6) { yield hex(reply.byte_at(12 + index) ?? 0, 2) }
+    }
     lines += [f"\tSecureOn password: {parts.join(":")}"]
   }
   Ok(lines)
@@ -753,9 +763,7 @@ export pure msglvl_lines(level: Int) -> List[Str] {
 export pure eee_lines(device: Str, reply: Bytes) -> Result[List[Str], Error] {
   let v = unwords(reply, 7)?
   var lines: List[Str] = [f"EEE settings for {device}:"]
-  if v[0] == 0 {
-    return Ok(lines + ["\tEEE status: not supported"])
-  }
+  return Ok([@lines, "\tEEE status: not supported"]) when v[0] == 0
   let status = if v[4] == 0 { "disabled" } else if v[3] != 0 { "enabled - active" } else { "enabled - inactive" }
   lines += [f"\tEEE status: {status}"]
   lines += [if v[5] != 0 { f"\tTx LPI: {v[6]} (us)" } else { "\tTx LPI: disabled" }]

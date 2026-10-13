@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.gnu
-use lib.textio_a1 as tio
 use lib.text_a2 as text
+use lib.textio_a1 as tio
 
 # Exiting through a signal hook runs deferred cleanup for active filter FIFOs.
 on INT [] {
@@ -105,7 +105,7 @@ pure blksize_option(item: Str) -> Bool {
 # option name that starts with a dash).
 pure modernize(argv: List[Str]) -> Rewritten {
   var obsolete = ""
-  var blksize: Str? = null
+  var blksize = null
   var pending = false
   var options = true
   var value = false
@@ -187,25 +187,24 @@ pure equals_offset(argument: Bytes) -> Int {
 }
 
 pure prepare_arguments(argv: List[Bytes]) -> gnu.PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[gnu.RawArgument] = []
 
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0split-raw-argument-{index}\0"
-        let equals = equals_offset(argument)
-        let name = if equals > 0 { argument[0..equals].utf8() ?? "" } else { "" }
-
-        if name.starts_with("--") {
-          text += [f"{name}={marker}"]
-          raw += [{marker: marker, value: argument[equals + 1..]}]
-        } else {
-          text += [marker]
-          raw += [{marker: marker, value: argument}]
-        }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0split-raw-argument-{index}\0"
+      let equals = equals_offset(argument)
+      let name = if equals > 0 { argument[0..equals].utf8() ?? "" } else { "" }
+    
+      if name.starts_with("--") {
+        text += [f"{name}={marker}"]
+        raw += [{marker: marker, value: argument[equals + 1..]}]
+      } else {
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
       }
     }
   }
@@ -417,7 +416,7 @@ pure contains_slash(value: Bytes) -> Bool {
 # Offsets just past each record separator, plus the end of an unterminated
 # final record.
 proc record_ends(data: Bytes, sep: Int) [error] -> Result[List[Int]] {
-  var ends: List[Int] = []
+  var ends = []
 
   if sep == 10 {
     ends = tio.line_ends(data, false)
@@ -481,7 +480,7 @@ pure lines_pieces(data: Bytes, ends: List[Int], per: Int) -> List[Bytes] {
 # `-C`: whole records up to SIZE bytes per piece; a record longer than SIZE
 # starts a fresh piece and is cut every SIZE bytes, its tail staying open.
 pure line_bytes_pieces(data: Bytes, ends: List[Int], size: Int, sep: Int) -> List[Bytes] {
-  var out: List[Bytes] = []
+  var out = []
   var origin = 0
   var used = 0
 
@@ -544,7 +543,7 @@ pure chunk_bytes(data: Bytes, count: Int, k: Int) -> Bytes {
 
 # The Kth of COUNT chunks without splitting records, or every chunk (K = 0).
 pure chunk_lines(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) -> List[Bytes] {
-  var out: List[Bytes] = []
+  var out = []
   var current = 0
   var origin = 0
   var stop = 0
@@ -634,7 +633,7 @@ proc run_filter(command: Str, name: Path, input: Bytes) [process, error] -> Resu
 }
 
 proc check_filter(command: Str, status: Int) [process, env, io] {
-  if status != 0 {
+  guard status == 0 else {
     gnu.error(f"with filter '{command}': failed")
     exit 1
   }
@@ -645,27 +644,26 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
   var eof = false
 
   while ! eof {
-    var parts: List[Bytes] = []
     var remaining = size
 
-    while remaining > 0 {
-      let count = if remaining < tio.CHUNK { remaining } else { tio.CHUNK }
-      let data = io.stdin_read(count)?
+    let parts = collect {
+      while remaining > 0 {
+        let count = if remaining < tio.CHUNK { remaining } else { tio.CHUNK }
+        let data = io.stdin_read(count)?
 
-      if data.is_empty() {
-        eof = true
-        break
+        if data.is_empty() {
+          eof = true
+          break
+        }
+
+        yield data
+        remaining -= data.len()
       }
-
-      parts += [data]
-      remaining -= data.len()
     }
 
     let piece = bytes.concat(parts)
 
-    if piece.is_empty() {
-      return
-    }
+    return when piece.is_empty()
 
     let tail = checked_suffix(made, naming)?
 
@@ -674,7 +672,7 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(tail, naming))?
+    let name = output_name(tail, naming) as Path
 
     if verbose {
       gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -687,19 +685,19 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
 
 proc start_filter_pipe(root: Path, slot: Int, command: Str, name: Path) [fs, process, error] -> Result[FilterPipe] {
   let fifo = fp"{root}/filter-{slot}"
-  fs.mkfifo(fifo, 0o600)?
+  fs.mkfifo(fifo, 0o600)
   let reader = unix.open_fd(fifo, nonblock: true)?
   let writer = unix.open_fd(fifo, write: true, nonblock: true)?
   let plan = process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, stdin: fifo)
   let child = spawn plan?
-  unix.close_fd(reader)?
+  unix.close_fd(reader)
 
   Ok({handle: child, fd: writer, open: true, done: false, status: -1})
 }
 
 proc close_filter_pipe(pipe: FilterPipe) [process, error] -> Result[FilterPipe] {
   if pipe.fd >= 0 {
-    unix.close_fd(pipe.fd)?
+    unix.close_fd(pipe.fd)
   }
 
   Ok({...pipe, fd: -1, open: false})
@@ -709,7 +707,7 @@ proc close_filter_pipes(pipes: List[FilterPipe?]) [process, error] {
   for pipe in pipes {
     if let current = pipe {
       if current.fd >= 0 {
-        unix.close_fd(current.fd)?
+        unix.close_fd(current.fd)
       }
     }
   }
@@ -725,9 +723,7 @@ proc write_filter_pipe(pipe: FilterPipe, data: Bytes) [process, net, error] -> R
   while offset < data.len() {
     match unix.write_fd(current.fd, data[offset..]) {
       Ok(written) => {
-        if written == 0 {
-          return Err(error.failure("filter input made no write progress"))
-        }
+        return Err(error.failure("filter input made no write progress")) when written == 0
 
         offset += written
       }
@@ -822,7 +818,7 @@ proc feed_filter_record(
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(tail, naming))?
+    let name = output_name(tail, naming) as Path
 
     if verbose {
       gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -842,7 +838,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
   let scratch = fs.tempdir()?
   let root = scratch.host_path()?
   var pipes: List[FilterPipe?] = [null for _ in range(count)]
-  defer { close_filter_pipes(pipes)? }
+  defer { close_filter_pipes(pipes) }
   var pending = b""
   var record_index = 0
   var eof = false
@@ -861,9 +857,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
         record_index += 1
         stopped = filter_pipes_finished(pipes)
 
-        if stopped {
-          break
-        }
+        break when stopped
       }
     }
 
@@ -891,7 +885,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
           exit 1
         }
 
-        let name = Path.parse_bytes(output_name(tail, naming))?
+        let name = output_name(tail, naming) as Path
 
         if verbose {
           gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -912,13 +906,14 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
 # Read blocks until EOF even when metadata reports no size, as for devices
 # and pipes. The block-size option controls read granularity, not an input cap.
 proc read_input(name: Bytes, block_size: Int) [fs, process, error, io] -> Result[Bytes] {
-  let fd = if name == b"-" { 0 } else { unix.open_fd(Path.parse_bytes(name)?)? }
-  defer { if fd != 0 { unix.close_fd(fd)? } }
-  var parts: List[Bytes] = []
-  while true {
-    let part = unix.read_fd(fd, block_size)?
-    break when part.is_empty()
-    parts += [part]
+  let fd = if name == b"-" { 0 } else { unix.open_fd(name as Path)? }
+  defer { if fd != 0 { unix.close_fd(fd) } }
+  let parts = collect {
+    while true {
+      let part = unix.read_fd(fd, block_size)?
+      break when part.is_empty()
+      yield part
+    }
   }
   Ok(bytes.concat(parts))
 }
@@ -1176,7 +1171,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   var sep = 10
-  var distinct: List[Bytes] = []
+  var distinct = []
 
   for text in opts.separator {
     let value = gnu.argument_bytes(text, prepared.raw)
@@ -1298,7 +1293,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var input_dev = -1
 
   if input_name != b"-" {
-    let input_path = Path.parse_bytes(input_name)?
+    let input_path = input_name as Path
     if let Ok(found) = fs.stat(input_path, follow_symlinks: true) {
       input_ino = found.ino
       input_dev = found.dev
@@ -1326,7 +1321,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     exit 1
   }
 
-  var pieces: List[Bytes] = []
+  var pieces = []
   let ends = if chunks.kind in ["l", "r"] or (chunks.n == 0 and size == 0) { record_ends(data, sep)? } else { [] }
 
   if chunks.n > 0 {
@@ -1390,7 +1385,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(tail, naming))?
+    let name = output_name(tail, naming) as Path
 
     if input_ino >= 0 {
       if let Ok(found) = fs.stat(name, follow_symlinks: true) {

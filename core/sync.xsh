@@ -24,13 +24,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     # An unreadable directory can report EISDIR before its permission error.
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Ok(info) = metadata {
-      if info.kind == "dir" and applet.current_euid() != 0 and ! fs.access(target, read: true)? {
+      if info.kind == "dir" and applet.current_euid() != 0 and ! fs.access(target, read: true) {
         gnu.error(f"error opening {gnu.quote(name)}: Permission denied")
         failed = true
         continue
       }
     }
-    if let Err(failure) = fs.sync_path(target, mode: mode) {
+    if let Err(failure) = fs.sync_path(target, mode:) {
       let verb = if (failure.errno ?? 0) in [2, 13, 20] { "opening" } else { "syncing" }
       gnu.error(f"error {verb} {gnu.quote(name)}: {gnu.strerror(failure)}")
       failed = true

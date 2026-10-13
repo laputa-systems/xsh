@@ -7,7 +7,7 @@ error ModeError = Invalid : Usage
 pure octal(raw: Str) -> Result[Int] {
   return Err(ModeError.Invalid("invalid mode")) when ! rx"^[0-7]+$".matches(raw)
   var value = 0
-  for digit in raw { value = value * 8 + digit.parse_int()? }
+  for digit in raw { value = value * 8 + digit as Int }
   return Err(ModeError.Invalid("invalid mode")) when value > 0o7777
   value
 }
@@ -40,8 +40,8 @@ pure mode_for(spec: Str, current: Int, directory: Bool, umask: Int) -> Result[In
     let op = spec.byte_slice(0, length: 1)
     if op in "+-=" {
       let value = octal(spec.byte_slice(1))?
-      if op == "+" { return current.bit_and(0o7777).bit_or(value) }
-      if op == "-" { return current.bit_and(0o7777).clear_bits(value) }
+      return current.bit_and(0o7777).bit_or(value) when op == "+"
+      return current.bit_and(0o7777).clear_bits(value) when op == "-"
       return value
     }
     let numeric = octal(spec)?
@@ -166,7 +166,7 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
     }
     # Let each recursive call report its own path when search permission is missing.
     match fs.children(target, stat: false) {
-      Ok(children) => for child in children { if ! change(perm.child_path(target, child.path)?, spec, reference, opts, false, ancestors + [key], umask) { success = false } }
+      Ok(children) => for child in children { if ! change(perm.child_path(target, child.path)?, spec, reference, opts, false, [@ancestors, key], umask) { success = false } }
       Err(failure) => { if ! opts.quiet { gnu.cannot("read directory", f"{target}", failure) }; success = false }
     }
     }
@@ -175,10 +175,12 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
     if opts.verbosity == "verbose" { gnu.write_text(f"neither symbolic link {gnu.quote(f"{target}")} nor referent has been changed\n") }
     return success
   }
-  match target.chmod(after, follow_symlinks: opts.dereference) {
-    Err(failure) => { if ! opts.quiet { gnu.error(f"changing permissions of {gnu.quote(f"{target}")}: {gnu.strerror(failure)}") }; failed_mode(target, before, after, opts); return false }
-    Ok(_) => {}
+  if let Err(failure) = target.chmod(after, follow_symlinks: opts.dereference) {
+    if ! opts.quiet { gnu.error(f"changing permissions of {gnu.quote(f"{target}")}: {gnu.strerror(failure)}") }
+    failed_mode(target, before, after, opts)
+    return false
   }
+
   if opts.verbosity == "verbose" or (opts.verbosity == "changes" and before != after) {
     let message = if before == after { f"mode of {gnu.quote(f"{target}")} retained as {octal_text(before)} ({symbolic_text(before)})" } else { f"mode of {gnu.quote(f"{target}")} changed from {octal_text(before)} ({symbolic_text(before)}) to {octal_text(after)} ({symbolic_text(after)})" }
     gnu.write_text(f"{message}\n")
@@ -195,14 +197,15 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
 
 proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
   const invalid_mode_marker = b"\0chmod-mode\0"
-  var parsed_argv: List[Bytes] = []
-  var invalid_mode: Bytes? = null
-  for word in argv {
-    let text = word.utf8() ?? ""
-    if invalid_mode == null and malformed_mode_option(text) and ! rx"^-[rwxXstugoa0-7,+-=]+$".matches(text) {
-      invalid_mode = word
-      parsed_argv += [invalid_mode_marker]
-    } else { parsed_argv += [word] }
+  var invalid_mode = null
+  let parsed_argv = collect {
+    for word in argv {
+      let text = word.utf8() ?? ""
+      if invalid_mode == null and malformed_mode_option(text) and ! rx"^-[rwxXstugoa0-7,+-=]+$".matches(text) {
+        invalid_mode = word
+        yield invalid_mode_marker
+      } else { yield word }
+    }
   }
   let opts = perm.options(parsed_argv, chmod: true)?
   if opts.help { gnu.help("Usage: chmod [OPTION]... MODE FILE...\n  -R, --recursive\n  -c, --changes\n  -v, --verbose\n  -f, --silent\n      --reference=RFILE\n      --preserve-root\n      --no-preserve-root\n      --help\n      --version"); return }
@@ -210,11 +213,11 @@ proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
   if opts.reference != null and opts.option_like_mode { gnu.usage_error("cannot combine mode and --reference options") }
   if opts.operands.is_empty() { gnu.missing_operand() }
   var spec = ""
-  var reference: Int? = null
+  var reference = null
   var targets = opts.operands
   let umask = fs.umask()?
   if let file = opts.reference {
-    let reference_path = Path.parse_bytes(file)?
+    let reference_path = file as Path
     match fs.stat(reference_path, follow_symlinks: true) {
       Ok(meta) => reference = meta.mode.bit_and(0o7777)
       Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote_bytes(file)}: {gnu.strerror(failure)}"); exit 1 }
@@ -232,7 +235,7 @@ proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
     if targets.is_empty() { gnu.missing_operand_after(spec) }
   }
   var success = true
-  for target in targets { if ! change(Path.parse_bytes(target)?, spec, reference, opts, true, [], umask) { success = false } }
+  for target in targets { if ! change(target as Path, spec, reference, opts, true, [], umask) { success = false } }
   if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }

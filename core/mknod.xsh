@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fs_misc
+use lib.gnu
 use lib.selinux
 
 type Options = {mode: Str?, help: Bool, version: Bool, operands: List[Str], context_flag: Bool, context: Str?}
@@ -13,9 +13,9 @@ const BARE_CONTEXT = "\0"
 pure mode_source(argv: List[Str]) -> ModeSource {
   for index in range(argv.len()) {
     let arg = argv[index]
-    if arg in ["-m", "--mode"] { return {index: index + 1, start: 0} }
-    if arg.starts_with("--mode=") { return {index: index, start: 7} }
-    if arg.starts_with("-m") and arg.byte_len() > 2 { return {index: index, start: 2} }
+    return {index: index + 1, start: 0} when arg in ["-m", "--mode"]
+    return {index: index, start: 7} when arg.starts_with("--mode=")
+    return {index: index, start: 2} when arg.starts_with("-m") and arg.byte_len() > 2
   }
   {index: 0, start: 0}
 }
@@ -23,7 +23,7 @@ pure mode_source(argv: List[Str]) -> ModeSource {
 pure bad_mode_offset(mode: Str) -> Int {
   for index in range(mode.byte_len()) {
     let char = mode.byte_slice(index, length: 1)
-    if char not in "ugoa+-=rwxXst01234567,0123456789" { return index }
+    return index when char not in "ugoa+-=rwxXst01234567,0123456789"
   }
   mode.byte_len() - 1
 }
@@ -33,7 +33,7 @@ proc mode_error(argv: List[Str], mode: Str) [env, process, error] {
   gnu.error(message)
   let requested = env.get_or("UUTILS_DIAG", "") ?? ""
   return when requested == "never"
-  if requested != "always" and ! unix.isatty(2) { return }
+  return when requested != "always" and ! unix.isatty(2)
   let source = mode_source(argv)
   let program = gnu.prog()
   let command = argv.join(" ")
@@ -63,7 +63,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # tolerated where there is no SELinux policy to apply it, which is also where
   # GNU ignores it.
   if opts.context != null and opts.context != BARE_CONTEXT {
-    if selinux.enabled()? {
+    if selinux.enabled() {
       gnu.error("--context is not supported on SELinux-enabled systems")
       exit 1
     }
@@ -100,11 +100,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   var mode = 0o666
   if opts.mode != null {
-    let parsed = fs_misc.mode_for(opts.mode ?? "", mode, false, umask: fs.umask()?)
-    if parsed is Err(_) { mode_error(argv, opts.mode ?? ""); exit 1 }
+    let parsed = fs_misc.mode_for(opts.mode, mode, false, umask: fs.umask()?)
+    if parsed is Err(_) { mode_error(argv, opts.mode); exit 1 }
     mode = parsed?
     if mode > 0o777 { gnu.error("mode must specify only file permission bits"); exit 1 }
   }
-  if let Err(failure) = fs.mknod(fp"{args[0]}", kind, mode, major: major, minor: minor) { gnu.name_error(args[0], failure); exit 1 }
+  if let Err(failure) = fs.mknod(fp"{args[0]}", kind, mode, major:, minor:) { gnu.name_error(args[0], failure); exit 1 }
   if opts.mode != null { if let Err(failure) = fp"{args[0]}".chmod(mode) { gnu.name_error(args[0], failure); exit 1 } }
 }

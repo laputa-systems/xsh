@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_hostid.rs.
 ##! Each test names its origin; expected values are the original assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_hostid::test_help
 test test_uu_hostid_help { |ctx|
@@ -24,5 +24,5 @@ test test_uu_hostid_output_format { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "hostid", [])?
   uu.succeeds(r)
-  assert regex.compile("^[0-9a-f]{8}\n$")?.matches(r.stdout.utf8()?)
+  assert regex.compile("^[0-9a-f]{8}\n$")?.matches(r.stdout as Str)
 }

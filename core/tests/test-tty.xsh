@@ -43,7 +43,7 @@ test test_tty_usage_errors_exit_with_status_two { |ctx|
 }
 
 test test_tty_stdout_write_failure_exits_three { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "tty-full")?
   let err = fp"{root}/stderr"
@@ -66,13 +66,13 @@ test test_tty_closed_output_obeys_the_inherited_sigpipe_action { |ctx|
   for action in ["default", "ignore"] {
     let root = test.temp_dir(ctx, name: f"tty-pipe-{action}")?
     let pipe = fp"{root}/stdout-pipe"
-    fs.mkfifo(pipe, 0o644)?
+    fs.mkfifo(pipe, 0o644)
     let reader = unix.open_fd(pipe, nonblock: true)?
     let err = fp"{root}/stderr"
     let script = if action == "ignore" { "trap '' PIPE; sleep 0.2; exec \"$@\"" } else { "sleep 0.2; exec \"$@\"" }
-    let argv = [p"sh", p"-c", Path(script), p"tty-pipe", ctx.xsh_bin, fp"{ctx.core_dir}/tty.xsh"]
+    let argv = [p"sh", p"-c", fp"{script}", p"tty-pipe", ctx.xsh_bin, fp"{ctx.core_dir}/tty.xsh"]
     let child = spawn process.command_argv(p"sh", argv, root, {LC_ALL: "C"}, b"", pipe, err, timeout: 5s)?
-    unix.close_fd(reader)?
+    unix.close_fd(reader)
     let status = wait child?
     if action == "default" {
       assert status.signaled()

@@ -145,7 +145,7 @@ test test_wc_files0_processes_each_name_before_list_eof { |ctx|
   fp"{root}/a".write("one two\n")
   fp"{root}/b".write("x\n")
   let fifo = fp"{root}/names"
-  fs.mkfifo(fifo, mode: 384)?
+  fs.mkfifo(fifo, mode: 384)
   let wc_output = fp"{root}/wc-output"
   let wc_errors = fp"{root}/wc-errors"
   let output = fp"{root}/stdout"
@@ -192,13 +192,13 @@ exit $child_status"""
       "-c",
       script,
       "sh",
-      ctx.xsh_bin.display(),
-      fp"{ctx.core_dir}/wc.xsh".display(),
+      ctx.xsh_bin,
+      fp"{ctx.core_dir}/wc.xsh",
       "a",
       "b",
-      fifo.display(),
-      wc_output.display(),
-      wc_errors.display(),
+      fifo,
+      wc_output,
+      wc_errors,
     ],
     cwd: root,
     stdout: output,
@@ -213,7 +213,7 @@ exit $child_status"""
 }
 
 test test_wc_files0_stops_after_stdout_write_error { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "wc-files0-write-error")?
   let stdout = fp"{root}/stdout"
@@ -226,12 +226,12 @@ test test_wc_files0_stops_after_stdout_write_error { |ctx|
       "-c",
       script,
       "sh",
-      ctx.xsh_bin.display(),
-      fp"{ctx.core_dir}/wc.xsh".display(),
+      ctx.xsh_bin,
+      fp"{ctx.core_dir}/wc.xsh",
     ],
     cwd: root,
-    stdout: stdout,
-    stderr: stderr,
+    stdout:,
+    stderr:,
     timeout: 5s,
   )
   let status = process.run(plan)?
@@ -304,8 +304,8 @@ test test_wc_utf8_word_joiner_and_posix_whitespace { |ctx|
 test test_wc_sparse_totals_and_alignment_overflow { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-sparse")?
   let file = fp"{dir}/a"
-  file.write("")?
-  file.truncate(9223372036854775807)?
+  file.write("")
+  file.truncate(9223372036854775807)
   let doubled = wc_in(ctx, dir, ["-c", "a", "a"])?
   assert doubled.status == 0, doubled.stderr
   assert doubled.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n18446744073709551614 total\n", doubled.stdout

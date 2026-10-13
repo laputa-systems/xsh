@@ -137,7 +137,7 @@ pure wide_bit_length(value: List[Int]) -> Int {
 # for both narrow and full-width unsigned ranges.
 pure wide_draw(window: Bytes, at: Int, count: List[Int]) -> WideDraw {
   let one = [0, 0, 0, 0, 0, 0, 0, 1]
-  let bits = wide_bit_length(wide_subtract(count, one))
+  let bits = wide_subtract(count, one) |> wide_bit_length(_)
   let byte_count = (bits + 7) / 8
   let high_bits = bits % 8
   var pos = at
@@ -153,15 +153,13 @@ pure wide_draw(window: Bytes, at: Int, count: List[Int]) -> WideDraw {
     if high_bits != 0 and byte_count > 0 {
       var limit = 1
 
-      for _ in range(high_bits) { limit *= 2 }
+      repeat high_bits times { limit *= 2 }
       candidate[start] = candidate[start] % limit
     }
 
     pos += byte_count
 
-    if wide_less(candidate, count) {
-      return {value: candidate, pos: pos, ok: true}
-    }
+    return {value: candidate, pos: pos, ok: true} when wide_less(candidate, count)
   }
 
   {value: [0, 0, 0, 0, 0, 0, 0, 0], pos: pos, ok: false}
@@ -463,8 +461,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     var output_size = 0
     var failed = false
     var limited = false
-    var selected: List[List[Int]] = []
-    var output_parts: List[Bytes] = []
+    var selected = []
+    var output_parts = []
 
     while produced < amount and ! failed and ! limited {
       var found = false
@@ -492,8 +490,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
       if found {
         let text = wide_to_decimal(chosen)
-        selected = selected.extend([chosen])
-        output_parts = output_parts.extend([@[bytes.from_text(text), mark]])
+        selected += [chosen]
+        output_parts += [@[bytes.from_text(text), mark]]
         output_size += text.byte_len() + 1
         produced += 1
 
@@ -530,9 +528,9 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     return
   }
 
-  var items: List[Bytes] = []
+  var items = []
   var total = 0
-  var later: List[Bytes] = []
+  var later = []
   var reservoir = false
 
   if ! opts.range.is_empty() {
@@ -543,7 +541,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   } else {
     let name = opts.operands.get(0) ?? "-"
     let raw_name = gnu.argument_bytes(name, prepared.raw)
-    let input = Path.parse_bytes(raw_name)?
+    let input = raw_name as Path
     let read = if name == "-" { gnu.read_operand(name) } else { input.read_bytes() }
 
     guard let data = read else { |failure|
@@ -596,7 +594,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let ranged = ! opts.range.is_empty()
   let sparse = ranged and ! opts.repeat and amount * 16 < total
   var moved: Map[Int, Int] = {}
-  var picks: List[Int] = []
+  var picks = []
 
   if ranged and ! opts.repeat and ! sparse {
     picks = [lo + step for step in range(total)]

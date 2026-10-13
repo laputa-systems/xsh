@@ -405,7 +405,7 @@ proc load(name: Bytes) [fs, process, env, error, io] -> Source? {
     return {label: ":", lines: data.lines(), size: data.len(), data: data}
   }
 
-  let file = Path.parse_bytes(name)?
+  let file = name as Path
 
   match fs.stat(file) {
     Ok(info) => {
@@ -415,7 +415,7 @@ proc load(name: Bytes) [fs, process, env, error, io] -> Source? {
       }
     }
     Err(failure) => {
-      io.write_stderr_bytes(bytes.concat([b"more: can't open '", name, bytes.from_text(f"': {gnu.strerror(failure)}\n")]))?
+      io.write_stderr_bytes(bytes.concat([b"more: can't open '", name, bytes.from_text(f"': {gnu.strerror(failure)}\n")]))
       return null
     }
   }
@@ -423,7 +423,7 @@ proc load(name: Bytes) [fs, process, env, error, io] -> Source? {
   match file.read_bytes() {
     Ok(data) => {label: display_name(name), lines: data.lines(), size: data.len(), data: data}
     Err(failure) => {
-      io.write_stderr_bytes(bytes.concat([b"more: can't open '", name, bytes.from_text(f"': {gnu.strerror(failure)}\n")]))?
+      io.write_stderr_bytes(bytes.concat([b"more: can't open '", name, bytes.from_text(f"': {gnu.strerror(failure)}\n")]))
       null
     }
   }
@@ -479,7 +479,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   # only an accessible controlling terminal enables paging.
   let terminal = unix.open_fd(p"/dev/tty")
   let has_terminal = if let Ok(fd) = terminal {
-    unix.close_fd(fd)?
+    unix.close_fd(fd)
     true
   } else {
     false

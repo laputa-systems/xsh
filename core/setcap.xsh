@@ -1,34 +1,64 @@
 #!/bin/xsh
-use lib.gnu
-use lib.fileattrs
 use lib.capability
+use lib.fileattrs
+use lib.gnu
 
 type Operation = {name: Str, remove: Bool, record: capability.FileCaps?}
 proc main(...argv: List[Str]) [fs, process, env, io, error] {
   var verify = false; var quiet = false; var force = false
-  var rootid: Int? = null
-  var operations: List[Operation] = []
+  var rootid = null
   var at = 0
-  while at < argv.len() {
-    let word = argv[at]; at += 1
-    if word in ["-h", "--help"] { gnu.help("Usage: setcap [-q] [-v] [-n ROOTID] [-f] CAPABILITIES FILE...\n       setcap [-q] [-v] -r FILE...\n-v verifies without modifying files; -r removes the capability attribute.\n"); return }
-    if word == "-v" { verify = true; continue }
-    if word == "-q" { quiet = true; continue }
-    if word == "-f" { force = true; continue }
-    if word == "-n" {
-      if at >= argv.len() { gnu.usage_error("-n requires a root ID") }
-      let value = argv[at].parse_int(); at += 1
-      if value is Err(_) or (value ?? -1) < 0 or (value ?? 0) > 4294967295 { gnu.usage_error("invalid root ID") }
-      rootid = value?; continue
-    }
-    if at >= argv.len() { gnu.usage_error("capability expression requires a filename") }
-    let name = argv[at]; at += 1
-    if word == "-r" { operations += [{name: name, remove: true, record: null}] } else {
-      if word.starts_with("-") and word != "-" { gnu.usage_error(f"invalid option {word}") }
-      let raw = if word == "-" { gnu.read_operand("-")?.utf8()?.trim() } else { word }
-      let parsed = capability.parse(raw, rootid: rootid)
-      if let Err(failure) = parsed { gnu.error(failure.message); exit 1 }
-      operations += [{name: name, remove: false, record: parsed?}]
+  let operations: List[Operation] = collect {
+    while at < argv.len() {
+      let word = argv[at]
+      at += 1
+      if word in ["-h", "--help"] {
+        gnu.help(
+          "Usage: setcap [-q] [-v] [-n ROOTID] [-f] CAPABILITIES FILE...\n       setcap [-q] [-v] -r FILE...\n-v verifies without modifying files; -r removes the capability attribute.\n",
+        )
+        return
+      }
+
+      if word == "-v" {
+        verify = true
+        continue
+      }
+
+      if word == "-q" {
+        quiet = true
+        continue
+      }
+
+      if word == "-f" {
+        force = true
+        continue
+      }
+
+      if word == "-n" {
+        if at >= argv.len() { gnu.usage_error("-n requires a root ID") }
+        let value = argv[at].parse_int()
+        at += 1
+        if value is Err(_) or (value ?? -1) < 0 or (value ?? 0) > 4294967295 { gnu.usage_error("invalid root ID") }
+        rootid = value?
+        continue
+      }
+
+      if at >= argv.len() { gnu.usage_error("capability expression requires a filename") }
+      let name = argv[at]
+      at += 1
+      if word == "-r" {
+        yield {name: name, remove: true, record: null}
+      } else {
+        if word.starts_with("-") and word != "-" { gnu.usage_error(f"invalid option {word}") }
+        let raw = if word == "-" { gnu.read_operand("-")?.utf8()?.trim() } else { word }
+        let parsed = capability.parse(raw, rootid:)
+        if let Err(failure) = parsed {
+          gnu.error(failure.message)
+          exit 1
+        }
+
+        yield {name: name, remove: false, record: parsed?}
+      }
     }
   }
   if operations.is_empty() { gnu.missing_operand() }

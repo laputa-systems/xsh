@@ -1,12 +1,12 @@
-use support.uu as uu
+use support.uu
 
-proc wrapped(s: uu.Scene, words: List[Path], input: Bytes = b"", stdin: Path? = null, timeout: Duration = 20s) [fs, process, env, error] -> uu.Ran {
+proc wrapped(s: uu.Scene, words: List[Path], input = b"", stdin: Path? = null, timeout = 20s) [fs, process, env, error] -> uu.Ran {
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
   let plan = if let input_path = stdin {
-    process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input_path, out, err, timeout: timeout)
+    process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input_path, out, err, timeout:)
   } else {
-    process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input, out, err, timeout: timeout)
+    process.command_argv(words[0], words, s.root, {LC_ALL: "C"}, input, out, err, timeout:)
   }
   let status = process.run(plan)?.exit_code()?
   {util: "od", args: [], status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?}
@@ -20,13 +20,13 @@ test test_gnu_od_big_w_log { |ctx|
     let command_words = uu.argv(s, "od", [Path(f"-w{width}"), p"-tcz"])?
     let normalized = [p"/bin/sh", p"-c", Path(r""""$@" | tr -s ' ' ' '; """), p"od-wide"].extend(command_words)
     let r = wrapped(s, normalized, input: b"x", timeout: 240s)
-    if r.stderr.len() > 0 {
+    if ! r.stderr.is_empty() {
       uu.no_stdout(r)
     } else {
       uu.stdout_is(r, "0000000 x >x<\n0000001\n")
       let counted = [p"/bin/sh", p"-c", Path(r""""$@" | wc -c; """), p"od-wide-count"].extend(command_words)
       let count = wrapped(s, counted, input: b"x", timeout: 240s)
-      assert count.stdout.utf8()?.trim().parse_int()? == width * 4 + 21
+      assert count.stdout.utf8()?.trim() as Int == width * 4 + 21
     }
   }
 }
@@ -34,12 +34,12 @@ test test_gnu_od_big_w_log { |ctx|
 # origin: gnu od/od-N.log
 test test_gnu_od_od_N_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "in", "abcdefg\n")?
+  uu.write(s, "in", "abcdefg\n")
   let one = uu.argv(s, "od", [p"-An", p"-N3", p"-c"])?
   let two = uu.argv(s, "od", [p"-An", p"-N3", p"-c"])?
   let left = ["\"" + r"$" + "{" + f"{index + 1}" + "}\"" for index in range(one.len())].join(" ")
   let right = ["\"" + r"$" + "{" + f"{index + one.len() + 1}" + "}\"" for index in range(two.len())].join(" ")
-  let words = [p"/bin/sh", p"-c", Path(f"{left}; {right}"), p"od-shared"].extend(one).extend(two)
+  let words = [p"/bin/sh", p"-c", Path(f"{left}; {right}"), p"od-shared", @one, @two]
   let shared = wrapped(s, words, stdin: uu.at(s, "in"))
   uu.stdout_is(shared, "   a   b   c\n   d   e   f\n")
   let spaces100 = [" " for _ in range(100)].join("")
@@ -69,10 +69,15 @@ test test_gnu_od_od_endian_log { |ctx|
   for endian in ["little", "big"] {
     let opposite = if endian == "little" { "big" } else { "little" }
     for width in [1, 2, 4, 8, 16] {
-      var values: List[Int] = []
-      for block in range(16 / width) {
-        for offset in range(width) {
-          if let value = original.byte_at(block * width + width - offset - 1) { values += [value] } else { assert false, "missing input byte" }
+      let values = collect {
+        for block in range(16 / width) {
+          for offset in range(width) {
+            if let value = original.byte_at(block * width + width - offset - 1) {
+              yield value
+            } else {
+              assert false, "missing input byte"
+            }
+          }
         }
       }
       let swapped = bytes.from_ints(values)?
@@ -93,11 +98,11 @@ test test_gnu_od_od_j_log { |ctx|
   let s = uu.scene(ctx)?
   uu.succeeds(uu.invoke(s, "od", ["-j1", "/dev/null"])?)
   let regular = bytes.from_ints([if n % 80 == 79 { 10 } else { 97 + n % 26 } for n in range(24756)])?
-  uu.write_bytes(s, "regular", regular)?
+  uu.write_bytes(s, "regular", regular)
   for name in ["regular", "/proc/version", "/sys/kernel/profiling"] {
     let file = if name == "regular" { uu.at(s, name) } else { Path(name) }
     if let Ok(data) = file.read_bytes() {
-      uu.write_bytes(s, "copy", data)?
+      uu.write_bytes(s, "copy", data)
       let expected = uu.invoke(s, "od", ["-An", name])?
       uu.succeeds(expected)
       let skipped = uu.invoke(s, "od", ["-An", "-j", f"{data.len()}", name, name])?
@@ -117,7 +122,7 @@ test test_gnu_od_od_multiple_t_log { |ctx|
   let s = uu.scene(ctx)?
   let input = [f"{n}\n" for n in range(1, 20)].join("")
   assert input.byte_len() == 48
-  uu.write(s, "in", input)?
+  uu.write(s, "in", input)
   let formats = ["a", "c", "dC", "dS", "dI", "dL", "oC", "oS", "oI", "oL", "uC", "uS", "uI", "uL", "xC", "xS", "xI", "xL", "fF", "fD"]
   for first in formats { for second in formats {
     let r = uu.invoke(s, "od", ["-An", f"-t{first}z", f"-t{second}z", "in"])?
@@ -131,7 +136,7 @@ test test_gnu_od_od_multiple_t_log { |ctx|
 test test_gnu_od_od_x8_log { |ctx|
   let s = uu.scene(ctx)?
   uu.succeeds(uu.invoke(s, "od", ["-t", "x8", "/dev/null"])?)
-  uu.write(s, "in", "abcdefgh")?
+  uu.write(s, "in", "abcdefgh")
   let wide = uu.invoke(s, "od", ["-An", "-t", "x8", "in"])?
   uu.succeeds(wide)
   let narrow = uu.invoke(s, "od", ["-An", "-t", "x1", "in"])?
@@ -149,9 +154,9 @@ test test_gnu_od_od_float_log { |ctx|
     {format: "fD", width: 8, obsolete: "-5.314010372517808e+303"},
     {format: "fL", width: 16, obsolete: "-1.023442870282055988e+4855"},
   ] {
-    let values = [254 for _ in range(row.width)].extend([255]).extend([254 for _ in range(row.width - 1)]).extend([10])
+    let values = [@[254 for _ in range(row.width)], 255, @[254 for _ in range(row.width - 1)], 10]
     let r = uu.invoke(s, "od", ["-t", row.format], stdin: bytes.from_ints(values)?)?
-    let text = r.stdout.utf8()?
+    let text = r.stdout as Str
     assert "0-" not in text
     let words = [word for word in text.replace("\n", with: " ").split(" ") if word != ""]
     if words.len() >= 3 { assert words[1] != row.obsolete or words[2] != row.obsolete }

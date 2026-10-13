@@ -66,9 +66,9 @@ proc output_pollable(fd: Int) [fs, error] -> Result[Bool] {
   Ok(metadata.kind in ["fifo", "socket"])
 }
 
-proc write_output(output: Output, data: Bytes) [process, error, io] -> Result[Unit] {
-  unix.dup_fd(output.fd, 1)?
-  io.write_stdout_bytes(data)?
+proc write_output(output: Output, data: Bytes) [process, error, io] {
+  unix.dup_fd(output.fd, 1)
+  io.write_stdout_bytes(data)
   io.flush_stdout()
 }
 
@@ -137,14 +137,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let original = unix.open_fd(/dev/null)?
-  unix.dup_fd(1, original)?
+  unix.dup_fd(1, original)
   var outputs: List[Output] = [{name: "standard output", fd: original, active: true, pollable: output_pollable(original)?}]
   var failed = false
 
   for name in opts.files {
     let descriptor = unix.open_fd(/dev/null)?
     if let Err(failure) = unix.redirect_fd(descriptor, fp"{name}", write: true, append: opts.append) {
-      unix.close_fd(descriptor)?
+      unix.close_fd(descriptor)
       gnu.name_error(name, failure)
       failed = true
       if mode.starts_with("exit") { exit 1 }
@@ -165,7 +165,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           outputs[index] = {...output, active: false}
         } else if "error" in events or "hangup" in events {
           outputs[index] = {...output, active: false}
-          if index > 0 { unix.close_fd(output.fd)? }
+          if index > 0 { unix.close_fd(output.fd) }
         }
       }
     }
@@ -194,17 +194,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           failed = true
         }
         outputs[index] = {...output, active: false}
-        if index > 0 { unix.close_fd(output.fd)? }
+        if index > 0 { unix.close_fd(output.fd) }
         if mode.starts_with("exit") and ! ignored { stop_after_chunk = true }
       }
     }
     break when stop_after_chunk
   }
 
-  unix.dup_fd(original, 1)?
+  unix.dup_fd(original, 1)
   for output in outputs {
-    if output.active and output.fd != original { unix.close_fd(output.fd)? }
+    if output.active and output.fd != original { unix.close_fd(output.fd) }
   }
-  unix.close_fd(original)?
+  unix.close_fd(original)
   if failed { exit 1 }
 }

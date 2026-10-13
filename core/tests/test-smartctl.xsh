@@ -1,8 +1,8 @@
 use core.lib.smart
 use core.lib.smart_ata as ata
+use core.lib.smart_json as j
 use core.lib.smart_nvme as nvme
 use core.lib.smart_scsi as scsi
-use core.lib.smart_json as j
 
 type Run = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}
 
@@ -235,8 +235,8 @@ pure sg_line(cdb: Bytes, data: Bytes, sense: Bytes, direction: Str) -> Record {
     cdb: cdb.base64(),
     direction: direction,
     data_len: data.len(),
-    status: if sense.len() > 0 { 2 } else { 0 },
-    driver_status: if sense.len() > 0 { 8 } else { 0 },
+    status: if ! sense.is_empty() { 2 } else { 0 },
+    driver_status: if ! sense.is_empty() { 8 } else { 0 },
     sense: sense.base64(),
     data: data.base64(),
   }
@@ -274,16 +274,16 @@ proc smartctl(ctx: TestContext, lines: List[Any], args: List[Str]) [fs, process,
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(lines)?)
   fp"{root}/device".write(b"")
-  test.linux_fake(ctx, {storage_fixture: fixture, log: fp"{root}/calls.log"})?
+  test.linux_fake(ctx, {storage_fixture: fixture, log: fp"{root}/calls.log"})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   var argv = args
   argv += [fp"{root}/device".display()]
-  test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
+  test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir}, b"", "smartctl")?
 }
 
 proc smartctl_plain(ctx: TestContext, args: List[Str]) [fs, process, error] -> Run {
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
-  test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
+  test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, b"", "smartctl")?
 }
 
 # An NVMe identify controller page for a 500 GB drive with five power states.
@@ -377,7 +377,7 @@ pure nvme_self_test_page() -> Bytes {
 }
 
 pure nvme_line(opcode: Int, nsid: Int, cdw10: Int, data: Bytes) -> Record {
-  {op: "nvme_admin", opcode: opcode, nsid: nsid, cdw10: cdw10, direction: if data.len() > 0 { "from_device" } else { "none" }, data_len: data.len(), data: data.base64()}
+  {op: "nvme_admin", opcode: opcode, nsid: nsid, cdw10: cdw10, direction: if ! data.is_empty() { "from_device" } else { "none" }, data_len: data.len(), data: data.base64()}
 }
 
 pure nvme_fixture() -> List[Any] {
@@ -449,11 +449,11 @@ proc smartctl_logged(ctx: TestContext, lines: List[Any], args: List[Str]) [fs, p
   fixture.write(json.encode_lines(lines)?)
   fp"{root}/device".write(b"")
   log.write("")
-  test.linux_fake(ctx, {storage_fixture: fixture, log: log})?
+  test.linux_fake(ctx, {storage_fixture: fixture, log: log})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   var argv = args
   argv += [fp"{root}/device".display()]
-  let result = test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
+  let result = test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir}, b"", "smartctl")?
   {result: result, log: log.read_text()?}
 }
 
@@ -688,8 +688,7 @@ test test_smart_enable_and_disable_commands { |ctx|
 
 test test_disabled_smart_stops_read_commands { |ctx|
   var page = identify_page().base64().base64_decode()?
-  var cells_in: List[Int] = []
-  for index in range(page.len()) { cells_in += [page.byte_at(index) ?? 0] }
+  var cells_in: List[Int] = [page.byte_at(index) ?? 0 for index in range(page.len())]
   cells_in[170] = 0
   var lines = ata_fixture(smart_data_page(200))
   lines[0] = identify_line(sealed(cells_in))
@@ -779,7 +778,7 @@ test test_command_line_errors_use_smartctl_wording_and_status { |ctx|
 
 test test_unsupported_options_fail_before_any_device_command { |ctx|
   for option in [["-o", "on"], ["-S", "on"], ["-C"], ["-g", "all"], ["-v", "9,minutes"], ["-n", "standby"], ["-r", "ioctl"], ["--identify"], ["-l", "scttemp"], ["-l", "xerror,5"], ["-t", "select,0-100"], ["-s", "wcache,on"], ["-T", "permissive"], ["-F", "samsung"], ["-B", "drivedb.h"], ["-P", "showall"], ["-f", "hex"], ["-d", "usbcypress"], ["-q", "bogus"]] {
-    let out = smartctl_logged(ctx, ata_fixture(smart_data_page(200)), ["-d", "sat", "-a"] + option)
+    let out = smartctl_logged(ctx, ata_fixture(smart_data_page(200)), ["-d", "sat", "-a", @option])
     assert out.result.status == 1, f"{option.join(" ")}: {out.result.stdout}{out.result.stderr}"
     assert out.log == "", f"{option.join(" ")} reached the device"
   }
@@ -835,13 +834,20 @@ test test_auto_detection_uses_inquiry_to_find_sat { |ctx|
   lines += [inquiry]
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(lines)?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
-  let out = test.run_script(ctx, source, ["-i", "-j", device.display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
-  assert out.status == 0, out.stderr
+  let out = test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["-i", "-j", device],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "smartctl",
+  )?
   let parsed = json.decode(out.stdout)?
   assert json.get(parsed, ["device", "type"])? == "sat"
-  assert json.get(parsed, ["device", "info_name"])? == f"{device.display()} [SAT]"
+  assert json.get(parsed, ["device", "info_name"])? == f"{device} [SAT]"
   assert json.get(parsed, ["model_name"])? == "WDC WD10EZEX-00BN5A0"
 }
 
@@ -850,9 +856,9 @@ test test_nvme_info_health_attributes_and_logs { |ctx|
   fp"{nvme_device}/nvme0".write(b"")
   let fixture = fp"{nvme_device}/fixture.jsonl"
   fixture.write(json.encode_lines(nvme_fixture())?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
-  let out = test.run_script(ctx, source, ["-a", fp"{nvme_device}/nvme0".display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
+  let out = test.run_script(ctx, source, ["-a", fp"{nvme_device}/nvme0"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "smartctl")?
   # Two logged errors set the error-log bit.
   assert out.status == 64, out.stderr
   assert has_line(out.stdout, "Model Number:                       Samsung SSD 970 EVO 500GB")
@@ -892,10 +898,17 @@ test test_nvme_json_and_failed_health { |ctx|
   lines[3] = nvme_line(2, 4294967295, 127 * 65536 + 2, nvme_health_page(4))
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(lines)?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
-  let out = test.run_script(ctx, source, ["-j", "-i", "-H", "-A", fp"{root}/nvme0".display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
-  assert out.status == 8, out.stderr
+  let out = test.expect(
+    ctx,
+    source,
+    status: 8,
+    args: ["-j", "-i", "-H", "-A", fp"{root}/nvme0"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "smartctl",
+  )?
   let parsed = json.decode(out.stdout)?
   assert json.get(parsed, ["device", "type"])? == "nvme"
   assert json.get(parsed, ["model_name"])? == "Samsung SSD 970 EVO 500GB"
@@ -911,17 +924,30 @@ test test_nvme_self_test_commands { |ctx|
   fp"{root}/nvme0".write(b"")
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(nvme_fixture())?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let scope = {XSH_MODULE_PATH: ctx.core_dir.display()}
-  let short = test.run_script(ctx, source, ["-t", "short", fp"{root}/nvme0".display()], scope, b"", "smartctl")?
-  assert short.status == 0, short.stderr
+  let short = test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["-t", "short", fp"{root}/nvme0"],
+    env: scope,
+    stdin: b"",
+    name: "smartctl",
+  )?
   assert has_line(short.stdout, "Self-test has begun")
   assert has_line(short.stdout, "Use smartctl -X to abort test")
-  let long = test.run_script(ctx, source, ["-t", "long", fp"{root}/nvme0".display()], scope, b"", "smartctl")?
-  assert long.status == 0, long.stderr
-  let abort = test.run_script(ctx, source, ["-X", fp"{root}/nvme0".display()], scope, b"", "smartctl")?
-  assert abort.status == 0, abort.stderr
+  test.expect(ctx, source, status: 0, args: ["-t", "long", fp"{root}/nvme0"], env: scope, stdin: b"", name: "smartctl")?
+  let abort = test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["-X", fp"{root}/nvme0"],
+    env: scope,
+    stdin: b"",
+    name: "smartctl",
+  )?
   assert has_line(abort.stdout, "Self-test aborted!")
 }
 
@@ -943,7 +969,7 @@ test test_scsi_identity_health_and_temperature { |ctx|
 
 test test_scsi_rejects_options_it_cannot_serve { |ctx|
   for option in [["-c"], ["-l", "error"], ["-t", "short"], ["-s", "on"], ["-x"]] {
-    let out = smartctl_logged(ctx, scsi_fixture("SEAGATE", 0), ["-d", "scsi"] + option)
+    let out = smartctl_logged(ctx, scsi_fixture("SEAGATE", 0), ["-d", "scsi", @option])
     assert out.result.status == 1, option.join(" ")
     assert out.log == ""
   }
@@ -967,8 +993,7 @@ test test_quiet_modes { |ctx|
 
 test test_checksum_options { |ctx|
   var broken = smart_data_page(200)
-  var cells_in: List[Int] = []
-  for index in range(broken.len()) { cells_in += [broken.byte_at(index) ?? 0] }
+  var cells_in: List[Int] = [broken.byte_at(index) ?? 0 for index in range(broken.len())]
   cells_in[511] = (cells_in[511] + 1) % 256
   var lines = ata_fixture(smart_data_page(200))
   lines[1] = ata_data(smart_cdb(h("d0"), 1, 0, true), raw_page(cells_in))
@@ -1108,15 +1133,29 @@ test test_nvme_namespace_id_is_hexadecimal { |ctx|
   var lines = nvme_fixture()
   lines += [nvme_line(6, 2, 0, nvme_namespace_page())]
   fixture.write(json.encode_lines(lines)?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let scope = {XSH_MODULE_PATH: ctx.core_dir.display()}
-  let named = test.run_script(ctx, source, ["-d", "nvme,0x2", "-i", fp"{root}/nvme0".display()], scope, b"", "smartctl")?
-  assert named.status == 0, named.stderr
-  assert "Namespace 2 Size/Capacity:" in named.stdout
-  let decimal = test.run_script(ctx, source, ["-d", "nvme,2", "-i", fp"{root}/nvme0".display()], scope, b"", "smartctl")?
-  assert decimal.status == 1
-  assert "Invalid NVMe namespace id in 'nvme,2'" in decimal.stdout
+  test.expect(
+    ctx,
+    source,
+    status: 0,
+    stdout: ["Namespace 2 Size/Capacity:"],
+    args: ["-d", "nvme,0x2", "-i", fp"{root}/nvme0"],
+    env: scope,
+    stdin: b"",
+    name: "smartctl",
+  )?
+  test.expect(
+    ctx,
+    source,
+    status: 1,
+    stdout: ["Invalid NVMe namespace id in 'nvme,2'"],
+    args: ["-d", "nvme,2", "-i", fp"{root}/nvme0"],
+    env: scope,
+    stdin: b"",
+    name: "smartctl",
+  )?
 }
 
 test test_nvme_rejects_logs_it_does_not_have { |ctx|
@@ -1124,11 +1163,11 @@ test test_nvme_rejects_logs_it_does_not_have { |ctx|
   fp"{root}/nvme0".write(b"")
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(nvme_fixture())?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let scope = {XSH_MODULE_PATH: ctx.core_dir.display()}
   for option in [["-l", "directory"], ["-l", "selective"], ["-s", "on"]] {
-    let out = test.run_script(ctx, source, option + [fp"{root}/nvme0".display()], scope, b"", "smartctl")?
+    let out = test.run_script(ctx, source, [@option, fp"{root}/nvme0"], scope, b"", "smartctl")?
     assert out.status == 1, option.join(" ")
     assert "not supported for NVMe devices" in out.stderr
   }
@@ -1153,7 +1192,7 @@ test test_scan_type_filter_and_unknown_type { |ctx|
 
 test test_ata_brief_and_badsum_options_do_not_apply_to_other_transports { |ctx|
   for option in [["-f", "brief"], ["-b", "ignore"]] {
-    let scsi_run = smartctl_logged(ctx, scsi_fixture("SEAGATE", 0), ["-d", "scsi", "-H"] + option)
+    let scsi_run = smartctl_logged(ctx, scsi_fixture("SEAGATE", 0), ["-d", "scsi", "-H", @option])
     assert scsi_run.result.status == 1, option.join(" ")
     assert scsi_run.log == ""
   }
@@ -1174,11 +1213,18 @@ test test_nvme_noserial_omits_serial_and_eui { |ctx|
   fp"{root}/nvme0".write(b"")
   let fixture = fp"{root}/fixture.jsonl"
   fixture.write(json.encode_lines(nvme_fixture())?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
-  let out = test.run_script(ctx, source, ["-q", "noserial", "-i", fp"{root}/nvme0".display()], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "smartctl")?
-  assert out.status == 0, out.stderr
-  assert "Model Number:" in out.stdout
+  let out = test.expect(
+    ctx,
+    source,
+    status: 0,
+    stdout: ["Model Number:"],
+    args: ["-q", "noserial", "-i", fp"{root}/nvme0"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "smartctl",
+  )?
   assert "Serial Number" not in out.stdout
   assert "EUI-64" not in out.stdout
 }

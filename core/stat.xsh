@@ -62,7 +62,7 @@ pure hex(value: Int) -> Str {
   var out = ""
 
   if value < 0 {
-    for _ in range(16) {
+    repeat 16 times {
       let index = 15 - rest % 16
       out = f"{digits[index..index + 1]}{out}"
       rest /= 16
@@ -96,17 +96,16 @@ type RawArgument = {marker: Str, value: Bytes}
 type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0stat-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0stat-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -114,7 +113,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
@@ -139,7 +138,7 @@ pure format_location(argv: List[Str], printf: Bool) -> ValueLocation? {
   var index = 0
   while index < argv.len() {
     let raw = argv[index]
-    if raw == "--" { return found }
+    return found when raw == "--"
     if raw == short {
       found = if index + 1 < argv.len() { {index: index + 1, offset: 0} } else { null }
       index += 2
@@ -222,7 +221,7 @@ pure stat_time(value: Int, precision: Int?, width: Int, left: Bool, zero: Bool) 
         rendered = f"{rendered}.{fractional.byte_slice(0, length: digits)}"
       } else {
         var extra = ""
-        for _ in range(digits - 9) { extra = f"{extra}0" }
+        repeat digits - 9 times { extra = f"{extra}0" }
         rendered = f"{rendered}.{fractional}{extra}"
       }
     }
@@ -262,16 +261,19 @@ proc stat_quote(name: Str, always = false) [env] -> Str {
   } else if style == "escape" {
     name.replace("\\", with: "\\\\").replace(" ", with: "\\ ").replace("\t", with: "\\t").replace("\n", with: "\\n")
   } else {
-    gnu.quote_bytes(raw, always: always)
+    gnu.quote_bytes(raw, always:)
   }
 }
 
 proc stat_quote_bytes(name: Bytes, always = false) [env] -> Bytes {
-  match name.utf8() {
-    Ok(text) => bytes.from_text(stat_quote(text, always))
-    Err(_) => {
-      let style = env.get_or("QUOTING_STYLE", "shell-escape") ?? "shell-escape"
-      if style == "literal" { name } else { bytes.from_text(gnu.quote_bytes(name, always: always or style.ends_with("-always"))) }
+  if let Ok(text) = name.utf8() {
+    bytes.from_text(stat_quote(text, always))
+  } else {
+    let style = env.get_or("QUOTING_STYLE", "shell-escape") ?? "shell-escape"
+    if style == "literal" {
+      name
+    } else {
+      bytes.from_text(gnu.quote_bytes(name, always: always or style.ends_with("-always")))
     }
   }
 }
@@ -323,7 +325,7 @@ proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, 
   var output = b""
   var at = 0
   while at < length {
-    if data.byte_at(at) != 37 {
+    guard data.byte_at(at) == 37 else {
       let start = at
       at += 1
       while at < length and data.byte_at(at) != 37 { at += 1 }
@@ -382,7 +384,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
 
   var at = 0
   var output = b""
-  var warnings: List[Str] = []
+  var warnings = []
   let data = bytes.from_text(fmt)
   let length = data.len()
   while at < length {
@@ -416,8 +418,8 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
         var value = 0
         while at < length and digits < 2 {
           let nibble = "0123456789abcdef".find(stat_format_byte(data, at).lower())
-          if nibble == null { break }
-          value = value * 16 + (nibble ?? 0)
+          break when nibble == null
+          value = value * 16 + nibble
           at += 1
           digits += 1
         }
@@ -430,7 +432,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
         var digits = 1
         while at < length and digits < (if escape == "0" { 4 } else { 3 }) {
           let digit = stat_format_byte(data, at)
-          if "01234567".find(digit) == null { break }
+          break when "01234567".find(digit) == null
           value = value * 8 + (digit.parse_int() ?? 0)
           at += 1
           digits += 1
@@ -471,7 +473,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       width = if next_width > 1000000 { 1000000 } else { next_width }
       at += 1
     }
-    var precision: Int? = null
+    var precision = null
     if at < length and stat_format_byte(data, at) == "." {
       at += 1
       var digits = 0
@@ -527,8 +529,8 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       "X" => stat_time(meta.atime_ns, precision, width, left, zero)
       "Y" => stat_time(meta.mtime_ns, precision, width, left, zero)
       "Z" => stat_time(meta.ctime_ns, precision, width, left, zero)
-      "w" => if meta.birth_ns == null { "-" } else { time.format(meta.birth_ns ?? 0, "%Y-%m-%d %H:%M:%S.%N %z")? }
-      "W" => if meta.birth_ns == null { "0" } else { f"{(meta.birth_ns ?? 0) / 1000000000}" }
+      "w" => if meta.birth_ns == null { "-" } else { time.format(meta.birth_ns, "%Y-%m-%d %H:%M:%S.%N %z")? }
+      "W" => if meta.birth_ns == null { "0" } else { f"{meta.birth_ns / 1000000000}" }
       "x" => time.format(meta.atime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
       "y" => time.format(meta.mtime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
       "z" => time.format(meta.ctime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
@@ -553,7 +555,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
     if code in ["X", "Y", "Z"] {
       output = bytes.concat([output, bytes.from_text(value)])
     } else if specifier == "n" and precision != null {
-      let size = precision ?? 0
+      let size = precision
       let length = if size < name.len() { size } else { name.len() }
       output = bytes.concat([output, name[..length]])
     } else if specifier == "n" {
@@ -638,7 +640,7 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
   for item in paths {
     let item_bytes = argument_bytes(item, prepared.raw)
     let stdin_operand = item_bytes == b"-"
-    let target = if stdin_operand { fp"/dev/stdin" } else { Path.parse_bytes(item_bytes)? }
+    let target = if stdin_operand { fp"/dev/stdin" } else { item_bytes as Path }
     if file_system and stdin_operand {
       gnu.error("using '-' to denote standard input does not work in file system mode")
       exit 1

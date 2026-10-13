@@ -26,17 +26,16 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 # The shared option parser takes text; NUL-marked operands preserve Unix argv bytes.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0basename-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0basename-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -44,7 +43,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
@@ -88,8 +87,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
     return
   }
 
-  var names: List[Bytes] = []
-  for name in opts.names { names += [argument_bytes(name, prepared.raw)] }
+  var names = [argument_bytes(name, prepared.raw) for name in opts.names]
   var suffix = argument_bytes(opts.suffix ?? "", prepared.raw)
 
   if names.is_empty() {
@@ -99,9 +97,10 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   if ! (opts.multiple or opts.suffix != null) {
     if names.len() > 2 {
       let extra = names[2]
-      match extra.utf8() {
-        Ok(value) => gnu.extra_operand(value)
-        Err(_) => gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
+      if let Ok(value) = extra.utf8() {
+        gnu.extra_operand(value)
+      } else {
+        gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
       }
     }
 

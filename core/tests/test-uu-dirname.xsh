@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_dirname.rs.
 ##! Each test names its origin; expected values are the original assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_dirname::test_invalid_arg
 test test_uu_dirname_invalid_arg { |ctx|
@@ -210,7 +210,7 @@ test test_uu_dirname_dot_slash_component_preservation { |ctx|
 # origin: uutils test_dirname::test_dirname_non_utf8_paths
 test test_uu_dirname_dirname_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "dirname", [Path.parse_bytes(b"test_\xff\xfe/file.txt")?])?
+  let r = uu.invoke_paths(s, "dirname", [b"test_\xff\xfe/file.txt" as Path])?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, b"test_\xff\xfe\n")
   let output = Path.parse_bytes(r.stdout)?.display()
@@ -221,7 +221,7 @@ test test_uu_dirname_dirname_non_utf8_paths { |ctx|
 # origin: uutils test_dirname::test_trailing_dot_non_utf8
 test test_uu_dirname_trailing_dot_non_utf8 { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "dirname", [Path.parse_bytes(b"/test_\xff\xfe/.")?])?
+  let r = uu.invoke_paths(s, "dirname", [b"/test_\xff\xfe/." as Path])?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, b"/test_\xff\xfe\n")
   let output = Path.parse_bytes(r.stdout)?.display()

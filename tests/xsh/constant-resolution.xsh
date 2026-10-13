@@ -109,16 +109,16 @@ test test_global_imports_resolve_in_forward_constant_initializers { |ctx|
 ## A prepared size.
 export const size = 3
 """)
-  let output = test.run_script(
+  test.expect(
     ctx,
     r"""const count = c.size + 1
 use config as c
 assert count == 4
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
 }
 
 # Command splices have a source identity even though they have no expression row.

@@ -304,27 +304,28 @@ test sed_nul_bytes_are_ordinary_text_for_regexes { |ctx|
 type CaseRow = {name: Str, args: List[Str], stdin: Str, show: List[Str], env: List[Str], setup: List[Str], skip: Str}
 
 pure escape_bytes(data: Bytes) -> Str {
-  var out: List[Str] = []
   let digits = "0123456789abcdef"
-  for index in range(data.len()) {
-    let byte = data.byte_at(index) ?? 0
-    if byte == 10 {
-      out += ["\\n"]
-    } else if byte == 92 {
-      out += ["\\\\"]
-    } else if byte == 39 {
-      out += ["\\'"]
-    } else if byte >= 32 and byte < 127 {
-      out += [data[index..index + 1].utf8() ?? "?"]
-    } else {
-      out += [f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"]
+  let out = collect {
+    for index in range(data.len()) {
+      let byte = data.byte_at(index) ?? 0
+      if byte == 10 {
+        yield "\\n"
+      } else if byte == 92 {
+        yield "\\\\"
+      } else if byte == 39 {
+        yield "\\'"
+      } else if byte >= 32 and byte < 127 {
+        yield data[index..index + 1].utf8() ?? "?"
+      } else {
+        yield f"\\x{digits.byte_slice(byte / 16, 1)}{digits.byte_slice(byte % 16, 1)}"
+      }
     }
   }
   out.join("")
 }
 
 pure octal_mode(mode: Int) -> Str {
-  if mode < 8 { return f"{mode}" }
+  return f"{mode}" when mode < 8
   f"{octal_mode(mode / 8)}{mode % 8}"
 }
 
@@ -332,11 +333,12 @@ pure octal_mode(mode: Int) -> Str {
 # or permission bits and contents.
 proc describe_file(work: Path, name: Str) [fs, error] -> Result[Str] {
   let target = fp"{work}/{name}"
-  let info = match fs.stat(target, follow_symlinks: false) {
-    Ok(value) => value
-    Err(_) => { return Ok(f"file {name} absent") }
+  let info = if let Ok(value) = fs.stat(target, follow_symlinks: false) {
+    value
+  } else {
+    return Ok(f"file {name} absent")
   }
-  if info.kind == "dir" { return Ok(f"file {name} directory") }
+  return Ok(f"file {name} directory") when info.kind == "dir"
   if info.kind == "symlink" { return Ok(f"file {name} symlink '{escape_bytes(bytes.from_text(target.readlink()?.display()))}'") }
   let contents = target.read_bytes() ?? b""
   Ok(f"file {name} mode {octal_mode(info.mode % 4096)} '{escape_bytes(contents)}'")
@@ -344,27 +346,27 @@ proc describe_file(work: Path, name: Str) [fs, error] -> Result[Str] {
 
 # Fixture state every case starts from: links, a dangling link, an unreadable
 # file, a read-only file, and a read-only directory.
-proc prepare_work(ctx: TestContext, work: Path) [fs, error] -> Result[Unit] {
+proc prepare_work(ctx: TestContext, work: Path) [fs, error] {
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/sed/fixtures", work, overwrite: true)?
-  fp"{work}/link.txt".symlink(to: p"a.txt")?
-  fp"{work}/dangling".symlink(to: p"nowhere")?
-  fp"{work}/dirlink".symlink(to: p"d")?
-  fp"{work}/noaccess.txt".chmod(0o000)?
-  fp"{work}/ro.txt".chmod(0o444)?
-  fp"{work}/rodir".chmod(0o555)?
+  fp"{work}/link.txt".symlink(to: p"a.txt")
+  fp"{work}/dangling".symlink(to: p"nowhere")
+  fp"{work}/dirlink".symlink(to: p"d")
+  fp"{work}/noaccess.txt".chmod(0o000)
+  fp"{work}/ro.txt".chmod(0o444)
+  fp"{work}/rodir".chmod(0o555)
   Ok()
 }
 
-proc apply_setup(work: Path, command: Str) [fs, error] -> Result[Unit] {
+proc apply_setup(work: Path, command: Str) [fs, error] {
   let words = command.split(" ")
   if words[0] == "mkdir" {
-    fp"{work}/{words[1]}".mkdir()?
+    fp"{work}/{words[1]}".mkdir()
   } else if words[0] == "ln" {
-    fp"{work}/{words[3]}".symlink(to: fp"{words[2]}")?
+    fp"{work}/{words[3]}".symlink(to: fp"{words[2]}")
   } else if words[0] == "chmod" {
     var mode = 0
-    for digit in words[1].split("") { mode = mode * 8 + (digit.parse_int() ?? 0) }
-    fp"{work}/{words[2]}".chmod(mode)?
+    for digit in words[1] { mode = mode * 8 + (digit.parse_int() ?? 0) }
+    fp"{work}/{words[2]}".chmod(mode)
   } else {
     return Err(AssertionError.Failed(f"unknown setup command {command}"))
   }
@@ -372,8 +374,8 @@ proc apply_setup(work: Path, command: Str) [fs, error] -> Result[Unit] {
 }
 
 proc transcript(ctx: TestContext, row: CaseRow, work: Path, scratch: Path) [fs, process, error] -> Result[Str] {
-  prepare_work(ctx, work)?
-  for command in row.setup { apply_setup(work, command)? }
+  prepare_work(ctx, work)
+  for command in row.setup { apply_setup(work, command) }
   let out = fp"{scratch}/out"
   let err = fp"{scratch}/err"
   let input = if row.stdin == "" { p"/dev/null" } else { fp"{work}/{row.stdin}" }
@@ -398,7 +400,7 @@ proc expected_transcripts(ctx: TestContext) [fs, error] -> Result[Map[Str]] {
   let text = fp"{ctx.core_dir}/tests/data/sed/expected.txt".read_text()?
   var table: Map[Str] = {}
   var name = ""
-  var chunk: List[Str] = []
+  var chunk = []
   for line in text.split("\n") {
     if line.starts_with("case ") {
       if name != "" { table = table.set(name, chunk.join("\n") + "\n") }
@@ -416,12 +418,12 @@ proc expected_transcripts(ctx: TestContext) [fs, error] -> Result[Map[Str]] {
 proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process, error] -> Result[List[Str]] {
   let scratch = test.temp_dir(ctx, name: "sed-table")?
   let work = fp"{scratch}/work"
-  var failures: List[Str] = []
+  var failures = []
   var ran = 0
   for line in fp"{ctx.core_dir}/tests/data/sed/cases.jsonl".read_text()?.split("\n") {
-    if !line.starts_with(f"{{\"name\": \"{prefix}") { continue }
+    continue unless line.starts_with(f"{{\"name\": \"{prefix}")
     let row = json.decode(line)?.require(CaseRow)?
-    if row.skip != "" { continue }
+    continue when row.skip != ""
     reset_work(work)
     let actual = transcript(ctx, row, work, scratch)?
     ran += 1
@@ -437,7 +439,7 @@ proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process
 }
 
 # Each test runs a slice of the table; the slices only balance the run time.
-proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] -> Result[Unit] {
+proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] {
   let expected = expected_transcripts(ctx)?
   for prefix in prefixes {
     let failures = check_group(ctx, prefix, expected)?
@@ -447,59 +449,59 @@ proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] -
 }
 
 test sed_table_slice_01 { |ctx|
-  expect_groups(ctx, ["cmd-1", "passed-", "sub-2", "opt-info-"])?
+  expect_groups(ctx, ["cmd-1", "passed-", "sub-2", "opt-info-"])
 }
 
 test sed_table_slice_02 { |ctx|
-  expect_groups(ctx, ["cmd-2", "addr-err-", "esc-"])?
+  expect_groups(ctx, ["cmd-2", "addr-err-", "esc-"])
 }
 
 test sed_table_slice_03 { |ctx|
-  expect_groups(ctx, ["syn-1", "tail-", "ere-1", "opt-1"])?
+  expect_groups(ctx, ["syn-1", "tail-", "ere-1", "opt-1"])
 }
 
 test sed_table_slice_04 { |ctx|
-  expect_groups(ctx, ["addr-1", "syn-2", "script-"])?
+  expect_groups(ctx, ["addr-1", "syn-2", "script-"])
 }
 
 test sed_table_slice_05 { |ctx|
-  expect_groups(ctx, ["sub-1", "wrap-", "eval-", "queue-"])?
+  expect_groups(ctx, ["sub-1", "wrap-", "eval-", "queue-"])
 }
 
 test sed_table_slice_06 { |ctx|
-  expect_groups(ctx, ["cmd-0", "io-", "exit-"])?
+  expect_groups(ctx, ["cmd-0", "io-", "exit-"])
 }
 
 test sed_table_slice_07 { |ctx|
-  expect_groups(ctx, ["addr-0", "zero-", "rx-1"])?
+  expect_groups(ctx, ["addr-0", "zero-", "rx-1"])
 }
 
 test sed_table_slice_08 { |ctx|
-  expect_groups(ctx, ["rx-0", "sep-", "loc-"])?
+  expect_groups(ctx, ["rx-0", "sep-", "loc-"])
 }
 
 test sed_table_slice_09 { |ctx|
-  expect_groups(ctx, ["ip-0", "cli-0"])?
+  expect_groups(ctx, ["ip-0", "cli-0"])
 }
 
 test sed_table_slice_10 { |ctx|
-  expect_groups(ctx, ["syn-0", "cmd-3", "ip-1"])?
+  expect_groups(ctx, ["syn-0", "cmd-3", "ip-1"])
 }
 
 test sed_table_slice_11 { |ctx|
-  expect_groups(ctx, ["opt-0", "corner-0"])?
+  expect_groups(ctx, ["opt-0", "corner-0"])
 }
 
 test sed_table_slice_12 { |ctx|
-  expect_groups(ctx, ["sub-0", "addr-2"])?
+  expect_groups(ctx, ["sub-0", "addr-2"])
 }
 
 test sed_table_slice_13 { |ctx|
-  expect_groups(ctx, ["sub2-0", "addr-files-0"])?
+  expect_groups(ctx, ["sub2-0", "addr-files-0"])
 }
 
 test sed_table_slice_14 { |ctx|
-  expect_groups(ctx, ["ere-0", "mix-0"])?
+  expect_groups(ctx, ["ere-0", "mix-0"])
 }
 
 test sed_refused_options_fail_explicitly { |ctx|

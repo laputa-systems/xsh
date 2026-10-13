@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox cat/cat -b
 test test_bb_cat_cat_b_ac843bd8 { |ctx|
@@ -35,7 +35,7 @@ test test_bb_cat_cat_v_03d8e57e { |ctx|
 # origin: busybox cat/cat-prints-a-file
 test test_bb_cat_cat_prints_a_file_70aae576 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "foo", "I WANT\n")?
+  uu.write(s, "foo", "I WANT\n")
   let r = uu.invoke(s, "cat", ["foo"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_only(r, "I WANT\n")
@@ -44,7 +44,7 @@ test test_bb_cat_cat_prints_a_file_70aae576 { |ctx|
 # origin: busybox cat/cat-prints-a-file-and-standard-input
 test test_bb_cat_cat_prints_a_file_and_standard_input_ee00c67d { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "foo", "I WANT\n")?
+  uu.write(s, "foo", "I WANT\n")
   let r = uu.invoke(s, "cat", ["foo", "-"], stdin: b"SOMETHING\n")?
   uu.succeeds(r)
   uu.stdout_only(r, "I WANT\nSOMETHING\n")

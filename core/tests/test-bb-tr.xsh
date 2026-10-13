@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox tr/tr does not stop after [:digit:]
 test test_bb_tr_tr_does_not_stop_after_digit_1df15799 { |ctx|

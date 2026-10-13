@@ -2,17 +2,17 @@ use support.uu
 
 # The shell owns shared descriptors, pipes, and resource limits. The applet
 # launch remains identical when these tests run against the reference tool.
-proc wrapped(s: uu.Scene, args: List[Str], setup: Str, timeout: Duration = 10s) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "head", [Path(arg) for arg in args])?
-  let words = [p"/bin/sh", p"-c", Path(setup), p"head-boundary"].extend(launch)
+proc wrapped(s: uu.Scene, args: List[Str], setup: Str, timeout = 10s) [fs, process, env, error] -> Result[uu.Ran, Error] {
+  let launch = uu.argv(s, "head", [fp"{arg}" for arg in args])?
+  let words = [p"/bin/sh", p"-c", fp"{setup}", p"head-boundary"].extend(launch)
   let out = uu.at(s, ".wrapped-out")
   let err = uu.at(s, ".wrapped-err")
-  let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C", TZ: "UTC"}, b"", out, err, timeout: timeout))?
+  let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {LC_ALL: "C", TZ: "UTC"}, b"", out, err, timeout:))?
   Ok({util: "head", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 
 proc file_case(s: uu.Scene, args: List[Str], input: Bytes, expected: Bytes) [fs, process, env, error] {
-  uu.write_bytes(s, "input", input)?
+  uu.write_bytes(s, "input", input)
   let r = uu.invoke(s, "head", args.extend(["input"]))?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, expected)
@@ -42,7 +42,7 @@ proc memory_limit(s: uu.Scene) [fs, process, env, error] -> Result[Int, Error] {
   for reduction in range(1, working / 1000) {
     let candidate = working - reduction * 1000
     let r = wrapped(s, ["-c-1", "/dev/null"], f"ulimit -c 0; ulimit -v {candidate} || exit; exec \"$@\"")?
-    if r.status != 0 { return Ok(previous + 4) }
+    return Ok(previous + 4) when r.status != 0
     previous = candidate
   }
   Ok(previous + 4)
@@ -51,11 +51,11 @@ proc memory_limit(s: uu.Scene) [fs, process, env, error] -> Result[Int, Error] {
 # origin: gnu head/head-c.log
 test test_gnu_head_head_c_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "abc\n")?
+  uu.write(s, "input", "abc\n")
   let sequential = wrapped(s, ["-c1"], "exec 3<input; \"$@\" <&3 || exit; \"$@\" <&3")?
   uu.succeeds(sequential)
   uu.stdout_only_bytes(sequential, b"ab")
-  uu.write(s, "input", "abc\ndef\n")?
+  uu.write(s, "input", "abc\ndef\n")
   let positioned = wrapped(s, ["-c-4"], "exec 3<input; dd bs=1 skip=1 count=0 <&3 2>/dev/null || exit; exec \"$@\" <&3")?
   uu.succeeds(positioned)
   uu.stdout_only_bytes(positioned, b"bc\n")
@@ -66,9 +66,9 @@ test test_gnu_head_head_c_log { |ctx|
     uu.no_output(r)
   }
   for source in [p"/proc/version", p"/sys/kernel/profiling"] {
-    if !source.exists()? { continue }
+    continue unless source.exists()
     let content = source.read_bytes()?
-    uu.write_bytes(s, "copy", content)?
+    uu.write_bytes(s, "copy", content)
     let regular = uu.invoke(s, "head", ["-c", "-1", "copy"])?
     let virtual = uu.invoke(s, "head", ["-c", "-1", source.display()])?
     uu.succeeds(regular)
@@ -125,8 +125,8 @@ test test_gnu_head_head_elide_tail_log { |ctx|
 # origin: gnu head/head-n0.log
 test test_gnu_head_head_n0_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.write(s, "file", "a\n")?
+  uu.mkdir(s, "dir")
+  uu.write(s, "file", "a\n")
   for name in ["dir", "file"] {
     for option in ["-n", "-c"] {
       let r = uu.invoke(s, "head", [option, "0", name])?
@@ -157,13 +157,13 @@ test test_gnu_head_head_n0_log { |ctx|
 # origin: gnu head/head-pos.log
 test test_gnu_head_head_pos_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "a\nb\n")?
+  uu.write(s, "input", "a\nb\n")
   for count in ["-1", "1"] {
     let r = wrapped(s, ["-n", count], "exec 3<input; \"$@\" <&3 >/dev/null || exit; cat <&3")?
     uu.succeeds(r)
     uu.stdout_only_bytes(r, b"b\n")
   }
-  uu.write(s, "input", [f"{n}\n" for n in range(1, 70001)].join(""))?
+  uu.write(s, "input", [f"{n}\n" for n in range(1, 70001)].join(""))
   let large = wrapped(s, ["-n-50000"], "exec 3<input; \"$@\" <&3 >/dev/null || exit; wc -l <&3")?
   uu.succeeds(large)
   uu.stdout_only_bytes(large, b"50000\n")
@@ -172,7 +172,7 @@ test test_gnu_head_head_pos_log { |ctx|
 # origin: gnu head/head-write-error.log
 test test_gnu_head_head_write_error_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "bigseek", bytes.concat([b"y\n" for _ in range(0, 5 * 1024 * 1024)]))?
+  uu.write_bytes(s, "bigseek", bytes.concat([b"y\n" for _ in range(0, 5 * 1024 * 1024)]))
   let diagnostic = "head: error writing 'standard output': No space left on device\n"
   for unit in ["lines", "bytes"] {
     for count in [0, 1] {
@@ -215,8 +215,8 @@ test test_gnu_head_head_log { |ctx|
 # origin: gnu head/quote-headers.log
 test test_gnu_head_quote_headers_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "\n")?
-  uu.touch(s, "normal")?
+  uu.touch(s, "\n")
+  uu.touch(s, "normal")
   let r = uu.invoke(s, "head", ["-n1", "\n", "normal"])?
   uu.succeeds(r)
   uu.stdout_only(r, "==> ''$'\\n' <==\n\n==> normal <==\n")

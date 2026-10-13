@@ -23,7 +23,7 @@ test test_base64_uppercase_decode_alias { |ctx|
 }
 
 test test_base64_wrap_and_invalid_prefix { |ctx|
-  assert invoke(ctx, ["-w", "0"], b"foobar")?.stdout.len() > 0
+  assert ! invoke(ctx, ["-w", "0"], b"foobar")?.stdout.is_empty()
   assert ! invoke(ctx, ["-w", "0"], b"foobar")?.stdout.ends_with(b"\n")
   let bad = invoke(ctx, ["-d"], b"Zm9v!")?
   assert bad.status == 1
@@ -54,7 +54,7 @@ test test_base64_padded_blocks_continue { |ctx|
 
 test test_base64_reads_non_utf8_file_operand { |ctx|
   let root = test.temp_dir(ctx, name: "base64-raw-operand")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write(b"hello world")
   let output = fp"{root}/out"
   let error = fp"{root}/err"
@@ -70,7 +70,7 @@ test test_base64_non_utf8_extra_operand_is_quoted_as_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "base64-raw-extra")?
   let output = fp"{root}/out"
   let error = fp"{root}/err"
-  let extra = Path.parse_bytes(b"\xff")?
+  let extra = b"\xff" as Path
   let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/base64.xsh".display(), "a", extra]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
   let status = process.run(plan)?

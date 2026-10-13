@@ -41,7 +41,7 @@ export pure parse_size(text: Str) -> Int? {
   if suffix != "" {
     let power = ("KMGTPEZYRQ".find(suffix) ?? -1) + 1
     return null when power <= 0
-    for _ in range(power) {
+    repeat power times {
       return null when value > 9223372036854775807 / base
       value *= base
     }
@@ -79,10 +79,10 @@ export proc environment_units(applet_name: Str, portable = false) [env] -> Units
   if ! portable {
     for key in [f"{applet_name.upper()}_BLOCK_SIZE", "BLOCK_SIZE", "BLOCKSIZE"] {
       if let Ok(text) = env.get(key) {
-        if text == "human-readable" { return {block: 1, human: 1024, label: "Size"} }
-        if text == "si" { return {block: 1, human: 1000, label: "Size"} }
+        return {block: 1, human: 1024, label: "Size"} when text == "human-readable"
+        return {block: 1, human: 1000, label: "Size"} when text == "si"
         let size = parse_size(text)
-        if size != null and size > 0 { return {block: size, human: 0, label: block_label(size)} }
+        return {block: size, human: 0, label: block_label(size)} when size != null and size > 0
         return {block: standard, human: 0, label: if standard == 1024 { "1K-blocks" } else { "512B-blocks" }}
       }
     }
@@ -113,20 +113,21 @@ export pure block_label(size: Int) -> Str {
 export proc argument_units(argv: List[Str], initial: Units, value_flags: List[Str], si_short = "") [env, process, error] -> Units {
   var selected = initial
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
-  var token_argv: List[Str] = []
   var options = true
-  for raw in argv {
-    var expanded = raw
-    if options and raw.starts_with("--") and raw != "--" {
-      let pieces = raw.byte_slice(2).split("=")
-      let name = pieces[0]
-      let matches = [flag for flag in value_flags if flag.byte_len() > 1 and flag.starts_with(name)]
-      if matches.len() == 1 {
-        expanded = "--" + matches[0] + (if pieces.len() > 1 { "=" + pieces[1..].join("=") } else { "" })
+  let token_argv = collect {
+    for raw in argv {
+      var expanded = raw
+      if options and raw.starts_with("--") and raw != "--" {
+        let pieces = raw.byte_slice(2).split("=")
+        let name = pieces[0]
+        let matches = [flag for flag in value_flags if flag.byte_len() > 1 and flag.starts_with(name)]
+        if matches.len() == 1 {
+          expanded = "--" + matches[0] + (if pieces.len() > 1 { "=" + pieces[1..].join("=") } else { "" })
+        }
       }
+      yield expanded
+      if raw == "--" { options = false }
     }
-    token_argv += [expanded]
-    if raw == "--" { options = false }
   }
   for token in cli.tokens(token_argv, value_flags)? {
     break when posix and token.kind == "operand"

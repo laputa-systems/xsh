@@ -10,8 +10,7 @@ proc get_acl_run(ctx: TestContext, root: Path, args: List[Str]) [fs, process, er
 
 test test_getfacl_headers_selection_table_and_follow_policy { |ctx|
   let root = test.temp_dir(ctx, name: "getfacl")?
-  let file = fp"{root}/file"; file.write("content"); file.chmod(0o640)
-  fp"{root}/link".symlink(to: p"file")
+  let file = fp"{root}/file"; file.write("content", mode: 0o640);  fp"{root}/link".symlink(to: p"file")
   let output = get_acl_run(ctx, root, ["-n", "file"])?
   assert output.status == 0, output.stderr
   assert output.stdout.starts_with("# file: file\n# owner:")

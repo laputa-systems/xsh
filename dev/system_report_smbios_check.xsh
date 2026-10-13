@@ -300,7 +300,7 @@ pure smbios_reference_fields(
 ## Independently walks bounded SMBIOS structures by their length and double-null terminator.
 export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference, Error] {
   var records: List[SmbiosRecordReference] = []
-  var invalid_indices: List[Str] = []
+  var invalid_indices = []
   if data.len() > 1048576 {
     return Ok({records: records, complete: false, invalid_indices: invalid_indices})
   }
@@ -381,9 +381,9 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["firmware"])?.require(CandidateSmbiosSection)?
   let reference = parse_smbios_reference(before)?
-  var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var missing_names = []
+  var unexpected_names = []
+  var field_mismatches = []
   if before == after and reference.complete and section.source != "smbios" {
     field_mismatches += ["source"]
   }
@@ -637,7 +637,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
   }
 
   let entry_relative = p"sys/firmware/dmi/tables/smbios_entry_point"
-  var entry_data: Bytes? = null
+  var entry_data = null
   if capture.entry_point.sha256_hex == null {
     if capture.entry_point.byte_count != 0 or bundle.exists(entry_relative) {
       return Err(smbios_check_failure("SMBIOS entry point absence differs from metadata"))
@@ -818,9 +818,9 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
   var record_type = -1
   var handle = -1
   var length = -1
-  var formatted_octets: List[Int] = []
-  var strings: List[Bytes] = []
-  var pending_string: List[Int] = []
+  var formatted_octets = []
+  var strings = []
+  var pending_string = []
   var saw_header = false
   var in_formatted = false
   var in_strings = false
@@ -981,8 +981,8 @@ export pure compare_dmidecode_hex_output(
     decoded_by_key = decoded_by_key.set(key, index)
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
   var matched_count = 0
   for item in reference.records {
     let key = f"{item.record_type}:{item.handle}"
@@ -1135,8 +1135,7 @@ export proc corroborate_smbios_bundle(
   let entry_point = validated.entry_point
   let dump = craft_dmidecode_dump(entry_point, validated.data)?
   let scratch = fs.tempdir()?
-  defer scratch.close()
-  scratch.write(p"dump.bin", dump)
+    scratch.write(p"dump.bin", dump)
   scratch.write(p"version", "")
   scratch.write(p"version-error", "")
   scratch.write(p"output", "")

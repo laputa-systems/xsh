@@ -5,16 +5,14 @@ test test_fsck_fat_cli_readonly_and_explicit_repair { |ctx|
   let image = fp"{root}/disk.img"
   let _ = vfat.format(image, 1474560, bits: 12)?
   let original = image.read_bytes()?
-  image.write(bytes.concat([original.slice(0, length: 515), b"\xff\x0f", original.slice(517)]))
+  image.write(bytes.concat([original[..515], b"\xff\x0f", original.slice(517)]))
   let damaged = image.read_bytes()?
   let script = fp"{ctx.core_dir}/fsck.fat.xsh"
-  let readonly = test.run_script(ctx, script.read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-n", image.display()])?
-  assert readonly.status == 1, readonly.stderr
+  test.expect(ctx, script.read_text()?, status: 1, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-n", image])?
   assert image.read_bytes()? == damaged
-  let repaired = test.run_script(ctx, script.read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-a", image.display()])?
-  assert repaired.status == 1, repaired.stderr
+  test.expect(ctx, script.read_text()?, status: 1, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-a", image])?
   assert vfat.check(image)?.issues.is_empty()
-  assert test.run_script(ctx, script.read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-n", image.display()])?.status == 0
+  assert test.run_script(ctx, script.read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-n", image])?.status == 0
 }
 
 test test_fat_checker_truncates_loops_and_crosslinked_files { |ctx|

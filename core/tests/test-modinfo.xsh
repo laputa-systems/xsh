@@ -32,8 +32,15 @@ test test_modinfo_missing_module_in_empty_tree { |ctx|
   guard system.uname()?.sysname == "Linux" else { test.skip("module metadata requires Linux"); return }
   let root = test.temp_dir(ctx, name: "modinfo-empty")?
   let source = fp"{ctx.core_dir}/modinfo.xsh".read_text()?
-  let output = test.run_script(ctx, source, ["absent-module"], {XSH_MODULE_PATH: ctx.core_dir, XSH_MODULES_DIR: root}, b"", "modinfo")?
-  assert output.status == 1
-  assert "not found" in output.stderr
+  let output = test.expect(
+    ctx,
+    source,
+    status: 1,
+    stderr: ["not found"],
+    args: ["absent-module"],
+    env: {XSH_MODULE_PATH: ctx.core_dir, XSH_MODULES_DIR: root},
+    stdin: b"",
+    name: "modinfo",
+  )?
   assert output.stdout == ""
 }

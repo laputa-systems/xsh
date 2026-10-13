@@ -9171,8 +9171,7 @@ test test_system_report_dmi_identity_capture_replays_production_collector {
 
 test test_system_report_device_tree_od_reference_reads_bounded_raw_source {
   let source = fs.tempdir()?
-  defer source.close()
-  let scratch = fs.tempdir()?
+    let scratch = fs.tempdir()?
   defer scratch.close()
   source.write(p"model", b"ARM\0")
   let source_root = source.host_path()?

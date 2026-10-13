@@ -28,12 +28,13 @@ pure hex_value(text: Str) -> Int {
 
 pure bits_of(mask: Int) -> List[Int] {
   var rest = mask
-  var found: List[Int] = []
   var number = 0
-  while rest > 0 {
-    if rest % 2 == 1 { found += [number] }
-    rest = rest / 2
-    number += 1
+  let found = collect {
+    while rest > 0 {
+      yield number when rest % 2 == 1
+      rest = rest / 2
+      number += 1
+    }
   }
   found
 }
@@ -56,13 +57,11 @@ test test_privileges_report_sorted_capability_numbers_and_the_kernel_limit { |ct
 
 test test_privileges_match_the_masks_in_proc_status { |ctx|
   let state = linux.privileges()?
-  var lists: Map[Str, List[Int]] = {}
-  for line in p"/proc/self/status".read_text()?.lines() {
-    for label in ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"] {
-      if line.starts_with(label + ":") {
-        lists[label] = bits_of(hex_value(line.byte_slice(label.byte_len() + 1).trim()))
-      }
-    }
+  var lists = {
+    label: bits_of(hex_value(line.byte_slice(label.byte_len() + 1).trim()))
+    for line in p"/proc/self/status".read_lines()?
+    for label in ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"]
+    if line.starts_with(label + ":")
   }
   assert lists["CapInh"] == state.inheritable
   assert lists["CapPrm"] == state.permitted

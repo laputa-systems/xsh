@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_mkfifo.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_mkfifo::test_invalid_arg
 test test_uu_mkfifo_invalid_arg { |ctx|
@@ -64,8 +64,8 @@ test test_uu_mkfifo_create_one_fifo_already_exists { |ctx|
 # origin: uutils test_mkfifo::test_create_fifo_permission_denied
 test test_uu_mkfifo_create_fifo_permission_denied { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "owner_no_exec_dir")?
-  uu.set_mode(s, "owner_no_exec_dir", 0o644)?
+  uu.mkdir(s, "owner_no_exec_dir")
+  uu.set_mode(s, "owner_no_exec_dir", 0o644)
   let r = uu.invoke(s, "mkfifo", ["owner_no_exec_dir/mkfifo_err", "-m", "666"])?
   uu.fails(r)
   uu.stderr_is(r, "mkfifo: cannot create fifo 'owner_no_exec_dir/mkfifo_err': Permission denied\n")
@@ -74,8 +74,8 @@ test test_uu_mkfifo_create_fifo_permission_denied { |ctx|
 # origin: uutils test_mkfifo::test_mkfifo_permission_unchanged_when_failed
 test test_uu_mkfifo_mkfifo_permission_unchanged_when_failed { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "test_file", "content")?
-  uu.set_mode(s, "test_file", 0o600)?
+  uu.write(s, "test_file", "content")
+  uu.set_mode(s, "test_file", 0o600)
   let r = uu.invoke(s, "mkfifo", ["test_file", "-m", "666"])?
   uu.fails(r)
   uu.stderr_is(r, "mkfifo: cannot create fifo 'test_file': File exists\n")

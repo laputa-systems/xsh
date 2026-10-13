@@ -46,15 +46,16 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
       issues += [src.issue(f"network.{name}", report.Malformed, "incomplete_netdev_row", null)]
       continue
     }
-    var counters: List[Int] = []
     var state: report.ObservationState? = null
-    for value in fields |> take(16) {
-      let parsed = src.parse_integer(value)
-      if parsed == null or (parsed ?? -1) < 0 {
-        state = if src.decimal_digits(value) { report.RangeFailure } else { report.Malformed }
-        break
+    let counters = collect {
+      for value in fields |> take(16) {
+        let parsed = src.parse_integer(value)
+        if parsed == null or (parsed ?? -1) < 0 {
+          state = if src.decimal_digits(value) { report.RangeFailure } else { report.Malformed }
+          break
+        }
+        yield parsed
       }
-      counters += [parsed ?? 0]
     }
     if state != null {
       issues += [src.issue(f"network.{name}", state ?? report.Malformed, "invalid_netdev_counter", null)]
@@ -69,22 +70,20 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
 ## Reads a complete network-interface table from the caller-owned root.
 export proc collect(root: FsRoot) [fs, error] -> NetworkSource {
   let parsed = parse(src.read_source_text(root, p"proc/net/dev", max_bytes: 1048576))
-  if parsed.state != report.Observed {
-    return parsed
-  }
+  return parsed when parsed.state != .Observed
 
   var interfaces: List[NetworkInterface] = []
   var issues = parsed.issues
   for item in parsed.interfaces {
     let source = src.read_source_text(root, fp"sys/class/net/{item.name}/ifindex", max_bytes: 128)
-    if source.observation.state != report.Observed or source.observation.value == null {
+    if source.observation.state != .Observed or source.observation.value == null {
       issues += [src.issue(f"network.{item.name}.ifindex", source.observation.state, source.error_kind, source.errno)]
       interfaces += [{...item, ifindex: null}]
       continue
     }
-    let raw = (source.observation.value ?? "").trim()
+    let raw = source.observation.value.trim()
     let parsed_index = src.parse_integer(raw)
-    if parsed_index == null or (parsed_index ?? 0) <= 0 {
+    if parsed_index == null or parsed_index <= 0 {
       let state = if src.decimal_digits(raw) { report.RangeFailure } else { report.Malformed }
       issues += [src.issue(f"network.{item.name}.ifindex", state, "invalid_interface_index", null)]
       interfaces += [{...item, ifindex: null}]
@@ -101,9 +100,7 @@ export pure selected_interface(interfaces: List[NetworkInterface]) -> NetworkInt
   if candidates.is_empty() {
     candidates = interfaces
   }
-  if candidates.is_empty() {
-    return null
-  }
+  return null when candidates.is_empty()
 
   (candidates |> sort-by .name)[0]
 }

@@ -21,17 +21,16 @@ export type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 # arguments because operating-system argv values cannot contain NUL.
 ## Prepare raw argv for the text-based option parser.
 export pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0gnu-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0gnu-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -40,7 +39,7 @@ export pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 ## Restore an undecodable argument or encode an ordinary text token as bytes.
 export pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }

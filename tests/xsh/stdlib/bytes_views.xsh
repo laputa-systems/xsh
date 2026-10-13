@@ -6,7 +6,7 @@ proc view_input_command(target: Path, argv: List[Str], directory: Path, output: 
 
 test test_bytes_view_is_command_stdin_not_a_file_path { |ctx|
   let data = b"prefix\0\xffsuffix"
-  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), "--version"], stdin: data[6..8])
+  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, "--version"], stdin: data[6..8])
   let _ = command
 }
 

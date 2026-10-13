@@ -1,9 +1,9 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox tail/tail-n-works
 test test_bb_tail_tail_n_works_e2be15cb { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "abc\ndef\n123\n")?
+  uu.write(s, "input", "abc\ndef\n123\n")
   let r = uu.invoke(s, "tail", ["-n", "2", "input"])?
   uu.succeeds(r)
   uu.stdout_only(r, "def\n123\n")
@@ -12,7 +12,7 @@ test test_bb_tail_tail_n_works_e2be15cb { |ctx|
 # origin: busybox tail/tail-works
 test test_bb_tail_tail_works_18477a36 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input", "abc\ndef\n123\n")?
+  uu.write(s, "input", "abc\ndef\n123\n")
   let r = uu.invoke(s, "tail", ["-2", "input"])?
   uu.succeeds(r)
   uu.stdout_only(r, "def\n123\n")

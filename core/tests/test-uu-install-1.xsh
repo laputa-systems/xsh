@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils install integration tests.
 
-use support.uu as uu
+use support.uu
 
 # Missing paths return false; metadata errors on existing paths remain errors.
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
@@ -41,7 +41,7 @@ test test_uu_install_install_ancestors_mode_directories { |ctx|
   let directories_arg = "-d"
   let mode_arg = "--mode=200"
   let probe = "probe"
-  uu.mkdir(s, probe)?
+  uu.mkdir(s, probe)
   let default_perms = fs.stat(uu.at(s, probe), follow_symlinks: true)?.mode
   let r1 = uu.invoke(s, "install", [mode_arg, directories_arg, target_dir])?
   uu.succeeds(r1)
@@ -64,9 +64,9 @@ test test_uu_install_install_ancestors_mode_directories_with_file { |ctx|
   let mode_arg = "--mode=200"
   let file = "file"
   let probe = "probe"
-  uu.mkdir(s, probe)?
+  uu.mkdir(s, probe)
   let default_perms = fs.stat(uu.at(s, probe), follow_symlinks: true)?.mode
-  uu.touch(s, file)?
+  uu.touch(s, file)
   let r1 = uu.invoke(s, "install", [mode_arg, directories_arg, file, target_file])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -81,9 +81,9 @@ test test_uu_install_install_ancestors_mode_directories_with_file { |ctx|
 # origin: uutils test_install::test_install_backup_allows_hardlink_under_another_name
 test test_uu_install_install_backup_allows_hardlink_under_another_name { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.write(s, "a~", "source content")?
-  uu.hard_link(s, "a~", "other")?
+  uu.touch(s, "a")
+  uu.write(s, "a~", "source content")
+  uu.hard_link(s, "a~", "other")
   let r1 = uu.invoke(s, "install", ["--backup=simple", "other", "a"])?
   uu.succeeds(r1)
   assert uu.read_text(s, "a")? == "source content"
@@ -92,8 +92,8 @@ test test_uu_install_install_backup_allows_hardlink_under_another_name { |ctx|
 # origin: uutils test_install::test_install_backup_custom_suffix_refuses
 test test_uu_install_install_backup_custom_suffix_refuses { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.write(s, "a.bak", "source content")?
+  uu.touch(s, "a")
+  uu.write(s, "a.bak", "source content")
   let r1 = uu.invoke(s, "install", ["-b", "--suffix=.bak", "a.bak", "a"])?
   uu.fails(r1)
   uu.stderr_contains(r1, "might destroy source")
@@ -106,8 +106,8 @@ test test_uu_install_install_backup_custom_suffix_via_env { |ctx|
   let file_a = "test_install_backup_custom_suffix_file_a"
   let file_b = "test_install_backup_custom_suffix_file_b"
   let suffix = "super-suffix-of-the-century"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["-b", file_a, file_b], vars: {SIMPLE_BACKUP_SUFFIX: suffix})?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -121,8 +121,8 @@ test test_uu_install_install_backup_existing { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup=existing", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -137,9 +137,9 @@ test test_uu_install_install_backup_long_no_args_file_to_dir { |ctx|
   let file = "test_install_simple_backup_file_a"
   let dest_dir = "test_install_dest/"
   let expect = f"{dest_dir}{file}"
-  uu.touch(s, file)?
-  uu.mkdir(s, dest_dir)?
-  uu.touch(s, expect)?
+  uu.touch(s, file)
+  uu.mkdir(s, dest_dir)
+  uu.touch(s, expect)
   let r1 = uu.invoke(s, "install", ["--backup", file, dest_dir])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -153,8 +153,8 @@ test test_uu_install_install_backup_long_no_args_files { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_simple_backup_file_a"
   let file_b = "test_install_simple_backup_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -168,8 +168,8 @@ test test_uu_install_install_backup_never { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup=never", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -183,8 +183,8 @@ test test_uu_install_install_backup_nil { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup=nil", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -197,7 +197,7 @@ test test_uu_install_install_backup_nil { |ctx|
 test test_uu_install_install_backup_nil_same_file { |ctx|
   let s = uu.scene(ctx)?
   let file = "test_install_backup_numbering_file"
-  uu.write(s, file, "content")?
+  uu.write(s, file, "content")
   let methods = [
   "none", "off", "numbered", "t", "existing", "nil", "simple", "never",
   ]
@@ -218,8 +218,8 @@ test test_uu_install_install_backup_none { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup=none", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -231,8 +231,8 @@ test test_uu_install_install_backup_none { |ctx|
 # origin: uutils test_install::test_install_backup_numbered_allows_source_named_like_backup
 test test_uu_install_install_backup_numbered_allows_source_named_like_backup { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.write(s, "a~", "source content")?
+  uu.touch(s, "a")
+  uu.write(s, "a~", "source content")
   let r1 = uu.invoke(s, "install", ["--backup=numbered", "a~", "a"])?
   uu.succeeds(r1)
   assert uu.read_text(s, "a~")? == "source content"
@@ -245,9 +245,9 @@ test test_uu_install_install_backup_numbered_if_existing_backup_existing { |ctx|
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
   let file_b_backup = "test_install_backup_numbering_file_b.~1~"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
-  uu.touch(s, file_b_backup)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
+  uu.touch(s, file_b_backup)
   let r1 = uu.invoke(s, "install", ["--backup=existing", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -263,9 +263,9 @@ test test_uu_install_install_backup_numbered_if_existing_backup_nil { |ctx|
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
   let file_b_backup = "test_install_backup_numbering_file_b.~1~"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
-  uu.touch(s, file_b_backup)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
+  uu.touch(s, file_b_backup)
   let r1 = uu.invoke(s, "install", ["--backup=nil", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -280,8 +280,8 @@ test test_uu_install_install_backup_numbered_with_numbered { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup=numbered", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -295,8 +295,8 @@ test test_uu_install_install_backup_numbered_with_t { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup=t", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -310,8 +310,8 @@ test test_uu_install_install_backup_off { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup=off", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -323,8 +323,8 @@ test test_uu_install_install_backup_off { |ctx|
 # origin: uutils test_install::test_install_backup_refuses_regardless_of_spelling
 test test_uu_install_install_backup_refuses_regardless_of_spelling { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.write(s, "a~", "source content")?
+  uu.touch(s, "a")
+  uu.write(s, "a~", "source content")
   let r1 = uu.invoke(s, "install", ["--backup=simple", "./a~", "a"])?
   uu.fails(r1)
   uu.stderr_contains(r1, "might destroy source")
@@ -335,8 +335,8 @@ test test_uu_install_install_backup_refuses_regardless_of_spelling { |ctx|
 test test_uu_install_install_backup_refuses_when_source_is_the_backup { |ctx|
   for mode in ["simple", "existing"] {
     let s = uu.scene(ctx)?
-    uu.touch(s, "a")?
-    uu.write(s, "a~", "source content")?
+    uu.touch(s, "a")
+    uu.write(s, "a~", "source content")
     let r1 = uu.invoke(s, "install", [f"--backup={mode}", "a~", "a"])?
     uu.fails(r1)
     uu.stderr_is(r1, "install: backing up 'a' might destroy source;  'a~' not copied\n")
@@ -350,8 +350,8 @@ test test_uu_install_install_backup_short_custom_suffix { |ctx|
   let file_a = "test_install_backup_custom_suffix_file_a"
   let file_b = "test_install_backup_custom_suffix_file_b"
   let suffix = "super-suffix-of-the-century"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["-b", f"--suffix={suffix}", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -366,8 +366,8 @@ test test_uu_install_install_backup_short_custom_suffix_hyphen_value { |ctx|
   let file_a = "test_install_backup_custom_suffix_file_a"
   let file_b = "test_install_backup_custom_suffix_file_b"
   let suffix = "-v"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["-b", f"--suffix={suffix}", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -382,9 +382,9 @@ test test_uu_install_install_backup_short_no_args_file_to_dir { |ctx|
   let file = "test_install_simple_backup_file_a"
   let dest_dir = "test_install_dest/"
   let expect = f"{dest_dir}{file}"
-  uu.touch(s, file)?
-  uu.mkdir(s, dest_dir)?
-  uu.touch(s, expect)?
+  uu.touch(s, file)
+  uu.mkdir(s, dest_dir)
+  uu.touch(s, expect)
   let r1 = uu.invoke(s, "install", ["-b", file, dest_dir])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -398,8 +398,8 @@ test test_uu_install_install_backup_short_no_args_files { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_simple_backup_file_a"
   let file_b = "test_install_simple_backup_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["-b", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -413,8 +413,8 @@ test test_uu_install_install_backup_simple { |ctx|
   let s = uu.scene(ctx)?
   let file_a = "test_install_backup_numbering_file_a"
   let file_b = "test_install_backup_numbering_file_b"
-  uu.touch(s, file_a)?
-  uu.touch(s, file_b)?
+  uu.touch(s, file_a)
+  uu.touch(s, file_b)
   let r1 = uu.invoke(s, "install", ["--backup=simple", file_a, file_b])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -444,7 +444,7 @@ test test_uu_install_install_chown_directory_invalid { |ctx|
 test test_uu_install_install_chown_file_invalid { |ctx|
   let s = uu.scene(ctx)?
   let file_1 = "source_file1"
-  uu.touch(s, file_1)?
+  uu.touch(s, file_1)
   let r1 = uu.invoke(s, "install", ["-o", "test_invalid_user", file_1, "target_file1"])?
   uu.fails(r1)
   uu.stderr_contains(r1, "install: invalid user 'test_invalid_user'")
@@ -464,7 +464,7 @@ test test_uu_install_install_compare_basic { |ctx|
   let s = uu.scene(ctx)?
   let source = "source_file"
   let dest = "dest_file"
-  uu.write(s, source, "test content")?
+  uu.write(s, source, "test content")
   let r1 = uu.invoke(s, "install", ["-Cv", "-m644", source, dest])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, f"'{source}' -> '{dest}'")
@@ -472,7 +472,7 @@ test test_uu_install_install_compare_basic { |ctx|
   uu.succeeds(r2)
   uu.no_stdout(r2)
   let source2 = "source2"
-  uu.write(s, source2, "different content")?
+  uu.write(s, source2, "different content")
   let r3 = uu.invoke(s, "install", ["-Cv", "-m644", source2, dest])?
   uu.succeeds(r3)
   uu.stdout_contains(r3, "removed")
@@ -487,7 +487,7 @@ test test_uu_install_install_compare_option { |ctx|
   let s = uu.scene(ctx)?
   let first = "a"
   let second = "b"
-  uu.touch(s, first)?
+  uu.touch(s, first)
   let r1 = uu.invoke(s, "install", ["-Cv", first, second])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, f"'{first}' -> '{second}'")
@@ -513,7 +513,7 @@ test test_uu_install_install_compare_special_mode_bits { |ctx|
   let s = uu.scene(ctx)?
   let source = "source_file"
   let dest = "dest_file"
-  uu.write(s, source, "test content")?
+  uu.write(s, source, "test content")
   let r1 = uu.invoke(s, "install", ["-Cv", "-m2755", source, dest])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, f"'{source}' -> '{dest}'")
@@ -552,9 +552,9 @@ test test_uu_install_install_compare_symlink_handling { |ctx|
   let source = "source_file"
   let symlink_dest = "symlink_dest"
   let target_file = "target_file"
-  uu.write(s, source, "test content")?
-  uu.write(s, target_file, "test content")?
-  uu.symlink(s, target_file, symlink_dest)?
+  uu.write(s, source, "test content")
+  uu.write(s, target_file, "test content")
+  uu.symlink(s, target_file, symlink_dest)
   let r1 = uu.invoke(s, "install", ["-Cv", "-m644", source, symlink_dest])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "removed")
@@ -569,7 +569,7 @@ test test_uu_install_install_copy_file { |ctx|
   let s = uu.scene(ctx)?
   let file1 = "source_file"
   let file2 = "target_file"
-  uu.touch(s, file1)?
+  uu.touch(s, file1)
   let r1 = uu.invoke(s, "install", [file1, file2])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -582,7 +582,7 @@ test test_uu_install_install_copy_then_compare_file { |ctx|
   let s = uu.scene(ctx)?
   let file1 = "test_install_copy_then_compare_file_a1"
   let file2 = "test_install_copy_then_compare_file_a2"
-  uu.touch(s, file1)?
+  uu.touch(s, file1)
   let r1 = uu.invoke(s, "install", ["-C", file1, file2])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -601,20 +601,20 @@ test test_uu_install_install_copy_then_compare_file_with_extra_mode { |ctx|
   let s = uu.scene(ctx)?
   let file1 = "test_install_copy_then_compare_file_with_extra_mode_a1"
   let file2 = "test_install_copy_then_compare_file_with_extra_mode_a2"
-  uu.touch(s, file1)?
+  uu.touch(s, file1)
   let r1 = uu.invoke(s, "install", ["-C", file1, file2])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
   var file2_meta = fs.stat(uu.at(s, file2), follow_symlinks: true)?
   let before = file2_meta.mtime_ns
-  time.sleep(100ms)?
+  time.sleep(100ms)
   let r2 = uu.invoke(s, "install", ["-C", file1, file2, "-m", "1644"])?
   uu.succeeds(r2)
   uu.stderr_contains(r2, "the --compare (-C) option is ignored when you specify a mode with non-permission bits")
   file2_meta = fs.stat(uu.at(s, file2), follow_symlinks: true)?
   let after_install_sticky = file2_meta.mtime_ns
   assert before != after_install_sticky
-  time.sleep(100ms)?
+  time.sleep(100ms)
   let r3 = uu.invoke(s, "install", ["-C", file1, file2])?
   uu.succeeds(r3)
   uu.no_stderr(r3)
@@ -628,7 +628,7 @@ test test_uu_install_install_creating_leading_dirs { |ctx|
   let s = uu.scene(ctx)?
   let source = "create_leading_test_file"
   let target = "dir1/dir2/dir3/test_file"
-  uu.touch(s, source)?
+  uu.touch(s, source)
   let r1 = uu.invoke(s, "install", ["-D", source, uu.at(s, target).display()])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -641,8 +641,8 @@ test test_uu_install_install_creating_leading_dirs_with_multiple_sources_and_tar
   let source1 = "source_file_1"
   let source2 = "source_file_2"
   let target_dir = "missing_target_dir"
-  uu.touch(s, source1)?
-  uu.touch(s, source2)?
+  uu.touch(s, source1)
+  uu.touch(s, source2)
   let r1 = uu.invoke(s, "install", ["-D", source1, source2, uu.at(s, target_dir).display()])?
   uu.fails(r1)
   uu.stderr_contains(r1, "missing_target_dir': No such file or directory")
@@ -658,7 +658,7 @@ test test_uu_install_install_creating_leading_dirs_with_single_source_and_target
   let s = uu.scene(ctx)?
   let source1 = "source_file_1"
   let target_dir = "missing_target_dir/"
-  uu.touch(s, source1)?
+  uu.touch(s, source1)
   let r1 = uu.invoke(s, "install", ["-D", source1, uu.at(s, target_dir).display()])?
   uu.fails(r1)
   uu.stderr_contains(r1, "missing_target_dir/': Not a directory")
@@ -683,9 +683,9 @@ test test_uu_install_install_dir { |ctx|
   let dir = "target_dir"
   let file1 = "source_file1"
   let file2 = "source_file2"
-  uu.touch(s, file1)?
-  uu.touch(s, file2)?
-  uu.mkdir(s, dir)?
+  uu.touch(s, file1)
+  uu.touch(s, file2)
+  uu.mkdir(s, dir)
   let r1 = uu.invoke(s, "install", [file1, file2, f"--target-directory={dir}"])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -726,14 +726,14 @@ test test_uu_install_install_dir_dot { |ctx|
 test test_uu_install_install_dir_req_verbose { |ctx|
   let s = uu.scene(ctx)?
   let file_1 = "source_file1"
-  uu.touch(s, file_1)?
+  uu.touch(s, file_1)
   let r1 = uu.invoke(s, "install", ["-Dv", file_1, "sub3/a/b/c/file"])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "install: creating directory 'sub3'\ninstall: creating directory 'sub3/a'\ninstall: creating directory 'sub3/a/b'\ninstall: creating directory 'sub3/a/b/c'\n'source_file1' -> 'sub3/a/b/c/file'")
   let r2 = uu.invoke(s, "install", ["-t", "sub4/a", "-Dv", file_1])?
   uu.succeeds(r2)
   uu.stdout_contains(r2, "install: creating directory 'sub4'\ninstall: creating directory 'sub4/a'\n'source_file1' -> 'sub4/a/source_file1'")
-  uu.mkdir(s, "sub5")?
+  uu.mkdir(s, "sub5")
   let r3 = uu.invoke(s, "install", ["-Dv", file_1, "sub5/a/b/c/file"])?
   uu.succeeds(r3)
   uu.stdout_contains(r3, "install: creating directory 'sub5/a'\ninstall: creating directory 'sub5/a/b'\ninstall: creating directory 'sub5/a/b/c'\n'source_file1' -> 'sub5/a/b/c/file'")
@@ -745,7 +745,7 @@ test test_uu_install_install_dir_with_existing_file { |ctx|
   let newdir1 = "newdir1"
   let existing_file = "existing_file"
   let newdir2 = "newdir2"
-  uu.touch(s, existing_file)?
+  uu.touch(s, existing_file)
   let r1 = uu.invoke(s, "install", ["-d", newdir1, existing_file, newdir2])?
   uu.fails(r1)
   uu.stderr_contains(r1, "cannot create directory 'existing_file': File exists")
@@ -759,8 +759,8 @@ test test_uu_install_install_dir_with_multiple_existing_files { |ctx|
   let s = uu.scene(ctx)?
   let file1 = "file1"
   let file2 = "file2"
-  uu.touch(s, file1)?
-  uu.touch(s, file2)?
+  uu.touch(s, file1)
+  uu.touch(s, file2)
   let r1 = uu.invoke(s, "install", ["-d", file1, file2])?
   uu.fails(r1)
   uu.stderr_contains(r1, "cannot create directory 'file1': File exists")
@@ -774,8 +774,8 @@ test test_uu_install_install_failing_copy_file_to_target_contain_subdir_with_sam
   let s = uu.scene(ctx)?
   let file = "file"
   let dir1 = "dir1"
-  uu.touch(s, file)?
-  uu.mkdir_all(s, f"{dir1}/{file}")?
+  uu.touch(s, file)
+  uu.mkdir_all(s, f"{dir1}/{file}")
   let r1 = uu.invoke(s, "install", [file, dir1])?
   uu.fails(r1)
   uu.stderr_contains(r1, "cannot overwrite directory")
@@ -787,8 +787,8 @@ test test_uu_install_install_failing_no_such_file { |ctx|
   let file1 = "source_file"
   let file2 = "inexistent_file"
   let dir1 = "target_dir"
-  uu.mkdir(s, dir1)?
-  uu.touch(s, file1)?
+  uu.mkdir(s, dir1)
+  uu.touch(s, file1)
   let r1 = uu.invoke(s, "install", [file1, file2, dir1])?
   uu.fails_with_code(r1, 1)
   uu.stderr_contains(r1, "No such file or directory")
@@ -800,9 +800,9 @@ test test_uu_install_install_failing_not_dir { |ctx|
   let file1 = "file1"
   let file2 = "file2"
   let file3 = "file3"
-  uu.touch(s, file1)?
-  uu.touch(s, file2)?
-  uu.touch(s, file3)?
+  uu.touch(s, file1)
+  uu.touch(s, file2)
+  uu.touch(s, file3)
   let r1 = uu.invoke(s, "install", [file1, file2, file3])?
   uu.fails(r1)
   uu.stderr_contains(r1, "Not a directory")
@@ -815,9 +815,9 @@ test test_uu_install_install_failing_omitting_directory { |ctx|
   let dir1 = "dir1"
   let no_dir2 = "no-dir2"
   let dir3 = "dir3"
-  uu.mkdir(s, dir1)?
-  uu.mkdir(s, dir3)?
-  uu.touch(s, file1)?
+  uu.mkdir(s, dir1)
+  uu.mkdir(s, dir3)
+  uu.touch(s, file1)
   let r1 = uu.invoke(s, "install", [file1, dir1, no_dir2])?
   uu.fails(r1)
   uu.stderr_contains(r1, "target 'no-dir2': No such file or directory")
@@ -859,8 +859,8 @@ test test_uu_install_install_missing_destination { |ctx|
   let s = uu.scene(ctx)?
   let file_1 = "source_file1"
   let dir_1 = "source_dir1"
-  uu.touch(s, file_1)?
-  uu.mkdir(s, dir_1)?
+  uu.touch(s, file_1)
+  uu.mkdir(s, dir_1)
   let r1 = uu.invoke(s, "install", [file_1])?
   uu.fails(r1)
   usage_error(r1, f"missing destination file operand after '{file_1}'")
@@ -883,8 +883,8 @@ test test_uu_install_install_mode_comma_separated { |ctx|
   let dir = "target_dir"
   let file = "source_file"
   let mode_arg = "--mode=ug+rwX,o+rX"
-  uu.touch(s, file)?
-  uu.mkdir(s, dir)?
+  uu.touch(s, file)
+  uu.mkdir(s, dir)
   let r1 = uu.invoke(s, "install", [file, dir, mode_arg])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -928,8 +928,8 @@ test test_uu_install_install_mode_failing { |ctx|
   let dir = "target_dir"
   let file = "source_file"
   let mode_arg = "--mode=999"
-  uu.touch(s, file)?
-  uu.mkdir(s, dir)?
+  uu.touch(s, file)
+  uu.mkdir(s, dir)
   let r1 = uu.invoke(s, "install", [file, dir, mode_arg])?
   uu.fails(r1)
   uu.stderr_contains(r1, "invalid mode '999'")
@@ -945,8 +945,8 @@ test test_uu_install_install_mode_numeric { |ctx|
   let dir2 = "dir2"
   let file = "file"
   let mode_arg = "--mode=333"
-  uu.touch(s, file)?
-  uu.mkdir(s, dir)?
+  uu.touch(s, file)
+  uu.mkdir(s, dir)
   let r1 = uu.invoke(s, "install", [file, dir, mode_arg])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -956,7 +956,7 @@ test test_uu_install_install_mode_numeric { |ctx|
   let permissions = fs.stat(uu.at(s, dest_file), follow_symlinks: true)?
   assert 0o100333 == permissions.mode
   let mode_arg2 = "-m 0333"
-  uu.mkdir(s, dir2)?
+  uu.mkdir(s, dir2)
   let r2 = uu.invoke(s, "install", [mode_arg2, file, dir2])?
   uu.fails_with_code(r2, 1)
   uu.stderr_is(r2, "install: invalid mode ' 0333'\n")
@@ -970,8 +970,8 @@ test test_uu_install_install_mode_symbolic { |ctx|
   let dir = "target_dir"
   let file = "source_file"
   let mode_arg = "--mode=o+wx"
-  uu.touch(s, file)?
-  uu.mkdir(s, dir)?
+  uu.touch(s, file)
+  uu.mkdir(s, dir)
   let r1 = uu.invoke(s, "install", [file, dir, mode_arg])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -988,8 +988,8 @@ test test_uu_install_install_mode_symbolic_ignore_umask { |ctx|
   let dir = "target_dir"
   let file = "source_file"
   let mode_arg = "--mode=+w"
-  uu.touch(s, file)?
-  uu.mkdir(s, dir)?
+  uu.touch(s, file)
+  uu.mkdir(s, dir)
   let r1 = uu.invoke(s, "install", [file, dir, mode_arg], umask: 0o022)?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -1006,9 +1006,9 @@ test test_uu_install_install_nested_paths_copy_file { |ctx|
   let file1 = "source_file"
   let dir1 = "source_dir"
   let dir2 = "target_dir"
-  uu.mkdir(s, dir1)?
-  uu.mkdir(s, dir2)?
-  uu.touch(s, f"{dir1}/{file1}")?
+  uu.mkdir(s, dir1)
+  uu.mkdir(s, dir2)
+  uu.touch(s, f"{dir1}/{file1}")
   let r1 = uu.invoke(s, "install", [f"{dir1}/{file1}", dir2])?
   uu.succeeds(r1)
   uu.no_stderr(r1)
@@ -1016,18 +1016,18 @@ test test_uu_install_install_nested_paths_copy_file { |ctx|
 }
 
 # The script must reach disk before another process executes it.
-proc write_strip(s: uu.Scene, name: Str, content: Str) [fs, error] -> Result[Unit, Error] {
-  uu.write(s, name, content)?
-  fs.fsync(uu.at(s, name))?
-  uu.set_mode(s, name, 0o755)?
+proc write_strip(s: uu.Scene, name: Str, content: Str) [fs, error] {
+  uu.write(s, name, content)
+  fs.fsync(uu.at(s, name))
+  uu.set_mode(s, name, 0o755)
   Ok()
 }
 
 # origin: uutils test_install::test_install_and_strip
 test test_uu_install_install_and_strip { |ctx|
   let s = uu.scene(ctx)?
-  write_strip(s, "strip", "#!/bin/sh\n: > \"$1\"\n")?
-  uu.write(s, "source", "file contents")?
+  write_strip(s, "strip", "#!/bin/sh\n: > \"$1\"\n")
+  uu.write(s, "source", "file contents")
   let r = uu.invoke(s, "install", ["-s", "source", "helloworld_installed"], vars: {PATH: f"{s.root}:{env.get("PATH")?}"})?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -1037,8 +1037,8 @@ test test_uu_install_install_and_strip { |ctx|
 # origin: uutils test_install::test_install_and_strip_with_program
 test test_uu_install_install_and_strip_with_program { |ctx|
   let s = uu.scene(ctx)?
-  write_strip(s, "strip-program", "#!/bin/sh\n: > \"$1\"\n")?
-  uu.write(s, "source", "file contents")?
+  write_strip(s, "strip-program", "#!/bin/sh\n: > \"$1\"\n")
+  uu.write(s, "source", "file contents")
   let r = uu.invoke(s, "install", ["-s", "--strip-program", "./strip-program", "source", "helloworld_installed"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -1048,9 +1048,9 @@ test test_uu_install_install_and_strip_with_program { |ctx|
 # origin: uutils test_install::test_install_and_strip_with_program_hyphen
 test test_uu_install_install_and_strip_with_program_hyphen { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "no-hyphen", "#!/bin/sh\n    printf -- '%s\\n' \"$1\" | grep '^[^-]'\n    ")?
+  uu.write(s, "no-hyphen", "#!/bin/sh\n    printf -- '%s\\n' \"$1\" | grep '^[^-]'\n    ")
   uu.succeeds(uu.invoke(s, "chmod", ["+x", "no-hyphen"])?)
-  uu.touch(s, "src")?
+  uu.touch(s, "src")
   let first = uu.invoke(s, "install", ["-s", "--strip-program", "./no-hyphen", "--", "src", "-dest"])?
   uu.succeeds(first)
   uu.no_stderr(first)
@@ -1073,7 +1073,7 @@ test test_uu_install_install_and_strip_with_invalid_program { |ctx|
 # origin: uutils test_install::test_install_and_strip_with_signal_terminated_program
 test test_uu_install_install_and_strip_with_signal_terminated_program { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "src.sh", "kill -9 $$\n")?
+  uu.write(s, "src.sh", "kill -9 $$\n")
   let r = uu.invoke(s, "install", ["-s", "--strip-program", "/bin/sh", "src.sh", "helloworld_installed"])?
   uu.fails(r)
   uu.stderr_only(r, "install: strip process terminated abnormally\n")
@@ -1092,9 +1092,9 @@ test test_uu_install_install_and_strip_with_non_existent_program { |ctx|
 # origin: uutils test_install::test_install_compare_preserve_timestamps
 test test_uu_install_install_compare_preserve_timestamps { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "source_file", "data")?
-  uu.write(s, "dest_file", "data")?
-  fs.set_times(uu.at(s, "source_file"), mtime_sec: 1000000)?
+  uu.write(s, "source_file", "data")
+  uu.write(s, "dest_file", "data")
+  fs.set_times(uu.at(s, "source_file"), mtime_sec: 1000000)
   let r = uu.invoke(s, "install", ["-C", "--preserve-timestamps", "source_file", "dest_file"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -1104,12 +1104,12 @@ test test_uu_install_install_compare_preserve_timestamps { |ctx|
 # origin: uutils test_install::test_install_creating_leading_dirs_verbose
 test test_uu_install_install_creating_leading_dirs_verbose { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "create_leading_test_file")?
-  uu.mkdir(s, "dir1")?
+  uu.touch(s, "create_leading_test_file")
+  uu.mkdir(s, "dir1")
   let r = uu.invoke(s, "install", ["-Dv", "create_leading_test_file", uu.at(s, "dir1/no-dir2/no-dir3/test_file").display()])?
   uu.succeeds(r)
-  assert regex.compile("(?m)^install: creating directory.*no-dir[23]'$")?.matches(r.stdout.utf8()?)
-  assert !regex.compile("(?m)^install: creating directory.*dir1'$")?.matches(r.stdout.utf8()?)
+  assert regex.compile("(?m)^install: creating directory.*no-dir[23]'$")?.matches(r.stdout as Str)
+  assert !regex.compile("(?m)^install: creating directory.*dir1'$")?.matches(r.stdout as Str)
   uu.no_stderr(r)
   assert file_exists(s, "dir1/no-dir2/no-dir3/test_file")?
 }
@@ -1117,7 +1117,7 @@ test test_uu_install_install_creating_leading_dirs_verbose { |ctx|
 # origin: uutils test_install::test_install_creating_leading_dir_fails_on_long_name
 test test_uu_install_install_creating_leading_dir_fails_on_long_name { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "create_leading_test_file")?
+  uu.touch(s, "create_leading_test_file")
   let target = ["d" for _ in range(4097)].join("") + "/test_file"
   let r = uu.invoke(s, "install", ["-D", "create_leading_test_file", uu.at(s, target).display()])?
   uu.fails(r)
@@ -1127,7 +1127,7 @@ test test_uu_install_install_creating_leading_dir_fails_on_long_name { |ctx|
 # origin: uutils test_install::test_install_compare_group_ownership
 test test_uu_install_install_compare_group_ownership { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "source_file", "test content")?
+  uu.write(s, "source_file", "test content")
   let group_result = uu.invoke(s, "id", ["-nrg"])?
   uu.succeeds(group_result)
   let user_group = group_result.stdout.utf8()?.trim()
@@ -1145,7 +1145,7 @@ test test_uu_install_install_compare_with_mode_bits { |ctx|
     let s = uu.scene(ctx)?
     let source = f"source_file_{mode}"
     let dest = f"dest_file_{mode}"
-    uu.write(s, source, "test content")?
+    uu.write(s, source, "test content")
     let r = uu.invoke(s, "install", ["-C", f"--mode={mode}", source, dest])?
     uu.succeeds(r)
     if mode != "755" {
@@ -1164,48 +1164,48 @@ test test_uu_install_install_compare_with_mode_bits { |ctx|
 test test_uu_install_install_failed_chown_does_not_leave_setuid { |ctx|
   if applet.current_euid() == 0 { test.skip("chown must be able to fail") }
   let s = uu.scene(ctx)?
-  uu.touch(s, "src")?
+  uu.touch(s, "src")
   let file = uu.invoke(s, "install", ["-m", "4755", "-o", "root", "src", "dst"])?
   uu.fails(file)
-  if file_exists(s, "dst")? { assert uu.mode(s, "dst")?.bit_and(0o6000) == 0 }
+  if file_exists(s, "dst") { assert uu.mode(s, "dst")?.bit_and(0o6000) == 0 }
   let directory = uu.invoke(s, "install", ["-d", "-m", "4755", "-o", "root", "newdir"])?
   uu.fails(directory)
-  if dir_exists(s, "newdir")? { assert uu.mode(s, "newdir")?.bit_and(0o6000) == 0 }
+  if dir_exists(s, "newdir") { assert uu.mode(s, "newdir")?.bit_and(0o6000) == 0 }
 }
 
 # origin: uutils test_install::test_install_d_symlink_in_path_is_followed
 test test_uu_install_install_d_symlink_in_path_is_followed { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "target")?
-  uu.write(s, "source_file", "test content")?
-  uu.mkdir_all(s, "testdir/a")?
-  uu.at(s, "testdir/a/b").symlink(to: uu.at(s, "target"))?
+  uu.mkdir(s, "target")
+  uu.write(s, "source_file", "test content")
+  uu.mkdir_all(s, "testdir/a")
+  uu.at(s, "testdir/a/b").symlink(to: uu.at(s, "target"))
   let r = uu.invoke(s, "install", ["-D", uu.at(s, "source_file").display(), uu.at(s, "testdir/a/b/c/file").display()])?
   uu.succeeds(r)
   assert uu.exists(s, "target/c/file")?
-  uu.file_is(s, "target/c/file", "test content")?
+  uu.file_is(s, "target/c/file", "test content")
   assert uu.is_symlink(s, "testdir/a/b")?
 }
 
 # origin: uutils test_install::test_install_d_follows_symlink_prefix
 test test_uu_install_install_d_follows_symlink_prefix { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "target")?
-  uu.at(s, "link").symlink(to: uu.at(s, "target"))?
-  uu.write(s, "file.txt", "hello")?
+  uu.mkdir(s, "target")
+  uu.at(s, "link").symlink(to: uu.at(s, "target"))
+  uu.write(s, "file.txt", "hello")
   let r = uu.invoke(s, "install", ["-D", "-m", "644", uu.at(s, "file.txt").display(), uu.at(s, "link/subdir/file.txt").display()])?
   uu.succeeds(r)
   assert uu.is_symlink(s, "link")?
   assert uu.exists(s, "target/subdir/file.txt")?
-  uu.file_is(s, "target/subdir/file.txt", "hello")?
+  uu.file_is(s, "target/subdir/file.txt", "hello")
 }
 
 # origin: uutils test_install::test_install_d_dangling_symlink_in_path_errors
 test test_uu_install_install_d_dangling_symlink_in_path_errors { |ctx|
   let s = uu.scene(ctx)?
-  uu.at(s, "dangling").symlink(to: uu.at(s, "nonexistent"))?
+  uu.at(s, "dangling").symlink(to: uu.at(s, "nonexistent"))
   assert uu.is_symlink(s, "dangling")?
-  uu.write(s, "file.txt", "hello")?
+  uu.write(s, "file.txt", "hello")
   let r = uu.invoke(s, "install", ["-D", "-m", "644", uu.at(s, "file.txt").display(), uu.at(s, "dangling/subdir/file.txt").display()])?
   uu.fails(r)
   assert uu.is_symlink(s, "dangling")?
@@ -1215,13 +1215,14 @@ test test_uu_install_install_d_dangling_symlink_in_path_errors { |ctx|
 # origin: uutils test_install::test_install_d_parallel_mkdir_race
 test test_uu_install_install_d_parallel_mkdir_race { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "s")?
+  uu.touch(s, "s")
   for round in range(10) {
-    var children: List[ProcessHandle] = []
-    for k in range(32) {
-      let command = uu.command(s, "install", ["-D", "s", f"o{round}/q/f{k}"],
-        stdout: uu.at(s, f"out{k}"), stderr: uu.at(s, f"err{k}"), timeout: 10s)?
-      children += [spawn command?]
+    let children = collect {
+      for k in range(32) {
+        let command = uu.command(s, "install", ["-D", "s", f"o{round}/q/f{k}"],
+          stdout: uu.at(s, f"out{k}"), stderr: uu.at(s, f"err{k}"), timeout: 10s)?
+        yield spawn command?
+      }
     }
     for k in range(32) {
       assert (wait children[k]?).exited_with(0)
@@ -1234,29 +1235,29 @@ test test_uu_install_install_d_parallel_mkdir_race { |ctx|
 # origin: uutils test_install::test_install_from_fifo
 test test_uu_install_install_from_fifo { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "pipe")?
+  uu.mkfifo(s, "pipe")
   assert fs.stat(uu.at(s, "pipe"))?.kind == "fifo"
   let command = uu.command(s, "install", ["pipe", "target"], timeout: 5s)?
   let child = spawn command?
-  defer child.cancel(signal: "KILL", kill_after: 0ms)?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)
   # Opening the writer supplies exactly one stream and closes it at completion.
   let writer_command = process.command_argv(p"/bin/sh",
-    ["sh", "-c", "printf '%s' \"$1\" > \"$2\"", "writer", "Hello, world!\n", uu.at(s, "pipe").display()],
+    ["sh", "-c", "printf '%s' \"$1\" > \"$2\"", "writer", "Hello, world!\n", uu.at(s, "pipe")],
     s.root, {}, b"", uu.at(s, "writer-out"), uu.at(s, "writer-err"), timeout: 5s)
   let writer = spawn writer_command?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
   let _ = wait child?
   let _ = wait writer?
   assert file_exists(s, "target")?
-  uu.file_is(s, "target", "Hello, world!\n")?
+  uu.file_is(s, "target", "Hello, world!\n")
 }
 
 # origin: uutils test_install::test_install_backup_error_includes_cause
 test test_uu_install_install_backup_error_includes_cause { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "source")?
-  uu.touch(s, "target")?
-  uu.mkdir(s, "target.backup")?
+  uu.touch(s, "source")
+  uu.touch(s, "target")
+  uu.mkdir(s, "target.backup")
   let r = uu.invoke(s, "install", ["--backup", "source", "target"], vars: {SIMPLE_BACKUP_SUFFIX: ".backup"})?
   uu.fails(r)
   uu.stderr_is(r, "install: cannot backup 'target': Is a directory\n")
@@ -1265,10 +1266,10 @@ test test_uu_install_install_backup_error_includes_cause { |ctx|
 # origin: uutils test_install::diagnostics::test_plain_message_when_stderr_is_a_pipe
 test test_uu_install_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "source")?
+  uu.touch(s, "source")
   let r = uu.invoke(s, "install", ["-m", "u+rw?x", "source", "dest"])?
   uu.fails_with_code(r, 1)
-  let stderr = r.stderr.utf8()?
+  let stderr = r.stderr as Str
   assert stderr.starts_with("install: ")
   assert !(":1:" in stderr)
 }

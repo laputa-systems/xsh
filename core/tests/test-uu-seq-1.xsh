@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils seq integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc usage_error(r: uu.Ran, message: Str) {
   uu.stderr_only(r, f"seq: {message}\nTry 'seq --help' for more information.\n")
@@ -787,15 +787,15 @@ proc read_prefix(fd: Int, length: Int) [process, net, error] -> Result[Bytes, Er
 
 # Closing the sole pipe reader must let the producer terminate with SIGPIPE.
 proc infinite_prefix(s: uu.Scene, args: List[Str], expected: Bytes) [fs, process, net, env, error] {
-  uu.mkfifo(s, "output-pipe")?
+  uu.mkfifo(s, "output-pipe")
   let reader = unix.open_fd(uu.at(s, "output-pipe"), nonblock: true)?
   var reader_open = true
-  defer { if reader_open { unix.close_fd(reader)? } }
+  defer { if reader_open { unix.close_fd(reader) } }
   let command = uu.command(s, "seq", args, stdout: uu.at(s, "output-pipe"), stderr: uu.at(s, "stderr"), timeout: 5s)?
   let child = spawn command?
-  defer child.cancel(signal: "KILL", kill_after: 0ms)?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)
   let prefix = read_prefix(reader, expected.len())?
-  unix.close_fd(reader)?
+  unix.close_fd(reader)
   reader_open = false
   assert prefix == expected
   let status = wait child?
@@ -807,7 +807,7 @@ proc infinite_prefix(s: uu.Scene, args: List[Str], expected: Bytes) [fs, process
 test test_uu_seq_separator_non_utf8 { |ctx|
   let s = uu.scene(ctx)?
   for arg in [b"-s\xff\xfe", b"--separator=\xff\xfe"] {
-    let r = uu.invoke_paths(s, "seq", [Path.parse_bytes(arg)?, p"2"], timeout: 3s)?
+    let r = uu.invoke_paths(s, "seq", [arg as Path, p"2"], timeout: 3s)?
     uu.succeeds(r)
     uu.stdout_is_bytes(r, b"1\xff\xfe2\n")
   }
@@ -850,7 +850,7 @@ test test_uu_seq_format_precision_above_formatter_limit { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "seq", ["-f", "%.66000f", "4", "4"], timeout: 3s)?
   uu.succeeds(r)
-  let output = r.stdout.utf8()?
+  let output = r.stdout as Str
   assert output.byte_len() == 66003
   assert output.starts_with("4.")
   let digits = [char for char in output.byte_slice(2)]
@@ -871,53 +871,53 @@ test test_uu_seq_sigpipe_ignored_reports_write_error { |ctx|
   assert process.run(command)?.exited_with(0)
   assert output.read_bytes()? == b"1\n"
   assert "seq: write error: Broken pipe" in uu.read_text(s, "err")?
-  uu.file_is(s, "code", "1\n")?
+  uu.file_is(s, "code", "1\n")
 }
 
 # origin: uutils test_seq::test_infinite_sequence::case_1_neg_inf
 test test_uu_seq_test_infinite_sequence_case_1_neg_inf { |ctx|
   let s = uu.scene(ctx)?
-  infinite_prefix(s, ["--", "-inf", "0"], b"-inf\n-inf\n-inf\n")?
+  infinite_prefix(s, ["--", "-inf", "0"], b"-inf\n-inf\n-inf\n")
 }
 
 # origin: uutils test_seq::test_infinite_sequence::case_2_neg_infinity
 test test_uu_seq_test_infinite_sequence_case_2_neg_infinity { |ctx|
   let s = uu.scene(ctx)?
-  infinite_prefix(s, ["--", "-infinity", "0"], b"-inf\n-inf\n-inf\n")?
+  infinite_prefix(s, ["--", "-infinity", "0"], b"-inf\n-inf\n-inf\n")
 }
 
 # origin: uutils test_seq::test_infinite_sequence::case_3_inf
 test test_uu_seq_test_infinite_sequence_case_3_inf { |ctx|
   let s = uu.scene(ctx)?
-  infinite_prefix(s, ["inf"], b"1\n2\n3\n")?
+  infinite_prefix(s, ["inf"], b"1\n2\n3\n")
 }
 
 # origin: uutils test_seq::test_infinite_sequence::case_4_infinity
 test test_uu_seq_test_infinite_sequence_case_4_infinity { |ctx|
   let s = uu.scene(ctx)?
-  infinite_prefix(s, ["infinity"], b"1\n2\n3\n")?
+  infinite_prefix(s, ["infinity"], b"1\n2\n3\n")
 }
 
 # origin: uutils test_seq::test_infinite_sequence::case_5_inf_width
 test test_uu_seq_test_infinite_sequence_case_5_inf_width { |ctx|
   let s = uu.scene(ctx)?
-  infinite_prefix(s, ["-w", "1.000", "inf", "inf"], b"1.000\n  inf\n  inf\n  inf\n")?
+  infinite_prefix(s, ["-w", "1.000", "inf", "inf"], b"1.000\n  inf\n  inf\n  inf\n")
 }
 
 # origin: uutils test_seq::test_infinite_sequence::case_6_neg_inf_width
 test test_uu_seq_test_infinite_sequence_case_6_neg_inf_width { |ctx|
   let s = uu.scene(ctx)?
-  infinite_prefix(s, ["-w", "1.000", "-inf", "-inf"], b"1.000\n -inf\n -inf\n -inf\n")?
+  infinite_prefix(s, ["-w", "1.000", "-inf", "-inf"], b"1.000\n -inf\n -inf\n -inf\n")
 }
 
 # origin: uutils test_seq::test_infinite_sequence::case_7_precision_inf
 test test_uu_seq_test_infinite_sequence_case_7_precision_inf { |ctx|
   let s = uu.scene(ctx)?
-  infinite_prefix(s, ["1", "1.2", "inf"], b"1.0\n2.2\n3.4\n")?
+  infinite_prefix(s, ["1", "1.2", "inf"], b"1.0\n2.2\n3.4\n")
 }
 
 # origin: uutils test_seq::test_infinite_sequence::case_8_equalize_width_inf
 test test_uu_seq_test_infinite_sequence_case_8_equalize_width_inf { |ctx|
   let s = uu.scene(ctx)?
-  infinite_prefix(s, ["-w", "1", "1.2", "inf"], b"1.0\n2.2\n3.4\n")?
+  infinite_prefix(s, ["-w", "1", "1.2", "inf"], b"1.0\n2.2\n3.4\n")
 }

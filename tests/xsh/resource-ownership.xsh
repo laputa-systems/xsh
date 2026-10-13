@@ -1,4 +1,4 @@
-use tests.fixtures.runtime.resource_producers as resource_producers
+use tests.fixtures.runtime.resource_producers
 
 const resource_response: NetResponse = {
   status: 200,
@@ -36,15 +36,15 @@ pure resource_return_early_root(root: FsRoot) -> FsRoot {
   root
 }
 
-proc resource_borrow_root(root: FsRoot) [fs, error] -> Result[Unit] {
+proc resource_borrow_root(root: FsRoot) [fs, error] {
   root.write(p"borrowed", "live")
 }
 
 proc resource_fail_with_root() [fs, error] -> Result[FsRoot, ResourceRootError] {
   with root = fs.tempdir() {
-    fail .Owned(root: root)
+    fail .Owned(root:)
   } else {
-    return Err(.Unavailable())
+    fail .Unavailable()
   }
 }
 
@@ -53,9 +53,7 @@ test resource_lock_rejects_structural_and_json_forgery { |ctx|
     "let lock: FsLock = {id: 1, path: p\"nowhere\", shared: false}\n",
     "proc release(lock: FsLock) [fs] { fs.unlock(lock) }\nrelease({id: 1, path: p\"nowhere\", shared: false})\n",
   ] {
-    let output = test.run_script(ctx, source)?
-    assert output.status == 2, output.stderr
-    assert "check.type-mismatch" in output.stderr, output.stderr
+    test.expect(ctx, source, status: 2, stderr: ["check.type-mismatch"])?
   }
 
   let decoded: Any = json.decode("{\"id\":1,\"path\":\"nowhere\",\"shared\":false}")?
@@ -78,8 +76,7 @@ test resource_lock_keeps_metadata_and_hides_identity { |ctx|
     "var alias = lock\nalias.path = p\"forged\"",
     "var alias = lock\nalias.shared = false",
   ] {
-    let output = test.run_script(ctx, f"proc inspect(lock: FsLock) {{ {statement} }}\n")?
-    assert output.status == 2, output.stderr
+    test.expect(ctx, f"proc inspect(lock: FsLock) {{ {statement} }}\n", status: 2)?
   }
 }
 
@@ -87,8 +84,8 @@ test resource_temp_root_closes_after_its_defers { |ctx|
   test.mock(ctx, "net.start", {url: resource_response.url}, Ok(resource_response))
   var usable_in_defer = false
   var quiet_in_defer = false
-  var cleanup_root_path: Path? = null
-  var cleanup_child_pid: Int? = null
+  var cleanup_root_path = null
+  var cleanup_child_pid = null
   let root_path = {
     let root = fs.tempdir()?
     let child = spawn run sleep 30 ?
@@ -114,20 +111,21 @@ test resource_lock_unlocks_after_its_defers { |ctx|
   let dir = test.temp_dir(ctx, name: "resource-lock-exit")?
   let lock_path = fp"{dir}/lock"
   let second_lock_path = fp"{dir}/second-lock"
-  var root_paths: List[Path] = []
   var held_in_defer = false
-  {
-    let first_root = fs.tempdir()?
-    root_paths += [first_root.host_path()?]
-    let lock = fs.lock(lock_path)?
-    let second_root = fs.tempdir()?
-    root_paths += [second_root.host_path()?]
-    let second_lock = fs.lock(second_lock_path)?
-    defer {
-      held_in_defer = first_root.exists(p".")? and second_root.exists(p".")? and
-        ! resource_lock_available(ctx, lock_path)? and ! resource_lock_available(ctx, second_lock_path)?
+  let root_paths = collect {
+    {
+      let first_root = fs.tempdir()?
+      yield first_root.host_path()?
+      let lock = fs.lock(lock_path)?
+      let second_root = fs.tempdir()?
+      yield second_root.host_path()?
+      let second_lock = fs.lock(second_lock_path)?
+      defer {
+        held_in_defer = first_root.exists(p".")? and second_root.exists(p".")? and
+          ! resource_lock_available(ctx, lock_path)? and ! resource_lock_available(ctx, second_lock_path)?
+      }
+      assert ! resource_lock_available(ctx, lock_path)?
     }
-    assert ! resource_lock_available(ctx, lock_path)?
   }
   assert held_in_defer
   for root_path in root_paths { assert ! root_path.exists()? }
@@ -136,8 +134,8 @@ test resource_lock_unlocks_after_its_defers { |ctx|
 }
 
 test resource_middle_block_process_assignment_survives {
-  var kept: ProcessHandle? = null
-  var holder: ResourceChildHolder = {child: null}
+  var kept = null
+  var holder: ResourceChildHolder = ResourceChildHolder(child: null)
   {
     let child = spawn run sleep 30 ?
     { kept = child }
@@ -154,8 +152,8 @@ test resource_middle_block_process_assignment_survives {
 
 test resource_middle_block_job_assignment_survives { |ctx|
   test.mock(ctx, "net.start", {url: resource_response.url}, Ok(resource_response), times: 2)
-  var kept: NetJob? = null
-  var holder: ResourceJobHolder = {job: null}
+  var kept = null
+  var holder: ResourceJobHolder = ResourceJobHolder(job: null)
   {
     let job = net.start({method: "GET", url: resource_response.url})?
     { kept = job }
@@ -170,7 +168,7 @@ test resource_middle_block_job_assignment_survives { |ctx|
 test resource_stats_container_retains_its_child {
   let summary = {
     let child = spawn run sleep 30 ?
-    {blanks: 0, blobs: {"child": child}, code: 0, comments: 0}
+    {blanks: 0, blobs: {child: child}, code: 0, comments: 0}
   }
   let child = summary.blobs.get("child")?
   defer child.cancel(kill_after: 0ms)
@@ -204,7 +202,9 @@ test resource_yield_transfers_children_and_roots { |ctx|
   let jobs = resource_producers.jobs(resource_response.url) |> collect()
   for job in jobs { assert job.wait()?.body == b"ok" }
   let rejected_cleanup = test.temp_path(ctx, name: "resource-rejected-row-cleanup")
-  let rejected = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 type ChildRow = {child: ProcessHandle, count: UInt}
 stream rows(count: Int, observed: Path) [fs, process, error] -> Stream[ChildRow] {
   let child = spawn run sleep 30 ?
@@ -215,18 +215,22 @@ stream rows(count: Int, observed: Path) [fs, process, error] -> Stream[ChildRow]
 cli main(observed: Path) {
   let _ = rows(-1, observed) |> collect()
 }
-""", args: [rejected_cleanup])?
-  assert rejected.status == 3, rejected.stderr
+""",
+    status: 3,
+    args: [rejected_cleanup],
+  )?
   assert rejected_cleanup.read_text()?.trim() == "false", "a rejected row retains producer ownership for quiet cleanup"
   let failed = try { resource_producers.delegated_errors() |> collect() }
-  match failed {
-    Err(resource_producers.ChildError.Owned {child: child}) => {
-      defer child.cancel(kill_after: 0ms)
-      assert process.list()? |> any .pid == child.pid, "a delegated error retains its contained child"
-    }
-    _ => test.fail("expected a delegated resource-bearing error")
+  if let Err(resource_producers.ChildError.Owned {child: child}) = failed {
+    defer child.cancel(kill_after: 0ms)
+    assert process.list()? |> any .pid == child.pid, "a delegated error retains its contained child"
+  } else {
+    test.fail("expected a delegated resource-bearing error")
   }
-  let scoped = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
+
+  test.expect(
+    ctx,
+    r"""error ChildError = Owned(child: ProcessHandle)
 stream child() [process, error] -> Stream[Int] {
   let child = spawn run sleep 30 ?
   Err(ChildError.Owned(child: child))?
@@ -236,9 +240,10 @@ stream parent() [env, process, error] -> Stream[Int] {
 }
 let captured = try { parent() |> collect() }
 print (captured is Err(_))
-""")?
-  assert scoped.status == 3, scoped.stderr
-  assert "cannot escape a context" in scoped.stderr, scoped.stderr
+""",
+    status: 3,
+    stderr: ["cannot escape a context"],
+  )?
 }
 
 test resource_root_return_block_break_and_borrow_survive {
@@ -266,7 +271,7 @@ test resource_root_return_block_break_and_borrow_survive {
   defer broken.close()
   assert broken.exists(p".")?
 
-  var holder: ResourceRootHolder = {root: null}
+  var holder: ResourceRootHolder = ResourceRootHolder(root: null)
   {
     let root = fs.tempdir()?
     { holder.root = root }
@@ -277,7 +282,9 @@ test resource_root_return_block_break_and_borrow_survive {
 }
 
 test resource_factory_returned_stream_keeps_its_captured_root { |ctx|
-  let output = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 stream root_exists(root: FsRoot) [fs, error] -> Stream[Bool] {
   yield root.exists(p".")?
 }
@@ -287,12 +294,15 @@ proc make_root_stream() [fs, error] -> Result[Stream[Bool]] {
   return Ok(root_exists(root))
 }
 assert (make_root_stream()? |> collect()) == [true]
-""")?
-  assert output.status == 0, output.stderr
+""",
+    status: 0,
+  )?
 }
 
 test resource_factory_returned_stream_keeps_its_captured_process_handle { |ctx|
-  let output = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 stream child_is_live(child: ProcessHandle) [process] -> Stream[Bool] {
   yield process.kill(child.pid, signal: "0") is Ok(_)
 }
@@ -301,12 +311,15 @@ proc make_child_stream() [process, error] -> Result[Stream[Bool]] {
   return Ok(child_is_live(child))
 }
 assert (make_child_stream()? |> collect()) == [true]
-""")?
-  assert output.status == 0, output.stderr
+""",
+    status: 0,
+  )?
 }
 
 test resource_nested_producer_return_keeps_its_captured_root { |ctx|
-  let output = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 stream root_exists(root: FsRoot) [fs, error] -> Stream[Bool] {
   yield root.exists(p".")?
 }
@@ -319,13 +332,16 @@ stream nested_return() [fs, error] -> Stream[Bool] {
   yield @inner
 }
 assert (nested_return() |> collect()) == [true]
-""")?
-  assert output.status == 0, output.stderr
+""",
+    status: 0,
+  )?
 }
 
 test resource_nested_producer_cancellation_keeps_its_captured_root { |ctx|
   let marker = test.temp_path(ctx, name: "cancelled-root-stream")
-  let output = test.run_script(ctx, f"""
+  test.expect(
+    ctx,
+    f"""
 stream root_exists_until_cancel(root: FsRoot, marker: Path) [fs, error] -> Stream[Bool] {{
   defer {{
     assert root.exists(p".")?
@@ -340,13 +356,14 @@ proc make_root_stream(marker: Path) [fs, error] -> Result[Stream[Bool]] {{
 }}
 let values = make_root_stream(p"{marker}")? |> take(1) |> collect()
 assert values == [true]
-""")?
-  assert output.status == 0, output.stderr
+""",
+    status: 0,
+  )?
   assert marker.read_text()? == "root-alive"
 }
 
 test resource_outer_assignment_moves_root_out_of_nested_scope {
-  var escaped: FsRoot? = null
+  var escaped = null
   {
     let root = fs.tempdir()?
     { escaped = root }
@@ -357,7 +374,7 @@ test resource_outer_assignment_moves_root_out_of_nested_scope {
 }
 
 test resource_fail_payload_survives_with_else {
-  var escaped: FsRoot? = null
+  var escaped = null
   with value = resource_fail_with_root() {
     escaped = value
   } else { |failure|
@@ -446,13 +463,16 @@ test resource_worker_teardown_closes_its_roots_and_owned_children {
 }
 
 test resource_worker_rejects_foreign_script_stream { |ctx|
-  let output = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 use tests.fixtures.runtime.resource_producers as resource_producers
 let parent = resource_producers.numbers()
 let _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }
-""")?
-  assert output.status == 3, output.stderr
-  assert "stream-owner" in output.stderr, output.stderr
+""",
+    status: 3,
+    stderr: ["stream-owner"],
+  )?
 }
 
 test resource_worker_rejects_foreign_delegated_streams { |ctx|
@@ -489,9 +509,7 @@ assert results.len() == 2
       args: [dir],
     },
   ] {
-    let output = test.run_script(ctx, source, args)?
-    assert output.status == 3, output.stderr
-    assert "stream-owner" in output.stderr, output.stderr
+    test.expect(ctx, source, status: 3, stderr: ["stream-owner"], args: args)?
   }
 }
 
@@ -502,14 +520,12 @@ test resource_worker_rejects_foreign_materialized_and_live_streams { |ctx|
     "let parent = fs.children(Path(args[0]), ordered: true)?\nlet _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }\n",
     "let parent = fs.walk(Path(args[0]))?\nlet _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }\n",
   ] {
-    let output = test.run_script(ctx, source, [dir])?
-    assert output.status == 3, output.stderr
-    assert "stream-owner" in output.stderr, output.stderr
+    test.expect(ctx, source, status: 3, stderr: ["stream-owner"], args: [dir])?
   }
 }
 
 test resource_worker_teardown_stops_its_owned_child {
-  var worker_pids: List[Int] = []
+  var worker_pids = []
   defer {
     for pid in worker_pids {
       let child_is_live = process.list()? |> any { |entry|
@@ -533,7 +549,7 @@ test resource_worker_teardown_stops_its_owned_child {
 }
 
 test resource_fused_worker_teardown_stops_its_owned_child {
-  var worker_pids: List[Int] = []
+  var worker_pids = []
   defer {
     for pid in worker_pids {
       let child_is_live = process.list()? |> any { |entry|
@@ -552,7 +568,7 @@ test resource_fused_worker_teardown_stops_its_owned_child {
   }
   assert grouped.len() == 2
   for key in grouped.keys() {
-    let pid = key.parse_int()?
+    let pid = key as Int
     worker_pids += [pid]
     assert ! (process.list()? |> any .pid == pid), "fused worker teardown stops and reaps its child"
     assert process.kill(pid, signal: "0") is Err(_), "fused worker PID is absent after teardown"
@@ -568,9 +584,7 @@ test resource_use_after_release_is_checked_for_exact_locals { |ctx|
     "let root = fs.tempdir()?\nassert root.close() == Ok()\nlet _ = root.exists(p\".\")\n",
     "proc make_root() [fs, error] -> Result[FsRoot] { fs.tempdir() }\nlet root = make_root()?\nroot.close()\nlet _ = root.exists(p\".\")\n",
   ] {
-    let output = test.run_script(ctx, source)?
-    assert output.status == 2, output.stderr
-    assert "check.use-after-release" in output.stderr, output.stderr
+    test.expect(ctx, source, status: 2, stderr: ["check.use-after-release"])?
   }
 }
 

@@ -1,11 +1,11 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_uniq.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_uniq::test_all_repeated_followed_by_filename
 test test_uu_uniq_all_repeated_followed_by_filename { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "test.txt", "a\na\n")?
+  uu.write(s, "test.txt", "a\na\n")
   let r = uu.invoke(s, "uniq", ["--all-repeated", "test.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "a\na\n")
@@ -38,7 +38,7 @@ test test_uu_uniq_failed_write_is_reported { |ctx|
 # origin: uutils test_uniq::test_gnu_locale_fr_schar
 test test_uu_uniq_gnu_locale_fr_schar { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "uniq", "locale-fr-schar.txt", "locale-fr-schar.txt")?
+  uu.fixture(s, "uniq", "locale-fr-schar.txt", "locale-fr-schar.txt")
   let r = uu.invoke(s, "uniq", ["-f1", "locale-fr-schar.txt"], vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   assert r.stdout == fp"{ctx.core_dir}/tests/data/uutils/uniq/locale-fr-schar.txt".read_bytes()?
@@ -90,7 +90,7 @@ test test_uu_uniq_group_both { |ctx|
 # origin: uutils test_uniq::test_group_followed_by_filename
 test test_uu_uniq_group_followed_by_filename { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "test.txt", "a\na\n")?
+  uu.write(s, "test.txt", "a\na\n")
   let r = uu.invoke(s, "uniq", ["--group", "test.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "a\na\n")
@@ -192,7 +192,7 @@ test test_uu_uniq_repeated_skip_fields_takes_the_last { |ctx|
 # origin: uutils test_uniq::test_single_default
 test test_uu_uniq_single_default { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "uniq", "sorted.txt", "sorted.txt")?
+  uu.fixture(s, "uniq", "sorted.txt", "sorted.txt")
   let r = uu.invoke(s, "uniq", ["sorted.txt"])?
   uu.succeeds(r)
   assert r.stdout == fp"{ctx.core_dir}/tests/data/uutils/uniq/sorted-simple.expected".read_bytes()?
@@ -201,7 +201,7 @@ test test_uu_uniq_single_default { |ctx|
 # origin: uutils test_uniq::test_single_default_output
 test test_uu_uniq_single_default_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "uniq", "sorted.txt", "sorted.txt")?
+  uu.fixture(s, "uniq", "sorted.txt", "sorted.txt")
   let expected = fp"{ctx.core_dir}/tests/data/uutils/uniq/sorted-simple.expected".read_bytes()?
   let r = uu.invoke(s, "uniq", ["sorted.txt", "sorted-output.txt"])?
   uu.succeeds(r)

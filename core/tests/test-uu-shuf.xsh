@@ -1,22 +1,24 @@
 ##! Transcribed random sampling tests from the uutils coreutils suite.
 
-use support.uu as uu
+use support.uu
 
-proc numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[Int], Error] {
-  var result: List[Int] = []
-  for word in data.utf8()?.split(separator) {
-    if word != "" { assert rx"^[+-]?[0-9]+$".matches(word); result += [word.parse_int()?] }
+proc numbers(data: Bytes, separator = "\n") [error] -> Result[List[Int], Error] {
+  let result = collect {
+    for word in data.utf8()?.split(separator) {
+      if word != "" { assert rx"^[+-]?[0-9]+$".matches(word); yield word as Int }
+    }
   }
   Ok(result)
 }
 
-proc sorted_numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[Int], Error] {
+proc sorted_numbers(data: Bytes, separator = "\n") [error] -> Result[List[Int], Error] {
   Ok([value for value in numbers(data, separator)? |> sort-by .])
 }
 
-proc words(data: Bytes, separator: Str = "\n") [error] -> Result[List[Str], Error] {
-  var result: List[Str] = []
-  for word in data.utf8()?.split(separator) { if word != "" { result += [word] } }
+proc words(data: Bytes, separator = "\n") [error] -> Result[List[Str], Error] {
+  let result = collect {
+    for word in data.utf8()?.split(separator) { yield word when word != "" }
+  }
   Ok(result)
 }
 
@@ -36,7 +38,7 @@ test test_uu_shuf_output_is_random_permutation { |ctx|
   uu.succeeds(r)
   uu.no_stderr(r)
   assert sorted_numbers(r.stdout, "\n")? == [value for value in range(1, 11)]
-  assert r.stdout.utf8()? != "1\n2\n3\n4\n5\n6\n7\n8\n9\n10"
+  assert r.stdout as Str != "1\n2\n3\n4\n5\n6\n7\n8\n9\n10"
 }
 
 # origin: uutils test_shuf::test_explicit_stdin_file
@@ -216,7 +218,7 @@ test test_uu_shuf_echo_separators_in_arguments { |ctx|
 # origin: uutils test_shuf::test_echo_invalid_unicode_in_arguments
 test test_uu_shuf_echo_invalid_unicode_in_arguments { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "shuf", [p"-e", Path.parse_bytes(b"a\xffb")?, p"ok"])?
+  let r = uu.invoke_paths(s, "shuf", [p"-e", b"a\xffb" as Path, p"ok"])?
   uu.succeeds(r)
   uu.no_stderr(r)
   assert 255 in [r.stdout.byte_at(index) for index in range(r.stdout.len())]
@@ -226,8 +228,8 @@ test test_uu_shuf_echo_invalid_unicode_in_arguments { |ctx|
 test test_uu_shuf_invalid_unicode_in_filename { |ctx|
   let s = uu.scene(ctx)?
   let name = uu.at_bytes(s, b"a\xffb")?
-  name.write("foo\n")?
-  let r = uu.invoke_paths(s, "shuf", [Path.parse_bytes(b"a\xffb")?])?
+  name.write("foo\n")
+  let r = uu.invoke_paths(s, "shuf", [b"a\xffb" as Path])?
   uu.succeeds(r)
   uu.no_stderr(r)
   uu.stdout_is_bytes(r, b"foo\n")
@@ -534,7 +536,7 @@ test test_uu_shuf_zero_head_count_file_touch_output_positive_new { |ctx|
 # origin: uutils test_shuf::test_zero_head_count_file_touch_output_positive_existing
 test test_uu_shuf_zero_head_count_file_touch_output_positive_existing { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let r = uu.invoke(s, "shuf", ["-n0", "-o", "file"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -544,7 +546,7 @@ test test_uu_shuf_zero_head_count_file_touch_output_positive_existing { |ctx|
 # origin: uutils test_shuf::test_output_not_truncated_when_input_missing
 test test_uu_shuf_output_not_truncated_when_input_missing { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "out", "keep me\n")?
+  uu.write(s, "out", "keep me\n")
   let r = uu.invoke(s, "shuf", ["-o", "out", "does-not-exist"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "does-not-exist")
@@ -554,8 +556,8 @@ test test_uu_shuf_output_not_truncated_when_input_missing { |ctx|
 # origin: uutils test_shuf::test_output_not_truncated_when_random_source_missing
 test test_uu_shuf_output_not_truncated_when_random_source_missing { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "out", "keep me\n")?
-  uu.write(s, "in", "a\nb\nc\n")?
+  uu.write(s, "out", "keep me\n")
+  uu.write(s, "in", "a\nb\nc\n")
   let r = uu.invoke(s, "shuf", ["-o", "out", "--random-source=does-not-exist", "in"])?
   uu.fails_with_code(r, 1)
   uu.file_is(s, "out", "keep me\n")
@@ -564,7 +566,7 @@ test test_uu_shuf_output_not_truncated_when_random_source_missing { |ctx|
 # origin: uutils test_shuf::test_file_input
 test test_uu_shuf_file_input { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "shuf", "file_input.txt", "file_input.txt")?
+  uu.fixture(s, "shuf", "file_input.txt", "file_input.txt")
   let r = uu.invoke(s, "shuf", ["file_input.txt"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -583,7 +585,7 @@ test test_uu_shuf_shuf_multiple_input_line_count { |ctx|
 # origin: uutils test_shuf::test_head_count_does_not_overflow_file
 test test_uu_shuf_head_count_does_not_overflow_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input.txt", "hello\n")?
+  uu.write(s, "input.txt", "hello\n")
   let r = uu.invoke(s, "shuf", ["-n4294967296", "input.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "hello\n")
@@ -611,7 +613,7 @@ test test_uu_shuf_head_count_does_not_overflow_range { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_args_no_repeat
 test test_uu_shuf_gnu_compat_args_no_repeat { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "-e", "1", "2", "3", "4", "5", "6", "7"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -621,8 +623,8 @@ test test_uu_shuf_gnu_compat_args_no_repeat { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_from_stdin
 test test_uu_shuf_gnu_compat_from_stdin { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
-  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
+  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")
   let r = uu.invoke_from_path(s, "shuf", ["--random-source=random_bytes.bin"], stdin: uu.at(s, "input.txt"))?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -632,8 +634,8 @@ test test_uu_shuf_gnu_compat_from_stdin { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_from_file
 test test_uu_shuf_gnu_compat_from_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
-  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
+  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "input.txt"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -643,8 +645,8 @@ test test_uu_shuf_gnu_compat_from_file { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_limited_from_file
 test test_uu_shuf_gnu_compat_limited_from_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
-  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
+  uu.write(s, "input.txt", "1\n2\n3\n4\n5\n6\n7\n")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "-n5", "input.txt"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -654,7 +656,7 @@ test test_uu_shuf_gnu_compat_limited_from_file { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_range_no_repeat
 test test_uu_shuf_gnu_compat_range_no_repeat { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "-i1-10"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -664,7 +666,7 @@ test test_uu_shuf_gnu_compat_range_no_repeat { |ctx|
 # origin: uutils test_shuf::test_gnu_compat_range_repeat
 test test_uu_shuf_gnu_compat_range_repeat { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "random_bytes.bin", b"\xfb\x83\x8f\x21\x9b\x3c\x2d\xc5\x73\xa5\x58\x6c\x54\x2f\x59\xf8")?
+  uu.write_bytes(s, "random_bytes.bin", b"\xfb\x83\x8f\x21\x9b\x3c\x2d\xc5\x73\xa5\x58\x6c\x54\x2f\x59\xf8")
   let r = uu.invoke(s, "shuf", ["--random-source=random_bytes.bin", "-r", "-i1-99"], timeout: 10s)?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "shuf: 'random_bytes.bin': end of file\n")
@@ -674,7 +676,12 @@ test test_uu_shuf_gnu_compat_range_repeat { |ctx|
 # origin: uutils test_shuf::test_getrandom_fail
 test test_uu_shuf_getrandom_fail { |ctx|
   let s = uu.scene(ctx)?
-  let tracer = match process.which("strace") { Ok(executable) => executable, Err(_) => { test.skip("strace is unavailable"); return } }
+  let tracer = if let Ok(executable) = process.which("strace") {
+    executable
+  } else {
+    test.skip("strace is unavailable")
+    return
+  }
   let launch_words = uu.argv(s, "shuf", [p"-i", p"1234-1235"])?
   let argv = [tracer, p"-o", p"/dev/null", p"-e", p"inject=getrandom:error=EAGAIN"].extend(launch_words)
   let out = uu.at(s, "trace-out")

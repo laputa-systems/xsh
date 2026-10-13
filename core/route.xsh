@@ -133,10 +133,10 @@ proc ipv6_listing(numeric: Bool, cache: Bool) [fs, process, env, io, error] {
 # Splits `ADDR[/PREFIX]`; a malformed prefix is a usage error.
 proc split_prefix(word: Str, limit: Int, family: Str) [process, error] -> Split {
   let slash = word.find("/")
-  if slash == null { return {text: word, prefix: null} }
-  let parsed = nettools.decimal(word.byte_slice((slash ?? 0) + 1))
-  if parsed == null or (parsed ?? 0) > limit { modify_usage(family) }
-  {text: word.byte_slice(0, length: slash ?? 0), prefix: parsed}
+  return {text: word, prefix: null} when slash == null
+  let parsed = nettools.decimal(word.byte_slice(slash + 1))
+  if parsed == null or parsed > limit { modify_usage(family) }
+  {text: word.byte_slice(0, length: slash), prefix: parsed}
 }
 
 pure int_attribute(kind: Int, value: Int) -> Bytes {
@@ -173,7 +173,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
   let inet6 = request.family == "inet6"
   var destination = b""
   var prefix = 0
-  var gateway: Bytes? = null
+  var gateway = null
   if inet6 {
     let split = split_prefix(request.target, 128, "inet6")
     if request.target == "default" {
@@ -184,7 +184,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
         eprint f"{request.target}: Unknown host"
         exit 6
       }
-      destination = raw ?? b""
+      destination = raw
       prefix = split.prefix ?? 128
     }
     if let word = request.gateway {
@@ -198,7 +198,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
   } else {
     var network = request.network
     var target = request.target
-    var given_prefix: Int? = null
+    var given_prefix = null
     if target == "default" {
       destination = bytes.zero(4)?
       network = true
@@ -209,7 +209,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
       destination = resolve_host(target)
     }
     if given_prefix != null and request.netmask != null { modify_usage("inet") }
-    var mask_bytes: Bytes? = null
+    var mask_bytes = null
     if let length = given_prefix { mask_bytes = nettools.prefix_mask(length) }
     if let word = request.netmask {
       mask_bytes = nettools.netmask_parse(word)
@@ -221,7 +221,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
     let is_net = network == true
     if is_net and mask_bytes != null {
         # An explicit mask must leave no host bits set in the destination.
-        let given = mask_bytes ?? b""
+        let given = mask_bytes
         for index in range(4) {
           if (destination.byte_at(index) ?? 0).bit_and(255 - (given.byte_at(index) ?? 0)) != 0 {
             eprint "route: netmask doesn't match route address"
@@ -239,7 +239,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
     } else {
       if mask_bytes != null and mask_bytes != nettools.prefix_mask(32) {
         # The legacy message prints the complement of the mask in host order.
-        let shown = mask_bytes ?? b""
+        let shown = mask_bytes
         let value = 255 - (shown.byte_at(0) ?? 0)
         let wildcard = value * 16777216 + (255 - (shown.byte_at(1) ?? 0)) * 65536 + (255 - (shown.byte_at(2) ?? 0)) * 256 + (255 - (shown.byte_at(3) ?? 0))
         eprint f"route: netmask {hex8(wildcard)} doesn't make sense with host route"
@@ -271,7 +271,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
   var priority = request.metric ?? 0
   if inet6 and request.metric == null { priority = 1 }
   if priority > 0 { attributes += [int_attribute(6, priority)] }
-  var metrics: List[Bytes] = []
+  var metrics = []
   if let mss = request.mss { metrics += [int_attribute(8, mss - 40)] }
   if let window = request.window { metrics += [int_attribute(3, window)] }
   if let irtt = request.irtt { metrics += [int_attribute(4, irtt * 8)] }
@@ -303,7 +303,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
 pure hex8(value: Int) -> Str {
   var out = ""
   var rest = value
-  for _ in range(8) {
+  repeat 8 times {
     out = "0123456789abcdef".byte_slice(rest % 16, length: 1) + out
     rest = rest / 16
   }
@@ -313,7 +313,7 @@ pure hex8(value: Int) -> Str {
 # Parses the words after add or del into a request.
 proc parse_modify(add: Bool, family: Str, words: List[Str]) [process, error] -> Request {
   var at = 0
-  var network: Bool? = null
+  var network = null
   if at < words.len() and words[at] == "-net" {
     network = true
     at += 1
@@ -323,10 +323,7 @@ proc parse_modify(add: Bool, family: Str, words: List[Str]) [process, error] -> 
   }
   if family == "inet6" and network != null { modify_usage(family) }
   if at >= words.len() { modify_usage(family) }
-  var request: Request = {
-    add: add, family: family, network: network, target: words[at], netmask: null, gateway: null, metric: null,
-    mss: null, window: null, irtt: null, reject: false, device: null,
-  }
+  var request: Request = Request(add:, family:, network:, target: words[at], netmask: null, gateway: null, metric: null, mss: null, window: null, irtt: null, reject: false, device: null)
   at += 1
   while at < words.len() {
     let word = words[at]
@@ -346,7 +343,7 @@ proc parse_modify(add: Bool, family: Str, words: List[Str]) [process, error] -> 
       "metric" => {
         if !has_value { modify_usage(family) }
         let value = nettools.decimal(words[at])
-        if value == null or (value ?? 0) > 65535 { modify_usage(family) }
+        if value == null or value > 65535 { modify_usage(family) }
         request = {...request, metric: value}
         at += 1
       }
@@ -355,19 +352,19 @@ proc parse_modify(add: Bool, family: Str, words: List[Str]) [process, error] -> 
         let value = nettools.decimal(words[at])
         at += 1
         if word == "mss" {
-          if value == null or (value ?? 0) < 64 or (value ?? 0) > 32768 {
+          if value == null or value < 64 or value > 32768 {
             eprint "route: Invalid MSS/MTU."
             exit 3
           }
           request = {...request, mss: value}
         } else if word == "window" {
-          if value == null or (value ?? 0) < 1 or (value ?? 0) > 65535 {
+          if value == null or value < 1 or value > 65535 {
             eprint "route: Invalid window size."
             exit 3
           }
           request = {...request, window: value}
         } else {
-          if value == null or (value ?? 0) < 1 or (value ?? 0) > 65535 {
+          if value == null or value < 1 or value > 65535 {
             eprint "route: Invalid initial rtt."
             exit 3
           }

@@ -10,7 +10,7 @@ proc check_invalid(r: uu.Ran, c: InvalidOption) {
   if c.range_error {
     let musl = bytes.from_text(c.diagnostic + ": Result not representable\n")
     let glibc = bytes.from_text(c.diagnostic + ": Numerical result out of range\n")
-    assert r.stderr == musl or r.stderr == glibc, r.stderr.utf8()?
+    assert r.stderr == musl or r.stderr == glibc, r.stderr as Str
   } else { uu.stderr_is(r, c.diagnostic) }
 }
 # origin: gnu pr/options.log

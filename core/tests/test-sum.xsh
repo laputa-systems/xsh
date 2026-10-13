@@ -30,7 +30,7 @@ test test_sum_continues_after_unreadable_file { |ctx|
   let missing = test.temp_path(ctx, name: "sum-missing")
   let result = invoke(ctx, [missing.display(), file.display()], b"")?
   assert result.status == 1
-  assert result.stdout.len() > 0
+  assert ! result.stdout.is_empty()
   assert result.stderr.find("No such file or directory") != null
 }
 
@@ -46,7 +46,7 @@ test test_sum_sysv_stdin { |ctx|
 
 test test_sum_accepts_non_utf8_path_arguments { |ctx|
   let root = test.temp_dir(ctx, name: "sum-non-utf8")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/\xff\xfe"]))?
+  let file = bytes.concat([root.bytes(), b"/\xff\xfe"]) as Path
   file.write("test content")
   let stdout = fp"{root}/out"
   let stderr = fp"{root}/err"

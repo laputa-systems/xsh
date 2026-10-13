@@ -1,10 +1,10 @@
 ##! Transcribed numeric formatting tests from the uutils coreutils suite.
 
-use support.uu as uu
+use support.uu
 
 # Capture a real stderr pipe, including its EOF boundary, through an owned reader.
 proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  uu.mkfifo(s, "stderr-pipe")?
+  uu.mkfifo(s, "stderr-pipe")
   let captured = uu.at(s, "pipe-captured")
   let reader_plan = uu.command(s, "cat", ["stderr-pipe"], stdout: captured, stderr: uu.at(s, "reader-error"))?
   let reader = spawn reader_plan?
@@ -17,19 +17,19 @@ proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resu
 
 # The plain diagnostic fits the terminal queue; close the last replica after
 # the child exits so Linux's master EIO marks the end of captured output.
-proc tty_stderr(s: uu.Scene, args: List[Str], stdin: Bytes = b"") [fs, process, net, env, error] -> Result[uu.Ran, Error] {
+proc tty_stderr(s: uu.Scene, args: List[Str], stdin = b"") [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   var replica_open = true
-  defer { if replica_open { unix.close_fd(pty.replica)? } }
-  let r = uu.invoke(s, "numfmt", args, stdin, stderr: Path(pty.name))?
-  unix.close_fd(pty.replica)?
+  defer { if replica_open { unix.close_fd(pty.replica) } }
+  let r = uu.invoke(s, "numfmt", args, stdin, stderr: fp"{pty.name}")?
+  unix.close_fd(pty.replica)
   replica_open = false
   var captured = b""
   loop {
     match unix.read_fd(pty.master, 1024) {
-      Ok(data) => { if data.is_empty() { break }; captured = bytes.concat([captured, data]) },
-      Err(failure) => { if failure.errno == 5 { break }; return Err(failure) },
+      Ok(data) => { break when data.is_empty(); captured = bytes.concat([captured, data]) },
+      Err(failure) => { break when failure.errno == 5; return Err(failure) },
     }
   }
   Ok({util: r.util, args: r.args, status: r.status, stdout: r.stdout, stderr: captured})
@@ -73,7 +73,7 @@ test test_uu_numfmt_debug_warnings { |ctx|
   uu.succeeds(r2)
   uu.stdout_is(r2, "4.0K\n")
   uu.stderr_is(r2, "numfmt: --header ignored with command-line input\n")
-  let r3 = uu.invoke(s, "numfmt", ["--debug", "--grouping", "--from=si", "4.0K"], vars: {"LC_ALL": "C"})?
+  let r3 = uu.invoke(s, "numfmt", ["--debug", "--grouping", "--from=si", "4.0K"], vars: {LC_ALL: "C"})?
   uu.succeeds(r3)
   uu.stdout_is(r3, "4000\n")
   uu.stderr_is(r3, "numfmt: grouping has no effect in this locale\n")
@@ -140,8 +140,8 @@ test test_uu_numfmt_empty_delimiter_whitespace_rejection { |ctx|
 # origin: uutils test_numfmt::test_field_df_example
 test test_uu_numfmt_field_df_example { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "numfmt", "df_input.txt", "df_input.txt")?
-  uu.fixture(s, "numfmt", "df_expected.txt", "df_expected.txt")?
+  uu.fixture(s, "numfmt", "df_input.txt", "df_input.txt")
+  uu.fixture(s, "numfmt", "df_expected.txt", "df_expected.txt")
   let r0 = uu.invoke(s, "numfmt", ["--header", "--field", "2-4", "--to=si"], stdin: uu.read(s, "df_input.txt")?)?
   uu.succeeds(r0)
   uu.stdout_is_bytes(r0, uu.read(s, "df_expected.txt")?)
@@ -823,7 +823,7 @@ test test_uu_numfmt_diagnostics_input_from_stdin_keeps_its_plain_message { |ctx|
   let s = uu.scene(ctx)?
   let r = tty_stderr(s, [], bytes.from_text("12abc\n"))?
   uu.fails_with_code(r, 2)
-  assert trim_end(r.stderr.utf8()?) == "numfmt: invalid suffix in input: '12abc'"
+  assert trim_end(r.stderr as Str) == "numfmt: invalid suffix in input: '12abc'"
 }
 
 # origin: uutils test_numfmt::diagnostics::test_a_line_of_fields_keeps_its_plain_message
@@ -831,7 +831,7 @@ test test_uu_numfmt_diagnostics_a_line_of_fields_keeps_its_plain_message { |ctx|
   let s = uu.scene(ctx)?
   let r = tty_stderr(s, ["--field=2", "x 12abc"], bytes.from_text(""))?
   uu.fails_with_code(r, 2)
-  assert trim_end(r.stderr.utf8()?) == "numfmt: invalid suffix in input: '12abc'"
+  assert trim_end(r.stderr as Str) == "numfmt: invalid suffix in input: '12abc'"
 }
 
 # origin: uutils test_numfmt::diagnostics::test_other_option_errors_keep_their_plain_message
@@ -839,7 +839,7 @@ test test_uu_numfmt_diagnostics_other_option_errors_keep_their_plain_message { |
   let s = uu.scene(ctx)?
   let r = tty_stderr(s, ["--format=%f", "--delimiter=ab", "1000"], bytes.from_text(""))?
   uu.fails_with_code(r, 1)
-  assert trim_end(r.stderr.utf8()?) == "numfmt: the delimiter must be a single character"
+  assert trim_end(r.stderr as Str) == "numfmt: the delimiter must be a single character"
 }
 
 # origin: uutils test_numfmt::diagnostics::test_plain_message_when_stderr_is_a_pipe

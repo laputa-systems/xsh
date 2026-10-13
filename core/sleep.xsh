@@ -153,16 +153,16 @@ proc main(...argv: List[Str]) [process, env, time, error, io] {
   # The runtime's fault handlers for BUS and SEGV swallow a signal sent from outside,
   # so those are reset too; a fault in sleep itself still terminates it.
   if process.signal_action("INT")? == "handler" {
-    process.set_signal_action("INT", "default")?
+    process.set_signal_action("INT", "default")
   }
   if process.signal_action("TERM")? == "handler" {
-    process.set_signal_action("TERM", "default")?
+    process.set_signal_action("TERM", "default")
   }
   if process.signal_action("BUS")? == "handler" {
-    process.set_signal_action("BUS", "default")?
+    process.set_signal_action("BUS", "default")
   }
   if process.signal_action("SEGV")? == "handler" {
-    process.set_signal_action("SEGV", "default")?
+    process.set_signal_action("SEGV", "default")
   }
 
   var remaining = total * 1000.0

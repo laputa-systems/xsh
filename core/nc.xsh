@@ -167,8 +167,8 @@ pure number_in(raw: Str, low: Int, high: Int) -> Number {
     return {value: 0, problem: if text.starts_with("-") { "too small" } else { "too large" }}
   }
   let value = parsed ?? 0
-  if value < low { return {value: 0, problem: "too small"} }
-  if value > high { return {value: 0, problem: "too large"} }
+  return {value: 0, problem: "too small"} when value < low
+  return {value: 0, problem: "too large"} when value > high
   {value: value, problem: ""}
 }
 
@@ -210,7 +210,7 @@ pure tos_keyword(word: Str) -> Int? {
     "netcontrol" => 224
     "reliability" => 4
     "throughput" => 8
-    _ => null
+    else => null
   }
 }
 
@@ -232,15 +232,7 @@ proc tos_value(word: Str) [process, io] -> Int {
 }
 
 proc parse_options(argv: List[Str]) [process, io] -> Parsed {
-  var opts: Options = {
-    family: "any", broadcast: false, crlf: false, debug: false, nostdin: false,
-    passfd: false, rcvbuf: null, interval: 0, keep: false, listen: false,
-    ttl: null, minttl: null, shutdown: false, numeric: false, sndbuf: null,
-    proxy_user: null, srcport: null, quit: -1, random: false, md5: false,
-    srcaddr: null, telnet: false, tos: null, unix: false, udp: false,
-    rtable: null, verbose: false, recvlimit: 0, timeout: -1, proxy_proto: null,
-    proxy_addr: null, dccp: false, scan: false,
-  }
+  var opts: Options = Options(family: "any", broadcast: false, crlf: false, debug: false, nostdin: false, passfd: false, rcvbuf: null, interval: 0, keep: false, listen: false, ttl: null, minttl: null, shutdown: false, numeric: false, sndbuf: null, proxy_user: null, srcport: null, quit: -1, random: false, md5: false, srcaddr: null, telnet: false, tos: null, unix: false, udp: false, rtable: null, verbose: false, recvlimit: 0, timeout: -1, proxy_proto: null, proxy_addr: null, dccp: false, scan: false)
   var index = 0
   while index < argv.len() {
     let word = argv[index]
@@ -248,7 +240,7 @@ proc parse_options(argv: List[Str]) [process, io] -> Parsed {
       index += 1
       break
     }
-    if ! word.starts_with("-") or word == "-" { break }
+    break when ! word.starts_with("-") or word == "-"
     var at = 1
     while at < word.byte_len() {
       let letter = word.byte_slice(at, 1)
@@ -322,7 +314,7 @@ proc parse_options(argv: List[Str]) [process, io] -> Parsed {
           opts.proxy_proto = value
         }
         "x" => opts.proxy_addr = value
-        _ => {
+        else => {
           say(f"unrecognized option: {letter}")
           usage()
         }
@@ -340,11 +332,11 @@ proc services_for(proto: Str) [fs] -> List[Service] {
     let note = raw.find("#") ?? -1
     let line = if note >= 0 { raw.byte_slice(0, note) } else { raw }
     let fields = line.fields()
-    if fields.len() < 2 { continue }
+    continue when fields.len() < 2
     let pair = fields[1].split("/")
-    if pair.len() != 2 or pair[1] != proto { continue }
+    continue when pair.len() != 2 or pair[1] != proto
     let number = pair[0].parse_int() ?? -1
-    if number < 0 { continue }
+    continue when number < 0
     found += [{name: fields[0], port: number, aliases: fields[2..]}]
   }
   found
@@ -352,14 +344,14 @@ proc services_for(proto: Str) [fs] -> List[Service] {
 
 proc service_port(name: Str, proto: Str) [fs] -> Int? {
   for entry in services_for(proto) {
-    if entry.name == name or name in entry.aliases { return entry.port }
+    return entry.port when entry.name == name or name in entry.aliases
   }
   null
 }
 
 proc service_name(port: Int, proto: Str) [fs] -> Str? {
   for entry in services_for(proto) {
-    if entry.port == port { return entry.name }
+    return entry.name when entry.port == port
   }
   null
 }
@@ -404,7 +396,7 @@ proc build_ports(spec: Str, opts: Options) [fs, process, io] -> List[Int] {
 # The numeric port of a -p value, which getaddrinfo(3) also resolves by name.
 proc source_port(spec: Str, opts: Options) [fs, process, io] -> Int {
   let parsed = number_in(spec, 0, 65535)
-  if parsed.problem == "" { return parsed.value }
+  return parsed.value when parsed.problem == ""
   if ! rx"^[0-9]".matches(spec) {
     if let named = service_port(spec, proto_name(opts)) {
       return named
@@ -429,7 +421,7 @@ proc shuffled(ports: List[Int]) [fs, process, io] -> List[Int] {
 }
 
 pure numeric_host(host: Str) -> Bool {
-  if host.find(":") != null { return true }
+  return true when host.find(":") != null
   rx"^(0[xX][0-9a-fA-F]+|[0-9]+)(\.(0[xX][0-9a-fA-F]+|[0-9]+)){0,3}$".matches(host)
 }
 
@@ -445,18 +437,17 @@ proc lookup(host: Str, opts: Options) [net] -> Lookup {
     return {rows: [], problem: "Name does not resolve"}
   }
   match dns.resolve_host(host) {
-    Err(failure) => return {rows: [], problem: resolver_reason(failure.message)}
+    Err(failure) => {rows: [], problem: resolver_reason(failure.message)}
     Ok(rows) => {
-      var usable: List[Address] = []
-      for row in rows {
-        if opts.family == "inet" and row.family != "ipv4" { continue }
-        if opts.family == "inet6" and row.family != "ipv6" { continue }
-        usable += [{addr: row.addr, family: row.family, name: row.name}]
+      let usable: List[Address] = collect {
+        for row in rows {
+          continue when opts.family == "inet" and row.family != "ipv4"
+          continue when opts.family == "inet6" and row.family != "ipv6"
+          yield {addr: row.addr, family: row.family, name: row.name}
+        }
       }
-      if usable.is_empty() {
-        return {rows: [], problem: "Name has no usable address"}
-      }
-      return {rows: usable, problem: ""}
+      return {rows: [], problem: "Name has no usable address"} when usable.is_empty()
+      {rows: usable, problem: ""}
     }
   }
 }
@@ -464,10 +455,11 @@ proc lookup(host: Str, opts: Options) [net] -> Lookup {
 # Names an address for the verbose messages: numeric under -n, else the
 # reverse name when the resolver has one.
 proc address_name(addr: Str, opts: Options) [net] -> Str {
-  if opts.numeric { return addr }
-  match dns.reverse(addr) {
-    Ok(names) => return if names.is_empty() { addr } else { names[0] }
-    Err(_) => return addr
+  return addr when opts.numeric
+  if let Ok(names) = dns.reverse(addr) {
+    return if names.is_empty() { addr } else { names[0] }
+  } else {
+    return addr
   }
 }
 
@@ -484,7 +476,7 @@ proc open_socket(family: Str, udp: Bool) [net, process, error] -> Result[Int] {
   let domain = match family {
     "inet6" => c.AF_INET6
     "unix" => c.AF_UNIX
-    _ => c.AF_INET
+    else => c.AF_INET
   }
   linux.socket(domain, if udp { c.SOCK_DGRAM } else { c.SOCK_STREAM })
 }
@@ -539,7 +531,7 @@ proc tune_socket(fd: Int, family: Str, opts: Options) [net, process, io, error] 
 
 # Binds the -s address and -p port of an outgoing socket.
 proc bind_source(fd: Int, family: Str, opts: Options) [net, fs, process, io, error] -> Unit {
-  if opts.srcaddr == null and opts.srcport == null { return }
+  return when opts.srcaddr == null and opts.srcport == null
   var address = if family == "inet6" { "::" } else { "0.0.0.0" }
   if let given = opts.srcaddr {
     # The source address is resolved even under -n, which only guards the peer.
@@ -565,18 +557,14 @@ proc bind_source(fd: Int, family: Str, opts: Options) [net, fs, process, io, err
 # One connect attempt, bounded by -w when given. The kernel reports a connect
 # that ran out of its send timeout as EINPROGRESS; the utility names that
 # ETIMEDOUT.
-proc connect_bounded(fd: Int, target: Record, opts: Options) [net, process, error] -> Result[Unit] {
+proc connect_bounded(fd: Int, target: Record, opts: Options) [net, process, error] {
   let c = linux.net_constants()
-  if opts.timeout < 0 {
-    return linux.connect(fd, target)
-  }
-  linux.set_socket_timeout(fd, c.SO_SNDTIMEO, if opts.timeout == 0 { 1 } else { opts.timeout })?
+  return linux.connect(fd, target) when opts.timeout < 0
+  linux.set_socket_timeout(fd, c.SO_SNDTIMEO, if opts.timeout == 0 { 1 } else { opts.timeout })
   let outcome = linux.connect(fd, target)
-  linux.set_socket_timeout(fd, c.SO_SNDTIMEO, 0)?
+  linux.set_socket_timeout(fd, c.SO_SNDTIMEO, 0)
   if let Err(failure) = outcome {
-    if failure.errno == 115 {
-      return Err(error.failure("Operation timed out"))
-    }
+    return Err(error.failure("Operation timed out")) when failure.errno == 115
   }
   outcome
 }
@@ -615,7 +603,7 @@ proc connect_tcp_udp(host: Str, port: Int, opts: Options) [net, fs, process, io,
 # ICMP port-unreachable: the only way the utility has to see a closed UDP port.
 proc udp_probe(fd: Int) [net, process] -> Bool {
   var delivered = false
-  for _ in range(4) {
+  repeat 4 times {
     delivered = unix.write_fd(fd, bytes.from_text("X")) is Ok(_)
   }
   delivered
@@ -626,7 +614,7 @@ proc readable(fd: Int, slice_ms: Int) [net, process] -> Bool {
   ! (unix.poll_fd(fd, ["readable"], slice_ms) ?? []).is_empty()
 }
 
-proc write_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
+proc write_all(fd: Int, data: Bytes) [net, process, error] {
   var rest = data
   while ! rest.is_empty() {
     let written = unix.write_fd(fd, rest)?
@@ -637,19 +625,20 @@ proc write_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
 
 # -C: every bare LF becomes CR LF. `after_cr` carries a chunk's final byte.
 pure add_carriage_returns(data: Bytes, after_cr: Bool) -> Bytes {
-  if data.count_lines() == 0 { return data }
-  var pieces: List[Bytes] = []
+  return data when data.count_lines() == 0
   var start = 0
   var previous_cr = after_cr
-  for at in range(data.len()) {
-    let byte = data.byte_at(at) ?? 0
-    if byte == 10 and ! previous_cr {
-      pieces += [data.slice(start, at - start), b"\r"]
-      start = at
+  let pieces = collect {
+    for at in range(data.len()) {
+      let byte = data.byte_at(at) ?? 0
+      if byte == 10 and ! previous_cr {
+        yield @[data.slice(start, at - start), b"\r"]
+        start = at
+      }
+      previous_cr = byte == 13
     }
-    previous_cr = byte == 13
+    yield data.slice(start)
   }
-  pieces += [data.slice(start)]
   bytes.concat(pieces)
 }
 
@@ -689,45 +678,44 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
     timeout_ms = opts.quit * 1000
   }
   while true {
-    if ! stdin_open and pending.is_empty() and ! net_in { break }
-    if ! net_out and ! stdout_open { break }
-    if listening and ! net_in and pending.is_empty() { break }
+    break when ! stdin_open and pending.is_empty() and ! net_in
+    break when ! net_out and ! stdout_open
+    break when listening and ! net_in and pending.is_empty()
     var progressed = false
 
     if stdin_open and pending.is_empty() and net_out {
       if readable(0, 0) {
-        match unix.read_fd(0, BUFSIZE) {
-          Ok(data) => {
-            if data.is_empty() {
-              stdin_open = false
-              if opts.quit >= 0 { timeout_ms = opts.quit * 1000 }
-            } else {
-              if opts.interval > 0 { time.sleep(time.seconds(opts.interval))? }
-              if opts.crlf {
-                pending = add_carriage_returns(data, after_cr)
-                after_cr = data.byte_at(data.len() - 1) == 13
-              } else {
-                pending = data
-              }
-              progressed = true
-            }
-          }
-          Err(_) => {
+        if let Ok(data) = unix.read_fd(0, BUFSIZE) {
+          if data.is_empty() {
             stdin_open = false
             if opts.quit >= 0 { timeout_ms = opts.quit * 1000 }
+          } else {
+            if opts.interval > 0 { time.sleep(time.seconds(opts.interval)) }
+            if opts.crlf {
+              pending = add_carriage_returns(data, after_cr)
+              after_cr = data.byte_at(data.len() - 1) == 13
+            } else {
+              pending = data
+            }
+        
+            progressed = true
           }
+        } else {
+          stdin_open = false
+          if opts.quit >= 0 { timeout_ms = opts.quit * 1000 }
         }
       }
     }
 
-    var wanted: List[Str] = []
-    if net_in { wanted += ["readable"] }
-    if ! pending.is_empty() and net_out { wanted += ["writable"] }
-    var events: List[Str] = []
+    let wanted = collect {
+      yield "readable" when net_in
+      yield "writable" when ! pending.is_empty() and net_out
+    }
+    var events = []
     if ! wanted.is_empty() {
       events = unix.poll_fd(fd, wanted, if progressed { 0 } else { WAIT_SLICE_MS }) ?? []
     } else if ! progressed {
-      time.sleep(time.millis(WAIT_SLICE_MS))?
+      time.sleep(time.millis(WAIT_SLICE_MS))
     }
 
     if "writable" in events and ! pending.is_empty() {
@@ -749,31 +737,29 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
     }
 
     if net_in and ("readable" in events or "hangup" in events or "error" in events) {
-      match unix.read_fd(fd, BUFSIZE) {
-        Ok(data) => {
-          if data.is_empty() {
-            net_in = false
-            attempt(linux.shutdown(fd, c.SHUT_RD))
-          } else {
-            progressed = true
-            received += 1
-            if opts.telnet { answer_telnet(fd, data) }
-            if stdout_open {
-              if let Err(_) = write_all(1, data) {
-                stdout_open = false
-                net_in = false
-                attempt(linux.shutdown(fd, c.SHUT_RD))
-              }
-            }
-            if opts.recvlimit > 0 and received >= opts.recvlimit {
+      if let Ok(data) = unix.read_fd(fd, BUFSIZE) {
+        if data.is_empty() {
+          net_in = false
+          attempt(linux.shutdown(fd, c.SHUT_RD))
+        } else {
+          progressed = true
+          received += 1
+          if opts.telnet { answer_telnet(fd, data) }
+          if stdout_open {
+            if let Err(_) = write_all(1, data) {
+              stdout_open = false
               net_in = false
               attempt(linux.shutdown(fd, c.SHUT_RD))
             }
           }
+      
+          if opts.recvlimit > 0 and received >= opts.recvlimit {
+            net_in = false
+            attempt(linux.shutdown(fd, c.SHUT_RD))
+          }
         }
-        Err(_) => {
-          net_in = false
-        }
+      } else {
+        net_in = false
       }
     }
 
@@ -828,18 +814,18 @@ proc connect_unix(socket_path: Str, opts: Options) [net, fs, process, io, error]
 }
 
 proc run_client(host: Str, port_specs: List[Str], opts: Options) [net, fs, process, time, io, error] -> Unit {
-  var ports: List[Int] = []
+  var ports = []
   for spec in port_specs {
-    ports = ports.extend(build_ports(spec, opts))
+    ports += build_ports(spec, opts)
   }
   if opts.random { ports = shuffled(ports) }
   var status = 1
   var first = true
   for port in ports {
-    if opts.interval > 0 and ! first { time.sleep(time.seconds(opts.interval))? }
+    if opts.interval > 0 and ! first { time.sleep(time.seconds(opts.interval)) }
     first = false
     let fd = connect_tcp_udp(host, port, opts)
-    if fd < 0 { continue }
+    continue when fd < 0
     status = 0
     if opts.verbose or opts.scan {
       if opts.udp {
@@ -892,9 +878,10 @@ proc listen_addresses(host: Str?, opts: Options) [net, process, io] -> List[Addr
     }
     return found.rows
   }
-  var rows: List[Address] = []
-  if opts.family != "inet6" { rows += [{addr: "0.0.0.0", family: "ipv4", name: ""}] }
-  if opts.family != "inet" { rows += [{addr: "::", family: "ipv6", name: ""}] }
+  let rows: List[Address] = collect {
+    yield {addr: "0.0.0.0", family: "ipv4", name: ""} when opts.family != "inet6"
+    yield {addr: "::", family: "ipv6", name: ""} when opts.family != "inet"
+  }
   rows
 }
 
@@ -1039,8 +1026,7 @@ proc run_unix_listener(socket_path: Str, opts: Options) [net, fs, process, time,
 
 proc main(...argv: List[Str]) [net, fs, process, time, env, io, error] {
   let parsed = parse_options(argv)
-  let opts = parsed.opts
-  let operands = parsed.operands
+  let {opts, operands, ..} = parsed
 
   if opts.rtable != null {
     fatal("no alternate routing table support available")
@@ -1061,14 +1047,14 @@ proc main(...argv: List[Str]) [net, fs, process, time, env, io, error] {
     fatal("proxy connections (-X, -x, -P) are not supported")
   }
 
-  var host: Str? = null
-  var port_specs: List[Str] = []
+  var host = null
+  var port_specs = []
   if opts.family == "unix" {
-    if operands.len() == 0 { usage() }
+    if operands.is_empty() { usage() }
     if operands.len() > 1 { fatal("cannot use port with -U") }
     if opts.srcport != null { usage() }
     host = operands[0]
-  } else if operands.len() == 0 {
+  } else if operands.is_empty() {
     if ! opts.listen { usage() }
     if let given = opts.srcport {
       port_specs = [given]

@@ -98,12 +98,14 @@ test test_runtime_mock_type_contract_accepts_process_errors_as_errors { |ctx|
 
 test test_process_error_require_diagnostic_keeps_the_executor_type_name {
   let failure = try run.text false
-  match failure {
-    Err(process_error) => match process_error.require(Str) {
-      Err(mismatch) => assert mismatch.message == "schema check failed at $: expected Str, found Error", mismatch.message
-      Ok(_) => assert false, "a process error satisfied a Str requirement"
+  if let Err(process_error) = failure {
+    if let Err(mismatch) = process_error.require(Str) {
+      assert mismatch.message == "schema check failed at $: expected Str, found Error", mismatch.message
+    } else {
+      assert false, "a process error satisfied a Str requirement"
     }
-    Ok(_) => assert false, "false unexpectedly succeeded"
+  } else {
+    assert false, "false unexpectedly succeeded"
   }
 }
 

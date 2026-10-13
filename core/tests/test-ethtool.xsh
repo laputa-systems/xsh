@@ -80,13 +80,14 @@ proc session(ctx: TestContext, commands: List[Str]) [fs, process, error] -> Resu
     return []
   }
   assert status.exited_with(0), fp"{root}/setup.err".read_text()?
-  var results: List[Ran] = []
-  for index in range(commands.len()) {
-    results += [{
-      status: fp"{root}/{index}.status".read_text()?.trim().parse_int()?,
-      stdout: fp"{root}/{index}.out".read_text()?,
-      stderr: fp"{root}/{index}.err".read_text()?,
-    }]
+  let results: List[Ran] = collect {
+    for index in range(commands.len()) {
+      yield {
+        status: fp"{root}/{index}.status".read_text()?.trim() as Int,
+        stdout: fp"{root}/{index}.out".read_text()?,
+        stderr: fp"{root}/{index}.err".read_text()?,
+      }
+    }
   }
   Ok(results)
 }
@@ -418,8 +419,7 @@ test test_feature_outcome_names_only_surprises {
     {index: 1, name: "tx-generic-segmentation", requested: true, active: true, fixed: false},
     {index: 2, name: "loopback", requested: false, active: false, fixed: true},
   ]
-  var asked: Map[Int, Bool] = {}
-  asked = asked.set(0, false)
+  var asked: Map[Int, Bool] = {[0]: false}
   let quiet: List[dec.Feature] = [
     {index: 0, name: "tx-scatter-gather", requested: false, active: false, fixed: false},
     {index: 1, name: "tx-generic-segmentation", requested: true, active: true, fixed: false},
@@ -431,8 +431,7 @@ test test_feature_outcome_names_only_surprises {
   chained[1] = {index: 1, name: "tx-generic-segmentation", requested: true, active: false, fixed: false}
   let surprise = dec.features_outcome(before, chained, asked)
   assert surprise.lines == ["tx-scatter-gather: off", "tx-generic-segmentation: off [not requested]"]
-  var refused: Map[Int, Bool] = {}
-  refused = refused.set(2, true)
+  var refused: Map[Int, Bool] = {[2]: true}
   let denied = dec.features_outcome(before, before, refused)
   assert denied.lines == ["loopback: off [requested on]"]
   assert ! denied.changed and denied.unsatisfied
@@ -444,10 +443,7 @@ test test_settings_report_lists_modes_and_partner_when_present {
   let supported = 1 + 2 + 32 + 64 + 128 + 8192
   let advertising = 1 + 2 + 32 + 64 + 8192
   let partner = 8 + 64 + 8192
-  let settings: dec.LinkSettings = {
-    speed: 1000, duplex: 1, port: 0, phy: 1, autoneg: 1, mdix: 2, mdix_ctrl: 3, transceiver: 0,
-    supported: [supported, 0, 0], advertising: [advertising, 0, 0], partner: [partner, 0, 0], nwords: 3, raw: b"",
-  }
+  let settings: dec.LinkSettings = dec.LinkSettings(speed: 1000, duplex: 1, port: 0, phy: 1, autoneg: 1, mdix: 2, mdix_ctrl: 3, transceiver: 0, supported: [supported, 0, 0], advertising: [advertising, 0, 0], partner: [partner, 0, 0], nwords: 3, raw: b"")
   assert dec.settings_lines(settings) == [
     "\tSupported ports: [ TP ]",
     "\tSupported link modes:   10baseT/Half 10baseT/Full ",
@@ -524,8 +520,7 @@ test test_ring_pause_and_coalesce_text {
   let lines = dec.coalesce_lines("eth9", coalesce)?
   assert lines[1] == "Adaptive RX: on  TX: off"
   assert "rx-usecs:\t10" in lines and "tx-frames:\t40" in lines and "sample-interval:\t7" in lines
-  var changes: Map[Int, Int] = {}
-  changes = changes.set(0, 99)
+  var changes: Map[Int, Int] = {[0]: 99}
   assert dec.unwords(dec.coalesce_set_request(coalesce, changes)?, 3)? == [99, 20, 0]
   assert dec.COALESCE_FIELDS[0] == "rx-usecs" and dec.COALESCE_FIELDS[21] == "sample-interval"
 }

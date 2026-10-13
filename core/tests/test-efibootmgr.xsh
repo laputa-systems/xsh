@@ -6,7 +6,7 @@ const GUID_SUFFIX = "-8be4df61-93ca-11d2-aa0d-00e098032b8c"
 
 # Boot manager variables are written with attributes NV|BS|RT (7).
 proc put(dir: Path, name: Str, data: Bytes) [fs, error] {
-  fp"{dir}/{name}{GUID_SUFFIX}".write(bytes.concat([bytes.from_ints([7, 0, 0, 0])?, data]))?
+  fp"{dir}/{name}{GUID_SUFFIX}".write(bytes.concat([bytes.from_ints([7, 0, 0, 0])?, data]))
 }
 
 proc get(dir: Path, name: Str) [fs, error] -> Bytes {
@@ -20,14 +20,16 @@ proc exists(dir: Path, name: Str) [fs, error] -> Bool {
 proc u16(value: Int) -> Bytes { bytes.pack_le(value, 2)? }
 
 proc u16_list(values: List[Int]) -> Bytes {
-  var chunks: List[Bytes] = []
-  for value in values { chunks += [u16(value)] }
+  let chunks = collect {
+    for value in values { yield u16(value) }
+  }
   bytes.concat(chunks)
 }
 
 proc utf16z(text: Str) -> Bytes {
-  var ints: List[Int] = []
-  for byte in bytes.from_text(text) { ints += [byte, 0] }
+  let ints = collect {
+    for byte in bytes.from_text(text) { yield @[byte, 0] }
+  }
   bytes.concat([bytes.from_ints(ints)?, b"\x00\x00"])
 }
 
@@ -54,7 +56,7 @@ proc linux_entry(label: Str, loader: Str, data: Bytes) -> Bytes {
 # Boot0000 Linux (active), Boot0001 Windows (active, binary data), Boot0002
 # Shell (inactive, no disk node), with BootOrder 1,0,2.
 proc fixture(ctx: TestContext, name: Str) [fs, error] -> Path {
-  let dir = test.temp_dir(ctx, name: name)?
+  let dir = test.temp_dir(ctx, name:)?
   put(dir, "BootOrder", u16_list([1, 0, 2]))
   put(dir, "BootCurrent", u16(1))
   put(dir, "Timeout", u16(5))
@@ -67,9 +69,9 @@ proc fixture(ctx: TestContext, name: Str) [fs, error] -> Path {
 proc invoke_with(ctx: TestContext, dir: Path, argv: List[Str], allow_any_dir: Bool, stdin: Bytes) [fs, process, error] -> Run {
   let source = fp"{ctx.core_dir}/efibootmgr.xsh".read_text()?
   if allow_any_dir {
-    return test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir.display(), EFIVARFS_PATH: dir.display(), EFIBOOTMGR_ALLOW_ANY_DIR: "1"}, stdin, "efibootmgr")?
+    return test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir, EFIVARFS_PATH: dir, EFIBOOTMGR_ALLOW_ANY_DIR: "1"}, stdin, "efibootmgr")?
   }
-  test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir.display(), EFIVARFS_PATH: dir.display()}, stdin, "efibootmgr")?
+  test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir, EFIVARFS_PATH: dir}, stdin, "efibootmgr")?
 }
 
 proc invoke(ctx: TestContext, dir: Path, argv: List[Str]) [fs, process, error] -> Run {
@@ -218,7 +220,7 @@ test test_efibootmgr_active_state_and_driver_reconnect_bits { |ctx|
   let disabled = invoke(ctx, dir, ["-b", "0002", "-A"])
   assert disabled.status == 0, disabled.stderr
   assert "Boot0002  Shell\t" in disabled.stdout
-  assert get(dir, "Boot0002").slice(0, length: 8) == b"\x07\x00\x00\x00\x00\x00\x00\x00"
+  assert get(dir, "Boot0002")[..8] == b"\x07\x00\x00\x00\x00\x00\x00\x00"
   let absent = invoke(ctx, dir, ["-b", "0009", "-a"])
   assert absent.status == 16
   assert absent.stderr == "efibootmgr: Boot entry 9 not found\nCould not set active state for Boot0009: No such file or directory\n"
@@ -227,10 +229,10 @@ test test_efibootmgr_active_state_and_driver_reconnect_bits { |ctx|
   put(dir, "DriverOrder", u16_list([0]))
   let reconnect = invoke(ctx, dir, ["-r", "-b", "0000", "-f"])
   assert reconnect.status == 0, reconnect.stderr
-  assert get(dir, "Driver0000").slice(0, length: 8) == b"\x07\x00\x00\x00\x03\x00\x00\x00"
+  assert get(dir, "Driver0000")[..8] == b"\x07\x00\x00\x00\x03\x00\x00\x00"
   assert reconnect.stdout.starts_with("DriverOrder: 0000\nDriver0000* Drv\t\\drv.efi\n")
   assert invoke(ctx, dir, ["-r", "-b", "0000", "-F"]).status == 0
-  assert get(dir, "Driver0000").slice(0, length: 8) == b"\x07\x00\x00\x00\x01\x00\x00\x00"
+  assert get(dir, "Driver0000")[..8] == b"\x07\x00\x00\x00\x01\x00\x00\x00"
   assert invoke(ctx, dir, ["-f", "-b", "0000"]).stderr == "--reconnect is supported only for driver entries.\n"
 }
 
@@ -266,27 +268,29 @@ const ESP_GUID = "11112222-3333-4444-5555-666677778888"
 
 # A 4 MiB image with an ESP and a root partition, in the requested table.
 proc disk_image(ctx: TestContext, name: Str, label: Str) [fs, process, error] -> Path {
-  let image = test.temp_path(ctx, name: name)
-  image.write(b"")?
-  image.truncate(4194304)?
+  let image = test.temp_path(ctx, name:)
+  image.write(b"")
+  image.truncate(4194304)
   let esp = if label == "gpt" { "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" } else { "ef" }
   let data = if label == "gpt" { "0fc63daf-8483-4772-8e79-3d69d8477de4" } else { "83" }
   let uuids = if label == "gpt" { [ESP_GUID, "99998888-7777-6666-5555-444433332222"] } else { ["", ""] }
   let id = if label == "gpt" { "" } else { "0xdeadbeef" }
-  linux.write_partition_table(image, {label: label, id: id, sector_size: 512, partitions: [{index: 1, start: 2048, end: 6143, size: 4096, type: esp, uuid: uuids[0], name: ""}, {index: 2, start: 6144, end: 8000, size: 1857, type: data, uuid: uuids[1], name: ""}]})?
+  linux.write_partition_table(image, {label: label, id: id, sector_size: 512, partitions: [{index: 1, start: 2048, end: 6143, size: 4096, type: esp, uuid: uuids[0], name: ""}, {index: 2, start: 6144, end: 8000, size: 1857, type: data, uuid: uuids[1], name: ""}]})
   image
 }
 
 proc names_in(dir: Path) [fs, error] -> List[Str] {
-  var names: List[Str] = []
-  for child in fs.children(dir)? { names += [child.name] }
+  let names = collect {
+    for child in fs.children(dir)? { yield child.name }
+  }
   names
 }
 
 # Whole-directory snapshot used to prove a refused command changed nothing.
 proc snapshot(dir: Path) [fs, error] -> Str {
-  var lines: List[Str] = []
-  for child in fs.children(dir)? { lines += [f"{child.name} {child.path.read_bytes()?.base64()}"] }
+  let lines = collect {
+    for child in fs.children(dir)? { yield f"{child.name} {child.path.read_bytes()?.base64()}" }
+  }
   lines.join("\n")
 }
 
@@ -395,8 +399,9 @@ test test_efibootmgr_writes_only_named_variables_in_the_directory { |ctx|
   let result = invoke(ctx, dir, ["-c", "-d", image.display(), "-n", "0000", "-t", "2"])
   assert result.status == 0, result.stderr
   let after = names_in(dir)
-  var added: List[Str] = []
-  for name in after { if name not in before { added += [name] } }
+  let added = collect {
+    for name in after { yield name when name not in before }
+  }
   let ordered = added |> sort-by .
   assert ordered == [f"Boot0003{GUID_SUFFIX}", f"BootNext{GUID_SUFFIX}"], added.join(",")
 }
@@ -407,8 +412,8 @@ test test_efibootmgr_clears_and_restores_the_immutable_flag_around_writes { |ctx
   test.linux_fake(ctx, {file_attrs_flags: 16, log: log})
   let written = invoke(ctx, dir, ["-t", "4"])
   assert written.status == 0, written.stderr
-  let entries = log.read_text()?.lines()
-  var flags: List[Str] = []
+  let entries = log.read_lines()?
+  var flags = []
   for line in entries {
     if "set_file_attrs" in line {
       let record = json.decode(line)?

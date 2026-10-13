@@ -11,8 +11,8 @@ test test_bb_pidof_pidof_exit_with_error_503ff3da { |ctx|
 # origin: busybox pidof/pidof this
 test test_bb_pidof_pidof_this_48b653be { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "pidof.tests", "#!/bin/sh\nprintf '%s\\n' \"$$\"\n\"$@\"\nresult=$?\nexit \"$result\"\n")?
-  uu.set_mode(s, "pidof.tests", 0o755)?
+  uu.write(s, "pidof.tests", "#!/bin/sh\nprintf '%s\\n' \"$$\"\n\"$@\"\nresult=$?\nexit \"$result\"\n")
+  uu.set_mode(s, "pidof.tests", 0o755)
   let argv = [uu.at(s, "pidof.tests")].extend(uu.argv(s, "pidof", [p"pidof.tests"])?)
   let out = uu.at(s, "out")
   let err = uu.at(s, "err")

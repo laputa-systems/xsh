@@ -1,7 +1,7 @@
 #!/bin/xsh
-use lib.gnu
-use lib.fs_misc
 use lib.capability
+use lib.fs_misc
+use lib.gnu
 use lib.text_a2 as text
 
 const USAGE = """Usage: {prog} [OPTION]... [FILE]...
@@ -568,8 +568,8 @@ proc raw_option_failure(raw: Bytes) [process, env, io, error] {
   let hint = bytes.from_text(f"Try '{gnu.phrase()} --help' for more information.\n")
 
   if raw.starts_with(b"--") {
-    io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))?
-    io.flush_stderr()?
+    io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))
+    io.flush_stderr()
     exit 2
   }
 
@@ -578,20 +578,20 @@ proc raw_option_failure(raw: Bytes) [process, env, io, error] {
     let found = [opt for opt in OPTS if opt.short != "" and bytes.from_text(opt.short) == letter]
 
     if found.is_empty() {
-      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))?
-      io.flush_stderr()?
+      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))
+      io.flush_stderr()
       exit 2
     }
 
     if found[0].arg > 0 {
-      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))?
-      io.flush_stderr()?
+      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))
+      io.flush_stderr()
       exit 2
     }
   }
 
-  io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))?
-  io.flush_stderr()?
+  io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))
+  io.flush_stderr()
   exit 2
 }
 
@@ -687,7 +687,7 @@ proc parse_args(argv: List[Str], arguments: text.RawArguments, start: Cfg, tty: 
         }
 
         let opt = found[0]
-        var value: Str? = null
+        var value = null
 
         if opt.arg == 1 {
           if position < total {
@@ -1090,9 +1090,9 @@ pure code_point_width(cp: Int) -> Int {
 }
 
 pure decode_units(raw: Bytes, utf8: Bool) -> Units {
-  var chars: List[Bytes] = []
-  var printable: List[Bool] = []
-  var widths: List[Int] = []
+  var chars = []
+  var printable = []
+  var widths = []
   var at = 0
   let total = raw.len()
 
@@ -1638,7 +1638,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
   var ok = false
   var kind = hint
   var failed = false
-  var absolute: Bytes? = null
+  var absolute = null
   var canonical_status = 0
 
   if ctx.hyper {
@@ -1698,7 +1698,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     }
   }
 
-  var link: Bytes? = null
+  var link = null
   var linkok = false
   var linkmode = 0
   var linkkind = ""
@@ -1707,7 +1707,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     if let Ok(pointed) = target.readlink() {
       link = pointed.bytes()
       let target_raw = pointed.bytes()
-      let resolved = if target_raw.byte_at(0) == 47 { target_raw } else { join_raw(base_dir(full), target_raw) }
+      let resolved = if target_raw.byte_at(0) == 47 { target_raw } else { base_dir(full) |> join_raw(_, target_raw) }
 
       if ctx.link_stat {
         if let Ok(found) = follow_stat(raw_path(resolved), true) {
@@ -1722,9 +1722,10 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
   # ACL decoration is optional; unsupported or unreadable xattrs do not fail a listing.
   let follow_acl = ctx.deref == "always" or (arg and ctx.deref in ["cmdline", "cmdline_dir"])
   let acl = if ok and ctx.format == "long" {
-    match fs.xattr_list(target, follow_symlinks: follow_acl) {
-      Ok(names) => "system.posix_acl_access" in names or "system.posix_acl_default" in names
-      Err(_) => false
+    if let Ok(names) = fs.xattr_list(target, follow_symlinks: follow_acl) {
+      "system.posix_acl_access" in names or "system.posix_acl_default" in names
+    } else {
+      false
     }
   } else {
     false
@@ -1783,21 +1784,21 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
 # non-UTF-8 final name is kept as its raw bytes beside the canonical parent; a
 # non-UTF-8 parent has no canonical text and keeps its lexical absolute name.
 proc canonical_name(ctx: Ctx, full: Bytes) [fs, error] -> Result[Bytes, Error] {
-  match full.utf8() {
-    Ok(text) => match fs_misc.canonical(text, "missing") {
+  if let Ok(text) = full.utf8() {
+    match fs_misc.canonical(text, "missing") {
       Ok(found) => Ok(bytes.from_text(found))
       Err(problem) => Err(problem)
     }
-    Err(_) => {
-      let parent = base_dir(full)
-
-      match parent.utf8() {
-        Ok(text) => match fs_misc.canonical(text, "missing") {
-          Ok(found) => Ok(bytes.concat([bytes.from_text(if found == "/" { "" } else { found }), b"/", base_raw(full)])),
-          Err(problem) => Err(problem)
-        }
-        Err(_) => Ok(lexical_absolute(ctx, full))
+  } else {
+    let parent = base_dir(full)
+  
+    if let Ok(text) = parent.utf8() {
+      match fs_misc.canonical(text, "missing") {
+        Ok(found) => Ok(bytes.concat([bytes.from_text(if found == "/" { "" } else { found }), b"/", base_raw(full)]))
+        Err(problem) => Err(problem)
       }
+    } else {
+      Ok(lexical_absolute(ctx, full))
     }
   }
 }
@@ -1949,7 +1950,7 @@ proc terminal_has_color() [process, env] -> Bool {
   let term_value = env_text("TERM")
   return false when term_value == null or term_value == ""
 
-  let term = term_value ?? ""
+  let term = term_value
   let patterns = [
     "Eterm",
     "ansi",
@@ -2551,7 +2552,7 @@ pure lexical_absolute(ctx: Ctx, full: Bytes) -> Bytes {
 }
 
 pure hyperlink_start(ctx: Ctx, full: Bytes) -> Bytes {
-  hyperlink_at(ctx, lexical_absolute(ctx, full))
+  lexical_absolute(ctx, full) |> hyperlink_at(ctx, _)
 }
 
 # The OSC 8 opener for a name that is already absolute and canonical.
@@ -2602,7 +2603,7 @@ pure name_piece(ctx: Ctx, f: File, target: Bool, pad0: Bool, used0: Bool, col: I
   # A name whose canonical form could not be found has no hyperlink.
   if ctx.hyper and (target or f.absolute != null) {
     let opener = if target {
-      hyperlink_start(ctx, join_raw(base_dir(f.path.bytes()), f.link ?? b""))
+      join_raw(base_dir(f.path.bytes()), f.link ?? b"") |> hyperlink_start(ctx, _)
     } else {
       hyperlink_at(ctx, f.absolute ?? b"")
     }
@@ -2949,9 +2950,9 @@ proc render_files(ctx: Ctx, files: List[File], used0: Bool) [fs] -> Rendered {
   }
 
   let pad = ctx.align and ! [f for f in files if f.quoted].is_empty()
-  var chunks: List[Bytes] = []
+  var chunks = []
   var used = used0
-  var dired: List[Int] = []
+  var dired = []
   var length = 0
 
   match ctx.format {
@@ -3051,15 +3052,15 @@ proc list_all(ctx: Ctx, operands: List[Bytes]) [fs, process, env, error, io] -> 
   let cfg = ctx.cfg
   let indent = if cfg.dired { "  " } else { "" }
   var status = 0
-  var out: List[Bytes] = []
+  var out = []
   var pos = 0
   var used = false
-  var dired: List[Int] = []
-  var subdired: List[Int] = []
+  var dired = []
+  var subdired = []
   var first = true
   var print_name = true
   var pending: List[Pending] = []
-  var active: List[Str] = []
+  var active = []
   var files: List[File] = []
 
   if operands.is_empty() {
@@ -3290,9 +3291,7 @@ proc time_formats(cfg: Cfg) [process, env] -> List[Str] {
   var style = cfg.time_style ?? env_text("TIME_STYLE") ?? "locale"
 
   while style.starts_with("posix-") {
-    if ! hard_time_locale() {
-      return ["%b %e  %Y", "%b %e %H:%M"]
-    }
+    return ["%b %e  %Y", "%b %e %H:%M"] unless hard_time_locale()
 
     style = style[6..]
   }
@@ -3520,7 +3519,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, time, error, io] {
   let arguments = text.normalize_arguments(argv)
   let prog = gnu.prog()
   let tty = stdout_is_tty()
-  var quoting: Str? = null
+  var quoting = null
   var warning_failed = false
 
   match env.get("QUOTING_STYLE") {
@@ -3594,7 +3593,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, time, error, io] {
 
   let parsed = parse_args(arguments.values, arguments, start, tty)
   let ctx = build_ctx(parsed.cfg, tty)
-  let status = max_of(list_all(ctx, parsed.operands), if warning_failed { 2 } else { 0 })
+  let status = list_all(ctx, parsed.operands) |> max_of(_, if warning_failed { 2 } else { 0 })
 
   if status != 0 {
     exit status

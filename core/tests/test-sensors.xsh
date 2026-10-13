@@ -48,7 +48,7 @@ test test_sensors_rejects_configuration_and_mutation_options { |ctx|
   let script = fp"{ctx.core_dir}/sensors.xsh"
   for option in ["-c", "-s"] {
     let err = fp"{root}/err"
-    let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), option], root, {}, b"", fp"{root}/out", err, timeout: 5s)
+    let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, option], root, {}, b"", fp"{root}/out", err, timeout: 5s)
     assert process.run(command)?.exited_with(1)
     assert "not supported" in err.read_text()?
   }

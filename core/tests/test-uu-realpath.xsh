@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_realpath::test_realpath_current_directory
 test test_uu_realpath_realpath_current_directory { |ctx|
@@ -27,8 +27,8 @@ test test_uu_realpath_realpath_long_redirection_to_root { |ctx|
 # origin: uutils test_realpath::test_realpath_file_and_links
 test test_uu_realpath_realpath_file_and_links { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
-  uu.symlink(s, f"{s.root}/foo", "bar")?
+  uu.touch(s, "foo")
+  uu.symlink(s, f"{s.root}/foo", "bar")
   for option in [""] {
     for name in ["foo", "bar"] {
       let args = [name]
@@ -43,8 +43,8 @@ test test_uu_realpath_realpath_file_and_links { |ctx|
 # origin: uutils test_realpath::test_realpath_file_and_links_zero
 test test_uu_realpath_realpath_file_and_links_zero { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
-  uu.symlink(s, f"{s.root}/foo", "bar")?
+  uu.touch(s, "foo")
+  uu.symlink(s, f"{s.root}/foo", "bar")
   for option in [""] {
     for name in ["foo", "bar"] {
       let args = [name].extend(["-z"])
@@ -59,8 +59,8 @@ test test_uu_realpath_realpath_file_and_links_zero { |ctx|
 # origin: uutils test_realpath::test_realpath_file_and_links_strip
 test test_uu_realpath_realpath_file_and_links_strip { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
-  uu.symlink(s, f"{s.root}/foo", "bar")?
+  uu.touch(s, "foo")
+  uu.symlink(s, f"{s.root}/foo", "bar")
   for option in ["-s", "--strip", "--no-symlinks"] {
     for name in ["foo", "bar"] {
       let args = [name].extend([option])
@@ -75,11 +75,11 @@ test test_uu_realpath_realpath_file_and_links_strip { |ctx|
 # origin: uutils test_realpath::test_realpath_file_and_links_strip_zero
 test test_uu_realpath_realpath_file_and_links_strip_zero { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo")?
-  uu.symlink(s, f"{s.root}/foo", "bar")?
+  uu.touch(s, "foo")
+  uu.symlink(s, f"{s.root}/foo", "bar")
   for option in ["-s", "--strip", "--no-symlinks"] {
     for name in ["foo", "bar"] {
-      let args = [name].extend([option]).extend(["-z"])
+      let args = [name, option, "-z"]
       let r = uu.invoke(s, "realpath", args)?
       uu.succeeds(r)
       let expected = name
@@ -91,9 +91,9 @@ test test_uu_realpath_realpath_file_and_links_strip_zero { |ctx|
 # origin: uutils test_realpath::test_realpath_physical_mode
 test test_uu_realpath_realpath_physical_mode { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.mkdir(s, "dir2/bar")?
-  uu.symlink(s, f"{s.root}/dir2/bar", "dir1/foo")?
+  uu.mkdir(s, "dir1")
+  uu.mkdir(s, "dir2/bar")
+  uu.symlink(s, f"{s.root}/dir2/bar", "dir1/foo")
   let r = uu.invoke(s, "realpath", ["dir1/foo/.."])?
   uu.succeeds(r)
   uu.stdout_contains(r, "dir2\n")
@@ -102,9 +102,9 @@ test test_uu_realpath_realpath_physical_mode { |ctx|
 # origin: uutils test_realpath::test_realpath_logical_mode
 test test_uu_realpath_realpath_logical_mode { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.mkdir(s, "dir2")?
-  uu.symlink(s, f"{s.root}/dir2", "dir1/foo")?
+  uu.mkdir(s, "dir1")
+  uu.mkdir(s, "dir2")
+  uu.symlink(s, f"{s.root}/dir2", "dir1/foo")
   let r = uu.invoke(s, "realpath", ["-L", "dir1/foo/.."])?
   uu.succeeds(r)
   uu.stdout_contains(r, "dir1\n")
@@ -113,7 +113,7 @@ test test_uu_realpath_realpath_logical_mode { |ctx|
 # origin: uutils test_realpath::test_realpath_dangling
 test test_uu_realpath_realpath_dangling { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, f"{s.root}/nonexistent-file", "link")?
+  uu.symlink(s, f"{s.root}/nonexistent-file", "link")
   let r = uu.invoke(s, "realpath", ["link"])?
   uu.succeeds(r)
   uu.stdout_is(r, f"{s.root}/nonexistent-file\n")
@@ -122,9 +122,9 @@ test test_uu_realpath_realpath_dangling { |ctx|
 # origin: uutils test_realpath::test_realpath_loop
 test test_uu_realpath_realpath_loop { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, f"{s.root}/2", "1")?
-  uu.symlink(s, f"{s.root}/3", "2")?
-  uu.symlink(s, f"{s.root}/1", "3")?
+  uu.symlink(s, f"{s.root}/2", "1")
+  uu.symlink(s, f"{s.root}/3", "2")
+  uu.symlink(s, f"{s.root}/1", "3")
   let r = uu.invoke(s, "realpath", ["1"])?
   uu.fails(r)
   uu.stderr_contains(r, "Too many levels of symbolic links")
@@ -188,12 +188,12 @@ test test_uu_realpath_realpath_empty { |ctx|
 # origin: uutils test_realpath::test_realpath_when_symlink_is_absolute_and_enoent
 test test_uu_realpath_realpath_when_symlink_is_absolute_and_enoent { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir2")?
-  uu.touch(s, "dir2/bar")?
-  uu.mkdir(s, "dir1")?
-  uu.symlink(s, f"{s.root}/dir2/bar", "dir1/foo1")?
-  uu.symlink(s, "/dir2/bar", "dir1/foo2")?
-  uu.symlink(s, "../dir2/baz", "dir1/foo3")?
+  uu.mkdir(s, "dir2")
+  uu.touch(s, "dir2/bar")
+  uu.mkdir(s, "dir1")
+  uu.symlink(s, f"{s.root}/dir2/bar", "dir1/foo1")
+  uu.symlink(s, "/dir2/bar", "dir1/foo2")
+  uu.symlink(s, "../dir2/baz", "dir1/foo3")
   let r = uu.invoke(s, "realpath", ["dir1/foo1", "dir1/foo2", "dir1/foo3"])?
   uu.fails(r)
   uu.stdout_contains(r, "/dir2/bar\n")
@@ -204,13 +204,13 @@ test test_uu_realpath_realpath_when_symlink_is_absolute_and_enoent { |ctx|
 # origin: uutils test_realpath::test_realpath_when_symlink_part_is_missing
 test test_uu_realpath_realpath_when_symlink_part_is_missing { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir2")?
-  uu.touch(s, "dir2/bar")?
-  uu.mkdir(s, "dir1")?
-  uu.symlink(s, "../dir2/bar", "dir1/foo1")?
-  uu.symlink(s, "dir2/bar", "dir1/foo2")?
-  uu.symlink(s, "../dir2/baz", "dir1/foo3")?
-  uu.symlink(s, f"{s.root}/dir3/bar", "dir1/foo4")?
+  uu.mkdir(s, "dir2")
+  uu.touch(s, "dir2/bar")
+  uu.mkdir(s, "dir1")
+  uu.symlink(s, "../dir2/bar", "dir1/foo1")
+  uu.symlink(s, "dir2/bar", "dir1/foo2")
+  uu.symlink(s, "../dir2/baz", "dir1/foo3")
+  uu.symlink(s, f"{s.root}/dir3/bar", "dir1/foo4")
   let r = uu.invoke(s, "realpath", ["dir1/foo1", "dir1/foo2", "dir1/foo3", "dir1/foo4"])?
   uu.fails(r)
   uu.stdout_contains(r, "dir2/bar\n")
@@ -222,8 +222,8 @@ test test_uu_realpath_realpath_when_symlink_part_is_missing { |ctx|
 # origin: uutils test_realpath::test_relative_existing_require_directories
 test test_uu_realpath_relative_existing_require_directories { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.touch(s, "dir1/f")?
+  uu.mkdir(s, "dir1")
+  uu.touch(s, "dir1/f")
   let r = uu.invoke(s, "realpath", ["-e", "--relative-base=.", "--relative-to=dir1/f", "."])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "directory")
@@ -232,8 +232,8 @@ test test_uu_realpath_relative_existing_require_directories { |ctx|
 # origin: uutils test_realpath::test_relative_existing_require_directories_2
 test test_uu_realpath_relative_existing_require_directories_2 { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1")?
-  uu.touch(s, "dir1/f")?
+  uu.mkdir(s, "dir1")
+  uu.touch(s, "dir1/f")
   let r = uu.invoke(s, "realpath", ["-e", "--relative-base=.", "--relative-to=dir1", "."])?
   uu.succeeds(r)
   uu.stdout_is(r, "..\n")
@@ -275,11 +275,11 @@ test test_uu_realpath_relative { |ctx|
 # origin: uutils test_realpath::test_realpath_trailing_slash
 test test_uu_realpath_realpath_trailing_slash { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.mkdir(s, "dir")?
-  uu.symlink(s, "file", "link_file")?
-  uu.symlink(s, "dir", "link_dir")?
-  uu.symlink(s, "no_dir", "link_no_dir")?
+  uu.touch(s, "file")
+  uu.mkdir(s, "dir")
+  uu.symlink(s, "file", "link_file")
+  uu.symlink(s, "dir", "link_dir")
+  uu.symlink(s, "no_dir", "link_no_dir")
   for mode in [[], ["-e"], ["-m"]] {
     for name in ["link_file", "link_file/", "link_dir", "link_dir/", "link_no_dir", "link_no_dir/"] {
       let r = uu.invoke(s, "realpath", mode.extend([name]))?
@@ -302,14 +302,14 @@ test test_uu_realpath_realpath_trailing_slash { |ctx|
 # origin: uutils test_realpath::test_realpath_trailing_slash_unreadable_directory
 test test_uu_realpath_realpath_trailing_slash_unreadable_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.set_mode(s, "dir", 0o100)?
+  uu.mkdir(s, "dir")
+  uu.set_mode(s, "dir", 0o100)
   for args in [["dir/"], ["-e", "dir/"]] {
     let r = uu.invoke(s, "realpath", args)?
     uu.succeeds(r)
     uu.stdout_contains(r, "/dir\n")
   }
-  uu.set_mode(s, "dir", 0o700)?
+  uu.set_mode(s, "dir", 0o700)
 }
 
 # origin: uutils test_realpath::test_realpath_non_utf8_paths
@@ -317,8 +317,8 @@ test test_uu_realpath_realpath_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let name = b"test_\xff\xfe.txt"
   let file = uu.at_bytes(s, name)?
-  file.write(b"")?
-  let r = uu.invoke_paths(s, "realpath", [Path.parse_bytes(name)?])?
+  file.write(b"")
+  let r = uu.invoke_paths(s, "realpath", [name as Path])?
   uu.succeeds(r)
   assert bytes.from_text("test_") in r.stdout
   assert bytes.from_text(".txt") in r.stdout
@@ -336,7 +336,7 @@ test test_uu_realpath_realpath_empty_string { |ctx|
 # origin: uutils test_realpath::test_realpath_canonicalize_options
 test test_uu_realpath_realpath_canonicalize_options { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "existing_dir")?
+  uu.mkdir(s, "existing_dir")
   for args in [[], ["-E"], ["--canonicalize"]] {
     let r = uu.invoke(s, "realpath", args.extend(["existing_dir/nonexistent"]))?
     uu.succeeds(r)
@@ -347,7 +347,7 @@ test test_uu_realpath_realpath_canonicalize_options { |ctx|
 # origin: uutils test_realpath::test_realpath_canonicalize_vs_existing
 test test_uu_realpath_realpath_canonicalize_vs_existing { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "existing_dir")?
+  uu.mkdir(s, "existing_dir")
   for args in [["-E"], ["-e"], ["-e", "-E"]] {
     let r = uu.invoke(s, "realpath", args.extend(["existing_dir/nonexistent"]))?
     if args == ["-e"] {

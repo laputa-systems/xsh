@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.diffutils
+use lib.gnu
 use lib.textio_a1 as tio
 
 const HELP = """Usage: cmp [OPTION]... FILE1 [FILE2 [SKIP1 [SKIP2]]]
@@ -60,7 +60,7 @@ proc trouble(message: Str) [process, env] -> Unit {
 # locale the curly quotes need no escape for an apostrophe inside the name.
 proc locale_quote(name: Str) [env] -> Str {
   let quoted = gnu.quote_value(name)
-  if quoted.starts_with("\u{2018}") { return quoted.replace("\\'", with: "'") }
+  return quoted.replace("\\'", with: "'") when quoted.starts_with("‘")
   quoted
 }
 
@@ -70,13 +70,13 @@ pure option_events(argv: List[Str]) -> List[Event] {
   var index = 0
   while index < argv.len() {
     let arg = argv[index]
-    if arg == "--" { break }
+    break when arg == "--"
     if arg.starts_with("--") {
       let body = arg.byte_slice(2)
       let equals = body.find("=")
-      let name = if equals == null { body } else { body.byte_slice(0, length: equals ?? 0) }
+      let name = if equals == null { body } else { body.byte_slice(0, length: equals) }
       var resolved = ""
-      var candidates: List[Str] = []
+      var candidates = []
       for known in LONGS {
         if known == name { resolved = known }
         if known.starts_with(name) { candidates += [known] }
@@ -89,7 +89,7 @@ pure option_events(argv: List[Str]) -> List[Event] {
       } else if resolved == "bytes" or resolved == "ignore-initial" {
         var value = ""
         if equals != null {
-          value = body.byte_slice((equals ?? 0) + 1)
+          value = body.byte_slice(equals + 1)
         } else {
           index += 1
           value = argv.get(index) ?? ""
@@ -126,24 +126,27 @@ type Initial = {first: Int, second: Int, bad: Str?}
 # The error text is the part GNU cmp quotes, or null when well formed.
 pure parse_initial(text: Str) -> Initial {
   let head = diffutils.parse_size(text)
-  if head == null { return {first: 0, second: 0, bad: text} }
-  let found = head ?? {value: 0, rest: ""}
-  if found.rest == "" { return {first: found.value, second: found.value, bad: null} }
-  if !found.rest.starts_with(":") { return {first: 0, second: 0, bad: text} }
+  guard let found = head else {
+    return {first: 0, second: 0, bad: text}
+  }
+  return {first: found.value, second: found.value, bad: null} when found.rest == ""
+  return {first: 0, second: 0, bad: text} unless found.rest.starts_with(":")
   let tail = found.rest.byte_slice(1)
   let second = diffutils.parse_size(tail)
-  if second == null { return {first: 0, second: 0, bad: tail} }
-  let other = second ?? {value: 0, rest: ""}
-  if other.rest != "" { return {first: 0, second: 0, bad: tail} }
+  guard let other = second else {
+    return {first: 0, second: 0, bad: tail}
+  }
+  return {first: 0, second: 0, bad: tail} when other.rest != ""
   {first: found.value, second: other.value, bad: null}
 }
 
 # The byte count of `text` as a skip operand, or null when it is not one.
 pure parse_skip(text: Str) -> Int? {
   let parsed = diffutils.parse_size(text)
-  if parsed == null { return null }
-  let found = parsed ?? {value: 0, rest: "x"}
-  if found.rest != "" { return null }
+  guard let found = parsed else {
+    return null
+  }
+  return null when found.rest != ""
   found.value
 }
 
@@ -159,7 +162,7 @@ pure digits_of(value: Int) -> Int {
 
 # The device and inode identity of an operand that exists, "" for stdin.
 proc identity_of(name: Str) [fs] -> Str {
-  if name == "-" { return "" }
+  return "" when name == "-"
   let info = fs.stat(fp"{name}", follow_symlinks: true)
   if let Ok(found) = info { return f"{found.dev}:{found.ino}" }
   ""
@@ -232,30 +235,31 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
   if opts.files.len() > 4 { trouble(f"extra operand {gnu.quote_value(opts.files[4])}") }
 
   # Open phase: a missing or unreadable file ends the run at the first one.
-  var sources: List[tio.Source] = []
-  for operand in [left, right] {
-    if operand == "" {
-      if !quiet { gnu.error("'': No such file or directory") }
-      exit 2
-    }
-    let found = tio.open_source(operand)
-    if let Err(failure) = found {
-      if !quiet { gnu.name_error(operand, failure) }
-      exit 2
-    }
-    let source = found ?? {name: operand, path: p"/dev/null", mode: "whole", kind: 0, size: 0}
-    if source.mode != "stdin" and source.kind != 4 {
-      let check = bytes.read_at(source.path, 0, 0)
-      if let Err(failure) = check {
+  let sources: List[tio.Source] = collect {
+    for operand in [left, right] {
+      if operand == "" {
+        if !quiet { gnu.error("'': No such file or directory") }
+        exit 2
+      }
+      let found = tio.open_source(operand)
+      if let Err(failure) = found {
         if !quiet { gnu.name_error(operand, failure) }
         exit 2
       }
+      let source = found ?? {name: operand, path: p"/dev/null", mode: "whole", kind: 0, size: 0}
+      if source.mode != "stdin" and source.kind != 4 {
+        let check = bytes.read_at(source.path, 0, 0)
+        if let Err(failure) = check {
+          if !quiet { gnu.name_error(operand, failure) }
+          exit 2
+        }
+      }
+      yield source
     }
-    sources += [source]
   }
   let first = sources[0]
   let second = sources[1]
-  if first.mode == "stdin" and second.mode == "stdin" { return }
+  return when first.mode == "stdin" and second.mode == "stdin"
   if first.mode != "stdin" and identity_of(left) == identity_of(right) and skip_first == skip_second { return }
 
   # The width of byte numbers in `-l` output: wide enough for the largest
@@ -274,8 +278,8 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
   }
   let width = if limited or regular { digits_of(widest) } else { 20 }
 
-  if first.mode == "stdin" { diffutils.skip_stdin(skip_first)? }
-  if second.mode == "stdin" { diffutils.skip_stdin(skip_second)? }
+  if first.mode == "stdin" { diffutils.skip_stdin(skip_first) }
+  if second.mode == "stdin" { diffutils.skip_stdin(skip_second) }
 
   var offset = 0
   var lines = 0
@@ -302,16 +306,17 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
       different = true
       if quiet { exit 1 }
       if listed {
-        var rows: List[Str] = []
-        for index in range(shared) {
-          let av = head_a.byte_at(index) ?? 0
-          let bv = head_b.byte_at(index) ?? 0
-          if av == bv { continue }
-          let number = diffutils.pad(f"{offset + index + 1}", width)
-          if opts.print_bytes {
-            rows += [f"{number} {diffutils.octal(av)} {diffutils.pad_right(diffutils.display_byte(av), 4)} {diffutils.octal(bv)} {diffutils.display_byte(bv)}"]
-          } else {
-            rows += [f"{number} {diffutils.octal(av)} {diffutils.octal(bv)}"]
+        let rows = collect {
+          for index in range(shared) {
+            let av = head_a.byte_at(index) ?? 0
+            let bv = head_b.byte_at(index) ?? 0
+            continue when av == bv
+            let number = diffutils.pad(f"{offset + index + 1}", width)
+            if opts.print_bytes {
+              yield f"{number} {diffutils.octal(av)} {diffutils.pad_right(diffutils.display_byte(av), 4)} {diffutils.octal(bv)} {diffutils.display_byte(bv)}"
+            } else {
+              yield f"{number} {diffutils.octal(av)} {diffutils.octal(bv)}"
+            }
           }
         }
         gnu.write_text(rows.join("\n") + "\n")
@@ -347,7 +352,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
       }
       exit 1
     }
-    if shared == 0 { break }
+    break when shared == 0
     lines += diffutils.newline_count(head_a)
     if shared > 0 { ended_line = head_a.ends_with(b"\n") }
     offset += shared

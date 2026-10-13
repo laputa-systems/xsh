@@ -144,8 +144,8 @@ test test_basename_invalid_utf8_arguments { |ctx|
   let script = fp"{ctx.core_dir}/basename.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let name = Path.parse_bytes(b"/tmp/some-\xc0-file.k\xf3")?
-  let suffix = Path.parse_bytes(b".k\xf3")?
+  let name = b"/tmp/some-\xc0-file.k\xf3" as Path
+  let suffix = b".k\xf3" as Path
   let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, name]
   let first = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert first.exit_code()? == 0

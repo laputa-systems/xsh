@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils printf integration tests.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_printf::basic_literal
 test test_uu_printf_basic_literal { |ctx|
@@ -999,34 +999,34 @@ test test_uu_printf_mb_input { |ctx|
 # origin: uutils test_printf::mb_invalid_unicode
 test test_uu_printf_mb_invalid_unicode { |ctx|
   let s = uu.scene(ctx)?
-  let r1 = uu.invoke_paths(s, "printf", [Path("%04x\n"), Path.parse_bytes(b"\x22\xe1")?])?
+  let r1 = uu.invoke_paths(s, "printf", [p"%04x\n", b"\x22\xe1" as Path])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "00e1\n")
-  let r2 = uu.invoke_paths(s, "printf", [Path("%04x\n"), Path.parse_bytes(b"'\xe1")?])?
+  let r2 = uu.invoke_paths(s, "printf", [p"%04x\n", b"'\xe1" as Path])?
   uu.succeeds(r2)
   uu.stdout_only(r2, "00e1\n")
-  let r3 = uu.invoke_paths(s, "printf", [Path("%i\n"), Path.parse_bytes(b"\x22\xe1")?])?
+  let r3 = uu.invoke_paths(s, "printf", [p"%i\n", b"\x22\xe1" as Path])?
   uu.succeeds(r3)
   uu.stdout_only(r3, "225\n")
-  let r4 = uu.invoke_paths(s, "printf", [Path("%i\n"), Path.parse_bytes(b"'\xe1")?])?
+  let r4 = uu.invoke_paths(s, "printf", [p"%i\n", b"'\xe1" as Path])?
   uu.succeeds(r4)
   uu.stdout_only(r4, "225\n")
-  let r5 = uu.invoke_paths(s, "printf", [Path("%f\n"), Path.parse_bytes(b"'\xe1")?])?
+  let r5 = uu.invoke_paths(s, "printf", [p"%f\n", b"'\xe1" as Path])?
   uu.succeeds(r5)
   uu.stdout_only(r5, "225.000000\n")
-  let r6 = uu.invoke_paths(s, "printf", [Path("%04x\n"), Path.parse_bytes(b"\x22\xe1=")?])?
+  let r6 = uu.invoke_paths(s, "printf", [p"%04x\n", b"\x22\xe1=" as Path])?
   uu.succeeds(r6)
   uu.stdout_is(r6, "00e1\n")
   uu.stderr_is(r6, "printf: warning: =: character(s) following character constant have been ignored\n")
-  let r7 = uu.invoke_paths(s, "printf", [Path("%04x\n"), Path.parse_bytes(b"'\xe1-")?])?
+  let r7 = uu.invoke_paths(s, "printf", [p"%04x\n", b"'\xe1-" as Path])?
   uu.succeeds(r7)
   uu.stdout_is(r7, "00e1\n")
   uu.stderr_is(r7, "printf: warning: -: character(s) following character constant have been ignored\n")
-  let r8 = uu.invoke_paths(s, "printf", [Path("%04x\n"), Path.parse_bytes(b"'\xe1=-==")?])?
+  let r8 = uu.invoke_paths(s, "printf", [p"%04x\n", b"'\xe1=-==" as Path])?
   uu.succeeds(r8)
   uu.stdout_is(r8, "00e1\n")
   uu.stderr_is(r8, "printf: warning: =-==: character(s) following character constant have been ignored\n")
-  let r9 = uu.invoke_paths(s, "printf", [Path("%04x\n"), Path.parse_bytes(b"'\xe1'")?])?
+  let r9 = uu.invoke_paths(s, "printf", [p"%04x\n", b"'\xe1'" as Path])?
   uu.succeeds(r9)
   uu.stdout_is(r9, "00e1\n")
   uu.stderr_is(r9, "printf: warning: ': character(s) following character constant have been ignored\n")
@@ -1035,13 +1035,13 @@ test test_uu_printf_mb_invalid_unicode { |ctx|
 # origin: uutils test_printf::non_utf_8_input
 test test_uu_printf_non_utf_8_input { |ctx|
   let s = uu.scene(ctx)?
-  let r1 = uu.invoke_paths(s, "printf", [Path("%s"), Path.parse_bytes(b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare.")?])?
+  let r1 = uu.invoke_paths(s, "printf", [p"%s", b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare." as Path])?
   uu.succeeds(r1)
   uu.stdout_only_bytes(r1, b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare.")
-  let r2 = uu.invoke_paths(s, "printf", [Path.parse_bytes(b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare.")?])?
+  let r2 = uu.invoke_paths(s, "printf", [b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare." as Path])?
   uu.succeeds(r2)
   uu.stdout_only_bytes(r2, b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare.")
-  let r3 = uu.invoke_paths(s, "printf", [Path("%d"), Path.parse_bytes(b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare.")?])?
+  let r3 = uu.invoke_paths(s, "printf", [p"%d", b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare." as Path])?
   uu.fails(r3)
   assert bytes.from_text("expected a numeric value") in r3.stderr
 }

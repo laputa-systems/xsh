@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.date_parse
+use lib.gnu
 use lib.system_control as control
 
 proc main(...argv: List[Str]) {

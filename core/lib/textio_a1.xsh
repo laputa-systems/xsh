@@ -87,7 +87,7 @@ export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, i
     # file is then read to its end and sliced, as a read(2) loop would see it.
     match bytes.read_at(source.path, offset, if left < count { left } else { count }) {
       Ok(data) => return Ok(data)
-      Err(failure) => if failure.message.find("failed to fill") == null { return Err(failure) }
+      Err(failure) => return Err(failure) when failure.message.find("failed to fill") == null
     }
 
     let whole = source.path.read_bytes()?
@@ -230,7 +230,7 @@ export pure parse_count(text: Str) -> Int? {
 ## with `zero`. `lines()` drops the CR of a CRLF, so a newline is recognized
 ## from the bytes after each line.
 export pure line_ends(data: Bytes, zero: Bool) -> List[Int] {
-  var ends: List[Int] = []
+  var ends = []
 
   if zero {
     for index in range(data.len()) {

@@ -1,10 +1,10 @@
 use core.lib.btop_model as model
-use core.lib.btop_source as source
-use core.lib.btop_render as renderer
-use core.lib.btop_ui as ui
-use core.tests.support.btop as fixture
 use core.lib.btop_rates as rates
+use core.lib.btop_render as renderer
+use core.lib.btop_source as source
+use core.lib.btop_ui as ui
 use core.lib.system_report as report
+use core.tests.support.btop as fixture
 
 pure default_processes() -> List[fixture.ProcessFixture] {
   [{pid: 42, start_ticks: 1000, cpu_ticks: 10, rss_pages: 16384, uid: 1000}]
@@ -31,11 +31,11 @@ test test_btop_model_matches_the_independent_b3_monitor_oracle {
   let first = model.step(before, null)
   let next = model.step(current, before)
 
-  assert first.cpu_percent.state == rates.Warming
+  assert first.cpu_percent.state == .Warming
   assert (first.cpu_cores |> map .utilization.state) == [rates.Warming, rates.Warming]
-  assert first.network.rx_bytes_per_second.state == rates.Warming
-  assert first.processes[0].cpu_percent.state == rates.Warming
-  assert first.processes[0].cpu_percent_per_core.state == rates.Warming
+  assert first.network.rx_bytes_per_second.state == .Warming
+  assert first.processes[0].cpu_percent.state == .Warming
+  assert first.processes[0].cpu_percent_per_core.state == .Warming
   assert next.cpu_percent.value?.format(precision: 1) == "40.0"
   assert (next.cpu_cores |> map .id) == [0, 1]
   assert next.cpu_cores[0].utilization.value == 40.0
@@ -51,8 +51,8 @@ test test_btop_model_matches_the_independent_b3_monitor_oracle {
   assert [interface.name for interface in next.network.interfaces] == ["eth0", "lo"]
   assert next.network.interfaces[0].rx_bytes_per_second.value == 10240.0
   assert next.network.interfaces[1].rx_bytes_per_second.value == 0.0
-  assert next.memory.swap_total_state == report.Absent
-  assert next.memory.swap_used_bytes.state == rates.Unavailable
+  assert next.memory.swap_total_state == .Absent
+  assert next.memory.swap_used_bytes.state == .Unavailable
 }
 
 test test_btop_model_tracks_sparse_cpu_ids_and_hotplug_without_inheriting_history {
@@ -86,18 +86,18 @@ test test_btop_model_tracks_sparse_cpu_ids_and_hotplug_without_inheriting_histor
   let hotplug = model.step(second, first)
   assert (initial.cpu_cores |> map .id) == [0, 4]
   assert (hotplug.cpu_cores |> map .id) == [4, 9]
-  assert hotplug.cpu_cores[0].utilization.state == rates.Observed
-  assert hotplug.cpu_cores[1].utilization.state == rates.Warming
+  assert hotplug.cpu_cores[0].utilization.state == .Observed
+  assert hotplug.cpu_cores[1].utilization.state == .Warming
 
   let returned = model.step(third, second)
   assert (returned.cpu_cores |> map .id) == [0, 4, 9]
-  assert returned.cpu_cores[0].utilization.state == rates.Warming
-  assert returned.cpu_cores[1].utilization.state == rates.Observed
+  assert returned.cpu_cores[0].utilization.state == .Warming
+  assert returned.cpu_cores[1].utilization.state == .Observed
 
   let reset = model.step(fourth, third)
-  assert reset.cpu_percent.state == rates.Observed
-  assert reset.cpu_cores[0].utilization.state == rates.Observed
-  assert reset.cpu_cores[1].utilization.state == rates.Reset
+  assert reset.cpu_percent.state == .Observed
+  assert reset.cpu_cores[0].utilization.state == .Observed
+  assert reset.cpu_cores[1].utilization.state == .Reset
 }
 
 test test_btop_model_ranks_equal_process_rates_by_pid_and_tracks_lifetimes {
@@ -139,8 +139,8 @@ test test_btop_model_ranks_equal_process_rates_by_pid_and_tracks_lifetimes {
 
   let changed = model.step(next, current)
   assert [row.pid for row in changed.processes] == [42, 44]
-  assert changed.processes[0].cpu_percent.state == rates.Warming
-  assert changed.processes[1].cpu_percent.state == rates.Warming
+  assert changed.processes[0].cpu_percent.state == .Warming
+  assert changed.processes[1].cpu_percent.state == .Warming
 }
 
 test test_btop_model_does_not_mix_source_identities_or_invalid_intervals {
@@ -156,21 +156,21 @@ test test_btop_model_does_not_mix_source_identities_or_invalid_intervals {
   let before = capture(bundle, p"frames/000000", "first-source", 1000000000, 0)?
   let next_source = capture(bundle, p"frames/000001", "second-source", 2000000000, 1)?
   let changed_source = model.step(next_source, before)
-  assert changed_source.cpu_percent.state == rates.Warming
-  assert changed_source.network.rx_bytes_per_second.state == rates.Warming
-  assert changed_source.processes[0].cpu_percent.state == rates.Warming
+  assert changed_source.cpu_percent.state == .Warming
+  assert changed_source.network.rx_bytes_per_second.state == .Warming
+  assert changed_source.processes[0].cpu_percent.state == .Warming
 
   let same_time = capture(bundle, p"frames/000001", "first-source", 1000000000, 1)?
   let invalid = model.step(same_time, before)
-  assert invalid.cpu_percent.state == rates.Invalid
-  assert invalid.network.rx_bytes_per_second.state == rates.Invalid
-  assert invalid.processes[0].cpu_percent.state == rates.Invalid
+  assert invalid.cpu_percent.state == .Invalid
+  assert invalid.network.rx_bytes_per_second.state == .Invalid
+  assert invalid.processes[0].cpu_percent.state == .Invalid
 
   let reversed_time = capture(bundle, p"frames/000001", "first-source", 999999999, 1)?
   let reversed = model.step(reversed_time, before)
-  assert reversed.cpu_percent.state == rates.Invalid
-  assert reversed.network.rx_bytes_per_second.state == rates.Invalid
-  assert reversed.processes[0].cpu_percent.state == rates.Invalid
+  assert reversed.cpu_percent.state == .Invalid
+  assert reversed.network.rx_bytes_per_second.state == .Invalid
+  assert reversed.processes[0].cpu_percent.state == .Invalid
 }
 
 test test_btop_model_marks_missed_samples_as_gaps_and_ignores_uptime_jumps_for_rates {
@@ -185,10 +185,7 @@ test test_btop_model_marks_missed_samples_as_gaps_and_ignores_uptime_jumps_for_r
   )
   let before = capture(bundle, p"frames/000000", "clock", 1000000000, 0)?
   let current = capture(bundle, p"frames/000001", "clock", 2000000000, 1)?
-  let shifted_uptime: model.Observation = {
-    ...current,
-    cpu: {...current.cpu, uptime: {state: report.Observed, seconds: 604800.0}},
-  }
+  let shifted_uptime: model.Observation = {...current, cpu.uptime: {state: report.Observed, seconds: 604800.0}}
 
   let ordinary = model.step(current, before)
   let after_uptime_jump = model.step(shifted_uptime, before)
@@ -197,10 +194,10 @@ test test_btop_model_marks_missed_samples_as_gaps_and_ignores_uptime_jumps_for_r
   assert after_uptime_jump.processes[0].cpu_percent == ordinary.processes[0].cpu_percent
 
   let gap = model.step(current, before, gap: true)
-  assert gap.cpu_percent.state == rates.Gap and gap.cpu_percent.value == null
-  assert gap.cpu_cores[0].utilization.state == rates.Gap
-  assert gap.network.rx_bytes_per_second.state == rates.Gap
-  assert gap.processes[0].cpu_percent.state == rates.Gap
+  assert gap.cpu_percent.state == .Gap and gap.cpu_percent.value == null
+  assert gap.cpu_cores[0].utilization.state == .Gap
+  assert gap.network.rx_bytes_per_second.state == .Gap
+  assert gap.processes[0].cpu_percent.state == .Gap
 }
 
 test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
@@ -215,7 +212,7 @@ test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
   let replaced = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
   let replacement = model.step(replaced, before)
   assert replacement.network.interface_name == "eth0"
-  assert replacement.network.rx_bytes_per_second.state == rates.Warming
+  assert replacement.network.rx_bytes_per_second.state == .Warming
 
   bundle.write(
     p"frames/000001/proc/net/dev",
@@ -226,7 +223,7 @@ test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
   let renamed = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
   let rename_step = model.step(renamed, before)
   assert rename_step.network.interface_name == "enp0"
-  assert rename_step.network.rx_bytes_per_second.state == rates.Warming
+  assert rename_step.network.rx_bytes_per_second.state == .Warming
 
   bundle.write(
     p"frames/000001/proc/net/dev",
@@ -235,8 +232,8 @@ test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
   bundle.write(p"frames/000001/sys/class/net/eth0/ifindex", "2\n")
   let reset = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
   let reset_step = model.step(reset, before)
-  assert reset_step.network.rx_bytes_per_second.state == rates.Reset
-  assert previous.network.rx_bytes_per_second.state == rates.Warming
+  assert reset_step.network.rx_bytes_per_second.state == .Reset
+  assert previous.network.rx_bytes_per_second.state == .Warming
 
   var previous_observation = before
   for index in range(40) {
@@ -244,7 +241,7 @@ test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
     bundle.write(p"frames/000001/sys/class/net/eth0/ifindex", f"{epoch}\n")
     let current = capture(bundle, p"frames/000001", "net-epoch", 3000000000 + index * 1000000000, index)?
     let current_model = model.step(current, previous_observation)
-    assert current_model.network.rx_bytes_per_second.state == rates.Warming
+    assert current_model.network.rx_bytes_per_second.state == .Warming
     previous_observation = current
   }
 }
@@ -258,18 +255,12 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   let second = capture(bundle, p"frames/000001", "uid-cache", 2000000000, 1)?
   let seeded = model.step_cached(first, null, model.empty_metadata_cache("uid-cache"))
   assert seeded.metadata.by_pid.len() == 1
-  assert seeded.value.processes[0].uid_state == model.Fresh
+  assert seeded.value.processes[0].uid_state == .Fresh
 
-  let missing_uid: model.Observation = {
-    ...second,
-    processes: {
-      ...second.processes,
-      processes: [{...second.processes.processes[0], uid: null}],
-    },
-  }
+  let missing_uid: model.Observation = {...second, processes.processes: [{...second.processes.processes[0], uid: null}]}
   let stale = model.step_cached(missing_uid, first, seeded.metadata)
   assert stale.value.processes[0].uid == 1000
-  assert stale.value.processes[0].uid_state == model.Stale
+  assert stale.value.processes[0].uid_state == .Stale
   assert stale.metadata.by_pid.len() == 1
   let stale_screen = renderer.render_view(stale.value, ui.initial(stale.value, 1), 80, 24)?
   assert (stale_screen.lines |> join("\n")).find("~1000") != null
@@ -277,33 +268,19 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   let expired_input: model.Observation = {...missing_uid, at_ns: 6000000000}
   let expired = model.step_cached(expired_input, missing_uid, stale.metadata)
   assert expired.value.processes[0].uid == null
-  assert expired.value.processes[0].uid_state == model.Unavailable
-  assert expired.metadata.by_pid.len() == 0
+  assert expired.value.processes[0].uid_state == .Unavailable
+  assert expired.metadata.by_pid.is_empty()
 
-  let changed_command: model.Observation = {
-    ...missing_uid,
-    at_ns: 3000000000,
-    processes: {
-      ...missing_uid.processes,
-      processes: [{...missing_uid.processes.processes[0], command: "exec-worker"}],
-    },
-  }
+  let changed_command: model.Observation = {...missing_uid, at_ns: 3000000000, processes.processes: [{...missing_uid.processes.processes[0], command: "exec-worker"}]}
   let after_exec = model.step_cached(changed_command, missing_uid, seeded.metadata)
   assert after_exec.value.processes[0].uid == null
-  assert after_exec.value.processes[0].uid_state == model.Unavailable
-  assert after_exec.metadata.by_pid.len() == 0
+  assert after_exec.value.processes[0].uid_state == .Unavailable
+  assert after_exec.metadata.by_pid.is_empty()
 
-  let changed_credentials: model.Observation = {
-    ...second,
-    at_ns: 3000000000,
-    processes: {
-      ...second.processes,
-      processes: [{...second.processes.processes[0], uid: 2000}],
-    },
-  }
+  let changed_credentials: model.Observation = {...second, at_ns: 3000000000, processes.processes: [{...second.processes.processes[0], uid: 2000}]}
   let refreshed = model.step_cached(changed_credentials, first, seeded.metadata)
   assert refreshed.value.processes[0].uid == 2000
-  assert refreshed.value.processes[0].uid_state == model.Fresh
+  assert refreshed.value.processes[0].uid_state == .Fresh
 }
 
 test test_btop_process_uid_cache_evicts_exits_and_pid_reuse {
@@ -314,23 +291,16 @@ test test_btop_process_uid_cache_evicts_exits_and_pid_reuse {
   let first = capture(bundle, p"frames/000000", "uid-churn", 1000000000, 0)?
   let seeded = model.step_cached(first, null, model.empty_metadata_cache("uid-churn"))
 
-  let reused: model.Observation = {
-    ...first,
-    at_ns: 2000000000,
-    processes: {
-      ...first.processes,
-      processes: [{...first.processes.processes[0], start_ticks: 9000, uid: null}],
-    },
-  }
+  let reused: model.Observation = {...first, at_ns: 2000000000, processes.processes: [{...first.processes.processes[0], start_ticks: 9000, uid: null}]}
   let reused_step = model.step_cached(reused, first, seeded.metadata)
   assert reused_step.value.processes[0].uid == null
-  assert reused_step.value.processes[0].uid_state == model.Unavailable
-  assert reused_step.metadata.by_pid.len() == 0
+  assert reused_step.value.processes[0].uid_state == .Unavailable
+  assert reused_step.metadata.by_pid.is_empty()
 
-  let exited: model.Observation = {...first, at_ns: 3000000000, processes: {...first.processes, processes: []}}
+  let exited: model.Observation = {...first, at_ns: 3000000000, processes.processes: []}
   let exited_step = model.step_cached(exited, first, seeded.metadata)
   assert exited_step.value.processes == []
-  assert exited_step.metadata.by_pid.len() == 0
+  assert exited_step.metadata.by_pid.is_empty()
 
   var churn_cache = model.empty_metadata_cache("uid-churn")
   var churn_previous: model.Observation? = null

@@ -36,11 +36,11 @@ export type Variable = {name: Str, attributes: Int, data: Bytes}
 export type Family = {prefix: Str, order: Str, label: Str}
 
 ## Boot entries ranked by BootOrder.
-export const BOOT: Family = {prefix: "Boot", order: "BootOrder", label: "Boot"}
+export const BOOT: Family = Family(prefix: "Boot", order: "BootOrder", label: "Boot")
 ## Driver entries ranked by DriverOrder.
-export const DRIVER: Family = {prefix: "Driver", order: "DriverOrder", label: "Driver"}
+export const DRIVER: Family = Family(prefix: "Driver", order: "DriverOrder", label: "Driver")
 ## System-preparation entries ranked by SysPrepOrder.
-export const SYSPREP: Family = {prefix: "SysPrep", order: "SysPrepOrder", label: "SysPrep"}
+export const SYSPREP: Family = Family(prefix: "SysPrep", order: "SysPrepOrder", label: "SysPrep")
 
 ## One device path node: `kind` and `subtype` as the specification numbers
 ## them and the payload without the four-byte node header.
@@ -73,8 +73,9 @@ export pure parse_hex(text: Str) -> Int? {
 
 ## Space-separated lowercase hex of every byte.
 export pure hex_bytes(data: Bytes) -> Str {
-  var words: List[Str] = []
-  for index in range(data.len()) { words += [hex(data.byte_at(index) ?? 0, 2)] }
+  let words = collect {
+    for index in range(data.len()) { yield hex(data.byte_at(index) ?? 0, 2) }
+  }
   words.join(" ")
 }
 
@@ -117,10 +118,11 @@ pure variable_path(store: Store, name: Str) -> Result[Path, Error] {
 ## Names of the variables in the global namespace, sorted.
 export proc variable_names(store: Store) [fs, error] -> Result[List[Str], Error] {
   let suffix = "-" + GLOBAL_GUID
-  var names: List[Str] = []
-  for child in fs.children(store.dir)? {
-    continue when ! child.name.lower().ends_with(suffix)
-    names += [child.name.byte_slice(0, child.name.byte_len() - suffix.byte_len())]
+  let names = collect {
+    for child in fs.children(store.dir)? {
+      continue when ! child.name.lower().ends_with(suffix)
+      yield child.name.byte_slice(0, child.name.byte_len() - suffix.byte_len())
+    }
   }
   Ok(names |> sort-by .)
 }
@@ -148,7 +150,7 @@ proc clear_immutable(file: Path) [process, error] -> Result[Bool, Error] {
   let flags = found?.flags
   return Ok(false) when flags.bit_and(FS_IMMUTABLE) == 0
 
-  linux.set_file_attrs(file, flags.clear_bits(FS_IMMUTABLE))?
+  linux.set_file_attrs(file, flags.clear_bits(FS_IMMUTABLE))
   Ok(true)
 }
 
@@ -164,7 +166,7 @@ export proc write_variable(store: Store, name: Str, attributes: Int, data: Bytes
   let file = variable_path(store, name)?
   let restore = if file.exists() { clear_immutable(file)? } else { false }
   let written = file.write(bytes.concat([bytes.pack_le(attributes, 4)?, data]))
-  if restore { restore_immutable(file)? }
+  if restore { restore_immutable(file) }
   written
 }
 
@@ -189,7 +191,7 @@ export pure entry_number(family: Family, name: Str) -> EntryName? {
   let number = parse_hex(digits)
   return null when number == null or ! HEX_DIGITS.matches(digits)
 
-  {number: number ?? 0, lower: digits != digits.upper()}
+  {number: number, lower: digits != digits.upper()}
 }
 
 ## `Boot0001`-style name of an entry number.
@@ -202,13 +204,14 @@ export type Named = {number: Int, name: Str, lower: Bool}
 
 ## The entry variables of a family in ascending number order.
 export proc entry_names(store: Store, family: Family) [fs, error] -> Result[List[Named], Error] {
-  var found: List[Named] = []
-  for name in variable_names(store)? {
-    let decoded = entry_number(family, name)
-    continue when decoded == null
-
-    let item = decoded ?? {number: 0, lower: false}
-    found += [{number: item.number, name: name, lower: item.lower}]
+  let found: List[Named] = collect {
+    for name in variable_names(store)? {
+      let decoded = entry_number(family, name)
+      guard let item = decoded else {
+        continue
+      }
+      yield {number: item.number, name: name, lower: item.lower}
+    }
   }
   Ok(found |> sort-by .number)
 }
@@ -216,15 +219,17 @@ export proc entry_names(store: Store, family: Family) [fs, error] -> Result[List
 ## Decodes a list of 16-bit little-endian entry numbers.
 export pure parse_order(data: Bytes) -> Result[List[Int], Error] {
   guard data.len() % 2 == 0 else { return Err(error.failure("order list has an odd number of bytes")) }
-  var numbers: List[Int] = []
-  for at in range(data.len() / 2) { numbers += [bytes.unpack_le(data, 2, at * 2)?] }
+  let numbers = collect {
+    for at in range(data.len() / 2) { yield bytes.unpack_le(data, 2, at * 2)? }
+  }
   Ok(numbers)
 }
 
 ## Encodes a list of 16-bit entry numbers.
 export pure encode_order(numbers: List[Int]) -> Result[Bytes, Error] {
-  var chunks: List[Bytes] = []
-  for number in numbers { chunks += [bytes.pack_le(number, 2)?] }
+  let chunks = collect {
+    for number in numbers { yield bytes.pack_le(number, 2)? }
+  }
   Ok(bytes.concat(chunks))
 }
 
@@ -237,24 +242,33 @@ export proc read_order(store: Store, family: Family) [fs, error] -> Result[List[
 
 pure code_points(text: Str) -> List[Int] {
   let raw = bytes.from_text(text)
-  var points: List[Int] = []
   var at = 0
-  while at < raw.len() {
-    let lead = raw.byte_at(at) ?? 0
-    let width = if lead < 128 { 1 } else if lead < 224 { 2 } else if lead < 240 { 3 } else { 4 }
-    var value = if width == 1 { lead } else if width == 2 { lead - 192 } else if width == 3 { lead - 224 } else { lead - 240 }
-    for step in range(1, width) { value = value * 64 + ((raw.byte_at(at + step) ?? 128) - 128) }
-    points += [value]
-    at += width
+  let points = collect {
+    while at < raw.len() {
+      let lead = raw.byte_at(at) ?? 0
+      let width = if lead < 128 { 1 } else if lead < 224 { 2 } else if lead < 240 { 3 } else { 4 }
+      var value = if width == 1 {
+        lead
+      } else if width == 2 {
+        lead - 192
+      } else if width == 3 {
+        lead - 224
+      } else {
+        lead - 240
+      }
+      for step in range(1, width) { value = value * 64 + ((raw.byte_at(at + step) ?? 128) - 128) }
+      yield value
+      at += width
+    }
   }
   points
 }
 
 ## UTF-16LE code units of `text`, without a terminator.
 export pure utf16_units(text: Str) -> List[Int] {
-  var units: List[Int] = []
+  var units = []
   for point in code_points(text) {
-    if point < 65536 { units += [point]; continue }
+    guard point >= 65536 else { units += [point]; continue }
     let offset = point - 65536
     units += [55296 + offset / 1024, 56320 + offset % 1024]
   }
@@ -262,8 +276,9 @@ export pure utf16_units(text: Str) -> List[Int] {
 }
 
 pure units_to_bytes(units: List[Int]) -> Result[Bytes, Error] {
-  var chunks: List[Bytes] = []
-  for unit in units { chunks += [bytes.pack_le(unit, 2)?] }
+  let chunks = collect {
+    for unit in units { yield bytes.pack_le(unit, 2)? }
+  }
   Ok(bytes.concat(chunks))
 }
 
@@ -271,7 +286,7 @@ pure units_to_bytes(units: List[Int]) -> Result[Bytes, Error] {
 export pure utf16(text: Str) -> Result[Bytes, Error] { units_to_bytes(utf16_units(text)) }
 
 ## UTF-16LE bytes of `text` with the terminating NUL used in load options.
-export pure utf16_terminated(text: Str) -> Result[Bytes, Error] { units_to_bytes(utf16_units(text) + [0]) }
+export pure utf16_terminated(text: Str) -> Result[Bytes, Error] { units_to_bytes([@utf16_units(text), 0]) }
 
 pure utf8_ints(point: Int) -> List[Int] {
   return [point] when point < 128
@@ -283,18 +298,19 @@ pure utf8_ints(point: Int) -> List[Int] {
 
 ## Decodes UTF-16 code units; an unpaired surrogate becomes U+FFFD.
 export pure text_from_units(units: List[Int]) -> Result[Str, Error] {
-  var ints: List[Int] = []
   var at = 0
-  while at < units.len() {
-    let unit = units[at]
-    at += 1
-    if unit >= 55296 and unit < 56320 and at < units.len() and units[at] >= 56320 and units[at] < 57344 {
-      ints += utf8_ints(65536 + (unit - 55296) * 1024 + (units[at] - 56320))
+  let ints = collect {
+    while at < units.len() {
+      let unit = units[at]
       at += 1
-    } else if unit >= 55296 and unit < 57344 {
-      ints += utf8_ints(65533)
-    } else {
-      ints += utf8_ints(unit)
+      if unit >= 55296 and unit < 56320 and at < units.len() and units[at] >= 56320 and units[at] < 57344 {
+        yield @utf8_ints(65536 + (unit - 55296) * 1024 + (units[at] - 56320))
+        at += 1
+      } else if unit >= 55296 and unit < 57344 {
+        yield @utf8_ints(65533)
+      } else {
+        yield @utf8_ints(unit)
+      }
     }
   }
   bytes.from_ints(ints)?.utf8()
@@ -305,7 +321,7 @@ type UnitRun = {units: List[Int], next: Int}
 # Reads UTF-16LE units from `at` up to a NUL unit or the end of `data` and
 # reports the offset just past the terminator.
 pure unit_run(data: Bytes, at: Int, stop: Int) -> Result[UnitRun, Error] {
-  var units: List[Int] = []
+  var units = []
   var cursor = at
   while cursor + 2 <= stop {
     let unit = bytes.unpack_le(data, 2, cursor)?
@@ -324,7 +340,7 @@ export pure node(kind: Int, subtype: Int, data: Bytes) -> Result[Node, Error] {
 }
 
 ## The node that terminates a device path.
-export const END_NODE: Node = {kind: 127, subtype: 255, data: b""}
+export const END_NODE: Node = Node(kind: 127, subtype: 255, data: b"")
 
 ## A File Path media node: `path` as a NUL-terminated UTF-16 string.
 export pure file_node(location: Str) -> Result[Node, Error] { node(4, 4, utf16_terminated(location)?) }
@@ -342,15 +358,18 @@ export pure guid_bytes(text: Str) -> Result[Bytes, Error] {
 }
 
 pure guid_text(data: Bytes, at: Int) -> Str {
-  var parts: List[Str] = []
-  for offset in [3, 2, 1, 0] { parts += [hex(data.byte_at(at + offset) ?? 0, 2)] }
+  let parts = collect {
+    for offset in [3, 2, 1, 0] { yield hex(data.byte_at(at + offset) ?? 0, 2) }
+  }
   let first = parts.join("")
   let second = hex(data.byte_at(at + 5) ?? 0, 2) + hex(data.byte_at(at + 4) ?? 0, 2)
   let third = hex(data.byte_at(at + 7) ?? 0, 2) + hex(data.byte_at(at + 6) ?? 0, 2)
-  var rest: List[Str] = []
-  for offset in range(8, 10) { rest += [hex(data.byte_at(at + offset) ?? 0, 2)] }
-  var tail: List[Str] = []
-  for offset in range(10, 16) { tail += [hex(data.byte_at(at + offset) ?? 0, 2)] }
+  let rest = collect {
+    for offset in range(8, 10) { yield hex(data.byte_at(at + offset) ?? 0, 2) }
+  }
+  let tail = collect {
+    for offset in range(10, 16) { yield hex(data.byte_at(at + offset) ?? 0, 2) }
+  }
   f"{first}-{second}-{third}-{rest.join("")}-{tail.join("")}"
 }
 
@@ -364,9 +383,10 @@ export pure hard_drive_node(partition: Int, start: Int, size: Int, signature: By
 
 ## Serializes a device path, without adding a terminator.
 export pure encode_path(nodes: List[Node]) -> Result[Bytes, Error] {
-  var chunks: List[Bytes] = []
-  for item in nodes {
-    chunks += [bytes.from_ints([item.kind, item.subtype])?, bytes.pack_le(item.data.len() + 4, 2)?, item.data]
+  let chunks = collect {
+    for item in nodes {
+      yield @[bytes.from_ints([item.kind, item.subtype])?, bytes.pack_le(item.data.len() + 4, 2)?, item.data]
+    }
   }
   Ok(bytes.concat(chunks))
 }
@@ -374,17 +394,20 @@ export pure encode_path(nodes: List[Node]) -> Result[Bytes, Error] {
 ## Splits a device path list into its nodes, up to and including the
 ## terminating end node when there is one.
 export pure parse_path(data: Bytes) -> Result[List[Node], Error] {
-  var nodes: List[Node] = []
   var at = 0
-  while at < data.len() {
-    guard at + 4 <= data.len() else { return Err(error.failure("device path node header is truncated")) }
-    let kind = data.byte_at(at) ?? 0
-    let subtype = data.byte_at(at + 1) ?? 0
-    let length = bytes.unpack_le(data, 2, at + 2)?
-    guard length >= 4 and at + length <= data.len() else { return Err(error.failure("device path node length is invalid")) }
-    nodes += [{kind: kind, subtype: subtype, data: data.slice(at + 4, length: length - 4)}]
-    at += length
-    break when kind == 127 and subtype == 255
+  let nodes: List[Node] = collect {
+    while at < data.len() {
+      guard at + 4 <= data.len() else { return Err(error.failure("device path node header is truncated")) }
+      let kind = data.byte_at(at) ?? 0
+      let subtype = data.byte_at(at + 1) ?? 0
+      let length = bytes.unpack_le(data, 2, at + 2)?
+      guard length >= 4 and at + length <= data.len() else {
+        return Err(error.failure("device path node length is invalid"))
+      }
+      yield {kind: kind, subtype: subtype, data: data.slice(at + 4, length: length - 4)}
+      at += length
+      break when kind == 127 and subtype == 255
+    }
   }
   Ok(nodes)
 }
@@ -400,12 +423,13 @@ pure format_node(item: Node) -> Str {
     if table == 1 { return f"HD({partition},MBR,0x{hex(bytes.unpack_le(data, 4, 20) ?? 0, 8)},0x{hex(start, 1)},0x{hex(size, 1)})" }
   }
   if item.kind == 4 and item.subtype == 4 and data.len() >= 2 {
-    var units: List[Int] = []
-    for at in range(data.len() / 2) {
-      let unit = bytes.unpack_le(data, 2, at * 2) ?? 0
-      break when unit == 0
+    let units = collect {
+      for at in range(data.len() / 2) {
+        let unit = bytes.unpack_le(data, 2, at * 2) ?? 0
+        break when unit == 0
 
-      units += [unit]
+        yield unit
+      }
     }
     return text_from_units(units) ?? "?"
   }
@@ -422,7 +446,7 @@ pure format_node(item: Node) -> Str {
   if item.kind == 3 and item.subtype == 18 and data.len() == 6 {
     return f"Sata({bytes.unpack_le(data, 2, 0) ?? 0},{bytes.unpack_le(data, 2, 2) ?? 0},{bytes.unpack_le(data, 2, 4) ?? 0})"
   }
-  if item.kind == 127 { return if item.subtype == 1 { "," } else { "" } }
+  return if item.subtype == 1 { "," } else { "" } when item.kind == 127
 
   let family = if item.kind == 1 { "HardwarePath" } else if item.kind == 2 { "AcpiPath" } else if item.kind == 3 { "Msg" } else if item.kind == 4 { "MediaPath" } else if item.kind == 5 { "BbsPath" } else { f"Path({item.kind})" }
   f"{family}({item.subtype},{hex_bytes(data).replace(" ", with: "")})"
@@ -431,11 +455,12 @@ pure format_node(item: Node) -> Str {
 ## Renders a device path the way the boot manager lists it: nodes joined by
 ## `/`, the end node omitted.
 export pure format_path(nodes: List[Node]) -> Str {
-  var parts: List[Str] = []
-  for item in nodes {
-    continue when item.kind == 127 and item.subtype == 255
+  let parts = collect {
+    for item in nodes {
+      continue when item.kind == 127 and item.subtype == 255
 
-    parts += [format_node(item)]
+      yield format_node(item)
+    }
   }
   parts.join("/")
 }

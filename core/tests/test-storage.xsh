@@ -77,12 +77,16 @@ test test_storage_lsblk_rooted_json_preserves_partition_identity { |ctx|
   root.mkdir(p"proc/self", parents: true)
   root.write(p"proc/self/mountinfo", "1 0 8:1 / /owned/mount rw - ext4 /dev/alias rw\n")
   let source = "use lib.storage\nproc main(...argv: List[Str]) { let root = fs.open_root(fp\"{argv[0]}\")?; defer root.close(); storage.lsblk_from_root(root, [\"-Jb\", \"-o\", \"NAME,SIZE,TYPE,MOUNTPOINT\"]) }"
-  let output = test.run_script(ctx, source, [f"{dir}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "lsblk")?
-  assert output.success, output.stderr
-  assert "\"children\"" in output.stdout
-  assert "\"size\":51200" in output.stdout
-  assert "\"size\":25600" in output.stdout
-  assert "\"mountpoint\":\"/owned/mount\"" in output.stdout
+  test.expect(
+    ctx,
+    source,
+    status: 0,
+    stdout: ["\"children\"", "\"size\":51200", "\"size\":25600", "\"mountpoint\":\"/owned/mount\""],
+    args: [f"{dir}"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "lsblk",
+  )?
 }
 
 test test_storage_sfdisk_rejects_overlapping_input_before_write { |ctx|
@@ -99,14 +103,27 @@ test test_storage_sfdisk_writes_conventional_named_ranges { |ctx|
   let log = test.temp_file(ctx, name: "sfdisk-write-log", contents: b"")?
   test.linux_fake(ctx, {log: log})
   let source = fp"{ctx.core_dir}/sfdisk.xsh".read_text()?
-  let output = test.run_script(ctx, source, ["/owned/disk"], {XSH_MODULE_PATH: ctx.core_dir}, b"label: gpt\nunit: sectors\nstart=2048,size=8M,type=L,name=\"root\"\n", "sfdisk")?
-  assert output.success, output.stderr
+  test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["/owned/disk"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"label: gpt\nunit: sectors\nstart=2048,size=8M,type=L,name=\"root\"\n",
+    name: "sfdisk",
+  )?
   let recorded = log.read_text()?
   assert "\"op\":\"write_partition_table\"" in recorded
-  let dry = test.run_script(ctx, source, ["--no-act", "/owned/disk"], {XSH_MODULE_PATH: ctx.core_dir}, b"label: gpt\nunit: sectors\nstart=2048,size=8M,type=L,name=\"root\"\n", "sfdisk")?
-  assert dry.success, dry.stderr
-  assert "root" in dry.stdout
-  assert "16384" in dry.stdout
+  test.expect(
+    ctx,
+    source,
+    status: 0,
+    stdout: ["root", "16384"],
+    args: ["--no-act", "/owned/disk"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"label: gpt\nunit: sectors\nstart=2048,size=8M,type=L,name=\"root\"\n",
+    name: "sfdisk",
+  )?
   assert log.read_text()? == recorded
 }
 
@@ -116,27 +133,51 @@ test test_storage_findmnt_rooted_json_filters_type_and_source { |ctx|
   root.mkdir(p"proc/self", parents: true)
   root.write(p"proc/self/mountinfo", "1 0 0:1 / / rw - rootfs rootfs rw\n2 1 8:1 / /owned/a\\040b rw - ext4 /dev/disk1 rw,errors=remount-ro\n3 1 0:3 / /proc rw - proc proc rw\n")
   let source = "use lib.storage\nproc main(...argv: List[Str]) { let root = fs.open_root(fp\"{argv[0]}\")?; defer root.close(); storage.findmnt_from_root(root, [\"-J\", \"-t\", \"ext4\", \"-S\", \"/dev/disk1\", \"-o\", \"TARGET,FSTYPE,MAJ:MIN\"]) }"
-  let output = test.run_script(ctx, source, [f"{dir}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "findmnt")?
-  assert output.success, output.stderr
-  assert "\"filesystems\"" in output.stdout
-  assert "\"target\":\"/owned/a b\"" in output.stdout
-  assert "\"maj:min\":\"8:1\"" in output.stdout
+  let output = test.expect(
+    ctx,
+    source,
+    status: 0,
+    stdout: ["\"filesystems\"", "\"target\":\"/owned/a b\"", "\"maj:min\":\"8:1\""],
+    args: [f"{dir}"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "findmnt",
+  )?
   assert "rootfs" not in output.stdout and "proc" not in output.stdout
 }
 
 test test_storage_wipefs_selectively_erases_owned_signature_only { |ctx|
   let image = test.temp_file(ctx, name: "wipefs.img", contents: b"XFSBpayload-preserved")?
   let source = fp"{ctx.core_dir}/wipefs.xsh".read_text()?
-  let listing = test.run_script(ctx, source, ["--json", f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
-  assert listing.success, listing.stderr
-  assert "\"offset\": \"0x0\"" in listing.stdout
-  assert "\"type\": \"xfs\"" in listing.stdout
-  assert "\"uuid\": null" in listing.stdout
-  let dry = test.run_script(ctx, source, ["--no-act", "--offset", "0x0", f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
-  assert dry.success, dry.stderr
+  test.expect(
+    ctx,
+    source,
+    status: 0,
+    stdout: ["\"offset\": \"0x0\"", "\"type\": \"xfs\"", "\"uuid\": null"],
+    args: ["--json", f"{image}"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "wipefs",
+  )?
+  test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["--no-act", "--offset", "0x0", f"{image}"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "wipefs",
+  )?
   assert image.read_bytes()? == b"XFSBpayload-preserved"
-  let erased = test.run_script(ctx, source, ["--offset", "0x0", f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
-  assert erased.success, erased.stderr
+  test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: ["--offset", "0x0", f"{image}"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "wipefs",
+  )?
   assert image.read_bytes()? == b"\0\0\0\0payload-preserved"
 }
 
@@ -212,7 +253,7 @@ test test_storage_wipefs_rejects_invalid_modes_before_erasing { |ctx|
   let image = test.temp_file(ctx, name: "wipefs-invalid.img", contents: b"XFSBowned-payload")?
   let source = fp"{ctx.core_dir}/wipefs.xsh".read_text()?
   for args in [["-a", "-J"], ["-o", "0xnothex"], ["-o", "99"]] {
-    let output = test.run_script(ctx, source, args + [f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
+    let output = test.run_script(ctx, source, [@args, f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
     assert ! output.success
     assert image.read_bytes()? == b"XFSBowned-payload"
   }
@@ -242,8 +283,15 @@ test test_storage_sfdisk_roundtrips_owned_gpt_and_dos_images { |ctx|
     let image = test.temp_file(ctx, name: f"sfdisk-{label}.img", contents: b"")?
     image.truncate(8388608)
     let input = f"label: {label}\nunit: sectors\nstart=2048,size=4096,type=L\n"
-    let written = test.run_script(ctx, source, [f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, bytes.from_text(input), "sfdisk")?
-    assert written.success, written.stderr
+    test.expect(
+      ctx,
+      source,
+      status: 0,
+      args: [f"{image}"],
+      env: {XSH_MODULE_PATH: ctx.core_dir},
+      stdin: bytes.from_text(input),
+      name: "sfdisk",
+    )?
     let table = linux.partition_table(image)?
     assert table.label == label
     assert table.partitions.len() == 1
@@ -253,10 +301,24 @@ test test_storage_sfdisk_roundtrips_owned_gpt_and_dos_images { |ctx|
       assert table.id != "00000000-0000-0000-0000-000000000000"
       assert table.partitions[0].uuid != "00000000-0000-0000-0000-000000000000"
     }
-    let dump = test.run_script(ctx, source, ["--dump", f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "sfdisk")?
-    assert dump.success, dump.stderr
-    let restored = test.run_script(ctx, source, [f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, dump.stdout_bytes, "sfdisk")?
-    assert restored.success, restored.stderr
+    let dump = test.expect(
+      ctx,
+      source,
+      status: 0,
+      args: ["--dump", f"{image}"],
+      env: {XSH_MODULE_PATH: ctx.core_dir},
+      stdin: b"",
+      name: "sfdisk",
+    )?
+    test.expect(
+      ctx,
+      source,
+      status: 0,
+      args: [f"{image}"],
+      env: {XSH_MODULE_PATH: ctx.core_dir},
+      stdin: dump.stdout_bytes,
+      name: "sfdisk",
+    )?
     assert linux.partition_table(image)? == table
   }
 }
@@ -265,8 +327,15 @@ test test_storage_mkswap_initializes_owned_file_and_rejects_fifo { |ctx|
   let image = test.temp_file(ctx, name: "owned-swap.img", contents: b"")?
   image.truncate(1048576)
   let source = fp"{ctx.core_dir}/mkswap.xsh".read_text()?
-  let initialized = test.run_script(ctx, source, [f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "mkswap")?
-  assert initialized.success, initialized.stderr
+  test.expect(
+    ctx,
+    source,
+    status: 0,
+    args: [f"{image}"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "mkswap",
+  )?
   assert linux.blkid(image)?.type == "swap"
   let dir = test.temp_dir(ctx, name: "swap-fifo")?
   let fifo = fp"{dir}/pipe"
@@ -280,7 +349,7 @@ test test_storage_mkswap_initializes_owned_file_and_rejects_fifo { |ctx|
 # Runs an applet against the real host primitives. Nothing here may reach a
 # block device or mount point: every operand is an image file, a scratch
 # directory or a path that cannot exist.
-proc run_real(ctx: TestContext, name: Str, args: List[Str], stdin: Bytes = b"") -> StorageRun {
+proc run_real(ctx: TestContext, name: Str, args: List[Str], stdin = b"") -> StorageRun {
   let source = fp"{ctx.core_dir}/{name}.xsh".read_text()?
   test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, stdin, name)?
 }
@@ -329,23 +398,13 @@ test test_storage_fdisk_list_reports_the_util_linux_layout_for_gpt_and_dos { |ct
   let before = gpt.read_bytes()?
   let listed = run_real(ctx, "fdisk", ["-l", f"{gpt}"])
   assert listed.success, listed.stderr
-  assert listed.stdout.lines() == disk_heading(gpt, "gpt", "11111111-2222-3333-4444-555555555555") + [
-    "",
-    tui.right_pad("Device", f"{gpt}p1".count_chars()) + " Start   End Sectors Size Type",
-    f"{gpt}p1" + "  2048  6143    4096   2M Linux filesystem",
-    f"{gpt}p2" + "  8192 10239    2048   1M EFI System",
-  ]
+  assert listed.stdout.lines() == [@disk_heading(gpt, "gpt", "11111111-2222-3333-4444-555555555555"), "", tui.right_pad("Device", f"{gpt}p1".count_chars()) + " Start   End Sectors Size Type", f"{gpt}p1" + "  2048  6143    4096   2M Linux filesystem", f"{gpt}p2" + "  8192 10239    2048   1M EFI System"]
   assert gpt.read_bytes()? == before
 
   let dos = partitioned_image(ctx, "dos")
   let boot = run_real(ctx, "fdisk", ["-l", f"{dos}"])
   assert boot.success, boot.stderr
-  assert boot.stdout.lines() == disk_heading(dos, "dos", "0x1234abcd") + [
-    "",
-    tui.right_pad("Device", f"{dos}p1".count_chars()) + " Boot Start   End Sectors Size Id Type",
-    f"{dos}p1" + "       2048  6143    4096   2M 83 Linux",
-    f"{dos}p2" + "       8192 10239    2048   1M ef EFI (FAT-12/16/32)",
-  ]
+  assert boot.stdout.lines() == [@disk_heading(dos, "dos", "0x1234abcd"), "", tui.right_pad("Device", f"{dos}p1".count_chars()) + " Boot Start   End Sectors Size Id Type", f"{dos}p1" + "       2048  6143    4096   2M 83 Linux", f"{dos}p2" + "       8192 10239    2048   1M ef EFI (FAT-12/16/32)"]
 }
 
 test test_storage_fdisk_list_selects_columns_and_names_the_ones_a_label_lacks { |ctx|
@@ -617,7 +676,7 @@ test test_storage_fstrim_names_missing_mountpoint_with_kernel_wording { |ctx|
 }
 
 test test_storage_fstrim_reports_filesystems_without_discard_support { |ctx|
-  guard p"/proc/self".exists()? else {
+  guard p"/proc/self".exists() else {
     test.skip("needs procfs, which has no discard ioctl")
     return
   }
@@ -638,7 +697,7 @@ test test_storage_fstrim_rejects_bad_operands_before_the_kernel { |ctx|
   assert ! extra.success
   assert "unexpected number of arguments" in extra.stderr
   for case in [["-l", "abc"], ["-o", "-1"], ["-m", "12x"]] {
-    let invalid = run_real(ctx, "fstrim", case + [f"{dir}"])
+    let invalid = run_real(ctx, "fstrim", [@case, f"{dir}"])
     assert ! invalid.success
     assert diagnostics(invalid) == [f"failed to parse {if case[0] == "-l" { "length" } else if case[0] == "-o" { "offset" } else { "minimum extent length" }}: '{case[1]}': Invalid argument"]
     assert invalid.stdout == ""

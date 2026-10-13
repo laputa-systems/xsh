@@ -49,13 +49,13 @@ test test_stream_producers_are_lazy_and_stop_where_the_consumer_stops { |ctx|
 test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
   let pidfile = test.temp_path(ctx, name: "owned-process-stream-pid")
   {
-    let owned = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $pidfile ?
-    for _ in range(100) {
-      if pidfile.exists()? { break }
+    let owned = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $pidfile
+    repeat 100 times {
+      break when pidfile.exists()
       time.sleep(10ms)
     }
     assert pidfile.exists()?, "the process stream must start its child before the owning scope exits"
-    let pid = pidfile.read_text()?.trim().parse_int()?
+    let pid = pidfile.read_text()?.trim() as Int
     defer {
       let kept = owned
       assert process.kill(pid, signal: "0") is Err(_), "the stream process must be reaped before the owning scope's defer"
@@ -66,7 +66,7 @@ test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
 test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
   let first_pidfile = test.temp_path(ctx, name: "discarded-process-stream-first-pid")
   let second_pidfile = test.temp_path(ctx, name: "discarded-process-stream-second-pid")
-  var pids: List[Int] = []
+  var pids = []
   var quiet_before_defers = false
   defer {
     for pid in pids {
@@ -76,25 +76,25 @@ test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
     }
   }
   {
-    var current: Stream[Str]? = null
-    current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $first_pidfile ?
-    for _ in range(100) {
-      if first_pidfile.exists()? { break }
+    var current = null
+    current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $first_pidfile
+    repeat 100 times {
+      break when first_pidfile.exists()
       time.sleep(10ms)
     }
     assert first_pidfile.exists()?, "the first stream process must start"
-    let first_pid = first_pidfile.read_text()?.trim().parse_int()?
+    let first_pid = first_pidfile.read_text()?.trim() as Int
     pids += [first_pid]
     current = null
     let first_survived_discard = process.kill(first_pid, signal: "0") is Ok(_)
 
-    current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $second_pidfile ?
-    for _ in range(100) {
-      if second_pidfile.exists()? { break }
+    current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $second_pidfile
+    repeat 100 times {
+      break when second_pidfile.exists()
       time.sleep(10ms)
     }
     assert second_pidfile.exists()?, "the replacement stream process must start"
-    let second_pid = second_pidfile.read_text()?.trim().parse_int()?
+    let second_pid = second_pidfile.read_text()?.trim() as Int
     pids += [second_pid]
     current = null
     let both_survived_reassignment = process.kill(first_pid, signal: "0") is Ok(_) and process.kill(second_pid, signal: "0") is Ok(_)

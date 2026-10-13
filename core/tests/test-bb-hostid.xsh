@@ -6,6 +6,6 @@ test test_bb_hostid_hostid_works_50d836d1 { |ctx|
   let r = uu.invoke(s, "hostid", [])?
   uu.succeeds(r)
   uu.no_stderr(r)
-  let value = rx"\n+$".replace(r.stdout.utf8()?, with: "")
+  let value = rx"\n+$".replace(r.stdout as Str, with: "")
   assert rx"^[0-9a-f]*$".matches(value), value
 }

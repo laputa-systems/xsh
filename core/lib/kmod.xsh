@@ -26,13 +26,20 @@ pure module_name(text: Str) -> Str {
 # The kernel parameter parser understands double quotes around values. Keep
 # whitespace inside one argv item attached to its parameter, without a shell.
 pure parameters(values: List[Str]) -> Str {
-  var output: List[Str] = []
-  for value in values {
-    let pieces = value.split("=", maxsplit: 1)
-    if pieces.len() == 2 {
-      let escaped = pieces[1].replace("\\", with: "\\\\").replace("\"", with: "\\\"")
-      if escaped.find(" ") != null or escaped.find("\t") != null or escaped.find("\"") != null { output += [f"{pieces[0]}=\"{escaped}\""] } else { output += [value] }
-    } else { output += [value] }
+  let output = collect {
+    for value in values {
+      let pieces = value.split("=", maxsplit: 1)
+      if pieces.len() == 2 {
+        let escaped = pieces[1].replace("\\", with: "\\\\").replace("\"", with: "\\\"")
+        if escaped.find(" ") != null or escaped.find("\t") != null or escaped.find("\"") != null {
+          yield f"{pieces[0]}=\"{escaped}\""
+        } else {
+          yield value
+        }
+      } else {
+        yield value
+      }
+    }
   }
   output.join(" ")
 }
@@ -40,14 +47,15 @@ pure parameters(values: List[Str]) -> Str {
 # Split only complete groups of recognized boolean short options. Values of
 # options such as -Ffield and parameter argv items keep their original bytes.
 pure short_options(argv: List[Str], boolean_flags: Str) -> List[Str] {
-  var output: List[Str] = []
+  var output = []
   for arg in argv {
     if arg.starts_with("-") and ! arg.starts_with("--") and arg.byte_len() > 2 {
-      var pieces: List[Str] = []
       var recognized = true
-      for char in arg.byte_slice(1) {
-        if boolean_flags.find(char) == null { recognized = false }
-        pieces += [f"-{char}"]
+      let pieces = collect {
+        for char in arg.byte_slice(1) {
+          if boolean_flags.find(char) == null { recognized = false }
+          yield f"-{char}"
+        }
       }
       output += if recognized { pieces } else { [arg] }
     } else { output += [arg] }
@@ -82,25 +90,71 @@ export proc modinfo(raw: List[Str]) {
   let argv = short_options(raw, "adlpn0")
   var selected = ""
   var delimiter = "\n"
-  var names: List[Str] = []
   var index = 0
   var operands = false
-  while index < argv.len() {
-    let arg = argv[index]; index += 1
-    if ! operands and arg == "--" { operands = true; continue }
-    if ! operands and common(arg, "Usage: modinfo [OPTIONS] MODULE...\n  -a, --author        show author\n  -d, --description   show description\n  -l, --license       show license\n  -p, --parameters    show parameters\n  -n, --filename      show filename\n  -F, --field FIELD   show one field\n  -0, --null          terminate fields with NUL") { return }
-    if ! operands and (arg == "-0" or arg == "--null") { delimiter = "\0"; continue }
-    if ! operands and (arg == "-a" or arg == "--author") { selected = "author"; continue }
-    if ! operands and (arg == "-d" or arg == "--description") { selected = "description"; continue }
-    if ! operands and (arg == "-l" or arg == "--license") { selected = "license"; continue }
-    if ! operands and (arg == "-p" or arg == "--parameters") { selected = "parm"; continue }
-    if ! operands and (arg == "-n" or arg == "--filename") { selected = "filename"; continue }
-    if ! operands and (arg == "-F" or arg == "--field" or arg.starts_with("--field=") or (arg.starts_with("-F") and arg.byte_len() > 2)) {
-      if arg.starts_with("--field=") { selected = arg.byte_slice(8) } else if arg.starts_with("-F") and arg.byte_len() > 2 { selected = arg.byte_slice(2) } else { if index >= argv.len() { gnu.usage_error(f"option {gnu.quote(arg)} requires an argument") }; selected = argv[index]; index += 1 }
-      continue
+  let names = collect {
+    while index < argv.len() {
+      let arg = argv[index]
+      index += 1
+      if ! operands and arg == "--" {
+        operands = true
+        continue
+      }
+
+      if ! operands and common(
+        arg,
+        "Usage: modinfo [OPTIONS] MODULE...\n  -a, --author        show author\n  -d, --description   show description\n  -l, --license       show license\n  -p, --parameters    show parameters\n  -n, --filename      show filename\n  -F, --field FIELD   show one field\n  -0, --null          terminate fields with NUL",
+      ) {
+        return
+      }
+
+      if ! operands and (arg == "-0" or arg == "--null") {
+        delimiter = "\0"
+        continue
+      }
+
+      if ! operands and (arg == "-a" or arg == "--author") {
+        selected = "author"
+        continue
+      }
+
+      if ! operands and (arg == "-d" or arg == "--description") {
+        selected = "description"
+        continue
+      }
+
+      if ! operands and (arg == "-l" or arg == "--license") {
+        selected = "license"
+        continue
+      }
+
+      if ! operands and (arg == "-p" or arg == "--parameters") {
+        selected = "parm"
+        continue
+      }
+
+      if ! operands and (arg == "-n" or arg == "--filename") {
+        selected = "filename"
+        continue
+      }
+
+      if ! operands and (arg == "-F" or arg == "--field" or arg.starts_with("--field=") or (arg.starts_with("-F") and arg.byte_len() > 2)) {
+        if arg.starts_with("--field=") {
+          selected = arg.byte_slice(8)
+        } else if arg.starts_with("-F") and arg.byte_len() > 2 {
+          selected = arg.byte_slice(2)
+        } else {
+          if index >= argv.len() { gnu.usage_error(f"option {gnu.quote(arg)} requires an argument") }
+          selected = argv[index]
+          index += 1
+        }
+
+        continue
+      }
+
+      if ! operands and arg.starts_with("-") { unsupported(arg) }
+      yield arg
     }
-    if ! operands and arg.starts_with("-") { unsupported(arg) }
-    names += [arg]
   }
   if names.is_empty() { gnu.missing_operand() }
   var ok = true
@@ -130,7 +184,7 @@ export proc modinfo(raw: List[Str]) {
 
 ## Insert one module file, forwarding kernel parameters as one typed value.
 export proc insmod(argv: List[Str]) {
-  var operands: List[Str] = []
+  var operands = []
   var positional = false
   for arg in argv {
     if ! positional and arg == "--" { positional = true; continue }
@@ -152,15 +206,34 @@ export proc insmod(argv: List[Str]) {
 export proc rmmod(argv: List[Str]) {
   var force = false
   var verbose = false
-  var names: List[Str] = []
   var operands = false
-  for arg in short_options(argv, "fv") {
-    if ! operands and arg == "--" { operands = true; continue }
-    if ! operands and common(arg, "Usage: rmmod [OPTIONS] MODULE...\n  -f, --force     force removal\n  -v, --verbose   print each removal") { return }
-    if ! operands and (arg == "-f" or arg == "--force") { force = true; continue }
-    if ! operands and (arg == "-v" or arg == "--verbose") { verbose = true; continue }
-    if ! operands and arg.starts_with("-") { unsupported(arg) }
-    names += [arg]
+  let names = collect {
+    for arg in short_options(argv, "fv") {
+      if ! operands and arg == "--" {
+        operands = true
+        continue
+      }
+
+      if ! operands and common(
+        arg,
+        "Usage: rmmod [OPTIONS] MODULE...\n  -f, --force     force removal\n  -v, --verbose   print each removal",
+      ) {
+        return
+      }
+
+      if ! operands and (arg == "-f" or arg == "--force") {
+        force = true
+        continue
+      }
+
+      if ! operands and (arg == "-v" or arg == "--verbose") {
+        verbose = true
+        continue
+      }
+
+      if ! operands and arg.starts_with("-") { unsupported(arg) }
+      yield arg
+    }
   }
   if names.is_empty() { gnu.missing_operand() }
   var ok = true
@@ -180,7 +253,7 @@ export proc modprobe(argv: List[Str]) {
   var quiet = false
   var show = false
   var verbose = false
-  var operands: List[Str] = []
+  var operands = []
   var positional = false
   for arg in short_options(argv, "nDvqar") {
     if ! positional and arg == "--" { positional = true; continue }
@@ -208,7 +281,7 @@ export proc modprobe(argv: List[Str]) {
         Ok(plan) => {
           if show or verbose {
             for item in plan {
-              if verbose and ! show and item.loaded and ! remove { continue }
+              continue when verbose and ! show and item.loaded and ! remove
               if remove { gnu.write_text(f"rmmod {item.name}\n") } else { let suffix = if item.params == "" { "" } else { f" {item.params}" }; gnu.write_text(f"insmod {item.filename}{suffix}\n") }
             }
           }
@@ -228,7 +301,7 @@ export proc depmod(argv: List[Str]) {
   var version = ""
   for arg in argv {
     if common(arg, "Usage: depmod [-a|--all] [VERSION]\nGenerate kernel module dependency indices.") { return }
-    if arg == "-a" or arg == "--all" { continue }
+    continue when arg == "-a" or arg == "--all"
     if arg.starts_with("-") { unsupported(arg) }
     if version != "" { gnu.extra_operand(arg) }
     if ! rx"^[0-9]+\.[0-9]+".matches(arg) { gnu.usage_error(f"invalid kernel version {gnu.quote(arg)}") }

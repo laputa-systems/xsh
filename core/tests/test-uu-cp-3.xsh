@@ -1,15 +1,15 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_cp.rs.
 
-use support.uu as uu
+use support.uu
 
 proc fixture_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
   for name in ["hello_world.txt", "how_are_you.txt", "existing_file.txt"] {
-    uu.fixture(s, "cp", name, name)?
+    uu.fixture(s, "cp", name, name)
   }
-  uu.mkdir(s, "hello_dir")?
-  uu.mkdir(s, "hello_dir_with_file")?
-  uu.fixture(s, "cp", "hello_dir_with_file/hello_world.txt", "hello_dir_with_file/hello_world.txt")?
+  uu.mkdir(s, "hello_dir")
+  uu.mkdir(s, "hello_dir_with_file")
+  uu.fixture(s, "cp", "hello_dir_with_file/hello_world.txt", "hello_dir_with_file/hello_world.txt")
   Ok(s)
 }
 
@@ -26,9 +26,9 @@ test test_uu_cp_cp_custom_backup_suffix_via_env { |ctx|
 # origin: uutils test_cp::test_cp_d_overwrites_existing_symlink_dest
 test test_uu_cp_cp_d_overwrites_existing_symlink_dest { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "f")?
-  uu.touch(s, "slink-target")?
-  uu.symlink(s, "slink-target", "slink")?
+  uu.touch(s, "f")
+  uu.touch(s, "slink-target")
+  uu.symlink(s, "slink-target", "slink")
   let r = uu.invoke(s, "cp", ["-d", "f", "slink"])?
   uu.succeeds(r)
   assert uu.is_symlink(s, "slink")?
@@ -38,11 +38,11 @@ test test_uu_cp_cp_d_overwrites_existing_symlink_dest { |ctx|
 # origin: uutils test_cp::test_cp_dangling_symlink_inside_directory
 test test_uu_cp_cp_dangling_symlink_inside_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "good")?
-  uu.mkdir(s, "tmp")?
-  uu.write(s, "README", "file1")?
-  uu.write(s, "good/README", "file2")?
-  uu.symlink(s, "foo", "tmp/README")?
+  uu.mkdir(s, "good")
+  uu.mkdir(s, "tmp")
+  uu.write(s, "README", "file1")
+  uu.write(s, "good/README", "file2")
+  uu.symlink(s, "foo", "tmp/README")
   let r = uu.invoke(s, "cp", ["README", "good/README", "tmp"])?
   uu.fails(r)
   uu.stderr_only(r, "cp: not writing through dangling symlink 'tmp/README'\ncp: not writing through dangling symlink 'tmp/README'\n")
@@ -51,7 +51,7 @@ test test_uu_cp_cp_dangling_symlink_inside_directory { |ctx|
 # origin: uutils test_cp::test_cp_debug_default
 test test_uu_cp_cp_debug_default { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: unknown, reflink: Operation not supported, sparse detection: no")
@@ -60,8 +60,8 @@ test test_uu_cp_cp_debug_default { |ctx|
 # origin: uutils test_cp::test_cp_debug_default_empty_file_with_hole
 test test_uu_cp_cp_debug_default_empty_file_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.truncate(s, "a", 10000)?
+  uu.touch(s, "a")
+  uu.truncate(s, "a", 10000)
   let r = uu.invoke(s, "cp", ["--debug", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: unknown, reflink: Operation not supported, sparse detection: SEEK_HOLE")
@@ -71,8 +71,8 @@ test test_uu_cp_cp_debug_default_empty_file_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_default_less_than_512_bytes
 test test_uu_cp_cp_debug_default_less_than_512_bytes { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "hello")?
-  uu.truncate(s, "a", 400)?
+  uu.write(s, "a", "hello")
+  uu.truncate(s, "a", 400)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=auto", "--sparse=auto", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: yes, reflink: Operation not supported, sparse detection: no")
@@ -81,7 +81,7 @@ test test_uu_cp_cp_debug_default_less_than_512_bytes { |ctx|
 # origin: uutils test_cp::test_cp_debug_default_sparse_virtual_file
 test test_uu_cp_cp_debug_default_sparse_virtual_file { |ctx|
   let s = uu.scene(ctx)?
-  if !p"/sys/kernel/profiling".is_file()? { return }
+  return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["--debug", "/sys/kernel/profiling", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: Invalid cross-device link, reflink: Invalid cross-device link, sparse detection: no")
@@ -90,8 +90,8 @@ test test_uu_cp_cp_debug_default_sparse_virtual_file { |ctx|
 # origin: uutils test_cp::test_cp_debug_default_with_hole
 test test_uu_cp_cp_debug_default_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.truncate(s, "a", 4096 * 4)?
+  uu.touch(s, "a")
+  uu.truncate(s, "a", 4096 * 4)
   let _ = bytes.write_at(uu.at(s, "a"), 16384, b"hello")?
   let r = uu.invoke(s, "cp", ["--debug", "a", "b"])?
   uu.succeeds(r)
@@ -102,7 +102,7 @@ test test_uu_cp_cp_debug_default_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_default_without_hole
 test test_uu_cp_cp_debug_default_without_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(10000)?]))?
+  uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(10000)?]))
   let r = uu.invoke(s, "cp", ["--debug", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: yes, reflink: Operation not supported, sparse detection: no")
@@ -119,9 +119,9 @@ test test_uu_cp_cp_debug_default_zero_sized_virtual_file { |ctx|
 # origin: uutils test_cp::test_cp_debug_multiple_default
 test test_uu_cp_cp_debug_multiple_default { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.touch(s, "b")?
-  uu.mkdir(s, "dir")?
+  uu.touch(s, "a")
+  uu.touch(s, "b")
+  uu.mkdir(s, "dir")
   let r = uu.invoke(s, "cp", ["--debug", "a", "b", "dir"])?
   uu.succeeds(r)
   assert r.stdout.utf8()?.split("copy offload: unknown, reflink: Operation not supported, sparse detection: no").len() == 3
@@ -130,8 +130,8 @@ test test_uu_cp_cp_debug_multiple_default { |ctx|
 # origin: uutils test_cp::test_cp_debug_no_update
 test test_uu_cp_cp_debug_no_update { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.touch(s, "b")?
+  uu.touch(s, "a")
+  uu.touch(s, "b")
   let r = uu.invoke(s, "cp", ["--debug", "--update=none", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "skipped 'b'")
@@ -140,7 +140,7 @@ test test_uu_cp_cp_debug_no_update { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_auto
 test test_uu_cp_cp_debug_reflink_auto { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=auto", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: unknown, reflink: Operation not supported, sparse detection: no")
@@ -149,7 +149,7 @@ test test_uu_cp_cp_debug_reflink_auto { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_auto_sparse_always_non_sparse_file_with_long_zero_sequence
 test test_uu_cp_cp_debug_reflink_auto_sparse_always_non_sparse_file_with_long_zero_sequence { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "a", bytes.concat([bytes.zero(4096 * 4)?, b"hello"]))?
+  uu.write_bytes(s, "a", bytes.concat([bytes.zero(4096 * 4)?, b"hello"]))
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros")
@@ -160,8 +160,8 @@ test test_uu_cp_cp_debug_reflink_auto_sparse_always_non_sparse_file_with_long_ze
 # origin: uutils test_cp::test_cp_debug_reflink_never_empty_file_with_hole
 test test_uu_cp_cp_debug_reflink_never_empty_file_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.truncate(s, "a", 10000)?
+  uu.touch(s, "a")
+  uu.truncate(s, "a", 10000)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: unknown, reflink: no, sparse detection: SEEK_HOLE")
@@ -171,8 +171,8 @@ test test_uu_cp_cp_debug_reflink_never_empty_file_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_never_file_with_hole
 test test_uu_cp_cp_debug_reflink_never_file_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.truncate(s, "a", 4096 * 4)?
+  uu.touch(s, "a")
+  uu.truncate(s, "a", 4096 * 4)
   let _ = bytes.write_at(uu.at(s, "a"), 16384, b"hello")?
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
@@ -182,8 +182,8 @@ test test_uu_cp_cp_debug_reflink_never_file_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_never_less_than_512_bytes
 test test_uu_cp_cp_debug_reflink_never_less_than_512_bytes { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "hello")?
-  uu.truncate(s, "a", 400)?
+  uu.write(s, "a", "hello")
+  uu.truncate(s, "a", 400)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: no")
@@ -192,8 +192,8 @@ test test_uu_cp_cp_debug_reflink_never_less_than_512_bytes { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_never_sparse_always_empty_file_with_hole
 test test_uu_cp_cp_debug_reflink_never_sparse_always_empty_file_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.truncate(s, "a", 10000)?
+  uu.touch(s, "a")
+  uu.truncate(s, "a", 10000)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=always", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: unknown, reflink: no, sparse detection: SEEK_HOLE")
@@ -202,7 +202,7 @@ test test_uu_cp_cp_debug_reflink_never_sparse_always_empty_file_with_hole { |ctx
 # origin: uutils test_cp::test_cp_debug_reflink_never_sparse_always_non_sparse_file_with_long_zero_sequence
 test test_uu_cp_cp_debug_reflink_never_sparse_always_non_sparse_file_with_long_zero_sequence { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "a", bytes.concat([bytes.zero(4096 * 4)?, b"hello"]))?
+  uu.write_bytes(s, "a", bytes.concat([bytes.zero(4096 * 4)?, b"hello"]))
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=always", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: zeros")
@@ -213,8 +213,8 @@ test test_uu_cp_cp_debug_reflink_never_sparse_always_non_sparse_file_with_long_z
 # origin: uutils test_cp::test_cp_debug_reflink_never_sparse_always_with_hole
 test test_uu_cp_cp_debug_reflink_never_sparse_always_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "hello")?
-  uu.truncate(s, "a", 4096 * 4)?
+  uu.write(s, "a", "hello")
+  uu.truncate(s, "a", 4096 * 4)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=always", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: SEEK_HOLE + zeros")
@@ -224,7 +224,7 @@ test test_uu_cp_cp_debug_reflink_never_sparse_always_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_never_sparse_always_without_hole
 test test_uu_cp_cp_debug_reflink_never_sparse_always_without_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(10000)?]))?
+  uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(10000)?]))
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=always", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: zeros")
@@ -235,8 +235,8 @@ test test_uu_cp_cp_debug_reflink_never_sparse_always_without_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_never_sparse_never_empty_file_with_hole
 test test_uu_cp_cp_debug_reflink_never_sparse_never_empty_file_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.truncate(s, "a", 10000)?
+  uu.touch(s, "a")
+  uu.truncate(s, "a", 10000)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: unknown, reflink: no, sparse detection: SEEK_HOLE")
@@ -245,8 +245,8 @@ test test_uu_cp_cp_debug_reflink_never_sparse_never_empty_file_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_never_with_hole
 test test_uu_cp_cp_debug_reflink_never_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "hello")?
-  uu.truncate(s, "a", 4096 * 4)?
+  uu.write(s, "a", "hello")
+  uu.truncate(s, "a", 4096 * 4)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: SEEK_HOLE")
@@ -256,7 +256,7 @@ test test_uu_cp_cp_debug_reflink_never_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_reflink_never_without_hole
 test test_uu_cp_cp_debug_reflink_never_without_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(1000)?]))?
+  uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(1000)?]))
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: no")
@@ -265,7 +265,7 @@ test test_uu_cp_cp_debug_reflink_never_without_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_always
 test test_uu_cp_cp_debug_sparse_always { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros")
@@ -274,7 +274,7 @@ test test_uu_cp_cp_debug_sparse_always { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_always_reflink_auto
 test test_uu_cp_cp_debug_sparse_always_reflink_auto { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "--reflink=auto", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: Operation not supported, sparse detection: zeros")
@@ -283,7 +283,7 @@ test test_uu_cp_cp_debug_sparse_always_reflink_auto { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_always_sparse_virtual_file
 test test_uu_cp_cp_debug_sparse_always_sparse_virtual_file { |ctx|
   let s = uu.scene(ctx)?
-  if !p"/sys/kernel/profiling".is_file()? { return }
+  return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "/sys/kernel/profiling", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: Invalid cross-device link, sparse detection: zeros")
@@ -292,7 +292,7 @@ test test_uu_cp_cp_debug_sparse_always_sparse_virtual_file { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_auto
 test test_uu_cp_cp_debug_sparse_auto { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=auto", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: unknown, reflink: Operation not supported, sparse detection: no")
@@ -301,7 +301,7 @@ test test_uu_cp_cp_debug_sparse_auto { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_never
 test test_uu_cp_cp_debug_sparse_never { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: no")
@@ -310,8 +310,8 @@ test test_uu_cp_cp_debug_sparse_never { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_never_empty_file_with_hole
 test test_uu_cp_cp_debug_sparse_never_empty_file_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.truncate(s, "a", 10000)?
+  uu.touch(s, "a")
+  uu.truncate(s, "a", 10000)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=auto", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: unknown, reflink: no, sparse detection: SEEK_HOLE")
@@ -320,7 +320,7 @@ test test_uu_cp_cp_debug_sparse_never_empty_file_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_never_empty_sparse_file
 test test_uu_cp_cp_debug_sparse_never_empty_sparse_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: no")
@@ -329,8 +329,8 @@ test test_uu_cp_cp_debug_sparse_never_empty_sparse_file { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_never_file_with_hole
 test test_uu_cp_cp_debug_sparse_never_file_with_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.truncate(s, "a", 4096 * 4)?
+  uu.touch(s, "a")
+  uu.truncate(s, "a", 4096 * 4)
   let _ = bytes.write_at(uu.at(s, "a"), 16384, b"hello")?
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=auto", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
@@ -340,8 +340,8 @@ test test_uu_cp_cp_debug_sparse_never_file_with_hole { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_never_less_than_512_bytes
 test test_uu_cp_cp_debug_sparse_never_less_than_512_bytes { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "hello")?
-  uu.truncate(s, "a", 400)?
+  uu.write(s, "a", "hello")
+  uu.truncate(s, "a", 400)
   let r = uu.invoke(s, "cp", ["--debug", "--reflink=auto", "--sparse=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: no")
@@ -350,7 +350,7 @@ test test_uu_cp_cp_debug_sparse_never_less_than_512_bytes { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_never_without_hole
 test test_uu_cp_cp_debug_sparse_never_without_hole { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(10000)?]))?
+  uu.write_bytes(s, "a", bytes.concat([b"hello", bytes.zero(10000)?]))
   let r = uu.invoke(s, "cp", ["--reflink=auto", "--sparse=never", "--debug", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: no")
@@ -367,7 +367,7 @@ test test_uu_cp_cp_debug_sparse_never_zero_sized_virtual_file { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_reflink
 test test_uu_cp_cp_debug_sparse_reflink { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "--reflink=never", "a", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: no, sparse detection: zeros")
@@ -376,7 +376,7 @@ test test_uu_cp_cp_debug_sparse_reflink { |ctx|
 # origin: uutils test_cp::test_cp_default_virtual_file
 test test_uu_cp_cp_default_virtual_file { |ctx|
   let s = uu.scene(ctx)?
-  if !p"/sys/kernel/profiling".is_file()? { return }
+  return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["/sys/kernel/profiling", "b"])?
   uu.succeeds(r)
   assert uu.size(s, "b")? > 0
@@ -385,7 +385,7 @@ test test_uu_cp_cp_default_virtual_file { |ctx|
 # origin: uutils test_cp::test_cp_deref
 test test_uu_cp_cp_deref { |ctx|
   let s = fixture_scene(ctx)?
-  uu.symlink(s, "hello_world.txt", "hello_world.txt.link")?
+  uu.symlink(s, "hello_world.txt", "hello_world.txt.link")
   let r = uu.invoke(s, "cp", ["-L", "hello_world.txt", "hello_world.txt.link", "hello_dir/"])?
   uu.succeeds(r)
   assert uu.file_exists(s, "hello_dir/hello_world.txt.link")?
@@ -403,7 +403,7 @@ test test_uu_cp_cp_deref_conflicting_options { |ctx|
 # origin: uutils test_cp::test_cp_deref_folder_to_folder
 test test_uu_cp_cp_deref_folder_to_folder { |ctx|
   let s = fixture_scene(ctx)?
-  uu.symlink(s, uu.at(s, "hello_dir_with_file/hello_world.txt").display(), "hello_dir_with_file/hello_world.txt.link")?
+  uu.symlink(s, uu.at(s, "hello_dir_with_file/hello_world.txt").display(), "hello_dir_with_file/hello_world.txt.link")
   let r = uu.invoke(s, "cp", ["-L", "-R", "-v", "hello_dir_with_file/", "hello_dir_new"])?
   uu.succeeds(r)
   assert uu.file_exists(s, "hello_dir_new/hello_world.txt.link")?
@@ -414,9 +414,9 @@ test test_uu_cp_cp_deref_folder_to_folder { |ctx|
 # origin: uutils test_cp::test_cp_dest_no_permissions
 test test_uu_cp_cp_dest_no_permissions { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "valid.txt")?
-  uu.touch(s, "invalid_perms.txt")?
-  uu.set_mode(s, "invalid_perms.txt", 0o444)?
+  uu.touch(s, "valid.txt")
+  uu.touch(s, "invalid_perms.txt")
+  uu.set_mode(s, "invalid_perms.txt", 0o444)
   let r = uu.invoke(s, "cp", ["valid.txt", "invalid_perms.txt"])?
   uu.fails(r)
   uu.stderr_contains(r, "invalid_perms.txt")
@@ -434,12 +434,12 @@ test test_uu_cp_cp_directory_not_recursive { |ctx|
 # origin: uutils test_cp::test_cp_duplicate_directories_merge
 test test_uu_cp_cp_duplicate_directories_merge { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir_all(s, "src_dir/subdir")?
-  uu.write(s, "src_dir/subdir/file1.txt", "content1")?
-  uu.write(s, "src_dir/subdir/file2.txt", "content2")?
-  uu.mkdir_all(s, "src_dir2/subdir")?
-  uu.write(s, "src_dir2/subdir/file1.txt", "content3")?
-  uu.mkdir(s, "dest")?
+  uu.mkdir_all(s, "src_dir/subdir")
+  uu.write(s, "src_dir/subdir/file1.txt", "content1")
+  uu.write(s, "src_dir/subdir/file2.txt", "content2")
+  uu.mkdir_all(s, "src_dir2/subdir")
+  uu.write(s, "src_dir2/subdir/file1.txt", "content3")
+  uu.mkdir(s, "dest")
   let r = uu.invoke(s, "cp", ["-r", "src_dir/subdir", "src_dir2/subdir", "dest"])?
   uu.succeeds(r)
   assert uu.dir_exists(s, "dest/subdir")?
@@ -525,9 +525,9 @@ test test_uu_cp_cp_existing_target { |ctx|
 # origin: uutils test_cp::test_cp_f_i_verbose_non_writeable_destination_empty
 test test_uu_cp_cp_f_i_verbose_non_writeable_destination_empty { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.touch(s, "b")?
-  uu.set_mode(s, "b", 0o0000)?
+  uu.touch(s, "a")
+  uu.touch(s, "b")
+  uu.set_mode(s, "b", 0o0000)
   let r = uu.invoke(s, "cp", ["-f", "-i", "--verbose", "a", "b"], stdin: b"")?
   uu.fails(r)
   uu.stderr_only(r, "cp: replace 'b', overriding mode 0000 (---------)? ")
@@ -536,9 +536,9 @@ test test_uu_cp_cp_f_i_verbose_non_writeable_destination_empty { |ctx|
 # origin: uutils test_cp::test_cp_f_i_verbose_non_writeable_destination_y
 test test_uu_cp_cp_f_i_verbose_non_writeable_destination_y { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.touch(s, "b")?
-  uu.set_mode(s, "b", 0o0000)?
+  uu.touch(s, "a")
+  uu.touch(s, "b")
+  uu.set_mode(s, "b", 0o0000)
   let r = uu.invoke(s, "cp", ["-f", "-i", "--verbose", "a", "b"], stdin: b"y")?
   uu.succeeds(r)
   uu.stderr_is(r, "cp: replace 'b', overriding mode 0000 (---------)? ")
@@ -548,8 +548,8 @@ test test_uu_cp_cp_f_i_verbose_non_writeable_destination_y { |ctx|
 # origin: uutils test_cp::test_cp_fifo
 test test_uu_cp_cp_fifo { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "fifo")?
-  uu.set_mode(s, "fifo", 0o731)?
+  uu.mkfifo(s, "fifo")
+  uu.set_mode(s, "fifo", 0o731)
   let r = uu.invoke(s, "cp", ["--preserve=mode", "-r", "fifo", "fifo2"], timeout: 5s)?
   uu.succeeds(r)
   uu.no_output(r)
@@ -560,8 +560,8 @@ test test_uu_cp_cp_fifo { |ctx|
 # origin: uutils test_cp::test_cp_fifo_preserve_timestamps
 test test_uu_cp_cp_fifo_preserve_timestamps { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "pipe")?
-  uu.set_mode(s, "pipe", 0o624)?
+  uu.mkfifo(s, "pipe")
+  uu.set_mode(s, "pipe", 0o624)
   let r = uu.invoke(s, "cp", ["--preserve=timestamps", "-r", "pipe", "pipe_dup"], timeout: 5s)?
   uu.succeeds(r)
   uu.no_output(r)
@@ -571,9 +571,9 @@ test test_uu_cp_cp_fifo_preserve_timestamps { |ctx|
 # origin: uutils test_cp::test_cp_force_remove_destination_attributes_only_with_symlink
 test test_uu_cp_cp_force_remove_destination_attributes_only_with_symlink { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file1", "1")?
-  uu.write(s, "file2", "2")?
-  uu.symlink(s, "file1", "sym1")?
+  uu.write(s, "file1", "1")
+  uu.write(s, "file2", "2")
+  uu.symlink(s, "file1", "sym1")
   let r = uu.invoke(s, "cp", ["-a", "--remove-destination", "--attributes-only", "sym1", "file2"])?
   uu.succeeds(r)
   assert uu.is_symlink(s, "file2")?
@@ -592,7 +592,7 @@ test test_uu_cp_cp_from_stdin { |ctx|
 # origin: uutils test_cp::test_cp_from_stream
 test test_uu_cp_cp_from_stream { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "target")?
+  uu.touch(s, "target")
   for input in ["longer: Hello, World!\n", "shorter"] {
     let r = uu.invoke(s, "cp", ["/dev/fd/0", "target"], stdin: bytes.from_text(input))?
     uu.succeeds(r)
@@ -603,9 +603,9 @@ test test_uu_cp_cp_from_stream { |ctx|
 # origin: uutils test_cp::test_cp_from_stream_permission
 test test_uu_cp_cp_from_stream_permission { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "target")?
-  uu.symlink(s, "target", "link")?
-  uu.set_mode(s, "target", 0o777)?
+  uu.touch(s, "target")
+  uu.symlink(s, "target", "link")
+  uu.set_mode(s, "target", 0o777)
   let r = uu.invoke(s, "cp", ["/dev/fd/0", "link"], stdin: b"Hello, World!\n")?
   uu.succeeds(r)
   uu.file_is(s, "target", "Hello, World!\n")
@@ -615,9 +615,9 @@ test test_uu_cp_cp_from_stream_permission { |ctx|
 # origin: uutils test_cp::test_cp_gnu_preserve_mode
 test test_uu_cp_cp_gnu_preserve_mode { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d1")?
-  uu.mkdir(s, "d2")?
-  uu.set_mode(s, "d2", 0o705)?
+  uu.mkdir(s, "d1")
+  uu.mkdir(s, "d2")
+  uu.set_mode(s, "d2", 0o705)
   let r = uu.invoke(s, "cp", ["--no-preserve=mode", "-r", "d2", "d3"])?
   uu.succeeds(r)
   assert fs.stat(uu.at(s, "d1"))?.mode == fs.stat(uu.at(s, "d3"))?.mode
@@ -627,8 +627,8 @@ test test_uu_cp_cp_gnu_preserve_mode { |ctx|
 test test_uu_cp_cp_hlp_flag_ordering { |ctx|
   for pair in [["-HP", "dest_hp"], ["-PH", "dest_ph"]] {
     let s = uu.scene(ctx)?
-    uu.touch(s, "file.txt")?
-    uu.symlink(s, "file.txt", "symlink")?
+    uu.touch(s, "file.txt")
+    uu.symlink(s, "file.txt", "symlink")
     let r = uu.invoke(s, "cp", [pair[0], "symlink", pair[1]])?
     uu.succeeds(r)
     if pair[0] == "-HP" { assert uu.is_symlink(s, pair[1])? } else {
@@ -650,7 +650,7 @@ test test_uu_cp_cp_issue_1665 { |ctx|
 # origin: uutils test_cp::test_cp_link_backup
 test test_uu_cp_cp_link_backup { |ctx|
   let s = fixture_scene(ctx)?
-  uu.touch(s, "file2")?
+  uu.touch(s, "file2")
   let r = uu.invoke(s, "cp", ["-l", "-b", "hello_world.txt", "file2"])?
   uu.succeeds(r)
   assert uu.file_exists(s, "file2~")?
@@ -661,14 +661,14 @@ test test_uu_cp_cp_link_backup { |ctx|
 test test_uu_cp_cp_mode_hardlink { |ctx|
   for source in ["file", "slink", "slink2"] {
     let s = uu.scene(ctx)?
-    uu.write(s, "file", "f")?
-    uu.symlink(s, "file", "slink")?
-    uu.symlink(s, "slink", "slink2")?
+    uu.write(s, "file", "f")
+    uu.symlink(s, "file", "slink")
+    uu.symlink(s, "slink", "slink2")
     let r = uu.invoke(s, "cp", ["--link", "-L", source, "z"])?
     uu.succeeds(r)
     assert uu.file_exists(s, "z")? and !uu.is_symlink(s, "z")?
     uu.file_is(s, "z", "f")
-    uu.append(s, "z", "g")?
+    uu.append(s, "z", "g")
     uu.file_is(s, "file", "fg")
   }
 }
@@ -676,9 +676,9 @@ test test_uu_cp_cp_mode_hardlink { |ctx|
 # origin: uutils test_cp::test_cp_mode_hardlink_no_dereference
 test test_uu_cp_cp_mode_hardlink_no_dereference { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file", "f")?
-  uu.symlink(s, "file", "slink")?
-  uu.symlink(s, "slink", "slink2")?
+  uu.write(s, "file", "f")
+  uu.symlink(s, "file", "slink")
+  uu.symlink(s, "slink", "slink2")
   let r = uu.invoke(s, "cp", ["--link", "-P", "slink2", "z"])?
   uu.succeeds(r)
   assert uu.is_symlink(s, "z")?
@@ -689,9 +689,9 @@ test test_uu_cp_cp_mode_hardlink_no_dereference { |ctx|
 test test_uu_cp_cp_mode_symlink { |ctx|
   for source in ["file", "slink", "slink2"] {
     let s = uu.scene(ctx)?
-    uu.write(s, "file", "f")?
-    uu.symlink(s, "file", "slink")?
-    uu.symlink(s, "slink", "slink2")?
+    uu.write(s, "file", "f")
+    uu.symlink(s, "file", "slink")
+    uu.symlink(s, "slink", "slink2")
     let r = uu.invoke(s, "cp", ["-s", "-L", source, "z"])?
     uu.succeeds(r)
     assert uu.is_symlink(s, "z")?
@@ -739,7 +739,7 @@ test test_uu_cp_cp_multiple_files_with_nonexistent_file { |ctx|
 # origin: uutils test_cp::test_cp_no_deref
 test test_uu_cp_cp_no_deref { |ctx|
   let s = fixture_scene(ctx)?
-  uu.symlink(s, "hello_world.txt", "hello_world.txt.link")?
+  uu.symlink(s, "hello_world.txt", "hello_world.txt.link")
   let r = uu.invoke(s, "cp", ["-P", "hello_world.txt", "hello_world.txt.link", "hello_dir/"])?
   uu.succeeds(r)
   assert uu.is_symlink(s, "hello_dir/hello_world.txt.link")?
@@ -750,7 +750,7 @@ test test_uu_cp_cp_no_deref { |ctx|
 # origin: uutils test_cp::test_cp_no_deref_folder_to_folder
 test test_uu_cp_cp_no_deref_folder_to_folder { |ctx|
   let s = fixture_scene(ctx)?
-  uu.symlink(s, uu.at(s, "hello_dir_with_file/hello_world.txt").display(), "hello_dir_with_file/hello_world.txt.link")?
+  uu.symlink(s, uu.at(s, "hello_dir_with_file/hello_world.txt").display(), "hello_dir_with_file/hello_world.txt.link")
   let r = uu.invoke(s, "cp", ["-P", "-R", "-v", "hello_dir_with_file/", "hello_dir_new"])?
   uu.succeeds(r)
   assert uu.is_symlink(s, "hello_dir_new/hello_world.txt.link")?
@@ -761,9 +761,9 @@ test test_uu_cp_cp_no_deref_folder_to_folder { |ctx|
 # origin: uutils test_cp::test_cp_no_deref_link_onto_link
 test test_uu_cp_cp_no_deref_link_onto_link { |ctx|
   let s = fixture_scene(ctx)?
-  uu.at(s, "hello_world.txt").copy(to: uu.at(s, "copy_of_hello_world.txt"))?
-  uu.symlink(s, "hello_world.txt", "hello_world.txt.link")?
-  uu.symlink(s, "copy_of_hello_world.txt", "copy_of_hello_world.txt.link")?
+  uu.at(s, "hello_world.txt").copy(to: uu.at(s, "copy_of_hello_world.txt"))
+  uu.symlink(s, "hello_world.txt", "hello_world.txt.link")
+  uu.symlink(s, "copy_of_hello_world.txt", "copy_of_hello_world.txt.link")
   let r = uu.invoke(s, "cp", ["-P", "hello_world.txt.link", "copy_of_hello_world.txt.link"])?
   uu.succeeds(r)
   assert !uu.is_symlink(s, "copy_of_hello_world.txt")?
@@ -774,9 +774,9 @@ test test_uu_cp_cp_no_deref_link_onto_link { |ctx|
 # origin: uutils test_cp::test_cp_no_deref_preserve_with_deref_keeps_hardlinks
 test test_uu_cp_cp_no_deref_preserve_with_deref_keeps_hardlinks { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file1")?
-  uu.hard_link(s, "file1", "file2")?
-  uu.mkdir(s, "target_dir")?
+  uu.touch(s, "file1")
+  uu.hard_link(s, "file1", "file2")
+  uu.mkdir(s, "target_dir")
   let r = uu.invoke(s, "cp", ["-dL", "file1", "file2", "target_dir"])?
   uu.succeeds(r)
   assert fs.stat(uu.at(s, "target_dir/file1"))?.nlink == 2
@@ -785,10 +785,10 @@ test test_uu_cp_cp_no_deref_preserve_with_deref_keeps_hardlinks { |ctx|
 # origin: uutils test_cp::test_cp_no_dereference_attributes_only_with_symlink
 test test_uu_cp_cp_no_dereference_attributes_only_with_symlink { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file1", "1")?
-  uu.write(s, "file2", "2")?
-  uu.write(s, "file2.exp", "2")?
-  uu.symlink(s, "file1", "sym1")?
+  uu.write(s, "file1", "1")
+  uu.write(s, "file2", "2")
+  uu.write(s, "file2.exp", "2")
+  uu.symlink(s, "file1", "sym1")
   let r = uu.invoke(s, "cp", ["--no-dereference", "--attributes-only", "sym1", "file2"])?
   uu.fails_with_code(r, 1)
   assert uu.read(s, "file2")? == uu.read(s, "file2.exp")?
@@ -797,8 +797,8 @@ test test_uu_cp_cp_no_dereference_attributes_only_with_symlink { |ctx|
 # origin: uutils test_cp::test_cp_no_dereference_copies_symlink_as_symlink
 test test_uu_cp_cp_no_dereference_copies_symlink_as_symlink { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "target", "secret target contents")?
-  uu.symlink(s, "target", "src_link")?
+  uu.write(s, "target", "secret target contents")
+  uu.symlink(s, "target", "src_link")
   let r = uu.invoke(s, "cp", ["-P", "src_link", "dst"])?
   uu.succeeds(r)
   assert uu.is_symlink(s, "dst")?
@@ -808,12 +808,12 @@ test test_uu_cp_cp_no_dereference_copies_symlink_as_symlink { |ctx|
 # origin: uutils test_cp::test_cp_no_dereference_symlink_with_parents
 test test_uu_cp_cp_no_dereference_symlink_with_parents { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "directory")?
-  uu.symlink(s, "directory", "symlink-to-directory")?
+  uu.mkdir(s, "directory")
+  uu.symlink(s, "directory", "symlink-to-directory")
   let r = uu.invoke(s, "cp", ["--parents", "--no-dereference", "symlink-to-directory", "x"])?
   uu.fails(r)
   uu.stderr_contains(r, "with --parents, the destination must be a directory")
-  uu.mkdir(s, "x")?
+  uu.mkdir(s, "x")
   let copied = uu.invoke(s, "cp", ["--parents", "--no-dereference", "symlink-to-directory", "x"])?
   uu.succeeds(copied)
   assert uu.read_link(s, "x/symlink-to-directory")? == "directory"
@@ -822,13 +822,13 @@ test test_uu_cp_cp_no_dereference_symlink_with_parents { |ctx|
 # origin: uutils test_cp::test_cp_no_preserve_target_directory
 test test_uu_cp_cp_no_preserve_target_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir_all(s, "a/b/c/d")?
-  uu.touch(s, "a/b/c/d/f1")?
+  uu.mkdir_all(s, "a/b/c/d")
+  uu.touch(s, "a/b/c/d/f1")
   let r = uu.invoke(s, "cp", ["-rT", "a", "e"])?
   uu.succeeds(r)
-  uu.touch(s, "e/f2")?
+  uu.touch(s, "e/f2")
   uu.succeeds(uu.invoke(s, "cp", ["-rT", "a/", "e/"])?)
-  uu.touch(s, "e/f3")?
+  uu.touch(s, "e/f3")
   uu.succeeds(uu.invoke(s, "cp", ["-rvT", "a/b/c", "e/"])?)
   uu.succeeds(uu.invoke(s, "cp", ["-rvT", "a/b/", "e/b/c/d/"])?)
   uu.succeeds(uu.invoke(s, "cp", ["-rT", "a/b/c", "."])?)
@@ -839,8 +839,8 @@ test test_uu_cp_cp_no_preserve_target_directory { |ctx|
 # origin: uutils test_cp::test_cp_final_mode_unchanged_after_restrictive_create
 test test_uu_cp_cp_final_mode_unchanged_after_restrictive_create { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "src")?
-  uu.set_mode(s, "src", 0o644)?
+  uu.touch(s, "src")
+  uu.set_mode(s, "src", 0o644)
   uu.succeeds(uu.invoke(s, "cp", ["src", "dst"], umask: 0o022)?)
   assert uu.mode(s, "dst")? == 0o644
 }
@@ -848,8 +848,8 @@ test test_uu_cp_cp_final_mode_unchanged_after_restrictive_create { |ctx|
 # origin: uutils test_cp::test_cp_no_preserve_mode
 test test_uu_cp_cp_no_preserve_mode { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
-  uu.set_mode(s, "a", 0o731)?
+  uu.touch(s, "a")
+  uu.set_mode(s, "a", 0o731)
   uu.succeeds(uu.invoke(s, "cp", ["-a", "--no-preserve=mode", "a", "b"], umask: 0o077)?)
   assert uu.file_exists(s, "b")?
   assert uu.mode(s, "b")? == 0o600

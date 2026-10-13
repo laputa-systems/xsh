@@ -1,16 +1,16 @@
 use support.uu
 
 type CutCase = {name: Str, args: List[Bytes], input: Bytes?, output: Bytes, status: Int, stderr: Str}
-proc case(name: Str, args: List[Str], input: Bytes?, output: Bytes = b"", status: Int = 0, stderr: Str = "") -> CutCase {
+proc case(name: Str, args: List[Str], input: Bytes?, output = b"", status = 0, stderr = "") -> CutCase {
   {name: name, args: [bytes.from_text(arg) for arg in args], input: input, output: output, status: status, stderr: stderr}
 }
-proc byte_case(name: Str, args: List[Bytes], input: Bytes?, output: Bytes = b"", status: Int = 0, stderr: Str = "") -> CutCase {
+proc byte_case(name: Str, args: List[Bytes], input: Bytes?, output = b"", status = 0, stderr = "") -> CutCase {
   {name: name, args: args, input: input, output: output, status: status, stderr: stderr}
 }
 proc repeated(value: Bytes, count: Int) -> Bytes { bytes.concat([value for _ in range(count)]) }
 proc diagnostic(message: Str) -> Str { f"cut: {message}\nTry 'cut --help' for more information.\n" }
 proc run_case(s: uu.Scene, c: CutCase, transport: Str, locale: Str) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let args = [Path.parse_bytes(word)? for word in c.args]
+  let args = [word as Path for word in c.args]
   let actual_args = if transport == "file" { args.extend([p"input"]) } else { args }
   let vars = {LC_ALL: locale}
   let argv = uu.argv(s, "cut", actual_args, vars)?
@@ -25,13 +25,13 @@ proc run_case(s: uu.Scene, c: CutCase, transport: Str, locale: Str) [fs, process
   Ok({util: "cut", args: [word.display() for word in actual_args], status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 proc check_case(s: uu.Scene, c: CutCase, locale: Str) [fs, process, env, error] {
-  if let input = c.input { uu.write_bytes(s, "input", input)? }
+  if let input = c.input { uu.write_bytes(s, "input", input) }
   let transports = if c.input == null { ["none"] } else { ["file", "redirect", "pipe"] }
   for transport in transports {
     let r = run_case(s, c, transport, locale)?
-    assert r.status == c.status, f"{c.name}/{locale}/{transport}: expected status {c.status}, got {r.status}; {r.stderr.utf8()?}"
+    assert r.status == c.status, f"{c.name}/{locale}/{transport}: expected status {c.status}, got {r.status}; {r.stderr as Str}"
     assert r.stdout == c.output, f"{c.name}/{locale}/{transport}: output length {r.stdout.len()}, expected {c.output.len()}"
-    assert r.stderr == bytes.from_text(c.stderr), f"{c.name}/{locale}/{transport}: {r.stderr.utf8()?}"
+    assert r.stderr == bytes.from_text(c.stderr), f"{c.name}/{locale}/{transport}: {r.stderr as Str}"
   }
 }
 # origin: gnu cut/cut.log
@@ -181,8 +181,8 @@ test test_gnu_cut_cut_log { |ctx|
     case("EOL-subsumed-4", ["--output-d=:", "-b1-2,2-3,3-"], b"1234\n", b"1234\n"),
   ]
   for locale in ["C", "fr_FR.utf-8"] {
-    uu.write(s, "f", "x")?
-    uu.write(s, "g", "y")?
+    uu.write(s, "f", "x")
+    uu.write(s, "g", "y")
     let multi = uu.invoke(s, "cut", ["-f2-", "f", "g"], vars: {LC_ALL: locale})?
     uu.succeeds(multi)
     uu.stdout_only(multi, "x\ny\n")

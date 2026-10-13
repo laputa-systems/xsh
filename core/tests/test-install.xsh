@@ -40,7 +40,7 @@ test test_install_intermediate_directories_keep_default_mode { |ctx|
   let default_mode = 0o777.clear_bits(0o002)
   let dest = fp"{root}/a/b/c"
   let directory_command = process.command_argv(p"/bin/sh",
-    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin.display(), script.display(), "--mode=200", "-d", dest.display()],
+    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin, script, "--mode=200", "-d", dest],
     root, {}, b"", fp"{root}/out", fp"{root}/err")
   assert process.run(directory_command)?.exited_with(0)
   assert fs.stat(fp"{root}/a")?.mode.bit_and(0o777) == default_mode
@@ -51,7 +51,7 @@ test test_install_intermediate_directories_keep_default_mode { |ctx|
   source.write("payload")
   let file = fp"{root}/d/e/file"
   let file_command = process.command_argv(p"/bin/sh",
-    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin.display(), script.display(), "--mode=200", "-D", source.display(), file.display()],
+    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin, script, "--mode=200", "-D", source, file],
     root, {}, b"", fp"{root}/out", fp"{root}/err")
   assert process.run(file_command)?.exited_with(0)
   assert fs.stat(fp"{root}/d")?.mode.bit_and(0o777) == default_mode
@@ -124,8 +124,7 @@ test test_install_compare_checks_bytes_after_first_chunk { |ctx|
   let chunks = ["x"] |> repeat(65536)
   let prefix = chunks.join("")
   source.write(f"{prefix}a")
-  dest.write(f"{prefix}b")
-  dest.chmod(0o755)
+  dest.write(f"{prefix}b", mode: 0o755)
   let old = fs.stat(dest)?.ino
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -C $source $dest
   assert fs.stat(dest)?.ino != old
@@ -177,11 +176,10 @@ test test_install_compare_copies_fifo_source_symlink_in_bounded_chunks { |ctx|
   let writer = spawn run ${ctx.xsh_bin} $writer_script ?
   defer writer.cancel(kill_after: 100ms)
   let dest = fp"{root}/dest"
-  dest.write(b"")
-  dest.chmod(0o755)
+  dest.write(b"", mode: 0o755)
   let script = fp"{ctx.core_dir}/install.xsh"
   let reader_command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-C", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-C", source, dest],
     root, {}, b"", fp"{root}/out", fp"{root}/err", timeout: 3s)
   let status = process.run(reader_command)?
   assert status.exited_with(0)
@@ -196,7 +194,7 @@ test test_install_reads_stdin_descriptor_alias { |ctx|
   let dest = fp"{root}/dest"
   let payload = b"stream\0payload\n"
   let command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-m", "640", "/dev/fd/0", dest.display()],
+    [ctx.xsh_bin, script, "-m", "640", "/dev/fd/0", dest],
     root, {}, payload, fp"{root}/out", fp"{root}/err")
   assert process.run(command)?.exited_with(0)
   assert dest.read_bytes()? == payload
@@ -269,7 +267,7 @@ test test_install_failed_replacement_names_target_and_preserves_it { |ctx|
 test test_install_accepts_non_utf8_target_directory { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"
-  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/target_dir_\xff\xfe"]))?
+  let directory = bytes.concat([root.bytes(), b"/target_dir_\xff\xfe"]) as Path
   source.write("payload")
   directory.mkdir()
   let script = fp"{ctx.core_dir}/install.xsh"
@@ -284,9 +282,9 @@ test test_install_accepts_non_utf8_target_directory { |ctx|
 
 test test_install_accepts_non_utf8_source_and_destination_paths { |ctx|
   let root = test.temp_dir(ctx)?
-  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
+  let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
   let directory = fp"{root}/target_dir"
-  let installed = Path.parse_bytes(bytes.concat([directory.bytes(), b"/source\xff\xfe"]))?
+  let installed = bytes.concat([directory.bytes(), b"/source\xff\xfe"]) as Path
   source.write("payload")
   directory.mkdir()
   let script = fp"{ctx.core_dir}/install.xsh"
@@ -299,8 +297,8 @@ test test_install_accepts_non_utf8_source_and_destination_paths { |ctx|
   assert installed.read_text()? == "payload"
 
   let plain_source = fp"{root}/plain_source"
-  let target_directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/install_\xff\xfe"]))?
-  let target = Path.parse_bytes(bytes.concat([target_directory.bytes(), b"/target.txt"]))?
+  let target_directory = bytes.concat([root.bytes(), b"/install_\xff\xfe"]) as Path
+  let target = bytes.concat([target_directory.bytes(), b"/target.txt"]) as Path
   plain_source.write("other")
   let parents_command = process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin, script, "-D", plain_source, target], root, {}, b"", out, err)
@@ -453,7 +451,7 @@ test test_install_context_flags_are_silent_without_selinux { |ctx|
     assert result.status.exited_with(0), f"install {flag}: {result.stderr}"
     assert result.stdout == "" and result.stderr == ""
     assert dest.read_text()? == "data"
-    dest.remove()?
+    dest.remove()
   }
 }
 

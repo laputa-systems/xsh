@@ -7,7 +7,7 @@ pure helper_bin(ctx: TestContext) -> Path {
 proc marker_command(ctx: TestContext, marker: Str) [fs, error] -> Result[Command] {
   let root = test.temp_dir(ctx, name: marker)?
   let executable = fp"{root}/{marker}"
-  executable.symlink(to: helper_bin(ctx).resolve()?)?
+  executable.symlink(to: helper_bin(ctx).resolve()?)
   process.command_argv(executable, [executable, "ready-sleep", fp"{root}/ready"])
 }
 

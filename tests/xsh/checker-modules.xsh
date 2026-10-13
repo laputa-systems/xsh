@@ -78,13 +78,7 @@ export proc version() [process, error] {
   print output.stdout.trim()
 }
 """)
-  let output = test.run_script(
-    ctx,
-    "use helper\nhelper.version()\n",
-    [],
-    {XSH_MODULE_PATH: root},
-  )?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, "use helper\nhelper.version()\n", status: 0, args: [], env: {XSH_MODULE_PATH: root})?
   assert output.stdout.starts_with("git version "), output.stdout
 }
 

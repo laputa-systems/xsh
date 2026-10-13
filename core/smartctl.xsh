@@ -2,9 +2,9 @@
 use lib.gnu
 use lib.smart
 use lib.smart_ata as ata
+use lib.smart_json as j
 use lib.smart_nvme as nvme
 use lib.smart_scsi as scsi
-use lib.smart_json as j
 
 # smartctl over the linux storage transport: ATA through SAT pass-through,
 # NVMe through the admin passthrough, and SCSI disks through SG_IO. Commands
@@ -82,28 +82,7 @@ type Clock = {epoch: Int, text: Str}
 # the exit status bits it contributed.
 type Session = {text: Str, members: List[j.Member], messages: List[Str], notes: List[Str], status: Int}
 
-const DEFAULT_OPTIONS: Options = {
-  json: false,
-  compact: false,
-  info: false,
-  health: false,
-  capabilities: false,
-  attributes: false,
-  all: false,
-  xall: false,
-  scan: false,
-  scan_open: false,
-  abort: false,
-  device_type: "auto",
-  type_count: 0,
-  logs: [],
-  test: null,
-  smart_switch: null,
-  quiet: "",
-  brief: false,
-  badsum: "warn",
-  device: null,
-}
+const DEFAULT_OPTIONS: Options = Options(json: false, compact: false, info: false, health: false, capabilities: false, attributes: false, all: false, xall: false, scan: false, scan_open: false, abort: false, device_type: "auto", type_count: 0, logs: [], test: null, smart_switch: null, quiet: "", brief: false, badsum: "warn", device: null)
 
 pure invalid(option: Str, value: Str, valid: Str) -> Failure {
   {lines: [f"=======> INVALID ARGUMENT TO {option}: {value}", f"=======> VALID ARGUMENTS ARE: {valid} <======="], native: true}
@@ -155,31 +134,31 @@ pure apply(options: Options, key: Str, value: Str) -> Applied {
       rejected(options, invalid("-q", value, "errorsonly, silent, noserial"))
     }
     "T" => {
-      if value == "normal" { return accepted(options) }
+      return accepted(options) when value == "normal"
       if value in ["conservative", "permissive", "verypermissive"] {
         return rejected(options, unsupported(f"-T {value}", "only the normal tolerance level exists, because a failed mandatory command always ends the run"))
       }
       rejected(options, invalid("-T", value, "normal, conservative, permissive, verypermissive"))
     }
     "b" => {
-      if value in ["warn", "exit", "ignore"] { return accepted({...options, badsum: value}) }
+      return accepted({...options, badsum: value}) when value in ["warn", "exit", "ignore"]
       rejected(options, invalid("-b", value, "warn, exit, ignore"))
     }
     "f" => {
-      if value == "old" { return accepted({...options, brief: false}) }
-      if value == "brief" { return accepted({...options, brief: true}) }
+      return accepted({...options, brief: false}) when value == "old"
+      return accepted({...options, brief: true}) when value == "brief"
       if head_word(value) == "hex" { return rejected(options, unsupported(f"-f {value}", "hexadecimal attribute display is not implemented")) }
       rejected(options, invalid("-f", value, "old, brief, hex[,id|val]"))
     }
     "P" => {
       # Without a drive database no preset is ever applied, so `use` and
       # `ignore` behave alike.
-      if value in ["use", "ignore"] { return accepted(options) }
+      return accepted(options) when value in ["use", "ignore"]
       if value in ["show", "showall"] { return rejected(options, unsupported(f"-P {value}", "there is no drive database to show")) }
       rejected(options, invalid("-P", value, "use, ignore, show, showall"))
     }
     "F" => {
-      if value == "none" { return accepted(options) }
+      return accepted(options) when value == "none"
       if value in ["nologdir", "samsung", "samsung2", "samsung3", "xerrorlba", "swapid"] {
         return rejected(options, unsupported(f"-F {value}", "firmware bug workarounds are not implemented"))
       }
@@ -194,14 +173,14 @@ pure apply(options: Options, key: Str, value: Str) -> Applied {
     "g" => rejected(options, unsupported("-g", "device settings are read with commands the transport does not expose"))
     "set" => rejected(options, unsupported("--set", "device settings are changed with commands the transport does not expose"))
     "identify" => rejected(options, unsupported("--identify", "IDENTIFY DEVICE word dumps are not implemented"))
-    _ => rejected(options, {lines: [f"=======> UNRECOGNIZED OPTION: {key}"], native: true})
+    else => rejected(options, {lines: [f"=======> UNRECOGNIZED OPTION: {key}"], native: true})
   }
 }
 
 pure apply_json(options: Options, value: Str) -> Applied {
-  if value == "" { return accepted({...options, json: true}) }
+  return accepted({...options, json: true}) when value == ""
   var compact = false
-  for letter in value.split("") {
+  for letter in value {
     if letter == "c" {
       compact = true
     } else if letter in ["g", "i", "o", "s", "u", "v", "y"] {
@@ -218,15 +197,15 @@ pure apply_log(options: Options, value: Str) -> Applied {
   let known = ["error", "selftest", "selective", "directory", "xerror", "xselftest", "background", "sasphy", "sataphy", "scttemp", "scttempint", "scterc", "devstat", "defects", "ssd", "gplog", "smartlog", "nvmelog", "tapedevstat", "zdevstat", "envrep", "farm"]
   guard name in known else { return rejected(options, invalid("-l", value, LOG_TYPES)) }
   if name in ["error", "selftest", "selective"] and value == name {
-    return accepted({...options, logs: options.logs + [name]})
+    return accepted({...options, logs: [@options.logs, name]})
   }
   if name == "directory" and value in ["directory", "directory,s"] {
-    return accepted({...options, logs: options.logs + ["directory"]})
+    return accepted({...options, logs: [@options.logs, "directory"]})
   }
   # The entry count (`xerror,N`) cannot be honored over SMART READ LOG, so
   # only the forms that name the summary log are accepted.
   if value in ["xerror", "xerror,error", "xselftest", "xselftest,selftest"] {
-    return accepted({...options, logs: options.logs + [name]})
+    return accepted({...options, logs: [@options.logs, name]})
   }
   rejected(options, unsupported(f"-l {value}", "the log needs commands or a transport this implementation does not provide"))
 }
@@ -246,7 +225,7 @@ pure apply_test(options: Options, value: Str) -> Applied {
 }
 
 pure apply_switch(options: Options, value: Str) -> Applied {
-  if value in ["on", "off"] { return accepted({...options, smart_switch: value}) }
+  return accepted({...options, smart_switch: value}) when value in ["on", "off"]
   let name = head_word(value)
   if name in ["aam", "apm", "dsn", "lookahead", "security-freeze", "standby", "wcache", "rcache", "wcreorder", "wcache-sct"] {
     return rejected(options, unsupported(f"-s {value}", "device settings are changed with commands the transport does not expose"))
@@ -255,7 +234,7 @@ pure apply_switch(options: Options, value: Str) -> Applied {
 }
 
 pure apply_nocheck(options: Options, value: Str) -> Applied {
-  if value == "never" { return accepted(options) }
+  return accepted(options) when value == "never"
   let name = head_word(value)
   if name in ["sleep", "standby", "idle"] {
     return rejected(options, unsupported(f"-n {value}", "the power mode is read with CHECK POWER MODE, which the transport does not expose"))
@@ -266,13 +245,13 @@ pure apply_nocheck(options: Options, value: Str) -> Applied {
 # Resolves a long option name, accepting any unambiguous prefix as getopt_long
 # does. Returns "key:arity" or null.
 pure resolve_long(name: Str) -> Str? {
-  var matches: List[Str] = []
+  var matches = []
   for entry in LONG_OPTIONS {
     let parts = entry.split(":")
-    if parts[0] == name { return f"{parts[1]}:{parts[2]}" }
+    return f"{parts[1]}:{parts[2]}" when parts[0] == name
     if parts[0].starts_with(name) and f"{parts[1]}:{parts[2]}" not in matches { matches += [f"{parts[1]}:{parts[2]}"] }
   }
-  if matches.len() == 1 { return matches[0] }
+  return matches[0] when matches.len() == 1
   null
 }
 
@@ -280,7 +259,7 @@ type Parsed = {options: Options, operands: List[Str], failure: Failure?, early: 
 
 pure parse(argv: List[Str]) -> Parsed {
   var options = DEFAULT_OPTIONS
-  var operands: List[Str] = []
+  var operands = []
   var index = 0
   var ended = false
   while index < argv.len() {
@@ -472,12 +451,13 @@ proc json_document(options: Options, argv: List[Str], machine: Str, release: Str
     j.m("svn_revision", "5714"),
     j.m("platform_info", platform(machine, release)),
     j.m("build_info", "(XSH core)"),
-    j.m("argv", ["smartctl"] + argv),
+    j.m("argv", ["smartctl", @argv]),
   ]
   if !messages.is_empty() or !notes.is_empty() {
-    var entries: List[j.Object] = []
-    for message in messages { entries += [j.object([j.m("string", message), j.m("severity", "error")])] }
-    for note in notes { entries += [j.object([j.m("string", note), j.m("severity", "information")])] }
+    let entries: List[j.Object] = collect {
+      for message in messages { yield j.object([j.m("string", message), j.m("severity", "error")]) }
+      for note in notes { yield j.object([j.m("string", note), j.m("severity", "information")]) }
+    }
     block += [j.m("messages", entries)]
   }
   block += [j.m("exit_status", status)]
@@ -516,7 +496,7 @@ proc ata_page(fd: Int, size: Int, command: Str, address: Int) [process] -> Fetch
     "identify" => linux.ata_identify(fd, size)
     "values" => linux.ata_smart_read_data(fd, size)
     "thresholds" => linux.ata_smart_read_thresholds(fd, size)
-    _ => linux.ata_smart_read_log(fd, address, 1, size)
+    else => linux.ata_smart_read_log(fd, address, 1, size)
   }
   match reply {
     Ok(result) => fetched(result.data)
@@ -538,7 +518,7 @@ proc ata_command(fd: Int, size: Int, command: Str) [process] -> Fetched {
   let reply = match command {
     "enable" => linux.ata_smart_enable(fd, size)
     "disable" => linux.ata_smart_disable(fd, size)
-    _ => linux.ata_smart_start_self_test(fd, command, size)
+    else => linux.ata_smart_start_self_test(fd, command, size)
   }
   match reply {
     Ok(result) => fetched(result.data)
@@ -551,7 +531,7 @@ proc nvme_page(fd: Int, command: Str, number: Int, length: Int) [process] -> Fet
   let reply = match command {
     "controller" => linux.nvme_identify_controller(fd)
     "namespace" => linux.nvme_identify_namespace(fd, number)
-    _ => linux.nvme_log_page(fd, number, length)
+    else => linux.nvme_log_page(fd, number, length)
   }
   match reply {
     Ok(result) => fetched(result.data)
@@ -561,9 +541,10 @@ proc nvme_page(fd: Int, command: Str, number: Int, length: Int) [process] -> Fet
 
 # The namespace id of a namespace node, or null for a controller node.
 proc nvme_namespace(fd: Int) [process] -> Int? {
-  match linux.nvme_namespace_id(fd) {
-    Ok(found) => found
-    Err(_) => null
+  if let Ok(found) = linux.nvme_namespace_id(fd) {
+    found
+  } else {
+    null
   }
 }
 
@@ -578,8 +559,8 @@ proc nvme_self_test(fd: Int, code: Int) [process] -> Fetched {
 # sections, then any self-test start.
 proc ata_session(options: Options, fd: Int, size: Int, now: Clock) [process, time, error] -> Session {
   var members: List[j.Member] = []
-  var messages: List[Str] = []
-  var notes: List[Str] = []
+  var messages = []
+  var notes = []
   var status = 0
   let identity = ata_page(fd, size, "identify", 0)
   if !identity.ok {
@@ -679,7 +660,7 @@ proc ata_session(options: Options, fd: Int, size: Int, now: Clock) [process, tim
           usable = false
         }
       }
-      var thresholds: Bytes? = null
+      var thresholds = null
       if usable and (want_attributes or want_health) {
         let table = ata_page(fd, size, "thresholds", 0)
         if table.ok {
@@ -724,7 +705,7 @@ proc ata_session(options: Options, fd: Int, size: Int, now: Clock) [process, tim
   }
   if !read_failed {
     var summary_notice = false
-    var seen: List[Int] = []
+    var seen = []
     for log in logs {
       var address = 0
       var label = "SMART Log Directory"
@@ -836,8 +817,8 @@ proc ata_session(options: Options, fd: Int, size: Int, now: Clock) [process, tim
 # NVMe sessions: identify controller, namespace, then logs.
 proc nvme_session(options: Options, fd: Int, nsid_hint: Int?, now: Clock) [process, error] -> Session {
   var members: List[j.Member] = []
-  var messages: List[Str] = []
-  var notes: List[Str] = []
+  var messages = []
+  var notes = []
   var status = 0
   let identified = nvme_page(fd, "controller", 0, 4096)
   if !identified.ok {
@@ -918,7 +899,7 @@ proc nvme_session(options: Options, fd: Int, nsid_hint: Int?, now: Clock) [proce
       }
     } else if log in ["selftest", "xselftest"] {
       # Without the Device Self-test command the log page does not exist.
-      if !smart.bit_set(controller.oacs, 4) {
+      guard smart.bit_set(controller.oacs, 4) else {
         if log in options.logs and !everything {
           let line = "Self-tests not supported"
           body += line + "\n\n"
@@ -969,7 +950,7 @@ proc nvme_session(options: Options, fd: Int, nsid_hint: Int?, now: Clock) [proce
 proc scsi_read(fd: Int, cdb: Bytes, length: Int) [process] -> Fetched {
   match linux.sg_io(fd, cdb, length) {
     Ok(reply) => {
-      if reply.status != 0 { return {ok: false, data: b"", message: f"SCSI status 0x{smart.hex(reply.status, 2)}"} }
+      guard reply.status == 0 else { return {ok: false, data: b"", message: f"SCSI status 0x{smart.hex(reply.status, 2)}"} }
       fetched(reply.data)
     }
     Err(failure) => unfetched(failure)
@@ -978,8 +959,8 @@ proc scsi_read(fd: Int, cdb: Bytes, length: Int) [process] -> Fetched {
 
 proc scsi_session(options: Options, fd: Int, now: Clock) [process, error] -> Session {
   var members: List[j.Member] = []
-  var messages: List[Str] = []
-  var notes: List[Str] = []
+  var messages = []
+  var notes = []
   var status = 0
   var text = ""
   let standard = scsi_read(fd, b"\x12\x00\x00\x00\x24\x00", 36)
@@ -994,7 +975,7 @@ proc scsi_session(options: Options, fd: Int, now: Clock) [process, error] -> Ses
     }
   }
   let id = scsi.inquiry(standard.data)
-  var serial: Str? = null
+  var serial = null
   let unit = scsi_read(fd, b"\x12\x01\x80\x00\xff\x00", 255)
   if unit.ok { serial = scsi.serial_number(unit.data) }
   var capacity: scsi.Capacity? = null
@@ -1051,8 +1032,8 @@ proc scsi_session(options: Options, fd: Int, now: Clock) [process, error] -> Ses
 
 # Candidate lines for --scan and --scan-open, in smartctl's scan format.
 pure scan_line(node: Str, kind: Str, ata_behind: Bool) -> Str {
-  if kind == "nvme" { return f"{node} -d nvme # {node}, NVMe device" }
-  if ata_behind { return f"{node} -d sat # {node} [SAT], ATA device" }
+  return f"{node} -d nvme # {node}, NVMe device" when kind == "nvme"
+  return f"{node} -d sat # {node} [SAT], ATA device" when ata_behind
   f"{node} -d scsi # {node}, SCSI device"
 }
 
@@ -1060,7 +1041,7 @@ proc scan(options: Options) [fs, process, error] -> Session {
   let family = head_word(options.device_type.split("+")[0])
   var text = ""
   var devices: List[j.Object] = []
-  var messages: List[Str] = []
+  var messages = []
   let found = smart.present_candidates(fp"/sys", fp"/dev")?
   for candidate in found {
     # Controllers carry the NVMe admin node; namespaces are reached through
@@ -1071,7 +1052,7 @@ proc scan(options: Options) [fs, process, error] -> Session {
     continue when family in ["scsi", "ata", "sat"] and candidate.protocol == "nvme"
     let node = f"{candidate.path}"
     var ata_behind = false
-    var open_error: Str? = null
+    var open_error = null
     let kind = if candidate.protocol == "nvme" { "nvme" } else { "scsi" }
     if options.scan_open {
       match unix.open_fd(candidate.path, nonblock: true) {
@@ -1080,7 +1061,7 @@ proc scan(options: Options) [fs, process, error] -> Session {
             let reply = scsi_read(fd, b"\x12\x00\x00\x00\x24\x00", 36)
             if reply.ok { ata_behind = scsi.is_ata(scsi.inquiry(reply.data)) } else { open_error = f"INQUIRY: {reply.message}" }
           }
-          unix.close_fd(fd)?
+          unix.close_fd(fd)
         }
         Err(failure) => { open_error = gnu.strerror(failure) }
       }
@@ -1178,7 +1159,7 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
   let family = head_word(requested.split("+")[0])
   var kind = ""
   var cdb_size = 16
-  var nsid_hint: Int? = null
+  var nsid_hint = null
   var sat_probe = false
   var protocol_name = ""
   var info_name = name
@@ -1221,9 +1202,9 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
       let digits = if parts[1].starts_with("0x") { parts[1].byte_slice(2) } else { "" }
       var value = 0
       var valid = digits != ""
-      for letter in digits.lower().split("") {
+      for letter in digits.lower() {
         let digit = "0123456789abcdef".find(letter)
-        if digit == null { valid = false } else { value = value * 16 + (digit ?? 0) }
+        if digit == null { valid = false } else { value = value * 16 + digit }
       }
       if !valid or value < 1 or value > 4294967295 {
         fault = {lines: [f"{name}: Invalid NVMe namespace id in '{requested}'", f"=======> VALID ARGUMENTS ARE: {DEVICE_TYPES} <======="], native: true}
@@ -1298,7 +1279,7 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
     exit FAIL_COMMAND_LINE
   }
   if kind == "nvme" {
-    if options.smart_switch != null {
+    guard options.smart_switch == null else {
       gnu.error("-s is not supported for NVMe devices: they have no SMART enable switch")
       exit FAIL_COMMAND_LINE
     }
@@ -1309,7 +1290,7 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
       }
     }
   }
-  var session: Session = {text: "", members: [], messages: [], notes: [], status: 0}
+  var session: Session = Session(text: "", members: [], messages: [], notes: [], status: 0)
   if kind == "nvme" {
     session = nvme_session(options, fd, nsid_hint, clock_now)
   } else if kind == "scsi" {

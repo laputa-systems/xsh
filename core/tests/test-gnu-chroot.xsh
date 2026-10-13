@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu chroot/chroot-fail.log
 test test_gnu_chroot_chroot_fail_log { |ctx|
@@ -17,7 +17,7 @@ test test_gnu_chroot_chroot_fail_log { |ctx|
   uu.fails(invalid)
   uu.stderr_only(invalid, "chroot: option --skip-chdir only permitted if NEWROOT is old '/'\nTry 'chroot --help' for more information.\n")
   if root.status == 0 {
-    uu.symlink(s, "/", "isroot")?
+    uu.symlink(s, "/", "isroot")
     for directory in ["/", "/.", "/../", "isroot"] {
       let changed = uu.invoke(s, "chroot", [directory, "env", "pwd"])?
       uu.succeeds(changed)

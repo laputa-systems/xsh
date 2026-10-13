@@ -33,13 +33,14 @@ proc index_of(name: Str) [process, net, error] -> Int {
 }
 
 pure mac_bytes(text: Str) -> Bytes {
-  var octets: List[Int] = []
-  for part in text.split(":") {
-    var value = 0
-    for digit in part.lower() {
-      value = value * 16 + ("0123456789abcdef".find(digit) ?? 0)
+  let octets = collect {
+    for part in text.split(":") {
+      var value = 0
+      for digit in part.lower() {
+        value = value * 16 + ("0123456789abcdef".find(digit) ?? 0)
+      }
+      yield value
     }
-    octets += [value]
   }
   bytes.from_ints(octets) ?? b""
 }
@@ -47,7 +48,7 @@ pure mac_bytes(text: Str) -> Bytes {
 ## Creates a dummy interface with a fixed hardware address, still down.
 export proc link_add_dummy(name: Str, mac: Str) [process, error] {
   let c = linux.net_constants()
-  let kind = attr(18, attr(1, c_string("dummy")))
+  let kind = attr(1, c_string("dummy")) |> attr(18, _)
   let payload = bytes.concat([bytes.zero(16)?, attr(3, c_string(name)), attr(1, mac_bytes(mac)), kind])
   send(c.RTM_NEWLINK, c.NLM_F_CREATE.bit_or(c.NLM_F_EXCL), payload)
 }
@@ -117,8 +118,8 @@ export proc route_add_type4(destination: Str, prefix: Int, kind: Int) [process, 
 export proc run_commands(argv: List[Str]) [fs, process, io, error] {
   let xsh = argv[0]
   let script = argv[1]
-  var current: List[Str] = []
-  var blocks: List[List[Str]] = []
+  var current = []
+  var blocks = []
   for word in argv[2..] {
     if word == "--" {
       blocks += [current]
@@ -135,6 +136,6 @@ export proc run_commands(argv: List[Str]) [fs, process, io, error] {
       transcript += f"2> {line}\n"
     }
     transcript += f"rc={captured.status.shell_code()?}\n"
-    io.write_stdout(transcript)?
+    io.write_stdout(transcript)
   }
 }

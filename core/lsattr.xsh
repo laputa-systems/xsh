@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fileattrs
+use lib.gnu
 
 type Options = {recursive: Bool, all: Bool, directory: Bool, long: Bool, generation: Bool, project: Bool, verbose: Bool, help: Bool, files: List[Str]}
 enum ListingKind { Operand, Attributes, Recursive, End }
@@ -65,16 +65,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if listing.kind == .Recursive { gnu.write_text(f"\n{listing.name}:\n") }
     let children = fs.children(fp"{listing.name}")
     if let Err(failure) = children { fileattrs.report(listing.name, failure); success = false; continue }
-    var entries: List[Listing] = []
-    if opts.all {
-      entries += [{name: listing.name + "/.", kind: .Attributes}, {name: listing.name + "/..", kind: .Attributes}]
-    }
-    for child in children? {
-      continue when ! opts.all and child.name.starts_with(".")
-      let name = f"{listing.name}/{child.name}"
-      entries += [{name: name, kind: .Attributes}]
-      if opts.recursive and child.kind == "dir" {
-        entries += [{name: name, kind: .Recursive}, {name: name, kind: .End}]
+    let entries: List[Listing] = collect {
+      if opts.all {
+        yield @[{name: listing.name + "/.", kind: .Attributes}, {name: listing.name + "/..", kind: .Attributes}]
+      }
+      for child in children? {
+        continue when ! opts.all and child.name.starts_with(".")
+        let name = f"{listing.name}/{child.name}"
+        yield {name: name, kind: .Attributes}
+        if opts.recursive and child.kind == "dir" {
+          yield @[{name: name, kind: .Recursive}, {name: name, kind: .End}]
+        }
       }
     }
     pending = entries.extend(pending)

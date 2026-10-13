@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.date_parse
+use lib.gnu
 
 error DateError = Invalid
 
@@ -98,28 +98,33 @@ pure utf8_char_width(raw: Bytes, at: Int) -> Int {
 # unchanged, so a `%` before it prints literally and the byte is never read as a
 # conversion.
 proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Bytes] {
-  var pieces: List[Bytes] = []
   var piece_start = 0
   var at = 0
-  while at < format.len() {
-    let width = utf8_char_width(format, at)
-    if width == 0 {
-      if piece_start < at { pieces += [bytes.from_text(format_text(instant, format[piece_start..at].utf8()?, utc, style)?)] }
-      pieces += [format[at..at + 1]]
-      at += 1
-      piece_start = at
-    } else {
-      at += width
+  let pieces = collect {
+    while at < format.len() {
+      let width = utf8_char_width(format, at)
+      if width == 0 {
+        if piece_start < at { yield bytes.from_text(format_text(instant, format[piece_start..at] as Str, utc, style)?) }
+        yield format[at..at + 1]
+        at += 1
+        piece_start = at
+      } else {
+        at += width
+      }
+    }
+
+    if piece_start < format.len() {
+      yield bytes.from_text(format_text(instant, format[piece_start..format.len()] as Str, utc, style)?)
     }
   }
-  if piece_start < format.len() { pieces += [bytes.from_text(format_text(instant, format[piece_start..format.len()].utf8()?, utc, style)?)] }
   Ok(bytes.concat(pieces))
 }
 
 proc reject_extra_operand(raw: Bytes) [process, env] -> Unit {
-  match raw.utf8() {
-    Ok(text) => gnu.extra_operand(text)
-    Err(_) => gnu.usage_error(f"extra operand {gnu.quote_value_bytes(raw)}")
+  if let Ok(text) = raw.utf8() {
+    gnu.extra_operand(text)
+  } else {
+    gnu.usage_error(f"extra operand {gnu.quote_value_bytes(raw)}")
   }
 }
 
@@ -213,7 +218,7 @@ pure date_style(locale: Str) -> DateStyle {
 proc locale_name() [env] -> Str {
   for name in ["LC_ALL", "LC_TIME", "LANG"] {
     let found = env.get_or(name, "") ?? ""
-    if found != "" { return found }
+    return found when found != ""
   }
   ""
 }
@@ -276,7 +281,7 @@ pure needs_pieces(style: DateStyle, shift: Int) -> Bool {
 # applied to the native instant, which shares the true weekday, month and day.
 proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Str] {
   let native = time.format(date_parse.native_ns(instant)?, spec, utc:)?
-  if (spec.byte_at(0) ?? 0) != 37 { return Ok(native) }
+  return Ok(native) when (spec.byte_at(0) ?? 0) != 37
   let conversion = spec.byte_slice(spec.byte_len() - 1)
   let shift = date_parse.shift_years(instant)?
   let year_directive = conversion in ["Y", "C", "y", "F", "D", "x", "c", "G", "g", "s", "+"]
@@ -301,7 +306,7 @@ proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: 
     }
     return Ok(text)
   }
-  if shift == 0 and style.calendar == "gregorian" { return Ok(native) }
+  return Ok(native) when shift == 0 and style.calendar == "gregorian"
   let fields = date_parse.calendar(instant, utc)?
   let date = calendar_date(style.calendar, fields.year, fields.month, fields.day)
   # ISO week-based years repeat with the same 400-year cycle, so the shifted
@@ -338,7 +343,7 @@ proc format_text(instant: date_parse.Instant, format: Str, utc: Bool, style: Dat
   var index = 0
   let length = format.byte_len()
   while index < length {
-    if (format.byte_at(index) ?? 0) != 37 {
+    guard (format.byte_at(index) ?? 0) == 37 else {
       let start = index
       while index < length and (format.byte_at(index) ?? 0) != 37 { index += 1 }
       output = f"{output}{format_directive(instant, format.byte_slice(start, length: index - start), utc, style)?}"
@@ -398,8 +403,8 @@ pure debug_offset(seconds: Int) -> Str {
 
 # Parsing and tracing share one baseline, so relative values cannot cross a clock
 # tick between their starting value and the emitted instant.
-proc debug_date(text: Str, instant: date_parse.Instant, base: date_parse.Instant, utc: Bool) [time, env, error, process] -> Result[Unit] {
-  let style: DateStyle = {names: null, calendar: "gregorian"}
+proc debug_date(text: Str, instant: date_parse.Instant, base: date_parse.Instant, utc: Bool) [time, env, error, process] {
+  let style: DateStyle = DateStyle(names: null, calendar: "gregorian")
   let timezone = if utc { "UTC0" } else { env.get_or("TZ", "") ?? "" }
   let input_zone = if timezone == "UTC0" { "TZ=\"UTC0\" environment value or -u" } else if env.get("TZ") is Ok(_) { f"TZ=\"{timezone}\" environment value" } else { "system default" }
   let final_zone = if timezone == "UTC0" { "Universal Time" } else if env.get("TZ") is Ok(_) { f"TZ=\"{timezone}\" environment value" } else { "system default" }
@@ -422,7 +427,7 @@ proc debug_date(text: Str, instant: date_parse.Instant, base: date_parse.Instant
     let clock = rx"([0-9]{1,2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?)".captures(prefix)
     let military = rx"^([A-Za-z])([0-9]{1,2})$".captures(prefix)
     let number = rx"^[0-9]{1,4}[jJ]?$".matches(prefix) or (prefix == "" and relative.is_empty())
-    var offset: Int? = null
+    var offset = null
     var civil = starting
     let zone = rx"^(.*\S)\s+([A-Za-z]+|[+-][0-9]{1,6}(?::[0-9]{2}){0,2})$".captures(prefix)
     if ! zone.is_empty() and (! clock.is_empty() or ! iso.is_empty()) {
@@ -479,13 +484,13 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateSty
   # A date with undecodable bytes cannot match any date syntax, so it is reported
   # with octal escapes instead of being parsed.
   var text = ""
-  match raw.utf8() {
-    Ok(value) => text = value
-    Err(_) => {
-      gnu.error(f"invalid date {gnu.quote_value_bytes(raw)}")
-      return false
-    }
+  if let Ok(value) = raw.utf8() {
+    text = value
+  } else {
+    gnu.error(f"invalid date {gnu.quote_value_bytes(raw)}")
+    return false
   }
+
   let base = date_parse.instant_from_ns(time.now() * 1000000)
   match parse_date(text, utc:, base:) {
     Ok(epoch) => {
@@ -504,7 +509,7 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateSty
 proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
   let prepared = gnu.prepare_arguments(raw)
   var style = date_style(locale_name())
-  var argv: List[Str] = []
+  var argv = []
   for item in prepared.text {
     if item.starts_with("-") and ! item.starts_with("--") and item.byte_len() > 2 {
       var rest = item.byte_slice(1)
@@ -593,7 +598,7 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
     return
   }
   if source == "reference" {
-    match fs.stat(Path.parse_bytes(reference)?, follow_symlinks: true) {
+    match fs.stat(reference as Path, follow_symlinks: true) {
       Ok(meta) => { gnu.write_bytes(bytes.concat([format_date(date_parse.instant_from_ns(meta.mtime_ns), format, utc, style)?, b"\n"])); return }
       Err(failure) => { gnu.error(f"{gnu.quote_bytes(reference, always: false)}: {gnu.strerror(failure)}"); exit 1 }
     }
@@ -618,12 +623,15 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
     return
   }
   if setting {
-    if date_operand and date.len() == 0 { gnu.error(f"invalid date {gnu.quote_bytes(date)}"); exit 1 }
+    if date_operand and date.is_empty() { gnu.error(f"invalid date {gnu.quote_bytes(date)}"); exit 1 }
     var text = ""
-    match date.utf8() {
-      Ok(value) => text = value
-      Err(_) => { gnu.error(f"invalid date {gnu.quote_value_bytes(date)}"); exit 1 }
+    if let Ok(value) = date.utf8() {
+      text = value
+    } else {
+      gnu.error(f"invalid date {gnu.quote_value_bytes(date)}")
+      exit 1
     }
+
     let parsed = if set_option { parse_date(text, utc:) } else { date_parse.parse_instant(text, utc:) }
     match parsed {
       Ok(epoch) => {

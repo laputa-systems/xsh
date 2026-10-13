@@ -1,6 +1,6 @@
 type Outcome = {status: Int, stdout: Str, stderr: Str}
 
-proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "") [fs, process, error] -> Result[Outcome] {
+proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir = "") [fs, process, error] -> Result[Outcome] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/readlink.xsh"
@@ -47,8 +47,8 @@ test test_readlink_without_a_file_reports_required_argument { |ctx|
 
 test test_readlink_accepts_non_utf8_symlink_names { |ctx|
   let root = test.temp_dir(ctx, name: "readlink-invalid-utf8")?.resolve()?
-  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/target_file"]))?
-  let link = Path.parse_bytes(bytes.concat([root.bytes(), b"/symlink_\xff\xfe"]))?
+  let target = bytes.concat([root.bytes(), b"/target_file"]) as Path
+  let link = bytes.concat([root.bytes(), b"/symlink_\xff\xfe"]) as Path
   target.write("ok")
   link.symlink(to: target)
   let script = fp"{ctx.core_dir}/readlink.xsh"

@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fs_misc
+use lib.gnu
 
 error ShredError = Invalid : InvalidArgument
 
@@ -43,7 +43,7 @@ pure pattern_label(data: Bytes) -> Str {
 # both ends. The listed pattern order is stable. For up to three iterations
 # every pass uses random data.
 pure pass_patterns(passes: Int) -> List[Bytes] {
-  var sequence: List[Bytes] = []
+  var sequence = []
   if passes <= 3 { for unused in range(passes) { sequence += [b""] }; return sequence }
   let patterns = [b"\xff\xff\xff", b"\x92\x49\x24", b"\x88\x88\x88", b"\xdb\x6d\xb6", b"\x77\x77\x77", b"\x49\x24\x92", b"\xbb\xbb\xbb", b"\x55\x55\x55", b"\xaa\xaa\xaa", b"\x6d\xb6\xdb", b"\x24\x92\x49", b"\x99\x99\x99", b"\x11\x11\x11", b"\x00\x00\x00", b"\xb6\xdb\x6d", b"\xee\xee\xee", b"\x33\x33\x33", b"\x22\x22\x22", b"\x44\x44\x44", b"\x66\x66\x66", b"\xcc\xcc\xcc", b"\xdd\xdd\xdd"]
   let randoms = if passes / 10 > 3 { passes / 10 } else { 3 }
@@ -60,9 +60,10 @@ pure pass_patterns(passes: Int) -> List[Bytes] {
 }
 
 proc quote_maybe_bytes(name: Bytes) [env] -> Str {
-  match name.utf8() {
-    Ok(text) => gnu.quote_maybe(text)
-    Err(_) => gnu.quote_bytes(name, always: false)
+  if let Ok(text) = name.utf8() {
+    gnu.quote_maybe(text)
+  } else {
+    gnu.quote_bytes(name, always: false)
   }
 }
 
@@ -93,22 +94,22 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let parsed = opts.iterations.parse_int()
   if parsed is Err(_) or (parsed ?? -1) < 0 { gnu.error(f"invalid number of passes: {gnu.quote_value(opts.iterations)}"); exit 1 }
   let passes = parsed?
-  var size: Int? = null
+  var size = null
   if opts.size != null {
-    size = fs_misc.size_value(opts.size ?? "")
-    if size == null { gnu.error(f"invalid file size: {gnu.quote_value(opts.size ?? "")}"); exit 1 }
+    size = fs_misc.size_value(opts.size)
+    if size == null { gnu.error(f"invalid file size: {gnu.quote_value(opts.size)}"); exit 1 }
   }
   var remove = opts.remove ?? (if opts.unlink { "wipesync" } else { "" })
   if remove != "" {
-    var matches: List[Str] = []
+    var matches = []
     if remove in ["unlink", "wipe", "wipesync"] { matches = [remove] } else {
       for method in ["unlink", "wipe", "wipesync"] { if method.starts_with(remove) { matches += [method] } }
     }
     if matches.len() != 1 { gnu.error(f"invalid argument {gnu.quote(remove)} for 'remove'"); exit 1 }
     remove = matches[0]
   }
-  let source_bytes = if opts.source == null { b"/dev/urandom" } else { gnu.argument_bytes(opts.source ?? "", prepared.raw) }
-  let source = Path.parse_bytes(source_bytes)?
+  let source_bytes = if opts.source == null { b"/dev/urandom" } else { gnu.argument_bytes(opts.source, prepared.raw) }
+  let source = source_bytes as Path
   if opts.source != null {
     let info = fs.stat(source, follow_symlinks: true)
     if let Err(failure) = info { gnu.error(f"{quote_maybe_bytes(source_bytes)}: {gnu.strerror(failure)}"); exit 1 }
@@ -118,7 +119,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var source_offset = 0
   for path_name in opts.paths {
     let name = gnu.argument_bytes(path_name, prepared.raw)
-    let target = Path.parse_bytes(name)?
+    let target = name as Path
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Err(failure) = metadata { name_error(name, failure); failed = true; continue }
     let info = metadata?
@@ -154,26 +155,25 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if let Err(failure) = result { gnu.error(f"{gnu.quote_bytes(name)}: error writing: {gnu.strerror(failure)}"); failed = true; complete = false; break }
       if opts.source != null and pattern.is_empty() { source_offset = result? }
     }
-    if ! complete or remove == "" { continue }
+    continue when ! complete or remove == ""
     if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: removing") }
     if let Err(failure) = target.truncate(0) { name_error(name, failure); failed = true; continue }
     var last = target
     if remove != "unlink" {
       let parent_dir = target.parent()
       let components = target.components()
-      let leaf = components[components.len() - 1].bytes()
+      let leaf = components[-1].bytes()
       for index in range(leaf.len()) {
         let width = leaf.len() - index
-        var digits: List[Int] = []
-        for unused in range(width) { digits += [0] }
+        var digits: List[Int] = [0 for unused in range(width)]
         let alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         while true {
           var renamed_name = ""
           for digit in digits { renamed_name += alphabet.byte_slice(digit, length: 1) }
-          let next = Path.parse_bytes(bytes.concat([parent_dir.bytes(), b"/", bytes.from_text(renamed_name)]))?
+          let next = bytes.concat([parent_dir.bytes(), b"/", bytes.from_text(renamed_name)]) as Path
           let renamed = fs.rename_noreplace(last, next)
           if let Err(failure) = renamed {
-            if failure.errno != 17 {
+            guard failure.errno == 17 else {
               # Renaming is best effort; unlink reports the final removal error.
               break
             }
@@ -188,7 +188,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
             continue
           }
           let next_components = next.components()
-          if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: renamed to {quote_maybe_bytes(next_components[next_components.len() - 1].bytes())}") }
+          if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: renamed to {quote_maybe_bytes(next_components[-1].bytes())}") }
           last = next
           if remove == "wipesync" {
             if let Err(failure) = fs.fsync(parent_dir) { name_error(name, failure); failed = true; complete = false }

@@ -27,7 +27,7 @@ pure quote(text: Str) -> Str {
 
 pure indent(depth: Int) -> Str {
   var out = ""
-  for _ in range(depth) { out += "  " }
+  repeat depth times { out += "  " }
   out
 }
 
@@ -35,7 +35,7 @@ pure indent(depth: Int) -> Str {
 ## `[]` and `{}` for empty containers. `compact` writes one line without
 ## whitespace instead.
 export pure render(value: Any, compact: Bool = false, depth: Int = 0) -> Str {
-  if compact { return render_compact(value) }
+  return render_compact(value) when compact
   render_indented(value, depth)
 }
 
@@ -58,17 +58,19 @@ pure render_indented(value: Any, depth: Int) -> Str {
     number is Int => f"{number}"
     text is Str => quote(text)
     items is List[Any] => {
-      if items.is_empty() { return "[]" }
+      return "[]" when items.is_empty()
       let inner = indent(depth + 1)
-      var rows: List[Str] = []
-      for item in items { rows += [inner + render_indented(item, depth + 1)] }
+      let rows = collect {
+        for item in items { yield inner + render_indented(item, depth + 1) }
+      }
       "[\n" + rows.join(",\n") + "\n" + indent(depth) + "]"
     }
     node is Object => {
-      if node.members.is_empty() { return "{}" }
+      return "{}" when node.members.is_empty()
       let inner = indent(depth + 1)
-      var rows: List[Str] = []
-      for entry in node.members { rows += [inner + quote(entry.key) + ": " + render_indented(entry.value, depth + 1)] }
+      let rows = collect {
+        for entry in node.members { yield inner + quote(entry.key) + ": " + render_indented(entry.value, depth + 1) }
+      }
       "{\n" + rows.join(",\n") + "\n" + indent(depth) + "}"
     }
     else => "null"

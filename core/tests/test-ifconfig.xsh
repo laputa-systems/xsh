@@ -1,4 +1,4 @@
-use core.lib.nettools as nettools
+use core.lib.nettools
 
 # The expected text below was produced by the reference tool (net-tools 2.x)
 # for the same interface state; the counters are synthetic so that the layout
@@ -141,7 +141,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, error] {{
   let plan = process.command_argv(ctx.xsh_bin, argv, root, child_env, b"", out, err, timeout: 60s)
   match linux.run_in_namespaces(plan, unshare: ["user", "net"], map_root_user: true) {
     Ok(status) => {
-      if status.shell_code()? != 0 {
+      guard status.shell_code()? == 0 else {
         test.skip(f"cannot build the interface fixture in a private network namespace: {err.read_text()?.trim()}")
         return ""
       }
@@ -171,7 +171,7 @@ pure stable_lines(text: Str) -> List[Str] {
 
 test test_ifconfig_lists_interfaces_addresses_and_aliases_from_the_kernel { |ctx|
   let transcript = session(ctx, ADDRESSED, [["d0"], ["-s", "d0"], ["d0:1"], ["d1"], ["-a", "-s"], ["nosuch0"]])?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   let long = stable_lines(blocks[1])
   assert long[0] == "d0"
@@ -195,7 +195,7 @@ test test_ifconfig_lists_interfaces_addresses_and_aliases_from_the_kernel { |ctx
 
 test test_ifconfig_default_listing_hides_down_interfaces { |ctx|
   let transcript = session(ctx, ADDRESSED, [[]])?
-  if transcript == "" { return }
+  return when transcript == ""
   assert transcript.find("d0: flags=195") != null
   assert transcript.find("d1: flags") == null
 }
@@ -220,7 +220,7 @@ test test_ifconfig_sets_flags_mtu_addresses_and_hardware_address { |ctx|
       ["d0"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   assert blocks[1] == "d0 192.0.2.1 netmask 255.255.255.0 up\nrc=0\n"
   assert blocks[2] == "d0 broadcast 192.0.2.200 mtu 1400\nrc=0\n"
@@ -255,7 +255,7 @@ test test_ifconfig_adds_and_deletes_ipv6_addresses_and_renames { |ctx|
       ["-a", "-s"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   assert blocks[1] == "d0 add 2001:db8::8/64\nrc=0\n"
   assert blocks[2] == "d0 inet6 add 2001:db8::9\nrc=0\n"
@@ -294,7 +294,7 @@ test test_ifconfig_reports_errors_in_the_reference_wording { |ctx|
       ["--version"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   assert blocks[1] == "nosuch0 down\n2> nosuch0: ERROR while getting interface flags: No such device\nrc=255\n"
   assert blocks[2] == "-v nosuch0 up\n2> nosuch0: ERROR while getting interface flags: No such device\n2> WARNING: at least one error occured. (-1)\nrc=255\n"

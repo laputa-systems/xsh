@@ -8,7 +8,7 @@ type Options = {serial: Bool, delimiters: Str, zero: Bool, help: Bool, version: 
 proc diagnostic_delimiters(data: Bytes) -> Str {
   for at in range(data.len()) {
     let value = data.byte_at(at) ?? 0
-    if value < 32 or value >= 127 { return gnu.quote_bytes(data, always: false) }
+    return gnu.quote_bytes(data, always: false) when value < 32 or value >= 127
   }
   data.utf8() ?? gnu.quote_bytes(data, always: false)
 }
@@ -17,7 +17,7 @@ proc diagnostic_delimiters(data: Bytes) -> Str {
 proc gb18030_locale() [env] -> Bool {
   for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
     let value = env.get(name) ?? ""
-    if value != "" { return "gb18030" in value.lower() }
+    return "gb18030" in value.lower() when value != ""
   }
   false
 }
@@ -31,7 +31,7 @@ pure gb18030_pair(data: Bytes, at: Int) -> Bool {
 }
 
 pure delimiter_unit_size(data: Bytes, at: Int, gb18030: Bool) -> Int {
-  if gb18030 and gb18030_pair(data, at) { return 2 }
+  return 2 when gb18030 and gb18030_pair(data, at)
   text.character(data, at).size
 }
 
@@ -87,7 +87,7 @@ proc next_record(reader: Reader, mark: Int, prefix: Bytes) -> Result[Step] {
       held_prefix = b""; found = true
       current = {source: current.source, buffer: b"", eof: current.eof}
     }
-    if current.eof { break }
+    break when current.eof
     let chunk = text.read_source(current.source, 8192)?
     current = {source: current.source, buffer: chunk, eof: chunk.is_empty()}
   }
@@ -115,8 +115,8 @@ proc main(...argv: List[Bytes]) {
   if opts.serial {
     for name in paths {
       guard let source = text.open_source_bytes(name) else { |failure| text.name_error_bytes(name, failure); failed = true; continue }
-      defer text.close_source(source)?
-      var reader: Reader = {source: source, buffer: b"", eof: false}
+      defer text.close_source(source)
+      var reader: Reader = Reader(source:, buffer: b"", eof: false)
       var index = 0
       loop {
         let prefix = if index == 0 { b"" } else { separators[(index - 1) % separators.len()] }
@@ -132,13 +132,13 @@ proc main(...argv: List[Bytes]) {
     for name in paths {
       guard let source = text.open_source_bytes(name) else { |failure|
         text.name_error_bytes(name, failure)
-        for reader in readers { text.close_source(reader.source)? }
+        for reader in readers { text.close_source(reader.source) }
         exit 1
       }
       readers += [{source: source, buffer: b"", eof: false}]
     }
-    defer { for reader in readers { text.close_source(reader.source)? } }
-    var stdin: Reader = {source: text.Stdin, buffer: b"", eof: false}
+    defer { for reader in readers { text.close_source(reader.source) } }
+    var stdin: Reader = Reader(source: text.Stdin, buffer: b"", eof: false)
     loop {
       var found = false
       var prefix = b""

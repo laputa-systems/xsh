@@ -1,6 +1,6 @@
 use core.lib.btop_model as model
-use core.lib.btop_replay as replay
 use core.lib.btop_rates as rates
+use core.lib.btop_replay as replay
 use core.lib.system_report as report
 use core.tests.support.btop as fixture
 
@@ -21,7 +21,7 @@ test test_btop_replay_is_deterministic_and_uses_the_shared_model {
   assert loaded.display.term == "xterm-256color"
   assert loaded.display.rows == 24 and loaded.display.cols == 80
   assert first.len() == 2
-  assert first[0].cpu_percent.state == rates.Warming
+  assert first[0].cpu_percent.state == .Warming
   assert first[1].cpu_percent.value?.format(precision: 1) == "40.0"
   assert first[1].processes[0].cpu_percent.value?.format(precision: 1) == "12.5"
   assert first[1].memory.used_bytes.value == 805306368
@@ -53,7 +53,7 @@ test test_btop_replay_uses_recorded_mount_capacity_without_querying_the_snapshot
   let frames = replay.models(loaded.observations)
   assert loaded.observations[0].storage.mounts.mounts[0].usage_total_bytes == 123456
   assert loaded.observations[1].storage.mounts.mounts[0].usage_total_bytes == 234567
-  assert frames[0].storage.devices[0].capacity_state == report.Observed
+  assert frames[0].storage.devices[0].capacity_state == .Observed
   assert frames[0].storage.devices[0].total_bytes == 123456
   assert frames[1].storage.devices[0].total_bytes == 234567
 }
@@ -78,10 +78,10 @@ test test_btop_replay_marks_a_coalesced_pause_interval_as_a_gap {
 
   let loaded = replay.load(bundle.host_path()?)?
   let frames = replay.models(loaded.observations)
-  assert frames[1].cpu_percent.state == rates.Gap and frames[1].cpu_percent.value == null
-  assert frames[1].cpu_cores[0].utilization.state == rates.Gap
-  assert frames[1].network.rx_bytes_per_second.state == rates.Gap
-  assert frames[1].processes[0].cpu_percent.state == rates.Gap
+  assert frames[1].cpu_percent.state == .Gap and frames[1].cpu_percent.value == null
+  assert frames[1].cpu_cores[0].utilization.state == .Gap
+  assert frames[1].network.rx_bytes_per_second.state == .Gap
+  assert frames[1].processes[0].cpu_percent.state == .Gap
 }
 
 test test_btop_b3_fixture_raw_sources_match_frozen_digests {
@@ -111,9 +111,9 @@ test test_btop_replay_never_falls_back_to_missing_host_sources {
   let observations = loaded.observations
   let frames = replay.models(observations)
 
-  assert observations[1].cpu.stat.state == report.Absent
-  assert frames[1].cpu_state == report.Absent
-  assert frames[1].cpu_percent.state == rates.Unavailable
+  assert observations[1].cpu.stat.state == .Absent
+  assert frames[1].cpu_state == .Absent
+  assert frames[1].cpu_percent.state == .Unavailable
 }
 
 test test_btop_replay_rejects_nonincreasing_frame_times {

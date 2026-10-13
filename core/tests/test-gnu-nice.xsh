@@ -2,12 +2,12 @@ use support.uu
 
 # Nested commands use the same launcher as the outer nice invocation so both
 # levels observe the inherited priority under the native and oracle runs.
-proc nested(s: uu.Scene, options: List[Str], util: Str = "nice", stderr: Path? = null) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc nested(s: uu.Scene, options: List[Str], util = "nice", stderr: Path? = null) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let child = uu.argv(s, util, [])?
   if stderr == null {
-    return uu.invoke_paths(s, "nice", [Path(word) for word in options].extend(child))
+    return uu.invoke_paths(s, "nice", [fp"{word}" for word in options].extend(child))
   }
-  uu.invoke(s, "nice", options.extend([word.display() for word in child]), stderr: stderr)
+  uu.invoke(s, "nice", options.extend([word.display() for word in child]), stderr:)
 }
 
 # origin: gnu nice/nice-fail.log
@@ -59,7 +59,7 @@ test test_gnu_nice_nice_log { |ctx|
   if lowering.stdout == b"0\n" {
     let advisory = nested(s, ["-n", "-1"], "true")?
     uu.succeeds(advisory)
-    assert advisory.stderr.len() > 0
+    assert ! advisory.stderr.is_empty()
     for options in [["--1"], ["--adj", "-1"]] {
       let r = nested(s, options, "true")?
       uu.succeeds(r)

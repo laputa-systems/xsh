@@ -87,7 +87,7 @@ test test_mv_interactive_decline_leaves_both_files { |ctx|
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let command = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "-i", source.display(), dest.display()],
+    [ctx.xsh_bin, script, "-i", source, dest],
     root, {}, b"n\n", out, err)
   assert process.run(command)?.exited_with(1)
   assert source.read_text()? == "new"
@@ -138,9 +138,11 @@ test test_mv_backup_preserves_source_link_named_like_backup { |ctx|
 test test_mv_cross_device_file_copies_before_removing_source { |ctx|
   let root = test.temp_dir(ctx, name: "mv-cross-device")?
   let shared = p"/dev/shm"
-  let shared_meta = match fs.stat(shared) {
-    Ok(meta) => meta
-    Err(_) => { test.skip("/dev/shm is not available"); return }
+  let shared_meta = if let Ok(meta) = fs.stat(shared) {
+    meta
+  } else {
+    test.skip("/dev/shm is not available")
+    return
   }
   if fs.stat(root)?.dev == shared_meta.dev { test.skip("requires a second filesystem"); return }
 
@@ -148,13 +150,12 @@ test test_mv_cross_device_file_copies_before_removing_source { |ctx|
   destination_dir.mkdir()
   let destination = fp"{destination_dir}/destination"
   defer {
-    destination.remove(missing_ok: true)
+    destination.remove()
     destination_dir.remove_dir()
   }
 
   let source = fp"{root}/source"
-  source.write("payload")
-  source.chmod(0o6751)
+  source.write("payload", mode: 0o6751)
   fs.set_times(source, atime_ns: 1400000000123456789, mtime_ns: 1500000000987654321)
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- $source $destination
 
@@ -169,9 +170,11 @@ test test_mv_cross_device_file_copies_before_removing_source { |ctx|
 test test_mv_cross_device_directory_preserves_links_and_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "mv-cross-device-tree")?
   let shared = p"/dev/shm"
-  let shared_meta = match fs.stat(shared) {
-    Ok(meta) => meta
-    Err(_) => { test.skip("/dev/shm is not available"); return }
+  let shared_meta = if let Ok(meta) = fs.stat(shared) {
+    meta
+  } else {
+    test.skip("/dev/shm is not available")
+    return
   }
   if fs.stat(root)?.dev == shared_meta.dev { test.skip("requires a second filesystem"); return }
 
@@ -183,11 +186,11 @@ test test_mv_cross_device_directory_preserves_links_and_fifo { |ctx|
   let moved_link = fp"{destination}/dangling"
   let moved_fifo = fp"{destination}/fifo"
   defer {
-    moved_first.remove(missing_ok: true)
-    moved_second.remove(missing_ok: true)
-    moved_link.remove(missing_ok: true)
-    moved_fifo.remove(missing_ok: true)
-    if destination.exists()? { destination.remove_dir() }
+    moved_first.remove()
+    moved_second.remove()
+    moved_link.remove()
+    moved_fifo.remove()
+    if destination.exists() { destination.remove_dir() }
     destination_dir.remove_dir()
   }
 
@@ -279,7 +282,7 @@ test test_mv_context_option_is_accepted_without_selinux { |ctx|
     assert result.stdout == "" and result.stderr == ""
     assert ! source.exists()?
     assert dest.read_text()? == "data"
-    dest.remove()?
+    dest.remove()
   }
 }
 
@@ -335,9 +338,11 @@ test test_mv_missing_duplicate_source_is_reported_before_overwrite_check { |ctx|
 test test_mv_cross_device_unremovable_target_reports_inter_device_failure { |ctx|
   let root = test.temp_dir(ctx, name: "mv-unremovable-target")?
   let shared = p"/dev/shm"
-  let shared_meta = match fs.stat(shared) {
-    Ok(meta) => meta
-    Err(_) => { test.skip("/dev/shm is not available"); return }
+  let shared_meta = if let Ok(meta) = fs.stat(shared) {
+    meta
+  } else {
+    test.skip("/dev/shm is not available")
+    return
   }
   if fs.stat(root)?.dev == shared_meta.dev { test.skip("requires a second filesystem"); return }
   if applet.current_euid() == 0 { test.skip("requires an unprivileged caller"); return }
@@ -347,7 +352,7 @@ test test_mv_cross_device_unremovable_target_reports_inter_device_failure { |ctx
   let destination = fp"{destination_dir}/k"
   defer {
     destination_dir.chmod(0o700)
-    destination.remove(missing_ok: true)
+    destination.remove()
     destination_dir.remove_dir()
   }
   destination.write("old")

@@ -154,9 +154,10 @@ pure hex_pair(value: Int, upper: Bool) -> Str {
 
 ## Formats the first `count` bytes of an address with a separator.
 export pure address_text(raw: Bytes, count: Int, separator: Str, upper: Bool) -> Str {
-  var parts: List[Str] = []
-  for index in range(count) {
-    parts += [hex_pair(raw.byte_at(index) ?? 0, upper)]
+  let parts = collect {
+    for index in range(count) {
+      yield hex_pair(raw.byte_at(index) ?? 0, upper)
+    }
   }
   parts.join(separator)
 }
@@ -169,17 +170,19 @@ export pure ipv4_text(raw: Bytes, offset: Int) -> Str {
 ## Four bytes of a dotted-quad address, or null when the text is not one.
 export pure ipv4_parse(text: Str) -> Bytes? {
   let parts = text.split(".")
-  if parts.len() != 4 { return null }
-  var octets: List[Int] = []
-  for part in parts {
-    if part.is_empty() or part.byte_len() > 3 { return null }
-    let value = part.parse_int_decimal() ?? -1
-    if value < 0 or value > 255 { return null }
-    octets += [value]
+  return null when parts.len() != 4
+  let octets = collect {
+    for part in parts {
+      return null when part.is_empty() or part.byte_len() > 3
+      let value = part.parse_int_decimal() ?? -1
+      return null when value < 0 or value > 255
+      yield value
+    }
   }
-  match bytes.from_ints(octets) {
-    Ok(raw) => raw
-    Err(_) => null
+  if let Ok(raw) = bytes.from_ints(octets) {
+    raw
+  } else {
+    null
   }
 }
 
@@ -189,21 +192,23 @@ export pure ipv4_parse(text: Str) -> Bytes? {
 ## silently set an address the caller did not write.
 export pure ether_parse(text: Str) -> Bytes? {
   let parts = text.split(":")
-  if parts.len() != 6 { return null }
-  var octets: List[Int] = []
-  for part in parts {
-    if part.byte_len() < 1 or part.byte_len() > 2 { return null }
-    var value = 0
-    for digit in part.lower() {
-      let at = HEX.find(digit)
-      if at == null { return null }
-      value = value * 16 + (at ?? 0)
+  return null when parts.len() != 6
+  let octets = collect {
+    for part in parts {
+      return null when part.byte_len() < 1 or part.byte_len() > 2
+      var value = 0
+      for digit in part.lower() {
+        let at = HEX.find(digit)
+        return null when at == null
+        value = value * 16 + at
+      }
+      yield value
     }
-    octets += [value]
   }
-  match bytes.from_ints(octets) {
-    Ok(raw) => raw
-    Err(_) => null
+  if let Ok(raw) = bytes.from_ints(octets) {
+    raw
+  } else {
+    null
   }
 }
 
@@ -211,11 +216,8 @@ export pure ether_parse(text: Str) -> Bytes? {
 export pure netmask_parse(text: Str) -> Bytes? {
   if text.starts_with("0x") or text.starts_with("0X") {
     let value = text.parse_int() ?? -1
-    if value < 0 or value > 4294967295 { return null }
-    return match bytes.pack_be(value, 4) {
-      Ok(raw) => raw
-      Err(_) => null
-    }
+    return null when value < 0 or value > 4294967295
+    return if let Ok(raw) = bytes.pack_be(value, 4) { raw } else { null }
   }
   ipv4_parse(text)
 }
@@ -225,34 +227,36 @@ const OCTET_BY_BITS = [0, 128, 192, 224, 240, 248, 252, 254, 255]
 
 ## The netmask bytes for a prefix length of 0 to 32.
 export pure prefix_mask(prefix: Int) -> Bytes {
-  var octets: List[Int] = []
-  for index in range(4) {
-    let bits = prefix - index * 8
-    let clamped = if bits > 8 { 8 } else if bits < 0 { 0 } else { bits }
-    octets += [OCTET_BY_BITS[clamped]]
+  let octets = collect {
+    for index in range(4) {
+      let bits = prefix - index * 8
+      let clamped = if bits > 8 { 8 } else if bits < 0 { 0 } else { bits }
+      yield OCTET_BY_BITS[clamped]
+    }
   }
-  match bytes.from_ints(octets) {
-    Ok(raw) => raw
-    Err(_) => b""
+  if let Ok(raw) = bytes.from_ints(octets) {
+    raw
+  } else {
+    b""
   }
 }
 
 ## The prefix length of a contiguous netmask, or null for a mask with holes.
 export pure mask_prefix(mask: Bytes) -> Int? {
   for prefix in range(33) {
-    if prefix_mask(prefix) == mask { return prefix }
+    return prefix when prefix_mask(prefix) == mask
   }
   null
 }
 
 ## Sixteen bytes of an IPv6 address in text form, or null when it is not one.
 export pure ipv6_parse(text: Str) -> Bytes? {
-  if text.is_empty() or text.find(":") == null { return null }
+  return null when text.is_empty() or text.find(":") == null
   var body = text
-  var tail: List[Int] = []
+  var tail = []
   # An embedded IPv4 tail takes the place of the last two groups.
   let last = body.split(":")
-  let final = last[last.len() - 1]
+  let final = last[-1]
   if final.find(".") != null {
     let quad = ipv4_parse(final)
     guard let raw = quad else { return null }
@@ -260,56 +264,60 @@ export pure ipv6_parse(text: Str) -> Bytes? {
     body = body.byte_slice(0, length: body.byte_len() - final.byte_len()) + "0:0"
   }
   let halves = body.split("::")
-  if halves.len() > 2 { return null }
-  var groups: List[Int] = []
-  var lead: List[Int] = []
-  var rest: List[Int] = []
+  return null when halves.len() > 2
+  var groups = []
+  var lead = []
+  var rest = []
   for index, half in halves {
-    var parsed: List[Int] = []
-    if !half.is_empty() {
-      for piece in half.split(":") {
-        if piece.is_empty() or piece.byte_len() > 4 { return null }
-        var value = 0
-        for digit in piece.lower() {
-          let at = HEX.find(digit)
-          if at == null { return null }
-          value = value * 16 + at
+    let parsed = collect {
+      if !half.is_empty() {
+        for piece in half.split(":") {
+          return null when piece.is_empty() or piece.byte_len() > 4
+          var value = 0
+          for digit in piece.lower() {
+            let at = HEX.find(digit)
+            return null when at == null
+            value = value * 16 + at
+          }
+          yield value
         }
-        parsed += [value]
       }
     }
     if index == 0 { lead = parsed } else { rest = parsed }
   }
   if halves.len() == 1 {
     groups = lead
-    if groups.len() != 8 { return null }
+    return null when groups.len() != 8
   } else {
     let missing = 8 - lead.len() - rest.len()
-    if missing < 1 { return null }
-    groups = lead + [0 for _ in range(missing)] + rest
+    return null when missing < 1
+    groups = [@lead, @[0 for _ in range(missing)], @rest]
   }
   if tail.len() == 2 {
     groups = groups[0..6] + tail
   }
-  var octets: List[Int] = []
-  for value in groups {
-    octets += [value / 256, value % 256]
+  let octets = collect {
+    for value in groups {
+      yield @[value / 256, value % 256]
+    }
   }
-  match bytes.from_ints(octets) {
-    Ok(raw) => raw
-    Err(_) => null
+  if let Ok(raw) = bytes.from_ints(octets) {
+    raw
+  } else {
+    null
   }
 }
 
 ## Parses a decimal number, returning null for anything else.
 export pure decimal(text: Str) -> Int? {
-  if text.is_empty() { return null }
+  return null when text.is_empty()
   for digit in text {
-    if HEX.find(digit) == null or (HEX.find(digit) ?? 0) > 9 { return null }
+    return null when HEX.find(digit) == null or (HEX.find(digit) ?? 0) > 9
   }
-  match text.parse_int_decimal() {
-    Ok(value) => value
-    Err(_) => null
+  if let Ok(value) = text.parse_int_decimal() {
+    value
+  } else {
+    null
   }
 }
 
@@ -344,10 +352,10 @@ export pure human_bytes(count: Int) -> Str {
 }
 
 pure all_digits(raw: Bytes, from: Int) -> Bool {
-  if from >= raw.len() { return false }
+  return false when from >= raw.len()
   for index in range(from, raw.len()) {
     let byte = raw.byte_at(index) ?? 0
-    if byte < 48 or byte > 57 { return false }
+    return false when byte < 48 or byte > 57
   }
   true
 }
@@ -371,11 +379,11 @@ export pure name_order(left: Str, right: Str) -> Int {
   while at < a.len() and at < b.len() and a.byte_at(at) == b.byte_at(at) {
     at += 1
   }
-  if at == a.len() and at == b.len() { return 0 }
+  return 0 when at == a.len() and at == b.len()
   if all_digits(a, at) and all_digits(b, at) {
     let x = number_from(a, at)
     let y = number_from(b, at)
-    if x != y { return if x < y { -1 } else { 1 } }
+    return if x < y { -1 } else { 1 } when x != y
   }
   let ca = if at < a.len() { a.byte_at(at) ?? 0 } else { -1 }
   let cb = if at < b.len() { b.byte_at(at) ?? 0 } else { -1 }
@@ -400,21 +408,22 @@ export pure sort_interfaces(items: List[Interface]) -> List[Interface] {
 
 pure attribute_data(attributes: List[Attribute], kind: Int) -> Bytes? {
   for attribute in attributes {
-    if attribute.kind.bit_and(16383) == kind { return attribute.data }
+    return attribute.data when attribute.kind.bit_and(16383) == kind
   }
   null
 }
 
 ## Splits netlink attributes that follow a fixed header of `start` bytes.
 export pure attributes_of(payload: Bytes, start: Int) -> List[Attribute] {
-  var found: List[Attribute] = []
   var offset = start
-  while offset + 4 <= payload.len() {
-    let length = bytes.unpack_le(payload, 2, offset) ?? 0
-    let kind = bytes.unpack_le(payload, 2, offset + 2) ?? 0
-    if length < 4 or offset + length > payload.len() { break }
-    found += [{kind: kind.bit_and(16383), data: payload.slice(offset + 4, length - 4)}]
-    offset += (length + 3) / 4 * 4
+  let found: List[Attribute] = collect {
+    while offset + 4 <= payload.len() {
+      let length = bytes.unpack_le(payload, 2, offset) ?? 0
+      let kind = bytes.unpack_le(payload, 2, offset + 2) ?? 0
+      break when length < 4 or offset + length > payload.len()
+      yield {kind: kind.bit_and(16383), data: payload.slice(offset + 4, length - 4)}
+      offset += (length + 3) / 4 * 4
+    }
   }
   found
 }
@@ -503,9 +512,10 @@ export proc interfaces() [process, error] -> Result[List[Interface], Error] {
 # ------------------------------------------------------------ long and short
 
 pure flag_names(flags: Int) -> Str {
-  var names: List[Str] = []
-  for entry in FLAG_NAMES {
-    if flags.bit_and(entry.bit) != 0 { names += [entry.name] }
+  let names = collect {
+    for entry in FLAG_NAMES {
+      yield entry.name when flags.bit_and(entry.bit) != 0
+    }
   }
   names.join(",")
 }
@@ -521,7 +531,7 @@ export pure flag_letters(flags: Int) -> Str {
 
 pure hardware_of(hwtype: Int) -> HardwareType? {
   for entry in HARDWARE_TYPES {
-    if entry.type == hwtype { return entry }
+    return entry when entry.type == hwtype
   }
   null
 }
@@ -532,10 +542,10 @@ export pure hardware_name(hwtype: Int) -> Str {
 }
 
 pure scope_text(scope: Int) -> Str {
-  if scope == 0 { return "0x0<global>" }
-  if scope == 254 { return "0x10<host>" }
-  if scope == 253 { return "0x20<link>" }
-  if scope == 200 { return "0x40<site>" }
+  return "0x0<global>" when scope == 0
+  return "0x10<host>" when scope == 254
+  return "0x20<link>" when scope == 253
+  return "0x40<site>" when scope == 200
   "0x0<global>"
 }
 
@@ -571,27 +581,30 @@ pure hardware_line(item: Interface) -> Str {
 
 ## The multi-line listing of one interface, ending with a blank line.
 export pure long_listing(item: Interface) -> Str {
-  var lines: List[Str] = []
   let flags = signed16(item.flags)
-  lines += [f"{item.name}: flags={flags}<{flag_names(item.flags)}>  mtu {item.mtu}"]
-  if let address = item.ipv4 {
-    let mask = ipv4_text(prefix_mask(address.prefix), 0)
-    var text = f"        inet {address.local}  netmask {mask}"
-    if item.flags.bit_and(IFF_POINTOPOINT) != 0 { text += f"  destination {address.peer}" }
-    if item.flags.bit_and(IFF_BROADCAST) != 0 { text += f"  broadcast {address.broadcast ?? "0.0.0.0"}" }
-    lines += [text]
-  }
-  for address in item.ipv6 {
-    lines += [f"        inet6 {address.address}  prefixlen {address.prefix}  scopeid {scope_text(address.scope)}"]
-  }
-  lines += [hardware_line(item)]
-  if let c = item.counters {
-    lines += [
-      f"        RX packets {c.rx_packets}  bytes {c.rx_bytes} ({human_bytes(c.rx_bytes)})",
-      f"        RX errors {c.rx_errors}  dropped {c.rx_dropped}  overruns {c.rx_overruns}  frame {c.rx_frame}",
-      f"        TX packets {c.tx_packets}  bytes {c.tx_bytes} ({human_bytes(c.tx_bytes)})",
-      f"        TX errors {c.tx_errors}  dropped {c.tx_dropped} overruns {c.tx_overruns}  carrier {c.tx_carrier}  collisions {c.tx_collisions}",
-    ]
+  let lines = collect {
+    yield f"{item.name}: flags={flags}<{flag_names(item.flags)}>  mtu {item.mtu}"
+    if let address = item.ipv4 {
+      let mask = ipv4_text(prefix_mask(address.prefix), 0)
+      var text = f"        inet {address.local}  netmask {mask}"
+      if item.flags.bit_and(IFF_POINTOPOINT) != 0 { text += f"  destination {address.peer}" }
+      if item.flags.bit_and(IFF_BROADCAST) != 0 { text += f"  broadcast {address.broadcast ?? "0.0.0.0"}" }
+      yield text
+    }
+
+    for address in item.ipv6 {
+      yield f"        inet6 {address.address}  prefixlen {address.prefix}  scopeid {scope_text(address.scope)}"
+    }
+
+    yield hardware_line(item)
+    if let c = item.counters {
+      yield @[
+        f"        RX packets {c.rx_packets}  bytes {c.rx_bytes} ({human_bytes(c.rx_bytes)})",
+        f"        RX errors {c.rx_errors}  dropped {c.rx_dropped}  overruns {c.rx_overruns}  frame {c.rx_frame}",
+        f"        TX packets {c.tx_packets}  bytes {c.tx_bytes} ({human_bytes(c.tx_bytes)})",
+        f"        TX errors {c.tx_errors}  dropped {c.tx_dropped} overruns {c.tx_overruns}  carrier {c.tx_carrier}  collisions {c.tx_collisions}",
+      ]
+    }
   }
   lines.join("\n") + "\n\n"
 }
@@ -626,7 +639,7 @@ export proc ipv4_routes() [process, error] -> Result[List[RouteRow], Error] {
     continue when route.route_type == 3 or route.route_type == 5
     var gateway = route.gateway ?? "0.0.0.0"
     var ifindex = route.output_ifindex ?? 0
-    if route.nexthops.len() > 0 and ifindex == 0 {
+    if ! route.nexthops.is_empty() and ifindex == 0 {
       ifindex = route.nexthops[0].ifindex
       gateway = route.nexthops[0].gateway ?? gateway
     }
@@ -679,39 +692,38 @@ pure hex_int(text: Str) -> Int {
 
 ## Reads the IPv6 routing table from its procfs listing.
 export proc ipv6_routes() [fs, error] -> Result[List[Route6Row], Error] {
-  var rows: List[Route6Row] = []
-  for line in fp"/proc/net/ipv6_route".read_text()?.lines() {
-    let f = line.fields()
-    continue when f.len() < 10
-    let metric = hex_int(f[5])
-    rows += [{
-      destination: ipv6_from_hex(f[0]),
-      prefix: hex_int(f[1]),
-      nexthop: ipv6_from_hex(f[4]),
-      flags: hex_int(f[8]),
-      metric: if metric >= 2147483648 { metric - 4294967296 } else { metric },
-      ref: hex_int(f[6]),
-      use: hex_int(f[7]),
-      iface: f[9],
-    }]
+  let rows: List[Route6Row] = collect {
+    for line in fp"/proc/net/ipv6_route".read_lines()? {
+      let f = line.fields()
+      continue when f.len() < 10
+      let metric = hex_int(f[5])
+      yield {
+        destination: ipv6_from_hex(f[0]),
+        prefix: hex_int(f[1]),
+        nexthop: ipv6_from_hex(f[4]),
+        flags: hex_int(f[8]),
+        metric: if metric >= 2147483648 { metric - 4294967296 } else { metric },
+        ref: hex_int(f[6]),
+        use: hex_int(f[7]),
+        iface: f[9],
+      }
+    }
   }
   Ok(rows)
 }
 
 pure ipv6_from_hex(text: Str) -> Str {
-  var groups: List[Str] = []
-  for index in range(8) {
-    groups += [text.byte_slice(index * 4, length: 4)]
+  let groups = collect {
+    for index in range(8) {
+      yield text.byte_slice(index * 4, length: 4)
+    }
   }
   compress_ipv6(groups.join(":"))
 }
 
 ## The canonical text of an IPv6 address given as eight hexadecimal groups.
 export pure compress_ipv6(text: Str) -> Str {
-  var values: List[Int] = []
-  for piece in text.split(":") {
-    values += [hex_int(piece)]
-  }
+  var values = [hex_int(piece) for piece in text.split(":")]
   var best_at = -1
   var best_len = 0
   var at = 0
@@ -745,7 +757,7 @@ export pure compress_ipv6(text: Str) -> Str {
 }
 
 pure hex_group(value: Int) -> Str {
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var text = ""
   var rest = value
   while rest > 0 {
@@ -803,9 +815,7 @@ export pure route4_row(row: RouteRow, destination: Str, gateway: Str, extend: In
     return f"{destination:<15} {gate:<15} {row.mask:<15} {row.flags:<5} {mss:>5} {window:<6} {irtt:>5} {iface}"
   }
   let base = f"{destination:<15} {gate:<15} {row.mask:<15} {row.flags:<5} {row.metric:<6} {ref:<2} {row.use:>7}"
-  if extend >= 2 {
-    return f"{base} {iface:<8} {mss:<5} {window:<6} {irtt}"
-  }
+  return f"{base} {iface:<8} {mss:<5} {window:<6} {irtt}" when extend >= 2
   f"{base} {iface}"
 }
 
@@ -929,7 +939,7 @@ export proc hosts_address(name: Str) [fs] -> Str? {
   for line in text.lines() {
     let words = line.split("#")[0].words()
     continue when words.len() < 2
-    if name in words[1..] and ipv4_parse(words[0]) != null { return words[0] }
+    return words[0] when name in words[1..] and ipv4_parse(words[0]) != null
   }
   null
 }

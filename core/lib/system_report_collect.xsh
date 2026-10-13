@@ -106,7 +106,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
     )
   }
 
-  var ids: List[Int] = []
+  var ids = []
   var seen: Set[Str] = set.empty()
   for word in value.split(" ") {
     continue when word == ""
@@ -208,7 +208,7 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
 export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
   return {state: report.Malformed, path: null, has_v1: false} when value == ""
 
-  var found: Str? = null
+  var found = null
   var has_v1 = false
   for line in value.lines() {
     let fields = line.split(":", maxsplit: 2)
@@ -281,8 +281,8 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Er
   }
 
   let choices = value.replace("\t", with: " ").split(" ") |> where .trim() != ""
-  var available: List[Str] = []
-  var selected: Str? = null
+  var available = []
+  var selected = null
   for choice in choices {
     var name = choice
     if choice.starts_with("[") and choice.ends_with("]") and choice.count_chars() >= 3 {

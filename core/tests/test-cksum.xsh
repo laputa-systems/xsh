@@ -37,7 +37,7 @@ test test_cksum_continues_after_unreadable_file { |ctx|
   let missing = test.temp_path(ctx, name: "cksum-missing")
   let result = invoke(ctx, [missing.display(), file.display()], b"")?
   assert result.status == 1
-  assert result.stdout.len() > 0
+  assert ! result.stdout.is_empty()
   assert result.stderr.find("No such file or directory") != null
 }
 
@@ -76,7 +76,7 @@ test test_cksum_debug_reports_cpu_features_and_honors_tunables { |ctx|
   for name in names {
     let enabled = if name == "avx512" or name == "avx2" { name in features and "vpclmulqdq" in features } else if name == "pclmul" { name in features and "avx" in features } else { name in features }
     expected += if enabled { f"cksum: using {name} hardware support\n" } else { f"cksum: {name} support not detected\n" }
-    if enabled { break }
+    break when enabled
   }
   assert debug.stderr == expected
 
@@ -137,7 +137,7 @@ test test_cksum_invalid_sha3_tag_reports_sha3_family { |ctx|
 test test_cksum_help_lists_supported_algorithms { |ctx|
   let result = invoke(ctx, ["--help"], b"")?
   assert result.status == 0
-  let output = result.stdout.utf8()?
+  let output = result.stdout as Str
   let digest_help = "DIGEST determines the digest algorithm and default output format:\n  - sysv:     (equivalent to sum -s)\n  - bsd:      (equivalent to sum -r)\n  - crc:      (equivalent to cksum)\n  - crc32b:   (only available through cksum)\n  - md5:      (equivalent to md5sum)\n  - sha1:     (equivalent to sha1sum)\n  - sha2:     (equivalent to sha{224,256,384,512}sum)\n  - sha3:     (only available through cksum)\n  - blake2b:  (equivalent to b2sum)\n  - sm3:      (only available through cksum)"
   assert output.find(digest_help) != null
 }
@@ -334,10 +334,10 @@ test test_cksum_default_check_rejects_untagged_digest_lines { |ctx|
 
 test test_cksum_check_handles_non_utf8_names_and_comments { |ctx|
   let root = test.temp_dir(ctx, name: "non-utf8-check")?
-  let filename = Path.parse_bytes(bytes.concat([root.bytes(), b"/funky\xffname"]))?
+  let filename = bytes.concat([root.bytes(), b"/funky\xffname"]) as Path
   filename.write("")
-  let missing = Path.parse_bytes(bytes.concat([root.bytes(), b"/FFF\xffFFF"]))?
-  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/FFF\xffDIR"]))?
+  let missing = bytes.concat([root.bytes(), b"/FFF\xffFFF"]) as Path
+  let directory = bytes.concat([root.bytes(), b"/FFF\xffDIR"]) as Path
   directory.mkdir()
 
   let lines = bytes.concat([
@@ -351,7 +351,7 @@ test test_cksum_check_handles_non_utf8_names_and_comments { |ctx|
   ])
   let list = test.temp_file(ctx, name: "non-utf8-check-list", contents: lines)?
   let checked = invoke(ctx, ["--check", list.display()], b"")?
-  let output = checked.stdout.utf8()?
+  let output = checked.stdout as Str
 
   assert checked.status == 1
   assert output.find("funky'$'\\377''name': OK\n") != null

@@ -197,8 +197,8 @@ pure plain_lines() -> Bytes {
 }
 
 pure plain_big() -> Bytes {
-  let chunk = bytes.concat(collect { for _ in range(400) { yield b"0123456789abcdefghijklmn\n" } })
-  bytes.concat(collect { for _ in range(25) { yield chunk } })
+  let chunk = bytes.concat(collect { repeat 400 times { yield b"0123456789abcdefghijklmn\n" } })
+  bytes.concat(collect { repeat 25 times { yield chunk } })
 }
 
 # The fixtures below were written by gzip 1.15, bzip2 1.0.8, xz 5.8.4 (also for
@@ -1003,7 +1003,7 @@ pure seed_text() -> Bytes { b"hello hello hello hello\nworld\n" }
 proc seed(ctx: TestContext, label: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: label)?
   fp"{root}/plain".write(seed_text())
-  fp"{root}/d/e".mkdir(parents: true)?
+  fp"{root}/d/e".mkdir()
   fp"{root}/d/a".write(b"aaaa aaaa\n")
   fp"{root}/d/e/b".write(b"bbbb\n")
   Ok(root)
@@ -1011,9 +1011,10 @@ proc seed(ctx: TestContext, label: Str) [fs, error] -> Result[Path] {
 
 # The regular files below `root`, as `./`-relative names in sorted order.
 proc files_under(root: Path) [fs, error] -> Result[List[Str]] {
-  var found: List[Str] = []
-  for entry in fs.walk(root, hidden: true)? |> sort-by .path {
-    if entry.kind == "file" { found += [f"./{entry.path.relative_to(root).display()}"] }
+  let found = collect {
+    for entry in fs.walk(root, hidden: true)? |> sort-by .path {
+      yield f"./{entry.path.relative_to(root)}" when entry.kind == "file"
+    }
   }
   Ok(found)
 }
@@ -1256,7 +1257,7 @@ test test_xz_format_and_suffix_options_choose_the_container { |ctx|
     let packed = run_in_seed(ctx, "xz-format", "xz", case.args.extend(["plain"]))?
     assert packed.ran.status == 0, f"{case.args.join(" ")}: {packed.ran.stderr}"
     assert files_under(packed.root)? == ["./d/a", "./d/e/b", f"./{case.made}"], case.args.join(" ")
-    let decoded = invoke_in(ctx, "xz", ["-d"].extend(case.args).extend([case.made]), packed.root)?
+    let decoded = invoke_in(ctx, "xz", ["-d", @case.args, case.made], packed.root)?
     assert decoded.status == 0, f"{case.args.join(" ")}: {decoded.stderr}"
     assert fp"{packed.root}/plain".read_bytes()? == seed_text()
   }

@@ -125,19 +125,10 @@ test test_sys_mount_applies_capacity_only_to_the_exact_raw_mount_identity {
   defer root.close()
   write_mountinfo(root, "41 0 8:1 / /mnt/data\\040set rw - ext4 /dev/sda1 rw\n")
   let raw = mounts.collect(root)
-  let captured: mounts.CapturedUsage = {
-    mount_id: 41,
-    major: 8,
-    minor: 1,
-    target: "/mnt/data set",
-    usage_state: report.Observed,
-    usage_total_bytes: 4096,
-    usage_used_bytes: 1024,
-    usage_available_bytes: 2048,
-  }
+  let captured: mounts.CapturedUsage = mounts.CapturedUsage(mount_id: 41, major: 8, minor: 1, target: "/mnt/data set", usage_state: report.Observed, usage_total_bytes: 4096, usage_used_bytes: 1024, usage_available_bytes: 2048)
   let restored = mounts.apply_captured_usage(raw, [captured])?
   assert restored.mounts[0].target == "/mnt/data set"
-  assert restored.mounts[0].usage_state == report.Observed
+  assert restored.mounts[0].usage_state == .Observed
   assert restored.mounts[0].usage_total_bytes == 4096
 
   let wrong_target = {...captured, target: "/mnt/other"}

@@ -1,13 +1,13 @@
-use core.lib.btop_render as render
-use core.lib.btop_replay as replay
-use core.lib.btop_graphs as graphs
-use core.lib.btop_ui as ui
-use core.lib.btop_terminal as terminal
 use core.lib.btop_color as color
+use core.lib.btop_disks as disks
+use core.lib.btop_graphs as graphs
 use core.lib.btop_input as input
 use core.lib.btop_model as model
 use core.lib.btop_rates as rates
-use core.lib.btop_disks as disks
+use core.lib.btop_render as render
+use core.lib.btop_replay as replay
+use core.lib.btop_terminal as terminal
+use core.lib.btop_ui as ui
 use core.lib.system_report as report
 use core.tests.support.btop as fixture
 use tui
@@ -142,28 +142,7 @@ test test_btop_g4a_disk_panel_lists_mount_usage_rates_and_io_graph_modes {
   fixture.write_b3_bundle(bundle, [])
   let loaded = replay.load(bundle.host_path()?)?
   let base = replay.models(loaded.observations)[1]
-  let first: disks.Device = {
-    identity: "41:8:0",
-    identity_state: report.Observed,
-    name: "sda",
-    major: 8,
-    minor: 0,
-    mount_targets: ["/mnt/data"],
-    filesystem: "ext4",
-    capacity_state: report.Observed,
-    capacity_age_ns: 1000000000,
-    total_bytes: 1073741824,
-    used_bytes: 268435456,
-    available_bytes: 805306368,
-    read_sectors: 10,
-    read_state: report.Observed,
-    read_bytes_per_second: {state: rates.Observed, value: 1024.0},
-    write_sectors: 20,
-    write_state: report.Observed,
-    write_bytes_per_second: {state: rates.Observed, value: 2048.0},
-    in_flight: 0,
-    in_flight_state: report.Observed,
-  }
+  let first: disks.Device = disks.Device(identity: "41:8:0", identity_state: report.Observed, name: "sda", major: 8, minor: 0, mount_targets: ["/mnt/data"], filesystem: "ext4", capacity_state: report.Observed, capacity_age_ns: 1000000000, total_bytes: 1073741824, used_bytes: 268435456, available_bytes: 805306368, read_sectors: 10, read_state: report.Observed, read_bytes_per_second: {state: rates.Observed, value: 1024.0}, write_sectors: 20, write_state: report.Observed, write_bytes_per_second: {state: rates.Observed, value: 2048.0}, in_flight: 0, in_flight_state: report.Observed)
   let second: disks.Device = {
     ...first,
     identity: "52:259:0",
@@ -192,12 +171,12 @@ test test_btop_g4a_disk_panel_lists_mount_usage_rates_and_io_graph_modes {
   assert "IO " in tui.cell_slice(screen.lines[18], 33, 32)
   assert screen.row_roles[14] == color.Memory
 
-  let io_view = ui.reduce(initial, input.Pressed(input.Text("i")), value)
+  let io_view = ui.reduce(initial, .Pressed(.Text("i")), value)
   let io_screen = render.render_view_with_graphs(value, io_view, 120, 40, [], histories, capabilities)?
   assert tui.cell_slice(io_screen.lines[18], 33, 32).starts_with("R ")
   assert tui.cell_slice(io_screen.lines[19], 33, 32).starts_with("W ")
 
-  let hidden_view = ui.reduce(initial, input.Pressed(input.Text("d")), value)
+  let hidden_view = ui.reduce(initial, .Pressed(.Text("d")), value)
   let hidden_screen = render.render_view_with_graphs(value, hidden_view, 120, 40, [], histories, capabilities)?
   assert "Disks hidden" in hidden_screen.lines.join("\n")
   assert "sda /mnt/data" not in hidden_screen.lines.join("\n")
@@ -210,7 +189,7 @@ test test_btop_network_interface_keys_select_rates_and_reset_display_totals {
   let loaded = replay.load(bundle.host_path()?)?
   let value = replay.models(loaded.observations)[1]
   let initial = ui.initial(value, render.process_capacity(24))
-  let selected_state = ui.reduce(initial, input.Pressed(input.Text("n")), value)
+  let selected_state = ui.reduce(initial, .Pressed(.Text("n")), value)
   let selected_history = graphs.observe(graphs.empty(), value, selected_state.network_interface)?
   let capabilities = terminal.detect({term: "xterm-256color", colorterm: "", no_color: false, lc_all: "C.UTF-8", lc_ctype: "", lang: "", rows: 24, cols: 80})
   let selected_screen = render.render_view_with_graphs(value, selected_state, 80, 24, [], selected_history, capabilities)?
@@ -218,11 +197,11 @@ test test_btop_network_interface_keys_select_rates_and_reset_display_totals {
   assert "Interface lo" in selected_screen.lines.join("\n")
   assert "RX 0.00 B/s  64 B total" in selected_screen.lines.join("\n")
 
-  let reset_state = ui.reduce(initial, input.Pressed(input.Text("z")), value)
+  let reset_state = ui.reduce(initial, .Pressed(.Text("z")), value)
   let reset_screen = render.render_view_with_graphs(value, reset_state, 80, 24, [], graphs.observe(graphs.empty(), value)?, capabilities)?
   assert "RX 10.00 KiB/s  0 B total" in reset_screen.lines.join("\n")
 
-  let restored_state = ui.reduce(reset_state, input.Pressed(input.Text("z")), value)
+  let restored_state = ui.reduce(reset_state, .Pressed(.Text("z")), value)
   let restored_screen = render.render_view_with_graphs(value, restored_state, 80, 24, [], graphs.observe(graphs.empty(), value)?, capabilities)?
   assert "RX 10.00 KiB/s  986.56 KiB total" in restored_screen.lines.join("\n")
 }
@@ -250,7 +229,7 @@ test test_btop_g4a_process_tree_golden_shows_depth_collapse_and_aggregation {
     ],
   }
   let initial = ui.initial(value, render.process_capacity(24))
-  let tree_mode = ui.reduce(initial, input.Pressed(input.Text("e")), value)
+  let tree_mode = ui.reduce(initial, .Pressed(.Text("e")), value)
   let tree_screen = render.render_view(value, tree_mode, 80, 24, [])?
   let parent_line = tree_screen.lines[11].split("") |> drop(45) |> join("")
   let child_line = tree_screen.lines[12].split("") |> drop(45) |> join("")
@@ -271,7 +250,7 @@ test test_btop_g4a_process_tree_golden_shows_depth_collapse_and_aggregation {
   assert "CPU/core%" in per_core.lines[9]
   assert per_core_parent.starts_with("> [-] 42 1000 30.0% 130 B")
 
-  let collapsed = ui.reduce(tree_mode, input.Pressed(input.Text("-")), value)
+  let collapsed = ui.reduce(tree_mode, .Pressed(.Text("-")), value)
   let collapsed_screen = render.render_view(value, collapsed, 80, 24, [])?
   let collapsed_parent = collapsed_screen.lines[11].split("") |> drop(45) |> join("")
   assert collapsed_parent.starts_with("> [+] 42 1000 10.0% 100 B")

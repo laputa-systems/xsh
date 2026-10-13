@@ -1,5 +1,5 @@
 ##! Transcribed from the uutils coreutils mktemp integration suite.
-use support.uu as uu
+use support.uu
 
 # Only X characters are wildcards; every other byte and the length must match.
 proc matches_template(pattern: Str, filename: Str) {
@@ -10,18 +10,18 @@ proc matches_template(pattern: Str, filename: Str) {
 }
 
 proc output_name(r: uu.Ran) [error] -> Result[Str] {
-  let name = r.stdout.utf8()?
+  let name = r.stdout as Str
   var end = name.byte_len()
   while end > 0 and name.byte_slice(end - 1, length: 1).trim().is_empty() { end -= 1 }
   Ok(name.byte_slice(0, length: end))
 }
 
-proc created(s: uu.Scene, r: uu.Ran, pattern: Str, directory: Bool = false) [fs, error] {
+proc created(s: uu.Scene, r: uu.Ran, pattern: Str, directory = false) [fs, error] {
   uu.succeeds(r)
   uu.no_stderr(r)
   let name = output_name(r)?
   matches_template(pattern, name)
-  let target = if name.starts_with("/") { Path(name) } else { uu.at(s, name) }
+  let target = if name.starts_with("/") { fp"{name}" } else { uu.at(s, name) }
   if directory { assert target.is_dir()? } else { assert target.is_file()? }
 }
 
@@ -173,9 +173,9 @@ test test_uu_mktemp_mktemp_tmpdir_one_arg { |ctx|
   uu.succeeds(r)
   uu.no_stderr(r)
   uu.stdout_contains(r, "apt-key-gpghome.")
-  let target = Path(output_name(r)?)
+  let target = fp"{output_name(r)?}"
   assert target.is_file()?
-  target.remove()?
+  target.remove()
 }
 
 # origin: uutils test_mktemp::test_mktemp_directory_tmpdir
@@ -185,9 +185,9 @@ test test_uu_mktemp_mktemp_directory_tmpdir { |ctx|
   uu.succeeds(r)
   uu.no_stderr(r)
   uu.stdout_contains(r, "apt-key-gpghome.")
-  let target = Path(output_name(r)?)
+  let target = fp"{output_name(r)?}"
   assert target.is_dir()?
-  target.remove()?
+  target.remove()
 }
 
 # origin: uutils test_mktemp::test_mktemp_quiet
@@ -220,7 +220,7 @@ test test_uu_mktemp_respect_template { |ctx|
 # origin: uutils test_mktemp::test_respect_template_directory
 test test_uu_mktemp_respect_template_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
+  uu.mkdir(s, "d")
   let r = uu.invoke(s, "mktemp", ["d/XXX"])?
   created(s, r, "d/XXX", directory: false)
 }
@@ -236,7 +236,7 @@ test test_uu_mktemp_directory_permissions { |ctx|
 # origin: uutils test_mktemp::test_tmpdir_template_has_subdirectory
 test test_uu_mktemp_tmpdir_template_has_subdirectory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")?
+  uu.mkdir(s, "a")
   let r = uu.invoke(s, "mktemp", ["--tmpdir=.", "a/bXXXX"])?
   created(s, r, "./a/bXXXX", directory: false)
 }
@@ -387,7 +387,7 @@ test test_uu_mktemp_empty_tmpdir_env_var { |ctx|
     let r = uu.invoke(s, "mktemp", args, vars: {TMPDIR: ""})?
     uu.succeeds(r)
     uu.stdout_str_starts_with(r, "/tmp")
-    Path(output_name(r)?).remove()?
+    fp"{output_name(r)?}".remove()
   }
 }
 
@@ -396,7 +396,7 @@ test test_uu_mktemp_default_missing_value { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "mktemp", ["-d", "--tmpdir"])?
   uu.succeeds(r)
-  Path(output_name(r)?).remove()?
+  fp"{output_name(r)?}".remove()
 }
 
 # origin: uutils test_mktemp::test_default_issue_4821_t_tmpdir
@@ -465,7 +465,7 @@ test test_uu_mktemp_missing_short_tmpdir_flag { |ctx|
 test test_uu_mktemp_non_utf8_tmpdir_path { |ctx|
   let s = uu.scene(ctx)?
   let dir = uu.at_bytes(s, b"test_dir_\xff\xfe")?
-  dir.mkdir()?
+  dir.mkdir()
   uu.succeeds(uu.invoke_paths(s, "mktemp", [p"-p", dir])?)
 }
 
@@ -473,7 +473,7 @@ test test_uu_mktemp_non_utf8_tmpdir_path { |ctx|
 test test_uu_mktemp_non_utf8_tmpdir_long_option { |ctx|
   let s = uu.scene(ctx)?
   let dir = uu.at_bytes(s, b"test_dir_\xff\xfe")?
-  dir.mkdir()?
+  dir.mkdir()
   uu.succeeds(uu.invoke_paths(s, "mktemp", [p"-p", dir, p"tmpXXXXXX"])?)
 }
 
@@ -481,14 +481,14 @@ test test_uu_mktemp_non_utf8_tmpdir_long_option { |ctx|
 test test_uu_mktemp_non_utf8_tmpdir_directory_creation { |ctx|
   let s = uu.scene(ctx)?
   let dir = uu.at_bytes(s, b"test_dir_\xff\xfe")?
-  dir.mkdir()?
+  dir.mkdir()
   uu.succeeds(uu.invoke_paths(s, "mktemp", [p"-d", p"-p", dir])?)
 }
 
 # origin: uutils test_mktemp::test_invalid_utf8_suffix
 test test_uu_mktemp_invalid_utf8_suffix { |ctx|
   let s = uu.scene(ctx)?
-  let suffix = Path.parse_bytes(b"\xc3|\xed\xba\xad")?
+  let suffix = b"\xc3|\xed\xba\xad" as Path
   uu.succeeds(uu.invoke_paths(s, "mktemp", [p"-p", s.root, p"--suffix", suffix, p"tmpXXXXXX"])?)
 }
 
@@ -498,8 +498,8 @@ test test_uu_mktemp_mktemp_hidden_file_single_dot { |ctx|
   let dir = test.temp_dir(ctx, name: "hidden")?
   let r = uu.invoke(s, "mktemp", [fp"{dir}/.XXXXXX".display()])?
   uu.succeeds(r)
-  let components = Path(r.stdout.utf8()?.trim()).components()
-  let filename = components[components.len() - 1].display()
+  let components = fp"{r.stdout.utf8()?.trim()}".components()
+  let filename = components[-1].display()
   assert filename.starts_with(".")
   assert filename.byte_len() == 7
 }

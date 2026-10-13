@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox sed/sed 's///w FILE'
 test test_bb_sed_sed_s_w_FILE_d6d1b542 { |ctx|
@@ -12,7 +12,7 @@ test test_bb_sed_sed_s_w_FILE_d6d1b542 { |ctx|
 # origin: busybox sed/sed -i finishes ranges correctly
 test test_bb_sed_sed_i_finishes_ranges_correctly_3c12d64c { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"1\n2\n3\n4\n")?
+  uu.write_bytes(s, "input", b"1\n2\n3\n4\n")
   let r = uu.invoke(s, "sed", ["1,2d", "-i", "input"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"")
@@ -22,8 +22,8 @@ test test_bb_sed_sed_i_finishes_ranges_correctly_3c12d64c { |ctx|
 # origin: busybox sed/sed -i with address modifies all files, not only first
 test test_bb_sed_sed_i_with_address_modifies_all_files_not_only_first_48dcecf6 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"foo\n")?
-  uu.write_bytes(s, "input2", b"foo\n")?
+  uu.write_bytes(s, "input", b"foo\n")
+  uu.write_bytes(s, "input2", b"foo\n")
   let r = uu.invoke(s, "sed", ["-i", "-e", "1s/foo/bar/", "input", "input2"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"")
@@ -34,7 +34,7 @@ test test_bb_sed_sed_i_with_address_modifies_all_files_not_only_first_48dcecf6 {
 # origin: busybox sed/sed -i with no arg [GNUFAIL]
 test test_bb_sed_sed_i_with_no_arg_GNUFAIL_1ae21f53 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "-", b"")?
+  uu.write_bytes(s, "-", b"")
   let r = uu.invoke(s, "sed", ["-e", "", "-i"], stdin: b"", timeout: 5s)?
   uu.fails(r)
   uu.stdout_is_bytes(r, b"")
@@ -67,8 +67,8 @@ test test_bb_sed_sed__in_regex_should_not_match_newlines_only_end_of_line_07aa27
 # origin: busybox sed/sed /regex/,+0<cmd> -i works
 test test_bb_sed_sed_regex_0_cmd_i_works_efba3b87 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"1\n2\n3\n4\n5\n6\n7\n8\n")?
-  uu.write_bytes(s, "input2", b"1\n2\n4\n5\n6\n7\n8\n")?
+  uu.write_bytes(s, "input", b"1\n2\n3\n4\n5\n6\n7\n8\n")
+  uu.write_bytes(s, "input2", b"1\n2\n4\n5\n6\n7\n8\n")
   let r = uu.invoke(s, "sed", ["/^4/,+0d", "-i", "input", "input2"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"")
@@ -79,8 +79,8 @@ test test_bb_sed_sed_regex_0_cmd_i_works_efba3b87 { |ctx|
 # origin: busybox sed/sed /regex/,+0{...} -i works
 test test_bb_sed_sed_regex_0_i_works_0ad5389b { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"1\n2\n3\n4\n5\n6\n7\n8\n")?
-  uu.write_bytes(s, "input2", b"1\n2\n4\n5\n6\n7\n8\n")?
+  uu.write_bytes(s, "input", b"1\n2\n3\n4\n5\n6\n7\n8\n")
+  uu.write_bytes(s, "input2", b"1\n2\n4\n5\n6\n7\n8\n")
   let r = uu.invoke(s, "sed", ["/^4/,+0{d}", "-i", "input", "input2"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"")
@@ -91,8 +91,8 @@ test test_bb_sed_sed_regex_0_i_works_0ad5389b { |ctx|
 # origin: busybox sed/sed /regex/,+N{...} -i works
 test test_bb_sed_sed_regex_N_i_works_e23e1052 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"1\n2\n3\n4\n5\n6\n7\n8\n")?
-  uu.write_bytes(s, "input2", b"1\n2\n4\n5\n6\n7\n8\n")?
+  uu.write_bytes(s, "input", b"1\n2\n3\n4\n5\n6\n7\n8\n")
+  uu.write_bytes(s, "input2", b"1\n2\n4\n5\n6\n7\n8\n")
   let r = uu.invoke(s, "sed", ["/^4/,+2{d}", "-i", "input", "input2"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"")
@@ -247,7 +247,7 @@ test test_bb_sed_sed_append_autoinserts_newline_c3afb84e { |ctx|
 # origin: busybox sed/sed append autoinserts newline 2
 test test_bb_sed_sed_append_autoinserts_newline_2_b927dfb8 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"boot")?
+  uu.write_bytes(s, "input", b"boot")
   let r = uu.invoke(s, "sed", ["-e", "/oot/a woo", "-", "input"], stdin: b"woot", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"woot\nwoo\nboot\nwoo\n")
@@ -256,7 +256,7 @@ test test_bb_sed_sed_append_autoinserts_newline_2_b927dfb8 { |ctx|
 # origin: busybox sed/sed append autoinserts newline 3
 test test_bb_sed_sed_append_autoinserts_newline_3_246a2f55 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"boot")?
+  uu.write_bytes(s, "input", b"boot")
   let r = uu.invoke(s, "sed", ["-e", "/oot/a woo", "-i", "input"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"")
@@ -266,7 +266,7 @@ test test_bb_sed_sed_append_autoinserts_newline_3_246a2f55 { |ctx|
 # origin: busybox sed/sed autoinsert newline
 test test_bb_sed_sed_autoinsert_newline_7cfe5a74 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"woo")?
+  uu.write_bytes(s, "input", b"woo")
   let r = uu.invoke(s, "sed", ["-e", "s/woo/bang/", "input", "-"], stdin: b"woo", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"bang\nbang")
@@ -323,7 +323,7 @@ test test_bb_sed_sed_c_31e9d6a6 { |ctx|
 # origin: busybox sed/sed cat plus empty file
 test test_bb_sed_sed_cat_plus_empty_file_3086a501 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"one\ntwo")?
+  uu.write_bytes(s, "input", b"one\ntwo")
   let r = uu.invoke(s, "sed", ["-e", "s/nohit//", "input", "-"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"one\ntwo")
@@ -332,7 +332,7 @@ test test_bb_sed_sed_cat_plus_empty_file_3086a501 { |ctx|
 # origin: busybox sed/sed clusternewline
 test test_bb_sed_sed_clusternewline_34f28451 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"one")?
+  uu.write_bytes(s, "input", b"one")
   let r = uu.invoke(s, "sed", ["-e", "/one/a 111", "-e", "/two/i 222", "-e", "p", "input", "-"], stdin: b"two", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"one\none\n111\n222\ntwo\ntwo")
@@ -389,7 +389,7 @@ test test_bb_sed_sed_embedded_NUL_g_d82a9a6c { |ctx|
 # origin: busybox sed/sed empty file plus cat
 test test_bb_sed_sed_empty_file_plus_cat_4fd3d535 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"")?
+  uu.write_bytes(s, "input", b"")
   let r = uu.invoke(s, "sed", ["-e", "s/nohit//", "input", "-"], stdin: b"one\ntwo", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"one\ntwo")
@@ -398,7 +398,7 @@ test test_bb_sed_sed_empty_file_plus_cat_4fd3d535 { |ctx|
 # origin: busybox sed/sed escaped newline in command
 test test_bb_sed_sed_escaped_newline_in_command_2eaf03d6 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"a")?
+  uu.write_bytes(s, "input", b"a")
   let r = uu.invoke(s, "sed", ["s/a/z\\\nz/", "input"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"z\nz")
@@ -439,7 +439,7 @@ test test_bb_sed_sed_insert_doesn_t_autoinsert_newline_af591a21 { |ctx|
 # origin: busybox sed/sed leave off trailing newline
 test test_bb_sed_sed_leave_off_trailing_newline_fe196d74 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"woo\n")?
+  uu.write_bytes(s, "input", b"woo\n")
   let r = uu.invoke(s, "sed", ["-e", "s/woo/bang/", "input", "-"], stdin: b"woo", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"bang\nbang")
@@ -465,8 +465,8 @@ test test_bb_sed_sed_match_EOF_9bac1a29 { |ctx|
 # origin: busybox sed/sed match EOF inline
 test test_bb_sed_sed_match_EOF_inline_053b8c16 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"one\ntwo")?
-  uu.write_bytes(s, "input2", b"three\nfour")?
+  uu.write_bytes(s, "input", b"one\ntwo")
+  uu.write_bytes(s, "input2", b"three\nfour")
   let r = uu.invoke(s, "sed", ["-e", "$i ook", "-i", "input", "input2"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"")
@@ -477,7 +477,7 @@ test test_bb_sed_sed_match_EOF_inline_053b8c16 { |ctx|
 # origin: busybox sed/sed match EOF two files
 test test_bb_sed_sed_match_EOF_two_files_7c3c25c7 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"one\ntwo")?
+  uu.write_bytes(s, "input", b"one\ntwo")
   let r = uu.invoke(s, "sed", ["-e", "$p", "input", "-"], stdin: b"three\nfour", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"one\ntwo\nthree\nfour\nfour")
@@ -518,7 +518,7 @@ test test_bb_sed_sed_no_files_stdin_c44f9ab9 { |ctx|
 # origin: busybox sed/sed noprint, no match, no newline
 test test_bb_sed_sed_noprint_no_match_no_newline_fa062fa7 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"no\n")?
+  uu.write_bytes(s, "input", b"no\n")
   let r = uu.invoke(s, "sed", ["-ne", "s/woo/bang/", "input"], stdin: b"", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"")
@@ -527,7 +527,7 @@ test test_bb_sed_sed_noprint_no_match_no_newline_fa062fa7 { |ctx|
 # origin: busybox sed/sed normal newlines
 test test_bb_sed_sed_normal_newlines_a3cedd0b { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"woo\n")?
+  uu.write_bytes(s, "input", b"woo\n")
   let r = uu.invoke(s, "sed", ["-e", "s/woo/bang/", "input", "-"], stdin: b"woo\n", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"bang\nbang\n")
@@ -544,7 +544,7 @@ test test_bb_sed_sed_print_autoinsert_newlines_2b788599 { |ctx|
 # origin: busybox sed/sed print autoinsert newlines two files
 test test_bb_sed_sed_print_autoinsert_newlines_two_files_9dc06c22 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"one")?
+  uu.write_bytes(s, "input", b"one")
   let r = uu.invoke(s, "sed", ["-e", "p", "input", "-"], stdin: b"two", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"one\none\ntwo\ntwo")
@@ -625,7 +625,7 @@ test test_bb_sed_sed_s_xxx_bba90a5e { |ctx|
 # origin: busybox sed/sed selective matches insert newline
 test test_bb_sed_sed_selective_matches_insert_newline_e73e4218 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"a woo\nb woo")?
+  uu.write_bytes(s, "input", b"a woo\nb woo")
   let r = uu.invoke(s, "sed", ["-ne", "s/woo/bang/p", "input", "-"], stdin: b"c no\nd woo", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"a bang\nb bang\nd bang")
@@ -634,7 +634,7 @@ test test_bb_sed_sed_selective_matches_insert_newline_e73e4218 { |ctx|
 # origin: busybox sed/sed selective matches noinsert newline
 test test_bb_sed_sed_selective_matches_noinsert_newline_2c94ec2d { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"a woo\nb woo")?
+  uu.write_bytes(s, "input", b"a woo\nb woo")
   let r = uu.invoke(s, "sed", ["-ne", "s/woo/bang/p", "input", "-"], stdin: b"c no\nd no", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"a bang\nb bang")
@@ -643,7 +643,7 @@ test test_bb_sed_sed_selective_matches_noinsert_newline_2c94ec2d { |ctx|
 # origin: busybox sed/sed selective matches with one nl
 test test_bb_sed_sed_selective_matches_with_one_nl_ff00b69e { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "input", b"a woo\nb no")?
+  uu.write_bytes(s, "input", b"a woo\nb no")
   let r = uu.invoke(s, "sed", ["-ne", "s/woo/bang/p", "input", "-"], stdin: b"c woo\nd no", timeout: 5s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"a bang\nc bang\n")

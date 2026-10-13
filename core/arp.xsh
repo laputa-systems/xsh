@@ -42,31 +42,34 @@ proc usage_error() [process, error] {
 # the remaining bytes.
 pure parse_address(word: Str) -> Bytes? {
   let parts = word.split(".")
-  if parts.len() < 1 or parts.len() > 4 { return null }
-  var values: List[Int] = []
-  for part in parts {
-    let value = nettools.decimal(part)
-    if value == null { return null }
-    values += [value ?? 0]
+  return null when parts.len() < 1 or parts.len() > 4
+  let values = collect {
+    for part in parts {
+      let value = nettools.decimal(part)
+      return null when value == null
+      yield value
+    }
   }
-  var octets: List[Int] = []
-  for index in range(parts.len() - 1) {
-    if values[index] > 255 { return null }
-    octets += [values[index]]
+  let octets = collect {
+    for index in range(parts.len() - 1) {
+      return null when values[index] > 255
+      yield values[index]
+    }
   }
   var tail = values[parts.len() - 1]
   let room = 4 - octets.len()
   var limit = 1
-  for _ in range(room) { limit = limit * 256 }
-  if tail >= limit { return null }
-  var last: List[Int] = []
-  for _ in range(room) {
-    last = [tail % 256] + last
+  repeat room times { limit = limit * 256 }
+  return null when tail >= limit
+  var last = []
+  repeat room times {
+    last = [tail % 256, @last]
     tail = tail / 256
   }
-  match bytes.from_ints(octets + last) {
-    Ok(raw) => raw
-    Err(_) => null
+  if let Ok(raw) = bytes.from_ints(octets + last) {
+    raw
+  } else {
+    null
   }
 }
 
@@ -82,7 +85,7 @@ proc resolve(word: Str) [fs, process, error] -> Bytes {
 
 pure hw_number(name: Str) -> Int? {
   for entry in HW_TYPES {
-    if entry.name == name { return entry.number }
+    return entry.number when entry.name == name
   }
   null
 }
@@ -138,10 +141,10 @@ proc set_entry(options: Options, host: Str, hardware: Str, words: List[Str]) [fs
       eprint "arp: invalid hardware address"
       exit 255
     }
-    mac = parsed ?? b""
+    mac = parsed
   }
   var flags = 6
-  var mask: Bytes? = null
+  var mask = null
   var at = 0
   while at < words.len() {
     let word = words[at]
@@ -216,7 +219,7 @@ proc show(options: Options) [fs, process, env, io, error] {
     eprint f"arp: cannot read the neighbour table: {gnu.strerror(failure)}"
     exit 255
   }
-  var wanted: Str? = null
+  var wanted = null
   var wanted_address = ""
   if !options.operands.is_empty() {
     let raw = parse_address(options.operands[0])
@@ -244,7 +247,7 @@ proc show(options: Options) [fs, process, env, io, error] {
       continue
     }
     shown += 1
-    let name: Str = names.get(entry.address) ?? ""
+    let name = names.get(entry.address) ?? ""
     if options.bsd {
       gnu.write_text(nettools.arp_bsd_row(entry, if name == "" { "?" } else { name }) + "\n")
     } else {
@@ -260,7 +263,7 @@ proc show(options: Options) [fs, process, env, io, error] {
   }
   if shown == 0 {
     if wanted != null and !options.bsd {
-      gnu.write_text(f"{wanted ?? ""} ({wanted_address}) -- no entry\n")
+      gnu.write_text(f"{wanted} ({wanted_address}) -- no entry\n")
     } else if wanted != null or options.device != null or options.hw_given {
       gnu.write_text(f"arp: in {entries.len()} entries no match found.\n")
     }
@@ -280,12 +283,9 @@ proc load_file(options: Options, file: Str) [fs, process, net, env, error] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, io, error] {
-  var options: Options = {
-    bsd: false, set: false, delete: false, file: false, verbose: false, numeric: false, use_device: false,
-    device: null, hw: 1, hw_given: false, operands: [],
-  }
+  var options: Options = Options(bsd: false, set: false, delete: false, file: false, verbose: false, numeric: false, use_device: false, device: null, hw: 1, hw_given: false, operands: [])
   var at = 0
-  var operands: List[Str] = []
+  var operands = []
   while at < argv.len() {
     let word = argv[at]
     at += 1
@@ -321,7 +321,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
           if word == "--device" {
             options = {...options, device: value}
           } else if word == "--protocol" {
-            if value != "inet" {
+            guard value == "inet" else {
               eprint f"arp: {value}: kernel only supports 'inet'."
               exit 255
             }
@@ -331,7 +331,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
               eprint f"arp: {value}: unknown hardware type."
               exit 255
             }
-            options = {...options, hw: number ?? 1, hw_given: true}
+            options = {...options, hw: number, hw_given: true}
           }
         }
         else => {
@@ -377,7 +377,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
           if letter == "i" {
             options = {...options, device: value}
           } else if letter == "A" or letter == "p" {
-            if value != "inet" {
+            guard value == "inet" else {
               eprint f"arp: {value}: kernel only supports 'inet'."
               exit 255
             }
@@ -387,7 +387,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
               eprint f"arp: {value}: unknown hardware type."
               exit 255
             }
-            options = {...options, hw: number ?? 1, hw_given: true}
+            options = {...options, hw: number, hw_given: true}
           }
         }
         else => {

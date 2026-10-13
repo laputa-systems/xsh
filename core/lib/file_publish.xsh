@@ -15,7 +15,7 @@ export proc present(entry: Path) -> Result[Bool, Error] {
 ## Compare inode identity without following the final symlink.
 export proc same(source: Path, dest: Path) -> Result[Bool, Error] {
   let a = fs.stat(source)?
-  return false when ! present(dest)?
+  return false when ! present(dest)
   let b = fs.stat(dest)?
   a.dev == b.dev and a.ino == b.ino
 }
@@ -99,8 +99,8 @@ export proc backup_name(dest: Path, control: Str, suffix: Str) -> Result[Path?, 
 
 ## Read exactly one answer so each operand can ask its own question.
 export proc confirm(dest: Path, verb = "overwrite") -> Result[Bool, Error] {
-  io.write_stderr(f"{gnu.prog()}: {verb} {gnu.quote(dest.display())}? ")?
-  io.flush_stderr()?
+  io.write_stderr(f"{gnu.prog()}: {verb} {gnu.quote(dest.display())}? ")
+  io.flush_stderr()
   let answer = io.stdin_line()?
   answer.lower().starts_with("y")
 }
@@ -108,7 +108,7 @@ export proc confirm(dest: Path, verb = "overwrite") -> Result[Bool, Error] {
 ## Stage a link in the destination directory so replacement is atomic and a
 ## failed source lookup leaves the old destination intact.
 export proc publish_link(source: Path, dest: Path, symbolic: Bool, logical: Bool, replace: Bool) -> Result[Unit, Error] {
-  if ! replace {
+  guard replace else {
     if symbolic { dest.symlink(to: source) } else { fs.link(source, dest, follow_symlinks: logical) }
     return
   }
@@ -125,16 +125,16 @@ export proc canonical(entry: Path) -> Result[Path, Error] {
   match entry.resolve() {
     Ok(found) => found
     Err(failure) => {
-      if gnu.errno(failure) != 2 or entry.parent() == entry { return Err(failure) }
+      return Err(failure) when gnu.errno(failure) != 2 or entry.parent() == entry
       match fs.stat(entry) {
         Ok(meta) => {
           if meta.kind == "symlink" {
             let target = entry.readlink()?
-            let resolved = if target.display().starts_with("/") { target } else { fp"{entry.parent()}/{target}" }
+            let resolved = if target.starts_with(p"/") { target } else { fp"{entry.parent()}/{target}" }
             return canonical(resolved)
           }
         }
-        Err(missing) => { if gnu.errno(missing) != 2 { return Err(missing) } }
+        Err(missing) => return Err(missing) when gnu.errno(missing) != 2
       }
       fp"{canonical(entry.parent())?}/{entry.name()}".normalize()
     }
@@ -185,7 +185,7 @@ export proc directory(entry: Path, follow: Bool) -> Result[Bool, Error] {
   match fs.stat(entry, follow_symlinks: follow) {
     Ok(meta) => meta.kind == "dir"
     Err(failure) => {
-      if gnu.errno(failure) in [2, 20] { return false }
+      return false when gnu.errno(failure) in [2, 20]
       Err(failure)
     }
   }
@@ -196,7 +196,7 @@ export pure destination(directory: Path, source: Path) -> Path {
   let components = source.components()
   let basename = if source.name() == "" { p"" } else { components[-1] }
   let directory_bytes = directory.bytes()
-  if directory_bytes.len() > 0 and directory_bytes.byte_at(directory_bytes.len() - 1) == 47 {
+  if ! directory_bytes.is_empty() and directory_bytes.byte_at(directory_bytes.len() - 1) == 47 {
     fp"{directory}{basename}"
   } else {
     fp"{directory}/{basename}"

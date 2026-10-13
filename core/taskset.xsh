@@ -58,7 +58,7 @@ pure count_of(digits: Str) -> Int {
 
 pure sorted_unique(values: List[Int]) -> List[Int] {
   let ordered = values |> sort
-  var out: List[Int] = []
+  var out = []
 
   for value in ordered {
     if out.is_empty() or out[-1] != value {
@@ -75,25 +75,25 @@ pure sorted_unique(values: List[Int]) -> List[Int] {
 pure parse_list(text: Str) -> List[Int]? {
   return null when text == ""
 
-  var cpus: List[Int] = []
+  let cpus = collect {
+    for element in text.split(",") {
+      let parts = LIST_ELEMENT.captures(element)
 
-  for element in text.split(",") {
-    let parts = LIST_ELEMENT.captures(element)
+      return null when parts.is_empty()
 
-    return null when parts.is_empty()
+      let first = count_of(parts[1])
+      let last = if parts[2] == "" { first } else { count_of(parts[2]) }
+      let stride = if parts[3] == "" { 1 } else { count_of(parts[3]) }
 
-    let first = count_of(parts[1])
-    let last = if parts[2] == "" { first } else { count_of(parts[2]) }
-    let stride = if parts[3] == "" { 1 } else { count_of(parts[3]) }
+      return null when last < first or stride < 1
 
-    return null when last < first or stride < 1
+      var at = first
+      let end = if last < CPU_LIMIT { last } else { CPU_LIMIT - 1 }
 
-    var at = first
-    let end = if last < CPU_LIMIT { last } else { CPU_LIMIT - 1 }
-
-    while at <= end {
-      cpus += [at]
-      at += stride
+      while at <= end {
+        yield at
+        at += stride
+      }
     }
   }
 
@@ -108,37 +108,36 @@ pure parse_mask(text: Str) -> List[Int]? {
 
   return null when ! MASK_TEXT.matches(body)
 
-  var cpus: List[Int] = []
   var number = 0
   var at = body.byte_len() - 1
 
-  while at >= 0 {
-    var digit_text = body.byte_slice(at, length: 1)
+  let cpus = collect {
+    while at >= 0 {
+      var digit_text = body.byte_slice(at, length: 1)
 
-    if digit_text == "," {
-      at -= 1
+      if digit_text == "," {
+        at -= 1
 
-      return null when at < 0
+        return null when at < 0
 
-      digit_text = body.byte_slice(at, length: 1)
-    }
-
-    let digit = HEX_DIGITS.find(digit_text.lower())
-
-    return null when digit == null
-
-    let value = digit ?? 0
-
-    for bit in range(4) {
-      let weight = [1, 2, 4, 8][bit]
-
-      if value / weight % 2 == 1 and number + bit < CPU_LIMIT {
-        cpus += [number + bit]
+        digit_text = body.byte_slice(at, length: 1)
       }
-    }
 
-    number += 4
-    at -= 1
+      let digit = HEX_DIGITS.find(digit_text.lower())
+
+      guard let value = digit else {
+        return null
+      }
+
+      for bit in range(4) {
+        let weight = [1, 2, 4, 8][bit]
+
+        yield number + bit when value / weight % 2 == 1 and number + bit < CPU_LIMIT
+      }
+
+      number += 4
+      at -= 1
+    }
   }
 
   cpus
@@ -148,12 +147,7 @@ pure parse_mask(text: Str) -> List[Int]? {
 pure format_mask(cpus: List[Int]) -> Str {
   return "0" when cpus.is_empty()
 
-  var nibbles: List[Int] = []
-
-  for _ in range(cpus[-1] / 4 + 1) {
-    nibbles += [0]
-  }
-
+  var nibbles = [0 for _ in range(cpus[-1] / 4 + 1)]
   for id in cpus {
     nibbles[id / 4] = nibbles[id / 4] + [1, 2, 4, 8][id % 4]
   }
@@ -174,30 +168,31 @@ pure format_mask(cpus: List[Int]) -> Str {
 # starts at the first CPU not yet written; a shorter run is written one CPU at a
 # time, so the tail of a two-CPU run can start the next range.
 pure format_list(cpus: List[Int]) -> Str {
-  var entries: List[Str] = []
   var at = 0
 
-  while at < cpus.len() {
-    if at + 1 >= cpus.len() {
-      entries += [f"{cpus[at]}"]
-      break
-    }
+  let entries = collect {
+    while at < cpus.len() {
+      if at + 1 >= cpus.len() {
+        yield f"{cpus[at]}"
+        break
+      }
 
-    let stride = cpus[at + 1] - cpus[at]
-    var last = at + 1
+      let stride = cpus[at + 1] - cpus[at]
+      var last = at + 1
 
-    while last + 1 < cpus.len() and cpus[last + 1] - cpus[last] == stride {
-      last += 1
-    }
+      while last + 1 < cpus.len() and cpus[last + 1] - cpus[last] == stride {
+        last += 1
+      }
 
-    if last - at >= 2 {
-      let range = f"{cpus[at]}-{cpus[last]}"
+      if last - at >= 2 {
+        let range = f"{cpus[at]}-{cpus[last]}"
 
-      entries += [if stride == 1 { range } else { f"{range}:{stride}" }]
-      at = last + 1
-    } else {
-      entries += [f"{cpus[at]}"]
-      at += 1
+        yield if stride == 1 { range } else { f"{range}:{stride}" }
+        at = last + 1
+      } else {
+        yield f"{cpus[at]}"
+        at += 1
+      }
     }
   }
 
@@ -252,18 +247,17 @@ proc pid_argument(text: Str) [process, env] -> Int {
 # The task ids of a process, ascending, or null when the process does not exist
 # (a live process always has at least its main task).
 proc task_ids(pid: Int) [process, error] -> List[Int]? {
-  match process.threads(pid) {
-    Ok(threads) => {
-      let rows: List[ProcessThread] = threads |> collect
-      var ids: List[Int] = []
-
+  if let Ok(threads) = process.threads(pid) {
+    let rows: List[ProcessThread] = threads |> collect()
+    let ids = collect {
       for row in rows {
-        ids += [row.thread_id]
+        yield row.thread_id
       }
-
-      if ids.is_empty() { null } else { ids |> sort }
     }
-    Err(_) => null
+  
+    if ids.is_empty() { null } else { ids |> sort }
+  } else {
+    null
   }
 }
 
@@ -325,7 +319,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let setting = if opts.pid { count == 2 } else { true }
-  var requested: List[Int] = []
+  var requested = []
 
   let pid = if opts.pid { pid_argument(operands[count - 1]) } else { 0 }
 
@@ -339,7 +333,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    requested = wanted ?? []
+    requested = wanted
   }
 
   if ! opts.pid {
@@ -379,11 +373,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let listed = task_ids(if pid == 0 { process.current_pid()? } else { pid })
 
     # A process without a task directory has nothing to report or change.
-    if listed == null {
-      return
-    }
+    return when listed == null
 
-    targets = listed ?? []
+    targets = listed
   }
 
   for target in targets {

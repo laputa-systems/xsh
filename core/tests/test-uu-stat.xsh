@@ -1,6 +1,6 @@
 ##! Transcribed file metadata and formatting tests from the uutils suite.
 
-use support.uu as uu
+use support.uu
 
 const NORMAL = "%a %A %b %B %d %D %f %F %g %G %h %i %m %n %o %s %u %U %x %X %y %Y %z %Z"
 const DEVICE = "%a %A %b %B %d %D %f %F %g %G %h %i %m %n %o %s (%t/%T) %u %U %w %W %x %X %y %Y %z %Z"
@@ -8,14 +8,14 @@ const FILESYSTEM = "%b %c %i %l %n %s %S %t %T"
 
 # The metadata API transports native unsigned fields through signed Int bits.
 proc unsigned(value: Int) [error] -> Result[Str, Error] {
-  if value >= 0 { return Ok(f"{value}") }
+  return Ok(f"{value}") when value >= 0
   let inverse = f"{-(value + 1)}"
   var carry = 0
-  var digits: List[Str] = []
+  var digits = []
   for offset in range(20) {
-    let maximum_digit = "18446744073709551615".byte_slice(19 - offset, length: 1).parse_int()?
+    let maximum_digit = "18446744073709551615".byte_slice(19 - offset, length: 1) as Int
     let index = inverse.byte_len() - 1 - offset
-    let subtract = if index < 0 { 0 } else { inverse.byte_slice(index, length: 1).parse_int()? }
+    let subtract = if index < 0 { 0 } else { inverse.byte_slice(index, length: 1) as Int }
     let digit = maximum_digit - subtract - carry
     digits = [f"{if digit < 0 { digit + 10 } else { digit }}"].extend(digits)
     carry = if digit < 0 { 1 } else { 0 }
@@ -25,7 +25,7 @@ proc unsigned(value: Int) [error] -> Result[Str, Error] {
 
 proc radix(value: Int, base: Int) [error] -> Result[Str, Error] {
   var remaining = if value < 0 { -(value + 1) } else { value }
-  var digits: List[Str] = []
+  var digits = []
   if value < 0 {
     assert base == 16
     for offset in range(16) {
@@ -42,7 +42,7 @@ proc radix(value: Int, base: Int) [error] -> Result[Str, Error] {
   Ok(digits.join(""))
 }
 
-proc canonical_number(word: Str, hex: Bool = false) [error] -> Result[Str, Error] {
+proc canonical_number(word: Str, hex = false) [error] -> Result[Str, Error] {
   var digits = if word.starts_with("+") { word.byte_slice(1) } else { word }
   assert if hex { rx"^[0-9a-fA-F]+$".matches(digits) } else { rx"^[0-9]+$".matches(digits) }
   while digits.byte_len() > 1 and digits.starts_with("0") { digits = digits.byte_slice(1) }
@@ -82,12 +82,12 @@ proc date_text(nanos: Int) [time, error] -> Result[Str, Error] {
 }
 
 # Serialize the fixed full-format contract directly from native metadata.
-proc normal_output(target: Path, name: Str, device: Bool = false, follow: Bool = false) [fs, process, time, error] -> Result[Str, Error] {
+proc normal_output(target: Path, name: Str, device = false, follow = false) [fs, process, time, error] -> Result[Str, Error] {
   let mount = fs.mount_for(target.resolve()?)?
   let meta = fs.stat(target, follow_symlinks: follow)?
   let owner = user.by_uid(meta.uid)?.name
   let owners_group = group.by_gid(meta.gid)?.name
-  var values = [radix(meta.mode % 4096, 8)?, symbolic(meta), f"{meta.blocks_512}", "512", f"{unsigned(meta.dev)?}", radix(meta.dev, 16)?, radix(meta.mode, 16)?, file_kind(meta), f"{meta.gid}", owners_group, f"{meta.nlink}", f"{unsigned(meta.ino)?}", mount.mounted_on.display(), name, f"{meta.blksize}", f"{unsigned(meta.size)?}"]
+  var values = [radix(meta.mode % 4096, 8)?, symbolic(meta), f"{meta.blocks_512}", "512", unsigned(meta.dev)?, radix(meta.dev, 16)?, radix(meta.mode, 16)?, file_kind(meta), f"{meta.gid}", owners_group, f"{meta.nlink}", unsigned(meta.ino)?, mount.mounted_on.display(), name, f"{meta.blksize}", unsigned(meta.size)?]
   if device { values += [f"({radix(fs.dev_major(meta.rdev), 16)?}/{radix(fs.dev_minor(meta.rdev), 16)?})"] }
   values += [f"{meta.uid}", owner]
   if device {
@@ -106,7 +106,7 @@ proc filesystem_output(target: Path, name: Str) [fs, error] -> Result[Str, Error
 
 # Capture a real pipe rather than changing the diagnostic descriptor to a file.
 proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  uu.mkfifo(s, "stderr-pipe")?
+  uu.mkfifo(s, "stderr-pipe")
   let captured = uu.at(s, "pipe-captured")
   let reader_plan = uu.command(s, "cat", ["stderr-pipe"], stdout: captured, stderr: uu.at(s, "reader-error"))?
   let reader = spawn reader_plan?
@@ -183,7 +183,7 @@ test test_uu_stat_printf_invalid_directive { |ctx|
 # origin: uutils test_stat::test_fs_default_format_quotes_name
 test test_uu_stat_fs_default_format_quotes_name { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a b")?
+  uu.touch(s, "a b")
   let r = uu.invoke(s, "stat", ["-f", "a b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "  File: 'a b'\n")
@@ -248,7 +248,7 @@ test test_uu_stat_multi_files { |ctx|
   let s = uu.scene(ctx)?
   let targets = ["/dev", "/usr/lib", "/etc/fstab", "/var"]
   var expected = ""
-  for name in targets { expected += normal_output(Path(name), name)? }
+  for name in targets { expected += normal_output(fp"{name}", name)? }
   let r = uu.invoke(s, "stat", ["-c", NORMAL].extend(targets))?
   uu.succeeds(r)
   uu.stdout_is(r, expected)
@@ -259,7 +259,7 @@ test test_uu_stat_symlinks { |ctx|
   let s = uu.scene(ctx)?
   var tested = false
   for name in ["/bin/sh", "/data/data/com.termux/files/usr/bin/sh", "/bin/sudoedit", "/usr/bin/ex", "/etc/localtime", "/etc/aliases"] {
-    let target = Path(name)
+    let target = fp"{name}"
     let regular = match fs.stat(target, follow_symlinks: true) { Ok(meta) => meta.kind == "file", Err(failure) => { if failure.errno == 2 { false } else { return Err(failure) } } }
     if regular and fs.stat(target)?.kind == "symlink" {
       tested = true
@@ -280,7 +280,7 @@ test test_uu_stat_symlinks { |ctx|
 test test_uu_stat_terse_normal_format { |ctx|
   let s = uu.scene(ctx)?
   let meta = fs.stat(p"/")?
-  let expected = ["/", f"{unsigned(meta.size)?}", f"{meta.blocks_512}", radix(meta.mode, 16)?, f"{meta.uid}", f"{meta.gid}", radix(meta.dev, 16)?, f"{unsigned(meta.ino)?}", f"{meta.nlink}", radix(fs.dev_major(meta.rdev), 16)?, radix(fs.dev_minor(meta.rdev), 16)?, f"{meta.atime_ns / 1000000000}", f"{meta.mtime_ns / 1000000000}", f"{meta.ctime_ns / 1000000000}", f"{(meta.birth_ns ?? 0) / 1000000000}", f"{meta.blksize}"]
+  let expected = ["/", unsigned(meta.size)?, f"{meta.blocks_512}", radix(meta.mode, 16)?, f"{meta.uid}", f"{meta.gid}", radix(meta.dev, 16)?, unsigned(meta.ino)?, f"{meta.nlink}", radix(fs.dev_major(meta.rdev), 16)?, radix(fs.dev_minor(meta.rdev), 16)?, f"{meta.atime_ns / 1000000000}", f"{meta.mtime_ns / 1000000000}", f"{meta.ctime_ns / 1000000000}", f"{(meta.birth_ns ?? 0) / 1000000000}", f"{meta.blksize}"]
   let r = uu.invoke(s, "stat", ["-t", "/"])?
   uu.succeeds(r)
 
@@ -297,7 +297,7 @@ test test_uu_stat_format_created_time { |ctx|
   let r = uu.invoke(s, "stat", ["-c", "%w", "/bin"])?
   uu.succeeds(r)
 
-  let actual_fields = rx"\s".replace(r.stdout.utf8()?, with: "\u{0}").split("\u{0}")
+  let actual_fields = rx"\s".replace(r.stdout as Str, with: "\u{0}").split("\u{0}")
   let expected_fields = rx"\s".replace(expected + "\n", with: "\u{0}").split("\u{0}")
   assert ! expected_fields.is_empty()
   if expected != "-" {
@@ -315,7 +315,7 @@ test test_uu_stat_format_created_seconds { |ctx|
   let r = uu.invoke(s, "stat", ["-c", "%W", "/bin"])?
   uu.succeeds(r)
 
-  let actual_fields = rx"\s".replace(r.stdout.utf8()?, with: "\u{0}").split("\u{0}")
+  let actual_fields = rx"\s".replace(r.stdout as Str, with: "\u{0}").split("\u{0}")
   let expected_fields = rx"\s".replace(expected + "\n", with: "\u{0}").split("\u{0}")
   assert ! expected_fields.is_empty()
   if expected != "0" {
@@ -346,7 +346,7 @@ test test_uu_stat_printf { |ctx|
 # origin: uutils test_stat::test_pipe_fifo
 test test_uu_stat_pipe_fifo { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "FIFO")?
+  uu.mkfifo(s, "FIFO")
   let r = uu.invoke(s, "stat", ["FIFO"])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -367,7 +367,7 @@ test test_uu_stat_stdin_pipe_fifo2 { |ctx|
 # origin: uutils test_stat::test_stdin_redirect
 test test_uu_stat_stdin_redirect { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "f")?
+  uu.touch(s, "f")
   let r = uu.invoke_from_path(s, "stat", ["-"], stdin: uu.at(s, "f"))?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -450,7 +450,7 @@ test test_uu_stat_invalid_directive_after_multibyte_char { |ctx|
 # origin: uutils test_stat::test_precision_splits_multibyte_char_in_value
 test test_uu_stat_precision_splits_multibyte_char_in_value { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "é")?
+  uu.touch(s, "é")
   let r = uu.invoke(s, "stat", ["-c", "%.1n", "é"])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"\xc3\n")
@@ -487,11 +487,11 @@ test test_uu_stat_mount_point_width_and_alignment { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "stat", ["-c", "%15m", "/"])?
   uu.succeeds(r0)
-  let right = r0.stdout.utf8()?
+  let right = r0.stdout as Str
   assert right.trim().byte_len() <= 15 and right.byte_len() >= 15
   let r1 = uu.invoke(s, "stat", ["-c", "%-15m", "/"])?
   uu.succeeds(r1)
-  let left = r1.stdout.utf8()?
+  let left = r1.stdout as Str
   assert left.trim().byte_len() <= 15 and left.byte_len() >= 15
 }
 
@@ -558,8 +558,8 @@ test test_uu_stat_timestamp_format { |ctx|
 # origin: uutils test_stat::test_timestamp_format_preserves_nanoseconds
 test test_uu_stat_timestamp_format_preserves_nanoseconds { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "timestamp")?
-  fs.set_times(uu.at(s, "timestamp"), atime_ns: 1755300000123456789, mtime_ns: 1755300000123456789)?
+  uu.touch(s, "timestamp")
+  fs.set_times(uu.at(s, "timestamp"), atime_ns: 1755300000123456789, mtime_ns: 1755300000123456789)
   let meta = fs.stat(uu.at(s, "timestamp"))?
   let expected = "1755300000.123456789 1755300000.123456789 " + time.format(meta.ctime_ns, "%s.%N", utc: true)? + "\n"
   let r = uu.invoke(s, "stat", ["-c", "%.9X %.9Y %.9Z", "timestamp"])?
@@ -570,8 +570,8 @@ test test_uu_stat_timestamp_format_preserves_nanoseconds { |ctx|
 # origin: uutils test_stat::test_timestamp_format_before_epoch
 test test_uu_stat_timestamp_format_before_epoch { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "timestamp")?
-  fs.set_times(uu.at(s, "timestamp"), atime_ns: -876543211, mtime_ns: -876543211)?
+  uu.touch(s, "timestamp")
+  fs.set_times(uu.at(s, "timestamp"), atime_ns: -876543211, mtime_ns: -876543211)
   let r = uu.invoke(s, "stat", ["-c", "%.1X %.3X %.9X %.1Y %.3Y %.9Y", "timestamp"])?
   uu.succeeds(r)
   uu.stdout_is(r, "-0.8 -0.876 -0.876543211 -0.8 -0.876 -0.876543211\n")
@@ -581,8 +581,8 @@ test test_uu_stat_timestamp_format_before_epoch { |ctx|
 # origin: uutils test_stat::test_timestamp_format_before_epoch_truncation
 test test_uu_stat_timestamp_format_before_epoch_truncation { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "fractional-time")?
-  fs.set_times(uu.at(s, "fractional-time"), atime_ns: -2234567891, mtime_ns: -2234567891)?
+  uu.touch(s, "fractional-time")
+  fs.set_times(uu.at(s, "fractional-time"), atime_ns: -2234567891, mtime_ns: -2234567891)
   let rX = uu.invoke(s, "stat", ["-c", "%X|%.0X|%.X|%.2X|%.6X|%.12X", "fractional-time"])?
   uu.succeeds(rX)
   uu.stdout_is(rX, "-3|-3|-2.234567891|-2.23|-2.234567|-2.234567891000\n")
@@ -596,9 +596,9 @@ test test_uu_stat_timestamp_format_before_epoch_truncation { |ctx|
 # origin: uutils test_stat::test_quoting_style_default
 test test_uu_stat_quoting_style_default { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "plain")?
-  uu.touch(s, "a b")?
-  uu.symlink(s, "plain", "link")?
+  uu.touch(s, "plain")
+  uu.touch(s, "a b")
+  uu.symlink(s, "plain", "link")
   let r = uu.invoke(s, "stat", ["-c", "%N", "plain", "a b", "link"])?
   uu.succeeds(r)
   uu.stdout_only(r, "plain\n'a b'\nlink -> plain\n")
@@ -610,8 +610,8 @@ test test_uu_stat_quoting_style_default { |ctx|
 # origin: uutils test_stat::test_quoted_name_directive
 test test_uu_stat_quoted_name_directive { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a b")?
-  uu.symlink(s, "a b", "link")?
+  uu.touch(s, "a b")
+  uu.symlink(s, "a b", "link")
   let r = uu.invoke(s, "stat", ["-c", "%Qn|%-6Qn|", "a b", "link"])?
   uu.succeeds(r)
   uu.stdout_only(r, "'a b'|'a b' |\nlink|link  |\n")
@@ -626,8 +626,8 @@ test test_uu_stat_quoted_name_directive { |ctx|
 # origin: uutils test_stat::test_quoting_style_env
 test test_uu_stat_quoting_style_env { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "it's")?
-  uu.touch(s, "tab\there")?
+  uu.touch(s, "it's")
+  uu.touch(s, "tab\there")
   let r0 = uu.invoke(s, "stat", ["-c", "%N", "it's", "tab\there"], vars: {QUOTING_STYLE: "literal"})?
   uu.succeeds(r0)
   uu.stdout_only(r0, "it's\ntab\there\n")
@@ -660,14 +660,14 @@ test test_uu_stat_quoting_style_env { |ctx|
 # origin: uutils test_stat::test_quoting_style_locale
 test test_uu_stat_quoting_style_locale { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "'")?
+  uu.touch(s, "'")
   let r = uu.invoke(s, "stat", ["-c", "%N", "'"], vars: {QUOTING_STYLE: "locale"})?
   uu.succeeds(r)
   uu.stdout_only(r, "'\\''\n")
   let default = uu.invoke(s, "stat", ["-c", "%N", "'"])?
   uu.succeeds(default)
   uu.stdout_only(default, "\"'\"\n")
-  uu.touch(s, "\"")?
+  uu.touch(s, "\"")
   let double = uu.invoke(s, "stat", ["-c", "%N", "\""])?
   uu.succeeds(double)
   uu.stdout_only(double, "'\"'\n")
@@ -676,19 +676,19 @@ test test_uu_stat_quoting_style_locale { |ctx|
 # origin: uutils test_stat::test_quoting_newline_in_filename
 test test_uu_stat_quoting_newline_in_filename { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test\nnewline")?
+  uu.touch(s, "test\nnewline")
   let r0 = uu.invoke(s, "stat", ["-c", "{\"name\":\"%N\"}", "test\nnewline"])?
   uu.succeeds(r0)
   uu.stdout_only(r0, "{\"name\":\"'test'$'\\n''newline'\"}\n")
-  uu.touch(s, "contiguous\n\nescape_characters")?
+  uu.touch(s, "contiguous\n\nescape_characters")
   let r1 = uu.invoke(s, "stat", ["-c", "%N", "contiguous\n\nescape_characters"])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "'contiguous'$'\\n\\n''escape_characters'\n")
-  uu.touch(s, "multiple\nescape\ncharacters")?
+  uu.touch(s, "multiple\nescape\ncharacters")
   let r2 = uu.invoke(s, "stat", ["-c", "%N", "multiple\nescape\ncharacters"])?
   uu.succeeds(r2)
   uu.stdout_only(r2, "'multiple'$'\\n''escape'$'\\n''characters'\n")
-  uu.touch(s, "\t \n \r \u{0001}")?
+  uu.touch(s, "\t \n \r \u{0001}")
   let r3 = uu.invoke(s, "stat", ["-c", "%N", "\t \n \r \u{0001}"])?
   uu.succeeds(r3)
   uu.stdout_only(r3, "''$'\\t'' '$'\\n'' '$'\\r'' '$'\\001'\n")
@@ -697,9 +697,9 @@ test test_uu_stat_quoting_newline_in_filename { |ctx|
 # origin: uutils test_stat::test_quoting_style_invalid_env
 test test_uu_stat_quoting_style_invalid_env { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "baguette")?
-  uu.touch(s, "Croissant")?
-  uu.touch(s, "Escargot")?
+  uu.touch(s, "baguette")
+  uu.touch(s, "Croissant")
+  uu.touch(s, "Escargot")
   let r = uu.invoke(s, "stat", ["-c", "nom=[%N]", "baguette", "Croissant", "Escargot"], vars: {QUOTING_STYLE: "fromage"})?
   uu.succeeds(r)
   uu.stdout_is(r, "nom=[baguette]\nnom=[Croissant]\nnom=[Escargot]\n")
@@ -723,7 +723,7 @@ test test_uu_stat_error_message_preserves_non_utf8_filename { |ctx|
   let s = uu.scene(ctx)?
   for value in [{name: b"missing-\xff", quoted: "'missing-'$'\\377'"}, {name: b"missing-\xc3\xa9", quoted: "'missing-'$'\\303\\251'"}] {
     for options in [[], [p"-L"], [p"-f"]] {
-      let r = uu.invoke_paths(s, "stat", options.extend([Path.parse_bytes(value.name)?]), vars: {LC_ALL: "C"})?
+      let r = uu.invoke_paths(s, "stat", options.extend([value.name as Path]), vars: {LC_ALL: "C"})?
       uu.fails_with_code(r, 1)
       uu.stderr_contains(r, value.quoted)
     }
@@ -734,7 +734,7 @@ test test_uu_stat_error_message_preserves_non_utf8_filename { |ctx|
 test test_uu_stat_correct_metadata { |ctx|
   let s = uu.scene(ctx)?
   for name in ["/", "/dev/null"] {
-    let meta = fs.stat(Path(name), follow_symlinks: true)?
+    let meta = fs.stat(fp"{name}", follow_symlinks: true)?
     let expected = [meta.uid, meta.gid, meta.mode, meta.blocks_512, meta.size, meta.nlink, meta.ino, meta.dev, fs.dev_major(meta.dev), fs.dev_minor(meta.dev), meta.dev, meta.rdev, fs.dev_major(meta.rdev), fs.dev_minor(meta.rdev), meta.rdev, fs.dev_major(meta.rdev), fs.dev_minor(meta.rdev)]
     let r = uu.invoke(s, "stat", ["--printf", "%u %g %f %b %s %h %i %d %Hd %Ld %D %r %Hr %Lr %R %t %T", name])?
     uu.succeeds(r)

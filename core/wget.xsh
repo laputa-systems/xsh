@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.http_transfer
 use lib.gnu
+use lib.http_transfer
 
 const VERSION = "1.25.0"
 
@@ -73,7 +73,7 @@ const SPECS: List[Spec] = [
 
 # Real wget options this applet does not implement; each is refused rather
 # than accepted and ignored.
-const UNSUPPORTED: List[Str] = [
+const UNSUPPORTED = [
   "recursive", "r", "mirror", "m", "no-parent", "np", "level", "l", "span-hosts", "H",
   "timestamping", "N", "background", "b", "execute", "e", "append-output", "a", "output-file", "o",
   "load-cookies", "save-cookies", "keep-session-cookies", "post-file", "content-disposition",
@@ -124,14 +124,14 @@ proc usage_failure(message: Str, status: Int) [io, error] {
 }
 
 proc log(options: Options, text: Str) [io, error] {
-  if options.quiet { return }
+  return when options.quiet
   let _ = io.write_stderr(text)
   let _ = io.flush_stderr()
 }
 
 # Error lines survive --no-verbose but not --quiet.
 proc log_verbose(options: Options, text: Str) [io, error] {
-  if options.terse { return }
+  return when options.terse
   log(options, text)
 }
 
@@ -156,12 +156,10 @@ proc number(option: Str, text: Str) [io, error] -> Int {
 
 proc seconds(option: Str, text: Str) [io, error] -> Duration {
   let parsed = text.parse_float()
-  match parsed {
-    Ok(value) => {
-      if value >= 0.0 { return time.millis((value * 1000.0).round() ?? 0) }
-    }
-    Err(_) => {}
+  if let Ok(value) = parsed {
+    return time.millis((value * 1000.0).round() ?? 0) when value >= 0.0
   }
+
   io.write_stderr(f"wget: {option}: Invalid time period '{text}'\n")
   io.flush_stderr()
   exit EXIT_USAGE
@@ -182,7 +180,7 @@ proc apply(options: Options, spec: Spec, value: Str) [io, error] -> Options {
         io.flush_stderr()
         exit EXIT_USAGE
       }
-      let at = colon ?? 0
+      let at = colon
       {...options, headers: options.headers.extend([{name: value.byte_slice(0, at).trim(), value: value.byte_slice(at + 1).trim()}])}
     }
     "user-agent" => {...options, agent: value}
@@ -208,18 +206,18 @@ proc apply(options: Options, spec: Spec, value: Str) [io, error] -> Options {
     }
     "version" => {...options, version: true}
     "help" => {...options, help: true}
-    _ => options
+    else => options
   }
 }
 
 proc lookup_long(name: Str) -> Spec? {
   for spec in SPECS {
-    if spec.long == name { return spec }
+    return spec when spec.long == name
   }
   var found: Spec? = null
   for spec in SPECS {
     if spec.long.starts_with(name) {
-      if found != null { return null }
+      return null when found != null
       found = spec
     }
   }
@@ -228,7 +226,7 @@ proc lookup_long(name: Str) -> Spec? {
 
 proc lookup_short(letter: Str) -> Spec? {
   for spec in SPECS {
-    if spec.short == letter { return spec }
+    return spec when spec.short == letter
   }
   null
 }
@@ -266,7 +264,7 @@ proc parse(argv: List[Str]) [io, error] -> Options {
     }
     if word.starts_with("--") {
       let equals = word.find("=")
-      let name = if equals == null { word.byte_slice(2) } else { word.byte_slice(2, (equals ?? 0) - 2) }
+      let name = if equals == null { word.byte_slice(2) } else { word.byte_slice(2, equals - 2) }
       let found = lookup_long(name)
       if found == null {
         refuse(name, f"--{name}")
@@ -276,7 +274,7 @@ proc parse(argv: List[Str]) [io, error] -> Options {
       var value = ""
       if spec.value {
         if equals != null {
-          value = word.byte_slice((equals ?? 0) + 1)
+          value = word.byte_slice(equals + 1)
         } else {
           if index >= argv.len() { usage_failure(f"option '--{spec.long}' requires an argument", EXIT_USAGE) }
           value = argv[index]
@@ -350,7 +348,7 @@ pure dot_rate(rate: Float) -> Str {
 
 # `Length:` sizes: 1500 -> 1.5K, 20000 -> 20K, 2500000 -> 2.4M.
 pure human_size(size: Int) -> Str {
-  if size < 1024 { return f"{size}" }
+  return f"{size}" when size < 1024
   var value = size.float()
   var unit = ""
   for next in ["K", "M", "G", "T"] {
@@ -430,11 +428,11 @@ type Target = {path: Path?, label: Str, stdout: Bool}
 # when it would otherwise overwrite; `reuse` keeps NAME itself.
 proc unique_name(directory: Path?, base: Str, reuse: Bool) [fs] -> Path {
   let first = if let dir = directory { fp"{dir}/{base}" } else { fp"{base}" }
-  if reuse or !(first.exists() ?? false) { return first }
+  return first when reuse or ! (first.exists() ?? false)
   var suffix = 1
   while true {
     let candidate = if let dir = directory { fp"{dir}/{base}.{suffix}" } else { fp"{base}.{suffix}" }
-    if !(candidate.exists() ?? false) { return candidate }
+    return candidate unless candidate.exists() ?? false
     suffix += 1
   }
   first
@@ -447,13 +445,13 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
   if scheme == null {
     url = f"http://{url}"
   } else if scheme not in ["http", "https"] {
-    log(options, f"{raw_url}: Unsupported scheme '{scheme ?? ""}'.\n")
+    log(options, f"{raw_url}: Unsupported scheme '{scheme}'.\n")
     return {status: EXIT_GENERIC, bytes: 0, millis: 0, saved: false}
   }
   var host = http_transfer.url_host(url)
   var port = http_transfer.url_port(url)
 
-  var target: Target = {path: null, label: "", stdout: false}
+  var target: Target = Target(path: null, label: "", stdout: false)
   if let named = options.output {
     if named == "-" {
       target = {path: null, label: "STDOUT", stdout: true}
@@ -463,7 +461,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
   } else if !options.spider {
     var base = http_transfer.url_file_name(url)
     if base == "" { base = "index.html" }
-    var directory: Path? = null
+    var directory = null
     if let prefix = options.prefix { directory = fp"{prefix}" }
     let chosen = unique_name(directory, base, options.no_clobber or options.resume)
     if options.no_clobber and (chosen.exists() ?? false) {
@@ -477,9 +475,10 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
   if options.resume {
     if let target_path = target.path {
       let known = target_path.metadata()
-      match known {
-        Ok(info) => resume_from = info.size
-        Err(_) => resume_from = 0
+      if let Ok(info) = known {
+        resume_from = info.size
+      } else {
+        resume_from = 0
       }
     }
   }
@@ -521,7 +520,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
       }
     }
   } else if let directory = options.prefix {
-    let _ = fp"{directory}".mkdir(parents: true)
+    let _ = fp"{directory}".mkdir()
   }
 
   # Redirects are followed here, one hop at a time, so each hop is announced
@@ -539,35 +538,20 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
     if looks_numeric(host) {
       announce = f"Connecting to {host}:{port}... "
     } else {
-      match dns.resolve_host(host) {
-        Ok(found) => {
-          var addresses: List[Str] = []
-          for entry in found { addresses += [entry.addr] }
-          log_verbose(options, f"Resolving {host} ({host})... {addresses.join(", ")}\n")
-          announce = f"Connecting to {host} ({host})|{addresses[0]}|:{port}... "
+      if let Ok(found) = dns.resolve_host(host) {
+        let addresses = collect {
+          for entry in found { yield entry.addr }
         }
-        Err(_) => {
-          log_verbose(options, f"Resolving {host} ({host})... failed: Name does not resolve.\n")
-          log(options, f"wget: unable to resolve host address '{host}'\n")
-          return {status: EXIT_NETWORK, bytes: 0, millis: 0, saved: false}
-        }
+        log_verbose(options, f"Resolving {host} ({host})... {addresses.join(", ")}\n")
+        announce = f"Connecting to {host} ({host})|{addresses[0]}|:{port}... "
+      } else {
+        log_verbose(options, f"Resolving {host} ({host})... failed: Name does not resolve.\n")
+        log(options, f"wget: unable to resolve host address '{host}'\n")
+        return {status: EXIT_NETWORK, bytes: 0, millis: 0, saved: false}
       }
     }
     log_verbose(options, announce)
-    let request: http_transfer.Request = {
-      method: method,
-      url: url,
-      headers: headers,
-      body: body,
-      timeout: null,
-      connect_timeout: options.timeout,
-      idle_timeout: options.timeout,
-      redirects: 0,
-      return_redirects: true,
-      verify: options.verify,
-      cacert: options.ca_certificate,
-      fail_status: false,
-    }
+    let request: http_transfer.Request = http_transfer.Request(method:, url:, headers:, body:, timeout: null, connect_timeout: options.timeout, idle_timeout: options.timeout, redirects: 0, return_redirects: true, verify: options.verify, cacert: options.ca_certificate, fail_status: false)
     let buffered = target.stdout or options.spider or resume_from > 0 or options.server_response
     let result = if buffered {
       http_transfer.fetch(request)
@@ -585,7 +569,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
         }
         log_verbose(options, "Retrying.\n\n")
         let wait_for = if attempt > 10 { 10 } else { attempt }
-        time.sleep(time.seconds(wait_for))?
+        time.sleep(time.seconds(wait_for))
         attempt += 1
         continue
       }
@@ -625,7 +609,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
         }
         if reply.status >= 400 {
           if let target_path = target.path {
-            if options.output == null { let _ = target_path.remove(missing_ok: true) }
+            if options.output == null { let _ = target_path.remove() }
           }
           if options.terse {
             log(options, f"{stamp()} ERROR {reply.status}: {reply.reason}.\n")
@@ -639,7 +623,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
         var total = length
         if ranged and reply.status == 206 {
           total = range_total(reply.headers)
-          if total == null and length != null { total = (length ?? 0) + resume_from }
+          if total == null and length != null { total = length + resume_from }
         }
         if options.spider {
           log_verbose(options, spider_summary(length, kind))
@@ -695,7 +679,7 @@ pure content_length(headers: List[Header]) -> Int? {
   let text = http_transfer.header_value(headers, "content-length")
   if let value = text {
     let parsed = value.trim().parse_int() ?? -1
-    if parsed >= 0 { return parsed }
+    return parsed when parsed >= 0
   }
   null
 }
@@ -706,8 +690,8 @@ pure range_total(headers: List[Header]) -> Int? {
   if let value = text {
     let slash = value.find("/")
     if slash != null {
-      let parsed = value.byte_slice((slash ?? 0) + 1).trim().parse_int() ?? -1
-      if parsed >= 0 { return parsed }
+      let parsed = value.byte_slice(slash + 1).trim().parse_int() ?? -1
+      return parsed when parsed >= 0
     }
   }
   null

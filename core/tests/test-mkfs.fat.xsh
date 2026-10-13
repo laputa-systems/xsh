@@ -34,7 +34,7 @@ test test_fat_allocation_checker_repairs_lost_cluster { |ctx|
   let _ = vfat.format(image, 1474560, bits: 12)?
   let original = image.read_bytes()?
   # Cluster two occupies the low twelve bits at FAT offset three.
-  let damaged = bytes.concat([original.slice(0, length: 515), b"\xff\x0f", original.slice(517)])
+  let damaged = bytes.concat([original[..515], b"\xff\x0f", original.slice(517)])
   image.write(damaged)
   assert ! vfat.check(image)?.issues.is_empty()
   assert image.read_bytes()? == damaged
@@ -47,8 +47,13 @@ test test_fat_allocation_checker_repairs_lost_cluster { |ctx|
 test test_mkfs_fat_cli_reproducible_image { |ctx|
   let root = test.temp_dir(ctx, name: "mkfs-fat-cli")?
   let image = fp"{root}/image"
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/mkfs.fat.xsh".read_text()?, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-C", "--invariant", "-F12", "-n", "TEST", image.display(), "1440"])?
-  assert result.status == 0, result.stderr
+  test.expect(
+    ctx,
+    fp"{ctx.core_dir}/mkfs.fat.xsh".read_text()?,
+    status: 0,
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    args: ["-C", "--invariant", "-F12", "-n", "TEST", image, "1440"],
+  )?
   assert vfat.inspect(image)?.label == "TEST"
   assert vfat.inspect(image)?.serial == 0
 }
@@ -103,8 +108,8 @@ test test_mkfs_fat_cli_invalid_values_leave_target_absent { |ctx|
   let root = test.temp_dir(ctx, name: "mkfs-fat-invalid")?
   let image = fp"{root}/image"
   let script = fp"{ctx.core_dir}/mkfs.fat.xsh".read_text()?
-  assert test.run_script(ctx, script, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-C", image.display(), "invalid"])?.status == 1
-  assert test.run_script(ctx, script, env: {XSH_MODULE_PATH: ctx.core_dir.display()}, args: ["-C", "-i", "invalid", image.display(), "1440"])?.status == 1
+  assert test.run_script(ctx, script, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-C", image, "invalid"])?.status == 1
+  assert test.run_script(ctx, script, env: {XSH_MODULE_PATH: ctx.core_dir}, args: ["-C", "-i", "invalid", image, "1440"])?.status == 1
   assert ! image.exists()?
 }
 

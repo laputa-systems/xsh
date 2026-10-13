@@ -60,8 +60,8 @@ pure ascii_byte(text: Bytes, at: Int) -> Str {
 
 pure parse_spec(text: Bytes, start: Int) -> PrintfSpec {
   var at = start + 1
-  var position: Int? = null
-  var invalid_position_end: Int? = null
+  var position = null
+  var invalid_position_end = null
   let leading = scan_decimal(text, at)
   if leading.next > at and leading.next < text.len() and ascii_byte(text, leading.next) == "$" {
     position = leading.value - 1
@@ -78,7 +78,7 @@ pure parse_spec(text: Bytes, start: Int) -> PrintfSpec {
 
   var width = 0
   var width_dynamic = false
-  var width_position: Int? = null
+  var width_position = null
   if at < text.len() and ascii_byte(text, at) == "*" {
     width_dynamic = true
     at += 1
@@ -94,9 +94,9 @@ pure parse_spec(text: Bytes, start: Int) -> PrintfSpec {
     at = scanned.next
   }
 
-  var precision: Int? = null
+  var precision = null
   var precision_dynamic = false
-  var precision_position: Int? = null
+  var precision_position = null
   if at < text.len() and ascii_byte(text, at) == "." {
     at += 1
     precision = 0
@@ -161,7 +161,7 @@ pure character_constant(data: Bytes, utf8: Bool) -> IntegerParse {
     if let Ok(character) = data[at..at + width].utf8() { value = codepoint_value(character) } else { width = 1 }
   } else { width = 1 }
   let rest = data[at + width..]
-  {value: value, issue: null, warning: if rest.len() == 0 { null } else { rest }}
+  {value: value, issue: null, warning: if rest.is_empty() { null } else { rest }}
 }
 
 pure argument_integer(argument: PrintfArgument, auto_base: Bool, utf8: Bool) -> IntegerParse {
@@ -199,9 +199,9 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
 
   while at < body.byte_len() {
     let digit = digit_value(body.byte_slice(at, length: 1))
-    if digit == null or (digit ?? 99) >= base { break }
+    break when digit == null or digit >= base
     found = true
-    let next_digit = digit ?? 0
+    let next_digit = digit
     if ! overflow {
       if (sign < 0 and (value < cutoff or (value == cutoff and next_digit > cutlim))) or (sign > 0 and (value > cutoff or (value == cutoff and next_digit > cutlim))) {
         overflow = true
@@ -222,12 +222,12 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
 pure codepoint_value(text: Str) -> Int {
   let raw = bytes.from_text(text)
   let first = raw.byte_at(0) ?? 0
-  if first < 128 { return first }
+  return first when first < 128
   let width = utf8_width(first)
   let second = (raw.byte_at(1) ?? 128) - 128
-  if width == 2 { return (first - 192) * 64 + second }
+  return (first - 192) * 64 + second when width == 2
   let third = (raw.byte_at(2) ?? 128) - 128
-  if width == 3 { return (first - 224) * 4096 + second * 64 + third }
+  return (first - 224) * 4096 + second * 64 + third when width == 3
   let fourth = (raw.byte_at(3) ?? 128) - 128
   (first - 240) * 262144 + second * 4096 + third * 64 + fourth
 }
@@ -266,7 +266,7 @@ pure decimal_subtract(left: Str, right: Str) -> Str {
 
 pure unsigned_negative(value: Int, base: Int, uppercase: Bool) -> Str {
   let magnitude = if value == -9223372036854775807 - 1 { "9223372036854775808" } else { f"{-value}" }
-  if base == 10 { return decimal_subtract("18446744073709551616", magnitude) }
+  return decimal_subtract("18446744073709551616", magnitude) when base == 10
   if base == 16 {
     let prior = if value == -9223372036854775807 - 1 { 9223372036854775807 } else { -value - 1 }
     let digits = pad_text(radix_text(prior, 16, false), 16, false, "0")
@@ -338,7 +338,7 @@ pure lossless_text(data: Bytes) -> Result[Str] {
     let width = utf8_width(byte)
     let end = at + width
     if byte < 128 {
-      output += data[at..end].utf8()?
+      output += data[at..end] as Str
       at = end
     } else if width > 1 and end <= data.len() {
       if let Ok(character) = data[at..end].utf8() {
@@ -361,10 +361,8 @@ pure printf_argument(data: Bytes) -> Result[PrintfArgument] {
 }
 
 pure codepoint_text(value: Int) -> Result[Str] {
-  if value < 128 { return bytes.from_ints([value])?.utf8() }
-  if value < 2048 {
-    return bytes.from_ints([192 + value / 64, 128 + value % 64])?.utf8()
-  }
+  return bytes.from_ints([value])?.utf8() when value < 128
+  return bytes.from_ints([192 + value / 64, 128 + value % 64])?.utf8() when value < 2048
   if value < 65536 {
     return bytes.from_ints([224 + value / 4096, 128 + value / 64 % 64, 128 + value % 64])?.utf8()
   }
@@ -418,8 +416,8 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
       var count = 0
       while at < text.len() and count < 2 {
         let digit = digit_value(text[at..at + 1].utf8() ?? "")
-        if digit == null { break }
-        value = value * 16 + (digit ?? 0)
+        break when digit == null
+        value = value * 16 + digit
         at += 1
         count += 1
       }
@@ -441,7 +439,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
         var valid = true
         for at in range(digits) {
           let digit = digit_value(raw[at..at + 1].utf8() ?? "")
-          if digit == null { valid = false } else { value = value * 16 + (digit ?? 0) }
+          if digit == null { valid = false } else { value = value * 16 + digit }
         }
         let invalid_scalar = value > 1114111 or (value >= 55296 and value <= 57343)
         if ! valid or invalid_scalar {
@@ -456,7 +454,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
 }
 
 pure unescape_bytes(text: Bytes, utf8: Bool) -> Result[Escape] {
-  var output: List[Bytes] = []
+  var output = []
   var at = 0
 
   while at < text.len() {
@@ -553,8 +551,8 @@ pure hex_long_double(text: Str, precision: Int?, alternate: Bool) -> Str {
 
 proc character_warning(warning: Bytes) [process, env, io, error] {
   return when env.get("POSIXLY_CORRECT") is Ok(_)
-  io.write_stderr_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: warning: "), warning, b": character(s) following character constant have been ignored\n"]))?
-  io.flush_stderr()?
+  io.write_stderr_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: warning: "), warning, b": character(s) following character constant have been ignored\n"]))
+  io.flush_stderr()
 }
 
 proc shell_quote(data: Bytes) [env] -> Str {
@@ -584,7 +582,7 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
 
   if spec.conversion == "c" {
     # The operand is text even when it looks numeric: GNU prints its first byte, or NUL when it is empty.
-    let character: Bytes = if argument.data.len() == 0 { b"\0" } else { argument.data[0..1] }
+    let character: Bytes = if argument.data.is_empty() { b"\0" } else { argument.data[0..1] }
     let padding_count = field_width - 1
     if field_width > 1000000 {
       write_field(previous_output, b"", character, b"", padding_count, b" ", left)
@@ -615,7 +613,7 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
     let alternate = spec.flags.find("#") != null
     let hexadecimal = spec.conversion in ["a", "A"]
     let x87_hexadecimal = hexadecimal and system.long_double_precision() == 64
-    let parsed = system.format_long_double(source, spec.conversion, if x87_hexadecimal { null } else { precision }, alternate: alternate)?
+    let parsed = system.format_long_double(source, spec.conversion, if x87_hexadecimal { null } else { precision }, alternate:)?
     let issue = if quoted { character.issue } else if parsed.consumed == 0 { "expected a numeric value" } else if parsed.range_error { "Numerical result out of range" } else if parsed.consumed < source.byte_len() { "value not completely converted" } else { null }
     if let message = issue { gnu.error(f"{gnu.quote_value(argument.text)}: {message}") }
     let body = if x87_hexadecimal { hex_long_double(parsed.text, precision, alternate) } else { parsed.text }
@@ -678,7 +676,7 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
 }
 
 proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, prefix: Bytes) [error, io, process, env] -> Pass {
-  var output: List[Bytes] = []
+  var output = []
   var at = 0
   var prefix_data = prefix
   var prefix_flushed = false
@@ -716,7 +714,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
 
       var width = spec.width
       if spec.width_dynamic {
-        let index = if spec.width_position == null { argument_index } else { indexed_argument(first_argument, spec.width_position ?? 0, values.len()) }
+        let index = if spec.width_position == null { argument_index } else { indexed_argument(first_argument, spec.width_position, values.len()) }
         let width_argument: PrintfArgument = if index < values.len() { values[index] } else { printf_argument(b"0")? }
         let width_text = width_argument.text
         let parsed_width = argument_integer(width_argument, true, utf8_locale())
@@ -745,7 +743,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
       }
       var precision = spec.precision
       if spec.precision_dynamic {
-        let index = if spec.precision_position == null { argument_index } else { indexed_argument(first_argument, spec.precision_position ?? 0, values.len()) }
+        let index = if spec.precision_position == null { argument_index } else { indexed_argument(first_argument, spec.precision_position, values.len()) }
         let precision_value: PrintfArgument = if index < values.len() { values[index] } else { printf_argument(b"-1")? }
         let precision_argument = precision_value.text
         let parsed_precision = argument_integer(precision_value, true, utf8_locale())
@@ -767,7 +765,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
           next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
         } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       }
-      let index = if spec.position == null { argument_index } else { indexed_argument(first_argument, spec.position ?? 0, values.len()) }
+      let index = if spec.position == null { argument_index } else { indexed_argument(first_argument, spec.position, values.len()) }
       let value: PrintfArgument = if index < values.len() { values[index] } else if spec.conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A"] { printf_argument(b"0")? } else { printf_argument(b"")? }
       if spec.position == null {
         argument_index += 1
@@ -826,8 +824,9 @@ proc main(...argv: List[Bytes]) [error, io, process, env] {
   }
   if arguments.is_empty() { gnu.missing_operand() }
   let format = arguments[0]
-  var values: List[PrintfArgument] = []
-  for value in arguments[1..] { values += [printf_argument(value)?] }
+  let values: List[PrintfArgument] = collect {
+    for value in arguments[1..] { yield printf_argument(value)? }
+  }
   let output = render(format, values)
   gnu.write_bytes(output.data)
   if ! output.stopped and output.next_argument < values.len() {

@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox fold/fold -s
 test test_bb_fold_fold_s_d8330e49 { |ctx|

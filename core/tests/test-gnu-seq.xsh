@@ -9,8 +9,8 @@ proc output_is(s: uu.Scene, args: List[Str], output: Str) [fs, process, env, err
 # The shell owns the pipe or device descriptor, preserving the producer's
 # stream lifecycle while the helper supplies the oracle's executable argv.
 proc redirected(s: uu.Scene, args: List[Str], setup: Str) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "seq", [Path(arg) for arg in args])?
-  let words = [p"/bin/sh", p"-c", Path(setup), p"seq-stream"].extend(launch)
+  let launch = uu.argv(s, "seq", [fp"{arg}" for arg in args])?
+  let words = [p"/bin/sh", p"-c", fp"{setup}", p"seq-stream"].extend(launch)
   let out = uu.at(s, ".redirect-out")
   let err = uu.at(s, ".redirect-err")
   let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {}, b"", out, err, timeout: 10s))?

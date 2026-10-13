@@ -1,20 +1,20 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_groups.rs.
 
-use support.uu as uu
+use support.uu
 
 # Account databases vary between test images; derive the GNU expectation from
 # their contents, retaining database order for supplementary memberships.
 type ExpectedGroups = {status: Int, stdout: Str, stderr: Str}
 
 proc account_groups(name: Str) -> ExpectedGroups {
-  for line in p"/etc/passwd".read_text()?.lines() {
+  for line in p"/etc/passwd".read_lines()? {
     let fields = line.split(":")
-    if fields[0] != name { continue }
-    let primary = fields[3].parse_int()?
+    continue when fields[0] != name
+    let primary = fields[3] as Int
     var gids = [primary]
-    for row in p"/etc/group".read_text()?.lines() {
+    for row in p"/etc/group".read_lines()? {
       let group_fields = row.split(":")
-      let gid = group_fields[2].parse_int()?
+      let gid = group_fields[2] as Int
       if name in group_fields[3].split(",") and gid not in gids { gids += [gid] }
     }
     let names = [group.by_gid(gid)?.name for gid in gids]

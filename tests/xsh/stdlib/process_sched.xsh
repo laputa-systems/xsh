@@ -6,17 +6,17 @@
 # `a-b`, comma separated. This reads the list the way a person would, without
 # the primitive under test.
 pure expand_cpu_list(text: Str) -> List[Int] {
-  var cpus: List[Int] = []
+  let cpus = collect {
+    for part in text.trim().split(",") {
+      let ends = part.split("-")
+      let first = ends[0].parse_int() ?? 0
+      let last = if ends.len() > 1 { ends[1].parse_int() ?? first } else { first }
+      var at = first
 
-  for part in text.trim().split(",") {
-    let ends = part.split("-")
-    let first = ends[0].parse_int() ?? 0
-    let last = if ends.len() > 1 { ends[1].parse_int() ?? first } else { first }
-    var at = first
-
-    while at <= last {
-      cpus += [at]
-      at += 1
+      while at <= last {
+        yield at
+        at += 1
+      }
     }
   }
 
@@ -28,16 +28,12 @@ pure expand_cpu_list(text: Str) -> List[Int] {
 # can make that exec fail, so the limit tests wait for the name the kernel
 # reports.
 proc wait_for_sleep(pid: Int) [fs, time, error] {
-  if ! fp"/proc/{pid}/comm".exists()? {
-    return
-  }
+  return unless fp"/proc/{pid}/comm".exists()
 
-  for _ in range(500) {
-    if fp"/proc/{pid}/comm".read_text()?.trim() == "sleep" {
-      return
-    }
+  repeat 500 times {
+    return when fp"/proc/{pid}/comm".read_text()?.trim() == "sleep"
 
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
 }
 
@@ -56,7 +52,7 @@ proc errno_of_cpus(result: Result[List[Int]]) -> Int {
 }
 
 test test_affinity_lists_the_cpus_the_kernel_allows { |ctx|
-  if ! p"/proc/self/status".exists()? {
+  if ! p"/proc/self/status".exists() {
     test.skip("the host has no /proc/self/status")
   }
 
@@ -75,7 +71,7 @@ test test_affinity_lists_the_cpus_the_kernel_allows { |ctx|
 
   var listed = ""
 
-  for line in fp"/proc/self/status".read_text()?.lines() {
+  for line in fp"/proc/self/status".read_lines()? {
     if line.starts_with("Cpus_allowed_list:") {
       listed = line.byte_slice("Cpus_allowed_list:".byte_len())
     }
@@ -95,15 +91,15 @@ test test_set_affinity_restricts_another_process_only { |ctx|
   defer process.kill(child.pid, signal: "KILL")
 
   assert process.affinity(child.pid)? == cpus
-  process.set_affinity(child.pid, [cpus[0]])?
+  process.set_affinity(child.pid, [cpus[0]])
   assert process.affinity(child.pid)? == [cpus[0]]
   assert process.affinity()? == cpus
 
   # CPUs the kernel has no bit for are ignored; the rest still applies.
-  process.set_affinity(child.pid, [cpus[1], cpus[0], 100000])?
+  process.set_affinity(child.pid, [cpus[1], cpus[0], 100000])
   assert process.affinity(child.pid)? == [cpus[0], cpus[1]]
 
-  process.set_affinity(child.pid, cpus)?
+  process.set_affinity(child.pid, cpus)
   assert process.affinity(child.pid)? == cpus
 }
 
@@ -128,13 +124,13 @@ test test_scheduler_policy_is_read_and_changed_for_another_process { |ctx|
   assert before.priority == 0
   assert ! before.reset_on_fork
 
-  process.set_scheduler(child.pid, "batch")?
+  process.set_scheduler(child.pid, "batch")
   assert process.scheduler(child.pid)?.policy == "batch"
 
-  process.set_scheduler(child.pid, "other")?
+  process.set_scheduler(child.pid, "other")
   assert process.scheduler(child.pid)?.policy == "other"
 
-  process.set_scheduler(child.pid, "idle", reset_on_fork: true)?
+  process.set_scheduler(child.pid, "idle", reset_on_fork: true)
   let idle = process.scheduler(child.pid)?
   assert idle.policy == "idle"
   assert idle.reset_on_fork
@@ -185,7 +181,7 @@ test test_scheduler_time_slice_can_be_set_for_the_fair_policies { |ctx|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
-  process.set_scheduler(child.pid, "batch", runtime_ns: 3000000)?
+  process.set_scheduler(child.pid, "batch", runtime_ns: 3000000)
   let sliced = process.scheduler(child.pid)?
   assert sliced.policy == "batch"
 
@@ -195,7 +191,7 @@ test test_scheduler_time_slice_can_be_set_for_the_fair_policies { |ctx|
 
   # A change without a time slice through the time-aware call restores the
   # default one.
-  process.set_scheduler(child.pid, "batch", runtime_ns: 0)?
+  process.set_scheduler(child.pid, "batch", runtime_ns: 0)
   assert process.scheduler(child.pid)?.runtime_ns != 3000000
 }
 
@@ -203,15 +199,15 @@ test test_io_priority_is_read_and_changed_for_another_process { |ctx|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
-  process.set_io_priority(child.pid, "best-effort", 3)?
+  process.set_io_priority(child.pid, "best-effort", 3)
   let best = process.io_priority(child.pid)?
   assert best.class == "best-effort"
   assert best.level == 3
 
-  process.set_io_priority(child.pid, "idle")?
+  process.set_io_priority(child.pid, "idle")
   assert process.io_priority(child.pid)?.class == "idle"
 
-  process.set_io_priority(child.pid, "none")?
+  process.set_io_priority(child.pid, "none")
   let none = process.io_priority(child.pid)?
   assert none.class == "none"
   assert none.level == 0
@@ -244,13 +240,13 @@ test test_resource_limits_are_read_and_changed_for_another_process { |ctx|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
-  wait_for_sleep(child.pid)?
+  wait_for_sleep(child.pid)
 
   let own_core = process.rlimit("core")?
   let before = process.rlimit("core", pid: child.pid)?
   assert before.resource == "core"
 
-  process.set_rlimit("core", soft: 0, hard: 0, pid: child.pid)?
+  process.set_rlimit("core", soft: 0, hard: 0, pid: child.pid)
   let lowered = process.rlimit("core", pid: child.pid)?
   assert lowered.soft == 0 and lowered.hard == 0
 
@@ -263,10 +259,10 @@ test test_resource_limits_are_read_and_changed_for_another_process { |ctx|
   assert table.len() == process.rlimits()?.len()
 
   # An omitted bound keeps the other process's value, as it does for this one.
-  process.set_rlimit("nofile", soft: 11, hard: 22, pid: child.pid)?
-  process.set_rlimit("nofile", soft: 5, pid: child.pid)?
+  process.set_rlimit("nofile", soft: 11, hard: 22, pid: child.pid)
+  process.set_rlimit("nofile", soft: 5, pid: child.pid)
   assert process.rlimit("nofile", pid: child.pid)?.hard == 22
-  process.set_rlimit("nofile", hard: 8, pid: child.pid)?
+  process.set_rlimit("nofile", hard: 8, pid: child.pid)
   let clamped = process.rlimit("nofile", pid: child.pid)?
   assert clamped.soft == 5 and clamped.hard == 8
 }

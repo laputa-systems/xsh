@@ -330,12 +330,12 @@ export pure capacity_text(size: Int) -> Str {
   var unit = 1
   var index = 0
   while index < 5 and size / unit >= 1000 { unit *= 1000; index += 1 }
-  if index == 0 { return f"{size} bytes" }
+  return f"{size} bytes" when index == 0
   let whole = size / unit
   let rest = size % unit
   let suffix = prefixes[index] + "B"
-  if whole < 10 { return f"{whole}.{zero_pad(rest * 100 / unit, 2)} {suffix}" }
-  if whole < 100 { return f"{whole}.{rest * 10 / unit} {suffix}" }
+  return f"{whole}.{zero_pad(rest * 100 / unit, 2)} {suffix}" when whole < 10
+  return f"{whole}.{rest * 10 / unit} {suffix}" when whole < 100
   f"{whole} {suffix}"
 }
 
@@ -352,7 +352,7 @@ export pure at(data: Bytes, offset: Int) -> Int {
 ## True when every byte of the range is zero.
 export pure all_zero(data: Bytes, offset: Int, length: Int) -> Bool {
   for index in range(length) {
-    if at(data, offset + index) != 0 { return false }
+    return false when at(data, offset + index) != 0
   }
   true
 }
@@ -374,7 +374,7 @@ export pure words(page: Bytes) -> Words {
 export pure highest_bit(value: Int, low: Int, high: Int) -> Int {
   var bit = high
   while bit >= low {
-    if value / pow2(bit) % 2 == 1 { return bit }
+    return bit when value / pow2(bit) % 2 == 1
     bit -= 1
   }
   -1
@@ -383,7 +383,7 @@ export pure highest_bit(value: Int, low: Int, high: Int) -> Int {
 ## 2 raised to a small non-negative power.
 export pure pow2(power: Int) -> Int {
   var result = 1
-  for _ in range(power) { result *= 2 }
+  repeat power times { result *= 2 }
   result
 }
 
@@ -395,9 +395,10 @@ export pure bit_set(value: Int, bit: Int) -> Bool {
 ## An ATA string: each 16-bit word holds two characters, high byte first;
 ## leading and trailing blanks are dropped.
 export pure ata_string(page: Bytes, first_word: Int, word_count: Int) -> Str {
-  var chars: List[Int] = []
-  for index in range(word_count) {
-    chars += [at(page, (first_word + index) * 2 + 1), at(page, (first_word + index) * 2)]
+  let chars = collect {
+    for index in range(word_count) {
+      yield @[at(page, (first_word + index) * 2 + 1), at(page, (first_word + index) * 2)]
+    }
   }
   let raw = bytes.from_ints(chars) ?? b""
   let text = raw.utf8() ?? ""
@@ -409,7 +410,7 @@ export pure logical_sector_bytes(w: Words) -> Int {
   let layout = w[106]
   if layout / 16384 == 1 and bit_set(layout, 12) {
     let size = w[117] + w[118] * 65536
-    if size >= 256 { return size * 2 }
+    return size * 2 when size >= 256
   }
   512
 }
@@ -419,9 +420,7 @@ export pure logical_sector_bytes(w: Words) -> Int {
 export pure physical_sector_bytes(w: Words) -> Int {
   let logical = logical_sector_bytes(w)
   let layout = w[106]
-  if layout / 16384 == 1 and bit_set(layout, 13) {
-    return logical * pow2(layout % 16)
-  }
+  return logical * pow2(layout % 16) when layout / 16384 == 1 and bit_set(layout, 13)
   logical
 }
 
@@ -429,7 +428,7 @@ export pure physical_sector_bytes(w: Words) -> Int {
 export pure sector_count(w: Words) -> Int {
   if bit_set(w[83], 10) and w[83] / 16384 == 1 {
     let big = w[100] + w[101] * 65536 + w[102] * 4294967296 + w[103] * 281474976710656
-    if big > 0 { return big }
+    return big when big > 0
   }
   w[60] + w[61] * 65536
 }
@@ -448,9 +447,9 @@ export pure wwn(w: Words) -> Wwn? {
 ## Nominal media rotation rate: 0 not reported, 1 solid state, N rpm, -1 reserved.
 export pure rotation_rate(w: Words) -> Int {
   let word = w[217]
-  if word == 0 or word == 65535 { return 0 }
-  if word == 1 { return 1 }
-  if word > 1024 and word < 65535 { return word }
+  return 0 when word == 0 or word == 65535
+  return 1 when word == 1
+  return word when word > 1024 and word < 65535
   -1
 }
 
@@ -486,7 +485,7 @@ export pure ata_version(w: Words) -> AtaVersion {
   for entry in MINOR_TEXT {
     if entry.starts_with(code + " ") {
       let text = entry.byte_slice(5)
-      if text.starts_with(name) { return {text: text, major: bit, minor: minor} }
+      return {text: text, major: bit, minor: minor} when text.starts_with(name)
       return {text: f"{name}, {text}", major: bit, minor: minor}
     }
   }
@@ -523,15 +522,15 @@ export pure sata_version_text(info: SataVersion) -> Str {
 
 ## SMART availability: 1 available, 0 absent, -1 words 82 to 83 are ambiguous.
 export pure smart_supported(w: Words) -> Int {
-  if w[83] / 16384 != 1 { return -1 }
-  if bit_set(w[82], 0) { return 1 }
+  return -1 when w[83] / 16384 != 1
+  return 1 when bit_set(w[82], 0)
   0
 }
 
 ## SMART enablement: 1 enabled, 0 disabled, -1 words 85 to 87 are ambiguous.
 export pure smart_enabled(w: Words) -> Int {
-  if w[87] / 16384 != 1 { return -1 }
-  if bit_set(w[85], 0) { return 1 }
+  return -1 when w[87] / 16384 != 1
+  return 1 when bit_set(w[85], 0)
   0
 }
 
@@ -563,21 +562,21 @@ export pure aam_text(w: Words) -> Str {
 ## The read look-ahead line.
 export pure lookahead_text(w: Words) -> Str {
   guard bit_set(w[82], 6) else { return "Rd look-ahead is: Unavailable" }
-  if bit_set(w[85], 6) { return "Rd look-ahead is: Enabled" }
+  return "Rd look-ahead is: Enabled" when bit_set(w[85], 6)
   "Rd look-ahead is: Disabled"
 }
 
 ## The volatile write cache line.
 export pure write_cache_text(w: Words) -> Str {
   guard bit_set(w[82], 5) else { return "Write cache is:   Unavailable" }
-  if bit_set(w[85], 5) { return "Write cache is:   Enabled" }
+  return "Write cache is:   Enabled" when bit_set(w[85], 5)
   "Write cache is:   Disabled"
 }
 
 ## The Device Statistics Notification line.
 export pure dsn_text(w: Words) -> Str {
   guard w[119] / 16384 == 1 and bit_set(w[119], 9) else { return "DSN feature is:   Unavailable" }
-  if bit_set(w[120], 9) { return "DSN feature is:   Enabled" }
+  return "DSN feature is:   Enabled" when bit_set(w[120], 9)
   "DSN feature is:   Disabled"
 }
 
@@ -588,7 +587,7 @@ export pure security_text(w: Words) -> Str {
   let locked = bit_set(w[128], 2)
   let frozen = bit_set(w[128], 3)
   if !enabled {
-    if frozen { return "ATA Security is:  Disabled, frozen [SEC2]" }
+    return "ATA Security is:  Disabled, frozen [SEC2]" when frozen
     return "ATA Security is:  Disabled, NOT FROZEN [SEC1]"
   }
   let level = if bit_set(w[128], 8) { "MAX" } else { "HIGH" }
@@ -603,7 +602,7 @@ export pure security_text(w: Words) -> Str {
 export pure attribute_name(id: Int) -> Str {
   let prefix = f"{id} "
   for entry in ATTRIBUTE_NAMES {
-    if entry.starts_with(prefix) { return entry.byte_slice(prefix.byte_len()) }
+    return entry.byte_slice(prefix.byte_len()) when entry.starts_with(prefix)
   }
   "Unknown_Attribute"
 }
@@ -619,15 +618,15 @@ export pure raw_number(raw: List[Int]) -> Int {
 ## the temperature attributes the current value followed by the recorded
 ## minimum and maximum when the bytes are consistent with that layout.
 export pure raw_text(id: Int, raw: List[Int]) -> Str {
-  if id not in [190, 194, 231] { return f"{raw_number(raw)}" }
+  return f"{raw_number(raw)}" when id not in [190, 194, 231]
   let word1 = raw[2] + raw[3] * 256
   let word2 = raw[4] + raw[5] * 256
   let temperature = raw[0]
-  if word1 == 0 and word2 == 0 and raw[1] == 0 { return f"{temperature}" }
+  return f"{temperature}" when word1 == 0 and word2 == 0 and raw[1] == 0
   let low = raw[2]
   let high = raw[3]
   if raw[1] == 0 and low <= high and high != 0 {
-    if word2 == 0 { return f"{temperature} (Min/Max {low}/{high})" }
+    return f"{temperature} (Min/Max {low}/{high})" when word2 == 0
     return f"{temperature} (Min/Max {low}/{high} #{word2})"
   }
   f"{temperature} ({raw[1]} {raw[2]} {raw[3]} {raw[4]} {raw[5]})"
@@ -642,7 +641,7 @@ export pure smart_values(data: Bytes, thresholds: Bytes?) -> SmartValues {
     continue when id == 0
     let flags = le(data, base + 1, 2)
     let raw = [at(data, base + 5 + index) for index in range(6)]
-    var threshold: Int? = null
+    var threshold = null
     if let table = thresholds {
       # Thresholds normally sit at the same slot, but a device may order the
       # threshold table differently, so look the id up when the slot differs.
@@ -693,7 +692,7 @@ export pure smart_values(data: Bytes, thresholds: Bytes?) -> SmartValues {
 pure table_name(table: List[Str], code: Int) -> Str? {
   let prefix = hex(code, 2) + " "
   for entry in table {
-    if entry.starts_with(prefix) { return entry.byte_slice(3) }
+    return entry.byte_slice(3) when entry.starts_with(prefix)
   }
   null
 }
@@ -719,21 +718,22 @@ export pure power_up_time(ms: Int) -> Str {
   let hours = ms / 3600000 % 24
   let days = ms / 86400000
   let clock = f"{zero_pad(hours, 2)}:{zero_pad(minutes, 2)}:{zero_pad(seconds, 2)}.{zero_pad(millis, 3)}"
-  if days > 0 { return f"{days}d+{clock}" }
+  return f"{days}d+{clock}" when days > 0
   clock
 }
 
 ## Error-register mnemonic list for an ATA error.
 export pure error_flags(error: Int) -> List[Str] {
-  var names: List[Str] = []
-  if bit_set(error, 7) { names += ["ICRC"] }
-  if bit_set(error, 6) { names += ["UNC"] }
-  if bit_set(error, 5) { names += ["MC"] }
-  if bit_set(error, 4) { names += ["IDNF"] }
-  if bit_set(error, 3) { names += ["MCR"] }
-  if bit_set(error, 2) { names += ["ABRT"] }
-  if bit_set(error, 1) { names += ["TK0NF"] }
-  if bit_set(error, 0) { names += ["AMNF"] }
+  let names = collect {
+    yield "ICRC" when bit_set(error, 7)
+    yield "UNC" when bit_set(error, 6)
+    yield "MC" when bit_set(error, 5)
+    yield "IDNF" when bit_set(error, 4)
+    yield "MCR" when bit_set(error, 3)
+    yield "ABRT" when bit_set(error, 2)
+    yield "TK0NF" when bit_set(error, 1)
+    yield "AMNF" when bit_set(error, 0)
+  }
   names
 }
 
@@ -746,7 +746,7 @@ export pure error_state_text(state: Int) -> Str {
     2 => "in standby mode"
     3 => "active or idle"
     4 => "doing SMART Offline or Self-test"
-    _ => if code < 11 { "in a reserved state" } else { "in a vendor specific state" }
+    else => if code < 11 { "in a reserved state" } else { "in a vendor specific state" }
   }
 }
 
@@ -779,21 +779,22 @@ export pure error_log(page: Bytes) -> ErrorLog {
       let slot = (pointer + k) % 5
       let base = 2 + slot * 90
       continue when all_zero(page, base, 90)
-      var commands: List[ErrorCommand] = []
-      for back in range(5) {
-        let c = base + (4 - back) * 12
-        continue when all_zero(page, c, 12)
-        commands += [{
-          device_control: at(page, c),
-          features: at(page, c + 1),
-          count: at(page, c + 2),
-          lba_low: at(page, c + 3),
-          lba_mid: at(page, c + 4),
-          lba_high: at(page, c + 5),
-          device: at(page, c + 6),
-          command: at(page, c + 7),
-          timestamp_ms: le(page, c + 8, 4),
-        }]
+      let commands: List[ErrorCommand] = collect {
+        for back in range(5) {
+          let c = base + (4 - back) * 12
+          continue when all_zero(page, c, 12)
+          yield {
+            device_control: at(page, c),
+            features: at(page, c + 1),
+            count: at(page, c + 2),
+            lba_low: at(page, c + 3),
+            lba_mid: at(page, c + 4),
+            lba_high: at(page, c + 5),
+            device: at(page, c + 6),
+            command: at(page, c + 7),
+            timestamp_ms: le(page, c + 8, 4),
+          }
+        }
       }
       let e = base + 60
       entries += [{
@@ -817,34 +818,35 @@ export pure error_log(page: Bytes) -> ErrorLog {
 ## Decodes the SMART self-test log (log address 6).
 export pure self_test_log(page: Bytes) -> SelfTestLog {
   let latest = at(page, 508)
-  var entries: List[SelfTestEntry] = []
   var errors = 0
   var outdated = 0
   var superseded_by = 0
   var number = 0
-  if latest >= 1 and latest <= 21 {
-    for step in range(21) {
-      let slot = (20 - step + latest) % 21
-      let base = 2 + slot * 24
-      continue when all_zero(page, base, 24)
-      number += 1
-      let status = at(page, base + 1)
-      let nibble = status / 16
-      let kind = at(page, base)
-      if nibble >= 3 and nibble <= 8 {
-        errors += 1
-        if superseded_by > 0 { outdated += 1 }
+  let entries: List[SelfTestEntry] = collect {
+    if latest >= 1 and latest <= 21 {
+      for step in range(21) {
+        let slot = (20 - step + latest) % 21
+        let base = 2 + slot * 24
+        continue when all_zero(page, base, 24)
+        number += 1
+        let status = at(page, base + 1)
+        let nibble = status / 16
+        let kind = at(page, base)
+        if nibble >= 3 and nibble <= 8 {
+          errors += 1
+          if superseded_by > 0 { outdated += 1 }
+        }
+        if nibble == 0 and (kind == 2 or kind == 130) and superseded_by == 0 { superseded_by = number }
+        yield {
+          number: number,
+          kind: at(page, base),
+          status: nibble,
+          remaining_percent: status % 16 * 10,
+          hours: le(page, base + 2, 2),
+          checkpoint: at(page, base + 4),
+          lba: le(page, base + 5, 4),
+        }
       }
-      if nibble == 0 and (kind == 2 or kind == 130) and superseded_by == 0 { superseded_by = number }
-      entries += [{
-        number: number,
-        kind: at(page, base),
-        status: nibble,
-        remaining_percent: status % 16 * 10,
-        hours: le(page, base + 2, 2),
-        checkpoint: at(page, base + 4),
-        lba: le(page, base + 5, 4),
-      }]
     }
   }
   {
@@ -870,7 +872,7 @@ export pure self_test_name(kind: Int) -> Str {
     130 => "Extended captive"
     131 => "Conveyance captive"
     132 => "Selective captive"
-    _ => if (kind >= 64 and kind <= 126) or kind >= 144 { f"Vendor (0x{hex(kind, 2)})" } else { f"Reserved (0x{hex(kind, 2)})" }
+    else => if (kind >= 64 and kind <= 126) or kind >= 144 { f"Vendor (0x{hex(kind, 2)})" } else { f"Reserved (0x{hex(kind, 2)})" }
   }
 }
 
@@ -887,15 +889,16 @@ export pure self_test_status_text(nibble: Int) -> Str {
     7 => "Completed: read failure"
     8 => "Completed: handling damage??"
     15 => "Self-test routine in progress"
-    _ => f"Unknown status (0x{hex(nibble, 1)})"
+    else => f"Unknown status (0x{hex(nibble, 1)})"
   }
 }
 
 ## Decodes the selective self-test log (log address 9).
 export pure selective_log(page: Bytes) -> SelectiveLog {
-  var spans: List[SelectiveSpan] = []
-  for index in range(5) {
-    spans += [{start: le(page, 2 + index * 16, 8), end: le(page, 10 + index * 16, 8)}]
+  let spans: List[SelectiveSpan] = collect {
+    for index in range(5) {
+      yield {start: le(page, 2 + index * 16, 8), end: le(page, 10 + index * 16, 8)}
+    }
   }
   {
     revision: le(page, 0, 2),
@@ -938,7 +941,7 @@ export pure offline_activity(status: Int) -> Str {
     4 => "was suspended by an interrupting command from host"
     5 => "was aborted by an interrupting command from host"
     6 => "was aborted by the device with a fatal error"
-    _ => if status % 128 >= 64 { "is in a Vendor Specific state" } else { "is in a Reserved state" }
+    else => if status % 128 >= 64 { "is in a Vendor Specific state" } else { "is in a Reserved state" }
   }
 }
 
@@ -963,7 +966,7 @@ export pure self_test_exec_text(status: Int) -> Str {
     7 => f"The previous self-test completed having{indent}the read element of the test failed."
     8 => f"The previous self-test completed having{indent}a test element that failed and the{indent}device is suspected of having handling{indent}damage."
     15 => if status % 16 == 0 { f"The previous self-test completed having{indent}with unknown result or self-test in{indent}progress with less than 10% remaining." } else { f"Self-test routine in progress...{indent}{status % 16}0% of test remaining." }
-    _ => "Reserved."
+    else => "Reserved."
   }
 }
 
@@ -980,7 +983,7 @@ export pure self_test_exec_name(status: Int) -> Str {
     7 => "completed having the read element of the test failed"
     8 => "completed having the handling element of the test failed"
     15 => f"in progress, {status % 16}0% remaining"
-    _ => "reserved"
+    else => "reserved"
   }
 }
 

@@ -21,22 +21,23 @@ export type Entry = {path: Path, start: Path, depth: Int, meta: Meta}
 export type Segment = {kind: Str, text: Bytes, flags: Str, width: Int, precision: Int, spec: Str, sub: Str}
 
 pure spaces(count: Int) -> Bytes {
-  var parts: List[Bytes] = []
-  for _ in range(count) { parts += [b" "] }
+  let parts = collect {
+    repeat count times { yield b" " }
+  }
   bytes.concat(parts)
 }
 
 # Apply the width, precision and left-justify flag of a `%s` conversion.
 pure pad_text(data: Bytes, flags: Str, width: Int, precision: Int) -> Bytes {
   let clipped = if precision >= 0 and precision < data.len() { data[0..precision] } else { data }
-  if width <= clipped.len() { return clipped }
-  if "-" in flags { return bytes.concat([clipped, spaces(width - clipped.len())]) }
+  return clipped when width <= clipped.len()
+  return bytes.concat([clipped, spaces(width - clipped.len())]) when "-" in flags
   bytes.concat([spaces(width - clipped.len()), clipped])
 }
 
 pure zeros(count: Int) -> Str {
   var out = ""
-  for _ in range(count) { out = f"{out}0" }
+  repeat count times { out = f"{out}0" }
   out
 }
 
@@ -50,14 +51,14 @@ pure pad_number(digits: Str, negative: Bool, flags: Str, width: Int, precision: 
   let sign = if negative { "-" } else if "+" in flags { "+" } else if " " in flags { " " } else { "" }
   let head = f"{sign}{prefix}"
   let used = head.byte_len() + body.byte_len()
-  if width <= used { return bytes.from_text(f"{head}{body}") }
+  return bytes.from_text(f"{head}{body}") when width <= used
   if "-" in flags { return bytes.concat([bytes.from_text(f"{head}{body}"), spaces(width - used)]) }
   if "0" in flags and precision < 0 { return bytes.from_text(f"{head}{zeros(width - used)}{body}") }
   bytes.concat([spaces(width - used), bytes.from_text(f"{head}{body}")])
 }
 
 pure octal_digits(value: Int) -> Str {
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var out = ""
   var rest = value
   while rest > 0 { out = f"{rest % 8}{out}"; rest = rest / 8 }
@@ -70,7 +71,7 @@ pure is_octal(byte: Int) -> Bool { byte >= 48 and byte <= 55 }
 ## are copied through, matching GNU; a lone trailing `%` or `\` is an error.
 export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment], Error] {
   var out: List[Segment] = []
-  var text: List[Bytes] = []
+  var text = []
   var at = 0
   while at < format.len() {
     let byte = format.byte_at(at) ?? 0
@@ -83,7 +84,7 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
       }
       let next = format.byte_at(at + 1) ?? 0
       at += 2
-      let simple = match next { 97 => 7; 98 => 8; 102 => 12; 110 => 10; 114 => 13; 116 => 9; 118 => 11; 92 => 92; _ => -1 }
+      let simple = match next { 97 => 7; 98 => 8; 102 => 12; 110 => 10; 114 => 13; 116 => 9; 118 => 11; 92 => 92; else => -1 }
       if simple >= 0 { text += [bytes.from_ints([simple]) ?? b""]; continue }
       if next == 99 {
         if ! text.is_empty() { out += [{kind: "text", text: bytes.concat(text), flags: "", width: 0, precision: -1, spec: "", sub: ""}]; text = [] }
@@ -106,7 +107,7 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
     if byte != 37 { text += [format[at..at + 1]]; at += 1; continue }
     let start = at
     at += 1
-    if at >= format.len() { search.reject("error: % at end of format string")? }
+    if at >= format.len() { search.reject("error: % at end of format string") }
     if format.byte_at(at) == 37 { text += [b"%"]; at += 1; continue }
     var flags = ""
     while at < format.len() and (format.byte_at(at) ?? 0) in [45, 43, 32, 35, 48] {
@@ -124,12 +125,12 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
         precision = precision * 10 + (format.byte_at(at) ?? 48) - 48; at += 1
       }
     }
-    if at >= format.len() { search.reject("error: % at end of format string")? }
+    if at >= format.len() { search.reject("error: % at end of format string") }
     let spec = (bytes.from_ints([format.byte_at(at) ?? 0]) ?? b"").utf8() ?? "?"
     at += 1
     var sub = ""
     if spec in ["A", "B", "C", "T"] {
-      if at >= format.len() { search.reject(f"error: %{spec} at end of format string")? }
+      if at >= format.len() { search.reject(f"error: %{spec} at end of format string") }
       sub = (bytes.from_ints([format.byte_at(at) ?? 0]) ?? b"").utf8() ?? "?"
       at += 1
     }
@@ -148,7 +149,7 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
 pure basename_of(raw: Bytes) -> Bytes {
   var end = raw.len()
   while end > 1 and raw.byte_at(end - 1) == 47 { end -= 1 }
-  if end == 1 and raw.byte_at(0) == 47 { return b"/" }
+  return b"/" when end == 1 and raw.byte_at(0) == 47
   var at = end
   while at > 0 and raw.byte_at(at - 1) != 47 { at -= 1 }
   # Trailing slashes belong to the name: `dir/` has base `dir/`.
@@ -162,8 +163,8 @@ pure dirname_of(raw: Bytes) -> Bytes {
   while end > 1 and raw.byte_at(end - 1) == 47 { end -= 1 }
   var at = end
   while at > 0 and raw.byte_at(at - 1) != 47 { at -= 1 }
-  if end == 1 and raw.byte_at(0) == 47 { return b"" }
-  if at == 0 { return b"." }
+  return b"" when end == 1 and raw.byte_at(0) == 47
+  return b"." when at == 0
   var stop = at
   while stop > 1 and raw.byte_at(stop - 1) == 47 { stop -= 1 }
   raw[0..stop]
@@ -171,19 +172,19 @@ pure dirname_of(raw: Bytes) -> Bytes {
 
 # The path below the starting point, without the separating slash.
 pure relative_part(whole: Bytes, start: Bytes) -> Bytes {
-  if whole.len() <= start.len() { return b"" }
+  return b"" when whole.len() <= start.len()
   var at = start.len()
   while at < whole.len() and whole.byte_at(at) == 47 { at += 1 }
   whole[at..]
 }
 
 pure type_letter(kind: Str) -> Str {
-  match kind { "file" => "f"; "dir" => "d"; "symlink" => "l"; "fifo" => "p"; "socket" => "s"; "block" => "b"; "char" => "c"; _ => "U" }
+  match kind { "file" => "f"; "dir" => "d"; "symlink" => "l"; "fifo" => "p"; "socket" => "s"; "block" => "b"; "char" => "c"; else => "U" }
 }
 
 ## The `ls -l` style permission string of a mode.
 export pure mode_text(kind: Str, mode: Int) -> Str {
-  let lead = match kind { "dir" => "d"; "symlink" => "l"; "fifo" => "p"; "socket" => "s"; "block" => "b"; "char" => "c"; _ => "-" }
+  let lead = match kind { "dir" => "d"; "symlink" => "l"; "fifo" => "p"; "socket" => "s"; "block" => "b"; "char" => "c"; else => "-" }
   var out = lead
   for shift in [6, 3, 0] {
     let bits = mode / (if shift == 6 { 64 } else if shift == 3 { 8 } else { 1 }) % 8
@@ -224,8 +225,8 @@ proc time_field(ns: Int, sub: Str) [time, error] -> Result[Str, Error] {
     "S" => Ok(f"{strftime(ns, "%S")?}.{fraction(ns)}")
     "T" | "X" => Ok(f"{strftime(ns, "%H:%M:")?}{strftime(ns, "%S")?}.{fraction(ns)}")
     "+" => Ok(f"{strftime(ns, "%Y-%m-%d+%H:%M:")?}{strftime(ns, "%S")?}.{fraction(ns)}")
-    "k" | "l" | "N" => { search.reject("memory exhausted")?; Ok("") }
-    _ => strftime(ns, f"%{sub}")
+    "k" | "l" | "N" => { search.reject("memory exhausted"); Ok("") }
+    else => strftime(ns, f"%{sub}")
   }
 }
 
@@ -236,13 +237,13 @@ proc ctime_field(ns: Int) [time, error] -> Result[Str, Error] {
 
 # Link text of a symlink entry, empty for anything else.
 proc link_text(entry: Entry) [fs] -> Bytes {
-  if entry.meta.kind != "symlink" { return b"" }
-  match entry.path.readlink() { Ok(target) => target.bytes(); Err(_) => b"" }
+  return b"" when entry.meta.kind != "symlink"
+  if let Ok(target) = entry.path.readlink() { target.bytes() } else { b"" }
 }
 
 # Type letter of what a symlink points at: N dangling, L loop, ? other error.
 proc followed_type(entry: Entry) [fs] -> Str {
-  if entry.meta.kind != "symlink" { return type_letter(entry.meta.kind) }
+  return type_letter(entry.meta.kind) when entry.meta.kind != "symlink"
   match fs.stat(entry.path, follow_symlinks: true) {
     Ok(found) => type_letter(found.kind)
     Err(failure) => if gnu.errno(failure) == 2 { "N" } else if gnu.errno(failure) == 40 { "L" } else { "?" }
@@ -250,24 +251,24 @@ proc followed_type(entry: Entry) [fs] -> Str {
 }
 
 proc owner_name(uid: Int) [fs] -> Str {
-  match user.by_uid(uid) { Ok(found) => found.name; Err(_) => f"{uid}" }
+  if let Ok(found) = user.by_uid(uid) { found.name } else { f"{uid}" }
 }
 
 proc group_name(gid: Int) [fs] -> Str {
-  match group.by_gid(gid) { Ok(found) => found.name; Err(_) => f"{gid}" }
+  if let Ok(found) = group.by_gid(gid) { found.name } else { f"{gid}" }
 }
 
 proc fstype_name(entry: Entry) [fs] -> Str {
-  match fs.mount_for(entry.path) { Ok(found) => found.fstype; Err(_) => "unknown" }
+  if let Ok(found) = fs.mount_for(entry.path) { found.fstype } else { "unknown" }
 }
 
 # Floating `%S`: allocated bytes over size, in the shortest `%g` form.
 pure sparseness(entry: Entry) -> Str {
-  if entry.meta.size == 0 { return "1" }
+  return "1" when entry.meta.size == 0
   let ratio = entry.meta.blocks_512 * 512 * 1000000 / entry.meta.size
   let whole = ratio / 1000000
   var fractional = ratio % 1000000
-  if fractional == 0 { return f"{whole}" }
+  return f"{whole}" when fractional == 0
   var digits = f"{fractional}"
   digits = f"{zeros(6 - digits.byte_len())}{digits}"
   while digits.ends_with("0") { digits = digits.byte_slice(0, digits.byte_len() - 1) }
@@ -278,9 +279,7 @@ pure sparseness(entry: Entry) -> Str {
 proc directive_text(entry: Entry, segment: Segment) [fs, time, error] -> Result[Bytes, Error] {
   let meta = entry.meta
   let raw = entry.path.bytes()
-  let flags = segment.flags
-  let width = segment.width
-  let precision = segment.precision
+  let {flags, width, precision, ..} = segment
   match segment.spec {
     "d" => Ok(pad_number(f"{entry.depth}", false, flags, width, precision, ""))
     "m" => Ok(pad_number(octal_digits(meta.mode.bit_and(0o7777)), false, flags, width, precision, if "#" in flags and meta.mode.bit_and(0o7777) != 0 { "0" } else { "" }))
@@ -310,8 +309,8 @@ proc directive_text(entry: Entry, segment: Segment) [fs, time, error] -> Result[
     "t" => Ok(pad_text(bytes.from_text(ctime_field(meta.mtime_ns)?), flags, width, precision))
     "A" => Ok(pad_text(bytes.from_text(time_field(meta.atime_ns, segment.sub)?), flags, width, precision))
     "C" => Ok(pad_text(bytes.from_text(time_field(meta.ctime_ns, segment.sub)?), flags, width, precision))
-    "B" => Ok(pad_text(if meta.birth_ns == null { b"" } else { bytes.from_text(time_field(meta.birth_ns ?? 0, segment.sub)?) }, flags, width, precision))
-    _ => Ok(pad_text(bytes.from_text(time_field(meta.mtime_ns, segment.sub)?), flags, width, precision))
+    "B" => Ok(pad_text(if meta.birth_ns == null { b"" } else { bytes.from_text(time_field(meta.birth_ns, segment.sub)?) }, flags, width, precision))
+    else => Ok(pad_text(bytes.from_text(time_field(meta.mtime_ns, segment.sub)?), flags, width, precision))
   }
 }
 
@@ -325,9 +324,9 @@ export pure needs_stat(segments: List[Segment]) -> Bool {
 
 ## Expand a compiled format for an entry.
 export proc render(segments: List[Segment], entry: Entry) [fs, time, error] -> Result[Bytes, Error] {
-  var parts: List[Bytes] = []
+  var parts = []
   for segment in segments {
-    if segment.kind == "stop" { break }
+    break when segment.kind == "stop"
     if segment.kind == "text" { parts += [segment.text]; continue }
     parts += [directive_text(entry, segment)?]
   }
@@ -337,13 +336,28 @@ export proc render(segments: List[Segment], entry: Entry) [fs, time, error] -> R
 # `-ls` names print with C escapes for control bytes and backslash, and as
 # octal for bytes outside printable ASCII.
 pure escape_name(raw: Bytes) -> Bytes {
-  var parts: List[Bytes] = []
-  for at in range(raw.len()) {
-    let byte = raw.byte_at(at) ?? 0
-    let simple = match byte { 7 => "\\a"; 8 => "\\b"; 9 => "\\t"; 10 => "\\n"; 11 => "\\v"; 12 => "\\f"; 13 => "\\r"; 92 => "\\\\"; _ => "" }
-    if simple != "" { parts += [bytes.from_text(simple)] } else if byte < 32 or byte >= 127 {
-      parts += [bytes.from_text(f"\\{byte / 64}{byte / 8 % 8}{byte % 8}")]
-    } else { parts += [raw[at..at + 1]] }
+  let parts = collect {
+    for at in range(raw.len()) {
+      let byte = raw.byte_at(at) ?? 0
+      let simple = match byte {
+        7 => "\\a",
+        8 => "\\b",
+        9 => "\\t",
+        10 => "\\n",
+        11 => "\\v",
+        12 => "\\f",
+        13 => "\\r",
+        92 => "\\\\",
+        else => "",
+      }
+      if simple != "" {
+        yield bytes.from_text(simple)
+      } else if byte < 32 or byte >= 127 {
+        yield bytes.from_text(f"\\{byte / 64}{byte / 8 % 8}{byte % 8}")
+      } else {
+        yield raw[at..at + 1]
+      }
+    }
   }
   bytes.concat(parts)
 }

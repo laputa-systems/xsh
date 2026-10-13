@@ -77,7 +77,7 @@ proc read_script_file(name: Str) [fs, io, error, process, env] -> Bytes {
   match fp"{name}".read_bytes() {
     Ok(data) => data
     Err(failure) => {
-      if gnu.errno(failure) == 21 { return b"" }
+      return b"" when gnu.errno(failure) == 21
       gnu.error(f"couldn't open file {name}: {gnu.strerror(failure)}")
       exit 4
     }
@@ -90,7 +90,7 @@ pure leading_integer(text: Str) -> Int {
   var at = 0
   while at < text.byte_len() {
     let digit = text.byte_slice(at, 1)
-    if digit < "0" or digit > "9" { break }
+    break when digit < "0" or digit > "9"
     value = value * 10 + (digit.parse_int() ?? 0)
     at += 1
   }
@@ -122,15 +122,15 @@ proc apply(settings: Settings, code: Str, value: Str?) [fs, io, error, process, 
     "l" => next = {...next, line_length: leading_integer(value ?? "")}
     "e" => {
       let number = next.expressions + 1
-      let chunk: editing.Chunk = {text: bytes.from_text(value ?? ""), file: null, number: number}
+      let chunk: editing.Chunk = editing.Chunk(text: bytes.from_text(value ?? ""), file: null, number:)
       next = {...next, expressions: number, have_script: true, chunks: next.chunks + [chunk]}
     }
     "f" => {
       let name = value ?? ""
-      let chunk: editing.Chunk = {text: read_script_file(name), file: name, number: 0}
+      let chunk: editing.Chunk = editing.Chunk(text: read_script_file(name), file: name, number: 0)
       next = {...next, have_script: true, chunks: next.chunks + [chunk]}
     }
-    _ => {}
+    else => {}
   }
   next
 }
@@ -138,7 +138,7 @@ proc apply(settings: Settings, code: Str, value: Str?) [fs, io, error, process, 
 # Resolve a `--name[=value]` word against the long-option table.
 proc long_option(settings: Settings, word: Str, rest: List[Str], at: Int) [fs, io, error, process, env] -> LongScan {
   var name = word.byte_slice(2)
-  var inline: Str? = null
+  var inline = null
   if let eq = name.find("=") {
     inline = name.byte_slice(eq + 1)
     name = name.byte_slice(0, eq)
@@ -155,10 +155,11 @@ proc long_option(settings: Settings, word: Str, rest: List[Str], at: Int) [fs, i
   let chosen = found[0]
   if found.len() > 1 {
     var same = true
-    var listed: List[Str] = []
-    for option in found {
-      if option.argument != chosen.argument or option.code != chosen.code { same = false }
-      listed += [f"'--{option.name}'"]
+    let listed = collect {
+      for option in found {
+        if option.argument != chosen.argument or option.code != chosen.code { same = false }
+        yield f"'--{option.name}'"
+      }
     }
     if !same { bad_usage(f"option '--{name}' is ambiguous; possibilities: {listed.join(" ")}") }
   }
@@ -182,14 +183,14 @@ proc long_option(settings: Settings, word: Str, rest: List[Str], at: Int) [fs, i
 }
 
 proc main(...argv: List[Str]) [fs, error, io, process, env] {
-  var settings: Settings = {quiet: false, extended: false, separate: false, null_data: false, in_place: false, suffix: "", follow: false, line_length: 70, sandbox: false, chunks: [], expressions: 0, operands: [], have_script: false}
+  var settings: Settings = Settings(quiet: false, extended: false, separate: false, null_data: false, in_place: false, suffix: "", follow: false, line_length: 70, sandbox: false, chunks: [], expressions: 0, operands: [], have_script: false)
   var at = 0
   var only_operands = false
   while at < argv.len() {
     let word = argv[at]
     at += 1
     if only_operands or word == "-" or !word.starts_with("-") {
-      settings = {...settings, operands: settings.operands + [word]}
+      settings = {...settings, operands: [@settings.operands, word]}
       continue
     }
     if word == "--" {
@@ -230,24 +231,18 @@ proc main(...argv: List[Str]) [fs, error, io, process, env] {
   if !settings.have_script {
     if operands.is_empty() { bad_usage("") }
     let number = settings.expressions + 1
-    let chunk: editing.Chunk = {text: bytes.from_text(operands[0]), file: null, number: number}
+    let chunk: editing.Chunk = editing.Chunk(text: bytes.from_text(operands[0]), file: null, number:)
     chunks += [chunk]
     operands = operands[1..]
   }
-  let options: editing.Options = {extended: settings.extended, sandbox: settings.sandbox, separate: settings.separate, null_data: settings.null_data, line_length: settings.line_length}
-  let parsed = match editing.compile(chunks, options) {
-    Ok(value) => value
-    Err(failure) => {
-      gnu.error(failure.message)
-      exit 1
-    }
+  let options: editing.Options = editing.Options(extended: settings.extended, sandbox: settings.sandbox, separate: settings.separate, null_data: settings.null_data, line_length: settings.line_length)
+  let parsed = editing.compile(chunks, options) ?? { |failure|
+    gnu.error(failure.message)
+    exit 1
   }
-  var program = match editing.link(parsed) {
-    Ok(value) => value
-    Err(failure) => {
-      gnu.error(failure.message)
-      exit 4
-    }
+  var program = editing.link(parsed) ?? { |failure|
+    gnu.error(failure.message)
+    exit 4
   }
   if settings.quiet { program = {...program, quiet: true} }
   let status = editing.execute(program, options, {enabled: settings.in_place, suffix: settings.suffix, follow: settings.follow}, operands)

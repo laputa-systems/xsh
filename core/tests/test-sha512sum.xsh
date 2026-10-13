@@ -25,7 +25,7 @@ test test_sha512sum_continues_after_unreadable_file { |ctx|
   let missing = test.temp_path(ctx, name: "sha512sum-missing")
   let result = invoke(ctx, [missing.display(), file.display()], b"")?
   assert result.status == 1
-  assert result.stdout.len() > 0
+  assert ! result.stdout.is_empty()
   assert result.stderr.find("No such file or directory") != null
 }
 

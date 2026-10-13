@@ -1,5 +1,5 @@
 ##! Transcribed from uutils tests/by-util/test_id.rs.
-use support.uu as uu
+use support.uu
 
 # Expected bytes come from the process credentials and account database,
 # independently of the applet being exercised.
@@ -50,11 +50,12 @@ proc expected_id(s: uu.Scene, args: List[Str], users: List[Str] = []) [fs, proce
         if let Ok(entry) = group.by_gid(me.egid) { output += f"({entry.name})" }
       }
       let default_gids = if target == null { [me.egid, @[g for g in me.supplementary if g != me.egid]] } else { gids }
-      var labels: List[Str] = []
-      for g in default_gids {
-        var label = f"{g}"
-        if let Ok(entry) = group.by_gid(g) { label += f"({entry.name})" }
-        labels += [label]
+      let labels = collect {
+        for g in default_gids {
+          var label = f"{g}"
+          if let Ok(entry) = group.by_gid(g) { label += f"({entry.name})" }
+          yield label
+        }
       }
       output += f" groups={labels.join(",")}"
     }
@@ -106,7 +107,7 @@ test test_uu_id_id_name { |ctx|
   let s = uu.scene(ctx)?
   for opt in ["--user", "--group", "--groups"] { expected_id(s, [opt, "--name"]) }
   let r = uu.invoke(s, "id", ["--user", "--name"])?
-  assert r.stdout.utf8()? == f"{user.current()?.name}\n"
+  assert r.stdout as Str == f"{user.current()?.name}\n"
 }
 
 # origin: uutils test_id::test_id_real
@@ -124,7 +125,7 @@ test test_uu_id_id_groups_ordering { |ctx|
   assert !from_flag.is_empty()
   let rgid = uu.invoke(s, "id", ["-g", "-r"])?
   uu.succeeds(rgid)
-  assert f"{from_flag[0]}\n" == rgid.stdout.utf8()?
+  assert f"{from_flag[0]}\n" == rgid.stdout as Str
   let default = uu.invoke(s, "id", [])?
   uu.succeeds(default)
   let field = default.stdout.utf8()?.split(" groups=")[1].fields()[0]
@@ -205,7 +206,7 @@ test test_uu_id_id_zero { |ctx|
 test test_uu_id_id_no_specified_user_posixly { |ctx|
   let r = uu.invoke(uu.scene(ctx)?, "id", [], vars: {POSIXLY_CORRECT: "1"})?
   uu.succeeds(r)
-  assert "context=" not in r.stdout.utf8()?
+  assert "context=" not in r.stdout as Str
 }
 
 # A numeric login name takes precedence over the numeric UID interpretation.

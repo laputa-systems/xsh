@@ -59,9 +59,9 @@ test test_bb_xargs_xargs_does_not_stop_on_underscore_new_GNU_behavior_0df22fcd {
 # origin: busybox xargs/xargs-works
 test test_bb_xargs_xargs_works_f2ed784c { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "first-works", "alpha\n")?
-  uu.write(s, "second-works", "beta\n")?
-  uu.write(s, "two words-works", "gamma\n")?
+  uu.write(s, "first-works", "alpha\n")
+  uu.write(s, "second-works", "beta\n")
+  uu.write(s, "two words-works", "gamma\n")
   let paths = ["first-works", "second-works", "two words-works"]
   let reference = uu.invoke(s, "md5sum", paths, timeout: 5s)?
   uu.succeeds(reference)

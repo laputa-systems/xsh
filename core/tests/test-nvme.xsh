@@ -39,14 +39,14 @@ proc admin_line(
 }
 
 proc identify_line(nsid: Int, cns: Int, data: Bytes, cdw11 = 0) -> Record {
-  admin_line(6, nsid: nsid, cdw10: cns, cdw11: cdw11, direction: "from_device", data_len: 4096, data: data)
+  admin_line(6, nsid:, cdw10: cns, cdw11:, direction: "from_device", data_len: 4096, data:)
 }
 
 # A log page read of `length` bytes at offset zero; the dword count is
 # zero-based and split across cdw10 and cdw11.
 proc log_line(log_id: Int, length: Int, data: Bytes, nsid = 4294967295) -> Record {
   let dwords = length / 4 - 1
-  admin_line(2, nsid: nsid, cdw10: dwords % 65536 * 65536 + log_id, cdw11: dwords / 65536, direction: "from_device", data_len: length, data: data)
+  admin_line(2, nsid:, cdw10: dwords % 65536 * 65536 + log_id, cdw11: dwords / 65536, direction: "from_device", data_len: length, data:)
 }
 
 # Replaces `value.len()` bytes of `data` at `offset`.
@@ -99,12 +99,12 @@ proc controller_page() [error] -> Result[Bytes, Error] {
 proc nvme(ctx: TestContext, lines: List[Record], args: List[Str], log: Path) [fs, process, error] -> Result[Ran, Error] {
   let root = test.temp_dir(ctx, name: "nvme-run")?
   let fixture = fp"{root}/fixture.jsonl"
-  var recorded: List[Any] = []
+  var recorded = []
   for line in lines {
     recorded += [line]
   }
   fixture.write(json.encode_lines(recorded)?)
-  test.linux_fake(ctx, {storage_fixture: fixture, log: log})?
+  test.linux_fake(ctx, {storage_fixture: fixture, log: log})
   let source = fp"{ctx.core_dir}/nvme.xsh".read_text()?
   let out = test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, b"", "nvme")?
   Ok({status: out.status, stdout: out.stdout, stderr: out.stderr, bytes: out.stdout_bytes})
@@ -410,7 +410,7 @@ Thermal Management T2 Total Time\t: 0
 
 test test_nvme_smart_log_counters_wider_than_64_bits_are_exact { |ctx|
   let log = quiet_log(ctx)?
-  let page = put(smart_page()?, 32, b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")?
+  let page = smart_page()? |> put(_, 32, b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")?
   let ran = ran_ok(nvme(ctx, [log_line(2, 512, page, nsid: 1)], ["smart-log", "-n", "1", "/dev/null"], log)?)
   assert "namespace-id:1\n" in ran.stdout
   assert "Data Units Read\t\t\t\t: 340,282,366,920,938,463,463,374,607,431,768,211,455 (" in ran.stdout, ran.stdout
@@ -530,7 +530,7 @@ Self Test Result[1]:
 """
   assert ran.stdout == expected, ran.stdout
   # -e shortens the transfer to the header and that many entries.
-  let two = put(page.slice(0, length: 60), 0, b"\x00\x00")?
+  let two = put(page[..60], 0, b"\x00\x00")?
   let short = ran_ok(nvme(ctx, [log_line(6, 60, two)], ["self-test-log", "-e", "2", "/dev/null"], log)?)
   assert short.stdout.starts_with("Device Self Test Log for NVME device:null\nCurrent operation  : 0\nSelf Test Result[0]:")
   let printed = ran_ok(nvme(ctx, lines, ["self-test-log", "-o", "json", "/dev/null"], log)?)
@@ -665,12 +665,12 @@ proc namespace_tree(ctx: TestContext) [fs, process, error] -> Result[Path, Error
 proc nvme_list(ctx: TestContext, root: Path, lines: List[Record], args: List[Str]) [fs, process, error] -> Result[Ran, Error] {
   let work = test.temp_dir(ctx, name: "nvme-list-run")?
   let fixture = fp"{work}/fixture.jsonl"
-  var recorded: List[Any] = []
+  var recorded = []
   for line in lines {
     recorded += [line]
   }
   fixture.write(json.encode_lines(recorded)?)
-  test.linux_fake(ctx, {storage_fixture: fixture})?
+  test.linux_fake(ctx, {storage_fixture: fixture})
   let source = "use lib.nvme_cli\nproc main(...argv: List[Str]) {\n  nvme_cli.dispatch(argv[2..], fp\"{argv[0]}\", fp\"{argv[1]}\")\n}\n"
   var words: List[Union[Str, Path]] = [fp"{root}/sys", fp"{root}/dev", "list"]
   for word in args {

@@ -57,11 +57,11 @@ pure size_problem(mode: Str) -> Str? {
     }
   }
   if at == start {
-    if start != 0 or !valid or suffix == "" { return "invalid" }
+    return "invalid" when start != 0 or ! valid or suffix == ""
     low = 1
   }
-  if !valid { return "invalid suffix in" }
-  for _ in range(steps) {
+  return "invalid suffix in" unless valid
+  repeat steps times {
     let next = low * base
     let upper = high * base + next / 4294967296
     low = next % 4294967296
@@ -76,7 +76,7 @@ proc validate(mode: Str, option: Str) [process, env] {
   if option == "-i" and text.starts_with("L") {
     gnu.usage_error("line buffering standard input is meaningless", 125)
   }
-  if text == "L" { return }
+  return when text == "L"
   if let problem = size_problem(text) {
     let argument = f"{option} argument {gnu.quote_value(text)}"
     gnu.error(if problem == "too large" { f"{argument} too large" } else { f"{problem} {argument}" })

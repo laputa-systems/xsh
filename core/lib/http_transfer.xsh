@@ -64,19 +64,19 @@ const NO_LIMIT = 8760h
 export pure classify(failure: Error) -> TransferFailure {
   let message = failure.message
   match failure {
-    NetError.Status {status} => TransferFailure.Status(code: status ?? 0)
-    NetError.Dns => TransferFailure.Dns(message)
-    NetError.ConnectTimeout => TransferFailure.ConnectTimeout(message)
-    NetError.Timeout => TransferFailure.Timeout(message)
-    NetError.Connect => TransferFailure.Connect(message)
-    NetError.TrustStore => TransferFailure.TrustStore(message)
-    NetError.Certificate => TransferFailure.Certificate(message)
-    NetError.Tls => TransferFailure.Handshake(message)
-    NetError.EmptyReply => TransferFailure.EmptyReply(message)
-    NetError.Redirect => TransferFailure.Redirects(message)
-    NetError.Unsupported => TransferFailure.Scheme(message)
-    NetError.Write => TransferFailure.Write(message)
-    else => TransferFailure.Other(message)
+    NetError.Status {status} => .Status(code: status ?? 0)
+    NetError.Dns => .Dns(message)
+    NetError.ConnectTimeout => .ConnectTimeout(message)
+    NetError.Timeout => .Timeout(message)
+    NetError.Connect => .Connect(message)
+    NetError.TrustStore => .TrustStore(message)
+    NetError.Certificate => .Certificate(message)
+    NetError.Tls => .Handshake(message)
+    NetError.EmptyReply => .EmptyReply(message)
+    NetError.Redirect => .Redirects(message)
+    NetError.Unsupported => .Scheme(message)
+    NetError.Write => .Write(message)
+    else => .Other(message)
   }
 }
 
@@ -170,7 +170,7 @@ export proc fetch_to(request: Request, dest: Path) [net, error] -> Result[Reply,
 export pure header_value(headers: List[Header], name: Str) -> Str? {
   let wanted = name.lower()
   for header in headers {
-    if header.name.lower() == wanted { return header.value }
+    return header.value when header.name.lower() == wanted
   }
   null
 }
@@ -189,8 +189,8 @@ export pure without_header(headers: List[Header], name: Str) -> List[Header] {
 ## The scheme of a URL, lowercased, or null when it has none.
 export pure url_scheme(url: Str) -> Str? {
   let at = url.find("://")
-  if at == null { return null }
-  let scheme = url.byte_slice(0, at ?? 0)
+  return null when at == null
+  let scheme = url.byte_slice(0, at)
   return null unless rx"^[A-Za-z][A-Za-z0-9+.-]*$".matches(scheme)
 
   scheme.lower()
@@ -200,8 +200,8 @@ export pure url_scheme(url: Str) -> Str? {
 # fragment delimiter: userinfo, host and port.
 pure authority(url: Str) -> Str {
   let at = url.find("://")
-  if at == null { return "" }
-  let rest = url.byte_slice((at ?? 0) + 3)
+  return "" when at == null
+  let rest = url.byte_slice(at + 3)
   var end = rest.byte_len()
   for mark in ["/", "?", "#"] {
     let found = rest.find(mark)
@@ -215,7 +215,7 @@ pure authority(url: Str) -> Str {
 export pure url_authority(url: Str) -> Str {
   let full = authority(url)
   let at = full.find("@")
-  if at == null { full } else { full.byte_slice((at ?? 0) + 1) }
+  if at == null { full } else { full.byte_slice(at + 1) }
 }
 
 ## The host of a URL without userinfo or port; bracketed IPv6 literals keep
@@ -223,13 +223,13 @@ export pure url_authority(url: Str) -> Str {
 export pure url_host(url: Str) -> Str {
   var host = authority(url)
   let at = host.find("@")
-  if at != null { host = host.byte_slice((at ?? 0) + 1) }
+  if at != null { host = host.byte_slice(at + 1) }
   if host.starts_with("[") {
     let close = host.find("]")
     return host.byte_slice(1, (close ?? host.byte_len()) - 1)
   }
   let colon = host.find(":")
-  if colon != null { host = host.byte_slice(0, colon ?? 0) }
+  if colon != null { host = host.byte_slice(0, colon) }
   host
 }
 
@@ -238,13 +238,13 @@ export pure url_port(url: Str) -> Int {
   let host = authority(url)
   var tail = host
   let at = tail.find("@")
-  if at != null { tail = tail.byte_slice((at ?? 0) + 1) }
+  if at != null { tail = tail.byte_slice(at + 1) }
   let close = tail.find("]")
-  if close != null { tail = tail.byte_slice((close ?? 0) + 1) }
+  if close != null { tail = tail.byte_slice(close + 1) }
   let colon = tail.find(":")
   if colon != null {
-    let parsed = tail.byte_slice((colon ?? 0) + 1).parse_int() ?? -1
-    if parsed >= 0 { return parsed }
+    let parsed = tail.byte_slice(colon + 1).parse_int() ?? -1
+    return parsed when parsed >= 0
   }
   if url_scheme(url) == "https" { 443 } else { 80 }
 }
@@ -252,13 +252,13 @@ export pure url_port(url: Str) -> Int {
 ## The path component of a URL, always beginning with `/`.
 export pure url_path(url: Str) -> Str {
   let at = url.find("://")
-  if at == null { return "/" }
-  let rest = url.byte_slice((at ?? 0) + 3)
+  return "/" when at == null
+  let rest = url.byte_slice(at + 3)
   let slash = rest.find("/")
-  var full = if slash == null { "/" } else { rest.byte_slice(slash ?? 0) }
+  var full = if slash == null { "/" } else { rest.byte_slice(slash) }
   for mark in ["?", "#"] {
     let found = full.find(mark)
-    if found != null { full = full.byte_slice(0, found ?? 0) }
+    if found != null { full = full.byte_slice(0, found) }
   }
   full
 }
@@ -307,11 +307,11 @@ export pure seconds_text(millis: Int) -> Str {
 
 ## The absolute URL a `Location` value names relative to the URL it answered.
 export pure resolve_location(base: Str, location: Str) -> Str {
-  if url_scheme(location) != null { return location }
+  return location when url_scheme(location) != null
 
   let scheme = url_scheme(base) ?? "http"
-  if location.starts_with("//") { return f"{scheme}:{location}" }
-  if location.starts_with("/") { return f"{scheme}://{authority(base)}{location}" }
+  return f"{scheme}:{location}" when location.starts_with("//")
+  return f"{scheme}://{authority(base)}{location}" when location.starts_with("/")
 
   let route = url_path(base)
   let directory = route.byte_slice(0, route.byte_len() - url_file_name(base).byte_len())
@@ -335,7 +335,7 @@ export pure redirect_request(request: Request, reply: Reply) -> Request? {
   let location = header_value(reply.headers, "location")
   return null when location == null
 
-  let target = resolve_location(request.url, location ?? "")
+  let target = resolve_location(request.url, location)
   let rewrite = (reply.status in [301, 302] and request.method == "POST") or (reply.status == 303 and request.method not in ["GET", "HEAD"])
   var headers = request.headers
   var method = request.method

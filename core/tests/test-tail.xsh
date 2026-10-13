@@ -212,7 +212,7 @@ test test_tail_pid_follow_does_not_block_on_fifo_open { |ctx|
   let fifo = fp"{root}/fifo"
   fs.mkfifo(fifo, 0o600)
   let sleeper = spawn run sleep 30 ?
-  defer { sleeper.cancel(signal: "KILL", kill_after: 0ms)? }
+  defer { sleeper.cancel(signal: "KILL", kill_after: 0ms) }
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -262,9 +262,8 @@ test test_tail_reads_a_regular_file_shorter_than_its_stat_size { |ctx|
 test test_tail_reports_an_unreadable_empty_file_at_open { |ctx|
   let root = test.temp_dir(ctx, name: "tail-unreadable-empty")?
   let empty = fp"{root}/empty"
-  empty.write(b"")
-  empty.chmod(0o000)
-  if fs.access(empty, read: true)? {
+  empty.write(b"", mode: 0o000)
+  if fs.access(empty, read: true) {
     test.skip("the file stays readable for this user")
   }
 
@@ -277,16 +276,15 @@ test test_tail_reports_an_unreadable_empty_file_at_open { |ctx|
 test test_tail_follow_name_keeps_an_unreadable_file_waiting_silently { |ctx|
   let root = test.temp_dir(ctx, name: "tail-unreadable")?
   let log = fp"{root}/log"
-  log.write(b"one\n")
-  log.chmod(0o000)
-  if fs.access(log, read: true)? {
+  log.write(b"one\n", mode: 0o000)
+  if fs.access(log, read: true) {
     test.skip("the file stays readable for this user")
   }
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let writer = spawn run sh -c "until grep -q 'cannot open' \"$2\" 2>/dev/null; do sleep 0.05; done; chmod 644 \"$1\"; printf 'two\\n' >> \"$1\"" sh log.display() stderr.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "until grep -q 'cannot open' \"$2\" 2>/dev/null; do sleep 0.05; done; chmod 644 \"$1\"; printf 'two\\n' >> \"$1\"" sh $log $stderr ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
@@ -304,8 +302,8 @@ test test_tail_diagnostics_precede_the_output_they_introduce { |ctx|
   let root = test.temp_dir(ctx, name: "tail-diagnostic-order")?
   let out = fp"{root}/out"
   # The file appears only after tail has reported it missing, so the order does not depend on startup time.
-  let writer = spawn run sh -c "until grep -q 'cannot open' \"$1\" 2>/dev/null; do sleep 0.05; done; printf 'X\\n' > \"$2\"" sh out.display() fp"{root}/log".display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "until grep -q 'cannot open' \"$1\" 2>/dev/null; do sleep 0.05; done; printf 'X\\n' > \"$2\"" sh $out ${fp"{root}/log"} ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
@@ -331,8 +329,8 @@ test test_tail_follows_a_fifo_operand_as_it_is_written { |ctx|
   let root = test.temp_dir(ctx, name: "tail-fifo-follow")?
   let fifo = fp"{root}/fifo"
   fs.mkfifo(fifo, 0o600)
-  let writer = spawn run sh -c "sleep 0.2; printf 'one\\n' > \"$1\"; sleep 0.3; printf 'two\\n' > \"$1\"" sh fifo.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "sleep 0.2; printf 'one\\n' > \"$1\"; sleep 0.3; printf 'two\\n' > \"$1\"" sh $fifo ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -352,8 +350,8 @@ test test_tail_follows_standard_input_redirected_from_a_regular_file { |ctx|
   let root = test.temp_dir(ctx, name: "tail-stdin-follow")?
   let log = fp"{root}/log"
   log.write(b"1\n2\n3\n4\n5\n")
-  let writer = spawn run sh -c "sleep 0.2; printf 'hi\\n' >> \"$1\"" sh log.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "sleep 0.2; printf 'hi\\n' >> \"$1\"" sh $log ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -393,8 +391,8 @@ test test_tail_follows_descriptor_appends_and_zero_count { |ctx|
   ]
 
   for case in cases {
-    let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $file.display() $other.display() ?
-    defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+    let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $file $other ?
+    defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
     let stdout = fp"{root}/stdout"
     let stderr = fp"{root}/stderr"
@@ -418,8 +416,8 @@ test test_tail_follow_descriptor_reports_truncation_and_reads_from_start { |ctx|
   log.write(b"1\n2\n3\n4\n5\n")
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
-  let writer = spawn run sh -c "sleep 0.2; printf 'hi\\n' > \"$1\"" sh $log.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "sleep 0.2; printf 'hi\\n' > \"$1\"" sh $log ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -438,8 +436,8 @@ test test_tail_descriptor_retry_waits_for_a_missing_file { |ctx|
   let log = fp"{root}/log"
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
-  let writer = spawn run sh -c "sleep 0.2; printf 'one\\n' > \"$1\"; sleep 0.2; printf 'two\\n' >> \"$1\"" sh $log.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "sleep 0.2; printf 'one\\n' > \"$1\"; sleep 0.2; printf 'two\\n' >> \"$1\"" sh $log ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -460,8 +458,8 @@ test test_tail_descriptor_retry_gives_up_when_the_name_becomes_a_directory { |ct
   let tail = fp"{ctx.core_dir}/tail.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let writer = spawn run sh -c "until grep -q 'cannot open' \"$2\" 2>/dev/null; do sleep 0.05; done; mkdir \"$1\"" sh log.display() stderr.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "until grep -q 'cannot open' \"$2\" 2>/dev/null; do sleep 0.05; done; mkdir \"$1\"" sh $log $stderr ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "--retry", "-s.02", "log"]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
@@ -479,8 +477,8 @@ test test_tail_follow_name_banners_for_names_created_after_failed_opens { |ctx|
   let second = fp"{root}/log2"
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
-  let writer = spawn run sh -c "sleep 0.2; printf 'ping\\n' > \"$1\"; sleep 0.2; printf 'pong\\n' > \"$2\"" sh $first.display() $second.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "sleep 0.2; printf 'ping\\n' > \"$1\"; sleep 0.2; printf 'pong\\n' > \"$2\"" sh $first $second ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -533,8 +531,8 @@ test test_tail_follow_name_switches_banners_between_files { |ctx|
   other.write(b"other initial\n")
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
-  let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $log.display() $other.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $log $other ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -572,10 +570,10 @@ test test_tail_follow_name_reports_removed_directory_once { |ctx|
     let root = test.temp_dir(ctx, name: case.name)?
     let dir = fp"{root}/d"
     let file = fp"{dir}/f"
-    dir.mkdir()?
+    dir.mkdir()
     file.write(b"foo\n")
-    let writer = spawn run sh -c "sleep 0.2; rm -f \"$1\"; sleep 0.2; rmdir \"$2\"; sleep 0.2; mkdir \"$2\"; printf 'bar\\n' > \"$1\"" sh $file.display() $dir.display() ?
-    defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+    let writer = spawn run sh -c "sleep 0.2; rm -f \"$1\"; sleep 0.2; rmdir \"$2\"; sleep 0.2; mkdir \"$2\"; printf 'bar\\n' > \"$1\"" sh $file $dir ?
+    defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
     let stdout = fp"{root}/stdout"
     let stderr = fp"{root}/stderr"
@@ -707,8 +705,8 @@ test test_tail_follow_name_stops_when_the_name_disappears_without_retry { |ctx|
   log.write(b"initial\n")
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let writer = spawn run sh -c "until test -s \"$2\"; do sleep 0.01; done; mv \"$1\" \"$1.old\"" sh $log.display() $stdout.display() ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let writer = spawn run sh -c "until test -s \"$2\"; do sleep 0.01; done; mv \"$1\" \"$1.old\"" sh $log $stdout ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "--follow=name", "-s.01", "log"]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
   let status = process.run(plan)?
@@ -727,10 +725,10 @@ test test_tail_redirected_initial_output_stays_buffered_during_terminal_read { |
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "-f", "data", "-"]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, p"/dev/ptmx", stdout, stderr)
   let child = spawn plan ?
-  defer child.cancel(signal: "KILL", kill_after: 0ms)?
-  time.sleep(500ms)?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)
+  time.sleep(500ms)
   assert process.wait_timeout([child], 0ms)? == null
-  child.cancel(signal: "KILL", kill_after: 0ms)?
+  child.cancel(signal: "KILL", kill_after: 0ms)
   assert stdout.read_bytes()? == b""
   assert stderr.read_text()? == "tail: warning: following standard input indefinitely is ineffective\n"
 }

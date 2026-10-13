@@ -56,27 +56,28 @@ test test_patch_multi_file_failure_keeps_prior_applied_file { |ctx|
 }
 
 pure hex_digit(byte: Int) -> Int {
-  if byte >= 48 and byte <= 57 { return byte - 48 }
-  if byte >= 65 and byte <= 70 { return byte - 55 }
-  if byte >= 97 and byte <= 102 { return byte - 87 }
+  return byte - 48 when byte >= 48 and byte <= 57
+  return byte - 55 when byte >= 65 and byte <= 70
+  return byte - 87 when byte >= 97 and byte <= 102
   -1
 }
 
 # A stored file name with its %XX escapes turned back into bytes.
 pure decode_name(name: Str) -> Bytes {
   let raw = bytes.from_text(name)
-  var output: List[Int] = []
   var at = 0
-  while at < raw.len() {
-    let byte = raw.byte_at(at) ?? 0
-    let high = hex_digit(raw.byte_at(at + 1) ?? 0)
-    let low = hex_digit(raw.byte_at(at + 2) ?? 0)
-    if byte == 37 and high >= 0 and low >= 0 {
-      output += [high * 16 + low]
-      at += 3
-    } else {
-      output += [byte]
-      at += 1
+  let output = collect {
+    while at < raw.len() {
+      let byte = raw.byte_at(at) ?? 0
+      let high = hex_digit(raw.byte_at(at + 1) ?? 0)
+      let low = hex_digit(raw.byte_at(at + 2) ?? 0)
+      if byte == 37 and high >= 0 and low >= 0 {
+        yield high * 16 + low
+        at += 3
+      } else {
+        yield byte
+        at += 1
+      }
     }
   }
   bytes.from_ints(output) ?? b""
@@ -113,15 +114,16 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   let work = test.temp_dir(ctx, name: "patch-case")?
   # A case with no starting files has no `in` directory: git cannot keep an
   # empty directory, so the tree is created empty instead of copied.
-  if fp"{root}/in".exists()? {
-    let _ = fs.copy_tree(fp"{root}/in", fp"{work}/w", parents: true)?
+  if fp"{root}/in".exists() {
+    let _ = fs.copy_tree(fp"{root}/in", fp"{work}/w")?
   } else {
-    fp"{work}/w".mkdir()?
+    fp"{work}/w".mkdir()
   }
   # Stored names are percent-encoded; restore them, deepest first.
-  var encoded: List[Str] = []
-  for entry in fs.walk(fp"{work}/w", hidden: true)? {
-    if entry.path.display().find("%") != null { encoded += [entry.path.display()] }
+  let encoded = collect {
+    for entry in fs.walk(fp"{work}/w", hidden: true)? {
+      yield entry.path.display() when entry.path.display().find("%") != null
+    }
   }
   let ascending = encoded |> sort
   var position = ascending.len()
@@ -131,36 +133,36 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     let at = old.find("/w/") ?? 0
     let decoded_tail = decode_name(old.byte_slice(at + 3))
     let parent = fp"{work}/w"
-    fp"{old}".rename(to: Path.parse_bytes(bytes.concat([parent.bytes(), b"/", decoded_tail]))?)?
+    fp"{old}".rename(to: bytes.concat([parent.bytes(), b"/", decoded_tail]) as Path)
   }
   # Empty directories are not kept by git either. Every directory of the
   # recorded final tree is created up front: GNU patch makes missing parents
   # silently, so a directory that existed before and one that patch would have
   # made leave the same final tree and the same output.
-  for row in fp"{root}/out/manifest".read_text()?.lines() {
+  for row in fp"{root}/out/manifest".read_lines()? {
     if row.starts_with("d ") {
       let relative = row.byte_slice(4)
-      if relative != "" and relative != "." and !fp"{work}/w/{relative}".exists()? { fp"{work}/w/{relative}".mkdir()? }
+      if relative != "" and relative != "." and !fp"{work}/w/{relative}".exists() { fp"{work}/w/{relative}".mkdir() }
     }
   }
-  var mtimes: List[Str] = []
-  if fp"{root}/mtimes".exists()? { mtimes = fp"{root}/mtimes".read_text()?.lines().collect() }
-  if fp"{root}/setup".exists()? {
-    for line in fp"{root}/setup".read_text()?.lines() {
+  var mtimes = []
+  if fp"{root}/mtimes".exists() { mtimes = fp"{root}/mtimes".read_lines()?.collect() }
+  if fp"{root}/setup".exists() {
+    for line in fp"{root}/setup".read_lines()? {
       let words = line.split(" ")
-      if words[0] == "chmod" { fp"{work}/w/{words[2]}".chmod(octal(words[1]))? }
+      if words[0] == "chmod" { fp"{work}/w/{words[2]}".chmod(octal(words[1])) }
       if words[0] == "touch" {
-        let seconds = words[1].parse_int()?
-        fs.set_times(fp"{work}/w/{words[2]}", atime_sec: seconds, mtime_sec: seconds)?
+        let seconds = words[1] as Int
+        fs.set_times(fp"{work}/w/{words[2]}", atime_sec: seconds, mtime_sec: seconds)
       }
     }
   }
-  var arguments: List[Str] = []
-  if fp"{root}/args".exists()? { arguments = fp"{root}/args".read_text()?.lines().collect() }
+  var arguments = []
+  if fp"{root}/args".exists() { arguments = fp"{root}/args".read_lines()?.collect() }
   var input = b""
-  if fp"{root}/stdin".exists()? { input = fp"{root}/stdin".read_bytes()? }
+  if fp"{root}/stdin".exists() { input = fp"{root}/stdin".read_bytes()? }
   var recorded_env = ""
-  if fp"{root}/env".exists()? { recorded_env = fp"{root}/env".read_text()? }
+  if fp"{root}/env".exists() { recorded_env = fp"{root}/env".read_text()? }
   var vars: Record = {LC_ALL: "C", TERM: "xterm"}
   if recorded_env.starts_with("PATCH_VERSION_CONTROL=") {
     vars = {LC_ALL: "C", TERM: "xterm", PATCH_VERSION_CONTROL: recorded_env.byte_slice(22).trim()}
@@ -176,8 +178,8 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   let script = fp"{ctx.core_dir}/patch.xsh"
   let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(arguments), fp"{work}/w", vars, input, out, err)
   let status = process.run(plan)?
-  var problems: List[Str] = []
-  let expected_status = fp"{root}/out/status".read_text()?.trim().parse_int()?
+  var problems = []
+  let expected_status = fp"{root}/out/status".read_text()?.trim() as Int
   if status.exit_code()? != expected_status {
     problems += [f"{name}: exit status {status.exit_code()?}, expected {expected_status}"]
   }
@@ -190,21 +192,21 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     problems += [f"{name}: stderr differs\n--- expected\n{expected_err.utf8() ?? "(binary)"}--- actual\n{err.read_bytes()?.utf8() ?? "(binary)"}"]
   }
   let manifest = tree.describe(fp"{work}/w", mtimes)?
-  let expected_manifest = fp"{root}/out/manifest".read_text()?.lines().collect()
+  let expected_manifest = fp"{root}/out/manifest".read_lines()?.collect()
   if manifest != expected_manifest {
     problems += [f"{name}: tree differs\n--- expected\n{expected_manifest.join("\n")}\n--- actual\n{manifest.join("\n")}"]
     return Ok(problems)
   }
   for row in expected_manifest {
-    if !row.starts_with("f ") { continue }
+    continue unless row.starts_with("f ")
     # An unreadable file's content cannot be compared.
-    if (row.byte_slice(2, length: 1).parse_int() ?? 0) < 4 { continue }
+    continue when (row.byte_slice(2, length: 1).parse_int() ?? 0) < 4
     var relative = row.byte_slice(4)
     let stamp = relative.find(" mtime=") ?? -1
     if stamp >= 0 { relative = relative.byte_slice(0, stamp) }
     let encoded_name = encode_name(relative)
     let stored = fp"{root}/out/tree/{encoded_name}"
-    let wanted = if stored.exists()? { stored.read_bytes()? } else { fp"{root}/in/{encoded_name}".read_bytes()? }
+    let wanted = if stored.exists() { stored.read_bytes()? } else { fp"{root}/in/{encoded_name}".read_bytes()? }
     let actual = fp"{work}/w/{relative}".read_bytes()?
     if actual != wanted {
       problems += [f"{name}: content of {relative} differs\n--- expected\n{wanted.utf8() ?? "(binary)"}--- actual\n{actual.utf8() ?? "(binary)"}"]
@@ -214,7 +216,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   for row in expected_manifest {
     if row.starts_with("d ") {
       let relative = row.byte_slice(4)
-      if fp"{work}/w/{relative}".exists()? { fp"{work}/w/{relative}".chmod(493)? }
+      if fp"{work}/w/{relative}".exists() { fp"{work}/w/{relative}".chmod(493) }
     }
   }
   Ok(problems)
@@ -224,35 +226,37 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
 # starting tree, the arguments, standard input, and the exact standard
 # output, standard error, exit status, and resulting tree. The cases are
 # split over several tests so the runner can work on them in parallel.
-proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, error] -> Result[Unit, Error] {
+proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, error] {
   let corpus = fp"{ctx.core_dir}/tests/data/patch"
-  var names: List[Str] = []
-  for entry in fs.children(corpus, stat: true)? {
-    if entry.kind == "dir" { names += [entry.name] }
+  let names = collect {
+    for entry in fs.children(corpus, stat: true)? {
+      yield entry.name when entry.kind == "dir"
+    }
   }
   let ordered = names |> sort
-  var problems: List[Str] = []
   var count = 0
-  for index in range(ordered.len()) {
-    if index % shards != shard { continue }
-    let name = ordered[index]
-    if !fp"{corpus}/{name}/out/status".exists()? { continue }
-    count += 1
-    problems += check_case(ctx, fp"{corpus}/{name}")?
+  let problems = collect {
+    for index in range(ordered.len()) {
+      continue when index % shards != shard
+      let name = ordered[index]
+      continue unless fp"{corpus}/{name}/out/status".exists()
+      count += 1
+      yield @check_case(ctx, fp"{corpus}/{name}")?
+    }
   }
   assert count > 0, "no recorded cases in this shard"
   assert problems.is_empty(), f"{problems.len()} differences in {count} cases:\n{problems.join("\n")}"
   Ok()
 }
 
-test test_patch_recorded_results_shard_0 { |ctx| run_shard(ctx, 0, 8)? }
-test test_patch_recorded_results_shard_1 { |ctx| run_shard(ctx, 1, 8)? }
-test test_patch_recorded_results_shard_2 { |ctx| run_shard(ctx, 2, 8)? }
-test test_patch_recorded_results_shard_3 { |ctx| run_shard(ctx, 3, 8)? }
-test test_patch_recorded_results_shard_4 { |ctx| run_shard(ctx, 4, 8)? }
-test test_patch_recorded_results_shard_5 { |ctx| run_shard(ctx, 5, 8)? }
-test test_patch_recorded_results_shard_6 { |ctx| run_shard(ctx, 6, 8)? }
-test test_patch_recorded_results_shard_7 { |ctx| run_shard(ctx, 7, 8)? }
+test test_patch_recorded_results_shard_0 { |ctx| run_shard(ctx, 0, 8) }
+test test_patch_recorded_results_shard_1 { |ctx| run_shard(ctx, 1, 8) }
+test test_patch_recorded_results_shard_2 { |ctx| run_shard(ctx, 2, 8) }
+test test_patch_recorded_results_shard_3 { |ctx| run_shard(ctx, 3, 8) }
+test test_patch_recorded_results_shard_4 { |ctx| run_shard(ctx, 4, 8) }
+test test_patch_recorded_results_shard_5 { |ctx| run_shard(ctx, 5, 8) }
+test test_patch_recorded_results_shard_6 { |ctx| run_shard(ctx, 6, 8) }
+test test_patch_recorded_results_shard_7 { |ctx| run_shard(ctx, 7, 8) }
 
 # GNU patch prints its own copyright banner; the applets here announce
 # themselves with the project's common version line instead.

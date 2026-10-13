@@ -12,8 +12,8 @@ test test_btop_schedule_coalesces_each_class_without_catch_up_work {
   let started = schedule.take_due(first, 0)?
   let counters = schedule.take_due(started.state, 8500000000)?
   assert counters.due.len() == 2
-  assert counters.due[0].class == schedule.Counters
-  assert counters.due[1].class == schedule.Gauges
+  assert counters.due[0].class == .Counters
+  assert counters.due[1].class == .Gauges
   assert counters.due[0].deadline_ns == 8000000000
   assert counters.due[0].coalesced == 7
   assert counters.state.entries[1].next_due_ns == 9000000000

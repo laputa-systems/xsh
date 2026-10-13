@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_uname.rs.
 
-use support.uu as uu
+use support.uu
 
 # The flat class preserves the upstream Unicode symbol allowance while
 # avoiding nested classes and property escapes unsupported by the native regex.
@@ -37,7 +37,7 @@ test test_uu_uname_uname_processor { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "uname", ["-p"])?
   uu.succeeds(r)
-  assert TRAILING_SPACE.replace(r.stdout.utf8()?, with: "") == "unknown"
+  assert TRAILING_SPACE.replace(r.stdout as Str, with: "") == "unknown"
 }
 
 # origin: uutils test_uname::test_uname_hardware_platform
@@ -45,7 +45,7 @@ test test_uu_uname_uname_hardware_platform { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "uname", ["-i"])?
   uu.succeeds(r)
-  assert TRAILING_SPACE.replace(r.stdout.utf8()?, with: "") == "unknown"
+  assert TRAILING_SPACE.replace(r.stdout as Str, with: "") == "unknown"
   uu.no_stderr(r)
 }
 
@@ -83,7 +83,7 @@ test test_uu_uname_uname_output_for_invisible_chars { |ctx|
   let r = uu.invoke(s, "uname", ["--all"])?
   uu.succeeds(r)
   let pattern = INVISIBLE
-  assert ! pattern.matches(TRAILING_SPACE.replace(r.stdout.utf8()?, with: ""))
+  assert ! pattern.matches(TRAILING_SPACE.replace(r.stdout as Str, with: ""))
 }
 
 # origin: uutils test_uname::test_uname_all_labeled
@@ -91,7 +91,7 @@ test test_uu_uname_uname_all_labeled { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "uname", ["-A"])?
   uu.succeeds(r)
-  let stdout = r.stdout.utf8()?
+  let stdout = r.stdout as Str
   assert stdout.lines().len() == 6
   for label in ["Kernel name: ", "Node name: ", "Kernel release: ", "Kernel version: ", "Machine: ", "Operating system: "] {
     assert label in stdout, f"missing {label}"

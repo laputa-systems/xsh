@@ -1,6 +1,6 @@
 ##! Native ports of the uutils stty integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_stty::all_and_print_setting
 test test_uu_stty_all_and_print_setting { |ctx|
@@ -420,7 +420,7 @@ test test_uu_stty_sane { |ctx|
   uu.succeeds(sane)
   let restored = uu.invoke(s, "stty", ["--file", tty.name])?
   uu.succeeds(restored)
-  assert ! ("intr = ^A" in restored.stdout.utf8()?)
+  assert ! ("intr = ^A" in restored.stdout as Str)
 }
 
 # origin: uutils test_stty::valid_baud_formats
@@ -504,7 +504,7 @@ test test_uu_stty_save_restore_after_change { |ctx|
   uu.succeeds(restored)
   let shown = uu.invoke(s, "stty", ["--file", tty.name])?
   uu.succeeds(shown)
-  assert ! ("intr = ^A" in shown.stdout.utf8()?)
+  assert ! ("intr = ^A" in shown.stdout as Str)
 }
 
 # origin: uutils test_stty::test_row_column_hex_octal
@@ -547,9 +547,9 @@ test test_uu_stty_combo_tabs { |ctx|
     defer unix.close_fd(stderr.master)
     defer unix.close_fd(stderr.replica)
     for fd in [stdin.replica, stdout.replica, stderr.replica] {
-      unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd: fd)?
+      unix.set_window_size(30, 80, xpixel: 640, ypixel: 300, fd:)
     }
-    let r = uu.invoke_from_path(s, "stty", [arg], stdin: Path(stdin.name), stdout: Path(stdout.name), stderr: Path(stderr.name))?
+    let r = uu.invoke_from_path(s, "stty", [arg], stdin: fp"{stdin.name}", stdout: fp"{stdout.name}", stderr: fp"{stderr.name}")?
     uu.succeeds(r)
     # The child has exited; unread terminal bytes would make the master readable.
     assert unix.poll_fd(stderr.master, ["readable"], timeout_ms: 0)? == [], "expected empty terminal stderr"
@@ -562,16 +562,16 @@ test test_uu_stty_stty_uses_stdin { |ctx|
   let tty = unix.open_pty()?
   defer unix.close_fd(tty.master)
   defer unix.close_fd(tty.replica)
-  let plain = uu.invoke_from_path(s, "stty", [], stdin: Path(tty.name))?
+  let plain = uu.invoke_from_path(s, "stty", [], stdin: fp"{tty.name}")?
   uu.succeeds(plain)
   uu.stdout_contains(plain, "speed")
-  let state = uu.invoke_from_path(s, "stty", ["-g"], stdin: Path(tty.name))?
+  let state = uu.invoke_from_path(s, "stty", ["-g"], stdin: fp"{tty.name}")?
   uu.succeeds(state)
   let saved = state.stdout.utf8()?.trim()
   assert ":" in saved
-  uu.succeeds(uu.invoke_from_path(s, "stty", [saved], stdin: Path(tty.name))?)
-  uu.succeeds(uu.invoke_from_path(s, "stty", ["rows", "30", "cols", "100"], stdin: Path(tty.name))?)
-  let shown = uu.invoke_from_path(s, "stty", ["--all"], stdin: Path(tty.name))?
+  uu.succeeds(uu.invoke_from_path(s, "stty", [saved], stdin: fp"{tty.name}")?)
+  uu.succeeds(uu.invoke_from_path(s, "stty", ["rows", "30", "cols", "100"], stdin: fp"{tty.name}")?)
+  let shown = uu.invoke_from_path(s, "stty", ["--all"], stdin: fp"{tty.name}")?
   uu.succeeds(shown)
   uu.stdout_contains(shown, "rows 30")
   uu.stdout_contains(shown, "columns 100")
@@ -590,7 +590,7 @@ test test_uu_stty_columns_env_wrapping { |ctx|
   }
   let wide = uu.invoke(s, "stty", ["--all", "--file", tty.name], vars: {COLUMNS: "200"})?
   uu.succeeds(wide)
-  assert [line for line in wide.stdout.utf8()?.lines().collect() if line.byte_len() > 80].len() > 0
+  assert ! [line for line in wide.stdout.utf8()?.lines().collect() if line.byte_len() > 80].is_empty()
   for invalid in ["invalid", "0", "-10"] {
     uu.succeeds(uu.invoke(s, "stty", ["--all", "--file", tty.name], vars: {COLUMNS: invalid})?)
   }

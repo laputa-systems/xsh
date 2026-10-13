@@ -1,5 +1,5 @@
 test test_pipeline_drain_and_for_pull_preserve_callback_order_and_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 pure keep(value: Int) -> Bool { value > 1 }
@@ -39,9 +39,8 @@ proc main() [io, error] {
   }
 }
 """,
+    status: 0,
   )?
-
-  assert output.success, output.stderr
   assert output.stdout == """drain:pull:1
 drain:pull:2
 drain:pull:3

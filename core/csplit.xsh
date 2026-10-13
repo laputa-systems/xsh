@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.gnu
-use lib.textio_a1 as tio
 use lib.text_a2 as text
+use lib.textio_a1 as tio
 
 const USAGE = """Usage: csplit [OPTION]... FILE PATTERN...
 Output pieces of FILE separated by PATTERN(s) to files 'xx00', 'xx01', ...,
@@ -90,7 +90,7 @@ proc parse_patterns(operands: List[Str]) [process, env] -> List[Pattern] {
           index += 1
         } else {
           if next.starts_with("{") {
-            if ! next.ends_with("}") {
+            guard next.ends_with("}") else {
               gnu.error(gnu.quote_value(next) + ": '}' is required in repeat count")
               exit 1
             }
@@ -633,7 +633,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let writing = walk.failure == "" or opts.keep
-  var made: List[Str] = []
+  var made = []
 
   for piece in pieces {
     let size = piece.to - piece.from

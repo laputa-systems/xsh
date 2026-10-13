@@ -5,7 +5,7 @@ use lib.sys_usb as usb
 
 type Options = {verbose: Bool, tree: Bool, ids: Str, slot: Str, device: Path?, help: Bool, version: Bool, operands: List[Str]}
 
-proc inventory(opts: Options) -> Result[Unit] {
+proc inventory(opts: Options) {
   var slot = opts.slot
   if opts.device != null {
     let device_path = opts.device
@@ -13,8 +13,8 @@ proc inventory(opts: Options) -> Result[Unit] {
     if metadata.kind != "char" { gnu.usage_error("-D requires a USB device node; descriptor dump files are not supported") }
     let parts = opts.device.display().split("/")
     if parts.len() < 3 or ! opts.device.display().starts_with("/dev/bus/usb/") { gnu.usage_error("-D requires a /dev/bus/usb/BUS/DEVICE node") }
-    let bus = parts[-2].parse_int()?
-    let number = parts[-1].parse_int()?
+    let bus = parts[-2] as Int
+    let number = parts[-1] as Int
     slot = f"{bus}:{number}"
   }
   let _ = hardware.usb_selector(slot)?

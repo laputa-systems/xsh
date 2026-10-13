@@ -129,8 +129,8 @@ export pure compare_sensors_json(
 ) -> Result[SensorsJsonComparison, Error] {
   let document = json.decode(candidate_json)?
   let candidate = json.get(document, ["sensors"])?.require(CandidateSensorSection)?
-  var mismatches: List[Str] = []
-  var partial: List[Str] = []
+  var mismatches = []
+  var partial = []
   var reference_count = 0
   var compared = 0
   var before_chip_counts: Map[Int] = {}
@@ -168,7 +168,7 @@ export pure compare_sensors_json(
     let following = after_values.get(key) ?? reading.value
     let candidate_key = f"{reading.chip}:{channel}"
     let candidate_matches = candidate_counts.get(candidate_key) ?? 0
-    var raw: Int? = null
+    var raw = null
     if candidate_matches == 1 {
       raw = candidate.channels[candidate_indices.get(candidate_key)?].value
     }
@@ -215,8 +215,7 @@ export proc compare_live_sensors_json(
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()
-  for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
+    for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
     scratch.write(fp"{name}", "")
   }
 

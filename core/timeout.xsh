@@ -44,12 +44,12 @@ proc send(handle: ProcessHandle, signal: Str, verbose: Bool, foreground: Bool, c
   # A managed child leads a process group named by its pid. A foreground child
   # shares timeout's own group, which must not receive the signal.
   let sent = if foreground {
-    process.kill(handle.pid, signal: signal)
+    process.kill(handle.pid, signal:)
   } else {
     process.kill_group(handle.pid, signal)
   }
   if let Err(failure) = sent {
-    if failure.errno != 3 {
+    guard failure.errno == 3 else {
       gnu.error(f"failed to send signal: {gnu.strerror(failure)}")
       exit 125
     }
@@ -82,7 +82,7 @@ proc wait_until_exit(handle: ProcessHandle) [process, error] -> Result[Status] {
     }
   }
 
-  return Err(error.failure("process wait loop ended unexpectedly"))
+  Err(error.failure("process wait loop ended unexpectedly"))
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {

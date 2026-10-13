@@ -108,9 +108,7 @@ pure resource_of_letter(letter: Str) -> Int {
   var at = 0
 
   for resource in RESOURCES {
-    if resource.letter == letter {
-      return at
-    }
+    return at when resource.letter == letter
 
     at += 1
   }
@@ -122,9 +120,7 @@ pure resource_of_name(name: Str) -> Int {
   var at = 0
 
   for resource in RESOURCES {
-    if resource.rlimit == name {
-      return at
-    }
+    return at when resource.rlimit == name
 
     at += 1
   }
@@ -144,16 +140,15 @@ pure long_names() -> List[Str] {
 }
 
 pure matching_names(prefix: Str) -> List[Str] {
-  var found: List[Str] = []
   var exact = false
 
-  for name in long_names() {
-    if name == prefix {
-      exact = true
-    }
+  let found = collect {
+    for name in long_names() {
+      if name == prefix {
+        exact = true
+      }
 
-    if name.starts_with(prefix) {
-      found += [name]
+      yield name when name.starts_with(prefix)
     }
   }
 
@@ -234,7 +229,7 @@ pure exceeds(left: Int?, right: Int?) -> Bool {
   return false when left != null and right == null
   return left != null or right != null when left == null or right == null
 
-  (left ?? 0) > (right ?? 0)
+  left > right
 }
 
 pure escaped(text: Str) -> Str {
@@ -255,7 +250,7 @@ pure padded(text: Str, width: Int, right: Bool, last: Bool) -> Str {
 
   var fill = ""
 
-  for _ in range(width - text.byte_len()) {
+  repeat width - text.byte_len() times {
     fill = f"{fill} "
   }
 
@@ -266,42 +261,55 @@ pure padded(text: Str, width: Int, right: Bool, last: Bool) -> Str {
 # every column but the last padded to its widest cell, SOFT and HARD right
 # aligned. `--raw` drops the padding and escapes blanks.
 pure render(rows: List[Row], columns: List[Str], headings: Bool, raw: Bool) -> Str {
-  var widths: List[Int] = []
+  let widths = collect {
+    for column in columns {
+      var width = if headings { column.byte_len() } else { 0 }
 
-  for column in columns {
-    var width = if headings { column.byte_len() } else { 0 }
+      for row in rows {
+        let size = cell(row, column).byte_len()
 
-    for row in rows {
-      let size = cell(row, column).byte_len()
-
-      if size > width {
-        width = size
+        if size > width {
+          width = size
+        }
       }
-    }
 
-    widths += [width]
+      yield width
+    }
   }
 
-  var lines: List[Str] = []
+  var lines = []
 
   if headings {
-    var pieces: List[Str] = []
-
-    for index in range(columns.len()) {
-      pieces += [if raw { columns[index] } else { padded(columns[index], widths[index], columns[index] == "SOFT" or columns[index] == "HARD", index == columns.len() - 1) }]
+    let pieces = collect {
+      for index in range(columns.len()) {
+        yield if raw {
+          columns[index]
+        } else {
+          padded(
+            columns[index],
+            widths[index],
+            columns[index] == "SOFT" or columns[index] == "HARD",
+            index == columns.len() - 1,
+          )
+        }
+      }
     }
 
     lines += [pieces.join(" ")]
   }
 
   for row in rows {
-    var pieces: List[Str] = []
+    let pieces = collect {
+      for index in range(columns.len()) {
+        let column = columns[index]
+        let text = cell(row, column)
 
-    for index in range(columns.len()) {
-      let column = columns[index]
-      let text = cell(row, column)
-
-      pieces += [if raw { escaped(text) } else { padded(text, widths[index], column == "SOFT" or column == "HARD", index == columns.len() - 1) }]
+        yield if raw {
+          escaped(text)
+        } else {
+          padded(text, widths[index], column == "SOFT" or column == "HARD", index == columns.len() - 1)
+        }
+      }
     }
 
     lines += [pieces.join(" ")]
@@ -325,28 +333,29 @@ proc fail(message: Str) [process, env] {
 # name is reported with the rest of the list that follows it, as util-linux
 # does.
 proc parse_columns(text: Str) [process, env, error] -> List[Str] {
-  var columns: List[Str] = []
   var consumed = 0
 
-  for element in text.split(",") {
-    let rest = text.byte_slice(consumed)
+  let columns = collect {
+    for element in text.split(",") {
+      let rest = text.byte_slice(consumed)
 
-    if element == "" {
-      if rest == "" or consumed + 1 >= text.byte_len() {
-        fail(f"unknown column: {text}")
+      if element == "" {
+        if rest == "" or consumed + 1 >= text.byte_len() {
+          fail(f"unknown column: {text}")
+        }
+
+        exit 1
       }
 
-      exit 1
+      let name = element.upper()
+
+      if ! (name in COLUMNS) {
+        fail(f"unknown column: {rest}")
+      }
+
+      yield name
+      consumed += element.byte_len() + 1
     }
-
-    let name = element.upper()
-
-    if ! (name in COLUMNS) {
-      fail(f"unknown column: {rest}")
-    }
-
-    columns += [name]
-    consumed += element.byte_len() + 1
   }
 
   columns
@@ -361,8 +370,8 @@ proc option_error(message: Str) [process, env] {
 # examined.
 proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
   var requests: List[Request] = []
-  var pid: Str? = null
-  var output: Str? = null
+  var pid = null
+  var output = null
   var noheadings = false
   var raw = false
   var verbose = false
@@ -376,17 +385,15 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
       break
     }
 
-    if ! word.starts_with("-") or word == "-" {
-      break
-    }
+    break when ! word.starts_with("-") or word == "-"
 
     at += 1
 
     if word.starts_with("--") {
       let body = word.byte_slice(2)
       let equals = body.find("=")
-      let given = if equals == null { body } else { body.byte_slice(0, equals ?? 0) }
-      let attached: Str? = if equals == null { null } else { body.byte_slice((equals ?? 0) + 1) }
+      let given = if equals == null { body } else { body.byte_slice(0, equals) }
+      let attached: Str? = if equals == null { null } else { body.byte_slice(equals + 1) }
       let found = matching_names(given)
 
       if found.is_empty() {
@@ -448,7 +455,7 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
       let resource = resource_of_letter(letter)
 
       if resource >= 0 {
-        var value: Str? = null
+        var value = null
 
         if rest.starts_with("=") {
           value = rest.byte_slice(1)
@@ -471,7 +478,7 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
       }
 
       if letter == "p" or letter == "o" {
-        var value: Str? = null
+        var value = null
 
         if rest != "" {
           value = rest
@@ -497,7 +504,7 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
 }
 
 proc nr_open() [process] -> Int? {
-  var found: Int? = null
+  var found = null
 
   if let Ok(text) = linux.sysctl_get("fs.nr_open") {
     if let Ok(value) = text.trim().parse_int_decimal() {
@@ -584,7 +591,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       for bound in [wanted_soft, wanted_hard] {
         if resource.rlimit == "nofile" {
-          let over = bound.kind == "unlimited" or bound.kind == "huge" or (bound.kind == "value" and ceiling != null and bound.value > (ceiling ?? 0))
+          let over = bound.kind == "unlimited" or bound.kind == "huge" or (bound.kind == "value" and ceiling != null and bound.value > ceiling)
 
           if over {
             fail(f"the NOFILE resource limit is not allowed to exceed {ceiling ?? 0} (fs.nr_open)")
@@ -594,12 +601,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         }
       }
 
-      var new_soft: Int? = null
-      var new_hard: Int? = null
+      var new_soft = null
+      var new_hard = null
 
       # The bounds left out keep the limits the process has now.
       if wanted_soft.kind == "keep" or wanted_hard.kind == "keep" {
-        match process.rlimit(resource.rlimit, pid: pid) {
+        match process.rlimit(resource.rlimit, pid:) {
           Ok(current) => {
             new_soft = current.soft
             new_hard = current.hard
@@ -621,11 +628,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         gnu.write_text(f"New {resource.name} limit for pid {shown_pid}: <{limit_text(new_soft)}:{limit_text(new_hard)}>\n")
       }
 
-      if let Err(failure) = process.set_rlimit(resource.rlimit, soft: new_soft, hard: new_hard, pid: pid) {
+      if let Err(failure) = process.set_rlimit(resource.rlimit, soft: new_soft, hard: new_hard, pid:) {
         fail(f"failed to set the {resource.name} resource limit: {gnu.strerror(failure)}")
       }
     } else {
-      match process.rlimit(resource.rlimit, pid: pid) {
+      match process.rlimit(resource.rlimit, pid:) {
         Ok(current) => {
           rows += [{resource: resource.name, description: resource.description, soft: limit_text(current.soft), hard: limit_text(current.hard), units: resource.units}]
         }
@@ -646,9 +653,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.write_text(render(rows, columns, ! invocation.noheadings, invocation.raw))
   }
 
-  if invocation.rest.is_empty() {
-    return
-  }
+  return when invocation.rest.is_empty()
 
   let command = invocation.rest[0]
   let status = proc_launch.launch_status(command)

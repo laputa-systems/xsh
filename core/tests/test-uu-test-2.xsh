@@ -1,12 +1,12 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_test.rs.
 
-use support.uu as uu
+use support.uu
 
 # Each upstream command runs with the complete utility fixture snapshot.
 proc scene(ctx: TestContext) -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "test", "regular_file", "regular_file")?
-  uu.fixture(s, "test", "non_empty_file", "non_empty_file")?
+  uu.fixture(s, "test", "regular_file", "regular_file")
+  uu.fixture(s, "test", "non_empty_file", "non_empty_file")
   Ok(s)
 }
 
@@ -211,8 +211,8 @@ test test_uu_test_zero_len_of_empty { |ctx|
 # origin: uutils test_test::test_same_device_inode
 test test_uu_test_same_device_inode { |ctx|
   let s = scene(ctx)?
-  uu.touch(s, "regular_file_second")?
-  uu.at(s, "symlink").symlink(to: uu.at(s, "regular_file"))?
+  uu.touch(s, "regular_file_second")
+  uu.at(s, "symlink").symlink(to: uu.at(s, "regular_file"))
   uu.fails(uu.invoke(s, "test", ["regular_file", "-ef", "regular_file_second"])?)
   uu.succeeds(uu.invoke(s, "test", ["regular_file", "-ef", "symlink"])?)
 }
@@ -220,7 +220,7 @@ test test_uu_test_same_device_inode { |ctx|
 # origin: uutils test_test::test_symlink_is_symlink
 test test_uu_test_symlink_is_symlink { |ctx|
   let s = scene(ctx)?
-  uu.at(s, "symlink").symlink(to: uu.at(s, "regular_file"))?
+  uu.at(s, "symlink").symlink(to: uu.at(s, "regular_file"))
   uu.succeeds(uu.invoke(s, "test", ["-h", "symlink"])?)
   uu.succeeds(uu.invoke(s, "test", ["-L", "symlink"])?)
 }

@@ -1,6 +1,6 @@
 use support.uu
 
-proc created(s: uu.Scene, r: uu.Ran, directory: Bool) [fs, error] -> Result[Unit, Error] {
+proc created(s: uu.Scene, r: uu.Ran, directory: Bool) [fs, error] {
   uu.succeeds(r)
   assert r.stdout.len() > 1 and r.stdout.ends_with(b"\n")
   let entry = uu.at_bytes(s, r.stdout[0..r.stdout.len() - 1])?
@@ -11,7 +11,7 @@ proc created(s: uu.Scene, r: uu.Ran, directory: Bool) [fs, error] -> Result[Unit
 # Wrappers own syscall fault injection and descriptor setup, while every tested
 # applet receives argv from the helper shared with the reference oracle.
 proc wrapped(s: uu.Scene, args: List[Str], prefix: List[Path]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let launch = uu.argv(s, "mktemp", [Path(arg) for arg in args])?
+  let launch = uu.argv(s, "mktemp", [fp"{arg}" for arg in args])?
   let words = prefix.extend(launch)
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
@@ -23,28 +23,28 @@ proc wrapped(s: uu.Scene, args: List[Str], prefix: List[Path]) [fs, process, env
 test test_gnu_mktemp_bad_unicode_log { |ctx|
   let s = uu.scene(ctx)?
   let bad = b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf"
-  uu.at_bytes(s, bad)?.write("a\n")?
+  uu.at_bytes(s, bad)?.write("a\n")
   for locale in ["C", "fr_FR", "fr_FR.UTF-8"] {
     let vars = {LC_ALL: locale}
-    let suffix = Path.parse_bytes(bytes.concat([b"--suffix=", bad]))?
-    let file1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", suffix], vars: vars)?
-    created(s, file1, false)?
-    let dir1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", p"-d", suffix], vars: vars)?
-    created(s, dir1, true)?
+    let suffix = bytes.concat([b"--suffix=", bad]) as Path
+    let file1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", suffix], vars:)?
+    created(s, file1, false)
+    let dir1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", p"-d", suffix], vars:)?
+    created(s, dir1, true)
     let dir_bytes = dir1.stdout[0..dir1.stdout.len() - 1]
-    let tmpdir = Path.parse_bytes(bytes.concat([b"--tmpdir=", dir_bytes]))?
+    let tmpdir = bytes.concat([b"--tmpdir=", dir_bytes]) as Path
     for directory in [false, true] {
       let args = if directory { [p"-d", tmpdir] } else { [tmpdir] }
-      created(s, uu.invoke_paths(s, "mktemp", args, vars: vars)?, directory)?
+      created(s, uu.invoke_paths(s, "mktemp", args, vars:)?, directory)
     }
     for directory in [false, true] {
       let args = if directory { [p"-d"] } else { [] }
-      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: Path.parse_bytes(dir_bytes)?})?, directory)?
+      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: dir_bytes as Path})?, directory)
     }
-    let pattern_word = Path.parse_bytes(bytes.concat([bad, b"XXXXXX"]))?
+    let pattern_word = bytes.concat([bad, b"XXXXXX"]) as Path
     for directory in [false, true] {
       let args = if directory { [p"-d", p"-t", pattern_word] } else { [p"-t", pattern_word] }
-      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: "."})?, directory)?
+      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: "."})?, directory)
     }
   }
 }
@@ -107,11 +107,11 @@ test test_gnu_mktemp_mktemp_log { |ctx|
     {args: ["-t", "-p", "no/such/dir", "foo.XXX"], pattern: "^\\./foo\\....\n$", kind: "unchecked", pre: "", vars: {TMPDIR: "."}},
     {args: ["-u"], pattern: "^no/such/dir/tmp\\..{10}\n$", kind: "unchecked", pre: "", vars: {TMPDIR: "no/such/dir"}},
   ] {
-    if row.pre != "" { uu.mkdir(s, row.pre)?; uu.set_mode(s, row.pre, 0o755)? }
+    if row.pre != "" { uu.mkdir(s, row.pre); uu.set_mode(s, row.pre, 0o755) }
     let r = uu.invoke(s, "mktemp", row.args, vars: row.vars)?
     uu.succeeds(r)
     uu.no_stderr(r)
-    assert regex.compile(row.pattern)?.matches(r.stdout.utf8()?), f"{row.args.join(" ")}: {r.stdout.utf8()?}"
+    assert regex.compile(row.pattern)?.matches(r.stdout as Str), f"{row.args.join(" ")}: {r.stdout as Str}"
     let name = r.stdout.utf8()?.trim()
     let entry = uu.at(s, name)
     if row.kind == "dry" {
@@ -120,21 +120,21 @@ test test_gnu_mktemp_mktemp_log { |ctx|
       assert fs.stat(entry)?.kind == row.kind
       let required = if row.kind == "dir" { 0o700 } else { 0o600 }
       assert fs.stat(entry)?.mode.bit_and(0o777) == required
-      entry.remove()?
+      entry.remove()
     }
-    if row.pre != "" { uu.remove(s, row.pre)? }
+    if row.pre != "" { uu.remove(s, row.pre) }
   }
   let bad_dir = uu.invoke(s, "mktemp", [], vars: {TMPDIR: "no/such/dir"})?
   uu.fails_with_code(bad_dir, 1)
   uu.no_stdout(bad_dir)
-  let normalized = regex.compile("(no/such/dir/)[^']+': .*\n")?.replace(bad_dir.stderr.utf8()?, with: "$1...\n")
+  let normalized = regex.compile("(no/such/dir/)[^']+': .*\n")?.replace(bad_dir.stderr as Str, with: "$1...\n")
   assert normalized == "mktemp: failed to create file via template 'no/such/dir/...\n"
 }
 
 # origin: gnu mktemp/write-error.log
 test test_gnu_mktemp_write_error_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a/b")?
+  uu.mkdir(s, "a/b")
   for args in [["-p", "a/b"], ["-p", "a/b", "-d"]] {
     let r = wrapped(s, args, [p"/bin/sh", p"-c", p"exec \"$@\" > /dev/full", p"mktemp-output"])?
     uu.fails_with_code(r, 1)

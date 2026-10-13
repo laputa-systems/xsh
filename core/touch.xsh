@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.date_parse
+use lib.gnu
 
 type TouchOptions = {
   obsolete_force: Bool, no_create: Bool, reference: Str?, access: Bool, modify: Bool,
@@ -10,24 +10,23 @@ type RawArgument = {marker: Str, value: Bytes}
 type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0touch-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0touch-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
 }
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
-  for argument in raw { if argument.marker == value { return argument.value } }
+  for argument in raw { return argument.value when argument.marker == value }
   bytes.from_text(value)
 }
 
@@ -52,11 +51,11 @@ pure obsolete_stamp(operand: Str) -> Str? {
 
 # Sets the selected timestamps: an explicit instant, or the kernel's current
 # time when none was given; the unselected one is left unchanged.
-proc set_times(target: Path, atime: date_parse.Instant?, mtime: date_parse.Instant?, access: Bool, modify: Bool, follow_symlinks: Bool) [fs] -> Result[Unit, Error] {
-  var atime_sec: Int? = null
-  var atime_nsec: Int? = null
-  var mtime_sec: Int? = null
-  var mtime_nsec: Int? = null
+proc set_times(target: Path, atime: date_parse.Instant?, mtime: date_parse.Instant?, access: Bool, modify: Bool, follow_symlinks: Bool) [fs] {
+  var atime_sec = null
+  var atime_nsec = null
+  var mtime_sec = null
+  var mtime_nsec = null
   if access {
     if let instant = atime { atime_sec = instant.seconds
       atime_nsec = instant.nanoseconds }
@@ -118,7 +117,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   var mtime: date_parse.Instant? = null
   if let reference = opts.reference {
     let reference_bytes = argument_bytes(reference, prepared.raw)
-    let reference_path = Path.parse_bytes(reference_bytes)?
+    let reference_path = reference_bytes as Path
     match fs.stat(reference_path, follow_symlinks: ! opts.no_dereference) {
       Ok(meta) => { atime = date_parse.instant_from_ns(meta.atime_ns)
         mtime = date_parse.instant_from_ns(meta.mtime_ns) }
@@ -166,15 +165,18 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     let date_input = normalize_date_displacement(text)
     let access_time = date_parse.parse_instant(date_input, base: atime ?? base)
     let modify_time = date_parse.parse_instant(date_input, base: mtime ?? base)
-    match access_time {
-      Ok(value) => atime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
-      Err(_) => { gnu.error(f"invalid date format {gnu.quote_value(text)}")
-        exit 1 }
+    if let Ok(value) = access_time {
+      atime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
+    } else {
+      gnu.error(f"invalid date format {gnu.quote_value(text)}")
+      exit 1
     }
-    match modify_time {
-      Ok(value) => mtime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
-      Err(_) => { gnu.error(f"invalid date format {gnu.quote_value(text)}")
-        exit 1 }
+
+    if let Ok(value) = modify_time {
+      mtime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
+    } else {
+      gnu.error(f"invalid date format {gnu.quote_value(text)}")
+      exit 1
     }
   }
   var failed = false
@@ -184,7 +186,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
       # Validate the standard descriptor before using its filesystem alias;
       # runtime reservations for closed streams are not timestamp targets.
       match unix.duplicate_fd(1) {
-      Ok(saved) => unix.close_fd(saved)?
+      Ok(saved) => unix.close_fd(saved)
       Err(failure) => {
         continue when opts.no_create
         gnu.error(f"setting times of {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
@@ -193,7 +195,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
       }
       }
     }
-    let target = if name == b"-" { p"/dev/stdout" } else { Path.parse_bytes(name)? }
+    let target = if name == b"-" { p"/dev/stdout" } else { name as Path }
     # Try timestamps before opening: directories and unwritable owned files
     # can be touched without obtaining a writable descriptor.
     var creating = false
@@ -203,7 +205,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
         continue when opts.no_create
         if ! opts.no_dereference and name != b"-" {
           creating = true
-          if name.len() > 0 and name.byte_at(name.len() - 1) == 47 {
+          if ! name.is_empty() and name.byte_at(name.len() - 1) == 47 {
             gnu.error(f"setting times of {gnu.quote_bytes(name)}: No such file or directory")
             failed = true
             continue

@@ -224,10 +224,10 @@ export pure size_value(raw: Str) -> Int? {
 export proc canonical(name: Str, missing: Str, logical = false, strip = false) [fs, error] -> Result[Str, Error] {
   return Err(FsMiscError.Invalid("No such file or directory")) when name == ""
   var pending = name.split("/")
-  var parts: List[Str] = []
+  var parts = []
   if ! name.starts_with("/") { parts = components(fs.cwd()?.display()) }
   if logical {
-    var normalized: List[Str] = []
+    var normalized = []
     for part in parts.extend(pending) {
       if part == ".." { if ! normalized.is_empty() { normalized = normalized[0..normalized.len() - 1] } } else if part != "." and part != "" { normalized += [part] }
     }
@@ -276,15 +276,15 @@ export pure relative(target: Str, base: Str) -> Str {
   let b = components(base)
   var common = 0
   while common < a.len() and common < b.len() and a[common] == b[common] { common += 1 }
-  var out: List[Str] = []
-  for unused in range(b.len() - common) { out += [".."] }
-  out = out.extend(a[common..])
+  var out = [".." for unused in range(b.len() - common)]
+  out += a[common..]
   if out.is_empty() { "." } else { out.join("/") }
 }
 
 pure components(name: Str) -> List[Str] {
-  var parts: List[Str] = []
-  for part in name.split("/") { if part != "" { parts += [part] } }
+  let parts = collect {
+    for part in name.split("/") { yield part when part != "" }
+  }
   parts
 }
 
@@ -311,6 +311,6 @@ pure remaining_component(parts: List[Str]) -> Bool {
 export pure size_overflow(raw: Str) -> Bool {
   let text = raw.trim()
   if ! rx"^(0x[0-9A-Fa-f]+|0b[01]+|[0-9]+)?([kKmMgGtTpPeEzZyYrRqQ](iB|B|D)?)?$".matches(text) or text == "" { return false }
-  if rx"^0[0-9]+$".matches(text) and rx"[89]".matches(text) { return false }
+  return false when rx"^0[0-9]+$".matches(text) and rx"[89]".matches(text)
   size_value(text) == null
 }

@@ -1,6 +1,6 @@
 ##! Transcribed numeric padding and NUL record tests from the uutils suite.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_numfmt::test_zero_pad_sign_order_issue_11664
 test test_uu_numfmt_zero_pad_sign_order_issue_11664 { |ctx|

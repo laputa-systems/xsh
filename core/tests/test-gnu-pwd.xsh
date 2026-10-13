@@ -4,7 +4,7 @@ use support.uu
 test test_gnu_pwd_argument_log { |ctx|
   let s = uu.scene(ctx)?
   let base = uu.invoke(s, "pwd", [])?
-  uu.mkdir(s, "a/b/c")?
+  uu.mkdir(s, "a/b/c")
   let nested = {ctx: s.ctx, root: uu.at(s, "a/b/c")}
   let r = uu.invoke(nested, "pwd", ["a"])?
   uu.succeeds(r)
@@ -15,8 +15,8 @@ test test_gnu_pwd_argument_log { |ctx|
 # origin: gnu pwd/pwd-option.log
 test test_gnu_pwd_pwd_option_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a/b")?
-  uu.symlink(s, "a/b", "c")?
+  uu.mkdir(s, "a/b")
+  uu.symlink(s, "a/b", "c")
   let physical = uu.invoke(s, "pwd", ["-P"])?
   let base = physical.stdout.utf8()?.trim()
   let nested = {ctx: s.ctx, root: uu.at(s, "c")}

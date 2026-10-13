@@ -1,12 +1,12 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_base64.rs.
 ##! Each test names its origin; expectations follow the GNU command contract.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_base64::test_base64_encode_file
 test test_uu_base64_base64_encode_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "base64", "input-simple.txt", "input-simple.txt")?
+  uu.fixture(s, "base64", "input-simple.txt", "input-simple.txt")
   let r = uu.invoke(s, "base64", ["input-simple.txt"])?
   uu.succeeds(r)
   uu.stdout_only(r, "SGVsbG8sIFdvcmxkIQo=\n")
@@ -31,7 +31,7 @@ test test_uu_base64_base64_file_not_found { |ctx|
 # origin: uutils test_base64::test_base64_file_with_trailing_slash
 test test_uu_base64_base64_file_with_trailing_slash { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "a", "b")?
+  uu.write(s, "a", "b")
   let r = uu.invoke(s, "base64", ["a/"])?
   uu.fails(r)
   uu.stderr_only(r, "base64: a/: Not a directory\n")
@@ -41,7 +41,7 @@ test test_uu_base64_base64_file_with_trailing_slash { |ctx|
 test test_uu_base64_base64_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
-  filename.write(b"hello world")?
+  filename.write(b"hello world")
   let r = uu.invoke_paths(s, "base64", [b"\xff\xfe" as Path])?
   uu.succeeds(r)
   uu.stdout_is(r, "aGVsbG8gd29ybGQ=\n")

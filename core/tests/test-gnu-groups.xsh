@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu groups/groups-dash.log
 test test_gnu_groups_groups_dash_log { |ctx|

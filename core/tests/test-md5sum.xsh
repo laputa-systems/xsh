@@ -25,7 +25,7 @@ test test_md5sum_continues_after_unreadable_file { |ctx|
   let missing = test.temp_path(ctx, name: "md5sum-missing")
   let result = invoke(ctx, [missing.display(), file.display()], b"")?
   assert result.status == 1
-  assert result.stdout.len() > 0
+  assert ! result.stdout.is_empty()
   assert result.stderr.find("No such file or directory") != null
 }
 
@@ -59,7 +59,7 @@ test test_md5sum_escaped_unicode_file_roundtrip { |ctx|
   file.write("abc")
   let emitted = invoke(ctx, [file.display()], b"")?
   assert emitted.status == 0
-  assert emitted.stdout.utf8()?.starts_with("\\900150983cd24fb0d6963f7d28e17f72  "), f"path={file}, output={emitted.stdout.utf8()?}"
+  assert emitted.stdout.utf8()?.starts_with("\\900150983cd24fb0d6963f7d28e17f72  "), f"path={file}, output={emitted.stdout as Str}"
   let list = test.temp_file(ctx, name: "escaped-check-list", contents: emitted.stdout)?
   let checked = invoke(ctx, ["--check", list.display()], b"")?
   assert checked.status == 0
@@ -130,7 +130,7 @@ test test_md5sum_check_preserves_leading_space_filename { |ctx|
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/md5sum.xsh"
   let plan = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--", "--strict", "--check", list.display()],
+    [ctx.xsh_bin, script, "--", "--strict", "--check", list],
     root, {LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   assert status.exit_code()? == 0
@@ -149,7 +149,7 @@ test test_md5sum_check_accepts_bsd_alternate_format { |ctx|
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/md5sum.xsh"
   let plan = process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), script.display(), "--", "--strict", "--check", list.display()],
+    [ctx.xsh_bin, script, "--", "--strict", "--check", list],
     root, {LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   assert status.exit_code()? == 0
@@ -211,7 +211,7 @@ test test_md5sum_alternate_format_accepts_indented_records { |ctx|
   assert checked.stdout == bytes.from_text(f"{file}: OK\n'{starred}': OK\n")
   assert checked.stderr == ""
 
-  let raw_file = Path.parse_bytes(bytes.concat([root.bytes(), b"/*raw\xff"]))?
+  let raw_file = bytes.concat([root.bytes(), b"/*raw\xff"]) as Path
   raw_file.write("")
   let raw_input = bytes.concat([
     bytes.from_text(f"d41d8cd98f00b204e9800998ecf8427e {file}\n"),

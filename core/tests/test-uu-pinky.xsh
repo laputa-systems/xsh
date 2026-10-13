@@ -1,13 +1,13 @@
 ##! Transcribed from the uutils coreutils integration tests for pinky.
 
-use support.uu as uu
+use support.uu
 
 type Account = {name: Str, gecos: Str, directory: Str, shell: Str}
 
 # Expected account fields come from the system database, independently of the applet.
 proc accounts() [fs, error] -> Result[List[Account], Error] {
   let entries: List[Account] = collect {
-    for line in p"/etc/passwd".read_text()?.lines() {
+    for line in p"/etc/passwd".read_lines()? {
       let fields = line.split(":")
       if fields.len() == 7 {
         yield {name: fields[0], gecos: fields[4], directory: fields[5], shell: fields[6]}
@@ -21,7 +21,7 @@ pure capitalized(name: Str) -> Str {
   if name == "" { "" } else { name.byte_slice(0, length: 1).upper() + name.byte_slice(1) }
 }
 
-pure long_output(login: Str, entries: List[Account], omit_directory: Bool = false) -> Str {
+pure long_output(login: Str, entries: List[Account], omit_directory = false) -> Str {
   for account in entries {
     if account.name == login {
       let real_name = account.gecos.replace("&", with: capitalized(account.name))
@@ -44,13 +44,10 @@ pure stable_fields(fields: List[Str]) -> List[Str] {
 # A missing utmp database means no sessions; other read errors remain failures.
 proc short_fields(option: Str) [fs, process, time, error] -> Result[List[Str], Error] {
   let entries = accounts()?
-  let records = match unix.read_utmp() {
-    Ok(found) => found,
-    Err(failure) => {
-      assert failure.errno == 2
-      let empty: List[UnixUtmp] = []
-      empty
-    },
+  let records = unix.read_utmp() ?? { |failure|
+    assert failure.errno == 2
+    let empty = []
+    empty
   }
   var expected = if option == "-i" {
     ["Login", "TTY", "Idle", "When"]
@@ -72,7 +69,7 @@ proc short_fields(option: Str) [fs, process, time, error] -> Result[List[Str], E
       }
       expected += name.words()
     }
-    let terminal = if record.line.starts_with("/") { Path(record.line) } else { fp"/dev/{record.line}" }
+    let terminal = if record.line.starts_with("/") { fp"{record.line}" } else { fp"/dev/{record.line}" }
     var marker = "?"
     var idle = "?????"
     match fs.stat(terminal) {
@@ -134,7 +131,7 @@ test test_uu_pinky_long_format_wo_user { |ctx|
 # origin: uutils test_pinky::test_lookup
 test test_uu_pinky_lookup { |ctx|
   let s = uu.scene(ctx)?
-  let expected = stable_fields(short_fields("")?)
+  let expected = short_fields("")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", ["--lookup"])?
   uu.succeeds(r)
   assert stable_fields(r.stdout.utf8()?.words()) == expected
@@ -143,7 +140,7 @@ test test_uu_pinky_lookup { |ctx|
 # origin: uutils test_pinky::test_no_flag
 test test_uu_pinky_no_flag { |ctx|
   let s = uu.scene(ctx)?
-  let expected = stable_fields(short_fields("")?)
+  let expected = short_fields("")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", [])?
   uu.succeeds(r)
   assert stable_fields(r.stdout.utf8()?.words()) == expected
@@ -161,7 +158,7 @@ test test_uu_pinky_short_format_i { |ctx|
 # origin: uutils test_pinky::test_short_format_q
 test test_uu_pinky_short_format_q { |ctx|
   let s = uu.scene(ctx)?
-  let expected = stable_fields(short_fields("-q")?)
+  let expected = short_fields("-q")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", ["-q"])?
   uu.succeeds(r)
   assert stable_fields(r.stdout.utf8()?.words()) == expected

@@ -33,29 +33,30 @@ export pure is_space(value: Int) -> Bool {
 ## of a file without a newline is always kept.
 export pure split(data: Bytes, strip_cr: Bool) -> Source {
   let size = data.len()
-  if size == 0 { return {lines: [], open: false} }
+  return {lines: [], open: false} when size == 0
   let open = data.byte_at(size - 1) != 10
   let parts = data.lines()
-  if !open and !(b"\r" in data) { return {lines: parts, open: false} }
-  var lines: List[Bytes] = []
+  return {lines: parts, open: false} when ! open and ! (b"\r" in data)
   var at = 0
   let count = parts.len()
   var index = 0
-  while index < count {
-    let part = parts[index]
-    if open and index == count - 1 {
-      lines += [data.slice(at)]
-      break
+  let lines = collect {
+    while index < count {
+      let part = parts[index]
+      if open and index == count - 1 {
+        yield data.slice(at)
+        break
+      }
+      let end = at + part.len()
+      if data.byte_at(end) == 13 {
+        yield if strip_cr { part } else { bytes.concat([part, b"\r"]) }
+        at = end + 2
+      } else {
+        yield part
+        at = end + 1
+      }
+      index += 1
     }
-    let end = at + part.len()
-    if data.byte_at(end) == 13 {
-      lines += [if strip_cr { part } else { bytes.concat([part, b"\r"]) }]
-      at = end + 2
-    } else {
-      lines += [part]
-      at = end + 1
-    }
-    index += 1
   }
   {lines: lines, open: open}
 }
@@ -70,7 +71,7 @@ const WIDE = [[4352, 4447], [11904, 12350], [12353, 13311], [13312, 19903], [199
 
 pure in_ranges(value: Int, ranges: List[List[Int]]) -> Bool {
   for span in ranges {
-    if value >= span[0] and value <= span[1] { return true }
+    return true when value >= span[0] and value <= span[1]
   }
   false
 }
@@ -79,17 +80,17 @@ pure in_ranges(value: Int, ranges: List[List[Int]]) -> Bool {
 ## are not valid UTF-8, every byte is one character of one column.
 export pure unit_at(raw: Bytes, at: Int, utf8: Bool) -> Glyph {
   let lead = raw.byte_at(at) ?? 0
-  if !utf8 or lead < 194 or lead > 244 { return {bytes: 1, columns: 1} }
+  return {bytes: 1, columns: 1} when ! utf8 or lead < 194 or lead > 244
   let need = if lead >= 240 { 4 } else if lead >= 224 { 3 } else { 2 }
-  if at + need > raw.len() { return {bytes: 1, columns: 1} }
+  return {bytes: 1, columns: 1} when at + need > raw.len()
   var value = if need == 2 { lead - 192 } else if need == 3 { lead - 224 } else { lead - 240 }
   for step in range(1, need) {
     let next = raw.byte_at(at + step) ?? 0
-    if next < 128 or next > 191 { return {bytes: 1, columns: 1} }
+    return {bytes: 1, columns: 1} when next < 128 or next > 191
     value = value * 64 + (next - 128)
   }
-  if in_ranges(value, NARROW) { return {bytes: need, columns: 0} }
-  if in_ranges(value, WIDE) { return {bytes: need, columns: 2} }
+  return {bytes: need, columns: 0} when in_ranges(value, NARROW)
+  return {bytes: need, columns: 2} when in_ranges(value, WIDE)
   {bytes: need, columns: 1}
 }
 
@@ -98,7 +99,7 @@ export pure unit_at(raw: Bytes, at: Int, utf8: Bool) -> Glyph {
 pure line_key(line: Bytes, rules: Rules) -> Bytes {
   var text = line
   if rules.expand_tabs {
-    var chunks: List[Bytes] = []
+    var chunks = []
     var column = 0
     var start = 0
     var index = 0
@@ -106,7 +107,7 @@ pure line_key(line: Bytes, rules: Rules) -> Bytes {
       if text.byte_at(index) == 9 {
         chunks += [text[start..index]]
         let pad = rules.tabsize - column % rules.tabsize
-        for _ in range(pad) { chunks += [b" "] }
+        repeat pad times { chunks += [b" "] }
         column += pad
         start = index + 1
         index += 1
@@ -119,31 +120,32 @@ pure line_key(line: Bytes, rules: Rules) -> Bytes {
     if start > 0 { chunks += [text[start..text.len()]]; text = bytes.concat(chunks) }
   }
   if rules.all_space or rules.space_change or rules.trailing_space {
-    var chunks: List[Bytes] = []
     var start = 0
     var index = 0
     let size = text.len()
-    while index < size {
-      if is_space(text.byte_at(index) ?? 0) {
-        var end = index
-        while end < size and is_space(text.byte_at(end) ?? 0) { end += 1 }
-        if rules.all_space {
-          chunks += [text[start..index]]
-        } else if rules.space_change {
-          chunks += [text[start..index]]
-          if end < size { chunks += [b" "] }
-        } else if end < size {
-          chunks += [text[start..end]]
+    let chunks = collect {
+      while index < size {
+        if is_space(text.byte_at(index) ?? 0) {
+          var end = index
+          while end < size and is_space(text.byte_at(end) ?? 0) { end += 1 }
+          if rules.all_space {
+            yield text[start..index]
+          } else if rules.space_change {
+            yield text[start..index]
+            yield b" " when end < size
+          } else if end < size {
+            yield text[start..end]
+          } else {
+            yield text[start..index]
+          }
+          start = end
+          index = end
         } else {
-          chunks += [text[start..index]]
+          index += 1
         }
-        start = end
-        index = end
-      } else {
-        index += 1
       }
+      yield text[start..size] when start < size
     }
-    if start < size { chunks += [text[start..size]] }
     text = bytes.concat(chunks)
   }
   if rules.ignore_case {
@@ -171,18 +173,19 @@ pure classify(source: Source, from: Int, to: Int, rules: Rules, plain: Bool, ids
   var table = ids
   var open_table = open_ids
   var counter = next
-  var classes: List[Int] = []
   let last = source.lines.len() - 1
-  for index in range(from, to) {
-    let line = if plain { source.lines[index] } else { line_key(source.lines[index], rules) }
-    let distinct = source.open and index == last and !newline_is_whitespace(rules)
-    var found = (if distinct { open_table.get(line) } else { table.get(line) }) ?? 0
-    if found == 0 {
-      counter += 1
-      found = counter
-      if distinct { open_table[line] = counter } else { table[line] = counter }
+  let classes = collect {
+    for index in range(from, to) {
+      let line = if plain { source.lines[index] } else { line_key(source.lines[index], rules) }
+      let distinct = source.open and index == last and !newline_is_whitespace(rules)
+      var found = (if distinct { open_table.get(line) } else { table.get(line) }) ?? 0
+      if found == 0 {
+        counter += 1
+        found = counter
+        if distinct { open_table[line] = counter } else { table[line] = counter }
+      }
+      yield found
     }
-    classes += [found]
   }
   {classes: classes, ids: table, open_ids: open_table, next: counter}
 }
@@ -196,10 +199,10 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
   var tem = end / 64
   while true {
     tem = tem / 4
-    if tem <= 0 { break }
+    break when tem <= 0
     many *= 2
   }
-  var marks: List[Int] = []
+  var marks = []
   for value in classes {
     let matches = other_counts[value]
     marks += [if matches == 0 { 1 } else if matches > many { 2 } else { 0 }]
@@ -212,7 +215,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
       var j = i
       var provisional = 0
       while j < end {
-        if marks[j] == 0 { break }
+        break when marks[j] == 0
         if marks[j] == 2 { provisional += 1 }
         j += 1
       }
@@ -232,7 +235,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
         var quarter = length / 4
         while true {
           quarter = quarter / 4
-          if quarter <= 0 { break }
+          break when quarter <= 0
           minimum *= 2
         }
         minimum += 1
@@ -254,7 +257,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
         k = 0
         consec = 0
         while k < length {
-          if k >= 8 and marks[i + k] == 1 { break }
+          break when k >= 8 and marks[i + k] == 1
           if marks[i + k] == 2 {
             consec = 0
             marks[i + k] = 0
@@ -263,14 +266,14 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
           } else {
             consec += 1
           }
-          if consec == 3 { break }
+          break when consec == 3
           k += 1
         }
         i += length - 1
         k = 0
         consec = 0
         while k < length {
-          if k >= 8 and marks[i - k] == 1 { break }
+          break when k >= 8 and marks[i - k] == 1
           if marks[i - k] == 2 {
             consec = 0
             marks[i - k] = 0
@@ -279,7 +282,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
           } else {
             consec += 1
           }
-          if consec == 3 { break }
+          break when consec == 3
           k += 1
         }
       }
@@ -316,7 +319,7 @@ pure search(x: List[Int], y: List[Int], minimal: Bool, speed: Bool) -> Flags {
   var bd: List[Int] = [0 for _ in range(nx + ny + 3)]
   var work: List[Segment] = [{xoff: 0, xlim: nx, yoff: 0, ylim: ny, minimal: minimal}]
   while !work.is_empty() {
-    let item = work[work.len() - 1]
+    let item = work[-1]
     work = work[0..work.len() - 1]
     var xoff = item.xoff
     var xlim = item.xlim
@@ -398,7 +401,7 @@ pure search(x: List[Int], y: List[Int], minimal: Bool, speed: Bool) -> Flags {
         }
         d -= 2
       }
-      if found { break }
+      break when found
       if bmin > dmin {
         bmin -= 1
         bd[bmin - 1 + shift] = OFFSET_MAX
@@ -434,7 +437,7 @@ pure search(x: List[Int], y: List[Int], minimal: Bool, speed: Bool) -> Flags {
         }
         d -= 2
       }
-      if found { break }
+      break when found
       if item.minimal {
         cost += 1
         continue
@@ -575,7 +578,7 @@ pure shift_boundaries(classes: List[Int], changed: List[Int], other: List[Int]) 
       }
       i += 1
     }
-    if i == end { break }
+    break when i == end
     var start = i
     i += 1
     while flags[i + 1] != 0 { i += 1 }
@@ -606,7 +609,7 @@ pure shift_boundaries(classes: List[Int], changed: List[Int], other: List[Int]) 
           corresponding = i
         }
       }
-      if runlength == i - start { break }
+      break when runlength == i - start
     }
     while corresponding < i {
       start -= 1
@@ -632,7 +635,7 @@ export pure script(first: Source, second: Source, rules: Rules) -> List[Change] 
   let n1 = second.lines.len()
   var prefix = 0
   while prefix < n0 and prefix < n1 and same_line(first, prefix, second, prefix) { prefix += 1 }
-  if prefix == n0 and prefix == n1 { return [] }
+  return [] when prefix == n0 and prefix == n1
   let start = prefix - (if prefix < rules.horizon { prefix } else { rules.horizon })
   var suffix = 0
   while n0 - 1 - suffix >= start and n1 - 1 - suffix >= start and same_line(first, n0 - 1 - suffix, second, n1 - 1 - suffix) { suffix += 1 }
@@ -650,8 +653,8 @@ export pure script(first: Source, second: Source, rules: Rules) -> List[Change] 
   for value in right.classes { count1[value] += 1 }
   let drop0 = discards(left.classes, count1)
   let drop1 = discards(right.classes, count0)
-  var kept0: List[Int] = []
-  var real0: List[Int] = []
+  var kept0 = []
+  var real0 = []
   var changed0: List[Int] = [0 for _ in range(m0 + 2)]
   for index in range(m0) {
     if drop0[index] == 0 {
@@ -661,8 +664,8 @@ export pure script(first: Source, second: Source, rules: Rules) -> List[Change] 
       changed0[index + 1] = 1
     }
   }
-  var kept1: List[Int] = []
-  var real1: List[Int] = []
+  var kept1 = []
+  var real1 = []
   var changed1: List[Int] = [0 for _ in range(m1 + 2)]
   for index in range(m1) {
     if drop1[index] == 0 {
@@ -681,19 +684,20 @@ export pure script(first: Source, second: Source, rules: Rules) -> List[Change] 
   }
   changed0 = shift_boundaries(left.classes, changed0, changed1)
   changed1 = shift_boundaries(right.classes, changed1, changed0)
-  var changes: List[Change] = []
   var i0 = 0
   var i1 = 0
-  while i0 < m0 or i1 < m1 {
-    if (i0 < m0 and changed0[i0 + 1] != 0) or (i1 < m1 and changed1[i1 + 1] != 0) {
-      let from0 = i0
-      let from1 = i1
-      while i0 < m0 and changed0[i0 + 1] != 0 { i0 += 1 }
-      while i1 < m1 and changed1[i1 + 1] != 0 { i1 += 1 }
-      changes += [{line0: start + from0, line1: start + from1, deleted: i0 - from0, inserted: i1 - from1}]
-    } else {
-      i0 += 1
-      i1 += 1
+  let changes: List[Change] = collect {
+    while i0 < m0 or i1 < m1 {
+      if (i0 < m0 and changed0[i0 + 1] != 0) or (i1 < m1 and changed1[i1 + 1] != 0) {
+        let from0 = i0
+        let from1 = i1
+        while i0 < m0 and changed0[i0 + 1] != 0 { i0 += 1 }
+        while i1 < m1 and changed1[i1 + 1] != 0 { i1 += 1 }
+        yield {line0: start + from0, line1: start + from1, deleted: i0 - from0, inserted: i1 - from1}
+      } else {
+        i0 += 1
+        i1 += 1
+      }
     }
   }
   changes

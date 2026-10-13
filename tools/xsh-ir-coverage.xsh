@@ -119,7 +119,7 @@ pure schema_code_line(line: Str) -> Str {
 }
 
 pure instruction_schema_variants(source: Str) -> List[Str] {
-  var variants: List[Str] = []
+  var variants = []
   var in_schema = false
   var depth = 0
 
@@ -153,7 +153,7 @@ pure instruction_schema_variants(source: Str) -> List[Str] {
 }
 
 pure pipeline_stage_schema_variants(source: Str) -> List[Str] {
-  var variants: List[Str] = []
+  var variants = []
   var in_schema = false
   var depth = 0
 

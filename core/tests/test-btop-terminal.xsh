@@ -11,9 +11,9 @@ test test_btop_terminal_capabilities_follow_environment_and_geometry {
     rows: 40,
     cols: 120,
   })
-  assert linux_console.color_depth == terminal.Ansi16
+  assert linux_console.color_depth == .Ansi16
   assert ! linux_console.utf8
-  assert linux_console.symbols == terminal.Ascii
+  assert linux_console.symbols == .Ascii
   assert linux_console.minimum_size
 
   let truecolor = terminal.detect({
@@ -26,9 +26,9 @@ test test_btop_terminal_capabilities_follow_environment_and_geometry {
     rows: 24,
     cols: 80,
   })
-  assert truecolor.color_depth == terminal.TrueColor
+  assert truecolor.color_depth == .TrueColor
   assert truecolor.utf8
-  assert truecolor.symbols == terminal.Unicode
+  assert truecolor.symbols == .Unicode
   assert truecolor.minimum_size
 
   let color_disabled = terminal.detect({
@@ -41,8 +41,8 @@ test test_btop_terminal_capabilities_follow_environment_and_geometry {
     rows: 23,
     cols: 79,
   })
-  assert color_disabled.color_depth == terminal.NoColor
-  assert color_disabled.symbols == terminal.Unicode
+  assert color_disabled.color_depth == .NoColor
+  assert color_disabled.symbols == .Unicode
   assert ! color_disabled.minimum_size
   assert color_disabled.rows == 23 and color_disabled.cols == 79
 
@@ -56,8 +56,8 @@ test test_btop_terminal_capabilities_follow_environment_and_geometry {
     rows: 24,
     cols: 80,
   })
-  assert dumb.color_depth == terminal.NoColor
-  assert dumb.symbols == terminal.Ascii
+  assert dumb.color_depth == .NoColor
+  assert dumb.symbols == .Ascii
 }
 
 test test_btop_terminal_refuses_piped_input_before_reading_it { |ctx|

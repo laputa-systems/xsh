@@ -139,7 +139,7 @@ test test_linux_signature_wipe_is_selective_and_validates_all_offsets { |ctx|
   test.error_kind(linux.wipe_block_signatures(image, [0, 1]), "linux-wipe-signatures")
   assert image.read_bytes()? == contents
   linux.wipe_block_signatures(image, [1080])
-  assert image.read_bytes()? == bytes.concat([contents.slice(0, 1080), b"\0\0", contents.slice(1082)])
+  assert image.read_bytes()? == bytes.concat([contents[..1080], b"\0\0", contents.slice(1082)])
   let remaining = linux.block_signatures(image)?
   assert remaining.len() == 1 and remaining[0].type == "xfs"
   linux.wipe_block_signatures(image, [0, 0])
@@ -183,7 +183,7 @@ test test_linux_signatures_recognize_owned_files_at_known_offsets { |ctx|
   assert signatures.len() == 1 and signatures[0].type == "vfat"
   assert signatures[0].offset == 82 and signatures[0].magic == b"FAT32   "
   linux.wipe_block_signatures(image, [82])
-  assert image.read_bytes()? == bytes.concat([fat_bytes.slice(0, 82), bytes.zero(8)?, fat_bytes.slice(90)])
+  assert image.read_bytes()? == bytes.concat([fat_bytes[..82], bytes.zero(8)?, fat_bytes.slice(90)])
 }
 
 test test_linux_signatures_validate_gpt_primary_and_backup_crc { |ctx|
@@ -204,14 +204,14 @@ test test_linux_signatures_validate_gpt_primary_and_backup_crc { |ctx|
   assert signatures[2].offset == 1048064 and signatures[2].type == "gpt"
   let contents = image.read_bytes()?
 
-  image.write(bytes.concat([contents.slice(0, 568), b"\xff", contents.slice(569)]))
+  image.write(bytes.concat([contents[..568], b"\xff", contents.slice(569)]))
   let bad_header = linux.block_signatures(image)?
   assert bad_header.len() == 2 and bad_header[1].offset == 1048064
   image.write(contents)
 
   # Corrupt the primary partition entry name while preserving its header.
   # The backup array is independent and must remain recognizable.
-  image.write(bytes.concat([contents.slice(0, 1080), b"\xff", contents.slice(1081)]))
+  image.write(bytes.concat([contents[..1080], b"\xff", contents.slice(1081)]))
   let corrupt = linux.block_signatures(image)?
   assert corrupt.len() == 2
   assert corrupt[0].type == "dos"
@@ -219,7 +219,7 @@ test test_linux_signatures_validate_gpt_primary_and_backup_crc { |ctx|
   image.write(contents)
 
   linux.wipe_block_signatures(image, [512])
-  assert image.read_bytes()? == bytes.concat([contents.slice(0, 512), bytes.zero(8)?, contents.slice(520)])
+  assert image.read_bytes()? == bytes.concat([contents[..512], bytes.zero(8)?, contents.slice(520)])
   let remaining = linux.block_signatures(image)?
   assert remaining.len() == 2 and remaining[1].offset == 1048064
 }
@@ -262,8 +262,7 @@ test test_linux_loop_attach_requires_writable_backing_without_fallback { |ctx|
   }}
 }}
 """
-  let result = test.run_script(ctx, source)?
-  assert result.success, result.stderr
+  test.expect(ctx, source, status: 0)?
   assert image.read_text()? == "read-only image"
   assert device_fixture.read_text()? == "regular file, never a block device"
 }

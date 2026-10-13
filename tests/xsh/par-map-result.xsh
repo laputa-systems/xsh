@@ -111,9 +111,7 @@ test test_par_map_propagation_fails_the_enclosing_function_like_map {
 # worker's root scope, which has no enclosing scope to hand the payload to.
 proc reject_zero_in_callback(xs: List[Int], jobs: Int) [error] -> Result[List[Int]] {
   xs |> par-map(jobs:) { |x|
-    if x == 0 {
-      return Err(TestError.DivisionByZero("callback returned"))
-    }
+    return Err(TestError.DivisionByZero("callback returned")) when x == 0
 
     100 / x
   }

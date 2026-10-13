@@ -36,41 +36,41 @@ pure delimiter_error(spec: Str) -> Str {
 }
 
 pure octal_value(text: Str) -> Int? {
-  if text == "" { return null }
+  return null when text == ""
   var value = 0
   for digit in text {
     let number = digit.parse_int() ?? -1
-    if number < 0 or number > 7 { return null }
+    return null when number < 0 or number > 7
     value = value * 8 + number
   }
   value
 }
 
 pure hex_value(text: Str) -> Int? {
-  if text == "" { return null }
+  return null when text == ""
   var value = 0
   for digit in text.lower() {
     let number = "0123456789abcdef".find(digit)
-    if number == null { return null }
-    value = value * 16 + (number ?? 0)
+    return null when number == null
+    value = value * 16 + number
   }
   value
 }
 
 # The byte named by a -d argument: a single character, or a backslash escape.
 pure parse_delimiter(spec: Str) -> Int? {
-  if spec.byte_len() == 1 { return bytes.from_text(spec).byte_at(0) }
-  if ! spec.starts_with("\\") or spec.byte_len() < 2 { return null }
+  return bytes.from_text(spec).byte_at(0) when spec.byte_len() == 1
+  return null when ! spec.starts_with("\\") or spec.byte_len() < 2
   let rest = spec.byte_slice(1)
   if rest.byte_len() == 1 {
-    return match rest { "a" => 7; "b" => 8; "f" => 12; "n" => 10; "r" => 13; "t" => 9; "v" => 11; "\\" => 92; "0" => 0; _ => null }
+    return match rest { "a" => 7; "b" => 8; "f" => 12; "n" => 10; "r" => 13; "t" => 9; "v" => 11; "\\" => 92; "0" => 0; else => null }
   }
   if rest.starts_with("x") {
     let value = hex_value(rest.byte_slice(1))
     return if value != null and rest.byte_len() <= 3 { value } else { null }
   }
   let value = octal_value(rest)
-  if value != null and rest.byte_len() <= 3 and (value ?? 256) < 256 { value } else { null }
+  if value != null and rest.byte_len() <= 3 and value < 256 { value } else { null }
 }
 
 # Split a chunk of input into items: blanks and newlines separate them, quotes
@@ -112,7 +112,7 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
         var end = at + 1
         while end < data.len() {
           let next = data.byte_at(end) ?? 0
-          if next == current.quote or next == 10 or next == 0 { break }
+          break when next == current.quote or next == 10 or next == 0
           end += 1
         }
         current.word = bytes.concat([current.word, data[at..end]]); skip_until = end
@@ -148,7 +148,7 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
       var end = at + 1
       while end < data.len() {
         let next = data.byte_at(end) ?? 0
-        if next in [0, 10, 34, 39, 92] or (! replace and (next == 32 or next == 9)) { break }
+        break when next in [0, 10, 34, 39, 92] or (! replace and (next == 32 or next == 9))
         end += 1
       }
       current.word = bytes.concat([current.word, data[at..end]]); current.started = true; skip_until = end
@@ -168,8 +168,8 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
 }
 
 pure substitute(text: Bytes, marker: Bytes, value: Bytes) -> Bytes {
-  if marker.is_empty() { return text }
-  var out: List[Bytes] = []
+  return text when marker.is_empty()
+  var out = []
   var at = 0
   while at < text.len() {
     let found = search.find_fixed(text, marker, offset: at)
@@ -184,7 +184,7 @@ pure substitute(text: Bytes, marker: Bytes, value: Bytes) -> Bytes {
 # An argument is a C string: it ends at the first NUL, so a NUL in the input
 # hides the rest of that item from the command.
 pure c_string(data: Bytes) -> Bytes {
-  for at in range(data.len()) { if data.byte_at(at) == 0 { return data[0..at] } }
+  for at in range(data.len()) { return data[0..at] when data.byte_at(at) == 0 }
   data
 }
 
@@ -198,7 +198,7 @@ pure status_code(status: Status) -> Int {
 proc option_number(text: Str, option: Str, minimum: Int) [process, env] -> Int {
   let value = text.parse_int() ?? -9223372036854775807
   if value == -9223372036854775807 { gnu.usage_error(f"invalid number \"{text}\" for -{option} option") }
-  return value
+  value
 }
 
 proc exclusive(previous: Str, current: Str) [process, env] -> Unit {
@@ -206,20 +206,20 @@ proc exclusive(previous: Str, current: Str) [process, env] -> Unit {
 }
 
 proc parse_options(args: List[Str]) [process, env, io] -> Settings {
-  var cfg: Settings = {delimiter: -1, input_file: null, eof: "", replace: null, max_lines: 0, max_args: 0, max_chars: DEFAULT_LIMIT, max_procs: 1, interactive: false, no_run_if_empty: false, trace: false, exit_on_overflow: false, slot_var: null, open_tty: false, show_limits: false, command: []}
+  var cfg: Settings = Settings(delimiter: -1, input_file: null, eof: "", replace: null, max_lines: 0, max_args: 0, max_chars: DEFAULT_LIMIT, max_procs: 1, interactive: false, no_run_if_empty: false, trace: false, exit_on_overflow: false, slot_var: null, open_tty: false, show_limits: false, command: [])
   var at = 0
   while at < args.len() {
     let arg = args[at]
     if arg == "--" { at += 1; break }
-    var keys: List[Str] = []
-    var values: List[Str?] = []
-    var shown: List[Str] = []
+    var keys = []
+    var values = []
+    var shown = []
     if arg.starts_with("--") {
       at += 1
       let body = arg.byte_slice(2)
       let eq = body.find("=")
-      let name = if eq == null { body } else { body.byte_slice(0, eq ?? 0) }
-      var value: Str? = if eq == null { null } else { body.byte_slice((eq ?? 0) + 1) }
+      let name = if eq == null { body } else { body.byte_slice(0, eq) }
+      var value: Str? = if eq == null { null } else { body.byte_slice(eq + 1) }
       var matches: List[LongOption] = []
       for candidate in LONG_OPTIONS {
         if candidate.long == name { matches = [candidate]; break }
@@ -227,8 +227,9 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
       }
       if matches.is_empty() { gnu.usage_error(f"unrecognized option '{arg}'") }
       if matches.len() > 1 {
-        var names: List[Str] = []
-        for candidate in matches { names += [f"'--{candidate.long}'"] }
+        let names = collect {
+          for candidate in matches { yield f"'--{candidate.long}'" }
+        }
         gnu.usage_error(f"option '--{name}' is ambiguous; possibilities: {names.join(" ")}")
       }
       let option = matches[0]
@@ -274,7 +275,7 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
         "d" => {
           let parsed = parse_delimiter(value)
           if parsed == null { gnu.error(delimiter_error(value)); exit 1 }
-          cfg.delimiter = parsed ?? 0
+          cfg.delimiter = parsed
         }
         "a" => cfg.input_file = value
         "e" | "E" => cfg.eof = value
@@ -318,7 +319,7 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
         "show-limits" => cfg.show_limits = true
         "help" => { gnu.help(HELP); exit 0 }
         "version" => { gnu.version("xargs"); exit 0 }
-        _ => {}
+        else => {}
       }
     }
   }
@@ -341,19 +342,20 @@ proc unrunnable(command: Str) [fs, process] -> Problem? {
 # Build the argument vector of one command line from the items of a batch:
 # the items follow the initial arguments, or replace the marker inside them.
 proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument], replace: Bool, marker: Bytes, max_chars: Int) [process, env, error] -> Result[List[Path], Error] {
-  var argv: List[Path] = []
-  for word in command {
-    let text = gnu.argument_bytes(word, raw)
-    let joined = if replace and ! items.is_empty() { substitute(text, marker, c_string(items[0].data)) } else { text }
-    argv += [Path.parse_bytes(joined)?]
+  let argv = collect {
+    for word in command {
+      let text = gnu.argument_bytes(word, raw)
+      let joined = if replace and ! items.is_empty() { substitute(text, marker, c_string(items[0].data)) } else { text }
+      yield joined as Path
+    }
+    if ! replace { for item in items { yield c_string(item.data) as Path } }
   }
-  if ! replace { for item in items { argv += [Path.parse_bytes(c_string(item.data))?] } }
   var total = 0
   for word in argv {
     total += word.bytes().len() + 1
-    if replace and word.bytes().len() + 1 >= max_chars { search.reject("command too long")? }
+    if replace and word.bytes().len() + 1 >= max_chars { search.reject("command too long") }
   }
-  if replace and total > max_chars { search.reject("argument list too long")? }
+  if replace and total > max_chars { search.reject("argument list too long") }
   Ok(argv)
 }
 
@@ -361,7 +363,7 @@ proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument
 # items, unless they came from a file (-a), which leaves standard input free.
 proc start(argv: List[Path], inherit_stdin: Bool, use_tty: Bool, slot_var: Str?, slot: Int) [process, env, error] -> Result[ProcessHandle, Error] {
   var words = argv
-  if slot_var != null { words = [fp"env", fp"{slot_var ?? ""}={slot}"] + argv }
+  if slot_var != null { words = [fp"env", fp"{slot_var}={slot}", @argv] }
   let target = words[0]
   let tail = words[1..]
   let handle = if use_tty { spawn run $target @tail < /dev/tty ? } else if inherit_stdin { spawn run $target @tail ? } else { spawn run $target @tail < /dev/null ? }
@@ -381,41 +383,39 @@ proc shell_quote(raw: Bytes) [env] -> Str {
     if byte < 32 or byte > 126 { printable = false }
     if byte in [33, 34, 35, 36, 38, 40, 41, 42, 59, 60, 61, 62, 91, 92, 94, 96, 123, 124, 125, 126] { special = true }
   }
-  if ! apostrophe or ! printable { return gnu.quote_bytes(raw, always: false) }
+  return gnu.quote_bytes(raw, always: false) when ! apostrophe or ! printable
   let text = raw.utf8() ?? ""
-  if ! special { return f"\"{text}\"" }
+  return f"\"{text}\"" unless special
   f"'{text.replace("'", with: "'\\''")}'"
 }
 
 # Show the command line on standard error (-t) and, for -p, ask whether to
 # run it. Returns whether the command should run.
 proc announce(argv: List[Path], interactive: Bool) [io, process, env, error] -> Result[Bool, Error] {
-  var texts: List[Str] = []
-  for word in argv { texts += [shell_quote(word.bytes())] }
-  if interactive { return ask(texts.join(" ")) }
+  let texts = collect {
+    for word in argv { yield shell_quote(word.bytes()) }
+  }
+  return ask(texts.join(" ")) when interactive
   eprint texts.join(" ")
   Ok(true)
 }
 
 # Read the answer to a -p prompt from the terminal.
 proc ask(command_line: Str) [io, process, env, error] -> Result[Bool, Error] {
-  io.write_stderr(command_line)?
-  io.flush_stderr()?
-  let descriptor = match unix.open_fd(p"/dev/tty") {
-    Ok(opened) => opened
-    Err(failure) => { gnu.error(f"failed to open /dev/tty for reading: {gnu.strerror(failure)}"); exit 1 }
-  }
-  io.write_stderr("?...")?
-  io.flush_stderr()?
+  io.write_stderr(command_line)
+  io.flush_stderr()
+  let descriptor = unix.open_fd(p"/dev/tty") ?? { |failure| gnu.error(f"failed to open /dev/tty for reading: {gnu.strerror(failure)}"); exit 1 }
+  io.write_stderr("?...")
+  io.flush_stderr()
   var answer = ""
   while true {
     let chunk = unix.read_fd(descriptor, 1)?
-    if chunk.is_empty() { break }
+    break when chunk.is_empty()
     let letter = chunk.utf8() ?? ""
-    if letter == "\n" { break }
+    break when letter == "\n"
     answer = f"{answer}{letter}"
   }
-  unix.close_fd(descriptor)?
+  unix.close_fd(descriptor)
   Ok(answer.starts_with("y") or answer.starts_with("Y"))
 }
 
@@ -423,7 +423,7 @@ proc ask(command_line: Str) [io, process, env, error] -> Result[Bool, Error] {
 proc require_command(command: Str) [fs, process, env] -> Unit {
   let problem = unrunnable(command)
   if problem != null {
-    let found = problem ?? {status: 127, reason: ""}
+    let found = problem
     gnu.error(f"failed to run command {gnu.quote(command)}: {found.reason}")
     exit found.status
   }
@@ -448,13 +448,13 @@ proc main(...operands: List[Bytes]) {
   }
   if initial_size > cfg.max_chars { gnu.error("cannot fit single argument within argument list size limit"); exit 1 }
   if cfg.open_tty and fs.access(p"/dev/tty", read: true) is Err(_) { gnu.error(f"{gnu.quote("/dev/tty")}: No such device or address"); exit 1 }
-  var state: Lexer = {word: b"", quote: 0, escaped: false, started: false, line: 0, word_line: 0, row_words: false, trailing_space: false}
+  var state: Lexer = Lexer(word: b"", quote: 0, escaped: false, started: false, line: 0, word_line: 0, row_words: false, trailing_space: false)
   var batch: List[Item] = []
   var size = initial_size
   var batch_lines = 0
   var previous_line = -1
-  var active: List[ProcessHandle] = []
-  var slots: List[Int] = []
+  var active = []
+  var slots = []
   var result = 0
   var any_input = false
   var stopped = false
@@ -463,12 +463,12 @@ proc main(...operands: List[Bytes]) {
   var failure = ""
   var checked = false
   var file_offset = 0
-  let reader: Path? = if cfg.input_file == null { null } else { Path.parse_bytes(gnu.argument_bytes(cfg.input_file ?? "", raw)) ?? p"." }
+  let reader: Path? = if cfg.input_file == null { null } else { Path.parse_bytes(gnu.argument_bytes(cfg.input_file, raw)) ?? p"." }
   let limit = if cfg.max_procs == 0 { 1000000 } else { cfg.max_procs }
   let outcome = try {
     var source_size = -1
     if reader != null {
-      match fs.stat(reader ?? p"", follow_symlinks: true) {
+      match fs.stat(reader, follow_symlinks: true) {
         Ok(meta) => { source_size = if meta.kind == "file" and meta.size > 0 { meta.size } else { -2 } }
         Err(problem) => { gnu.error(f"Cannot open input file {gnu.quote(cfg.input_file ?? "")}: {gnu.strerror(problem)}"); exit 1 }
       }
@@ -476,10 +476,10 @@ proc main(...operands: List[Bytes]) {
     while ! stopped {
       var data = b""
       if reader == null { data = io.stdin_read(65536)? } else if source_size == -2 {
-        if file_offset == 0 { data = match (reader ?? p"").read_bytes() { Ok(bytes_read) => bytes_read; Err(_) => b"" } }
+        if file_offset == 0 { data = if let Ok(bytes_read) = reader.read_bytes() { bytes_read } else { b"" } }
       } else if file_offset < source_size {
         let left = source_size - file_offset
-        data = bytes.read_at(reader ?? p"", file_offset, if left < 65536 { left } else { 65536 })?
+        data = bytes.read_at(reader, file_offset, if left < 65536 { left } else { 65536 })?
       }
       file_offset += data.len()
       let eof = data.is_empty()
@@ -502,12 +502,13 @@ proc main(...operands: List[Bytes]) {
         let too_many_lines = (cfg.max_lines > 0 or replace) and ! batch.is_empty() and item.line != previous_line and (replace or batch_lines >= cfg.max_lines)
         let too_large = size + length + 1 > cfg.max_chars
         if ! batch.is_empty() and (too_many or too_many_lines or too_large) {
-          if too_large and cfg.exit_on_overflow and counted and ! too_many and ! too_many_lines { search.reject("argument list too long")? }
+          if too_large and cfg.exit_on_overflow and counted and ! too_many and ! too_many_lines { search.reject("argument list too long") }
           let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
           if command.is_empty() {
-            var chunks: List[Bytes] = []
-            for index in range(batch.len()) { if index > 0 { chunks += [b" "] }; chunks += [c_string(batch[index].data)] }
-            gnu.write_bytes(bytes.concat(chunks + [b"\n"]))
+            let chunks = collect {
+              for index in range(batch.len()) { yield b" " when index > 0; yield c_string(batch[index].data) }
+            }
+            gnu.write_bytes(bytes.concat([@chunks, b"\n"]))
           } else {
             if ! checked { checked = true; require_command(command[0]) }
             var proceed = true
@@ -535,14 +536,15 @@ proc main(...operands: List[Bytes]) {
         batch += [item]; size += length + 1
       }
       if failure == "" and decoded.failure != "" { failure = decoded.failure }
-      if failure != "" or eof { break }
+      break when failure != "" or eof
     }
     if (! stopped or marker_seen) and (! batch.is_empty() or (! any_input and ! cfg.no_run_if_empty and ! replace and failure == "")) {
       let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
       if command.is_empty() {
-        var chunks: List[Bytes] = []
-        for index in range(batch.len()) { if index > 0 { chunks += [b" "] }; chunks += [c_string(batch[index].data)] }
-        gnu.write_bytes(bytes.concat(chunks + [b"\n"]))
+        let chunks = collect {
+          for index in range(batch.len()) { yield b" " when index > 0; yield c_string(batch[index].data) }
+        }
+        gnu.write_bytes(bytes.concat([@chunks, b"\n"]))
       } else {
         if ! checked { checked = true; require_command(command[0]) }
         var proceed = true

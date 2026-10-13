@@ -87,14 +87,12 @@ const RESOURCES = ["as", "core", "cpu", "data", "fsize", "locks", "memlock", "ms
 # child is still executing the program, and a limit set then would fail the
 # exec, so the name the kernel reports tells when `sleep` is really running.
 proc wait_for_sleep(pid: Int) [fs, time, error] {
-  for _ in range(500) {
+  repeat 500 times {
     if let Ok(name) = fp"/proc/{pid}/comm".read_text() {
-      if name.trim() == "sleep" {
-        return
-      }
+      return when name.trim() == "sleep"
     }
 
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
 }
 
@@ -109,7 +107,7 @@ proc fix_limits(pid: Int) [fs, time, process, error] -> Result[Bool] {
 
   for name in RESOURCES {
     if name != "nice" and name != "rtprio" {
-      process.set_rlimit(name, soft: 100 + at, hard: 200 + at, pid: pid)?
+      process.set_rlimit(name, soft: 100 + at, hard: 200 + at, pid:)
     }
 
     at += 1

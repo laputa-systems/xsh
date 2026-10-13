@@ -43,8 +43,8 @@ pure digit_value(byte: Int) -> Int { if digit(byte) { byte - 48 } else if byte >
 # A numeric literal with a leading zero and only octal digits is octal in program
 # text, as in GNU awk; input fields never reach this and keep decimal spelling.
 pure octal_literal(text: Str) -> Bool {
-  if text.byte_len() < 2 or text.byte_at(0) != 48 { return false }
-  for at in range(text.byte_len()) { if (text.byte_at(at) ?? 0) not in [48, 49, 50, 51, 52, 53, 54, 55] { return false } }
+  return false when text.byte_len() < 2 or text.byte_at(0) != 48
+  for at in range(text.byte_len()) { return false when (text.byte_at(at) ?? 0) not in [48, 49, 50, 51, 52, 53, 54, 55] }
   true
 }
 
@@ -71,13 +71,13 @@ pure caret_error(piece: Piece, offset: Int, message: Str, reported_line_shift: I
 # assignments. Unknown escapes keep the character and report a note.
 pure escaped(source: Bytes, start: Int, quote: Int, hex_escapes: Bool) -> Result[Escaped] {
   var at = start
-  var out: List[Int] = []
-  var notes: List[Str] = []
+  var out = []
+  var notes = []
   while at < source.len() {
     let byte = source.byte_at(at) ?? 0
     at += 1
     if byte == quote and quote >= 0 { return Ok({content: decode_lossy(bytes.from_ints(out)?)?, at: at, notes: notes}) }
-    if byte == 10 and quote >= 0 { return Err(syntax_error("unterminated string")) }
+    return Err(syntax_error("unterminated string")) when byte == 10 and quote >= 0
     if byte != 92 { out += [byte]; continue }
     if at >= source.len() { out += [92]; continue }
     let next = source.byte_at(at) ?? 0
@@ -117,11 +117,11 @@ pure escaped(source: Bytes, start: Int, quote: Int, hex_escapes: Bool) -> Result
 type Body = {content: Str, at: Int}
 pure regex_body(source: Bytes, start: Int) -> Result[Body] {
   var at = start
-  var out: List[Int] = []
+  var out = []
   var bracket = false
   while at < source.len() {
     let byte = source.byte_at(at) ?? 0
-    if byte == 10 { return Ok({content: "", at: -1}) }
+    return Ok({content: "", at: -1}) when byte == 10
     if byte == 92 and at + 1 < source.len() {
       let next = source.byte_at(at + 1) ?? 0
       if next == 47 { out += [47] } else if next == 10 { } else { out += [92, next] }
@@ -153,7 +153,7 @@ pure regex_body(source: Bytes, start: Int) -> Result[Body] {
       if source.byte_at(at) == 93 { out += [93]; at += 1 }
       continue
     }
-    if byte == 47 { return Ok({content: bytes.from_ints(out)?.utf8()?, at: at + 1}) }
+    return Ok({content: bytes.from_ints(out)?.utf8()?, at: at + 1}) when byte == 47
     out += [byte]
     at += 1
   }
@@ -170,9 +170,9 @@ const GNU_FUNCTIONS = ["gensub", "asort", "asorti", "patsplit", "strtonum", "sys
 pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
   let source = bytes.from_text(piece.text)
   var tokens: List[Token] = []
-  var starts: List[Int] = []
-  var lines: List[Int] = []
-  var notes: List[Str] = []
+  var starts = []
+  var lines = []
+  var notes = []
   var at = 0
   var line = 1
   var counted = 0
@@ -251,11 +251,11 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
           at = look
         }
       }
-      let text = source[start..at].utf8()?
+      let text = source[start..at] as Str
       var value = 0.0
       if mode == 0 and octal_literal(text) {
         for position in range(start, at) { value = value * 8.0 + digit_value(source.byte_at(position) ?? 48).float() }
-      } else { value = (if text.ends_with(".") { text + "0" } else { text }).parse_float()? }
+      } else { value = (if text.ends_with(".") { text + "0" } else { text }) as Float }
       tokens += [TokNumber(value)]
       starts += [start]
       lines += [line]
@@ -265,7 +265,7 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
     if letter(byte) {
       at += 1
       while letter(source.byte_at(at) ?? 0) or digit(source.byte_at(at) ?? 0) { at += 1 }
-      let word = source[start..at].utf8()?
+      let word = source[start..at] as Str
       var named = word
       if mode != 0 and (word in GNU_VARIABLES or word in GNU_FUNCTIONS or (mode == 2 and word == "func")) { named = "\u{1}" + word }
       tokens += [if source.byte_at(at) == 40 { TokCall(named) } else { TokWord(named) }]
@@ -294,10 +294,10 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
     lines += [line]
   }
   let size = source.len()
-  Ok({tokens: tokens + [TokEnd], starts: starts + [size], lines: lines + [line], notes: notes})
+  Ok({tokens: tokens + [TokEnd], starts: [@starts, size], lines: [@lines, line], notes: notes})
 }
 
-pure spelling(token: Token) -> Str { match token { TokWord(word) => word; TokCall(word) => word; TokOp(op) => op; _ => "" } }
+pure spelling(token: Token) -> Str { match token { TokWord(word) => word; TokCall(word) => word; TokOp(op) => op; else => "" } }
 pure peek(p: Parser) -> Token { p.tokens[p.at] }
 pure peek_at(p: Parser, offset: Int) -> Token { p.tokens.get(p.at + offset) ?? TokEnd }
 pure is_at(p: Parser, content: Str) -> Bool { spelling(peek(p)) == content }
@@ -308,7 +308,7 @@ pure label_here(p: Parser) -> Str { f"{p.piece.label}:{p.lines.get(p.at) ?? 1}" 
 # at the parser position as lookahead: that token's line, or the last line of
 # the source when none remains.
 pure lookahead_line(p: Parser) -> Int {
-  if peek(p) != TokEnd { return p.lines.get(p.at) ?? 1 }
+  return p.lines.get(p.at) ?? 1 when peek(p) != TokEnd
   let lines = p.piece.text.split("\n").len()
   let counted = if p.piece.text.ends_with("\n") { lines - 1 } else { lines }
   if counted < 1 { 1 } else { counted }
@@ -323,7 +323,7 @@ pure unexpected(parser: Parser) -> Error {
   # GNU awk has already consumed the newline when it complains about it, so
   # it names the following line while showing the line that holds the newline.
   if is_at(p, "\n") { return syntax_error(caret_error(p.piece, token_start(p), "unexpected newline or end of string", 1)) }
-  if peek(p) == TokEnd { return syntax_error(end_of_source_error(p)) }
+  return syntax_error(end_of_source_error(p)) when peek(p) == TokEnd
   syntax_error(caret_error(p.piece, token_start(p), "syntax error"))
 }
 # An error at the end of the program text. GNU awk appends a newline to
@@ -349,7 +349,7 @@ pure end_of_source_error(p: Parser) -> Str {
     let line = rows.len() + 1 + (if trailing_newline { 0 } else { 1 })
     let before = bytes.from_text(p.piece.text)[0..p.starts[last]].utf8() ?? ""
     let pieces_before = before.split("\n")
-    let pad = [" " for _ in range(pieces_before[pieces_before.len() - 1].byte_len())].join("")
+    let pad = [" " for _ in range(pieces_before[-1].byte_len())].join("")
     return f"{label}:{line}: (END OF FILE)\nawk: {label}:{line}: {pad}^ {end_of_file}"
   }
   var depth = 0
@@ -361,12 +361,12 @@ pure end_of_source_error(p: Parser) -> Str {
     if text == "?" { pending_conditionals += 1 }
     if text == ":" { pending_conditionals -= 1 }
   }
-  let ends_operand = match previous { TokOp(op) => op in [")", "]", "++", "--"]; TokWord(word) => word != "in"; _ => true }
+  let ends_operand = match previous { TokOp(op) => op in [")", "]", "++", "--"]; TokWord(word) => word != "in"; else => true }
   let absorbed = symbol in [",", ";", "{", "}"] or (depth <= 0 and pending_conditionals <= 0 and ends_operand)
   let line = if absorbed { counted } else { counted + 1 }
   let shown = rows[counted - 1]
   if in_file {
-    let column = if trailing_newline or shown.byte_len() == 0 { 0 } else { shown.byte_len() - 1 }
+    let column = if trailing_newline or shown.is_empty() { 0 } else { shown.byte_len() - 1 }
     let pad = [" " for _ in range(column)].join("")
     return f"{label}:{line}: (END OF FILE)\nawk: {label}:{line}: {pad}^ {end_of_file}"
   }
@@ -387,7 +387,7 @@ pure separators(parser: Parser) -> Parser {
   p
 }
 pure name(parser: Parser) -> Result[Parsed[Str]] {
-  match peek(parser) { TokWord(word) => Ok({parser: advance(parser), value: word}); TokCall(word) => Ok({parser: advance(parser), value: word}); _ => Err(unexpected(parser)) }
+  match peek(parser) { TokWord(word) => Ok({parser: advance(parser), value: word}); TokCall(word) => Ok({parser: advance(parser), value: word}); else => Err(unexpected(parser)) }
 }
 pure expression_node(parser: Parser, node: Expression) -> Parsed[Int] {
   var p = parser
@@ -411,11 +411,11 @@ const SPECIAL_VARIABLES = ["ARGC", "ARGIND", "ARGV", "BINMODE", "CONVFMT", "ENVI
 # The fewest and most arguments each built-in function accepts; sprintf and
 # the bitwise functions that take any number are not listed.
 const BUILTIN_ARITY: Map[List[Int]] = {
-  "length": [0, 1], "substr": [2, 3], "index": [2, 2], "split": [2, 4], "sub": [2, 3], "gsub": [2, 3], "match": [2, 3],
-  "sin": [1, 1], "cos": [1, 1], "atan2": [2, 2], "exp": [1, 1], "log": [1, 1], "sqrt": [1, 1], "int": [1, 1],
-  "rand": [0, 0], "srand": [0, 1], "tolower": [1, 1], "toupper": [1, 1], "system": [1, 1], "close": [1, 2], "fflush": [0, 1],
-  "lshift": [2, 2], "rshift": [2, 2], "compl": [1, 1], "strtonum": [1, 1], "systime": [0, 0], "strftime": [0, 3],
-  "mktime": [1, 2], "gensub": [3, 4], "asort": [1, 3], "asorti": [1, 3], "patsplit": [2, 4], "typeof": [1, 2], "isarray": [1, 1],
+  length: [0, 1], substr: [2, 3], index: [2, 2], split: [2, 4], sub: [2, 3], gsub: [2, 3], match: [2, 3],
+  sin: [1, 1], cos: [1, 1], atan2: [2, 2], exp: [1, 1], log: [1, 1], sqrt: [1, 1], int: [1, 1],
+  rand: [0, 0], srand: [0, 1], tolower: [1, 1], toupper: [1, 1], system: [1, 1], close: [1, 2], fflush: [0, 1],
+  lshift: [2, 2], rshift: [2, 2], compl: [1, 1], strtonum: [1, 1], systime: [0, 0], strftime: [0, 3],
+  mktime: [1, 2], gensub: [3, 4], asort: [1, 3], asorti: [1, 3], patsplit: [2, 4], typeof: [1, 2], isarray: [1, 1],
 }
 const KEYWORDS = ["BEGIN", "END", "function", "func", "if", "else", "while", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "in", "getline", "print", "printf"]
 
@@ -428,20 +428,20 @@ pure starts_operand(p: Parser) -> Bool {
     TokWord(word) => word not in ["else", "in", "while", "BEGIN", "END", "function", "func", "if", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "print", "printf"] and word != "getline"
     TokCall(word) => true
     TokOp(symbol) => symbol in ["$", "(", "++", "--", "!", "-", "+"]
-    _ => false
+    else => false
   }
 }
 
 pure expression_list(parser: Parser, end: Str) -> Result[Parsed[List[Int]]] {
   var p = parser
-  var ids: List[Int] = []
-  if is_at(p, end) { return Ok({parser: advance(p), value: ids}) }
+  var ids = []
+  return Ok({parser: advance(p), value: ids}) when is_at(p, end)
   loop {
     let parsed = expression(p, 0)?
     p = parsed.parser
     ids += [parsed.value]
-    if is_at(p, end) { return Ok({parser: advance(p), value: ids}) }
-    if ! is_at(p, ",") { return Err(unexpected(p)) }
+    return Ok({parser: advance(p), value: ids}) when is_at(p, end)
+    return Err(unexpected(p)) unless is_at(p, ",")
     p = skip_newlines(advance(p))
   }
   Err(unexpected(p))
@@ -467,7 +467,7 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
       }
     }
     if word in ["sub", "gsub"] and args.value.len() == 3 {
-      let changeable = match after.program.expressions[args.value[2]] { Variable(_) => true; Index(_, _) => true; Field(_) => true; Text(_) => true; Number(_) => true; _ => false }
+      let changeable = match after.program.expressions[args.value[2]] { Variable(_) => true; Index(_, _) => true; Field(_) => true; Text(_) => true; Number(_) => true; else => false }
       if ! changeable { return Err(syntax_error(caret_error(after.piece, after.starts[after.at - 1], f"{word} third parameter is not a changeable object"))) }
     }
     if word == "index" and args.value.len() == 2 and is_regex_literal(after.program, args.value[1]) {
@@ -484,61 +484,65 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
     return Ok(expression_node(args.parser, Index(word, args.value)))
   }
   # A bare length is the length of the current record, not a variable.
-  if word == "length" { return Ok(expression_node(noted, Call(word, []))) }
+  return Ok(expression_node(noted, Call(word, []))) when word == "length"
   Ok(expression_node(noted, Variable(word)))
 }
 # A regexp constant standing on its own; one wrapped in parentheses is not
 # diagnosed by GNU awk and is recorded in grouped.
 pure is_regex_literal(program: Program, id: Int) -> Bool {
-  if id in program.grouped { return false }
-  match program.expressions[id] { RegexLiteral(_) => true; _ => false }
+  return false when id in program.grouped
+  match program.expressions[id] { RegexLiteral(_) => true; else => false }
 }
 # The value of an expression built only from numeric literals, which GNU awk
 # folds while parsing; null when it depends on anything else, including a
 # parenthesized operand. A division by zero is not folded.
 pure constant_value(program: Program, id: Int) -> Float? {
-  if id in program.grouped { return null }
+  return null when id in program.grouped
   match program.expressions[id] {
     Number(n) => n
     Unary(op, child) => {
       let inner = constant_value(program, child)
-      if inner == null { return null }
-      if op == "-" { return 0.0 - (inner ?? 0.0) }
-      if op == "!" { return if (inner ?? 0.0) == 0.0 { 1.0 } else { 0.0 } }
+      return null when inner == null
+      return 0.0 - inner when op == "-"
+      return if inner == 0.0 { 1.0 } else { 0.0 } when op == "!"
       null
     }
     Binary(op, left, right) => {
       let a = constant_value(program, left)
       let b = constant_value(program, right)
-      if a == null or b == null { return null }
-      let x = a ?? 0.0
-      let y = b ?? 0.0
-      if op == "+" { return x + y }
-      if op == "-" { return x - y }
-      if op == "*" { return x * y }
-      if op == "/" and y != 0.0 { return x / y }
-      if op == "^" { return x.pow(y) }
+      return null when a == null or b == null
+      let x = a
+      let y = b
+      return x + y when op == "+"
+      return x - y when op == "-"
+      return x * y when op == "*"
+      return x / y when op == "/" and y != 0.0
+      return x.pow(y) when op == "^"
       null
     }
-    _ => null
+    else => null
   }
 }
 # A parenthesized variable is a value, not a place to assign.
 pure lvalue(program: Program, id: Int) -> Bool {
-  if id in program.grouped { return false }
-  match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; _ => false }
+  return false when id in program.grouped
+  match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; else => false }
 }
 pure is_field_post_increment(program: Program, id: Int) -> Bool {
-  match program.expressions[id] {
-    Increment(target, _, true) => match program.expressions[target] { Field(_) => true; _ => false }
-    _ => false
+  if let Increment(target, _, true) = program.expressions[id] {
+    match program.expressions[target] {
+      Field(_) => true
+      else => false
+    }
+  } else {
+    false
   }
 }
 # The optional variable after "getline"; without one the record becomes $0.
 pure getline_target(parser: Parser) -> Result[Parsed[Int?]] {
   match peek(parser) {
     TokWord(word) => {
-      if word in KEYWORDS or word in BUILTINS { return Ok({parser: parser, value: null}) }
+      return Ok({parser: parser, value: null}) when word in KEYWORDS or word in BUILTINS
       let advanced = advance(parser)
       if is_at(advanced, "[") {
         let keys = expression_list(advance(advanced), "]")?
@@ -549,12 +553,12 @@ pure getline_target(parser: Parser) -> Result[Parsed[Int?]] {
       Ok({parser: node.parser, value: node.value})
     }
     TokOp(op) => {
-      if op != "$" { return Ok({parser: parser, value: null}) }
+      return Ok({parser: parser, value: null}) when op != "$"
       let child = expression(advance(parser), 14)?
       let node = expression_node(child.parser, Field(child.value))
       Ok({parser: node.parser, value: node.value})
     }
-    _ => Ok({parser: parser, value: null})
+    else => Ok({parser: parser, value: null})
   }
 }
 
@@ -565,7 +569,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
   let token = peek(p)
   let begin = p
   p = advance(p)
-  var first: Parsed[Int] = {parser: p, value: 0}
+  var first: Parsed[Int] = Parsed(parser: p, value: 0)
   match token {
     TokNumber(number) => { first = expression_node(p, Number(number)) }
     TokText(content) => { first = expression_node(p, Text(content)) }
@@ -589,11 +593,11 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
       } else { first = word_term(p, word, false)? }
     }
     TokCall(word) => {
-      if word in KEYWORDS { return Err(unexpected(begin)) }
+      return Err(unexpected(begin)) when word in KEYWORDS
       first = word_term(p, word, true)?
     }
     TokOp(op) => {
-      if op == "@" { return Err(unexpected(p)) }
+      return Err(unexpected(p)) when op == "@"
       if op == "(" {
         let printing = p.printing
         p.printing = false
@@ -607,7 +611,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
             after = next.parser
           }
           after = require(after, ")")?
-          if ! is_at(after, "in") { return Err(unexpected(after)) }
+          return Err(unexpected(after)) unless is_at(after, "in")
           let array = name(advance(after))?
           first = expression_node(array.parser, Member(keys, array.value))
         } else {
@@ -627,13 +631,13 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
         let child = expression(p, 13)?
         if ! lvalue(child.parser.program, child.value) {
           # A prefix increment of a postfix one is rejected after both operators; of a non-place, at the operand.
-          let nested = match child.parser.program.expressions[child.value] { Increment(_, _, _) => true; _ => false }
+          let nested = child.parser.program.expressions[child.value] is Increment(_, _, _)
           return Err(unexpected(if nested { child.parser } else { p }))
         }
         first = expression_node(child.parser, Increment(child.value, if op == "++" { 1.0 } else { -1.0 }, false))
       } else { return Err(unexpected(begin)) }
     }
-    _ => { return Err(unexpected(begin)) }
+    else => { return Err(unexpected(begin)) }
   }
   p = first.parser
   var left = first.value
@@ -665,7 +669,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
       relational = false
       continue
     }
-    if op == "|&" { return Err(unsupported("coprocess operator `|&'")) }
+    return Err(unsupported("coprocess operator `|&'")) when op == "|&"
     if op == "|" and spelling(peek_at(p, 1)) != "getline" { return Err(unexpected(advance(p))) }
     if minimum <= 5 and op == "in" {
       let array = name(advance(p))?
@@ -680,7 +684,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
     let power = if concat { 8 } else { known }
     # An assignment whose target is already parsed binds to that target even as the right operand, as in $1==$1="x".
     let assigns = power == 1 and minimum <= 8 and lvalue(p.program, left)
-    if power == 0 or (power < minimum and ! assigns) { break }
+    break when power == 0 or (power < minimum and ! assigns)
     if power == 1 and ! lvalue(p.program, left) {
       if is_field_post_increment(p.program, left) {
         let value = expression(skip_newlines_after(p, op), 1)?
@@ -689,7 +693,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
       return Err(unexpected(p))
     }
     if power == 7 {
-      if relational { return Err(unexpected(p)) }
+      return Err(unexpected(p)) when relational
       relational = true
     } else { relational = false }
     let operator = if concat { "concat" } else { op }
@@ -724,17 +728,18 @@ pure add_error(parser: Parser, message: Str) -> Parser {
 }
 pure block(parser: Parser) -> Result[Parsed[Int]] {
   var p = separators(require(parser, "{")?)
-  var body: List[Int] = []
-  while ! is_at(p, "}") {
-    if peek(p) == TokEnd { return Err(unexpected(p)) }
-    let next = statement(p)?
-    p = separators(next.parser)
-    body += [next.value]
+  let body = collect {
+    while ! is_at(p, "}") {
+      return Err(unexpected(p)) when peek(p) == TokEnd
+      let next = statement(p)?
+      p = separators(next.parser)
+      yield next.value
+    }
   }
   Ok(statement_node(advance(p), Block(body)))
 }
 pure optional_expression(parser: Parser, end: Str) -> Result[Parsed[Int?]] {
-  if is_at(parser, end) { return Ok({parser: advance(parser), value: null}) }
+  return Ok({parser: advance(parser), value: null}) when is_at(parser, end)
   let parsed = expression(parser, 0)?
   Ok({parser: require(parsed.parser, end)?, value: parsed.value})
 }
@@ -761,7 +766,7 @@ pure group_is_argument_list(p: Parser) -> Bool {
   while at < p.tokens.len() {
     let token = p.tokens[at]
     let symbol = spelling(token)
-    if token == TokEnd { return false }
+    return false when token == TokEnd
     if symbol == "(" { depth += 1 }
     if symbol == ")" {
       depth -= 1
@@ -776,14 +781,14 @@ pure group_is_argument_list(p: Parser) -> Bool {
 }
 pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
   var p = skip_newlines(parser)
-  if is_at(p, ";") { return Ok(statement_node(advance(p), Block([]))) }
-  if is_at(p, "{") { return block(p) }
+  return Ok(statement_node(advance(p), Block([]))) when is_at(p, ";")
+  return block(p) when is_at(p, "{")
   let word = spelling(peek(p))
   if word == "if" {
     let condition = expression(require(advance(p), "(")?, 0)?
     let yes = statement(skip_newlines(require(condition.parser, ")")?))?
     p = separators(yes.parser)
-    var no: Int? = null
+    var no = null
     if is_at(p, "else") { let branch = statement(skip_newlines(advance(p)))?; p = branch.parser; no = branch.value } else { p = yes.parser }
     return Ok(statement_node(p, If(condition.value, yes.value, no)))
   }
@@ -853,7 +858,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
   if word == "delete" {
     let target = name(advance(p))?
     p = target.parser
-    var keys: List[Int]? = null
+    var keys = null
     if is_at(p, "[") { let next = expression_list(advance(p), "]")?; p = next.parser; keys = next.value }
     return finish_simple(statement_node(p, Delete(target.value, keys)))
   }
@@ -862,15 +867,15 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
       return Err(syntax_error(caret_error(p.piece, token_start(p), "`return' used outside function context")))
     }
     p = advance(p)
-    var value: Int? = null
+    var value = null
     if ! terminated(p) { let next = expression(p, 0)?; p = next.parser; value = next.value }
     return finish_simple(statement_node(p, if word == "exit" { Exit(value) } else { Return(value) }))
   }
   if word in ["print", "printf"] {
     p = advance(p)
-    var args: List[Int] = []
+    var args = []
     if is_at(p, "(") and group_is_argument_list(p) {
-      if is_at(advance(p), ")") { return Err(unexpected(advance(p))) }
+      return Err(unexpected(advance(p))) when is_at(advance(p), ")")
       let next = expression_list(advance(p), ")")?
       p = next.parser
       args = next.value
@@ -881,11 +886,11 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
         p = next.parser
         p.printing = false
         args += [next.value]
-        if ! is_at(p, ",") { break }
+        break unless is_at(p, ",")
         p = skip_newlines(advance(p))
       }
     }
-    var target: Int? = null
+    var target = null
     var mode = ""
     if is_at(p, ">") or is_at(p, ">>") or is_at(p, "|") {
       if p.sandbox { return Err(AwkError.Plain(message: f"{label_here(p)}: fatal: redirection not allowed in sandbox mode", pending: "")) }
@@ -904,7 +909,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
 # actions, and pattern-action rules.
 pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Result[Parsed[Int]] {
   let lexed = lex(piece, mode)?
-  var p = Parser(tokens: lexed.tokens, starts: lexed.starts, lines: lexed.lines, at: 0, program: program, printing: false, depth: 0, piece: piece, loops: 0, context: "", errors: [], sandbox: sandbox)
+  var p = Parser(tokens: lexed.tokens, starts: lexed.starts, lines: lexed.lines, at: 0, program:, printing: false, depth: 0, piece:, loops: 0, context: "", errors: [], sandbox:)
   for note in lexed.notes { p.program.notes += [note] }
   if TokWord("ENVIRON") in lexed.tokens { p.program.environ = true }
   p = skip_newlines(p)
@@ -931,7 +936,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
       if function_name.value in SPECIAL_VARIABLES or function_name.value in ["FUNCTAB", "SYMTAB"] {
         p.errors += [f"{location}: error: function name `{function_name.value}' previously defined"]
       }
-      var parameters: List[Str] = []
+      var parameters = []
       if ! is_at(p, ")") {
         loop {
           let parameter_start = token_start(p)
@@ -947,7 +952,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
             p = add_error(p, f"function `{function_name.value}': parameter #{parameters.len() + 1}, `{parameter.value}', duplicates parameter #{first}")
           }
           parameters += [parameter.value]
-          if is_at(p, ")") { break }
+          break when is_at(p, ")")
           p = skip_newlines(require(p, ",")?)
         }
       }
@@ -956,7 +961,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
       p = body.parser
       p.context = ""
       if function_name.value in p.program.functions { p.errors += [f"{location}: error: function name `{function_name.value}' previously defined"] }
-      p.program.functions = p.program.functions.set(function_name.value, Function(parameters: parameters, body: body.value, site: location))
+      p.program.functions = p.program.functions.set(function_name.value, Function(parameters:, body: body.value, site: location))
     } else if word in ["BEGIN", "END"] {
       let after = advance(p)
       if is_at(after, "\n") or is_at(after, ";") or peek(after) == TokEnd {
@@ -977,45 +982,45 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
       p.context = ""
       if word == "BEGIN" { p.program.begin += [body.value] } else { p.program.end += [body.value] }
     } else {
-      var pattern: Int? = null
-      var end: Int? = null
+      var pattern = null
+      var end = null
       let site = label_here(p)
       if ! is_at(p, "{") { let next = expression(p, 0)?; p = next.parser; pattern = next.value }
       if is_at(p, ",") { let next = expression(skip_newlines(advance(p)), 0)?; p = next.parser; end = next.value }
-      var action: Parsed[Int] = {parser: p, value: 0}
+      var action: Parsed[Int] = Parsed(parser: p, value: 0)
       if is_at(p, "{") {
         p.context = "main"
         action = block(p)?
         p = action.parser
         p.context = ""
       } else {
-        if ! terminated(p) { return Err(unexpected(p)) }
+        return Err(unexpected(p)) unless terminated(p)
         action = statement_node(p, Print([], false, null, ""))
         p = action.parser
       }
-      p.program.rules += [Rule(pattern: pattern, end: end, action: action.value, site: site)]
+      p.program.rules += [Rule(pattern:, end:, action: action.value, site:)]
     }
     # One semicolon may follow an item; newlines are free.
     p = skip_newlines(p)
     if is_at(p, ";") { p = skip_newlines(advance(p)) }
   }
-  if ! p.errors.is_empty() { return Err(syntax_error(p.errors.join("\nawk: "))) }
+  return Err(syntax_error(p.errors.join("\nawk: "))) unless p.errors.is_empty()
   Ok({parser: p, value: 0})
 }
 
 pure parse(pieces: List[Piece], sandbox: Bool, mode: Int) -> Result[Program] {
   var program = Program(expressions: [], statements: [], site: [], begin: [], end: [], rules: [], functions: {}, notes: [], uses: [], environ: false, grouped: [])
   for piece in pieces { program = parse_piece(program, piece, sandbox, mode)?.parser.program }
-  var errors: List[Str] = []
+  var errors = []
   for seen in program.uses {
-    if seen.name not in program.functions { continue }
+    continue when seen.name not in program.functions
     # A call with more arguments than declared draws a warning from GNU awk;
     # the BusyBox suite requires a quiet run, so it is only evaluated.
     if ! seen.call {
       errors += [f"{seen.site}: error: function `{seen.name}' called with space between name and `(',\nor used as a variable or an array"]
     }
   }
-  if ! errors.is_empty() { return Err(syntax_error(errors.join("\nawk: "))) }
+  return Err(syntax_error(errors.join("\nawk: "))) unless errors.is_empty()
   Ok(program)
 }
 
@@ -1031,7 +1036,7 @@ pure decimal_end(content: Str) -> Int? {
   var digits = 0
   while digit(content.byte_at(at) ?? 0) { at += 1; digits += 1 }
   if content.byte_at(at) == 46 { at += 1; while digit(content.byte_at(at) ?? 0) { at += 1; digits += 1 } }
-  if digits == 0 { return null }
+  return null when digits == 0
   var end = at
   if content.byte_at(at) == 101 or content.byte_at(at) == 69 {
     at += 1
@@ -1054,12 +1059,12 @@ pure trimmed(content: Str) -> Str {
 # Returns 0 when plain is not special, 1 and 2 for +inf and -inf, 3 and 4 for
 # +nan and -nan.
 pure ieee_kind(plain: Str) -> Int {
-  if plain.byte_len() != 4 { return 0 }
+  return 0 when plain.byte_len() != 4
   let sign = plain.byte_at(0) ?? 0
-  if sign != 43 and sign != 45 { return 0 }
+  return 0 when sign != 43 and sign != 45
   let word = plain.byte_slice(1, length: 3).lower()
-  if word == "inf" { return if sign == 43 { 1 } else { 2 } }
-  if word == "nan" { return if sign == 43 { 3 } else { 4 } }
+  return if sign == 43 { 1 } else { 2 } when word == "inf"
+  return if sign == 43 { 3 } else { 4 } when word == "nan"
   0
 }
 pure infinity() -> Float { let zero = 0.0; 1.0 / zero }
@@ -1067,11 +1072,11 @@ pure not_a_number() -> Float { let zero = 0.0; zero / zero }
 pure input(content: Str) -> Result[Scalar] {
   let plain = trimmed(content)
   let end = decimal_end(plain)
-  if end != null and end == plain.byte_len() { return Ok(Input(content, plain.parse_float()?)) }
+  return Ok(Input(content, plain as Float)) when end != null and end == plain.byte_len()
   let kind = ieee_kind(plain)
-  if kind == 1 { return Ok(Input(content, infinity())) }
-  if kind == 2 { return Ok(Input(content, -infinity())) }
-  if kind >= 3 { return Ok(Input(content, not_a_number())) }
+  return Ok(Input(content, infinity())) when kind == 1
+  return Ok(Input(content, -infinity())) when kind == 2
+  return Ok(Input(content, not_a_number())) when kind >= 3
   Ok(Input(content, null))
 }
 pure numeric_prefix(content: Str) -> Result[Float] {
@@ -1079,20 +1084,20 @@ pure numeric_prefix(content: Str) -> Result[Float] {
   let end = decimal_end(plain)
   if end == null {
     let kind = ieee_kind(plain)
-    if kind == 1 { return Ok(infinity()) }
-    if kind == 2 { return Ok(-infinity()) }
-    if kind >= 3 { return Ok(not_a_number()) }
+    return Ok(infinity()) when kind == 1
+    return Ok(-infinity()) when kind == 2
+    return Ok(not_a_number()) when kind >= 3
     return Ok(0.0)
   }
-  Ok(plain.byte_slice(0, length: end).parse_float()?)
+  Ok(plain.byte_slice(0, length: end) as Float)
 }
 pure number(value: Scalar) -> Result[Float] {
   match value { Empty => Ok(0.0); Numeric(n) => Ok(n); Nan(_) => Ok(not_a_number()); String(content) => numeric_prefix(content); Input(content, n) => if n != null { Ok(n) } else { numeric_prefix(content) } }
 }
-pure numeric(value: Scalar) -> Bool { match value { Empty => true; Numeric(_) => true; Nan(_) => true; Input(_, n) => n != null; _ => false } }
+pure numeric(value: Scalar) -> Bool { match value { Empty => true; Numeric(_) => true; Nan(_) => true; Input(_, n) => n != null; else => false } }
 pure truth(value: Scalar) -> Result[Bool] {
-  if numeric(value) { return Ok(number(value)? != 0.0) }
-  Ok(match value { String(content) => ! content.is_empty(); Input(content, _) => ! content.is_empty(); _ => false })
+  return Ok(number(value)? != 0.0) when numeric(value)
+  Ok(match value { String(content) => ! content.is_empty(); Input(content, _) => ! content.is_empty(); else => false })
 }
 # NaN equals itself in XSH, so it is recognized as the non-infinite special.
 pure is_nan(n: Float) -> Bool { n - n != 0.0 and ! (n > 0.0) and ! (n < 0.0) }
@@ -1102,21 +1107,21 @@ pure integer(value: Float) -> Result[Int] {
 }
 # The integer part of a float; floats this large have no fraction already.
 pure truncate(n: Float) -> Float {
-  if n - n != 0.0 { return n }
-  if n >= 4503599627370496.0 or n <= -4503599627370496.0 { return n }
+  return n when n - n != 0.0
+  return n when n >= 4503599627370496.0 or n <= -4503599627370496.0
   let whole = (if n < 0.0 { n.ceil() } else { n.floor() }) ?? 0
   whole.float()
 }
 pure special_text(n: Float, negative_nan: Bool) -> Str {
-  if is_nan(n) { return if negative_nan { "-nan" } else { "+nan" } }
+  return if negative_nan { "-nan" } else { "+nan" } when is_nan(n)
   if n > 0.0 { "+inf" } else { "-inf" }
 }
 # Numbers print as integers when integral, and through the conversion format
 # (CONVFMT or OFMT) otherwise, as GNU awk does.
 pure float_text(n: Float, conversion: Str) -> Result[Str] {
-  if n - n != 0.0 { return Ok(special_text(n, true)) }
-  if n == 0.0 or n == -0.0 { return Ok("0") }
-  if truncate(n) == n { return Ok(n.format_number("f", 0)?) }
+  return Ok(special_text(n, true)) when n - n != 0.0
+  return Ok("0") when n == 0.0 or n == -0.0
+  return Ok(n.format_number("f", 0)?) when truncate(n) == n
   let parsed = parse_format(conversion, 1, [], 0)?
   let spec = parsed.format ?? DEFAULT_FORMAT
   if ! conversion.starts_with("%") or parsed.at != conversion.byte_len() or parsed.format == null or spec.conversion in ["s", "c", "%"] { return Err(runtime("invalid numeric conversion format")) }
@@ -1132,15 +1137,16 @@ pure plain_text(value: Scalar) -> Result[Str] {
   }
 }
 pure scalar_text(value: Scalar, conversion: Str) -> Result[Str] {
-  match value {
-    Numeric(n) => float_text(n, conversion)
-    _ => plain_text(value)
+  if let Numeric(n) = value {
+    float_text(n, conversion)
+  } else {
+    plain_text(value)
   }
 }
 
 type Format = {conversion: Str, width: Int, precision: Int?, left: Bool, plus: Bool, space: Bool, zero: Bool, alternate: Bool, argument: Int?}
 type ParsedFormat = {format: Format?, at: Int, argument: Int, literal: Str}
-const DEFAULT_FORMAT: Format = {conversion: "s", width: 0, precision: null, left: false, plus: false, space: false, zero: false, alternate: false, argument: null}
+const DEFAULT_FORMAT: Format = Format(conversion: "s", width: 0, precision: null, left: false, plus: false, space: false, zero: false, alternate: false, argument: null)
 
 # One conversion specification after "%". A specification GNU awk does not
 # recognize is returned as literal text and printed unchanged. Stars consume
@@ -1201,8 +1207,8 @@ pure parse_format(format: Str, start: Int, values: List[Scalar], argument: Int) 
 }
 pure padding(char: Str, count: Int) -> Str { [char for _ in range(count)].join("") }
 pure utf8_char(code: Int) -> Str {
-  if code < 0 or code > 1114111 or (code >= 55296 and code <= 57343) { return "\u{fffd}" }
-  var encoded: List[Int] = []
+  return "�" when code < 0 or code > 1114111 or (code >= 55296 and code <= 57343)
+  var encoded = []
   if code < 128 { encoded = [code] } else if code < 2048 { encoded = [192 + code / 64, 128 + code % 64] } else if code < 65536 { encoded = [224 + code / 4096, 128 + code / 64 % 64, 128 + code % 64] } else { encoded = [240 + code / 262144, 128 + code / 4096 % 64, 128 + code / 64 % 64, 128 + code % 64] }
   let encoded_bytes = bytes.from_ints(encoded) ?? b""
   encoded_bytes.utf8() ?? "\u{fffd}"
@@ -1224,7 +1230,7 @@ pure formatted(value: Scalar, spec: Format, conversion: Str) -> Result[Str] {
   } else {
     let n = number(value)?
     if n - n != 0.0 {
-      result = special_text(n, match value { Nan(positive) => ! positive; _ => true })
+      result = special_text(n, if let Nan(positive) = value { ! positive } else { true })
       let count = spec.width - result.byte_len()
       if count > 0 { result = if spec.left { result + padding(" ", count) } else { padding(" ", count) + result } }
       return Ok(result)
@@ -1275,7 +1281,7 @@ pure printf(format: Str, values: List[Scalar], conversion: Str) -> Result[Str] {
   var argument = 0
   var out = ""
   while at < format.byte_len() {
-    if format.byte_at(at) != 37 {
+    guard format.byte_at(at) == 37 else {
       let next = format.find("%", at) ?? format.byte_len()
       out += format.byte_slice(at, length: next - at)
       at = next
@@ -1292,7 +1298,7 @@ pure printf(format: Str, values: List[Scalar], conversion: Str) -> Result[Str] {
     argument = parsed.argument
     at = parsed.at
     var index = argument
-    if used.argument != null { index = (used.argument ?? 1) - 1 }
+    if used.argument != null { index = used.argument - 1 }
     if index >= values.len() or index < 0 {
       let pad = padding(" ", begin + 1)
       return Err(runtime(f"not enough arguments to satisfy format string\n\t`{format}'\n\t{pad}^ ran out for this one"))
@@ -1327,7 +1333,7 @@ pure shown_char(code: Int) -> Str {
   one.utf8() ?? "?"
 }
 const REGEX_SPECIAL = [".", "[", "]", "(", ")", "*", "+", "?", "{", "}", "|", "^", "$", "\\"]
-const SIMPLE_ESCAPES: Map[Int] = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11}
+const SIMPLE_ESCAPES: Map[Int] = {a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11}
 
 # The replacement for a pattern character: ASCII text passes through, other
 # characters take their alphabet byte. Escaped when the byte is a metacharacter.
@@ -1342,7 +1348,7 @@ type ByteEscape = {value: Int, at: Int}
 # An octal (\ooo) or hexadecimal (\xhh) escape at chars[at] == "\\" and the
 # position after it; null for any other escape.
 pure escape_byte(chars: List[Str], at: Int) -> ByteEscape? {
-  if at + 1 >= chars.len() or chars[at] != "\\" { return null }
+  return null when at + 1 >= chars.len() or chars[at] != "\\"
   let next = chars[at + 1]
   var cursor = at + 2
   if next in ["0", "1", "2", "3", "4", "5", "6", "7"] {
@@ -1363,7 +1369,7 @@ pure escape_byte(chars: List[Str], at: Int) -> ByteEscape? {
       cursor += 1
       count += 1
     }
-    if count > 0 { return {value: number, at: cursor} }
+    return {value: number, at: cursor} when count > 0
   }
   null
 }
@@ -1371,24 +1377,24 @@ pure escape_byte(chars: List[Str], at: Int) -> ByteEscape? {
 # Translates one awk regular expression into the host's ERE dialect.
 pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
   let chars = pattern.split("")
-  var out: List[Str] = []
+  var out = []
   var at = 0
   var depth = 0
   var operand_start = true
   while at < chars.len() {
     let c = chars[at]
     if c == "\\" {
-      if at + 1 >= chars.len() { return Err(ere_error("Trailing backslash")) }
+      return Err(ere_error("Trailing backslash")) when at + 1 >= chars.len()
       # Escaped bytes of a multibyte character, or stray bytes, stand for the same characters as in the subject.
       let first = escape_byte(chars, at)
-      if first != null and (first ?? {value: 0, at: 0}).value >= 128 {
-        var raw: List[Int] = [(first ?? {value: 0, at: 0}).value]
-        var cursor = (first ?? {value: 0, at: 0}).at
+      if first != null and first.value >= 128 {
+        var raw: List[Int] = [first.value]
+        var cursor = first.at
         loop {
           let more = escape_byte(chars, cursor)
-          if more == null or (more ?? {value: 0, at: 0}).value < 128 { break }
-          raw += [(more ?? {value: 0, at: 0}).value]
-          cursor = (more ?? {value: 0, at: 0}).at
+          break when more == null or more.value < 128
+          raw += [more.value]
+          cursor = more.at
         }
         for character in decode_lossy(bytes.from_ints(raw)?)?.split("") { out += [literal_char(character, alphabet)] }
         at = cursor
@@ -1500,7 +1506,7 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
         let min = if low.is_empty() { 0 } else { low.parse_int_decimal()? }
         if comma and ! high.is_empty() {
           let max = high.parse_int_decimal()?
-          if max < min { return Err(ere_error("Invalid content of \\{\\}")) }
+          return Err(ere_error("Invalid content of \\{\\}")) when max < min
         }
         if min > 32767 or (high.is_empty() == false and (high.parse_int_decimal() ?? 0) > 32767) { return Err(ere_error("Regular expression too big")) }
         out += [f"{{{min}" + (if comma { "," + high } else { "" }) + "}"]
@@ -1516,7 +1522,7 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
     at += 1
     operand_start = false
   }
-  if depth != 0 { return Err(ere_error("Unmatched ( or \\(")) }
+  return Err(ere_error("Unmatched ( or \\(")) when depth != 0
   Ok(out.join(""))
 }
 type Bracket = {text: Str, at: Int}
@@ -1528,8 +1534,8 @@ pure rx_bracket(chars: List[Str], start: Int, alphabet: Alphabet) -> Result[Brac
   var negate = false
   if at < chars.len() and chars[at] == "^" { negate = true; at += 1 }
   # A bracket with nothing after it is rejected before the matcher sees it.
-  if at >= chars.len() { return Err(ere_error("Invalid regular expression")) }
-  var items: List[Str] = []
+  return Err(ere_error("Invalid regular expression")) when at >= chars.len()
+  var items = []
   var has_close = false
   var has_dash = false
   var has_caret = false
@@ -1544,9 +1550,9 @@ pure rx_bracket(chars: List[Str], start: Int, alphabet: Alphabet) -> Result[Brac
       var end = at + 2
       var name = ""
       while end + 1 < chars.len() and ! (chars[end] == kind and chars[end + 1] == "]") { name += chars[end]; end += 1 }
-      if end + 1 >= chars.len() { return Err(ere_error("Unmatched [, [^, [:, [., or [=")) }
+      return Err(ere_error("Unmatched [, [^, [:, [., or [=")) when end + 1 >= chars.len()
       if kind == ":" { items += ["[:" + name + ":]"] } else {
-        if name.count_chars() != 1 { return Err(ere_error("Invalid collation character")) }
+        return Err(ere_error("Invalid collation character")) when name.count_chars() != 1
         if name == "]" { has_close = true } else if name == "-" { has_dash = true } else if name == "^" { has_caret = true } else { items += [bracket_char(name, alphabet)] }
       }
       at = end + 2
@@ -1582,18 +1588,18 @@ pure rx_bracket(chars: List[Str], start: Int, alphabet: Alphabet) -> Result[Brac
     }
     if current == "]" { has_close = true } else if current == "-" { has_dash = true } else if current == "^" { has_caret = true } else { items += [bracket_char(current, alphabet)] }
   }
-  if ! closed { return Err(ere_error("Unmatched [, [^, [:, [., or [=")) }
+  return Err(ere_error("Unmatched [, [^, [:, [., or [=")) unless closed
   let body = (if has_close { "]" } else { "" }) + items.join("") + (if negate { alphabet.invalid } else { "" }) + (if has_caret { "^" } else { "" }) + (if has_dash { "-" } else { "" })
   Ok({text: "[" + (if negate { "^" } else { "" }) + body + "]", at: at})
 }
 pure bracket_char(character: Str, alphabet: Alphabet) -> Str {
-  if character.byte_len() == 1 and character != "\0" { return character }
+  return character when character.byte_len() == 1 and character != "\0"
   alphabet.chars.get(character) ?? character
 }
 pure code_point(character: Str) -> Int {
   let encoded = bytes.from_text(character)
   let lead = encoded.byte_at(0) ?? 0
-  if lead < 128 { return lead }
+  return lead when lead < 128
   var count = if lead >= 240 { 3 } else if lead >= 224 { 2 } else { 1 }
   var code = if lead >= 240 { lead - 240 } else if lead >= 224 { lead - 224 } else { lead - 192 }
   for index in range(1, count + 1) { code = code * 64 + ((encoded.byte_at(index) ?? 128) - 128) }
@@ -1609,11 +1615,14 @@ pure make_alphabet(pattern: Str, subject: Str) -> Alphabet {
     let byte = source.byte_at(index) ?? 0
     if byte < 128 { present[byte] = true }
   }
-  var free: List[Int] = []
-  for code in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127] { if ! present[code] { free += [code] } }
+  var free = [
+    code
+    for code in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127]
+    if ! present[code]
+  ]
   var chars: Map[Str] = {}
   var next = 0
-  for character in (pattern + subject).split("") {
+  for character in pattern + subject {
     if (character.byte_len() > 1 or character == "\0") and ! (character in chars) {
       if next < free.len() { chars = chars.set(character, shown_char(free[next])); next += 1 } else { chars = chars.set(character, shown_char(free[0])) }
     }
@@ -1651,11 +1660,11 @@ pure split_boundaries(pattern: Str) -> Bounds {
   {lead: lead, body: body, trail: trail}
 }
 pure word_byte(byte: Int, marked: List[Bool]) -> Bool {
-  if byte >= 128 { return true }
-  if byte >= 48 and byte <= 57 { return true }
-  if byte >= 65 and byte <= 90 { return true }
-  if byte >= 97 and byte <= 122 { return true }
-  if byte == 95 { return true }
+  return true when byte >= 128
+  return true when byte >= 48 and byte <= 57
+  return true when byte >= 65 and byte <= 90
+  return true when byte >= 97 and byte <= 122
+  return true when byte == 95
   marked[byte]
 }
 # Whether the lead and trail boundary conditions hold for a match.
@@ -1664,17 +1673,17 @@ pure boundaries_hold(subject: Bytes, start: Int, end: Int, lead: Str, trail: Str
     let before = start > 0 and word_byte(subject.byte_at(start - 1) ?? 0, marked)
     let after = start < subject.len() and word_byte(subject.byte_at(start) ?? 0, marked)
     let boundary = before != after
-    if lead == "<" and ! (! before and after) { return false }
-    if lead == "y" and ! boundary { return false }
-    if lead == "B" and boundary { return false }
+    return false when lead == "<" and ! (! before and after)
+    return false when lead == "y" and ! boundary
+    return false when lead == "B" and boundary
   }
   if ! trail.is_empty() {
     let before = end > 0 and word_byte(subject.byte_at(end - 1) ?? 0, marked)
     let after = end < subject.len() and word_byte(subject.byte_at(end) ?? 0, marked)
     let boundary = before != after
-    if trail == ">" and ! (before and ! after) { return false }
-    if trail == "y" and ! boundary { return false }
-    if trail == "B" and boundary { return false }
+    return false when trail == ">" and ! (before and ! after)
+    return false when trail == "y" and ! boundary
+    return false when trail == "B" and boundary
   }
   true
 }
@@ -1682,19 +1691,20 @@ pure boundaries_hold(subject: Bytes, start: Int, end: Int, lead: Str, trail: Str
 # whose boundary conditions hold.
 pure engine_matches(translated: Str, subject: Bytes, bounds: Bounds, marked: List[Bool], ignore_case: Bool) -> Result[List[Match]] {
   if bounds.lead.is_empty() and bounds.trail.is_empty() {
-    let hits = regex.find_bytes(translated, subject, extended: true, ignore_case: ignore_case)?
+    let hits = regex.find_bytes(translated, subject, extended: true, ignore_case:)?
     return Ok([{start: hit.start, end: hit.end} for hit in hits])
   }
-  var found: List[Match] = []
   var offset = 0
-  while offset <= subject.len() {
-    let caps = regex.captures_bytes(translated, subject, offset, extended: true, ignore_case: ignore_case)?
-    if caps.is_empty() { break }
-    let span = caps[0] ?? {start: 0, end: 0}
-    if boundaries_hold(subject, span.start, span.end, bounds.lead, bounds.trail, marked) {
-      found += [{start: span.start, end: span.end}]
-      offset = if span.end > span.start { span.end } else { span.end + 1 }
-    } else { offset = span.start + 1 }
+  let found: List[Match] = collect {
+    while offset <= subject.len() {
+      let caps = regex.captures_bytes(translated, subject, offset, extended: true, ignore_case:)?
+      break when caps.is_empty()
+      let span = caps[0] ?? {start: 0, end: 0}
+      if boundaries_hold(subject, span.start, span.end, bounds.lead, bounds.trail, marked) {
+        yield {start: span.start, end: span.end}
+        offset = if span.end > span.start { span.end } else { span.end + 1 }
+      } else { offset = span.start + 1 }
+    }
   }
   Ok(found)
 }
@@ -1711,8 +1721,8 @@ pure rx_matches(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Ma
   let alphabet = make_alphabet(pattern, content)
   let translated = rx_translate(bounds.body, alphabet)?
   let characters = content.split("")
-  var mapped: List[Int] = []
-  var offsets: List[Int] = []
+  var mapped = []
+  var offsets = []
   var position = 0
   for character in characters {
     offsets += [position]
@@ -1740,8 +1750,8 @@ pure check_regex(pattern: Str) -> Result[Unit] {
 
 # The wording GNU awk gives for failures the host engine words differently.
 pure regex_message(message: Str) -> Str {
-  if message == "Unknown character class name" { return "Invalid character class name" }
-  if message == "Invalid character range" { return "Invalid range end" }
+  return "Invalid character class name" when message == "Unknown character class name"
+  return "Invalid range end" when message == "Invalid character range"
   message
 }
 
@@ -1749,20 +1759,20 @@ pure regex_message(message: Str) -> Str {
 # almost certainly a mistyped character class.
 pure regex_warnings(pattern: Str) -> List[Str] {
   let chars = pattern.split("")
-  var found: List[Str] = []
+  var found = []
   var at = 0
   while at < chars.len() {
     if chars[at] == "\\" { at += 2; continue }
     if chars[at] != "[" { at += 1; continue }
-    match rx_bracket(chars, at, NO_ALPHABET) {
-      Ok(bracket) => {
-        if bracket.at - at >= 4 and chars[at + 1] == ":" and chars[bracket.at - 2] == ":" {
-          let component = chars[at..bracket.at].join("")
-          found += [f"regexp component `{component}' should probably be `[{component}]'"]
-        }
-        at = bracket.at
+    if let Ok(bracket) = rx_bracket(chars, at, NO_ALPHABET) {
+      if bracket.at - at >= 4 and chars[at + 1] == ":" and chars[bracket.at - 2] == ":" {
+        let component = chars[at..bracket.at].join("")
+        found += [f"regexp component `{component}' should probably be `[{component}]'"]
       }
-      Err(_) => { return found }
+    
+      at = bracket.at
+    } else {
+      return found
     }
   }
   found
@@ -1773,14 +1783,14 @@ pure regex_warnings(pattern: Str) -> List[Str] {
 pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Match?]] {
   if is_ascii_text(content) and is_ascii_text(pattern) {
     let translated = rx_translate(pattern, NO_ALPHABET)?
-    let caps = regex.captures_bytes(translated, bytes.from_text(content), 0, extended: true, ignore_case: ignore_case)?
-    return Ok([if item == null { null } else { {start: (item ?? {start: 0, end: 0}).start, end: (item ?? {start: 0, end: 0}).end} } for item in caps])
+    let caps = regex.captures_bytes(translated, bytes.from_text(content), 0, extended: true, ignore_case:)?
+    return Ok([if item == null { null } else { {start: item.start, end: item.end} } for item in caps])
   }
   let alphabet = make_alphabet(pattern, content)
   let translated = rx_translate(pattern, alphabet)?
   let characters = content.split("")
-  var mapped: List[Int] = []
-  var offsets: List[Int] = []
+  var mapped = []
+  var offsets = []
   var position = 0
   for character in characters {
     offsets += [position]
@@ -1791,8 +1801,8 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
     }
   }
   offsets += [position]
-  let caps = regex.captures_bytes(translated, bytes.from_ints(mapped)?, 0, extended: true, ignore_case: ignore_case)?
-  Ok([if item == null { null } else { {start: offsets[(item ?? {start: 0, end: 0}).start], end: offsets[(item ?? {start: 0, end: 0}).end]} } for item in caps])
+  let caps = regex.captures_bytes(translated, bytes.from_ints(mapped)?, 0, extended: true, ignore_case:)?
+  Ok([if item == null { null } else { {start: offsets[item.start], end: offsets[item.end]} } for item in caps])
 }
 
 
@@ -1801,20 +1811,20 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
 pure incomplete_tail(data: Bytes) -> Int {
   let size = data.len()
   for back in range(1, 4) {
-    if back > size { break }
+    break when back > size
     let byte = data.byte_at(size - back) ?? 0
     if byte >= 192 {
       let wanted = if byte >= 240 { 4 } else if byte >= 224 { 3 } else { 2 }
       return if wanted > back { back } else { 0 }
     }
-    if byte < 128 { return 0 }
+    return 0 when byte < 128
   }
   0
 }
 type Chunk = {text: Str, tail: Bytes, lossy: Bool}
 # Whether text holds a character standing for an input byte that is not valid UTF-8.
 pure holds_mapped_bytes(text: Str) -> Bool {
-  if text.byte_len() == text.count_chars() { return false }
+  return false when text.byte_len() == text.count_chars()
   let encoded = bytes.from_text(text)
   for index in range(encoded.len() - 2) {
     if encoded.byte_at(index) == 244 and encoded.byte_at(index + 1) == 143 and (encoded.byte_at(index + 2) ?? 0) >= 190 { return true }
@@ -1826,69 +1836,80 @@ pure continuation(byte: Int) -> Bool { byte >= 128 and byte <= 191 }
 # sequence is kept as the private-use character U+10FF00 plus the byte (and
 # turned back into that byte on output), as GNU awk keeps such bytes in place.
 pure decode_lossy(data: Bytes) -> Result[Str] {
-  var out: List[Int] = []
   let size = data.len()
   var at = 0
-  while at < size {
-    let byte = data.byte_at(at) ?? 0
-    var width = 0
-    if byte < 128 { width = 1 } else if byte >= 194 and byte <= 223 {
-      if at + 1 < size and continuation(data.byte_at(at + 1) ?? 0) { width = 2 }
-    } else if byte >= 224 and byte <= 239 {
-      if at + 2 < size {
-        let second = data.byte_at(at + 1) ?? 0
-        let lowest = if byte == 224 { 160 } else { 128 }
-        let highest = if byte == 237 { 159 } else { 191 }
-        if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) { width = 3 }
+  let out = collect {
+    while at < size {
+      let byte = data.byte_at(at) ?? 0
+      var width = 0
+      if byte < 128 {
+        width = 1
+      } else if byte >= 194 and byte <= 223 {
+        if at + 1 < size and continuation(data.byte_at(at + 1) ?? 0) { width = 2 }
+      } else if byte >= 224 and byte <= 239 {
+        if at + 2 < size {
+          let second = data.byte_at(at + 1) ?? 0
+          let lowest = if byte == 224 { 160 } else { 128 }
+          let highest = if byte == 237 { 159 } else { 191 }
+          if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) { width = 3 }
+        }
+      } else if byte >= 240 and byte <= 244 {
+        if at + 3 < size {
+          let second = data.byte_at(at + 1) ?? 0
+          let lowest = if byte == 240 { 144 } else { 128 }
+          let highest = if byte == 244 { 143 } else { 191 }
+          if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) and continuation(
+            data.byte_at(at + 3) ?? 0,
+          ) {
+            width = 4
+          }
+        }
       }
-    } else if byte >= 240 and byte <= 244 {
-      if at + 3 < size {
-        let second = data.byte_at(at + 1) ?? 0
-        let lowest = if byte == 240 { 144 } else { 128 }
-        let highest = if byte == 244 { 143 } else { 191 }
-        if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) and continuation(data.byte_at(at + 3) ?? 0) { width = 4 }
+
+      if width > 0 {
+        for index in range(width) { yield data.byte_at(at + index) ?? 0 }
+        at += width
+      } else {
+        yield @[244, 143, 190 + (byte - 128) / 64, 128 + byte % 64]
+        at += 1
       }
-    }
-    if width > 0 {
-      for index in range(width) { out += [data.byte_at(at + index) ?? 0] }
-      at += width
-    } else {
-      out += [244, 143, 190 + (byte - 128) / 64, 128 + byte % 64]
-      at += 1
     }
   }
   Ok(bytes.from_ints(out)?.utf8()?)
 }
 pure decode_chunk(carry: Bytes, fresh: Bytes) -> Result[Chunk] {
   let data = if carry.is_empty() { fresh } else { bytes.concat([carry, fresh]) }
-  match data.utf8() {
-    Ok(text) => Ok({text: text, tail: b"", lossy: false})
-    Err(_) => {
-      let keep = incomplete_tail(data)
-      let head = if keep > 0 { data.slice(0, length: data.len() - keep) } else { data }
-      let rest = if keep > 0 { data.slice(data.len() - keep, length: keep) } else { b"" }
-      match head.utf8() {
-        Ok(text) => Ok({text: text, tail: rest, lossy: false})
-        Err(_) => Ok({text: decode_lossy(head)?, tail: rest, lossy: true})
-      }
+  if let Ok(text) = data.utf8() {
+    Ok({text: text, tail: b"", lossy: false})
+  } else {
+    let keep = incomplete_tail(data)
+    let head = if keep > 0 { data.slice(0, length: data.len() - keep) } else { data }
+    let rest = if keep > 0 { data.slice(data.len() - keep, length: keep) } else { b"" }
+    if let Ok(text) = head.utf8() {
+      Ok({text: text, tail: rest, lossy: false})
+    } else {
+      Ok({text: decode_lossy(head)?, tail: rest, lossy: true})
     }
   }
 }
 # The bytes to write for text that may hold mapped input bytes.
 pure output_bytes(text: Str, lossy: Bool) -> Bytes {
   let encoded = bytes.from_text(text)
-  if ! lossy { return encoded }
-  var out: List[Int] = []
+  return encoded unless lossy
   let size = encoded.len()
   var at = 0
-  while at < size {
-    let byte = encoded.byte_at(at) ?? 0
-    if byte == 244 and at + 3 < size and encoded.byte_at(at + 1) == 143 and (encoded.byte_at(at + 2) ?? 0) >= 190 and (encoded.byte_at(at + 2) ?? 0) <= 191 {
-      out += [128 + ((encoded.byte_at(at + 2) ?? 190) - 190) * 64 + (encoded.byte_at(at + 3) ?? 128) - 128]
-      at += 4
-    } else {
-      out += [byte]
-      at += 1
+  let out = collect {
+    while at < size {
+      let byte = encoded.byte_at(at) ?? 0
+      if byte == 244 and at + 3 < size and encoded.byte_at(at + 1) == 143 and (encoded.byte_at(at + 2) ?? 0) >= 190 and (encoded.byte_at(
+        at + 2,
+      ) ?? 0) <= 191 {
+        yield 128 + ((encoded.byte_at(at + 2) ?? 190) - 190) * 64 + (encoded.byte_at(at + 3) ?? 128) - 128
+        at += 4
+      } else {
+        yield byte
+        at += 1
+      }
     }
   }
   bytes.from_ints(out) ?? encoded
@@ -1896,7 +1917,7 @@ pure output_bytes(text: Str, lossy: Bool) -> Bytes {
 # Reads another chunk into the reader's buffer; sets done at end of input.
 proc fill(source: Reader) -> Result[Reader] {
   var r = source
-  if r.done { return Ok(r) }
+  return Ok(r) when r.done
   if r.at > 0 and r.at >= 1048576 {
     r.text = r.text.byte_slice(r.at)
     r.at = 0
@@ -1904,7 +1925,7 @@ proc fill(source: Reader) -> Result[Reader] {
   loop {
     if r.pollable {
       let ready = unix.poll_fd(r.fd, ["readable"], 3600000)?
-      if ready.is_empty() { continue }
+      continue when ready.is_empty()
     }
     let chunk = unix.read_fd(r.fd, 65536)?
     if chunk.is_empty() {
@@ -1919,7 +1940,7 @@ proc fill(source: Reader) -> Result[Reader] {
     let decoded = decode_chunk(r.tail, chunk)?
     r.tail = decoded.tail
     if decoded.lossy { r.lossy = true }
-    if decoded.text.is_empty() { continue }
+    continue when decoded.text.is_empty()
     r.text += decoded.text
     return Ok(r)
   }
@@ -1939,12 +1960,12 @@ pure scan_record(text: Str, position: Int, separator: Str, done: Bool, ignore_ca
     if at >= size { return Ok({kind: if done { 2 } else { 0 }, content: "", next: at, terminator: ""}) }
     let blank = text.find("\n\n", at)
     if blank == null {
-      if ! done { return Ok({kind: 0, content: "", next: at, terminator: ""}) }
+      return Ok({kind: 0, content: "", next: at, terminator: ""}) unless done
       var end = size
       while end > at and text.byte_at(end - 1) == 10 { end -= 1 }
       return Ok({kind: 1, content: text.byte_slice(at, length: end - at), next: size, terminator: ""})
     }
-    let first = blank ?? 0
+    let first = blank
     var after = first + 2
     while after < size and text.byte_at(after) == 10 { after += 1 }
     if after >= size and ! done { return Ok({kind: 0, content: "", next: at, terminator: ""}) }
@@ -1953,21 +1974,21 @@ pure scan_record(text: Str, position: Int, separator: Str, done: Bool, ignore_ca
   if separator.count_chars() == 1 and ! ignore_case {
     let found = text.find(separator, position)
     if found == null {
-      if ! done { return Ok({kind: 0, content: "", next: position, terminator: ""}) }
+      return Ok({kind: 0, content: "", next: position, terminator: ""}) unless done
       return Ok({kind: 1, content: text.byte_slice(position), next: size, terminator: ""})
     }
-    let at = found ?? 0
+    let at = found
     return Ok({kind: 1, content: text.byte_slice(position, length: at - position), next: at + separator.byte_len(), terminator: separator})
   }
   let rest = text.byte_slice(position)
   let hits = rx_matches(separator, rest, ignore_case)?
   for hit in hits {
-    if hit.end == hit.start { continue }
+    continue when hit.end == hit.start
     # A match that reaches the end of the buffered text might extend with more input.
     if hit.end >= rest.byte_len() and ! done { return Ok({kind: 0, content: "", next: position, terminator: ""}) }
     return Ok({kind: 1, content: rest.byte_slice(0, length: hit.start), next: position + hit.end, terminator: rest.byte_slice(hit.start, length: hit.end - hit.start)})
   }
-  if ! done { return Ok({kind: 0, content: "", next: position, terminator: ""}) }
+  return Ok({kind: 0, content: "", next: position, terminator: ""}) unless done
   Ok({kind: 1, content: rest, next: size, terminator: ""})
 }
 type Read = {reader: Reader, record: Str?, terminator: Str}
@@ -1979,7 +2000,7 @@ proc read_record(source: Reader, separator: Str, ignore_case: Bool) -> Result[Re
       r.at = scanned.next
       return Ok({reader: r, record: scanned.content, terminator: scanned.terminator})
     }
-    if scanned.kind == 2 { return Ok({reader: r, record: null, terminator: ""}) }
+    return Ok({reader: r, record: null, terminator: ""}) when scanned.kind == 2
     r = fill(r)?
   }
   Ok({reader: r, record: null, terminator: ""})
@@ -1997,22 +2018,22 @@ const TABLE_SIZES = [13, 127, 1021, 8191, 131071, 1048573, 8388593, 16777213, 33
 const MODULUS = 4294967296
 
 pure next_table_size(size: Int) -> Int {
-  for candidate in TABLE_SIZES { if candidate > size { return candidate } }
+  for candidate in TABLE_SIZES { return candidate when candidate > size }
   size
 }
 # 1 for a non-negative integer subscript, 2 for a negative one, 3 otherwise.
 pure subscript_kind(key: Str) -> Int {
   let size = key.byte_len()
-  if size == 0 or size > 18 { return 3 }
+  return 3 when size == 0 or size > 18
   var at = 0
   var negative = false
   if key.byte_at(0) == 45 { negative = true; at = 1 }
-  if at >= size { return 3 }
-  if (key.byte_at(at) ?? 0) == 48 and (size - at > 1 or negative) { return 3 }
-  for position in range(at, size) { if ! digit(key.byte_at(position) ?? 0) { return 3 } }
-  if negative { return 2 }
-  if size - at > 10 { return 2 }
-  if size - at == 10 and (key.parse_int() ?? 0) > 2147483647 { return 2 }
+  return 3 when at >= size
+  return 3 when (key.byte_at(at) ?? 0) == 48 and (size - at > 1 or negative)
+  for position in range(at, size) { return 3 unless digit(key.byte_at(position) ?? 0) }
+  return 2 when negative
+  return 2 when size - at > 10
+  return 2 when size - at == 10 and (key.parse_int() ?? 0) > 2147483647
   1
 }
 pure xor32(a: Int, b: Int) -> Int { a + b - 2 * a.bit_and(b) }
@@ -2036,45 +2057,46 @@ pure integer_code(value: Int) -> Int {
 # Hash chains of string subscripts, newest first. `events` are the insertion
 # sequence numbers at which the table grew; null simulates growth from counts.
 pure string_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[Str] {
-  if keys.is_empty() { return [] }
-  var codes: List[Int] = []
-  for key in keys { codes += [string_code(key)] }
+  return [] when keys.is_empty()
+  var codes = [string_code(key) for key in keys]
   var size = 13
   var chains: List[List[Int]] = [[] for _ in range(size)]
   var pointer = 0
   for at in range(keys.len()) {
     var grow = false
     if events == null { grow = (at + 1) / size > 10 } else {
-      let recorded = events ?? []
+      let recorded = events
       if pointer < recorded.len() and recorded[pointer] <= seqs[at] { grow = true; pointer += 1 }
     }
     if grow {
       let bigger = next_table_size(size)
       var rehashed: List[List[Int]] = [[] for _ in range(bigger)]
       for index in range(size) {
-        for item in chains[index] { rehashed[codes[item] % bigger] = [item] + rehashed[codes[item] % bigger] }
+        for item in chains[index] { rehashed[codes[item] % bigger] = [item, @rehashed[codes[item] % bigger]] }
       }
       chains = rehashed
       size = bigger
     }
-    chains[codes[at] % size] = [at] + chains[codes[at] % size]
+    chains[codes[at] % size] = [at, @chains[codes[at] % size]]
   }
-  var listing: List[Str] = []
-  for chain in chains { for item in chain { listing += [keys[item]] } }
+  let listing = collect {
+    for chain in chains { for item in chain { yield keys[item] } }
+  }
   listing
 }
 # Integer subscripts hash into buckets of two, newest bucket first.
 pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[Str] {
-  if keys.is_empty() { return [] }
-  var values: List[Int] = []
-  for key in keys { values += [key.parse_int() ?? 0] }
+  return [] when keys.is_empty()
+  let values = collect {
+    for key in keys { yield key.parse_int() ?? 0 }
+  }
   var size = 13
   var chains: List[List[List[Int]]] = [[] for _ in range(size)]
   var pointer = 0
   for at in range(keys.len()) {
     var grow = false
     if events == null { grow = (at + 1) / size > 10 } else {
-      let recorded = events ?? []
+      let recorded = events
       if pointer < recorded.len() and recorded[pointer] <= seqs[at] { grow = true; pointer += 1 }
     }
     if grow {
@@ -2084,7 +2106,7 @@ pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List
         for bucket in chains[index] {
           for item in bucket {
             let slot = integer_code(values[item]) % bigger
-            if rehashed[slot].is_empty() or rehashed[slot][0].len() >= 2 { rehashed[slot] = [[item]] + rehashed[slot] } else { rehashed[slot][0] = rehashed[slot][0] + [item] }
+            if rehashed[slot].is_empty() or rehashed[slot][0].len() >= 2 { rehashed[slot] = [[item], @rehashed[slot]] } else { rehashed[slot][0] = [@rehashed[slot][0], item] }
           }
         }
       }
@@ -2092,26 +2114,28 @@ pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List
       size = bigger
     }
     let slot = integer_code(values[at]) % size
-    if chains[slot].is_empty() or chains[slot][0].len() >= 2 { chains[slot] = [[at]] + chains[slot] } else { chains[slot][0] = chains[slot][0] + [at] }
+    if chains[slot].is_empty() or chains[slot][0].len() >= 2 { chains[slot] = [[at], @chains[slot]] } else { chains[slot][0] = [@chains[slot][0], at] }
   }
-  var listing: List[Str] = []
-  for chain in chains { for bucket in chain { for item in bucket { listing += [keys[item]] } } }
+  let listing = collect {
+    for chain in chains { for bucket in chain { for item in bucket { yield keys[item] } } }
+  }
   listing
 }
 # Non-negative integer subscripts in ascending order.
 pure ascending_integers(keys: List[Str]) -> List[Str] {
-  if keys.len() <= 1 { return keys }
-  var numbers: List[Int] = []
-  for key in keys { numbers += [key.parse_int() ?? 0] }
+  return keys when keys.len() <= 1
+  let numbers = collect {
+    for key in keys { yield key.parse_int() ?? 0 }
+  }
   let ordered = merge_integers(numbers)
   [f"{value}" for value in ordered]
 }
 pure merge_integers(values: List[Int]) -> List[Int] {
-  if values.len() <= 1 { return values }
+  return values when values.len() <= 1
   let middle = values.len() / 2
   let left = merge_integers(values[..middle])
   let right = merge_integers(values[middle..])
-  var merged: List[Int] = []
+  var merged = []
   var i = 0
   var j = 0
   while i < left.len() and j < right.len() {
@@ -2126,47 +2150,48 @@ pure merge_integers(values: List[Int]) -> List[Int] {
 # one that would waste too much allocated capacity overflows to the hash table.
 # Returns, for each key in insertion order, whether it stayed in the blocks.
 pure leaf_blocks(keys: List[Str]) -> List[Bool] {
-  var stays: List[Bool] = []
   var capacity = 0
   var count = 0
-  var leaves: Map[Bool] = {}
-  for key in keys {
-    let k = key.parse_int() ?? 0
-    var width = 0
-    var remaining = k
-    while remaining > 0 { width += 1; remaining = remaining / 2 }
-    let h1 = if width - 1 < 10 { 10 } else { width }
-    let m = h1 - 1
-    var estimate = if m > 10 { m } else { 10 }
-    while estimate >= 10 { estimate = (estimate + 1) / 2 }
-    var allocated = 1
-    for _ in range(estimate) { allocated *= 2 }
-    if capacity + allocated - count > 2048 {
-      stays += [false]
-      continue
-    }
-    count += 1
-    stays += [true]
-    var level = if m < 10 { 10 } else { m }
-    var base = 0
-    if m >= 10 { base = 1; for _ in range(m) { base *= 2 } }
-    var trail = f"{h1}"
-    loop {
-      let n = (level + 1) / 2
-      var size = 1
-      for _ in range(n) { size *= 2 }
-      let index = (k - base) / size
-      if n > 10 {
-        trail += f"/{index}"
-        base = base + size * index
-        level = n
-      } else {
-        let leaf = f"{trail}:{index}"
-        if leaf not in leaves {
-          leaves = leaves.set(leaf, true)
-          capacity += size
+  var leaves: Set[Str] = set.empty()
+  let stays = collect {
+    for key in keys {
+      let k = key.parse_int() ?? 0
+      var width = 0
+      var remaining = k
+      while remaining > 0 { width += 1; remaining = remaining / 2 }
+      let h1 = if width - 1 < 10 { 10 } else { width }
+      let m = h1 - 1
+      var estimate = if m > 10 { m } else { 10 }
+      while estimate >= 10 { estimate = (estimate + 1) / 2 }
+      var allocated = 1
+      repeat estimate times { allocated *= 2 }
+      if capacity + allocated - count > 2048 {
+        yield false
+        continue
+      }
+      count += 1
+      yield true
+      var level = if m < 10 { 10 } else { m }
+      var base = 0
+      if m >= 10 { base = 1; repeat m times { base *= 2 } }
+      var trail = f"{h1}"
+      loop {
+        let n = (level + 1) / 2
+        var size = 1
+        repeat n times { size *= 2 }
+        let index = (k - base) / size
+        if n > 10 {
+          trail += f"/{index}"
+          base = base + size * index
+          level = n
+        } else {
+          let leaf = f"{trail}:{index}"
+          if leaf not in leaves {
+            leaves = leaves.add(leaf)
+            capacity += size
+          }
+          break
         }
-        break
       }
     }
   }
@@ -2174,7 +2199,7 @@ pure leaf_blocks(keys: List[Str]) -> List[Bool] {
 }
 # The subscripts of a table in GNU awk's for-in order.
 pure array_order(table: Table) -> List[Str] {
-  if table.cells.is_empty() { return [] }
+  return [] when table.cells.is_empty()
   var slots: List[Str] = ["" for _ in range(table.next)]
   var present: List[Bool] = [false for _ in range(table.next)]
   for key in table.cells.keys() {
@@ -2182,16 +2207,16 @@ pure array_order(table: Table) -> List[Str] {
     slots[seq] = key
     present[seq] = true
   }
-  var keys: List[Str] = []
-  var seqs: List[Int] = []
+  var keys = []
+  var seqs = []
   for at in range(table.next) { if present[at] { keys += [slots[at]]; seqs += [at] } }
   let events: List[Int]? = if table.size > 0 { table.growths } else { null }
-  if table.kind == 3 { return string_order(keys, seqs, events) }
-  var strings: List[Str] = []
-  var string_seqs: List[Int] = []
-  var integers: List[Str] = []
-  var integer_seqs: List[Int] = []
-  var naturals: List[Str] = []
+  return string_order(keys, seqs, events) when table.kind == 3
+  var strings = []
+  var string_seqs = []
+  var integers = []
+  var integer_seqs = []
+  var naturals = []
   for at in range(keys.len()) {
     let kind = subscript_kind(keys[at])
     if kind == 1 { naturals += [keys[at]] }
@@ -2200,21 +2225,24 @@ pure array_order(table: Table) -> List[Str] {
   }
   if table.kind == 2 {
     # Every integer subscript is in the integer table, strings in its overflow.
-    var all_seqs: List[Int] = []
-    for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { all_seqs += [seqs[at]] } }
-    var in_order: List[Str] = []
-    for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { in_order += [keys[at]] } }
+    let all_seqs = collect {
+      for at in range(keys.len()) { yield seqs[at] when subscript_kind(keys[at]) != 3 }
+    }
+    let in_order = collect {
+      for at in range(keys.len()) { yield keys[at] when subscript_kind(keys[at]) != 3 }
+    }
     return string_order(strings, string_seqs, null) + integer_order(in_order, all_seqs, events)
   }
   # Non-negative integers still held by the blocks list ascending after the
   # overflow table, which is an integer table when its first subscript was an
   # integer, else a string table.
-  var natural_keys: List[Str] = []
-  for at in range(keys.len()) { if subscript_kind(keys[at]) == 1 { natural_keys += [keys[at]] } }
+  let natural_keys = collect {
+    for at in range(keys.len()) { yield keys[at] when subscript_kind(keys[at]) == 1 }
+  }
   let stays = leaf_blocks(natural_keys)
-  var held: List[Str] = []
-  var overflow: List[Str] = []
-  var overflow_seqs: List[Int] = []
+  var held = []
+  var overflow = []
+  var overflow_seqs = []
   var first_overflow_kind = 0
   var natural_at = 0
   for at in range(keys.len()) {
@@ -2230,12 +2258,12 @@ pure array_order(table: Table) -> List[Str] {
       overflow_seqs += [seqs[at]]
     }
   }
-  var head: List[Str] = []
+  var head = []
   if first_overflow_kind == 2 {
-    var overflow_strings: List[Str] = []
-    var overflow_string_seqs: List[Int] = []
-    var overflow_integers: List[Str] = []
-    var overflow_integer_seqs: List[Int] = []
+    var overflow_strings = []
+    var overflow_string_seqs = []
+    var overflow_integers = []
+    var overflow_integer_seqs = []
     for at in range(overflow.len()) {
       if subscript_kind(overflow[at]) == 3 { overflow_strings += [overflow[at]]; overflow_string_seqs += [overflow_seqs[at]] } else { overflow_integers += [overflow[at]]; overflow_integer_seqs += [overflow_seqs[at]] }
     }
@@ -2249,12 +2277,13 @@ pure grown_table(cells: Map[Cell], first_key: Str) -> Table {
   let count = cells.len()
   let kind = if count == 0 { 0 } else { subscript_kind(first_key) }
   var size = 0
-  var growths: List[Int] = []
-  if kind != 1 and count > 0 {
-    size = 13
-    for seq in range(count) { if (seq + 1) / size > 10 { size = next_table_size(size); growths += [seq] } }
+  let growths = collect {
+    if kind != 1 and count > 0 {
+      size = 13
+      for seq in range(count) { if (seq + 1) / size > 10 { size = next_table_size(size); yield seq } }
+    }
   }
-  Table(cells: cells, next: count, kind: kind, size: size, growths: growths)
+  Table(cells:, next: count, kind:, size:, growths:)
 }
 pure empty_table() -> Table { Table(cells: {}, next: 0, kind: 0, size: 0, growths: []) }
 
@@ -2303,11 +2332,11 @@ type Iteration = {keys: List[Str], at: Int}
 type Linked = {ops: List[Op], entries: Map[Int], labels: List[Str], loop_at: Int, end_at: Int, rules: Int}
 
 pure slot_of(names: List[Str], name: Str) -> Int {
-  for at in range(names.len()) { if names[at] == name { return at } }
+  for at in range(names.len()) { return at when names[at] == name }
   -1
 }
 pure variable_spot(names: List[Str], name: Str) -> Spot {
-  if name == "NF" { return SpotNF }
+  return SpotNF when name == "NF"
   let slot = slot_of(names, name)
   if slot >= 0 { SpotLocal(slot, name) } else { SpotGlobal(name) }
 }
@@ -2322,28 +2351,30 @@ pure compile_place(x: List[Expression], names: List[Str], id: Int) -> Result[Pla
   match x[id] {
     Variable(name) => Ok({ops: [], spot: variable_spot(names, name)})
     Field(child) => {
-      if is_dollar_zero(x, child) { return Ok({ops: [], spot: SpotRecord}) }
+      return Ok({ops: [], spot: SpotRecord}) when is_dollar_zero(x, child)
       Ok({ops: compile_expression(x, names, child)?, spot: SpotField})
     }
     Index(name, keys) => {
-      var ops: List[Op] = []
-      for key in keys { ops += compile_expression(x, names, key)? }
+      let ops: List[Op] = collect {
+        for key in keys { yield @compile_expression(x, names, key)? }
+      }
       let slot = slot_of(names, name)
       Ok({ops: ops, spot: if slot >= 0 { SpotIndexLocal(slot, name, keys.len()) } else { SpotIndexGlobal(name, keys.len()) }})
     }
-    _ => Err(syntax_error("assignment requires variable, field, or array element"))
+    else => Err(syntax_error("assignment requires variable, field, or array element"))
   }
 }
 pure is_dollar_zero(x: List[Expression], id: Int) -> Bool {
-  match x[id] { Number(n) => n == 0.0; _ => false }
+  if let Number(n) = x[id] { n == 0.0 } else { false }
 }
 
 # Regular expression operands that are literals push their pattern text
 # rather than the result of matching the record.
 pure compile_regex_source(x: List[Expression], names: List[Str], id: Int) -> Result[List[Op]] {
-  match x[id] {
-    RegexLiteral(pattern) => Ok([OpPushText(pattern)])
-    _ => compile_expression(x, names, id)
+  if let RegexLiteral(pattern) = x[id] {
+    Ok([OpPushText(pattern)])
+  } else {
+    compile_expression(x, names, id)
   }
 }
 
@@ -2358,8 +2389,9 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
     }
     Field(child) => Ok(compile_expression(x, names, child)? + [OpLoadField])
     Index(name, keys) => {
-      var ops: List[Op] = []
-      for key in keys { ops += compile_expression(x, names, key)? }
+      let ops: List[Op] = collect {
+        for key in keys { yield @compile_expression(x, names, key)? }
+      }
       let slot = slot_of(names, name)
       Ok(ops + [if slot >= 0 { OpLoadIndexLocal(slot, name, keys.len()) } else { OpLoadIndexGlobal(name, keys.len()) }])
     }
@@ -2387,9 +2419,10 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
       }
       if op == "~" or op == "!~" {
         let subject = compile_expression(x, names, left)?
-        match x[right] {
-          RegexLiteral(pattern) => { return Ok(subject + [if op == "~" { OpMatchLiteral(pattern) } else { OpNotMatchLiteral(pattern) }]) }
-          _ => { return Ok(subject + compile_expression(x, names, right)? + [if op == "~" { OpMatch } else { OpNotMatch }]) }
+        if let RegexLiteral(pattern) = x[right] {
+          return Ok(subject + [if op == "~" { OpMatchLiteral(pattern) } else { OpNotMatchLiteral(pattern) }])
+        } else {
+          return Ok(subject + compile_expression(x, names, right)? + [if op == "~" { OpMatch } else { OpNotMatch }])
         }
       }
       let first = compile_expression(x, names, left)?
@@ -2398,26 +2431,27 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
       Ok(first + second + [operation])
     }
     Member(keys, array) => {
-      var ops: List[Op] = []
-      for key in keys { ops += compile_expression(x, names, key)? }
+      let ops: List[Op] = collect {
+        for key in keys { yield @compile_expression(x, names, key)? }
+      }
       let slot = slot_of(names, array)
       Ok(ops + [OpMember(if slot >= 0 { SpotIndexLocal(slot, array, keys.len()) } else { SpotIndexGlobal(array, keys.len()) })])
     }
     CommandInput(command, target) => {
       let source = compile_expression(x, names, command)?
-      if target == null { return Ok(source + [OpGetlineCommand(SpotRecord)]) }
-      let place = compile_place(x, names, target ?? 0)?
+      return Ok(source + [OpGetlineCommand(SpotRecord)]) when target == null
+      let place = compile_place(x, names, target)?
       Ok(source + place.ops + [OpGetlineCommand(place.spot)])
     }
     GetlineMain(target) => {
-      if target == null { return Ok([OpGetlineMain(SpotRecord)]) }
-      let place = compile_place(x, names, target ?? 0)?
+      return Ok([OpGetlineMain(SpotRecord)]) when target == null
+      let place = compile_place(x, names, target)?
       Ok(place.ops + [OpGetlineMain(place.spot)])
     }
     GetlineFile(target, file) => {
       let source = compile_expression(x, names, file)?
-      if target == null { return Ok(source + [OpGetlineFile(SpotRecord)]) }
-      let place = compile_place(x, names, target ?? 0)?
+      return Ok(source + [OpGetlineFile(SpotRecord)]) when target == null
+      let place = compile_place(x, names, target)?
       Ok(source + place.ops + [OpGetlineFile(place.spot)])
     }
     Call(name, args) => compile_call(x, names, name, args)
@@ -2432,12 +2466,12 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
     if name in ["sub", "gsub"] {
       if args.len() < 2 or args.len() > 3 { return Err(fatal_error(f"{name}: wrong number of arguments")) }
       ops += compile_regex_source(x, names, args[0])? + compile_expression(x, names, args[1])?
-      if args.len() == 2 { return Ok(ops + [OpArrayBuiltin(name, [SpotRecord], 2)]) }
+      return Ok(ops + [OpArrayBuiltin(name, [SpotRecord], 2)]) when args.len() == 2
       match x[args[2]] {
         Variable(_) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
         Field(_) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
         Index(_, _) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
-        _ => { return Ok(ops + compile_expression(x, names, args[2])? + [OpArrayBuiltin(name, [SpotNone], 2)]) }
+        else => { return Ok(ops + compile_expression(x, names, args[2])? + [OpArrayBuiltin(name, [SpotNone], 2)]) }
       }
     }
     if name == "split" {
@@ -2446,18 +2480,33 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
       var literal = false
       if args.len() >= 3 {
         ops += compile_regex_source(x, names, args[2])?
-        match x[args[2]] { RegexLiteral(_) => { literal = true }; _ => {} }
+        match x[args[2]] { RegexLiteral(_) => { literal = true }; else => {} }
       }
-      let array = match x[args[1]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }
+      let array = if let Variable(variable) = x[args[1]] {
+        array_spot(names, variable)
+      } else {
+        SpotNone
+      }
       var spots = [array]
-      if args.len() == 4 { spots += [match x[args[3]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }] }
+      if args.len() == 4 { spots += [if let Variable(variable) = x[args[3]] {
+        array_spot(names, variable)
+      } else {
+        SpotNone
+      }] }
       return Ok(ops + [OpArrayBuiltin(if literal { "split_regex" } else { "split" }, spots, args.len())])
     }
     if name == "match" {
       if args.len() < 2 or args.len() > 3 { return Err(fatal_error("match: wrong number of arguments")) }
       ops += compile_expression(x, names, args[0])? + compile_regex_source(x, names, args[1])?
-      var spots: List[Spot] = []
-      if args.len() == 3 { spots += [match x[args[2]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }] }
+      let spots: List[Spot] = collect {
+        if args.len() == 3 {
+          yield if let Variable(variable) = x[args[2]] {
+            array_spot(names, variable)
+          } else {
+            SpotNone
+          }
+        }
+      }
       return Ok(ops + [OpArrayBuiltin("match", spots, args.len())])
     }
     if name == "gensub" {
@@ -2468,7 +2517,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
     }
     if name in ["patsplit", "asort", "asorti", "typeof", "isarray", "length"] and args.len() >= 1 {
       var spots: List[Spot] = []
-      var plain: List[Int] = []
+      var plain = []
       for at in range(args.len()) {
         let is_array_position = (name == "patsplit" and (at == 1 or at == 3)) or (name in ["asort", "asorti"] and at <= 1) or (name in ["typeof", "isarray", "length"] and at == 0)
         match x[args[at]] {
@@ -2489,7 +2538,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
               spots += [place.spot]
             } else { plain += [at] }
           }
-          _ => { plain += [at] }
+          else => { plain += [at] }
         }
       }
       if name == "length" and args.len() == 1 and ! spots.is_empty() { return Ok([OpArrayBuiltin("length", spots, 1)]) }
@@ -2497,7 +2546,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
       if name in ["asort", "asorti"] {
         var how_ops: List[Op] = []
         if args.len() == 3 { how_ops = compile_expression(x, names, args[2])? }
-        if spots.len() < 1 { return Err(fatal_error(f"{name}: first argument is not an array")) }
+        return Err(fatal_error(f"{name}: first argument is not an array")) when spots.len() < 1
         return Ok(how_ops + [OpArrayBuiltin(name, spots, args.len())])
       }
       if name == "patsplit" {
@@ -2510,16 +2559,14 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
     return Ok(ops + [OpBuiltin(name, args.len())])
   }
   # Anything else is a user function, resolved when the call runs.
-  var kinds: List[Arg] = []
-  for child in args {
-    match x[child] {
-      Variable(variable) => {
+  let kinds: List[Arg] = collect {
+    for child in args {
+      if let Variable(variable) = x[child] {
         let slot = slot_of(names, variable)
-        kinds += [if slot >= 0 { ArgLocal(slot) } else { ArgGlobal(variable) }]
-      }
-      _ => {
+        yield if slot >= 0 { ArgLocal(slot) } else { ArgGlobal(variable) }
+      } else {
         ops += compile_expression(x, names, child)?
-        kinds += [ArgValue]
+        yield ArgValue
       }
     }
   }
@@ -2529,12 +2576,13 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
 # Statements. Loop bodies carry BreakMarker and ContinueMarker placeholders
 # that the enclosing loop turns into jumps once its layout is known.
 pure patch_markers(body: List[Op], break_to: Int, continue_to: Int) -> List[Op] {
-  var out: List[Op] = []
-  for at in range(body.len()) {
-    match body[at] {
-      OpBreakMarker => { out += [OpJump(break_to - (at + 1))] }
-      OpContinueMarker => { out += [OpJump(continue_to - (at + 1))] }
-      _ => { out += [body[at]] }
+  let out: List[Op] = collect {
+    for at in range(body.len()) {
+      match body[at] {
+        OpBreakMarker => { yield OpJump(break_to - (at + 1)) }
+        OpContinueMarker => { yield OpJump(continue_to - (at + 1)) }
+        else => { yield body[at] }
+      }
     }
   }
   out
@@ -2542,45 +2590,54 @@ pure patch_markers(body: List[Op], break_to: Int, continue_to: Int) -> List[Op] 
 # A condition's code followed by the jump taken when it is false; a relational
 # comparison fuses into one operation.
 pure compile_condition(x: List[Expression], names: List[Str], id: Int, offset: Int) -> Result[List[Op]] {
-  match x[id] {
-    Binary(op, left, right) => {
-      let code = if op == "<" { 0 } else if op == "<=" { 1 } else if op == "==" { 2 } else if op == "!=" { 3 } else if op == ">" { 4 } else if op == ">=" { 5 } else { -1 }
-      if code >= 0 {
-        return Ok(compile_expression(x, names, left)? + compile_expression(x, names, right)? + [OpJumpUnless(code, offset)])
-      }
+  if let Binary(op, left, right) = x[id] {
+    let code = if op == "<" {
+      0
+    } else if op == "<=" {
+      1
+    } else if op == "==" {
+      2
+    } else if op == "!=" {
+      3
+    } else if op == ">" {
+      4
+    } else if op == ">=" {
+      5
+    } else {
+      -1
     }
-    _ => {}
+    if code >= 0 {
+      return Ok(compile_expression(x, names, left)? + compile_expression(x, names, right)? + [OpJumpUnless(code, offset)])
+    }
   }
+
   Ok(compile_expression(x, names, id)? + [OpJumpFalse(offset)])
 }
 pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str], id: Int) -> Result[List[Op]] {
   let site = [OpSetSite(id)]
   match s[id] {
     Block(body) => {
-      var ops: List[Op] = []
-      for child in body { ops += compile_statement(x, s, names, child)? }
+      let ops: List[Op] = collect {
+        for child in body { yield @compile_statement(x, s, names, child)? }
+      }
       Ok(ops)
     }
     ExpressionStatement(child) => {
       # An increment or plain assignment to a global whose value is not used.
       match x[child] {
         Increment(target, delta, post) => {
-          match x[target] {
-            Variable(name) => {
-              if slot_of(names, name) < 0 and name != "NF" { return Ok(site + [OpIncGlobal(name, delta)]) }
-            }
-            _ => {}
+          if let Variable(name) = x[target] {
+            if slot_of(names, name) < 0 and name != "NF" { return Ok(site + [OpIncGlobal(name, delta)]) }
           }
         }
         Assign(op, target, right) => {
-          match x[target] {
-            Variable(name) => {
-              if op == "=" and slot_of(names, name) < 0 and name != "NF" { return Ok(site + compile_expression(x, names, right)? + [OpStoreGlobal(name)]) }
+          if let Variable(name) = x[target] {
+            if op == "=" and slot_of(names, name) < 0 and name != "NF" {
+              return Ok(site + compile_expression(x, names, right)? + [OpStoreGlobal(name)])
             }
-            _ => {}
           }
         }
-        _ => {}
+        else => {}
       }
       Ok(site + compile_expression(x, names, child)? + [OpPop])
     }
@@ -2589,7 +2646,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       for child in args { ops += compile_expression(x, names, child)? }
       var redirect = 0
       if target != null {
-        ops += compile_expression(x, names, target ?? 0)?
+        ops += compile_expression(x, names, target)?
         redirect = if mode == ">" { 1 } else if mode == ">>" { 2 } else { 3 }
       }
       Ok(ops + [OpPrint(args.len(), redirect, target != null, formatted_output)])
@@ -2597,7 +2654,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
     If(condition, yes, no) => {
       let then_part = compile_statement(x, s, names, yes)?
       if no == null { return Ok(site + compile_condition(x, names, condition, then_part.len())? + then_part) }
-      let else_part = compile_statement(x, s, names, no ?? 0)?
+      let else_part = compile_statement(x, s, names, no)?
       Ok(site + compile_condition(x, names, condition, then_part.len() + 1)? + then_part + [OpJump(else_part.len())] + else_part)
     }
     While(condition, body) => {
@@ -2616,26 +2673,21 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
     }
     For(initial, condition, step, body) => {
       var init_ops: List[Op] = []
-      if initial != null { init_ops = compile_expression(x, names, initial ?? 0)? + [OpPop] }
+      if initial != null { init_ops = compile_expression(x, names, initial)? + [OpPop] }
       var step_ops: List[Op] = []
       if step != null {
-        match x[step ?? 0] {
-          Increment(target, delta, post) => {
-            match x[target] {
-              Variable(name) => {
-                if slot_of(names, name) < 0 and name != "NF" { step_ops = [OpIncGlobal(name, delta)] }
-              }
-              _ => {}
-            }
+        if let Increment(target, delta, post) = x[step] {
+          if let Variable(name) = x[target] {
+            if slot_of(names, name) < 0 and name != "NF" { step_ops = [OpIncGlobal(name, delta)] }
           }
-          _ => {}
         }
-        if step_ops.is_empty() { step_ops = compile_expression(x, names, step ?? 0)? + [OpPop] }
+
+        if step_ops.is_empty() { step_ops = compile_expression(x, names, step)? + [OpPop] }
       }
       let inner = compile_statement(x, s, names, body)?
       # [condition + jump] [body] [step] [Jump back]
       var gate: List[Op] = []
-      if condition != null { gate = compile_condition(x, names, condition ?? 0, inner.len() + step_ops.len() + 1)? }
+      if condition != null { gate = compile_condition(x, names, condition, inner.len() + step_ops.len() + 1)? }
       let total = gate.len() + inner.len() + step_ops.len() + 1
       let patched = patch_markers(inner, total - gate.len(), inner.len())
       Ok(site + init_ops + gate + patched + step_ops + [OpJump(0 - total)])
@@ -2653,8 +2705,8 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       let slot = slot_of(names, array)
       if keys == null { return Ok(site + [OpDeleteAll(if slot >= 0 { SpotLocal(slot, array) } else { SpotGlobal(array) })]) }
       var ops = site
-      for key in keys ?? [] { ops += compile_expression(x, names, key)? }
-      let count = (keys ?? []).len()
+      for key in keys { ops += compile_expression(x, names, key)? }
+      let count = keys.len()
       Ok(ops + [OpDelete(if slot >= 0 { SpotIndexLocal(slot, array, count) } else { SpotIndexGlobal(array, count) })])
     }
     Next => Ok(site + [OpNext])
@@ -2662,12 +2714,12 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
     Break => Ok([OpBreakMarker])
     Continue => Ok([OpContinueMarker])
     Exit(child) => {
-      if child == null { return Ok(site + [OpExit(false)]) }
-      Ok(site + compile_expression(x, names, child ?? 0)? + [OpExit(true)])
+      return Ok(site + [OpExit(false)]) when child == null
+      Ok(site + compile_expression(x, names, child)? + [OpExit(true)])
     }
     Return(child) => {
-      if child == null { return Ok(site + [OpReturnEmpty]) }
-      Ok(site + compile_expression(x, names, child ?? 0)? + [OpReturn])
+      return Ok(site + [OpReturnEmpty]) when child == null
+      Ok(site + compile_expression(x, names, child)? + [OpReturn])
     }
   }
 }
@@ -2676,11 +2728,11 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
 # Lays out BEGIN code, the record loop with its rules, END code, and the
 # functions after a final Halt.
 pure link(program: Program) -> Result[Linked] {
-  let x = program.expressions
-  let s = program.statements
+  let {expressions: x, statements: s, ..} = program
   var labels = program.site
-  var begin_ops: List[Op] = []
-  for id in program.begin { begin_ops += compile_statement(x, s, [], id)? }
+  let begin_ops: List[Op] = collect {
+    for id in program.begin { yield @compile_statement(x, s, [], id)? }
+  }
   var rule_ops: List[Op] = []
   var range_index = 0
   for rule in program.rules {
@@ -2688,12 +2740,12 @@ pure link(program: Program) -> Result[Linked] {
     labels += [rule.site]
     let action = compile_statement(x, s, [], rule.action)?
     if rule.pattern == null { rule_ops += [OpSetSite(label)] + action; continue }
-    let cond_ops = compile_expression(x, [], rule.pattern ?? 0)?
+    let cond_ops = compile_expression(x, [], rule.pattern)?
     if rule.end == null {
-      rule_ops += [OpSetSite(label)] + compile_condition(x, [], rule.pattern ?? 0, action.len())? + action
+      rule_ops += [OpSetSite(label)] + compile_condition(x, [], rule.pattern, action.len())? + action
       continue
     }
-    let stop = compile_expression(x, [], rule.end ?? 0)?
+    let stop = compile_expression(x, [], rule.end)?
     let index = range_index
     range_index += 1
     # [RangeActive -> check] [start] [JumpFalse skip] [SetRange true]
@@ -2701,8 +2753,9 @@ pure link(program: Program) -> Result[Linked] {
     let tail = stop + [OpJumpTrue(1), OpJump(1), OpSetRange(index, false)] + action
     rule_ops += [OpSetSite(label), OpRangeActive(index, cond_ops.len() + 2)] + cond_ops + [OpJumpFalse(1 + tail.len()), OpSetRange(index, true)] + tail
   }
-  var end_ops: List[Op] = []
-  for id in program.end { end_ops += compile_statement(x, s, [], id)? }
+  let end_ops: List[Op] = collect {
+    for id in program.end { yield @compile_statement(x, s, [], id)? }
+  }
   let main_section = ! program.rules.is_empty() or ! program.end.is_empty()
   var ops = begin_ops
   var loop_at = begin_ops.len()
@@ -2730,12 +2783,12 @@ pure no_writer() -> Writer { Writer(fd: -1, pending: "", job: null, name: "", co
 pure reason_of(failure: Error) -> Str {
   var text = failure.message
   let cut = text.find(" (os error")
-  if cut != null { text = text.byte_slice(0, length: cut ?? 0) }
+  if cut != null { text = text.byte_slice(0, length: cut) }
   var tail = text
   loop {
     let at = tail.find(": ")
-    if at == null { break }
-    tail = tail.byte_slice((at ?? 0) + 2)
+    break when at == null
+    tail = tail.byte_slice(at + 2)
   }
   tail
 }
@@ -2743,22 +2796,22 @@ pure fatal_error(text: Str) -> Error { AwkError.Fatal(message: f"fatal: {text}",
 # A failure reported without a source location.
 pure bare_fatal(text: Str) -> Error { AwkError.Plain(message: f"fatal: {text}", pending: "") }
 
-proc write_all(fd: Int, data: Bytes) -> Result[Unit] {
+proc write_all(fd: Int, data: Bytes) {
   var rest = data
   while ! rest.is_empty() {
     let count = unix.write_fd(fd, rest)?
-    if count <= 0 { return error.fail("write failed") }
+    return error.fail("write failed") when count <= 0
     rest = rest.slice(count, length: rest.len() - count)
   }
 }
-proc warn_plain(text: Str) -> Result[Unit] {
-  write_all(2, bytes.from_text(f"awk: warning: {text}\n"))?
+proc warn_plain(text: Str) {
+  write_all(2, bytes.from_text(f"awk: warning: {text}\n"))
 }
 
 # A child's exit status as awk numbers it: the exit code, or 256 plus the
 # signal number.
 pure status_code(status: Status) -> Int {
-  if status.signaled() { return 256 + (status.signal_number() ?? 0) }
+  return 256 + (status.signal_number() ?? 0) when status.signaled()
   status.exit_code() ?? 0
 }
 
@@ -2784,15 +2837,15 @@ proc flush_writers(streams: Map[Writer], lossy: Bool) -> Result[Flushed] {
 # A shell prefix that exports the changes the program made to ENVIRON, so
 # children see them as they do under GNU awk.
 proc environment_prefix(arrays: Map[Table]) -> Str {
-  if "ENVIRON" not in arrays { return "" }
+  return "" when "ENVIRON" not in arrays
   var prefix = ""
   let table = arrays.get("ENVIRON") ?? empty_table()
   var current: Map[Str] = {}
   for entry in env.list() ?? [] { current = current.set(entry.name, entry.value) }
   for name in table.cells.keys() {
-    if ! binding_name(name) { continue }
+    continue unless binding_name(name)
     let wanted = plain_text((table.cells.get(name) ?? Cell(value: Empty, seq: 0)).value) ?? ""
-    if name in current and (current.get(name) ?? "") == wanted { continue }
+    continue when name in current and (current.get(name) ?? "") == wanted
     prefix += f"export {name}='{wanted.replace("'", with: "'\\''")}'; "
   }
   for name in current.keys() {
@@ -2813,7 +2866,7 @@ proc next_fifo(temporary: Temporary) -> Result[Started] {
   state.count += 1
   let base = state.base ?? fp"/tmp"
   let made = fp"{base}/c{state.count}"
-  fs.mkfifo(made, 0o600)?
+  fs.mkfifo(made, 0o600)
   Ok({temporary: state, fifo: made})
 }
 type OpenedReader = {reader: Reader, temporary: Temporary}
@@ -2824,7 +2877,7 @@ proc open_command_reader(temporary: Temporary, command: Str, prefix: Str) -> Res
   let pipe_path = started.fifo
   let fd = unix.open_fd(pipe_path, nonblock: true)?
   let job = spawn run.status sh -c ${prefix + command} > $pipe_path ?
-  Ok({reader: Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: true, lossy: false, job: job, name: command, command: true), temporary: started.temporary})
+  Ok({reader: Reader(fd:, text: "", at: 0, done: false, tail: b"", pollable: true, lossy: false, job:, name: command, command: true), temporary: started.temporary})
 }
 # Starts `sh -c command` with standard input from a FIFO this process writes.
 proc open_command_writer(temporary: Temporary, command: Str, prefix: Str) -> Result[OpenedWriter] {
@@ -2835,37 +2888,37 @@ proc open_command_writer(temporary: Temporary, command: Str, prefix: Str) -> Res
   let hold = unix.open_fd(pipe_path, nonblock: true)?
   let fd = unix.open_fd(pipe_path, write: true)?
   let job = spawn run.status sh -c ${prefix + command} < $pipe_path ?
-  unix.close_fd(hold)?
-  Ok({writer: Writer(fd: fd, pending: "", job: job, name: command, command: true), temporary: started.temporary})
+  unix.close_fd(hold)
+  Ok({writer: Writer(fd:, pending: "", job:, name: command, command: true), temporary: started.temporary})
 }
 # Opens a file for output: truncated, or appended to (and created when missing).
 proc open_output(target: Path, append: Bool) -> Result[Int] {
   if append {
-    if ! target.exists() { target.write("")? }
+    if ! target.exists() { target.write("") }
     return unix.open_fd(target, write: true, flags: ["append"])
   }
-  target.write("")?
+  target.write("")
   unix.open_fd(target, write: true)
 }
 proc open_file_reader(name: Str, stdin_reader: Reader) -> Result[Reader] {
-  if name == "-" or name == "/dev/stdin" { return Ok(stdin_reader) }
+  return Ok(stdin_reader) when name == "-" or name == "/dev/stdin"
   let metadata = fs.stat(fp"{name}", follow_symlinks: true)?
-  if metadata.kind == "dir" { return Err(error.failure("is a directory")) }
+  return Err(error.failure("is a directory")) when metadata.kind == "dir"
   let fd = unix.open_fd(fp"{name}")?
-  Ok(Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: name, command: false))
+  Ok(Reader(fd:, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name:, command: false))
 }
 
 ## True when the text is a valid awk variable name.
 export pure binding_name(content: Str) -> Bool {
-  if content.is_empty() or ! letter(content.byte_at(0) ?? 0) { return false }
+  return false when content.is_empty() or ! letter(content.byte_at(0) ?? 0)
   for at in range(1, content.byte_len()) { if ! letter(content.byte_at(at) ?? 0) and ! digit(content.byte_at(at) ?? 0) { return false } }
   true
 }
 # Whether an ARGV entry is a var=value assignment operand.
 pure assignment_operand(argument: Str) -> Bool {
   let equals = argument.find("=")
-  if equals == null { return false }
-  binding_name(argument.byte_slice(0, length: equals ?? 0))
+  return false when equals == null
+  binding_name(argument.byte_slice(0, length: equals))
 }
 
 
@@ -2887,7 +2940,7 @@ pure seed_generator(seed: Int) -> Generator {
   }
   var front = 1
   var rear = 0
-  for _ in range(630) {
+  repeat 630 times {
     words[front] = (words[front] + words[rear]) % 4294967296
     front += 1
     if front >= 63 { front = 0; rear += 1 } else { rear += 1; if rear >= 63 { rear = 0 } }
@@ -2918,11 +2971,11 @@ pure shown_name(name: Str) -> Str { if name.starts_with("\u{1}") { name.byte_sli
 # The record separator; only its first character counts outside GNU awk's own dialect.
 pure record_separator(globals: Map[Scalar], mode: Int) -> Result[Str] {
   let text = plain_text(globals.get("RS") ?? Empty)?
-  if mode != 0 and text.count_chars() > 1 { return Ok(text.split("")[0]) }
+  return Ok(text.split("")[0]) when mode != 0 and text.count_chars() > 1
   Ok(text)
 }
 pure fold_case(globals: Map[Scalar]) -> Bool {
-  if "IGNORECASE" not in globals { return false }
+  return false when "IGNORECASE" not in globals
   truth(globals.get("IGNORECASE") ?? Empty) ?? false
 }
 # Splits a record into fields by the current FS rules: " " is runs of blanks
@@ -2930,25 +2983,26 @@ pure fold_case(globals: Map[Scalar]) -> Bool {
 # anything longer is a regular expression (regex_mode forces that for regex
 # literals).
 pure split_fields(content: Str, separator: Str, regex_mode: Bool, ignore_case: Bool) -> Result[List[Scalar]] {
-  if content.is_empty() { return Ok([]) }
+  return Ok([]) when content.is_empty()
   if separator == " " and ! regex_mode { return Ok([input(piece)? for piece in content.replace("\n", with: " ").replace("\t", with: " ").split(" ") if ! piece.is_empty()]) }
-  if separator.is_empty() and ! regex_mode { return Ok([input(piece)? for piece in content.split("")]) }
+  if separator.is_empty() and ! regex_mode { return Ok([input(piece)? for piece in content]) }
   if separator.count_chars() == 1 and ! regex_mode { return Ok([input(piece)? for piece in content.split(separator)]) }
-  var fields: List[Scalar] = []
   var start = 0
-  for hit in rx_matches(separator, content, ignore_case)? {
-    if hit.start == hit.end { continue }
-    fields += [input(content.byte_slice(start, length: hit.start - start))?]
-    start = hit.end
+  let fields: List[Scalar] = collect {
+    for hit in rx_matches(separator, content, ignore_case)? {
+      continue when hit.start == hit.end
+      yield input(content.byte_slice(start, length: hit.start - start))?
+      start = hit.end
+    }
   }
   Ok(fields + [input(content.byte_slice(start))?])
 }
 # How records are cut into fields: by FS (0), FIELDWIDTHS (1) or FPAT (2),
 # whichever of the three variables was assigned last.
 pure mode_after(name: Str, current: Int) -> Int {
-  if name == "FS" { return 0 }
-  if name == "FIELDWIDTHS" { return 1 }
-  if name == "FPAT" { return 2 }
+  return 0 when name == "FS"
+  return 1 when name == "FIELDWIDTHS"
+  return 2 when name == "FPAT"
   current
 }
 # The mode after variable `name` takes `value`; FIELDWIDTHS is checked when
@@ -2970,61 +3024,63 @@ pure invalid_field_widths(index: Int, near: Str) -> Error {
   fatal_error(f"invalid FIELDWIDTHS value, for field {index}, near `{near}'")
 }
 pure parse_field_widths(spec: Str) -> Result[List[FieldWidth]] {
-  var widths: List[FieldWidth] = []
   let size = spec.byte_len()
   var at = 0
   var index = 0
-  loop {
-    while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
-    if at >= size { break }
-    index += 1
-    var skip = 0
-    var begin = at
-    var digits = 0
-    var value = 0
-    while at < size and (spec.byte_at(at) ?? 0) >= 48 and (spec.byte_at(at) ?? 0) <= 57 {
-      value = value * 10 + ((spec.byte_at(at) ?? 48) - 48)
-      at += 1
-      digits += 1
-    }
-    if digits > 0 and at < size and spec.byte_at(at) == 58 {
-      skip = value
-      at += 1
-      begin = at
-      value = 0
-      digits = 0
+  let widths: List[FieldWidth] = collect {
+    loop {
+      while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
+      break when at >= size
+      index += 1
+      var skip = 0
+      var begin = at
+      var digits = 0
+      var value = 0
       while at < size and (spec.byte_at(at) ?? 0) >= 48 and (spec.byte_at(at) ?? 0) <= 57 {
         value = value * 10 + ((spec.byte_at(at) ?? 48) - 48)
         at += 1
         digits += 1
       }
+      if digits > 0 and at < size and spec.byte_at(at) == 58 {
+        skip = value
+        at += 1
+        begin = at
+        value = 0
+        digits = 0
+        while at < size and (spec.byte_at(at) ?? 0) >= 48 and (spec.byte_at(at) ?? 0) <= 57 {
+          value = value * 10 + ((spec.byte_at(at) ?? 48) - 48)
+          at += 1
+          digits += 1
+        }
+      }
+      if digits == 0 and at < size and spec.byte_at(at) == 42 {
+        at += 1
+        while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
+        return Err(fatal_error("`*' must be the last designator in FIELDWIDTHS")) when at < size
+        yield {skip: skip, width: -1}
+        break
+      }
+      if digits == 0 or value <= 0 or (at < size and ! ((spec.byte_at(at) ?? 0) in [32, 9, 10])) {
+        return Err(invalid_field_widths(index, spec.byte_slice(begin)))
+      }
+      yield {skip: skip, width: value}
     }
-    if digits == 0 and at < size and spec.byte_at(at) == 42 {
-      at += 1
-      while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
-      if at < size { return Err(fatal_error("`*' must be the last designator in FIELDWIDTHS")) }
-      widths += [{skip: skip, width: -1}]
-      break
-    }
-    if digits == 0 or value <= 0 or (at < size and ! ((spec.byte_at(at) ?? 0) in [32, 9, 10])) {
-      return Err(invalid_field_widths(index, spec.byte_slice(begin)))
-    }
-    widths += [{skip: skip, width: value}]
   }
   Ok(widths)
 }
 # The fields of a record cut at fixed character positions.
 pure cut_fields(record: Str, widths: List[FieldWidth]) -> Result[List[Scalar]] {
   let characters = record.split("")
-  var fields: List[Scalar] = []
   var at = 0
-  for designator in widths {
-    at += designator.skip
-    if at >= characters.len() { break }
-    let available = characters.len() - at
-    let take = if designator.width < 0 or designator.width > available { available } else { designator.width }
-    fields += [input(characters[at..at + take].join(""))?]
-    at += take
+  let fields: List[Scalar] = collect {
+    for designator in widths {
+      at += designator.skip
+      break when at >= characters.len()
+      let available = characters.len() - at
+      let take = if designator.width < 0 or designator.width > available { available } else { designator.width }
+      yield input(characters[at..at + take].join(""))?
+      at += take
+    }
   }
   Ok(fields)
 }
@@ -3032,20 +3088,21 @@ pure cut_fields(record: Str, widths: List[FieldWidth]) -> Result[List[Scalar]] {
 # is a field unless it directly follows the match before it.
 # FPAT is matched without case folding even when IGNORECASE is set.
 pure pattern_fields(record: Str, pattern: Str) -> Result[List[Scalar]] {
-  if record.is_empty() { return Ok([]) }
-  var fields: List[Scalar] = []
+  return Ok([]) when record.is_empty()
   var previous_end = -1
-  for hit in dynamic_matches(pattern, record, false)? {
-    if hit.start == hit.end and previous_end == hit.start { continue }
-    fields += [input(record.byte_slice(hit.start, length: hit.end - hit.start))?]
-    previous_end = hit.end
+  let fields: List[Scalar] = collect {
+    for hit in dynamic_matches(pattern, record, false)? {
+      continue when hit.start == hit.end and previous_end == hit.start
+      yield input(record.byte_slice(hit.start, length: hit.end - hit.start))?
+      previous_end = hit.end
+    }
   }
   Ok(fields)
 }
 # The fields and the separator texts between them, for split's fourth argument.
 type Split = {fields: List[Str], separators: List[Str]}
 pure split_with_separators(content: Str, separator: Str, regex_mode: Bool, ignore_case: Bool) -> Result[Split] {
-  if content.is_empty() { return Ok({fields: [], separators: []}) }
+  return Ok({fields: [], separators: []}) when content.is_empty()
   var pattern = separator
   if separator == " " and ! regex_mode { pattern = "[ \t\n]+" } else if separator.is_empty() and ! regex_mode {
     let characters = content.split("")
@@ -3053,12 +3110,12 @@ pure split_with_separators(content: Str, separator: Str, regex_mode: Bool, ignor
   } else if separator.count_chars() == 1 and ! regex_mode {
     pattern = if separator in REGEX_SPECIAL { "\\" + separator } else { separator }
   }
-  var fields: List[Str] = []
-  var seps: List[Str] = []
+  var fields = []
+  var seps = []
   var start = 0
   var leading = ""
   for hit in rx_matches(pattern, content, ignore_case)? {
-    if hit.start == hit.end { continue }
+    continue when hit.start == hit.end
     if separator == " " and ! regex_mode and hit.start == 0 {
       leading = content.byte_slice(0, length: hit.end)
       start = hit.end
@@ -3070,7 +3127,7 @@ pure split_with_separators(content: Str, separator: Str, regex_mode: Bool, ignor
   }
   let rest = content.byte_slice(start)
   if ! (separator == " " and ! regex_mode and rest.is_empty()) { fields += [rest] }
-  Ok({fields: fields, separators: if leading.is_empty() { seps } else { [leading] + seps }})
+  Ok({fields: fields, separators: if leading.is_empty() { seps } else { [leading, @seps] }})
 }
 # Rebuilds $0 from the fields.
 pure joined_fields(fields: List[Scalar], separator: Str, conversion: Str) -> Result[Str] {
@@ -3086,8 +3143,8 @@ type Advanced = {state: MainState, stdin: Reader, record: Str?, terminator: Str,
 proc advance_main(start: MainState, standard_input: Reader, operands: Table, count: Int, separator: Str, ignore_case: Bool) -> Result[Advanced] {
   var state = start
   var stdin = standard_input
-  var bindings: List[Str] = []
-  var filename: Str? = null
+  var bindings = []
+  var filename = null
   var argind = 0
   loop {
     if state.finished { return Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, argind: argind}) }
@@ -3098,7 +3155,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       if uses_stdin { stdin = got.reader }
       state.reader = got.reader
       if got.record != null { return Ok({state: state, stdin: stdin, record: got.record, terminator: got.terminator, filename: filename, bindings: bindings, argind: argind}) }
-      if got.reader.fd > 0 { unix.close_fd(got.reader.fd)? }
+      if got.reader.fd > 0 { unix.close_fd(got.reader.fd) }
       state.active = false
       continue
     }
@@ -3107,9 +3164,9 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       let index = state.index
       state.index += 1
       let key = f"{index}"
-      if key not in operands.cells { continue }
+      continue when key not in operands.cells
       let argument = plain_text((operands.cells.get(key) ?? Cell(value: Empty, seq: 0)).value)?
-      if argument.is_empty() { continue }
+      continue when argument.is_empty()
       if assignment_operand(argument) { bindings += [argument]; continue }
       state.opened = true
       argind = index
@@ -3123,7 +3180,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       match fs.stat(fp"{argument}", follow_symlinks: true) {
         Ok(info) => {
           if info.kind == "dir" {
-            warn_plain(f"command line argument `{argument}' is a directory: skipped")?
+            warn_plain(f"command line argument `{argument}' is a directory: skipped")
             continue
           }
         }
@@ -3132,7 +3189,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       match unix.open_fd(fp"{argument}") {
         Ok(fd) => {
           filename = argument
-          state.reader = Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: argument, command: false)
+          state.reader = Reader(fd:, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: argument, command: false)
           state.active = true
           opened = true
         }
@@ -3140,7 +3197,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       }
       break
     }
-    if opened { continue }
+    continue when opened
     if ! state.opened and ! state.stdin_used {
       state.stdin_used = true
       state.opened = true
@@ -3165,7 +3222,7 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
   var code = -1
   var found = false
   for key in [f">{target}", f">>{target}", f"|{target}"] {
-    if key not in writers { continue }
+    continue when key not in writers
     let writer = writers.get(key) ?? no_writer()
     writers = writers.remove(key)
     found = true
@@ -3175,7 +3232,7 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
         Err(failure) => { return Err(fatal_error(f"flush to \"{writer.name}\" failed: {reason_of(failure)}")) }
       }
     }
-    if writer.fd >= 0 { unix.close_fd(writer.fd)? }
+    if writer.fd >= 0 { unix.close_fd(writer.fd) }
     code = 0
     if writer.command {
       if let handle = writer.job {
@@ -3185,11 +3242,11 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
     }
   }
   for key in [f"<{target}", f"|{target}"] {
-    if key not in readers { continue }
+    continue when key not in readers
     let reader = readers.get(key) ?? no_reader()
     readers = readers.remove(key)
     found = true
-    if reader.fd > 0 { unix.close_fd(reader.fd)? }
+    if reader.fd > 0 { unix.close_fd(reader.fd) }
     code = 0
     if reader.command {
       if let handle = reader.job {
@@ -3202,7 +3259,7 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
 }
 # Everything still open is closed at exit: files and commands first (waiting
 # for the commands); standard output is flushed by the caller afterwards.
-proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool) -> Result[Unit] {
+proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool) {
   for key in open_writers.keys() {
     let writer = open_writers.get(key) ?? no_writer()
     if writer.fd >= 0 and ! writer.pending.is_empty() {
@@ -3211,14 +3268,14 @@ proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool
         Err(failure) => { return Err(bare_fatal(f"flush to \"{writer.name}\" failed: {reason_of(failure)}")) }
       }
     }
-    if writer.fd >= 0 { unix.close_fd(writer.fd)? }
+    if writer.fd >= 0 { unix.close_fd(writer.fd) }
     if writer.command {
       if let handle = writer.job { let _ = wait handle ? }
     }
   }
   for key in open_readers.keys() {
     let reader = open_readers.get(key) ?? no_reader()
-    if reader.fd > 0 { unix.close_fd(reader.fd)? }
+    if reader.fd > 0 { unix.close_fd(reader.fd) }
     if reader.command {
       if let handle = reader.job { let _ = wait handle ? }
     }
@@ -3236,18 +3293,18 @@ pure dynamic_matches(pattern: Str, content: Str, ignore_case: Bool) -> Result[Li
 type SortItem = {rank: Int, number: Float, text: Str, value: Scalar}
 
 pure upper_text(content: Str) -> Str {
-  if is_ascii_text(content) { return content.upper() }
-  [convert_case(character, true) for character in content.split("")].join("")
+  return content.upper() when is_ascii_text(content)
+  [convert_case(character, true) for character in content].join("")
 }
 pure lower_text(content: Str) -> Str {
-  if is_ascii_text(content) { return content.lower() }
-  [convert_case(character, false) for character in content.split("")].join("")
+  return content.lower() when is_ascii_text(content)
+  [convert_case(character, false) for character in content].join("")
 }
 # One character at a time, as towupper does: a conversion that would change
 # the length (other than sharp s) leaves the character alone.
 pure convert_case(character: Str, upper: Bool) -> Str {
-  if character == "\u{df}" { return if upper { "\u{1e9e}" } else { character } }
-  if code_point(character) >= 1113984 { return "\u{fffd}" }
+  return if upper { "ẞ" } else { character } when character == "ß"
+  return "�" when code_point(character) >= 1113984
   let changed = if upper { character.upper() } else { character.lower() }
   if changed.count_chars() == 1 { changed } else { character }
 }
@@ -3327,7 +3384,7 @@ pure item_before(a: SortItem, b: SortItem, descending: Bool) -> Bool {
   less
 }
 pure merge_sort(items: List[SortItem], descending: Bool) -> List[SortItem] {
-  if items.len() <= 1 { return items }
+  return items when items.len() <= 1
   let middle = items.len() / 2
   let left = merge_sort(items[..middle], descending)
   let right = merge_sort(items[middle..], descending)
@@ -3357,24 +3414,25 @@ pure days_from_civil(year: Int, month: Int, day: Int) -> Int {
 pure leading_integer(word: Str) -> Int? {
   let negative = word.starts_with("-")
   let digits = if negative or word.starts_with("+") { word.byte_slice(1) } else { word }
-  if digits.is_empty() { return null }
+  return null when digits.is_empty()
   var value = 0
   for index in range(digits.byte_len()) {
     let byte = digits.byte_at(index) ?? 0
-    if byte < 48 or byte > 57 { return null }
+    return null when byte < 48 or byte > 57
     value = value * 10 + (byte - 48)
   }
   if negative { 0 - value } else { value }
 }
 proc make_time(spec: Str, utc: Bool) -> Result[Int] {
-  var parts: List[Int] = []
-  for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
-    if word.is_empty() { continue }
-    let number = leading_integer(word)
-    if number == null { return Ok(-1) }
-    parts += [number ?? 0]
+  let parts = collect {
+    for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
+      continue when word.is_empty()
+      let number = leading_integer(word)
+      return Ok(-1) when number == null
+      yield number
+    }
   }
-  if parts.len() < 6 { return Ok(-1) }
+  return Ok(-1) when parts.len() < 6
   var year = parts[0]
   var month = parts[1] - 1
   year += month / 12
@@ -3382,11 +3440,19 @@ proc make_time(spec: Str, utc: Bool) -> Result[Int] {
   if month < 0 { month += 12; year -= 1 }
   let days = days_from_civil(year, month + 1, 1) + parts[2] - 1
   let seconds = days * 86400 + parts[3] * 3600 + parts[4] * 60 + parts[5]
-  if utc { return Ok(seconds) }
+  return Ok(seconds) when utc
   let calendar = time.to_calendar(seconds * 1000000000, true)?
-  match time.from_calendar(calendar.year, calendar.month, calendar.day, calendar.hour, calendar.minute, calendar.second) {
-    Ok(stamp) => Ok(stamp / 1000000000)
-    Err(_) => Ok(-1)
+  if let Ok(stamp) = time.from_calendar(
+    calendar.year,
+    calendar.month,
+    calendar.day,
+    calendar.hour,
+    calendar.minute,
+    calendar.second,
+  ) {
+    Ok(stamp / 1000000000)
+  } else {
+    Ok(-1)
   }
 }
 # gensub: how is "g"/"G" for all matches or the number of the match to replace;
@@ -3405,10 +3471,10 @@ proc gensub(globals: Map[Scalar], pattern: Str, replacement: Str, how: Scalar, t
   var counted = 0
   var previous_end = -1
   for hit in rx_matches(pattern, target, fold_case(globals))? {
-    if hit.start == hit.end and previous_end == hit.start { continue }
+    continue when hit.start == hit.end and previous_end == hit.start
     counted += 1
     previous_end = hit.end
-    if ! global and counted != which { continue }
+    continue when ! global and counted != which
     let matched = target.byte_slice(hit.start, length: hit.end - hit.start)
     var groups: List[Str] = [matched]
     if "\\" in replacement {
@@ -3436,12 +3502,12 @@ proc gensub(globals: Map[Scalar], pattern: Str, replacement: Str, how: Scalar, t
     }
     out += target.byte_slice(copied, length: hit.start - copied) + piece
     copied = hit.end
-    if ! global { break }
+    break unless global
   }
   Ok(out + target.byte_slice(copied))
 }
 pure to_bit_operand(name: Str, position: Int, value: Float) -> Result[Float] {
-  if value < 0.0 { return Err(fatal_error(f"{name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
+  guard ! (value < 0.0) else { return Err(fatal_error(f"{name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
   Ok(truncate(value))
 }
 # and, or and xor over unsigned 64-bit operands. A value that does not fit is
@@ -3472,11 +3538,11 @@ pure bit_fold(name: Str, operands: List[Float]) -> Float {
   if highest - lowest + 1 <= 53 { whole } else { kept }
 }
 pure arith(op: Str, a: Float, b: Float) -> Result[Float] {
-  if op == "+" { return Ok(a + b) }
-  if op == "-" { return Ok(a - b) }
-  if op == "*" { return Ok(a * b) }
-  if op == "/" { return Ok(a / b) }
-  if op == "^" { return Ok(a.pow(b)) }
+  return Ok(a + b) when op == "+"
+  return Ok(a - b) when op == "-"
+  return Ok(a * b) when op == "*"
+  return Ok(a / b) when op == "/"
+  return Ok(a.pow(b)) when op == "^"
   if op == "%" {
     let q = truncate(a / b)
     return Ok(a - q * b)
@@ -3514,7 +3580,7 @@ pure relation(op: Int, left: Scalar, right: Scalar, conversion: Str, fold: Bool)
   if numeric(left) and numeric(right) {
     let x = number(left)?
     let y = number(right)?
-    if is_nan(x) or is_nan(y) { return Ok(op == 3) }
+    return Ok(op == 3) when is_nan(x) or is_nan(y)
   }
   let order = compare(left, right, conversion, fold)?
   Ok(if op == 0 { order < 0 } else if op == 1 { order <= 0 } else if op == 2 { order == 0 } else if op == 3 { order != 0 } else if op == 4 { order > 0 } else { order >= 0 })
@@ -3522,14 +3588,15 @@ pure relation(op: Int, left: Scalar, right: Scalar, conversion: Str, fold: Bool)
 # The fields of a record under the current field-splitting variable.
 pure record_fields(record: Str, globals: Map[Scalar], mode: Int) -> Result[List[Scalar]] {
   if mode == 1 { return cut_fields(record, parse_field_widths(plain_text(globals.get("FIELDWIDTHS") ?? Empty)?)?) }
-  if mode == 2 { return pattern_fields(record, plain_text(globals.get("FPAT") ?? Empty)?) }
+  return pattern_fields(record, plain_text(globals.get("FPAT") ?? Empty)?) when mode == 2
   split_fields(record, field_separator(globals)?, false, fold_case(globals))
 }
 # Subscripts on the stack joined with SUBSEP.
 pure subscript_key(stack: List[Scalar], top: Int, count: Int, separator: Str, conversion: Str) -> Result[Str] {
-  if count == 1 { return scalar_text(stack[top - 1], conversion) }
-  var pieces: List[Str] = []
-  for at in range(top - count, top) { pieces += [scalar_text(stack[at], conversion)?] }
+  return scalar_text(stack[top - 1], conversion) when count == 1
+  let pieces = collect {
+    for at in range(top - count, top) { yield scalar_text(stack[at], conversion)? }
+  }
   Ok(pieces.join(separator))
 }
 pure no_cell() -> Cell { Cell(value: Empty, seq: -1) }
@@ -3549,7 +3616,7 @@ pure scalar_as_array(name: Str, parameter: Bool) -> Error {
   fatal_error(f"attempt to use scalar {if parameter { "parameter " } else { "" }}`{name}' as an array")
 }
 pure array_target(array: Str, name: Str, parameter: Bool, key: Str, used: Int, arrays: Map[Table], globals: Map[Scalar]) -> Result[Target] {
-  if array in globals { return Err(scalar_as_array(name, parameter)) }
+  return Err(scalar_as_array(name, parameter)) when array in globals
   var current: Scalar = Empty
   if array in arrays { current = (arrays[array].cells.get(key) ?? no_cell()).value }
   Ok({kind: 5, name: array, slot: 0, key: key, used: used, current: current})
@@ -3578,7 +3645,7 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
     SpotIndexGlobal(name, count) => array_target(name, name, false, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
     SpotIndexLocal(slot, name, count) => {
       let array = aliases[slot]
-      if array == "" or slots[slot] != Empty { return Err(scalar_as_array(name, true)) }
+      return Err(scalar_as_array(name, true)) when array == "" or slots[slot] != Empty
       array_target(array, name, true, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
     }
     SpotNone => Ok({kind: 7, name: "", slot: 0, key: "", used: 0, current: Empty})
@@ -3588,20 +3655,20 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
 pure array_of(spot: Spot, slots: List[Scalar], aliases: List[Str], globals: Map[Scalar]) -> Result[Str] {
   match spot {
     SpotGlobal(name) => {
-      if name in globals { return Err(scalar_as_array(name, false)) }
+      return Err(scalar_as_array(name, false)) when name in globals
       Ok(name)
     }
     SpotLocal(slot, name) => {
-      if aliases[slot] == "" or slots[slot] != Empty { return Err(scalar_as_array(name, true)) }
+      return Err(scalar_as_array(name, true)) when aliases[slot] == "" or slots[slot] != Empty
       Ok(aliases[slot])
     }
-    _ => Err(fatal_error("an array name is required"))
+    else => Err(fatal_error("an array name is required"))
   }
 }
 
 # Writes the program's pending standard output to the host.
 proc emit_stdout(text: Str, lossy: Bool) -> Result[Unit] {
-  if text.is_empty() { return Ok() }
+  return when text.is_empty()
   match io.write_stdout_bytes(output_bytes(text, lossy)) {
     Ok(_) => {}
     Err(failure) => { return Err(fatal_error(f"print to \"standard output\" failed ({reason_of(failure)})")) }
@@ -3614,11 +3681,9 @@ proc emit_stdout(text: Str, lossy: Bool) -> Result[Unit] {
 
 # Runs a linked program over ARGV-selected input and returns the exit status.
 proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignments: List[Str], interactive: Bool, mode: Int) -> Result[Int] {
-  let ops = linked.ops
-  let labels = linked.labels
-  let entries = linked.entries
+  let {ops, labels, entries, ..} = linked
   let functions = program.functions
-  var globals: Map[Scalar] = {"FS": String(" "), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0), "FILENAME": String(""), "ARGIND": Numeric(0.0), "BINMODE": Numeric(0.0), "LINT": Numeric(0.0), "TEXTDOMAIN": String("messages"), "IGNORECASE": Numeric(0.0), "FPAT": String("[^[:space:]]+"), "FIELDWIDTHS": String(""), "ERRNO": String(""), "PREC": Numeric(53.0), "ROUNDMODE": String("N")}
+  var globals: Map[Scalar] = {FS: String(" "), OFS: String(" "), RS: String("\n"), RT: String(""), ORS: String("\n"), SUBSEP: String("\u{1c}"), OFMT: String("%.6g"), CONVFMT: String("%.6g"), NR: Numeric(0.0), FNR: Numeric(0.0), NF: Numeric(0.0), RSTART: Numeric(0.0), RLENGTH: Numeric(0.0), FILENAME: String(""), ARGIND: Numeric(0.0), BINMODE: Numeric(0.0), LINT: Numeric(0.0), TEXTDOMAIN: String("messages"), IGNORECASE: Numeric(0.0), FPAT: String("[^[:space:]]+"), FIELDWIDTHS: String(""), ERRNO: String(""), PREC: Numeric(53.0), ROUNDMODE: String("N")}
   var arrays: Map[Table] = {}
   var operand_cells: Map[Cell] = {"0": Cell(value: String("awk"), seq: 0)}
   for at in range(arguments.len()) { operand_cells = operand_cells.set(f"{at + 1}", Cell(value: input(arguments[at])?, seq: at + 1)) }
@@ -3644,10 +3709,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
     let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
     if holds_mapped_bytes(decoded.content) { assigned_mapped = true }
     field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
-    for note in decoded.notes { warn_plain(note)? }
+    for note in decoded.notes { warn_plain(note) }
     if mode != 0 and ! warned_extension and extension_variable(variable) {
       warned_extension = true
-      warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+      warn_plain(f"`{shown_name(variable)}' is a gawk extension")
     }
     globals[variable] = input(decoded.content)?
   }
@@ -3656,7 +3721,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   var stack: List[Scalar] = [Empty for _ in range(512)]
   var sp = 0
   var slots: List[Scalar] = []
-  var aliases: List[Str] = []
+  var aliases = []
   var frames: List[Frame] = []
   var iterators: List[Iteration] = []
   var readers: Map[Reader] = {}
@@ -3665,7 +3730,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   var out = ""
   var lossy = assigned_mapped
   for expression in program.expressions {
-    match expression { Text(content) => { if holds_mapped_bytes(content) { lossy = true } }; _ => {} }
+    if let Text(content) = expression { if holds_mapped_bytes(content) { lossy = true } }
   }
   var status = 0
   var site = 0
@@ -3814,12 +3879,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           result = String(a + b)
           produced = true
         }
-        OpLess => { result = Numeric(if relation(0, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpLessEqual => { result = Numeric(if relation(1, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpEqual => { result = Numeric(if relation(2, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpNotEqual => { result = Numeric(if relation(3, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpGreater => { result = Numeric(if relation(4, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpGreaterEqual => { result = Numeric(if relation(5, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpLess => { result = Numeric(if relation(0, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpLessEqual => { result = Numeric(if relation(1, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpEqual => { result = Numeric(if relation(2, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpNotEqual => { result = Numeric(if relation(3, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpGreater => { result = Numeric(if relation(4, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpGreaterEqual => { result = Numeric(if relation(5, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals)) { 1.0 } else { 0.0 }); sp -= 2; produced = true }
         OpMatch => {
           let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
           let pattern = scalar_text(stack[sp - 1], conversion)?
@@ -3851,13 +3916,13 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpNegate => {
           let value = stack[sp - 1]
           sp -= 1
-          match value {
-            Nan(positive) => { result = Nan(! positive) }
-            _ => {
-              let n = number(value)?
-              result = if is_nan(n) { Nan(true) } else { Numeric(-n) }
-            }
+          if let Nan(positive) = value {
+            result = Nan(! positive)
+          } else {
+            let n = number(value)?
+            result = if is_nan(n) { Nan(true) } else { Numeric(-n) }
           }
+
           produced = true
         }
         OpPlus => {
@@ -3865,7 +3930,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           sp -= 1
           match value {
             Nan(_) => { result = value }
-            _ => {
+            else => {
               let n = number(value)?
               result = if is_nan(n) { Nan(false) } else { Numeric(n) }
             }
@@ -3889,18 +3954,29 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           let left = stack[sp]
           let right = stack[sp + 1]
           var holds = false
-          match left {
-            Numeric(a) => {
-              match right {
-                Numeric(b) => {
-                  holds = if code == 0 { a < b } else if code == 1 { a <= b } else if code == 2 { a == b } else if code == 3 { a != b } else if code == 4 { a > b } else { a >= b }
-                  if a == -0.0 or b == -0.0 { holds = relation(code, left, right, "%.6g", false)? }
-                }
-                _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? }
+          if let Numeric(a) = left {
+            if let Numeric(b) = right {
+              holds = if code == 0 {
+                a < b
+              } else if code == 1 {
+                a <= b
+              } else if code == 2 {
+                a == b
+              } else if code == 3 {
+                a != b
+              } else if code == 4 {
+                a > b
+              } else {
+                a >= b
               }
+              if a == -0.0 or b == -0.0 { holds = relation(code, left, right, "%.6g", false)? }
+            } else {
+              holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))?
             }
-            _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? }
+          } else {
+            holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))?
           }
+
           if ! holds { pc += offset }
         }
         OpStoreGlobal(name) => {
@@ -3908,7 +3984,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           field_mode = field_mode_after(name, stack[sp - 1], field_mode)?
           if mode != 0 and ! warned_extension and extension_variable(name) {
             warned_extension = true
-            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))?
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))
           }
           globals[name] = stack[sp - 1]
           sp -= 1
@@ -3916,31 +3992,32 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpIncGlobal(name, delta) => {
           if mode != 0 and ! warned_extension and extension_variable(name) {
             warned_extension = true
-            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))?
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))
           }
           if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
           let current = globals.get(name) ?? Empty
-          match current {
-            Numeric(n) => { globals[name] = Numeric(n + delta) }
-            _ => { globals[name] = Numeric(number(current)? + delta) }
+          if let Numeric(n) = current {
+            globals[name] = Numeric(n + delta)
+          } else {
+            globals[name] = Numeric(number(current)? + delta)
           }
         }
         OpJump(offset) => { pc += offset }
         OpJumpFalse(offset) => {
           sp -= 1
-          if ! truth(stack[sp])? { pc += offset }
+          if ! truth(stack[sp]) { pc += offset }
         }
         OpJumpTrue(offset) => {
           sp -= 1
-          if truth(stack[sp])? { pc += offset }
+          if truth(stack[sp]) { pc += offset }
         }
         OpShortAnd(offset) => {
           sp -= 1
-          if ! truth(stack[sp])? { result = Numeric(0.0); produced = true; pc += offset }
+          if ! truth(stack[sp]) { result = Numeric(0.0); produced = true; pc += offset }
         }
         OpShortOr(offset) => {
           sp -= 1
-          if truth(stack[sp])? { result = Numeric(1.0); produced = true; pc += offset }
+          if truth(stack[sp]) { result = Numeric(1.0); produced = true; pc += offset }
         }
         OpPop => { sp -= 1 }
         OpSetSite(index) => { site = index; located = true }
@@ -3980,7 +4057,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               SpotGlobal(name) => { pending = 1; pending_name = name }
               SpotLocal(slot, name) => { pending = 3; pending_slot = slot; pending_name = name }
               SpotNF => { pending = 2 }
-              _ => {}
+              else => {}
             }
           }
         }
@@ -3995,12 +4072,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           for kind in kinds {
             match kind {
               ArgValue => { computed += 1 }
-              _ => {}
+              else => {}
             }
           }
           var taken = sp - computed
           var new_slots: List[Scalar] = []
-          var new_aliases: List[Str] = []
+          var new_aliases = []
           for at in range(function.parameters.len()) {
             if at >= kinds.len() {
               new_slots += [Empty]
@@ -4038,14 +4115,14 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
           sp = sp - computed
           if frames.len() > 2000 { Err(fatal_error("function call nesting too deep"))? }
-          frames += [Frame(slots: slots, aliases: aliases, return_to: pc, base: sp, iterators: iterators.len(), site: site)]
+          frames += [Frame(slots:, aliases:, return_to: pc, base: sp, iterators: iterators.len(), site:)]
           slots = new_slots
           aliases = new_aliases
           pc = entries.get(name) ?? 0
         }
         OpReturn => {
           let value = stack[sp - 1]
-          let frame = frames[frames.len() - 1]
+          let frame = frames[-1]
           frames = frames[..frames.len() - 1]
           sp = frame.base
           slots = frame.slots
@@ -4057,7 +4134,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           produced = true
         }
         OpReturnEmpty => {
-          let frame = frames[frames.len() - 1]
+          let frame = frames[-1]
           frames = frames[..frames.len() - 1]
           sp = frame.base
           slots = frame.slots
@@ -4076,7 +4153,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           stdin_reader = got.stdin
           if got.state.reader.lossy or got.stdin.lossy { lossy = true }
           if got.filename != null {
-            globals["FILENAME"] = String(got.filename ?? "")
+            globals["FILENAME"] = String(got.filename)
             globals["ARGIND"] = Numeric(got.argind.float())
             globals["FNR"] = Numeric(0.0)
           }
@@ -4084,12 +4161,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let equals = item.find("=") ?? 0
             let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
             if holds_mapped_bytes(decoded.content) { lossy = true }
-            for note in decoded.notes { warn_plain(note)? }
+            for note in decoded.notes { warn_plain(note) }
             let variable = assigned_name(item.byte_slice(0, length: equals), mode)
             field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
             if mode != 0 and ! warned_extension and extension_variable(variable) {
               warned_extension = true
-              warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+              warn_plain(f"`{shown_name(variable)}' is a gawk extension")
             }
             globals[variable] = input(decoded.content)?
           }
@@ -4098,7 +4175,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             globals["FNR"] = Numeric(number(globals.get("FNR") ?? Empty)? + 1.0)
             globals["RT"] = String(got.terminator)
             pending = 6
-            pending_value = String(got.record ?? "")
+            pending_value = String(got.record)
           }
         }
         OpNext => {
@@ -4115,7 +4192,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if phase == 0 { Err(fatal_error("`nextfile' cannot be called from a `BEGIN' rule"))? }
           if phase == 2 { Err(fatal_error("`nextfile' cannot be called from an `END' rule"))? }
           if main.active {
-            if main.reader.fd > 0 { unix.close_fd(main.reader.fd)? }
+            if main.reader.fd > 0 { unix.close_fd(main.reader.fd) }
             main.active = false
           }
           frames = []
@@ -4135,7 +4212,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           iterators = []
           slots = []
           aliases = []
-          if phase == 2 { break }
+          break when phase == 2
           phase = 2
           pc = linked.end_at
         }
@@ -4153,8 +4230,9 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           } else {
             if count == 0 { text = record } else {
               let output_format = plain_text(globals.get("OFMT") ?? Empty)?
-              var pieces: List[Str] = []
-              for at in range(sp - count, sp) { pieces += [scalar_text(stack[at], output_format)?] }
+              let pieces = collect {
+                for at in range(sp - count, sp) { yield scalar_text(stack[at], output_format)? }
+              }
               text = pieces.join(plain_text(globals.get("OFS") ?? Empty)?)
             }
             text += plain_text(globals.get("ORS") ?? Empty)?
@@ -4163,11 +4241,11 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if ! has_destination or (redirect != 3 and (destination == "/dev/stdout" or destination == "/dev/fd/1")) {
             out += text
             if interactive or out.byte_len() > 8192 {
-              emit_stdout(out, lossy)?
+              emit_stdout(out, lossy)
               out = ""
             }
           } else if redirect != 3 and (destination == "/dev/stderr" or destination == "/dev/fd/2") {
-            write_all(2, output_bytes(text, lossy))?
+            write_all(2, output_bytes(text, lossy))
           } else {
             if destination.is_empty() { Err(fatal_error(f"expression for `{if redirect == 1 { ">" } else if redirect == 2 { ">>" } else { "|" }}' redirection has null string value"))? }
             let key = f"{if redirect == 1 { ">" } else if redirect == 2 { ">>" } else { "|" }}{destination}"
@@ -4177,14 +4255,14 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 let flushed = flush_writers(writers, lossy)?
                 writers = flushed.writers
                 if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
-                emit_stdout(out, lossy)?
+                emit_stdout(out, lossy)
                 out = ""
                 let started = open_command_writer(temporary, destination, environment_prefix(arrays))?
                 writers[key] = started.writer
                 temporary = started.temporary
               } else {
                 match open_output(fp"{destination}", redirect == 2) {
-                  Ok(fd) => { writers[key] = Writer(fd: fd, pending: "", job: null, name: destination, command: false) }
+                  Ok(fd) => { writers[key] = Writer(fd:, pending: "", job: null, name: destination, command: false) }
                   Err(failure) => { Err(fatal_error(f"cannot redirect to `{destination}': {reason_of(failure)}"))? }
                 }
               }
@@ -4211,7 +4289,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           stdin_reader = got.stdin
           if got.state.reader.lossy or got.stdin.lossy { lossy = true }
           if got.filename != null {
-            globals["FILENAME"] = String(got.filename ?? "")
+            globals["FILENAME"] = String(got.filename)
             globals["ARGIND"] = Numeric(got.argind.float())
             globals["FNR"] = Numeric(0.0)
           }
@@ -4219,12 +4297,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let equals = item.find("=") ?? 0
             let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
             if holds_mapped_bytes(decoded.content) { lossy = true }
-            for note in decoded.notes { warn_plain(note)? }
+            for note in decoded.notes { warn_plain(note) }
             let variable = assigned_name(item.byte_slice(0, length: equals), mode)
             field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
             if mode != 0 and ! warned_extension and extension_variable(variable) {
               warned_extension = true
-              warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+              warn_plain(f"`{shown_name(variable)}' is a gawk extension")
             }
             globals[variable] = input(decoded.content)?
           }
@@ -4236,7 +4314,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             pending_name = target.name
             pending_slot = target.slot
             pending_key = target.key
-            pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
+            pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
             result = Numeric(1.0)
           }
           produced = true
@@ -4265,21 +4343,22 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             if usable { reader = readers.get(key) ?? no_reader() }
           }
           if usable {
-            match read_record(reader, record_separator(globals, mode)?, fold_case(globals)) {
-              Ok(got) => {
-                if got.reader.lossy { lossy = true }
-                if uses_stdin { stdin_reader = got.reader } else { readers[f"<{name}"] = got.reader }
-                if got.record == null { result = Numeric(0.0) } else {
-                  globals["RT"] = String(got.terminator)
-                  pending = if target.kind == 7 { 0 } else { target.kind }
-                  pending_name = target.name
-                  pending_slot = target.slot
-                  pending_key = target.key
-                  pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
-                  result = Numeric(1.0)
-                }
+            if let Ok(got) = read_record(reader, record_separator(globals, mode)?, fold_case(globals)) {
+              if got.reader.lossy { lossy = true }
+              if uses_stdin { stdin_reader = got.reader } else { readers[f"<{name}"] = got.reader }
+              if got.record == null {
+                result = Numeric(0.0)
+              } else {
+                globals["RT"] = String(got.terminator)
+                pending = if target.kind == 7 { 0 } else { target.kind }
+                pending_name = target.name
+                pending_slot = target.slot
+                pending_key = target.key
+                pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
+                result = Numeric(1.0)
               }
-              Err(_) => { result = Numeric(-1.0) }
+            } else {
+              result = Numeric(-1.0)
             }
           }
           produced = true
@@ -4297,22 +4376,24 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             temporary = started.temporary
           }
           result = Numeric(-1.0)
-          match read_record(readers.get(key) ?? no_reader(), record_separator(globals, mode)?, fold_case(globals)) {
-            Ok(got) => {
-              if got.reader.lossy { lossy = true }
-              readers[key] = got.reader
-              if got.record == null { result = Numeric(0.0) } else {
-                globals["RT"] = String(got.terminator)
-                pending = if target.kind == 7 { 0 } else { target.kind }
-                pending_name = target.name
-                pending_slot = target.slot
-                pending_key = target.key
-                pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
-                result = Numeric(1.0)
-              }
+          if let Ok(got) = read_record(readers.get(key) ?? no_reader(), record_separator(globals, mode)?, fold_case(globals)) {
+            if got.reader.lossy { lossy = true }
+            readers[key] = got.reader
+            if got.record == null {
+              result = Numeric(0.0)
+            } else {
+              globals["RT"] = String(got.terminator)
+              pending = if target.kind == 7 { 0 } else { target.kind }
+              pending_name = target.name
+              pending_slot = target.slot
+              pending_key = target.key
+              pending_value = if target.kind == 6 { String(got.record) } else { input(got.record)? }
+              result = Numeric(1.0)
             }
-            Err(_) => { result = Numeric(-1.0) }
+          } else {
+            result = Numeric(-1.0)
           }
+
           produced = true
         }
         OpBuiltin(name, count) => {
@@ -4343,7 +4424,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var wanted = scalar_text(values[1], conversion)?
             if fold_case(globals) { content = lower_text(content); wanted = lower_text(wanted) }
             let found = content.find(wanted)
-            result = Numeric(if found == null { 0.0 } else { (content.byte_slice(0, length: found ?? 0).count_chars() + 1).float() })
+            result = Numeric(if found == null { 0.0 } else { (content.byte_slice(0, length: found).count_chars() + 1).float() })
           } else if name == "tolower" or name == "toupper" {
             if count != 1 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
             let text = scalar_text(values[0], conversion)?
@@ -4356,10 +4437,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let n = number(values[0])?
             var computed = 0.0
             if name == "int" { computed = truncate(n) } else if name == "sqrt" {
-              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: sqrt: received negative argument {float_text(n, conversion)?}\n"))? }
+              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: sqrt: received negative argument {float_text(n, conversion)?}\n")) }
               computed = n.sqrt()
             } else if name == "log" {
-              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: log: received negative argument {float_text(n, conversion)?}\n"))? }
+              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: log: received negative argument {float_text(n, conversion)?}\n")) }
               computed = n.ln()
             } else if name == "exp" { computed = n.exp() } else if name == "sin" { computed = n.sin() } else { computed = n.cos() }
             result = Numeric(computed)
@@ -4392,7 +4473,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let flushed = flush_writers(writers, lossy)?
             writers = flushed.writers
             if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
-            emit_stdout(out, lossy)?
+            emit_stdout(out, lossy)
             out = ""
             let finished = run.status sh -c ${environment_prefix(arrays) + command}
             result = Numeric(status_code(finished).float())
@@ -4410,7 +4491,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               let flushed = flush_writers(writers, lossy)?
               writers = flushed.writers
               if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
-              emit_stdout(out, lossy)?
+              emit_stdout(out, lossy)
               out = ""
               result = Numeric(0.0)
             } else {
@@ -4429,18 +4510,19 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               }
               if target in ["/dev/stdout", "-"] {
                 found = true
-                emit_stdout(out, lossy)?
+                emit_stdout(out, lossy)
                 out = ""
               }
               if found { result = Numeric(0.0) } else {
-                write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: fflush: `{target}' is not an open file, pipe or co-process\n"))?
+                write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: fflush: `{target}' is not an open file, pipe or co-process\n"))
                 result = Numeric(-1.0)
               }
             }
           } else if name == "and" or name == "or" or name == "xor" {
             if count < 2 { Err(fatal_error(f"{name}: called with less than two arguments"))? }
-            var operands: List[Float] = []
-            for at in range(count) { operands += [to_bit_operand(name, at + 1, number(values[at])?)?] }
+            let operands = collect {
+              for at in range(count) { yield to_bit_operand(name, at + 1, number(values[at])?)? }
+            }
             result = Numeric(bit_fold(name, operands))
           } else if name == "lshift" or name == "rshift" {
             if count != 2 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
@@ -4493,7 +4575,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             if count == 4 { target = scalar_text(values[3], conversion)? }
             let how_text = scalar_text(values[2], conversion)?
             if ! how_text.starts_with("g") and ! how_text.starts_with("G") and number(values[2])? < 1.0 {
-              write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: gensub: third argument `{how_text}' treated as 1\n"))?
+              write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: gensub: third argument `{how_text}' treated as 1\n"))
             }
             result = String(gensub(globals, scalar_text(values[0], conversion)?, scalar_text(values[1], conversion)?, values[2], target)?)
           } else {
@@ -4530,7 +4612,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                   }
                 } else { result = Numeric((scalar_text(slots[slot], conversion)?).count_chars().float()) }
               }
-              _ => {}
+              else => {}
             }
             if size >= 0 { result = Numeric(size.float()) }
           } else if name == "typeof" or name == "isarray" {
@@ -4545,7 +4627,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                   if aliases[slot] in arrays { kind = "array"; is_array = true }
                 } else { kind = type_name(slots[slot]) }
               }
-              _ => {
+              else => {
                 let target = resolve_target(spots[0], stack, sp, globals, arrays, slots, aliases, fields, record)?
                 sp -= target.used
                 let present = target.name in arrays and target.key in arrays[target.name].cells
@@ -4564,7 +4646,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var current = target.current
             match spots[0] {
               SpotNone => { current = stack[sp - 1]; sp -= 1 }
-              _ => {}
+              else => {}
             }
             let replacement = scalar_text(stack[sp - 1], conversion)?
             let pattern = scalar_text(stack[sp - 2], conversion)?
@@ -4575,12 +4657,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var changes = 0
             var previous_end = -1
             for hit in dynamic_matches(pattern, content, ignore_case)? {
-              if hit.start == hit.end and previous_end == hit.start { continue }
+              continue when hit.start == hit.end and previous_end == hit.start
               rebuilt += content.byte_slice(copied, length: hit.start - copied) + substitute(replacement, content.byte_slice(hit.start, length: hit.end - hit.start))
               copied = hit.end
               previous_end = hit.end
               changes += 1
-              if name == "sub" { break }
+              break when name == "sub"
             }
             rebuilt += content.byte_slice(copied)
             if changes > 0 and target.kind != 7 {
@@ -4599,10 +4681,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             sp = base
             let regex_mode = name == "split_regex"
             var array = ""
-            match array_of(spots[0], slots, aliases, globals) {
-              Ok(named) => { array = named }
-              Err(_) => { Err(fatal_error("split: second argument is not an array"))? }
+            if let Ok(named) = array_of(spots[0], slots, aliases, globals) {
+              array = named
+            } else {
+              Err(fatal_error("split: second argument is not an array"))?
             }
+
             if count == 4 {
               let seps_array = array_of(spots[1], slots, aliases, globals)?
               let parts = split_with_separators(content, separator, regex_mode, ignore_case)?
@@ -4638,7 +4722,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 let separator = plain_text(globals.get("SUBSEP") ?? Empty)?
                 var number_of = 0
                 for at in range(caps.len()) {
-                  if caps[at] == null { continue }
+                  continue when caps[at] == null
                   let span = caps[at] ?? Match(start: 0, end: 0)
                   let text = content.byte_slice(span.start, length: span.end - span.start)
                   let from = content.byte_slice(0, length: span.start).count_chars() + 1
@@ -4658,23 +4742,27 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               sp -= 1
             }
             var source = ""
-            match array_of(spots[0], slots, aliases, globals) {
-              Ok(found) => { source = found }
-              Err(_) => { Err(fatal_error(f"{name}: first argument is not an array"))? }
+            if let Ok(found) = array_of(spots[0], slots, aliases, globals) {
+              source = found
+            } else {
+              Err(fatal_error(f"{name}: first argument is not an array"))?
             }
+
             var destination = source
             if spots.len() >= 2 {
-              match array_of(spots[1], slots, aliases, globals) {
-                Ok(found) => { destination = found }
-                Err(_) => { Err(fatal_error(f"{name}: second argument is not an array"))? }
+              if let Ok(found) = array_of(spots[1], slots, aliases, globals) {
+                destination = found
+              } else {
+                Err(fatal_error(f"{name}: second argument is not an array"))?
               }
             }
-            var items: List[SortItem] = []
-            if source in arrays {
-              for subscript in arrays[source].cells.keys() {
-                let held = (arrays[source].cells.get(subscript) ?? no_cell()).value
-                let shown = if name == "asorti" { input(subscript)? } else { held }
-                items += [sort_item(shown, subscript, how)?]
+            let items: List[SortItem] = collect {
+              if source in arrays {
+                for subscript in arrays[source].cells.keys() {
+                  let held = (arrays[source].cells.get(subscript) ?? no_cell()).value
+                  let shown = if name == "asorti" { input(subscript)? } else { held }
+                  yield sort_item(shown, subscript, how)?
+                }
               }
             }
             let ordered = merge_sort(items, how.ends_with("_desc"))
@@ -4699,8 +4787,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var cursor = 0
             var previous_end = -1
             for hit in dynamic_matches(pattern, if content.is_empty() { "" } else { content }, ignore_case)? {
-              if content.is_empty() { break }
-              if hit.end == hit.start and previous_end == hit.start { continue }
+              break when content.is_empty()
+              continue when hit.end == hit.start and previous_end == hit.start
               previous_end = hit.end
               matched += 1
               separator_cells = separator_cells.set(f"{matched - 1}", Cell(value: String(content.byte_slice(cursor, length: hit.start - cursor)), seq: matched))
@@ -4719,7 +4807,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
           produced = true
         }
-        _ => { Err(fatal_error("unimplemented operation"))? }
+        else => { Err(fatal_error("unimplemented operation"))? }
       }
       if produced {
         stack[sp] = result
@@ -4731,7 +4819,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           field_mode = field_mode_after(pending_name, pending_value, field_mode)?
           if mode != 0 and ! warned_extension and extension_variable(pending_name) {
             warned_extension = true
-            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(pending_name)}' is a gawk extension\n"))?
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(pending_name)}' is a gawk extension\n"))
           }
           globals[pending_name] = pending_value
         } else if pending == 3 {
@@ -4784,14 +4872,14 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         }
       }
     }
-    close_all(readers, writers, lossy)?
-    emit_stdout(out, lossy)?
+    close_all(readers, writers, lossy)
+    emit_stdout(out, lossy)
     out = ""
     (status % 256 + 256) % 256
   }
   match outcome {
     Ok(value) => Ok(value)
-    Err(AwkError.Plain {message}) => Err(AwkError.Plain(message: message, pending: out))
+    Err(AwkError.Plain {message}) => Err(AwkError.Plain(message:, pending: out))
     # Before any statement has run there is no source position to name.
     Err(failure) => if located { Err(placed(labels, site, globals, out, failure)) } else { Err(AwkError.Plain(message: failure.message, pending: out)) }
   }
@@ -4811,7 +4899,7 @@ export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[S
       return Err(AwkError.Syntax(f"{function.site}: error: function name `{name}' previously defined"))
     }
   }
-  for note in program.notes { write_all(2, bytes.from_text(f"awk: {note}\n"))? }
+  for note in program.notes { write_all(2, bytes.from_text(f"awk: {note}\n")) }
   let linked = link(program)?
   run_machine(program, linked, arguments, variables, unix.isatty(1), mode)
 }

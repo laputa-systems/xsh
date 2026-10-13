@@ -175,11 +175,11 @@ pure span_len(range: Span) -> Int {
 # context fields at each side, plus the head and tail that wrap around.
 pure make_chunks(layout: Layout, before_cs: List[Bytes], keyword: Bytes, after_cs: List[Bytes]) -> Chunks {
   let half = layout.width / 2
-  let max_before = shorter(shorter(half, layout.gap), if layout.traditional { 0 } else { 2 * layout.truncation.byte_len() })
+  let max_before = shorter(half, layout.gap) |> shorter(_, if layout.traditional { 0 } else { 2 * layout.truncation.byte_len() })
   let max_after = shorter(half, 2 * layout.truncation.byte_len() + keyword.len() + (if layout.traditional { 1 } else { 0 }))
   let before = window_ending(before_cs, {s: 0, e: before_cs.len()}, max_before, layout.traditional)
   let after = window_starting(after_cs, {s: 0, e: after_cs.len()}, max_after, layout.traditional)
-  let max_tail = shorter(shorter(max_before, span_len(before)), layout.gap)
+  let max_tail = shorter(max_before, span_len(before)) |> shorter(_, layout.gap)
   let tail_start = trim_span(after_cs, {s: after.e, e: after_cs.len()}).s
   var tail = window_starting(after_cs, {s: tail_start, e: after_cs.len()}, max_tail, layout.traditional, strict: true)
 
@@ -188,7 +188,7 @@ pure make_chunks(layout: Layout, before_cs: List[Bytes], keyword: Bytes, after_c
   }
 
   let after_bytes = text_of(after_cs, after).len()
-  let max_head = shorter(shorter(max_after, after_bytes), layout.gap)
+  let max_head = shorter(max_after, after_bytes) |> shorter(_, layout.gap)
   let head = window_ending(before_cs, {s: 0, e: before.s}, max_head, layout.traditional)
   var head_text = text_of(before_cs, head)
   var before_text = text_of(before_cs, before)
@@ -231,7 +231,7 @@ pure tex_field(data: Bytes) -> Bytes {
         b"_" => b"\\_"
         b"}" => b"$\\}$"
         b"{" => b"$\\{$"
-        _ => c
+        else => c
       }
     }
   })
@@ -322,8 +322,8 @@ type Pieces = {texts: List[Str], starts: List[Int]}
 
 # One context per line, as `ptx -r` and `ptx -G` read their input.
 pure line_pieces(text: Str) -> Pieces {
-  var texts: List[Str] = []
-  var starts: List[Int] = []
+  var texts = []
+  var starts = []
   var at = 0
   let parts = text.split("\n")
 
@@ -344,8 +344,8 @@ pure line_pieces(text: Str) -> Pieces {
 # Contexts ending where `ending` matches, the match included and trailing
 # whitespace dropped.
 pure sentence_pieces(text: Str, ending: Regex) -> Pieces {
-  var texts: List[Str] = []
-  var starts: List[Int] = []
+  var texts = []
+  var starts = []
   var at = 0
 
   for hit in ending.find(text) {
@@ -525,7 +525,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let width = if opts.width != "" { positive(opts.width, "line width") } else if opts.typeset { 100 } else { 72 }
   let gap = if opts.gap != "" { positive(opts.gap, "gap width") } else { 3 }
   let context_pattern = if opts.traditional { "[^ \t\n]+" } else { WORD_CLASS }
-  var sentence: Regex? = null
+  var sentence = null
 
   if opts.sentence != null and opts.sentence != "" {
     let pattern = patch_backslash(opts.sentence)
@@ -535,7 +535,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         sentence = found
       }
       Err(failure) => {
-        gnu.error(f"Invalid regular expression (for regexp {gnu.quote(opts.sentence ?? "")})")
+        gnu.error(f"Invalid regular expression (for regexp {gnu.quote(opts.sentence)})")
         exit 1
       }
     }
@@ -555,8 +555,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     inputs = ["-"]
   }
 
-  var only_words: List[Str] = []
-  var ignore_words: List[Str] = []
+  var only_words = []
+  var ignore_words = []
   var break_chars = ""
 
   if opts.only_file != null {
@@ -587,9 +587,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     WORD_CLASS
   }
 
-  var files: List[List[Str]] = []
-  var starts: List[List[Int]] = []
-  var breaks: List[List[Int]] = []
+  var files = []
+  var starts = []
+  var breaks = []
   var ending: Regex? = sentence
 
   if ending == null and opts.sentence == null and ! opts.references and ! opts.traditional {
@@ -624,8 +624,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           let ref_to = if ! first.is_empty() { first[0].end } else { 0 }
 
           for hit in words.find(line) {
-            let from = hit.start
-            let to = hit.end
+            let {start: from, end: to, ..} = hit
 
             continue when from == to
 

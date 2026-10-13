@@ -58,8 +58,8 @@ pure sockaddr_in(raw: Bytes) -> Bytes {
 
 # Folds request statuses the way net-tools ORs them: any -1 stays -1.
 pure combine(left: Int, right: Int) -> Int {
-  if left < 0 or right < 0 { return -1 }
-  if left != 0 or right != 0 { return 1 }
+  return -1 when left < 0 or right < 0
+  return 1 when left != 0 or right != 0
   0
 }
 
@@ -112,9 +112,9 @@ proc change_inet6(name: Str, word: Str, add: Bool) [fs, process, net, env, error
   var prefix = 128
   let slash = word.find("/")
   if slash != null {
-    text = word.byte_slice(0, length: slash ?? 0)
-    let parsed = nettools.decimal(word.byte_slice((slash ?? 0) + 1))
-    if parsed == null or (parsed ?? 0) > 128 { usage_error() }
+    text = word.byte_slice(0, length: slash)
+    let parsed = nettools.decimal(word.byte_slice(slash + 1))
+    if parsed == null or parsed > 128 { usage_error() }
     prefix = parsed ?? 128
   }
   let raw = nettools.ipv6_parse(text)
@@ -122,12 +122,9 @@ proc change_inet6(name: Str, word: Str, add: Bool) [fs, process, net, env, error
   let address = raw ?? b""
   let socket = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(socket)
-  let index_reply = match linux.ioctl(socket, c.SIOCGIFINDEX, nettools.ifreq(name, b"")?, 40) {
-    Ok(reply) => reply
-    Err(failure) => {
-      report(if add { "SIOCSIFADDR" } else { "SIOCDIFADDR" }, failure)
-      return 1
-    }
+  let index_reply = linux.ioctl(socket, c.SIOCGIFINDEX, nettools.ifreq(name, b"")?, 40) ?? { |failure|
+    report(if add { "SIOCSIFADDR" } else { "SIOCDIFADDR" }, failure)
+    return 1
   }
   let index = bytes.unpack_le(index_reply, 4, 16) ?? 0
   let message = bytes.concat(
@@ -237,7 +234,7 @@ proc configure(name_in: Str, words: List[Str]) [fs, process, net, env, error] ->
         at += 1
         let request = if word == "mtu" { c.SIOCSIFMTU } else { c.SIOCSIFTXQLEN }
         let label = if word == "mtu" { "SIOCSIFMTU" } else { "SIOCSIFTXQLEN" }
-        status = combine(status, interface_ioctl(fd, label, request, name, bytes.pack_le(value ?? 0, 4)?))
+        status = combine(status, interface_ioctl(fd, label, request, name, bytes.pack_le(value, 4)?))
       }
       "hw" => {
         if at + 1 >= words.len() { usage_error() }
@@ -253,7 +250,7 @@ proc configure(name_in: Str, words: List[Str]) [fs, process, net, env, error] ->
           eprint f"{text}: invalid ether address."
           exit 1
         }
-        let tail = bytes.concat([bytes.pack_le(c.ARPHRD_ETHER, 2)?, raw ?? b""])
+        let tail = bytes.concat([bytes.pack_le(c.ARPHRD_ETHER, 2)?, raw])
         status = combine(status, interface_ioctl(fd, "SIOCSIFHWADDR", c.SIOCSIFHWADDR, name, tail))
       }
       "name" => {
@@ -287,12 +284,12 @@ proc configure(name_in: Str, words: List[Str]) [fs, process, net, env, error] ->
           exit 1
         }
         var text = word
-        var prefix: Int? = null
+        var prefix = null
         let slash = word.find("/")
         if slash != null {
-          text = word.byte_slice(0, length: slash ?? 0)
-          prefix = nettools.decimal(word.byte_slice((slash ?? 0) + 1))
-          if prefix == null or (prefix ?? 0) > 32 { bad_address(word) }
+          text = word.byte_slice(0, length: slash)
+          prefix = nettools.decimal(word.byte_slice(slash + 1))
+          if prefix == null or prefix > 32 { bad_address(word) }
         }
         let raw = resolve_inet(text)
         let result = interface_ioctl(fd, "SIOCSIFADDR", c.SIOCSIFADDR, name, sockaddr_in(raw))

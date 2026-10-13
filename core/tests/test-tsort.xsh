@@ -64,7 +64,7 @@ test test_tsort_reports_and_breaks_loops { |ctx|
 
 test test_tsort_accepts_non_utf8_file_path_operands { |ctx|
   let root = test.temp_dir(ctx, name: "tsort-raw-path")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff\xfe"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff\xfe"]) as Path
   file.write(b"a b\nb c\n")
   let output = fp"{root}/out"
   let error = fp"{root}/err"
@@ -77,7 +77,7 @@ test test_tsort_accepts_non_utf8_file_path_operands { |ctx|
   assert output.read_bytes()? == b"a\nb\nc\n"
   assert error.read_text()? == ""
 
-  let missing = Path.parse_bytes(bytes.concat([root.bytes(), b"/missing\xff"]))?
+  let missing = bytes.concat([root.bytes(), b"/missing\xff"]) as Path
   let missing_argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), missing]
   let missing_plan = process.command_argv(ctx.xsh_bin, missing_argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
   let missing_status = process.run(missing_plan)?

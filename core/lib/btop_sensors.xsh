@@ -112,16 +112,17 @@ pure selected_cpu_sensor(candidates: List[TemperatureCandidate]) -> TemperatureC
 
 # Orders distinct Core and Tccd channels for stable logical-core mapping.
 pure core_sensor_candidates(candidates: List[TemperatureCandidate]) -> List[TemperatureCandidate] {
-  var unique: List[TemperatureCandidate] = []
   var seen: Set[Str] = set.empty()
   let ordered = candidates
     |> where .label.starts_with("Core") or .label.starts_with("Tccd")
     |> sort-by { |item| item.key }
     |> sort-by { |item| item.key.count_chars() }
-  for item in ordered {
-    continue when item.key in seen
-    seen = seen.add(item.key)
-    unique += [item]
+  let unique: List[TemperatureCandidate] = collect {
+    for item in ordered {
+      continue when item.key in seen
+      seen = seen.add(item.key)
+      yield item
+    }
   }
   unique
 }
@@ -205,7 +206,7 @@ pure cpu_temperature(sources: live.MonitorSources, logical_cpu_ids: List[Int]) -
     let has_zones = ! sources.thermal_zones.is_empty()
     let state = if has_temperature_channels or has_zones {
       report.Malformed
-    } else if sources.sensor_state == report.Partial {
+    } else if sources.sensor_state == .Partial {
       report.ReadFailure
     } else {
       report.Absent
@@ -224,11 +225,12 @@ pure cpu_temperature(sources: live.MonitorSources, logical_cpu_ids: List[Int]) -
   }
   let cpu_ids = if logical_cpu_ids.is_empty() { labeled_cpu_ids } else { logical_cpu_ids }
   let mapping = core_mapping(sources, cpu_ids, core_sensors.len())
-  var cores: List[CoreTemperature] = []
-  for item in mapping {
-    if let Ok(observed_sensor) = core_sensors.get(item.sensor_index) {
-      if let millidegrees = observed_sensor.millidegrees {
-        cores += [{id: item.logical_id, millidegrees: millidegrees}]
+  let cores: List[CoreTemperature] = collect {
+    for item in mapping {
+      if let Ok(observed_sensor) = core_sensors.get(item.sensor_index) {
+        if let millidegrees = observed_sensor.millidegrees {
+          yield {id: item.logical_id, millidegrees: millidegrees}
+        }
       }
     }
   }
@@ -242,7 +244,7 @@ pure cpu_temperature(sources: live.MonitorSources, logical_cpu_ids: List[Int]) -
 
 pure frequency_value_mhz(frequency_khz: Int?) -> Float? {
   return null when frequency_khz == null
-  let value = (frequency_khz ?? 0).float() / 1000.0
+  let value = frequency_khz.float() / 1000.0
   return null when value <= 1.0 or value >= 999999999.0
   value
 }
@@ -267,9 +269,7 @@ pure selected_frequency_mhz(sources: live.MonitorSources) -> List[Float] {
       }
     }
   }
-  if ! policy_values.is_empty() {
-    return policy_values
-  }
+  return policy_values unless policy_values.is_empty()
 
   let cpuinfo_values = sources.cpuinfo_frequencies_mhz |> where . > 1.0 and . < 999999999.0
   cpuinfo_values |> take(1)
@@ -282,7 +282,7 @@ export pure frequency(sources: live.MonitorSources, mode: FrequencyMode) -> CpuF
     let has_policy = ! sources.frequency_policies.is_empty()
     let has_cpuinfo = ! sources.cpuinfo_frequencies_mhz.is_empty()
     return {
-      state: if has_policy or has_cpuinfo { report.Malformed } else if sources.cpuinfo_state != report.Observed {
+      state: if has_policy or has_cpuinfo { report.Malformed } else if sources.cpuinfo_state != .Observed {
         sources.cpuinfo_state
       } else {
         report.Malformed
@@ -321,9 +321,7 @@ export pure frequency(sources: live.MonitorSources, mode: FrequencyMode) -> CpuF
 
 pure battery_percent(battery: live.MonitorBattery) -> Int? {
   let reported = battery.capacity_percent
-  if reported != null and (reported ?? -1) >= 0 and (reported ?? 101) <= 100 {
-    return reported
-  }
+  return reported when reported != null and (reported ?? -1) >= 0 and reported <= 100
 
   let energy_now = battery.energy_now_uwh ?? -1
   let energy_full = battery.energy_full_uwh ?? 0
@@ -336,20 +334,17 @@ pure battery_percent(battery: live.MonitorBattery) -> Int? {
   } else {
     return null
   }
-  if ratio < 0.0 or ratio > 1.0 {
-    return null
-  }
+  return null when ratio < 0.0 or ratio > 1.0
   (ratio * 100.0).round() ?? 0
 }
 
 pure battery_watts(battery: live.MonitorBattery) -> Float? {
   if battery.power_now_uw != null {
-    let microwatts = battery.power_now_uw ?? 0
+    let microwatts = battery.power_now_uw
     return null when microwatts < 0
     microwatts.float() / 1000000.0
   } else if battery.current_now_ua != null and battery.voltage_now_uv != null {
-    let current = battery.current_now_ua ?? 0
-    let voltage = battery.voltage_now_uv ?? 0
+    let {current_now_ua: current, voltage_now_uv: voltage, ..} = battery
     return null when current == 0 or voltage <= 0
     (if current < 0 { -current } else { current }).float() * voltage.float() / 1000000000000.0
   } else {
@@ -375,9 +370,7 @@ pure battery_minutes(battery: live.MonitorBattery) -> Int? {
   } else if status != "full" {
     let now = battery.energy_now_uwh ?? -1
     let power = battery.power_now_uw ?? -1
-    if now >= 0 and power > 0 {
-      return (now.float() / power.float() * 60.0).round() ?? 0
-    }
+    return (now.float() / power.float() * 60.0).round() ?? 0 when now >= 0 and power > 0
     let charge = battery.charge_now_uah ?? -1
     let current = battery.current_now_ua ?? 0
     if charge >= 0 and current != 0 {
@@ -395,7 +388,7 @@ pure battery(sources: live.MonitorSources) -> Battery {
   if candidates.is_empty() {
     let has_unconfirmed = sources.batteries |> any .present == null
     return {
-      state: if has_unconfirmed or sources.power_state == report.Partial {
+      state: if has_unconfirmed or sources.power_state == .Partial {
         report.ReadFailure
       } else {
         report.Absent

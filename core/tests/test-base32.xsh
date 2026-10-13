@@ -23,7 +23,7 @@ test test_base32_uppercase_decode_alias { |ctx|
 }
 
 test test_base32_wrap_and_invalid_prefix { |ctx|
-  assert invoke(ctx, ["-w", "0"], b"foobar")?.stdout.len() > 0
+  assert ! invoke(ctx, ["-w", "0"], b"foobar")?.stdout.is_empty()
   assert ! invoke(ctx, ["-w", "0"], b"foobar")?.stdout.ends_with(b"\n")
   let bad = invoke(ctx, ["-d"], b"MZXW6===!")?
   assert bad.status == 1
@@ -42,7 +42,7 @@ test test_base32_wrap_without_value_uses_gnu_error { |ctx|
 
 test test_base32_reads_non_utf8_file_operand { |ctx|
   let root = test.temp_dir(ctx, name: "base32-raw-operand")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write(b"foo")
   let output = fp"{root}/out"
   let error = fp"{root}/err"

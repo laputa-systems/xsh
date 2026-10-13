@@ -1,6 +1,6 @@
 ##! Native ports of the uutils df integration tests.
 
-use support.uu as uu
+use support.uu
 
 pure lines(r: uu.Ran) -> Result[List[Str], Error] {
   Ok(r.stdout.utf8()?.lines().collect())
@@ -9,7 +9,7 @@ pure lines(r: uu.Ran) -> Result[List[Str], Error] {
 # The type-filter check needs a working directory on a filesystem different
 # from /dev; temp scenes may share its tmpfs filesystem type.
 proc invoke_at_root(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let words = uu.argv(s, "df", [Path(word) for word in args])?
+  let words = uu.argv(s, "df", [fp"{word}" for word in args])?
   let out = uu.at(s, "root-stdout")
   let err = uu.at(s, "root-stderr")
   let status = process.run(process.command_argv(s.ctx.xsh_bin, words, p"/", {}, b"", out, err))?
@@ -19,8 +19,8 @@ proc invoke_at_root(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> R
 # A mount namespace keeps the temporary /proc mask out of the test runner.
 proc masked_proc(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let wrapper = uu.at(s, "mask-proc")
-  wrapper.write("#!/bin/sh\nmount -t tmpfs tmpfs /proc || exit 99\nexec \"$@\"\n", mode: 0o755)?
-  let words = [p"unshare", p"-rm", wrapper].extend(uu.argv(s, "df", [Path(word) for word in args])?)
+  wrapper.write("#!/bin/sh\nmount -t tmpfs tmpfs /proc || exit 99\nexec \"$@\"\n", mode: 0o755)
+  let words = [p"unshare", p"-rm", wrapper].extend(uu.argv(s, "df", [fp"{word}" for word in args])?)
   let out = uu.at(s, "masked-stdout")
   let err = uu.at(s, "masked-stderr")
   let status = process.run(process.command_argv("unshare", words, s.root, {}, b"", out, err, timeout: 10s))?
@@ -206,7 +206,7 @@ test test_uu_df_df_follows_symlinks { |ctx|
   let output = lines(r)?
   for i in range(1, output.len()) {
     # Mount sources can be labels rather than paths; failed lookups are not links.
-    assert ! (Path(output[i]).is_symlink() ?? false)
+    assert ! (fp"{output[i]}".is_symlink() ?? false)
   }
 }
 
@@ -215,7 +215,7 @@ test test_uu_df_df_trailing_zeros { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "df", ["-h", "--output=size,used", "--total"])?
   uu.succeeds(r)
-  assert ! rx"[[:space:]][1-9][A-Z]".matches(r.stdout.utf8()?)
+  assert ! rx"[[:space:]][1-9][A-Z]".matches(r.stdout as Str)
 }
 
 # origin: uutils test_df::test_df_rounding
@@ -223,7 +223,7 @@ test test_uu_df_df_rounding { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "df", ["-H", "--output=size,used", "--total"])?
   uu.succeeds(r)
-  assert ! rx"[[:space:]][0-9]{3}\\.[0-9][A-Z]".matches(r.stdout.utf8()?)
+  assert ! rx"[[:space:]][0-9]{3}\\.[0-9][A-Z]".matches(r.stdout as Str)
 }
 
 # origin: uutils test_df::test_order_same
@@ -311,8 +311,8 @@ test test_uu_df_exclude_all_types { |ctx|
   let r = uu.invoke(s, "df", ["--output=fstype"])?
   uu.succeeds(r)
   let output = lines(r)?
-  var kinds: List[Str] = []
-  var args: List[Str] = []
+  var kinds = []
+  var args = []
   for i in range(1, output.len()) {
     let kind = output[i].trim()
     if kind not in kinds { kinds += [kind]; args += ["-x", kind] }
@@ -339,13 +339,13 @@ test test_uu_df_total { |ctx|
   let r = uu.invoke(s, "df", ["--output=size,used,avail", "--total"])?
   uu.succeeds(r)
   let output = lines(r)?
-  let reported = output[output.len() - 1].words()
+  let reported = output[-1].words()
   var computed = [0, 0, 0]
   for i in range(1, output.len() - 1) {
     let columns = output[i].words()
-    for column in range(3) { computed[column] += columns[column].parse_int()? }
+    for column in range(3) { computed[column] += columns[column] as Int }
   }
-  for column in range(3) { assert computed[column] == reported[column].parse_int()? }
+  for column in range(3) { assert computed[column] == reported[column] as Int }
 }
 
 # origin: uutils test_df::test_total_label_in_correct_column
@@ -355,7 +355,7 @@ test test_uu_df_total_label_in_correct_column { |ctx|
     let r = uu.invoke(s, "df", [f"--output={pair.arg}", "--total", "."])?
     uu.succeeds(r)
     let output = lines(r)?
-    assert output[output.len() - 1].words() == pair.expected
+    assert output[-1].words() == pair.expected
   }
 }
 
@@ -367,9 +367,9 @@ test test_uu_df_use_percentage { |ctx|
   let output = lines(r)?
   for i in range(1, output.len()) {
     let fields = output[i].words()
-    let used = fields[0].parse_int()?
-    let avail = fields[1].parse_int()?
-    let reported = fields[2].replace("%", with: "").parse_int()?
+    let used = fields[0] as Int
+    let avail = fields[1] as Int
+    let reported = fields[2].replace("%", with: "") as Int
     assert reported == (100 * used + used + avail - 1) / (used + avail)
   }
 }
@@ -382,13 +382,13 @@ test test_uu_df_iuse_percentage { |ctx|
   let output = lines(r)?
   for i in range(1, output.len()) {
     let fields = output[i].words()
-    let total = fields[0].parse_int()?
-    let used = fields[1].parse_int()?
+    let total = fields[0] as Int
+    let used = fields[1] as Int
     if fields[2] == "-" {
       assert total == 0
       assert used == 0
     } else {
-      let reported = fields[2].replace("%", with: "").parse_int()?
+      let reported = fields[2].replace("%", with: "") as Int
       assert reported == (100 * used + total - 1) / total
     }
   }
@@ -712,7 +712,7 @@ test test_uu_df_output_file_all_filesystems { |ctx|
 # origin: uutils test_df::test_output_file_specific_files
 test test_uu_df_output_file_specific_files { |ctx|
   let s = uu.scene(ctx)?
-  for name in ["a", "b", "c"] { uu.touch(s, name)? }
+  for name in ["a", "b", "c"] { uu.touch(s, name) }
   let r = uu.invoke(s, "df", ["--output=file", "a", "b", "c"])?
   uu.succeeds(r)
   assert lines(r)? == ["File", "a", "b", "c"]
@@ -721,7 +721,7 @@ test test_uu_df_output_file_specific_files { |ctx|
 # origin: uutils test_df::test_file_column_width_if_filename_contains_unicode_chars
 test test_uu_df_file_column_width_if_filename_contains_unicode_chars { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "äöü.txt")?
+  uu.touch(s, "äöü.txt")
   let r = uu.invoke(s, "df", ["--output=file,target", "äöü.txt"])?
   uu.succeeds(r)
   assert (lines(r)?)[0] == "File Mounted on"
@@ -750,28 +750,30 @@ test test_uu_df_nonexistent_file { |ctx|
 # origin: uutils test_df::test_df_all_shows_binfmt_misc
 test test_uu_df_df_all_shows_binfmt_misc { |ctx|
   let s = uu.scene(ctx)?
-  let mounted = match p"/proc/self/mountinfo".read_text() {
-    Ok(content) => "binfmt_misc" in content,
-    Err(_) => false,
+  let mounted = if let Ok(content) = p"/proc/self/mountinfo".read_text() {
+    "binfmt_misc" in content
+  } else {
+    false
   }
   if mounted {
   let r = uu.invoke(s, "df", ["--all", "--output=fstype,target"])?
   uu.succeeds(r)
-  assert "binfmt_misc" in r.stdout.utf8()?
+  assert "binfmt_misc" in r.stdout as Str
   }
 }
 
 # origin: uutils test_df::test_df_hides_binfmt_misc_by_default
 test test_uu_df_df_hides_binfmt_misc_by_default { |ctx|
   let s = uu.scene(ctx)?
-  let mounted = match p"/proc/self/mountinfo".read_text() {
-    Ok(content) => "binfmt_misc" in content,
-    Err(_) => false,
+  let mounted = if let Ok(content) = p"/proc/self/mountinfo".read_text() {
+    "binfmt_misc" in content
+  } else {
+    false
   }
   if mounted {
   let r = uu.invoke(s, "df", ["--output=fstype,target"])?
   uu.succeeds(r)
-  assert ! ("binfmt_misc" in r.stdout.utf8()?)
+  assert ! ("binfmt_misc" in r.stdout as Str)
   }
 }
 
@@ -788,7 +790,7 @@ test test_uu_df_df_masked_proc_fallback { |ctx|
   let s = uu.scene(ctx)?
   match process.which("unshare") { Err(_) => return, Ok(_) => {} }
   let probe = process.run(process.command_argv("unshare", ["unshare", "-rm", "true"], s.root, {}, b"", p"/dev/null", p"/dev/null", timeout: 10s))?
-  if ! probe.exited_with(0) { return }
+  return unless probe.exited_with(0)
   let measured = masked_proc(s, ["."])?
   uu.succeeds(measured)
   uu.stderr_contains(measured, "cannot read table of mounted file systems")

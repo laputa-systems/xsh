@@ -36,7 +36,7 @@ proc utmp_record(kind: Int, line: Str, account: Str, host: Str) [error] -> Resul
 # XSH_UTMP_FILE, plus a home directory for the long format.
 type World = {passwd: Path, utmp: Path, home: Path, bob_line: Str, stranger_line: Str}
 
-proc world(ctx: TestContext, records: List[Bytes], bob_line: Str = "pts/8", stranger_line: Str = "pts/7") [fs, error] -> Result[World] {
+proc world(ctx: TestContext, records: List[Bytes], bob_line = "pts/8", stranger_line = "pts/7") [fs, error] -> Result[World] {
   let root = test.temp_dir(ctx, name: "pinky")?
   let home = fp"{root}/home"
   home.mkdir()
@@ -82,7 +82,7 @@ proc sessions(ctx: TestContext) [fs, process, error] -> Result[World] {
       utmp_record(USER_PROCESS, bob_line, "bob", "::1")?,
       utmp_record(USER_PROCESS, stranger_line, "stranger", "")?,
     ],
-    bob_line: bob_line, stranger_line: stranger_line,
+    bob_line:, stranger_line:,
   )
 }
 

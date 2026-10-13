@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox pwd/pwd-prints-working-directory
 test test_bb_pwd_pwd_prints_working_directory_8a6b3c21 { |ctx|

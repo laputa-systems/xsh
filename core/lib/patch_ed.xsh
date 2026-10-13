@@ -11,8 +11,8 @@ const ED_ADDRESS_RE = rx"^(\.|\$|\d+)?(?:,(\.|\$|\d+))?\s*([a-zA-Z=]?)(.*)$"
 export type EdResult = {output: List[Bytes], failed: Str, next: Int}
 
 pure ed_address(text: Str, current: Int, last: Int) -> Int {
-  if text == "." { return current }
-  if text == "$" { return last }
+  return current when text == "."
+  return last when text == "$"
   text.parse_int() ?? -1
 }
 
@@ -36,7 +36,7 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
       continue
     }
     let c = ED_ADDRESS_RE.captures(text)
-    if c.is_empty() { return {output: buffer, failed: text, next: i} }
+    return {output: buffer, failed: text, next: i} when c.is_empty()
     let command = c[3]
     let size = buffer.len()
     var first = if c[1] == "" { current } else { ed_address(c[1], current, size) }
@@ -44,22 +44,23 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
     if c[1] == "" and c[2] == "" and command != "" { first = current; last = current }
     i += 1
     if command == "a" or command == "i" or command == "c" {
-      var added: List[Bytes] = []
       var closed = false
-      while i < lines.len() {
-        let body = patch_parse.body_text(lines[i])
-        i += 1
-        if body == "." { closed = true; break }
-        added += [with_newline(lines[i - 1])]
+      let added = collect {
+        while i < lines.len() {
+          let body = patch_parse.body_text(lines[i])
+          i += 1
+          if body == "." { closed = true; break }
+          yield with_newline(lines[i - 1])
+        }
       }
-      if !closed { return {output: buffer, failed: text, next: i} }
+      return {output: buffer, failed: text, next: i} unless closed
       if command == "a" {
-        if first < 0 or first > size { return {output: buffer, failed: text, next: i} }
+        return {output: buffer, failed: text, next: i} when first < 0 or first > size
         buffer = bytes_list_splice(buffer, first, first, added)
         current = first + added.len()
       } else if command == "i" {
         let at_line = if first < 1 { 1 } else { first }
-        if at_line > size + 1 { return {output: buffer, failed: text, next: i} }
+        return {output: buffer, failed: text, next: i} when at_line > size + 1
         buffer = bytes_list_splice(buffer, at_line - 1, at_line - 1, added)
         current = at_line - 1 + added.len()
       } else {
@@ -76,9 +77,10 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
       let parts = c[4].split(delimiter)
       if parts.len() < 3 or first < 1 or last > size { return {output: buffer, failed: text, next: i} }
       let pattern = regex.compile(parts[1])
-      let compiled = match pattern {
-        Ok(value) => value
-        Err(_) => { return {output: buffer, failed: text, next: i} }
+      let compiled = if let Ok(value) = pattern {
+        value
+      } else {
+        return {output: buffer, failed: text, next: i}
       }
       let global = parts.len() > 3 and parts[3] == "g"
       for index in range(first - 1, last) {
@@ -104,9 +106,10 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
 }
 
 pure bytes_list_splice(list: List[Bytes], from: Int, to: Int, middle: List[Bytes]) -> List[Bytes] {
-  var output: List[Bytes] = []
-  for index in range(from) { output += [list[index]] }
-  output += middle
-  for index in range(to, list.len()) { output += [list[index]] }
+  let output = collect {
+    for index in range(from) { yield list[index] }
+    yield @middle
+    for index in range(to, list.len()) { yield list[index] }
+  }
   output
 }

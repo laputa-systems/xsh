@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox expand/expand
 test test_bb_expand_expand_80a37da4 { |ctx|

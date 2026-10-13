@@ -36,7 +36,7 @@ test test_awk_numeric_strings_and_short_circuit { |ctx|
 }
 
 test test_awk_getline_reads_stdin_in_begin { |ctx|
-  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { getline x; print "got", x } { print "rest", $0 }"""], stdin: b"a\nb\n", env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { getline x; print "got", x } { print "rest", $0 }"""], stdin: b"a\nb\n", env: {XSH_MODULE_PATH: ctx.core_dir})?
   assert output.stdout == "got a\nrest b\n"
 }
 
@@ -72,8 +72,16 @@ test test_awk_numeric_conversion_formats { |ctx|
 
 test test_awk_function_next_and_exit_propagate { |ctx|
   let input = test.temp_file(ctx, name: "control", contents: b"skip\nkeep\nstop\nafter\n")?
-  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""function control() { if ($1=="skip") next; if ($1=="stop") exit 7 } { control(); print $1 } END { print "end", NR }""", input.display()], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
-  assert output.status == 7
+  let output = test.expect(
+    ctx,
+    fp"{ctx.core_dir}/awk.xsh".read_text()?,
+    status: 7,
+    args: [
+      r"""function control() { if ($1=="skip") next; if ($1=="stop") exit 7 } { control(); print $1 } END { print "end", NR }""",
+      input,
+    ],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+  )?
   assert output.stdout == "keep\nend 3\n"
 }
 
@@ -195,7 +203,7 @@ test test_awk_argv_file_selection_matrix { |ctx|
   ]
 
   for scenario in cases {
-    let result = test.run_script(ctx, source, args: [item for item in [scenario.program] + scenario.files], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+    let result = test.run_script(ctx, source, args: [item for item in [scenario.program, @scenario.files]], env: {XSH_MODULE_PATH: ctx.core_dir})?
     assert result.status == 0, f"{scenario.name}: {result.stderr}"
     assert result.stdout == scenario.stdout, scenario.name
   }
@@ -264,8 +272,13 @@ test test_awk_braces_are_literal_outside_intervals { |ctx|
 }
 
 test test_awk_print_redirects_only_to_standard_streams { |ctx|
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { print "err" > "/dev/stderr"; print "out" > "/dev/stdout" }"""], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
-  assert result.status == 0
+  let result = test.expect(
+    ctx,
+    fp"{ctx.core_dir}/awk.xsh".read_text()?,
+    status: 0,
+    args: [r"""BEGIN { print "err" > "/dev/stderr"; print "out" > "/dev/stdout" }"""],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+  )?
   assert result.stdout == "out\n"
   assert result.stderr == "err\n"
 }
@@ -290,34 +303,34 @@ type Observed = {stdout: Bytes, stderr: Bytes, status: Int, root: Str}
 
 proc matrix_cases(ctx: TestContext, family: Str) [fs, error] -> Result[List[MatrixCase]] {
   let decoded = json.decode(fp"{ctx.core_dir}/tests/data/awk/matrix/{family}.json".read_text()?)?
-  Ok(decoded.require(List[MatrixCase])?)
+  Ok(decoded.require()?)
 }
 
 # The value paired with a key in a list of [key, value] pairs.
 pure pair_value(pairs: List[List[Str]], key: Str) -> Str? {
-  for pair in pairs { if pair[0] == key { return pair[1] } }
+  for pair in pairs { return pair[1] when pair[0] == key }
   null
 }
 pure expected_bytes(case: MatrixCase, channel: Str) -> Result[Bytes] {
   let override = pair_value(case.xsh, channel)
-  if override != null { return Ok(bytes.from_text(override ?? "")) }
+  return Ok(bytes.from_text(override)) when override != null
   let packed = if channel == "stdout" { case.stdout_b64 } else { case.stderr_b64 }
-  if ! packed.is_empty() { return Ok(packed.base64_decode()?) }
+  return Ok(packed.base64_decode()?) unless packed.is_empty()
   Ok(bytes.from_text(if channel == "stdout" { case.stdout } else { case.stderr }))
 }
 
 proc run_case(ctx: TestContext, case: MatrixCase, index: Int) [fs, process, env, error] -> Result[Observed] {
   let root = test.temp_dir(ctx, name: f"awk-case-{index}")?
-  for name in case.dirs { fp"{root}/{name}".mkdir()? }
-  for pair in case.files { fp"{root}/{pair[0]}".write(pair[1])? }
-  for pair in case.files_b64 { fp"{root}/{pair[0]}".write(pair[1].base64_decode()?)? }
-  for pair in case.links { fp"{root}/{pair[0]}".symlink(to: fp"{pair[1]}")? }
-  for pair in case.modes { fp"{root}/{pair[0]}".chmod(pair[1].parse_int_decimal()?)? }
+  for name in case.dirs { fp"{root}/{name}".mkdir() }
+  for pair in case.files { fp"{root}/{pair[0]}".write(pair[1]) }
+  for pair in case.files_b64 { fp"{root}/{pair[0]}".write(pair[1].base64_decode()?) }
+  for pair in case.links { fp"{root}/{pair[0]}".symlink(to: fp"{pair[1]}") }
+  for pair in case.modes { fp"{root}/{pair[0]}".chmod(pair[1].parse_int_decimal()?) }
   let stdin = if case.stdin_b64.is_empty() { bytes.from_text(case.stdin) } else { case.stdin_b64.base64_decode()? }
   let arguments = [argument.replace("@DIR@", with: root.display()) for argument in case.args]
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
-  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/awk.xsh".display(), "--"] + arguments
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/awk.xsh".display(), "--", @arguments]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: ""}, stdin, out, err)
   var overlay: Map[Str] = {}
   for pair in case.env { overlay = overlay.set(pair[0], pair[1]) }
@@ -328,23 +341,24 @@ proc run_case(ctx: TestContext, case: MatrixCase, index: Int) [fs, process, env,
 }
 # The directory path is the one volatile value in the output.
 pure normalized(data: Bytes, root: Str) -> Bytes {
-  match data.utf8() {
-    Ok(text) => bytes.from_text(text.replace(root, with: "@DIR@"))
-    Err(_) => data
+  if let Ok(text) = data.utf8() {
+    bytes.from_text(text.replace(root, with: "@DIR@"))
+  } else {
+    data
   }
 }
 
-proc check_matrix_shard(ctx: TestContext, family: Str, shard: Int) [fs, process, env, error] -> Result[Unit] {
+proc check_matrix_shard(ctx: TestContext, family: Str, shard: Int) [fs, process, env, error] {
   let cases = matrix_cases(ctx, family)?
   let start = shard * 8
   assert start < cases.len(), f"empty AWK matrix shard {family}/{shard}"
   let end = if start + 8 < cases.len() { start + 8 } else { cases.len() }
-  var failures: List[Str] = []
+  var failures = []
   for index in range(start, end) {
     let case = cases[index]
     let seen = run_case(ctx, case, index)?
     let root = seen.root
-    var problems: List[Str] = []
+    var problems = []
     if "stdout" not in case.loose and normalized(seen.stdout, root) != expected_bytes(case, "stdout")? { problems += ["stdout"] }
     if "stderr" not in case.loose and normalized(seen.stderr, root) != expected_bytes(case, "stderr")? { problems += ["stderr"] }
     let wanted_status = (pair_value(case.xsh, "status") ?? f"{case.status}").parse_int_decimal()?

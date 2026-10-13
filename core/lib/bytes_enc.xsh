@@ -40,10 +40,10 @@ pure radix(kind: Str) -> Int {
 # The accumulator retains only bits that have not yet been emitted, so it
 # stays bounded even for inputs larger than the machine integer range.
 pure encode(data: Bytes, kind: Str) -> Result[Str] {
-  if kind == "base64" { return Ok(data.base64()) }
-  if kind == "base32" { return Ok(data.base32()) }
+  return Ok(data.base64()) when kind == "base64"
+  return Ok(data.base32()) when kind == "base32"
   if kind == "z85" {
-    if data.len() % 4 != 0 { fail "invalid input (length must be multiple of 4 characters)" }
+    guard data.len() % 4 == 0 else { fail "invalid input (length must be multiple of 4 characters)" }
     var out = ""
     for block in data.chunks(4) {
       var n = bytes.unpack_be(block, 4)?
@@ -57,7 +57,7 @@ pure encode(data: Bytes, kind: Str) -> Result[Str] {
     return Ok(out)
   }
   if kind == "base58" {
-    var digits: List[Int] = []
+    var digits = []
     # Leading zero bytes each become '1' and do not affect the radix digits.
     # Scan them without allocating a value for every input byte.
     let zeros = bytes.repeat_prefix_count(data, b"\0")?
@@ -121,35 +121,36 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
   if kind == "base64url" and ! ignore and has_any_byte(data, [43, 47]) {
     return Ok({data: b"", valid: false})
   }
-  var values: List[Int] = []
   var valid = true
   var padded = false
   var pads = 0
-  for position in range(data.len()) {
-    let byte = data.byte_at(position) ?? 0
-    if byte == 10 or byte == 13 { continue }
-    if byte == 61 and kind in ["base64", "base64url", "base32", "base32hex"] {
-      padded = true
-      pads += 1
-      continue
+  let values = collect {
+    for position in range(data.len()) {
+      let byte = data.byte_at(position) ?? 0
+      continue when byte == 10 or byte == 13
+      if byte == 61 and kind in ["base64", "base64url", "base32", "base32hex"] {
+        padded = true
+        pads += 1
+        continue
+      }
+      let char = bytes.from_ints([byte])?.utf8() ?? ""
+      let symbol = if kind == "base16" { char.upper() } else { char }
+      let value: Int? = if symbol == "" { null } else { chars.find(symbol) }
+      if value == null {
+        continue when ignore
+        valid = false
+        break
+      }
+      if padded {
+        let prefix = decode(data[0..position], kind, ignore)?
+        return Ok(prefix) unless prefix.valid
+        let suffix = decode(data[position..], kind, ignore)?
+        return Ok({data: bytes.concat([prefix.data, suffix.data]), valid: suffix.valid})
+      }
+      yield value
     }
-    let char = bytes.from_ints([byte])?.utf8() ?? ""
-    let symbol = if kind == "base16" { char.upper() } else { char }
-    let value: Int? = if symbol == "" { null } else { chars.find(symbol) }
-    if value == null {
-      if ignore { continue }
-      valid = false
-      break
-    }
-    if padded {
-      let prefix = decode(data[0..position], kind, ignore)?
-      if ! prefix.valid { return Ok(prefix) }
-      let suffix = decode(data[position..], kind, ignore)?
-      return Ok({data: bytes.concat([prefix.data, suffix.data]), valid: suffix.valid})
-    }
-    values += [value ?? 0]
   }
-  var out: List[Int] = []
+  var out = []
   if kind == "base58" {
     # GNU accumulates base58 input before converting it, so an invalid byte
     # produces no output at all.
@@ -216,7 +217,7 @@ pure wrap(text: Str, width: Int) -> Str {
 # reaches the filesystem unchanged. Stdin is the only operand that is not a path.
 proc read_operand(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
   return io.stdin_bytes() when name == b"-"
-  let target = Path.parse_bytes(name)?
+  let target = name as Path
   target.read_bytes()
 }
 
@@ -235,19 +236,36 @@ export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env,
   # Encoding selectors use ordered argv rather than Boolean fields: GNU
   # permits multiple selectors and the last one chooses the encoding.
   var kind = default_kind
-  var args: List[Str] = []
   var options = true
-  let selectors = ["--base64", "--base64url", "--base32", "--base32hex", "--base16", "--base2msbf", "--base2lsbf", "--z85", "--base58"]
-  for arg in argv {
-    if arg == "--" { options = false }
-    let candidates = if options and arg.starts_with("--") and arg != "--" and default_kind == "" { [selector for selector in selectors if selector.starts_with(arg)] } else { [] }
-    if options and arg in selectors and default_kind == "" {
-      kind = arg.byte_slice(2)
-    } else if candidates.len() == 1 {
-      kind = candidates[0].byte_slice(2)
-    } else if candidates.len() > 1 {
-      gnu.usage_error(f"option {gnu.quote(arg)} is ambiguous")
-    } else { args += [arg] }
+  let selectors = [
+    "--base64",
+    "--base64url",
+    "--base32",
+    "--base32hex",
+    "--base16",
+    "--base2msbf",
+    "--base2lsbf",
+    "--z85",
+    "--base58",
+  ]
+  let args = collect {
+    for arg in argv {
+      if arg == "--" { options = false }
+      let candidates = if options and arg.starts_with("--") and arg != "--" and default_kind == "" {
+        [selector for selector in selectors if selector.starts_with(arg)]
+      } else {
+        []
+      }
+      if options and arg in selectors and default_kind == "" {
+        kind = arg.byte_slice(2)
+      } else if candidates.len() == 1 {
+        kind = candidates[0].byte_slice(2)
+      } else if candidates.len() > 1 {
+        gnu.usage_error(f"option {gnu.quote(arg)} is ambiguous")
+      } else {
+        yield arg
+      }
+    }
   }
   let opts = cli.applet(args, {
     gnu: {status: 1},
@@ -266,9 +284,10 @@ export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env,
   if kind == "" { gnu.usage_error("missing encoding type") }
   if opts.files.len() > 1 {
     let extra = gnu.argument_bytes(opts.files[1], prepared.raw)
-    match extra.utf8() {
-      Ok(value) => gnu.extra_operand(value)
-      Err(_) => gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
+    if let Ok(value) = extra.utf8() {
+      gnu.extra_operand(value)
+    } else {
+      gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
     }
   }
   # GNU reads the wrap width as decimal only, so `0x0` is an invalid size.

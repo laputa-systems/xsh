@@ -1,11 +1,11 @@
-use support.uu as uu
+use support.uu
 
 pure shell_words(words: List[Path]) -> Str {
   ["'" + word.display().replace("'", with: "'\\''") + "'" for word in words].join(" ")
 }
 
-proc terminal_run(s: uu.Scene, util: Str, args: List[Path], redirect: Str = "", umask: Int? = null) -> Result[Int] {
-  let words = uu.argv(s, util, args, umask: umask)?
+proc terminal_run(s: uu.Scene, util: Str, args: List[Path], redirect = "", umask: Int? = null) -> Result[Int] {
+  let words = uu.argv(s, util, args, umask:)?
   let command = shell_words(words) + redirect
   let plan = process.command_argv(p"/usr/bin/script", ["script", "-q", "-e", "-c", command, "/dev/null"], s.root,
     stdout: uu.at(s, "terminal-output"), stderr: uu.at(s, "terminal-error"), timeout: 5s)
@@ -117,7 +117,7 @@ test test_gnu_misc_false_status_log { |ctx|
 # origin: gnu misc/pathchk.log
 test test_gnu_misc_pathchk_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   for args in [["file/x"], ["-P", "--", "-"], ["-p", "-P", "x/-"]] { uu.fails_with_code(uu.invoke(s, "pathchk", args)?, 1) }
   for options in [["-p"], ["-P"], ["-p", "-P"], ["--portability"]] { let r = uu.invoke(s, "pathchk", options.extend([""]))?; uu.fails_with_code(r, 1); uu.stderr_only(r, "pathchk: empty file name\n") }
 }
@@ -163,7 +163,7 @@ test test_gnu_misc_uname_labeled_log { |ctx|
   for label in ["Kernel name: ", "Node name: ", "Kernel release: ", "Kernel version: ", "Machine: ", "Operating system: "] { assert lines |> any { |line| line.starts_with(label) } }
   let standard = uu.invoke(s, "uname", ["-a"])?
   uu.succeeds(standard)
-  let text = standard.stdout.utf8()?
+  let text = standard.stdout as Str
   assert text.split("\n").len() == 2
   for label in ["Kernel name:", "Node name:", "Kernel release:"] { assert label not in text }
 }
@@ -171,54 +171,54 @@ test test_gnu_misc_uname_labeled_log { |ctx|
 # origin: gnu misc/dircolors.log
 test test_gnu_misc_dircolors_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "k", "exec\n")?
+  uu.write(s, "k", "exec\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "k"])?; uu.fails_with_code(r, 1); uu.stderr_only(r, "dircolors: k:1: invalid line;  missing second token\n") }
-  uu.write(s, "config", "exec 'echo Hello;:'\n")?
+  uu.write(s, "config", "exec 'echo Hello;:'\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='ex='\\''echo Hello;\\:'\\'':';\nexport LS_COLORS\n") }
-  uu.write(s, "config", "owt 40;33\n")?
+  uu.write(s, "config", "owt 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='tw=40;33:';\nexport LS_COLORS\n") }
-  uu.write(s, "config", "TERM none\nowt 40;33\n")?
+  uu.write(s, "config", "TERM none\nowt 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='tw=40;33:';\nexport LS_COLORS\n") }
-  uu.write(s, "config", "TERM non*\nowt 40;33\n")?
+  uu.write(s, "config", "TERM non*\nowt 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='tw=40;33:';\nexport LS_COLORS\n") }
-  uu.write(s, "config", "TERM nomatch\nowt 40;33\n")?
+  uu.write(s, "config", "TERM nomatch\nowt 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='';\nexport LS_COLORS\n") }
-  uu.write(s, "config", "TERM N*match\nowt 40;33\n")?
+  uu.write(s, "config", "TERM N*match\nowt 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='';\nexport LS_COLORS\n") }
-  uu.write(s, "config", "TERM []\nowt 40;33\n")?
+  uu.write(s, "config", "TERM []\nowt 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='';\nexport LS_COLORS\n") }
-  uu.write(s, "config", "COLORTERM ?*\nowt 40;33\n")?
+  uu.write(s, "config", "COLORTERM ?*\nowt 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {COLORTERM: "any", TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='tw=40;33:';\nexport LS_COLORS\n") }
-  uu.write(s, "config", "COLORTERM ?*\nowt 40;33\n")?
+  uu.write(s, "config", "COLORTERM ?*\nowt 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["-b", "config"], vars: {COLORTERM: "", TERM: "none"})?; uu.succeeds(r); uu.stdout_only(r, "LS_COLORS='';\nexport LS_COLORS\n") }
   { let r = uu.invoke(s, "dircolors", ["-p", "--print-ls"])?; uu.fails_with_code(r, 1); uu.stdout_is(r, ""); uu.stderr_is(r, "dircolors: options --print-database and --print-ls-colors are mutually exclusive\nTry 'dircolors --help' for more information.\n") }
   { let r = uu.invoke(s, "dircolors", ["-b", "--print-database"])?; uu.fails_with_code(r, 1); uu.stdout_is(r, ""); uu.stderr_is(r, "dircolors: the options to output non shell syntax,\nand to select a shell syntax are mutually exclusive\nTry 'dircolors --help' for more information.\n") }
-  uu.write(s, "config", "OWT 40;33\n")?
+  uu.write(s, "config", "OWT 40;33\n")
   { let r = uu.invoke(s, "dircolors", ["--print-ls-colors", "config"])?; uu.succeeds(r); uu.stdout_is(r, "\x1b[40;33mtw\t40;33\x1b[0m\n"); uu.stderr_is(r, "") }
 }
 
 # origin: gnu misc/tsort.log
 test test_gnu_misc_tsort_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "f", "t b\nt s\ns t\n")?
+  uu.write(s, "f", "t b\nt s\ns t\n")
   { let r = uu.invoke(s, "tsort", ["f"])?; uu.fails_with_code(r, 1); uu.stdout_is(r, "s\nt\nb\n"); uu.stderr_is(r, "tsort: f: input contains a loop:\ntsort: s\ntsort: t\n") }
-  uu.write(s, "f", "t x\nt s\ns t\n")?
+  uu.write(s, "f", "t x\nt s\ns t\n")
   { let r = uu.invoke(s, "tsort", ["f"])?; uu.fails_with_code(r, 1); uu.stdout_is(r, "s\nt\nx\n"); uu.stderr_is(r, "tsort: f: input contains a loop:\ntsort: s\ntsort: t\n") }
-  uu.write(s, "f", "a a\na b\na c\nc a\nb a")?
+  uu.write(s, "f", "a a\na b\na c\nc a\nb a")
   { let r = uu.invoke(s, "tsort", ["-w", "f"])?; uu.fails_with_code(r, 1); uu.stdout_is(r, "a\nc\nb\n"); uu.stderr_is(r, "tsort: f: input contains a loop:\ntsort: a\ntsort: b\ntsort: f: input contains a loop:\ntsort: a\ntsort: c\n") }
-  uu.write(s, "posix-1.1", "a b c c d e\ng g\nf g e f\nh h\n")?
+  uu.write(s, "posix-1.1", "a b c c d e\ng g\nf g e f\nh h\n")
   { let r = uu.invoke(s, "tsort", ["posix-1.1"])?; uu.succeeds(r); uu.stdout_is(r, "a\nc\nd\nh\nb\ne\nf\ng\n"); uu.stderr_is(r, "") }
-  uu.write(s, "posix-2.1", "b a\nd c\nz h x h r h\n")?
+  uu.write(s, "posix-2.1", "b a\nd c\nz h x h r h\n")
   { let r = uu.invoke(s, "tsort", ["posix-2.1"])?; uu.succeeds(r); uu.stdout_is(r, "b\nd\nr\nx\nz\na\nc\nh\n"); uu.stderr_is(r, "") }
-  uu.write(s, "linear-1.1", "a b b c c d d e e f f g\n")?
+  uu.write(s, "linear-1.1", "a b b c c d d e e f f g\n")
   { let r = uu.invoke(s, "tsort", ["linear-1.1"])?; uu.succeeds(r); uu.stdout_is(r, "a\nb\nc\nd\ne\nf\ng\n"); uu.stderr_is(r, "") }
-  uu.write(s, "tree-1.1", "a b b c c d d e e f f g\nc x x y y z\n")?
+  uu.write(s, "tree-1.1", "a b b c c d d e e f f g\nc x x y y z\n")
   { let r = uu.invoke(s, "tsort", ["tree-1.1"])?; uu.succeeds(r); uu.stdout_is(r, "a\nb\nc\nx\nd\ny\ne\nz\nf\ng\n"); uu.stderr_is(r, "") }
-  uu.write(s, "tree-2.1", "a b b c c d d e e f f g\nc x x y y z\nf r r s s t\n")?
+  uu.write(s, "tree-2.1", "a b b c c d d e e f f g\nc x x y y z\nf r r s s t\n")
   { let r = uu.invoke(s, "tsort", ["tree-2.1"])?; uu.succeeds(r); uu.stdout_is(r, "a\nb\nc\nx\nd\ny\ne\nz\nf\nr\ng\ns\nt\n"); uu.stderr_is(r, "") }
-  uu.write(s, "odd.1", "a\n")?
+  uu.write(s, "odd.1", "a\n")
   { let r = uu.invoke(s, "tsort", ["odd.1"])?; uu.fails_with_code(r, 1); uu.stdout_is(r, ""); uu.stderr_is(r, "tsort: odd.1: input contains an odd number of tokens\n") }
-  uu.touch(s, "f")?; uu.touch(s, "g")?
+  uu.touch(s, "f"); uu.touch(s, "g")
   { let r = uu.invoke(s, "tsort", ["f", "g"])?; uu.fails_with_code(r, 1); uu.stdout_is(r, ""); uu.stderr_is(r, "tsort: extra operand 'g'\nTry 'tsort --help' for more information.\n") }
 }
 
@@ -226,9 +226,9 @@ test test_gnu_misc_tsort_log { |ctx|
 test test_gnu_misc_nohup_log { |ctx|
   let s = uu.scene(ctx)?
   let child = r"""printf 'stdout\n'; printf 'stderr\n' >&2; """
-  for _ in range(2) { let r = uu.invoke(s, "nohup", ["sh", "-c", child])?; uu.succeeds(r); uu.stdout_is(r, "stdout\n"); uu.stderr_is(r, "stderr\n"); assert ! uu.exists(s, "nohup.out")? }
+  repeat 2 times { let r = uu.invoke(s, "nohup", ["sh", "-c", child])?; uu.succeeds(r); uu.stdout_is(r, "stdout\n"); uu.stderr_is(r, "stderr\n"); assert ! uu.exists(s, "nohup.out")? }
   let missing = uu.invoke(s, "nohup", ["no-such-command"])?
-  uu.touch(s, "k")?; uu.set_mode(s, "k", 0)?
+  uu.touch(s, "k"); uu.set_mode(s, "k", 0)
   uu.fails_with_code(uu.invoke(s, "nohup", ["./k"])?, 126)
   uu.fails_with_code(uu.invoke(s, "nohup", [])?, 125)
   uu.fails_with_code(uu.invoke(s, "nohup", [], vars: {POSIXLY_CORRECT: "1"})?, 127)
@@ -237,43 +237,43 @@ test test_gnu_misc_nohup_log { |ctx|
     uu.file_is(s, "nohup.out", "stdout\n")
     let advisory = if input == "" { "nohup: ignoring input and appending output to 'nohup.out'\n" } else { "nohup: appending output to 'nohup.out'\n" }
     uu.file_is(s, "err", advisory + "stderr\n")
-    uu.remove(s, "nohup.out")?
+    uu.remove(s, "nohup.out")
   }
   assert terminal_run(s, "nohup", [p"sh", p"-c", Path(child)], " >out")? == 0
   uu.file_is(s, "out", "stdout\nstderr\n")
   assert ! uu.exists(s, "nohup.out")?
   assert terminal_run(s, "nohup", [p"echo", p"hi"], " 2>/dev/full")? == 125
   uu.file_is(s, "nohup.out", "")
-  uu.remove(s, "nohup.out")?
+  uu.remove(s, "nohup.out")
   assert terminal_run(s, "nohup", [p"no-such-command"], " 2>err")? == 127
   uu.file_is(s, "nohup.out", "")
-  uu.remove(s, "nohup.out")?
+  uu.remove(s, "nohup.out")
   assert terminal_run(s, "nohup", [p"./k"], " 2>err")? == 126
   uu.file_is(s, "nohup.out", "")
-  uu.remove(s, "nohup.out")?
+  uu.remove(s, "nohup.out")
   assert terminal_run(s, "nohup", [p"echo", p"hi"], umask: 0o600)? == 0
   assert uu.mode(s, "nohup.out")? == 0o600
-  uu.remove(s, "nohup.out")?
+  uu.remove(s, "nohup.out")
 
 }
 
 # origin: gnu misc/sync.log
 test test_gnu_misc_sync_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   for args in [["--data", "--file-system"], ["-d"]] { uu.fails_with_code(uu.invoke(s, "sync", args)?, 1) }
   uu.succeeds(uu.invoke(s, "sync", ["file"])?)
-  uu.set_mode(s, "file", 0o200)?
+  uu.set_mode(s, "file", 0o200)
   uu.succeeds(uu.invoke(s, "sync", ["file"])?)
   uu.fails_with_code(uu.invoke(s, "sync", ["file", "nofile"])?, 1)
   let r = uu.invoke(s, "sync", ["nofile1", "file", "nofile2"])?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "sync: error opening 'nofile1': No such file or directory\nsync: error opening 'nofile2': No such file or directory\n")
-  uu.mkdir(s, "norw")?; uu.set_mode(s, "norw", 0)?
+  uu.mkdir(s, "norw"); uu.set_mode(s, "norw", 0)
   let inaccessible = uu.invoke(s, "sync", ["norw"])?
   uu.fails_with_code(inaccessible, 1)
   uu.stderr_is(inaccessible, "sync: error opening 'norw': Permission denied\n")
-  uu.mkfifo(s, "fifo")?
+  uu.mkfifo(s, "fifo")
   for args in [["fifo"], ["-d", "fifo"]] { assert uu.invoke(s, "sync", args, timeout: 10s) is Ok(_) }
   if env.get("RUN_VERY_EXPENSIVE_TESTS") is Ok("yes") { assert uu.invoke(s, "sync", ["-f", "fifo"], timeout: 60s) is Ok(_) }
 }
@@ -281,10 +281,10 @@ test test_gnu_misc_sync_log { |ctx|
 # origin: gnu misc/realpath.log
 test test_gnu_misc_realpath_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1/dir2")?
-  uu.symlink(s, "dir1/dir2", "ldir2")?
-  uu.touch(s, "dir1/f")?; uu.touch(s, "dir1/dir2/f")?
-  for entry in [{name: "one", target: "/"}, {name: "two", target: "//"}, {name: "three", target: "///"}] { uu.symlink(s, entry.target, entry.name)? }
+  uu.mkdir(s, "dir1/dir2")
+  uu.symlink(s, "dir1/dir2", "ldir2")
+  uu.touch(s, "dir1/f"); uu.touch(s, "dir1/dir2/f")
+  for entry in [{name: "one", target: "/"}, {name: "two", target: "//"}, {name: "three", target: "///"}] { uu.symlink(s, entry.target, entry.name) }
   uu.succeeds(uu.invoke(s, "realpath", ["-Pqz", "."])?)
   for args in [[], ["--relative-base", ".", "--relative-to", "."], ["--relative-base", "."], ["-e", "--relative-to=dir1/f", "--relative-base=.", "."], ["-m", ""], ["--relative-base=", "--relative-to=.", "."]] { uu.fails_with_code(uu.invoke(s, "realpath", args)?, 1) }
   for args in [["-e", "--relative-to=dir1/", "--relative-base=.", "."], ["-e", "-E", "--relative-to=dir1/f", "--relative-base=.", "."]] { uu.succeeds(uu.invoke(s, "realpath", args)?) }
@@ -307,7 +307,7 @@ test test_gnu_misc_realpath_log { |ctx|
   { let r = uu.invoke(s, "realpath", ["-sm", "--relative-to=/", "/", "//", "/dev", "//dev"])?; uu.succeeds(r); uu.stdout_is(r, ".\n.\ndev\ndev\n") }
   { let r = uu.invoke(s, "realpath", ["-sm", "--relative-to=//", "/", "//", "/dev", "//dev"])?; uu.succeeds(r); uu.stdout_is(r, ".\n.\ndev\ndev\n") }
   { let r = uu.invoke(s, "realpath", ["--relative-base=/", "--relative-to=//", "/", "//"])?; uu.succeeds(r); uu.stdout_is(r, ".\n.\n") }
-  uu.mkdir(s, "noread")?; uu.set_mode(s, "noread", 0o311)?
+  uu.mkdir(s, "noread"); uu.set_mode(s, "noread", 0o311)
   for args in [["noread/"], ["-e", "noread/"]] { uu.stdout_is(uu.invoke(s, "realpath", args)?, here + "/noread\n") }
 }
 
@@ -320,9 +320,9 @@ test test_gnu_misc_sleep_log { |ctx|
   let locale = {LC_ALL: "fr_FR.utf8"}
   let first = uu.invoke(s, "printf", ["%0.3f", "0.001"], vars: locale)?
   uu.succeeds(first)
-  let second = uu.invoke(s, "printf", ["%0.3f", first.stdout.utf8()?], vars: locale)?
+  let second = uu.invoke(s, "printf", ["%0.3f", first.stdout as Str], vars: locale)?
   uu.succeeds(second)
-  let decimal = second.stdout.utf8()?
+  let decimal = second.stdout as Str
   assert decimal in ["0.001", "0,001"]
   let sleeper = uu.argv(s, "sleep", [Path(decimal)], vars: locale)?
   let args = [Path("1" + decimal)].extend(sleeper)
@@ -344,7 +344,7 @@ test test_gnu_misc_kill_log { |ctx|
   let term = uu.invoke(s, "kill", ["-l", "HUP", "TERM"])?.stdout.utf8()?.trim().split("\n")[1]
   uu.stdout_is(uu.invoke(s, "kill", ["-l", term])?, "TERM\n")
   uu.stdout_is(uu.invoke(s, "kill", ["-l", "143", "271"])?, "TERM\nTERM\n")
-  let last = uu.invoke(s, "kill", ["-l", "--", names[names.len() - 1]])?.stdout.utf8()?.trim().parse_int()?
+  let last = uu.invoke(s, "kill", ["-l", "--", names[-1]])?.stdout.utf8()?.trim() as Int
   let numbers = [f"{i}" for i in range(last + 1)]
   for option in ["-l", "-t"] { uu.succeeds(uu.invoke(s, "kill", [option, "--"].extend(numbers))?) }
   uu.stdout_is(uu.invoke(s, "kill", ["-l", names[0]])?, "0\n")
@@ -390,7 +390,7 @@ test test_gnu_misc_yes_log { |ctx|
 # origin: gnu misc/close-stdout.log
 test test_gnu_misc_close_stdout_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   for entry in [
     {util: "cp", args: ["a", "b"]},
     {util: "chmod", args: ["o-w", "."]},
@@ -405,14 +405,14 @@ test test_gnu_misc_close_stdout_log { |ctx|
     {util: "printf", args: [""]},
   ] {
     let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = words[..3].extend([p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output"]).extend(words[3..])
+    let wrapper = [@words[..3], p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output", @words[3..]]
     let status = process.run(process.command_argv(wrapper[0], wrapper, s.root, stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 5s))?
     assert status.exited_with(0), f"{entry.util}: {status.shell_code()?} {uu.read_text(s, "err")?}"
   }
   assert uu.exists(s, "b")?
   for entry in [{util: "printf", args: ["foo"]}, {util: "cp", args: ["--verbose", "a", "b"]}, {util: "mktemp", args: ["tmpfile-XXXXXX"]}, {util: "mktemp", args: ["tmpfile-XXXXXX", "-q"]}] {
     let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = words[..3].extend([p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output"]).extend(words[3..])
+    let wrapper = [@words[..3], p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output", @words[3..]]
     let result = process.run(process.command_argv(wrapper[0], wrapper, s.root, stderr: uu.at(s, "err"), timeout: 5s))?
     assert result.exited_with(1), f"{entry.util} {entry.args.join(" ")}: {result.shell_code()?} {uu.read_text(s, "err")?}"
   }
@@ -426,7 +426,7 @@ test test_gnu_misc_no_fork_log { |ctx|
   # stdbuf needs an LD_PRELOAD library to configure child libc buffering; the standalone static musl build does not ship it.
   for entry in [{util: "chroot", args: ["--skip-chdir", "/", "true"]}, {util: "env", args: ["true"]}, {util: "nice", args: ["true"]}, {util: "nohup", args: ["true"]}] {
     let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = words[..3].extend([p"/bin/bash", p"-c", Path(r"""ulimit -u 0 || exit; exec "$@"; """), p"no-fork"]).extend(words[3..])
+    let wrapper = [@words[..3], p"/bin/bash", p"-c", Path(r"""ulimit -u 0 || exit; exec "$@"; """), p"no-fork", @words[3..]]
     let status = process.run(process.command_argv(wrapper[0], wrapper, s.root, stderr: uu.at(s, "err"), timeout: 5s))?
     if entry.util != "chroot" { assert status.exited_with(0), uu.read_text(s, "err")? }
   }

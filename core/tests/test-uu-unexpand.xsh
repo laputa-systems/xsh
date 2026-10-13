@@ -1,10 +1,10 @@
 ##! Transcribed from the uutils coreutils integration tests for unexpand.
 
-use support.uu as uu
+use support.uu
 
 proc unexpand_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
-  uu.fixture(s, "unexpand", "with_spaces.txt", "with_spaces.txt")?
+  uu.fixture(s, "unexpand", "with_spaces.txt", "with_spaces.txt")
   Ok(s)
 }
 
@@ -82,7 +82,7 @@ test test_uu_unexpand_invalid_arg { |ctx|
 # origin: uutils test_unexpand::test_is_directory
 test test_uu_unexpand_is_directory { |ctx|
   let s = unexpand_scene(ctx)?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   let r = uu.invoke(s, "unexpand", ["dir"], stdin: bytes.from_text(""))?
   uu.fails(r)
   uu.stderr_contains(r, "unexpand: dir: Is a directory")
@@ -91,8 +91,8 @@ test test_uu_unexpand_is_directory { |ctx|
 # origin: uutils test_unexpand::test_multiple_files
 test test_uu_unexpand_multiple_files { |ctx|
   let s = unexpand_scene(ctx)?
-  uu.write(s, "file", "content")?
-  uu.write(s, "file1", "a        b")?
+  uu.write(s, "file", "content")
+  uu.write(s, "file1", "a        b")
   let r = uu.invoke(s, "unexpand", ["file", "file1"], stdin: bytes.from_text(""))?
   uu.succeeds(r)
   uu.stdout_is(r, "contenta        b")
@@ -101,8 +101,8 @@ test test_uu_unexpand_multiple_files { |ctx|
 # origin: uutils test_unexpand::test_non_utf8_filename
 test test_uu_unexpand_non_utf8_filename { |ctx|
   let s = unexpand_scene(ctx)?
-  let name = Path.parse_bytes(b"\xff\xfe")?
-  uu.at_bytes(s, b"\xff\xfe")?.write(b"        a\n")?
+  let name = b"\xff\xfe" as Path
+  uu.at_bytes(s, b"\xff\xfe")?.write(b"        a\n")
   let r = uu.invoke_paths(s, "unexpand", [name])?
   uu.succeeds(r)
   uu.stdout_is(r, "\ta\n")

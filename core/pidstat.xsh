@@ -8,12 +8,12 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   let sampling = procps.sampling_args(opts.operands)?
   let pids = if opts.pids == "ALL" { [] } else { procps.ids(opts.pids)? }
   let pattern = regex.compile(opts.command ?? "")?
-  var previous: LinuxSample? = null
+  var previous = null
   var index = 0
   while index < sampling.count {
     let current = linux.sample()?
     let elapsed_ms = if previous == null { current.uptime_ms } else { current.sampled_at_ms - previous.sampled_at_ms }
-    if elapsed_ms <= 0 { return Err(error.failure("sampling clock did not advance")) }
+    return Err(error.failure("sampling clock did not advance")) when elapsed_ms <= 0
     let header = if opts.memory { "UID PID VSZ RSS %MEM Command" } else { "UID PID %usr %system %CPU CPU Command" }
     print $header
     for row in current.processes {

@@ -66,18 +66,17 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 # Keep raw operands for paths while giving the text option parser safe markers.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
 
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0cat-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0cat-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
 
@@ -86,7 +85,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
 
   bytes.from_text(value)
@@ -97,7 +96,7 @@ proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
     return tio.open_source(text)
   }
 
-  let input_path = Path.parse_bytes(name)?
+  let input_path = name as Path
   let target = input_path.resolve()?
   let entry = target.metadata()?
   let kind = entry.mode / 4096 % 16
@@ -340,7 +339,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         written += rendered.out.len()
       }
 
-      unix.close_fd(fd)?
+      unix.close_fd(fd)
       continue
     }
 

@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fs_misc
+use lib.gnu
 
 type Options = {size: Str?, reference: Str?, no_create: Bool, blocks: Bool, help: Bool, version: Bool, paths: List[Str]}
 type RawArgument = {marker: Str, value: Bytes}
@@ -8,17 +8,16 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 # The shared option parser takes text; NUL-marked operands preserve Unix argv bytes.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0truncate-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0truncate-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
   {text: text, raw: raw}
@@ -26,7 +25,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
@@ -71,13 +70,13 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       gnu.error(f"Invalid number: {gnu.quote_value(raw)}{detail}")
       exit 1
     }
-    quantity = parsed ?? 0
+    quantity = parsed
     if quantity == 0 and operation in ["/", "%"] { gnu.error("division by zero"); exit 1 }
   }
   var reference = 0
   if opts.reference != null {
-    let name = argument_bytes(opts.reference ?? "", prepared.raw)
-    let info = fs.stat(Path.parse_bytes(name)?, follow_symlinks: true)
+    let name = argument_bytes(opts.reference, prepared.raw)
+    let info = fs.stat(name as Path, follow_symlinks: true)
     if let Err(failure) = info { cannot_stat(name, failure); exit 1 }
     reference = info?.size
   }
@@ -85,10 +84,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var failed = false
   for operand in opts.paths {
     let name = argument_bytes(operand, prepared.raw)
-    let target = Path.parse_bytes(name)?
+    let target = name as Path
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Err(failure) = metadata {
-      if opts.no_create and failure.errno == 2 { continue }
+      continue when opts.no_create and failure.errno == 2
     }
     var current = if opts.reference != null { reference } else { if let Ok(info) = metadata { info.size } else { 0 } }
     var amount = quantity

@@ -47,11 +47,11 @@ test test_dd_forced_rich_diagnostics_point_at_operands { |ctx|
 
 test test_dd_reads_and_writes_non_utf8_operand_paths { |ctx|
   let root = test.temp_dir(ctx, name: "dd-non-utf8")?
-  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/in-\xff\xfe"]))?
-  let output = Path.parse_bytes(bytes.concat([root.bytes(), b"/out-\xff\xfe"]))?
+  let input = bytes.concat([root.bytes(), b"/in-\xff\xfe"]) as Path
+  let output = bytes.concat([root.bytes(), b"/out-\xff\xfe"]) as Path
   let contents = b"dd accepts path operands whose bytes are not UTF-8\n"
   input.write(contents)
-  let args: List[Union[Path, Str]] = ["status=none", Path.parse_bytes(bytes.concat([b"if=", input.bytes()]))?, Path.parse_bytes(bytes.concat([b"of=", output.bytes()]))?]
+  let args: List[Union[Path, Str]] = ["status=none", bytes.concat([b"if=", input.bytes()]) as Path, bytes.concat([b"of=", output.bytes()]) as Path]
 
   let result = invoke_with_path_args(ctx, args)?
   assert result.status == 0, result.stderr
@@ -388,7 +388,7 @@ test test_dd_oflag_append_on_standard_output { |ctx|
   assert status.exited_with(0), err.read_text()?
   assert out.read_text()? == "xab"
   let converted_out = fp"{root}/converted"
-  let converted = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout"].extend(argv).extend(["conv=ucase"]), root, {LC_ALL: "C"}, b"ab", converted_out, err, timeout: 3s)
+  let converted = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout", @argv, "conv=ucase"], root, {LC_ALL: "C"}, b"ab", converted_out, err, timeout: 3s)
   assert process.run(converted)?.exited_with(0), err.read_text()?
   assert converted_out.read_text()? == "xAB"
 }
@@ -554,7 +554,7 @@ test test_dd_nocache_pipe_reports_illegal_seek { |ctx|
 test test_dd_help_labels_block_size_and_conversions { |ctx|
   let result = invoke(ctx, ["--help"])?
   assert result.status == 0, result.stderr
-  let text = result.stdout.utf8()?
+  let text = result.stdout as Str
   assert "\n  bs=BYTES" in text, text
   assert "\nEach CONV symbol may be:\n" in text, text
 }

@@ -68,7 +68,7 @@ export pure bit(name: Str) -> Result[Int, Error] {
   let normalized = name.lower()
   for entry in CAPABILITIES { return entry.bit when normalized == entry.name or normalized == entry.name.byte_slice(4) }
   if rx"^[0-9]+$".matches(normalized) {
-    let value = normalized.parse_int()?
+    let value = normalized as Int
     return value when value >= 0 and value < 64
   }
   Err(CapabilityError.Invalid(f"unknown capability {name}"))
@@ -76,7 +76,7 @@ export pure bit(name: Str) -> Result[Int, Error] {
 
 ## Parse a comma-separated set without losing the upper half of a file bitmap.
 export pure parse_mask(text: Str) -> Result[Mask, Error] {
-  if text.lower() == "all" { return {low: 4294967295, high: 511} }
+  return {low: 4294967295, high: 511} when text.lower() == "all"
   var mask = empty()
   return mask when text == ""
   for name in text.split(",") { mask = union(mask, singleton(bit(name)?)) }
@@ -92,12 +92,13 @@ export pure parse_set(text: Str) -> Result[Int, Error] {
 
 ## Render a bitmap in numeric order, retaining unknown future capability bits.
 export pure format_mask(mask: Mask) -> Str {
-  var names: List[Str] = []
-  for index in range(64) {
-    continue when ! contains(mask, index)
-    var name = f"{index}"
-    for entry in CAPABILITIES { if entry.bit == index { name = entry.name; break } }
-    names += [name]
+  let names = collect {
+    for index in range(64) {
+      continue when ! contains(mask, index)
+      var name = f"{index}"
+      for entry in CAPABILITIES { if entry.bit == index { name = entry.name; break } }
+      yield name
+    }
   }
   names.join(",")
 }
@@ -116,8 +117,8 @@ export pure decode(data: Bytes) -> Result[FileCaps, Error] {
   let magic = bytes.unpack_le(data[0..4], 4)?
   let rev = magic / 16777216
   return Err(CapabilityError.Invalid("invalid capability flags or length")) when magic % 16777216 > 1 or rev < 1 or rev > 3 or data.len() != (if rev == 1 { 12 } else if rev == 2 { 20 } else { 24 })
-  let permitted: Mask = {low: bytes.unpack_le(data[4..8], 4)?, high: if rev > 1 { bytes.unpack_le(data[12..16], 4)? } else { 0 }}
-  let inheritable: Mask = {low: bytes.unpack_le(data[8..12], 4)?, high: if rev > 1 { bytes.unpack_le(data[16..20], 4)? } else { 0 }}
+  let permitted: Mask = Mask(low: bytes.unpack_le(data[4..8], 4)?, high: if rev > 1 { bytes.unpack_le(data[12..16], 4)? } else { 0 })
+  let inheritable: Mask = Mask(low: bytes.unpack_le(data[8..12], 4)?, high: if rev > 1 { bytes.unpack_le(data[16..20], 4)? } else { 0 })
   {revision: revision(rev)?, effective: magic % 2 == 1, permitted: permitted, inheritable: inheritable, rootid: if rev == 3 { bytes.unpack_le(data[20..24], 4)? } else { null }}
 }
 
@@ -128,7 +129,7 @@ export pure encode(record: FileCaps) -> Result[Bytes, Error] {
   }
   let rev = match record.revision { One => 1, Two => 2, Three => 3 }
   return Err(CapabilityError.Invalid("revision one cannot represent upper capability bits")) when rev == 1 and (record.permitted.high != 0 or record.inheritable.high != 0)
-  return Err(CapabilityError.Invalid("invalid root ID for capability revision")) when (rev == 3 and (record.rootid == null or (record.rootid ?? -1) < 0 or (record.rootid ?? 0) > 4294967295)) or (rev != 3 and record.rootid != null)
+  return Err(CapabilityError.Invalid("invalid root ID for capability revision")) when (rev == 3 and (record.rootid == null or (record.rootid ?? -1) < 0 or record.rootid > 4294967295)) or (rev != 3 and record.rootid != null)
   var chunks = [bytes.pack_le(rev * 16777216 + (if record.effective { 1 } else { 0 }), 4)?, bytes.pack_le(record.permitted.low, 4)?, bytes.pack_le(record.inheritable.low, 4)?]
   if rev > 1 { chunks += [bytes.pack_le(record.permitted.high, 4)?, bytes.pack_le(record.inheritable.high, 4)?] }
   if rev == 3 { chunks += [bytes.pack_le(record.rootid ?? 0, 4)?] }
@@ -161,14 +162,14 @@ export pure parse(text: Str, rootid: Int? = null) -> Result[FileCaps, Error] {
     }
   }
   return Err(CapabilityError.Invalid("file effective set must equal permitted union inheritable, or be empty")) when ! equal(effective, empty()) and ! equal(effective, union(permitted, inheritable))
-  let record: FileCaps = {revision: if rootid == null { .Two } else { .Three }, effective: ! equal(effective, empty()), permitted: permitted, inheritable: inheritable, rootid: rootid}
+  let record: FileCaps = FileCaps(revision: if rootid == null { .Two } else { .Three }, effective: ! equal(effective, empty()), permitted:, inheritable:, rootid:)
   let validated = encode(record)?
   record
 }
 
 ## Group equal per-capability flags using canonical libcap expression syntax.
 export pure format(record: FileCaps) -> Str {
-  var groups: List[Str] = []
+  var groups = []
   for flags in ["i", "p", "ip", "e", "ei", "ep", "eip"] {
     var mask = empty()
     for index in range(64) {

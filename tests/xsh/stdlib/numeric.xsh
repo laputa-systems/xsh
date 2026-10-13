@@ -52,12 +52,15 @@ test test_numeric_and_locale_remain_ordinary_binding_names {
 }
 
 test test_numeric_and_locale_remain_ordinary_procedure_names { |ctx|
-  let result = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 proc numeric() -> Bool { return true }
 proc locale() -> Str { return "C" }
 assert numeric()
 assert (system.locale_numeric_info(locale())?).decimal_point == b"."
 assert (system.parse_long_double("1")?).consumed == 1
-""")?
-  assert result.success, result.stderr
+""",
+    status: 0,
+  )?
 }

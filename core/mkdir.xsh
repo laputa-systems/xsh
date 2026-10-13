@@ -13,7 +13,7 @@ pure parse_mode(spec: Str, umask: Int) -> Result[Int] {
   if rx"^[0-7]+$".matches(spec) {
     var value = 0
     for digit in spec {
-      value = value * 8 + digit.parse_int()?
+      value = value * 8 + digit as Int
       return Err(AppletError.Usage("invalid mode")) when value > 0o7777
     }
     return value
@@ -70,15 +70,13 @@ pure lexical_parent(target: Path) -> Path {
   if parent == "" { p"/" } else { fp"{parent}" }
 }
 
-proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, parent_mode: Int) [fs, process, env, io, error] -> Result[Unit] {
+proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, parent_mode: Int) [fs, process, env, io, error] {
   if parents {
-    match fs.stat(target, follow_symlinks: true) {
-      Ok(meta) => { return when meta.kind == "dir" }
-      Err(_) => {}
-    }
+    if let Ok(meta) = fs.stat(target, follow_symlinks: true) { return when meta.kind == "dir" }
+
     let parent = lexical_parent(target)
     if parent != "" and parent != target {
-      create_directory(parent, true, null, verbose, parent_mode)?
+      create_directory(parent, true, null, verbose, parent_mode)
     }
   }
   if let Err(failure) = target.mkdir(parents: false) {
@@ -89,9 +87,9 @@ proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, pa
     }
     return Err(failure)
   }
-  if let desired = mode { target.chmod(desired)? } else if parent_mode != 0 {
+  if let desired = mode { target.chmod(desired) } else if parent_mode != 0 {
     let inherited = target.metadata()?.mode.bit_and(0o7777)
-    if inherited.bit_and(parent_mode) != parent_mode { target.chmod(inherited.bit_or(parent_mode))? }
+    if inherited.bit_and(parent_mode) != parent_mode { target.chmod(inherited.bit_or(parent_mode)) }
   }
   if verbose { gnu.write_text(f"mkdir: created directory {gnu.quote(target.display())}\n") }
 }
@@ -118,7 +116,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # kernels it must fail.
   let enabled = labelled and selinux.enabled()?
   if valued_contexts > 0 and !enabled {
-    for _ in range(valued_contexts) {
+    repeat valued_contexts times {
       gnu.error("warning: ignoring --context; it requires an SELinux/SMACK-enabled kernel")
     }
   }
@@ -134,12 +132,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if opts.directories.is_empty() { gnu.missing_operand() }
   let umask = fs.umask()?
-  var mode: Int? = null
+  var mode = null
   if let spec = opts.mode {
-    match parse_mode(spec, umask) {
-      Ok(value) => mode = value
-      Err(_) => { gnu.error(f"invalid mode {gnu.quote_value(spec)}")
-        exit 1 }
+    if let Ok(value) = parse_mode(spec, umask) {
+      mode = value
+    } else {
+      gnu.error(f"invalid mode {gnu.quote_value(spec)}")
+      exit 1
     }
   }
   var failed = false

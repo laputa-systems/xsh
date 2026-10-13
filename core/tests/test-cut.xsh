@@ -104,7 +104,7 @@ test test_cut_unicode_nobreak_spaces_are_not_blank_delimiters { |ctx|
 
 test test_cut_accepts_non_utf8_path_and_delimiter_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "cut-raw-arguments")?
-  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let input = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   input.write(b"left\xadright\n")
   let output = test.temp_path(ctx, name: "output")
   let command = "delimiter=$(printf '\\255'); exec \"$1\" \"$2\" -- -d\"$delimiter\" -f2 \"$3\" > \"$4\""

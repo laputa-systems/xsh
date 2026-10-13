@@ -64,7 +64,7 @@ const OPTIONS: List[Spec] = [
 # Options real curl has that this applet does !implement. Each one stops
 # with curl's "not supported by this build" diagnostic and status 4 rather than
 # being accepted and ignored; anything else unknown is curl's "is unknown".
-const UNSUPPORTED: List[Str] = [
+const UNSUPPORTED = [
   "proxy", "x", "form", "F", "config", "K", "parallel", "Z", "http1.0", "0", "http2", "http3",
   "ipv4", "4", "ipv6", "6", "limit-rate", "netrc", "n", "digest", "ntlm", "negotiate", "anyauth",
   "oauth2-bearer", "remote-header-name", "J", "output-dir", "next", "retry-max-time", "cert", "E",
@@ -169,13 +169,13 @@ pure initial() -> Settings {
 # curl takes seconds as a decimal number and rejects anything else.
 proc seconds_ms(option: Str, text: Str) [io, error] -> Int {
   let parsed = text.parse_float()
-  match parsed {
-    Ok(value) => {
-      if value < 0.0 { fail_usage(f"option {option}: expected a proper numerical parameter") }
-      return (value * 1000.0).round() ?? 0
-    }
-    Err(_) => fail_usage(f"option {option}: expected a proper numerical parameter")
+  if let Ok(value) = parsed {
+    if value < 0.0 { fail_usage(f"option {option}: expected a proper numerical parameter") }
+    return (value * 1000.0).round() ?? 0
+  } else {
+    fail_usage(f"option {option}: expected a proper numerical parameter")
   }
+
   0
 }
 
@@ -197,7 +197,7 @@ proc parse_header(settings: Settings, line: Str) [io, error] -> Settings {
     }
     return settings
   }
-  let at = colon ?? 0
+  let at = colon
   let name = line.byte_slice(0, at).trim()
   let value = line.byte_slice(at + 1).trim()
   {...settings, headers: settings.headers.extend([{name: name, value: if value == "" { REMOVE_MARK } else { value }}])}
@@ -206,25 +206,24 @@ proc parse_header(settings: Settings, line: Str) [io, error] -> Settings {
 # `-d @file` strips carriage returns and newlines from the file; `@-` reads
 # standard input; `--data-binary` keeps the bytes exactly.
 proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error] -> Bytes {
-  if !files or !value.starts_with("@") { return bytes.from_text(value) }
+  return bytes.from_text(value) when ! files or ! value.starts_with("@")
   let name = value.byte_slice(1)
   let raw = if name == "-" { io.stdin_bytes() } else { fp"{name}".read_bytes() }
-  match raw {
-    Ok(content) => {
-      if !strip { return content }
-      var kept: List[Int] = []
+  if let Ok(content) = raw {
+    return content unless strip
+    let kept = collect {
       for index in range(content.len()) {
         let byte = content.byte_at(index) ?? 0
-        if byte != 10 and byte != 13 { kept += [byte] }
+        yield byte when byte != 10 and byte != 13
       }
-      return bytes.from_ints(kept) ?? b""
     }
-    Err(_) => {
-      io.write_stderr(f"curl: Failed to open {name}\n")
-      io.flush_stderr()
-      fail_usage(f"option {option}: error encountered when reading a file", 26)
-    }
+    return bytes.from_ints(kept) ?? b""
+  } else {
+    io.write_stderr(f"curl: Failed to open {name}\n")
+    io.flush_stderr()
+    fail_usage(f"option {option}: error encountered when reading a file", 26)
   }
+
   b""
 }
 
@@ -233,15 +232,15 @@ proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error
 proc urlencoded_part(value: Str) [io, fs, error] -> Bytes {
   let equals = value.find("=")
   let at = value.find("@")
-  if equals != null and (at == null or (equals ?? 0) < (at ?? 0)) {
-    let name = value.byte_slice(0, equals ?? 0)
-    let content = bytes.from_text(value.byte_slice((equals ?? 0) + 1))
+  if equals != null and (at == null or equals < at) {
+    let name = value.byte_slice(0, equals)
+    let content = bytes.from_text(value.byte_slice(equals + 1))
     let encoded = http_transfer.percent_encode(content, true)
     return bytes.from_text(if name == "" { encoded } else { f"{name}={encoded}" })
   }
   if at != null {
-    let name = value.byte_slice(0, at ?? 0)
-    let content = data_part("--data-urlencode", value.byte_slice(at ?? 0), false, true)
+    let name = value.byte_slice(0, at)
+    let content = data_part("--data-urlencode", value.byte_slice(at), false, true)
     let encoded = http_transfer.percent_encode(content, true)
     return bytes.from_text(if name == "" { encoded } else { f"{name}={encoded}" })
   }
@@ -308,19 +307,20 @@ proc apply(settings: Settings, spec: Spec, option: Str, value: Str) [io, fs, err
       {...settings, stderr_to_stdout: true}
     }
     "url" => {...settings, urls: settings.urls.extend([value])}
-    _ => settings
+    else => settings
   }
 }
 
 proc find_long(name: Str) [io, error] -> Spec? {
   for spec in OPTIONS {
-    if spec.long == name { return spec }
+    return spec when spec.long == name
   }
-  var matches: List[Spec] = []
-  for spec in OPTIONS {
-    if spec.long.starts_with(name) and spec.long != "" { matches += [spec] }
+  let matches: List[Spec] = collect {
+    for spec in OPTIONS {
+      yield spec when spec.long.starts_with(name) and spec.long != ""
+    }
   }
-  if matches.is_empty() { return null }
+  return null when matches.is_empty()
   let first = matches[0]
   for spec in matches {
     if spec.key != first.key { fail_usage(f"option --{name}: is ambiguous") }
@@ -330,7 +330,7 @@ proc find_long(name: Str) [io, error] -> Spec? {
 
 proc find_short(letter: Str) -> Spec? {
   for spec in OPTIONS {
-    if spec.short == letter { return spec }
+    return spec when spec.short == letter
   }
   null
 }
@@ -432,7 +432,7 @@ pure negate(settings: Settings, spec: Spec) -> Settings {
     "no_progress" => {...settings, no_progress: false}
     "retry_connrefused" => {...settings, retry_connrefused: false}
     "retry_all_errors" => {...settings, retry_all_errors: false}
-    _ => settings
+    else => settings
   }
 }
 
@@ -518,7 +518,7 @@ proc load_jar(name: Str) [fs] -> List[Cookie] {
     var row = line
     if row.starts_with("#HttpOnly_") { row = row.byte_slice(10) } else if row.starts_with("#") or row.trim() == "" { continue }
     let parts = row.split("\t")
-    if parts.len() < 7 { continue }
+    continue when parts.len() < 7
     jar += [{
       domain: parts[0], subdomains: parts[1] == "TRUE", path: parts[2], secure: parts[3] == "TRUE",
       expires: parts[4].parse_int() ?? 0, name: parts[5], value: parts[6],
@@ -531,13 +531,13 @@ proc load_jar(name: Str) [fs] -> List[Cookie] {
 # does !follow the RFC 1123 shape.
 proc parse_expires(text: Str) [time] -> Int {
   let words = text.replace(",", with: "").words()
-  if words.len() < 5 { return 0 }
+  return 0 when words.len() < 5
   var month = 0
   for number in range(12) {
     if MONTHS[number] == words[2].lower().byte_slice(0, 3) { month = number + 1 }
   }
   let clock = words[4].split(":")
-  if month == 0 or clock.len() != 3 { return 0 }
+  return 0 when month == 0 or clock.len() != 3
   let stamp = time.from_calendar(words[3].parse_int() ?? 1970, month, words[1].parse_int() ?? 1, clock[0].parse_int() ?? 0, clock[1].parse_int() ?? 0, clock[2].parse_int() ?? 0, true) ?? 0
   stamp / 1000000000
 }
@@ -545,13 +545,13 @@ proc parse_expires(text: Str) [time] -> Int {
 proc cookie_from(header: Str, host: Str, route: Str) [time] -> Cookie? {
   let parts = header.split(";")
   let pair = parts[0].split("=", 1)
-  if pair.len() < 2 { return null }
+  return null when pair.len() < 2
   var domain = host
   var subdomains = false
   var scope = route
   var secure = false
   var expires = 0
-  var max_age: Int? = null
+  var max_age = null
   for attribute in parts[1..] {
     let item = attribute.trim()
     let kv = item.split("=", 1)
@@ -567,9 +567,10 @@ proc cookie_from(header: Str, host: Str, route: Str) [time] -> Cookie? {
     } else if key == "expires" {
       expires = parse_expires(val)
     } else if key == "max-age" {
-      match val.parse_int() {
-        Ok(seconds_valid) => max_age = seconds_valid
-        Err(_) => max_age = null
+      if let Ok(seconds_valid) = val.parse_int() {
+        max_age = seconds_valid
+      } else {
+        max_age = null
       }
     }
   }
@@ -578,9 +579,9 @@ proc cookie_from(header: Str, host: Str, route: Str) [time] -> Cookie? {
 }
 
 pure cookie_applies(cookie: Cookie, host: Str, route: Str, https: Bool, now: Int) -> Bool {
-  if cookie.secure and !https { return false }
-  if cookie.expires != 0 and cookie.expires < now { return false }
-  if !route.starts_with(cookie.path) { return false }
+  return false when cookie.secure and ! https
+  return false when cookie.expires != 0 and cookie.expires < now
+  return false unless route.starts_with(cookie.path)
   let bare = if cookie.domain.starts_with(".") { cookie.domain.byte_slice(1) } else { cookie.domain }
   host == bare or (cookie.subdomains and host.ends_with(f".{bare}"))
 }
@@ -668,13 +669,13 @@ proc write_out_value(name: Str, outcome: Outcome, method: Str) [io, error] -> St
     "speed_download" => f"{if outcome.millis < 1 { outcome.bytes * 1000 } else { outcome.bytes * 1000 / outcome.millis }}"
     "num_redirects" => f"{outcome.redirects}"
     "redirect_url" => redirect_url(outcome)
-    _ => unknown_variable(name)
+    else => unknown_variable(name)
   }
 }
 
 # The URL a redirect answer points at, which is empty for any other status.
 pure redirect_url(outcome: Outcome) -> Str {
-  if outcome.status not in [301, 302, 303, 307, 308] { return "" }
+  return "" when outcome.status not in [301, 302, 303, 307, 308]
 
   if let target = http_transfer.header_value(outcome.headers, "location") {
     return http_transfer.resolve_location(outcome.url, target)
@@ -687,20 +688,20 @@ proc unknown_variable(name: Str) [io, error] -> Str {
   ""
 }
 
-const ALLOWED_METHODS: List[Str] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
+const ALLOWED_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
 # Statuses curl treats as transient for --retry.
-const TRANSIENT_STATUS: List[Int] = [408, 429, 500, 502, 503, 504]
+const TRANSIENT_STATUS = [408, 429, 500, 502, 503, 504]
 
 type Attempt = {code: Int, again: Str?}
 
 proc show_error(settings: Settings, code: Int, message: Str) [io, error] {
-  if settings.silent and !settings.show_error { return }
+  return when settings.silent and ! settings.show_error
   emit(f"curl: ({code}) {message}\n", settings.stderr_to_stdout)
 }
 
 proc warn(settings: Settings, message: Str) [io, error] {
-  if settings.silent { return }
+  return when settings.silent
   emit(f"Warning: {message}\n", settings.stderr_to_stdout)
 }
 
@@ -726,7 +727,7 @@ proc describe_failure(failure: http_transfer.TransferFailure, request: Request, 
     http_transfer.TransferFailure.EmptyReply => {code: 52, message: "Empty reply from server", again: "empty reply"}
     http_transfer.TransferFailure.Redirects => {code: 47, message: f"Maximum ({request.redirects}) redirects followed", again: null}
     http_transfer.TransferFailure.Status {code} => {code: 22, message: f"The requested URL returned error: {code}", again: if code in TRANSIENT_STATUS { "HTTP error" } else { null }}
-    http_transfer.TransferFailure.Scheme {message} => {code: 4, message: f"{message}", again: null}
+    http_transfer.TransferFailure.Scheme {message} => {code: 4, message: message, again: null}
     http_transfer.TransferFailure.Write => {code: 23, message: "client returned ERROR on write", again: null}
     http_transfer.TransferFailure.TrustStore => {code: 77, message: "error adding trust anchors from file", again: null}
     http_transfer.TransferFailure.Other {message} => {code: 56, message: f"Failure with receiving network data: {message}", again: null}
@@ -750,7 +751,7 @@ proc request_headers_for(settings: Settings, url: Str, body: Bytes, resume_from:
   if agent != "" { headers += [{name: "User-Agent", value: agent}] }
   headers += [{name: "Accept", value: "*/*"}]
   if let from = settings.referer { headers += [{name: "Referer", value: from}] }
-  var pairs: List[Str] = []
+  var pairs = []
   let host = http_transfer.url_host(url)
   let route = http_transfer.url_path(url)
   let https = http_transfer.url_scheme(url) == "https"
@@ -783,7 +784,7 @@ proc request_headers_for(settings: Settings, url: Str, body: Bytes, resume_from:
 # The remote name `-O` saves under; curl falls back to "curl_response".
 proc remote_name(settings: Settings, url: Str) [io, error] -> Str {
   let name = http_transfer.url_file_name(url)
-  if name != "" { return name }
+  return name when name != ""
   warn(settings, "No remote filename, uses \"curl_response\"")
   "curl_response"
 }
@@ -796,7 +797,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
   if scheme == null {
     url = f"http://{url}"
   } else if scheme not in ["http", "https"] {
-    show_error(settings, 1, f"Protocol \"{scheme ?? ""}\" not supported")
+    show_error(settings, 1, f"Protocol \"{scheme}\" not supported")
     return 1
   }
   if !settings.globoff and (url.find("[") != null or url.find("{") != null) {
@@ -804,12 +805,13 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     return 3
   }
   var body = b""
-  var parts: List[Bytes] = []
   var first = true
-  for part in settings.data {
-    if !first { parts += [b"&"] }
-    parts += [part]
-    first = false
+  let parts = collect {
+    for part in settings.data {
+      yield b"&" unless first
+      yield part
+      first = false
+    }
   }
   body = bytes.concat(parts)
   var method = settings.method ?? "GET"
@@ -830,16 +832,15 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     if target.ends_with("/") { target = f"{target}{fp"{source}".basename()}" }
     url = target
     let content = if source == "-" { io.stdin_bytes() } else { fp"{source}".read_bytes() }
-    match content {
-      Ok(bytes_in) => body = bytes_in
-      Err(_) => {
-        show_error(settings, 26, "Failed to open/read local data from file/application")
-        return 26
-      }
+    if let Ok(bytes_in) = content {
+      body = bytes_in
+    } else {
+      show_error(settings, 26, "Failed to open/read local data from file/application")
+      return 26
     }
   }
 
-  var dest: Path? = null
+  var dest = null
   if output == "\0remote" {
     dest = fp"{remote_name(settings, url)}"
   } else if output != "" and output != "-" {
@@ -848,13 +849,14 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
   if let target = dest {
     if settings.create_dirs {
       let parent = target.parent()
-      let _ = parent.mkdir(parents: true)
+      let _ = parent.mkdir()
     }
   }
 
-  var jar: List[Cookie] = []
-  for cookie in settings.cookies {
-    if cookie.find("=") == null { jar = jar.extend(load_jar(cookie)) }
+  let jar: List[Cookie] = collect {
+    for cookie in settings.cookies {
+      if cookie.find("=") == null { yield @load_jar(cookie) }
+    }
   }
 
   var resume_from = 0
@@ -862,9 +864,10 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     if spec == "-" {
       if let target = dest {
         let known = target.metadata()
-        match known {
-          Ok(info) => resume_from = info.size
-          Err(_) => resume_from = 0
+        if let Ok(info) = known {
+          resume_from = info.size
+        } else {
+          resume_from = 0
         }
       }
     } else {
@@ -877,27 +880,14 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
   var left = settings.retries
   var wait_ms = settings.retry_delay ?? 1000
   while true {
-    let request: Request = {
-      method: method,
-      url: url,
-      headers: headers,
-      body: body,
-      timeout: settings.max_time,
-      connect_timeout: settings.connect_timeout,
-      idle_timeout: null,
-      redirects: if settings.location { settings.max_redirs } else { 0 },
-      return_redirects: !settings.location,
-      verify: !settings.insecure,
-      cacert: settings.cacert,
-      fail_status: settings.fail and !settings.fail_with_body and dest != null and !reply_needs_buffer,
-    }
+    let request: Request = Request(method:, url:, headers:, body:, timeout: settings.max_time, connect_timeout: settings.connect_timeout, idle_timeout: null, redirects: if settings.location { settings.max_redirs } else { 0 }, return_redirects: !settings.location, verify: !settings.insecure, cacert: settings.cacert, fail_status: settings.fail and !settings.fail_with_body and dest != null and !reply_needs_buffer)
     let result = attempt(settings, request, dest, resume_from, method, jar, reply_needs_buffer)
-    if result.again == null or left == 0 { return result.code }
-    let reason = result.again ?? ""
+    return result.code when result.again == null or left == 0
+    let reason = result.again
     let eligible = reason in ["HTTP error", "timeout"] or (reason == "connection refused" and settings.retry_connrefused) or settings.retry_all_errors
-    if !eligible { return result.code }
+    return result.code unless eligible
     warn(settings, f"Problem : {reason}. Retrying in {plural(wait_ms / 1000, "second", "seconds")}. {plural(left, "retry", "retries")} left.")
-    time.sleep(time.millis(wait_ms))?
+    time.sleep(time.millis(wait_ms))
     left -= 1
     if settings.retry_delay == null { wait_ms = wait_ms * 2 }
   }
@@ -909,8 +899,8 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
 proc gunzip(data: Bytes) [fs, error] -> Result[Bytes] {
   let scratch = fs.tempdir()?
   let dir = scratch.host_path()?
-  fp"{dir}/in.gz".write(data)?
-  compression.transform(fp"{dir}/in.gz", fp"{dir}/out", "gzip", true)?
+  fp"{dir}/in.gz".write(data)
+  compression.transform(fp"{dir}/in.gz", fp"{dir}/out", "gzip", true)
   Ok(fp"{dir}/out".read_bytes()?)
 }
 
@@ -938,7 +928,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
   if meter { emit(f"{METER_HEADER}\r{meter_line(0, 0, 0, 0)}", settings.stderr_to_stdout) }
 
   let streamed = dest != null and !buffered
-  let result = if streamed { http_transfer.fetch_to(request, dest ?? p"") } else { http_transfer.fetch(request) }
+  let result = if streamed { http_transfer.fetch_to(request, dest) } else { http_transfer.fetch(request) }
   let elapsed = time.now() - started
 
   match result {
@@ -947,10 +937,10 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
       if meter or bar { emit("\n", settings.stderr_to_stdout) }
       show_error(settings, described.code, described.message)
       if settings.write_out != null {
-        let outcome: Outcome = {status: 0, reason: "", headers: [], bytes: 0, url: request.url, redirects: 0, millis: elapsed, code: described.code}
+        let outcome: Outcome = Outcome(status: 0, reason: "", headers: [], bytes: 0, url: request.url, redirects: 0, millis: elapsed, code: described.code)
         finish_write_out(settings, outcome, method)
       }
-      return {code: described.code, again: described.again}
+      {code: described.code, again: described.again}
     }
     Ok(reply) => {
       var code = 0
@@ -978,12 +968,11 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
         return {code: 33, again: null}
       }
       if settings.compressed and http_transfer.header_value(reply.headers, "content-encoding") == "gzip" and !streamed {
-        match gunzip(body) {
-          Ok(plain) => body = plain
-          Err(_) => {
-            show_error(settings, 61, "Unrecognized content encoding type")
-            return {code: 61, again: null}
-          }
+        if let Ok(plain) = gunzip(body) {
+          body = plain
+        } else {
+          show_error(settings, 61, "Unrecognized content encoding type")
+          return {code: 61, again: null}
         }
       }
       if let limit = settings.max_filesize {
@@ -992,7 +981,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
           return {code: 63, again: null}
         }
       }
-      var again: Str? = null
+      var again = null
       if reply.status in TRANSIENT_STATUS { again = "HTTP error" }
       let failed = settings.fail and reply.status >= 400 and !(resume_from > 0 and reply.status == 416)
       if failed and !settings.fail_with_body {
@@ -1026,19 +1015,21 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
             return {code: 23, again: null}
           }
         } else {
-          io.write_stdout_bytes(out)?
-          io.flush_stdout()?
+          io.write_stdout_bytes(out)
+          io.flush_stdout()
         }
       }
       if let jar_name = settings.cookie_jar {
         let now = time.now() / 1000
-        var all: List[Cookie] = []
-        for cookie in jar { if cookie.expires == 0 or cookie.expires >= now { all += [cookie] } }
+        var all: List[Cookie] = [cookie for cookie in jar if cookie.expires == 0 or cookie.expires >= now]
         for header in reply.headers {
           if header.name.lower() == "set-cookie" {
             if let made = cookie_from(header.value, host, cookie_dir(http_transfer.url_path(request.url))) {
-              var kept: List[Cookie] = []
-              for old in all { if !(old.domain == made.domain and old.path == made.path and old.name == made.name) { kept += [old] } }
+              let kept: List[Cookie] = collect {
+                for old in all {
+                  if ! (old.domain == made.domain and old.path == made.path and old.name == made.name) { yield old }
+                }
+              }
               all = kept.extend([made])
             }
           }
@@ -1057,11 +1048,11 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
       }
       if bar { emit(f"\r{BAR} 100.0%\n", settings.stderr_to_stdout) }
       if settings.write_out != null {
-        let outcome: Outcome = {status: reply.status, reason: reply.reason, headers: reply.headers, bytes: shown, url: reply.url, redirects: reply.redirects, millis: elapsed, code: code}
+        let outcome: Outcome = Outcome(status: reply.status, reason: reply.reason, headers: reply.headers, bytes: shown, url: reply.url, redirects: reply.redirects, millis: elapsed, code:)
         finish_write_out(settings, outcome, method)
       }
       if failed { show_error(settings, 22, f"The requested URL returned error: {reply.status}") }
-      return {code: code, again: again}
+      {code: code, again: again}
     }
   }
 }
@@ -1070,7 +1061,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
 # cookie path.
 pure cookie_dir(route: Str) -> Str {
   let parts = route.split("/")
-  if parts.len() <= 2 { return "/" }
+  return "/" when parts.len() <= 2
   var out = ""
   for index in range(parts.len() - 1) {
     if parts[index] != "" { out = f"{out}/{parts[index]}" }

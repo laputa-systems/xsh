@@ -494,10 +494,12 @@ failure
 test test_eager_range_capacity_failure_is_catchable {
   let failed = try { range(9223372036854775807).collect() }
   assert failed is Err(is HostIo)
-  match failed {
-    Err(error) => assert error.errno == 12
-    Ok(_) => test.fail("unaddressable range succeeded")
+  if let Err(error) = failed {
+    assert error.errno == 12
+  } else {
+    test.fail("unaddressable range succeeded")
   }
+
   assert range(3).collect() == [0, 1, 2]
   assert range(-3).collect() == [0, -1, -2]
 }
@@ -505,19 +507,22 @@ test test_eager_range_capacity_failure_is_catchable {
 test test_eager_pipeline_range_capacity_failure_is_catchable {
   let failed = try { [] |> range(0, 9223372036854775807) }
   assert failed is Err(is HostIo)
-  match failed {
-    Err(error) => assert error.errno == 12
-    Ok(_) => test.fail("unaddressable pipeline range succeeded")
+  if let Err(error) = failed {
+    assert error.errno == 12
+  } else {
+    test.fail("unaddressable pipeline range succeeded")
   }
 }
 
 test test_eager_pipeline_repeat_capacity_failure_is_catchable {
   let failed = try { [1, 2, 3] |> repeat(9223372036854775807) }
   assert failed is Err(is HostIo)
-  match failed {
-    Err(error) => assert error.errno == 12
-    Ok(_) => test.fail("unaddressable repeat succeeded")
+  if let Err(error) = failed {
+    assert error.errno == 12
+  } else {
+    test.fail("unaddressable repeat succeeded")
   }
+
   assert ([1, 2] |> repeat(2)) == [1, 2, 1, 2]
 }
 
@@ -528,8 +533,9 @@ test test_repeat_statement_capacity_failure_is_catchable {
     }
   }
   assert failed is Err(is HostIo)
-  match failed {
-    Err(error) => assert error.errno == 12
-    Ok(_) => test.fail("unaddressable repeat succeeded")
+  if let Err(error) = failed {
+    assert error.errno == 12
+  } else {
+    test.fail("unaddressable repeat succeeded")
   }
 }

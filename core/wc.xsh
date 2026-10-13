@@ -395,7 +395,7 @@ proc count_input(
   }
 
   var data = b""
-  var read_error: Str? = null
+  var read_error = null
   var counted: Counts? = null
 
   if input.stdin and only_bytes {
@@ -404,7 +404,7 @@ proc count_input(
     loop {
       match io.stdin_read(65536) {
         Ok(chunk) => {
-          if chunk.is_empty() { break }
+          break when chunk.is_empty()
           stdin_size = add_bytes(stdin_size, byte_count(chunk.len()))
         }
         Err(failure) => {
@@ -468,17 +468,17 @@ proc count_input(
 }
 
 proc write_streamed_line(output: Str) [process, env, io, error] {
-  if output == "" { return }
+  return when output == ""
 
   if let Err(failure) = io.write_stdout(output) {
     gnu.error(f"write error: {gnu.strerror(failure)}")
-    io.flush_stderr()?
+    io.flush_stderr()
     exit 1
   }
 
   if let Err(failure) = io.flush_stdout() {
     gnu.error(f"write error: {gnu.strerror(failure)}")
-    io.flush_stderr()?
+    io.flush_stderr()
     exit 1
   }
 }
@@ -503,7 +503,7 @@ proc count_one(
 
   if let failure = result.name_failure {
     gnu.name_error(input.name, failure)
-    if stream_output { io.flush_stderr()? }
+    if stream_output { io.flush_stderr() }
     return {total: total, output: output, seen: seen, failed: true}
   }
 
@@ -514,13 +514,13 @@ proc count_one(
     }
 
     gnu.error(diagnostic)
-    if stream_output { io.flush_stderr()? }
+    if stream_output { io.flush_stderr() }
     failed = true
   }
 
   if stream_output {
     if output != "" {
-      write_streamed_line(output)?
+      write_streamed_line(output)
       output = ""
     }
   }
@@ -561,7 +561,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.debug {
     gnu.error("avx512 support not detected")
     gnu.error("avx2 support not detected")
-    io.flush_stderr()?
+    io.flush_stderr()
   }
 
   let mode = total_choice(opts.total)
@@ -660,17 +660,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var locale = ""
   for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
     locale = env.get_or(name, "") ?? ""
-    if locale != "" { break }
+    break when locale != ""
   }
   let utf8 = locale.lower().find("utf-8") != null or locale.lower().find("utf8") != null
   let posix = posix_mode()
   let only_bytes = shown.bytes and ! shown.lines and ! shown.words and ! shown.chars and ! shown.longest
-  var state: WcState = {
-    total: Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(0), longest: 0),
-    output: "",
-    seen: 0,
-    failed: false,
-  }
+  var state: WcState = WcState(total: Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(0), longest: 0), output: "", seen: 0, failed: false)
 
   if streamed_list {
     # A pipe may wait for each count before it sends the next filename.
@@ -689,9 +684,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       var start = 0
 
       for at in range(data.len()) {
-        if data.byte_at(at) != 0 {
-          continue
-        }
+        continue when data.byte_at(at) != 0
 
         index += 1
         guard let name = data[start..at].utf8() else {

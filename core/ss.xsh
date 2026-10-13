@@ -5,8 +5,8 @@
 ##! the Netid, State, Recv-Q, Send-Q, Local Address:Port and Peer Address:Port
 ##! columns padded to the widest cell. Unsupported options and tables fail
 ##! with a message instead of being ignored.
-use lib.gnu
 use lib.accounts
+use lib.gnu
 use lib.net_sockets as sockets
 use lib.selinux
 
@@ -49,54 +49,54 @@ const USAGE = """Usage: ss [ OPTIONS ]
 # Options that exist in the reference tool but have no implementation here.
 # Each is refused by name so a script never believes it took effect.
 const REFUSED: Map[Str, Str] = {
-  "B": "bound-inactive sockets are not listed",
-  "T": "thread listing is not implemented",
-  "b": "BPF filter display is not implemented",
-  "E": "continuous event display is not implemented",
-  "N": "switching network namespaces is not implemented",
+  B: "bound-inactive sockets are not listed",
+  T: "thread listing is not implemented",
+  b: "BPF filter display is not implemented",
+  E: "continuous event display is not implemented",
+  N: "switching network namespaces is not implemented",
   "0": "packet sockets are not listed",
-  "M": "MPTCP sockets are not listed",
-  "S": "SCTP sockets are not listed",
-  "d": "DCCP sockets are not listed",
-  "K": "closing sockets is not implemented",
-  "D": "raw TCP dumps are not implemented",
-  "F": "reading a filter from a file is not implemented",
+  M: "MPTCP sockets are not listed",
+  S: "SCTP sockets are not listed",
+  d: "DCCP sockets are not listed",
+  K: "closing sockets is not implemented",
+  D: "raw TCP dumps are not implemented",
+  F: "reading a filter from a file is not implemented",
   "bound-inactive": "bound-inactive sockets are not listed",
-  "threads": "thread listing is not implemented",
-  "tipcinfo": "TIPC sockets are not listed",
-  "tos": "TOS display is not implemented",
-  "cgroup": "cgroup display is not implemented",
-  "bpf": "BPF filter display is not implemented",
-  "events": "continuous event display is not implemented",
-  "net": "switching network namespaces is not implemented",
-  "packet": "packet sockets are not listed",
-  "mptcp": "MPTCP sockets are not listed",
-  "sctp": "SCTP sockets are not listed",
-  "dccp": "DCCP sockets are not listed",
-  "tipc": "TIPC sockets are not listed",
-  "vsock": "vsock sockets are not listed",
-  "xdp": "XDP sockets are not listed",
-  "kill": "closing sockets is not implemented",
-  "diag": "raw TCP dumps are not implemented",
-  "dump": "raw TCP dumps are not implemented",
-  "filter": "reading a filter from a file is not implemented",
+  threads: "thread listing is not implemented",
+  tipcinfo: "TIPC sockets are not listed",
+  tos: "TOS display is not implemented",
+  cgroup: "cgroup display is not implemented",
+  bpf: "BPF filter display is not implemented",
+  events: "continuous event display is not implemented",
+  net: "switching network namespaces is not implemented",
+  packet: "packet sockets are not listed",
+  mptcp: "MPTCP sockets are not listed",
+  sctp: "SCTP sockets are not listed",
+  dccp: "DCCP sockets are not listed",
+  tipc: "TIPC sockets are not listed",
+  vsock: "vsock sockets are not listed",
+  xdp: "XDP sockets are not listed",
+  kill: "closing sockets is not implemented",
+  diag: "raw TCP dumps are not implemented",
+  dump: "raw TCP dumps are not implemented",
+  filter: "reading a filter from a file is not implemented",
   "inet-sockopt": "inet socket option display is not implemented",
 }
 
 # Long options and the single-letter identity each one answers to.
 const LONG: Map[Str, Str] = {
-  "help": "h", "version": "V", "numeric": "n", "resolve": "r", "all": "a",
-  "listening": "l", "options": "o", "extended": "e", "memory": "m",
-  "processes": "p", "info": "i", "summary": "s", "context": "Z",
-  "contexts": "z", "ipv4": "4", "ipv6": "6", "tcp": "t", "udp": "u",
-  "raw": "w", "unix": "x", "family": "f", "no-header": "H",
-  "no-queues": "Q", "oneline": "O", "query": "A", "socket": "A",
-  "bound-inactive": "bound-inactive", "threads": "threads",
-  "tipcinfo": "tipcinfo", "tos": "tos", "cgroup": "cgroup", "bpf": "bpf",
-  "events": "events", "net": "net", "packet": "packet", "mptcp": "mptcp",
-  "sctp": "sctp", "dccp": "dccp", "tipc": "tipc", "vsock": "vsock",
-  "xdp": "xdp", "kill": "kill", "diag": "diag", "dump": "dump",
-  "filter": "filter", "inet-sockopt": "inet-sockopt",
+  help: "h", version: "V", numeric: "n", resolve: "r", all: "a",
+  listening: "l", options: "o", extended: "e", memory: "m",
+  processes: "p", info: "i", summary: "s", context: "Z",
+  contexts: "z", ipv4: "4", ipv6: "6", tcp: "t", udp: "u",
+  raw: "w", unix: "x", family: "f", "no-header": "H",
+  "no-queues": "Q", oneline: "O", query: "A", socket: "A",
+  "bound-inactive": "bound-inactive", threads: "threads",
+  tipcinfo: "tipcinfo", tos: "tos", cgroup: "cgroup", bpf: "bpf",
+  events: "events", net: "net", packet: "packet", mptcp: "mptcp",
+  sctp: "sctp", dccp: "dccp", tipc: "tipc", vsock: "vsock",
+  xdp: "xdp", kill: "kill", diag: "diag", dump: "dump",
+  filter: "filter", "inet-sockopt": "inet-sockopt",
 }
 
 # Options that take a value, by identity.
@@ -150,7 +150,7 @@ type Names = {services: Map[Str, Str], protocols: Map[Str, Str], hosts: Map[Str,
 ## which is what the reference tool uses for every command-line error.
 proc usage_fail(message: Str) [process, io, error] {
   eprint f"ss: {message}"
-  eprint f"{USAGE}"
+  eprint $USAGE
   exit 255
 }
 
@@ -169,7 +169,7 @@ proc reject(name: Str) [process, io, error] {
 proc add_tables(chosen: List[Str], query: Str) [process, io, error] -> List[Str] {
   var tables = chosen
   for word in query.split(",") {
-    var more: List[Str] = []
+    var more = []
     match word {
       "all" => more = ["u_str", "u_dgr", "u_seq", "raw", "udp", "tcp"]
       "inet" => more = ["raw", "udp", "tcp"]
@@ -199,7 +199,7 @@ type Scanned = {options: List[Opt], words: List[Str]}
 # and options and words may interleave until `--`.
 proc scan_options(argv: List[Str]) [process, io, error] -> Scanned {
   var options: List[Opt] = []
-  var words: List[Str] = []
+  var words = []
   var index = 0
   var only_words = false
   while index < argv.len() {
@@ -213,7 +213,7 @@ proc scan_options(argv: List[Str]) [process, io, error] -> Scanned {
       let body = word.byte_slice(2)
       let split = body.find("=")
       let given = if let at = split { body.byte_slice(0, length: at) } else { body }
-      var candidates: List[Str] = []
+      var candidates = []
       for name in LONG.keys() {
         if name == given {
           candidates = [name]
@@ -221,9 +221,9 @@ proc scan_options(argv: List[Str]) [process, io, error] -> Scanned {
         }
         if name.starts_with(given) { candidates += [name] }
       }
-      var identities: List[Str] = []
+      var identities = []
       for name in candidates {
-        let identity: Str = LONG.get(name) ?? ""
+        let identity = LONG.get(name) ?? ""
         if identity not in identities { identities += [identity] }
       }
       if identities.is_empty() { usage_fail(f"unrecognized option '--{given}'") }
@@ -274,7 +274,7 @@ proc parse_args(argv: List[Str]) [process, io, error] -> Config {
   var resolve = false
   var state_mode = ""
   var family = 0
-  var tables: List[Str] = []
+  var tables = []
   var timers = false
   var extended = false
   var memory = false
@@ -347,7 +347,7 @@ proc parse_args(argv: List[Str]) [process, io, error] -> Config {
 
 pure state_bit(state: Int) -> Int {
   var power = 1
-  for _ in range(state) { power *= 2 }
+  repeat state times { power *= 2 }
   power
 }
 
@@ -410,7 +410,7 @@ pure last_index(text: Str, needle: Str) -> Int {
   var from = 0
   while from <= text.byte_len() {
     let at = text.find(needle, from)
-    if at == null { break }
+    break when at == null
     found = at ?? -1
     from = at + 1
   }
@@ -427,15 +427,16 @@ pure parse_ipv4(text: Str) -> Bytes? {
   let parts = text.split(".")
   return null when parts.len() != 4
 
-  var values: List[Int] = []
-  for part in parts {
-    if part == "" or part.byte_len() > 3 { return null }
-    for letter in part {
-      if digit_value(letter) < 0 { return null }
+  let values = collect {
+    for part in parts {
+      return null when part == "" or part.byte_len() > 3
+      for letter in part {
+        return null when digit_value(letter) < 0
+      }
+      let number = part.parse_int() ?? -1
+      return null when number < 0 or number > 255
+      yield number
     }
-    let number = part.parse_int() ?? -1
-    if number < 0 or number > 255 { return null }
-    values += [number]
   }
   if let Ok(data) = bytes.from_ints(values) { return data }
   null
@@ -447,7 +448,7 @@ pure parse_ipv6(text: Str) -> Bytes? {
   return null when text.find(":") == null
 
   var body = text
-  var tail: List[Int] = []
+  var tail = []
   if body.find(".") != null {
     let at = last_index(body, ":")
     return null when at < 0
@@ -461,36 +462,37 @@ pure parse_ipv6(text: Str) -> Bytes? {
   let halves = body.split("::")
   return null when halves.len() > 2
 
-  var groups: List[Int] = []
-  var after: List[Int] = []
+  var groups = []
+  var after = []
   for index in range(halves.len()) {
-    var target: List[Int] = []
-    if halves[index] != "" {
-      for part in halves[index].split(":") {
-        return null when part == "" or part.byte_len() > 4
+    let target = collect {
+      if halves[index] != "" {
+        for part in halves[index].split(":") {
+          return null when part == "" or part.byte_len() > 4
 
-        let value = f"0x{part}".parse_int() ?? -1
-        return null when value < 0 or value > 65535
+          let value = f"0x{part}".parse_int() ?? -1
+          return null when value < 0 or value > 65535
 
-        target += [value]
+          yield value
+        }
       }
     }
     if index == 0 { groups = target } else { after = target }
   }
-  var all: List[Int] = []
+  var all = []
   if halves.len() == 2 {
     let missing = 8 - groups.len() - after.len()
     return null when missing < 1
 
     all = groups
-    for _ in range(missing) { all += [0] }
-    all = all.extend(after)
+    repeat missing times { all += [0] }
+    all += after
   } else {
     all = groups
   }
   return null when all.len() != 8
 
-  var raw: List[Int] = []
+  var raw = []
   for value in all {
     raw += [value / 256, value % 256]
   }
@@ -507,13 +509,13 @@ pure parse_ipv6(text: Str) -> Bytes? {
 pure glob_match(pattern: Str, text: Str) -> Bool {
   # `*` matches any run and `?` one character, as fnmatch does without
   # bracket expressions.
-  if pattern == "" { return text == "" }
+  return text == "" when pattern == ""
 
   let first = pattern.byte_slice(0, length: 1)
   let rest = pattern.byte_slice(1)
   if first == "*" {
     for cut in range(text.byte_len() + 1) {
-      if glob_match(rest, text.byte_slice(cut)) { return true }
+      return true when glob_match(rest, text.byte_slice(cut))
     }
     return false
   }
@@ -532,7 +534,7 @@ proc service_port(word: Str, tables: List[Str], names: Names) [fs, env, error] -
   var found = -1
   for entry in names.services.keys() {
     let parts = entry.split("/")
-    if parts.len() != 2 { continue }
+    continue when parts.len() != 2
     if (names.services.get(entry) ?? "") == word {
       if (parts[1] == "udp" and wanted_udp) or (parts[1] == "tcp" and wanted_tcp) {
         found = parts[0].parse_int() ?? -1
@@ -554,13 +556,13 @@ proc syntax_error() [process, io, error] {
 
 proc parse_port(word: Str, tables: List[Str], names: Names) [fs, env, process, io, error] -> Int {
   let text = if word.starts_with(":") { word.byte_slice(1) } else { word }
-  if text == "" or text == "*" { return -1 }
+  return -1 when text == "" or text == "*"
 
   var numeric = true
   for letter in text {
     if digit_value(letter) < 0 { numeric = false }
   }
-  if numeric { return text.parse_int() ?? -1 }
+  return text.parse_int() ?? -1 when numeric
 
   let found = service_port(text, tables, names)
   if found < 0 {
@@ -685,7 +687,7 @@ proc parse_condition(words: List[Str], start: Int, family: Int, tables: List[Str
       if position >= words.len() { syntax_error() }
       var cond = parse_host(words[position], family, tables, names)
       cond.kind = word
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
     "dport" | "sport" => {
       if position >= words.len() { syntax_error() }
@@ -698,13 +700,13 @@ proc parse_condition(words: List[Str], start: Int, family: Int, tables: List[Str
       var cond = blank_cond(word)
       cond.op = op
       cond.port = parse_port(words[position], tables, names)
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
     "dev" => {
       if position >= words.len() { syntax_error() }
       var cond = blank_cond("dev")
       cond.text = words[position]
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
     "fwmark" => {
       if position >= words.len() { syntax_error() }
@@ -717,18 +719,18 @@ proc parse_condition(words: List[Str], start: Int, family: Int, tables: List[Str
         eprint "Cannot parse dst/src address."
         exit 1
       }
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
     "cgroup" => {
       if position >= words.len() { syntax_error() }
       var cond = blank_cond("cgroup")
       cond.text = words[position]
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
-    "autobound" => return {position: position, output: [blank_cond("autobound")]}
+    "autobound" => {position: position, output: [blank_cond("autobound")]}
     else => {
       unknown_word(word, false, family, tables, names)
-      return {position: position, output: []}
+      {position: position, output: []}
     }
   }
 }
@@ -759,7 +761,7 @@ proc parse_and(words: List[Str], start: Int, family: Int, tables: List[Str], nam
     if next in ["and", "&", "&&"] {
       skip = 1
     } else if !condition_start(next) {
-      if next in [")", "or", "|", "||"] { break }
+      break when next in [")", "or", "|", "||"]
       var after_port = false
       for item in current.output {
         after_port = item.kind in ["sport", "dport"]
@@ -793,12 +795,12 @@ pure prefix_match(prefix: Bytes, bits: Int, data: Bytes) -> Bool {
     let have = data.byte_at(index) ?? 0
     let want = prefix.byte_at(index) ?? 0
     if remaining >= 8 {
-      if have != want { return false }
+      return false when have != want
       remaining -= 8
     } else {
       var keep = 1
-      for _ in range(8 - remaining) { keep *= 2 }
-      if have / keep != want / keep { return false }
+      repeat 8 - remaining times { keep *= 2 }
+      return false when have / keep != want / keep
       remaining = 0
     }
     index += 1
@@ -812,13 +814,13 @@ pure endpoint_match(cond: Cond, item: sockets.DiagSocket, port: Int, address: By
 
     return glob_match(cond.text, item.name ?? "*")
   }
-  if cond.restrict != 0 and item.family != cond.restrict { return false }
-  if cond.port >= 0 and cond.port != port { return false }
-  if cond.bits < 0 { return true }
+  return false when cond.restrict != 0 and item.family != cond.restrict
+  return false when cond.port >= 0 and cond.port != port
+  return true when cond.bits < 0
   return false when item.family == sockets.AF_UNIX
 
   if cond.family == sockets.AF_INET {
-    if item.family == sockets.AF_INET { return prefix_match(cond.prefix, cond.bits, address) }
+    return prefix_match(cond.prefix, cond.bits, address) when item.family == sockets.AF_INET
     # An IPv6 socket matches an IPv4 prefix through its v4-mapped form.
     var mapped = address.len() == 16
     for index in range(10) {
@@ -843,7 +845,7 @@ pure autobound(item: sockets.DiagSocket, context: Context) -> Bool {
 }
 
 pure compare_port(op: Str, have: Int, want: Int) -> Bool {
-  if want < 0 { return true }
+  return true when want < 0
   match op {
     "=" => have == want
     "!=" => have != want
@@ -855,7 +857,7 @@ pure compare_port(op: Str, have: Int, want: Int) -> Bool {
 }
 
 pure evaluate(program: List[Cond], item: sockets.DiagSocket, context: Context) -> Bool {
-  var stack: List[Bool] = []
+  var stack = []
   for cond in program {
     match cond.kind {
       "and" => {
@@ -892,7 +894,7 @@ pure evaluate(program: List[Cond], item: sockets.DiagSocket, context: Context) -
       else => stack += [true]
     }
   }
-  if stack.is_empty() { return true }
+  return true when stack.is_empty()
   stack[-1]
 }
 
@@ -908,7 +910,7 @@ proc load_database(database: Str, key_field: Int) [fs, env, error] -> Result[Map
       let comment = raw.find("#")
       if comment != null { line = raw.byte_slice(0, length: comment) }
       let fields = line.fields()
-      if fields.len() < 2 { continue }
+      continue when fields.len() < 2
       if found.get(fields[key_field]) is Err(_) {
         found[fields[key_field]] = fields[if key_field == 0 { 1 } else { 0 }]
       }
@@ -935,18 +937,16 @@ proc host_text(address: Str, names: Names) [env, net, error] -> Str {
   # the default database is in use.
   if e"XSH_HOSTS_FILE" is Err(_) {
     if let Ok(found) = dns.reverse(address) {
-      if !found.is_empty() { return found[0] }
+      return found[0] unless found.is_empty()
     }
   }
   address
 }
 
 pure port_text(port: Int, table: Str, config: Config, names: Names) -> Str {
-  if port == 0 { return "*" }
-  if config.numeric { return f"{port}" }
-  if table == "raw" {
-    return names.protocols.get(f"{port}") ?? f"ipproto-{port}"
-  }
+  return "*" when port == 0
+  return f"{port}" when config.numeric
+  return names.protocols.get(f"{port}") ?? f"ipproto-{port}" when table == "raw"
   names.services.get(f"{port}/{table}") ?? f"{port}"
 }
 
@@ -1054,16 +1054,17 @@ proc socket_row(item: sockets.DiagSocket, config: Config, names: Names, owners: 
 }
 
 proc render(rows: List[List[Str]], visible: List[Bool], config: Config) [process, env, io] {
-  var widths: List[Int] = []
-  for column in range(10) {
-    var width = 0
-    if !config.no_header { width = HEADERS[column].byte_len() }
-    if column == 2 or column == 3 { width = 6 }
-    for row in rows {
-      let size = row[column].byte_len()
-      if size > width { width = size }
+  let widths = collect {
+    for column in range(10) {
+      var width = 0
+      if !config.no_header { width = HEADERS[column].byte_len() }
+      if column == 2 or column == 3 { width = 6 }
+      for row in rows {
+        let size = row[column].byte_len()
+        if size > width { width = size }
+      }
+      yield width
     }
-    widths += [width]
   }
   # The last visible table column (Process, or the peer port without -p) is
   # not padded, so rows carry no trailing blanks there; the extra-text column
@@ -1079,7 +1080,7 @@ proc render(rows: List[List[Str]], visible: List[Bool], config: Config) [process
     var first = true
     var text = ""
     for column in range(10) {
-      if !visible[column] { continue }
+      continue unless visible[column]
       if !first { text += DELIMS[column] }
       first = false
       let cell = row[column]
@@ -1097,14 +1098,10 @@ proc render(rows: List[List[Str]], visible: List[Bool], config: Config) [process
 }
 
 proc print_summary() [fs, process, env, io, error] {
-  let counts = match sockets.summary() {
-    Ok(counts) => counts
-    Err(failure) => { fail(failure.message, 1); return }
-  }
+  let counts = sockets.summary() ?? { |failure| fail(failure.message, 1); return }
   let ip4 = counts.raw4 + counts.udp4 + counts.tcp4
   let ip6 = counts.raw6 + counts.udp6 + counts.tcp6
-  let waiting = counts.time_wait
-  let allocated = counts.allocated
+  let {time_wait: waiting, allocated, ..} = counts
   var out = f"Total: {counts.used}\n"
   out += f"TCP:   {allocated + waiting} (estab {counts.established}, closed {allocated + waiting - counts.tcp4 - counts.tcp6}, orphaned {counts.orphaned}, timewait {waiting})\n\n"
   out += "Transport Total     IP        IPv6\n"
@@ -1150,7 +1147,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   if tables.is_empty() {
     tables = if family_is_inet { inet_tables } else { ["u_str", "u_dgr", "u_seq", "raw", "udp", "tcp"] }
   } else if family_is_inet and !has_inet {
-    tables = tables.extend(inet_tables)
+    tables += inet_tables
   }
 
   # State filter clauses lead the filter words.
@@ -1203,7 +1200,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   # -s with no table, family or filter selection prints only the summary.
   if config.summary {
     print_summary()
-    if config.tables.is_empty() and config.family == 0 and words.is_empty() { return }
+    return when config.tables.is_empty() and config.family == 0 and words.is_empty()
   }
 
   var devices: List[Device] = []
@@ -1244,15 +1241,16 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
     }
   }
   let ports = sockets.local_port_range()
-  let context: Context = {low: ports.low, high: ports.high, devices: devices, cgroups: group_ids}
+  let context: Context = Context(low: ports.low, high: ports.high, devices:, cgroups: group_ids)
 
   let want_info = config.info
   var found: List[sockets.DiagSocket] = []
   var incomplete = false
 
-  var unix_tables: List[Str] = []
-  for table in ["u_str", "u_dgr", "u_seq"] {
-    if table in tables { unix_tables += [table] }
+  let unix_tables = collect {
+    for table in ["u_str", "u_dgr", "u_seq"] {
+      yield table when table in tables
+    }
   }
   if !unix_tables.is_empty() {
     let listed = sockets.collect_unix(channel, states, config.memory, config.extended)
@@ -1266,9 +1264,9 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
     }
   }
   for table in inet_tables {
-    if table not in tables { continue }
+    continue when table not in tables
     for family in [sockets.AF_INET, sockets.AF_INET6] {
-      if family_is_inet and config.family != family { continue }
+      continue when family_is_inet and config.family != family
       let listed = sockets.collect_inet(channel, family, sockets.protocol_number(table), states, config.memory, want_info)
       if let Ok(list) = listed {
         for item in list {
@@ -1298,20 +1296,22 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
       }
     }
   }
-  var rows: List[List[Str]] = []
-  for item in found {
-    if !program.is_empty() and !evaluate(program, item, context) { continue }
-    rows += [socket_row(item, config, names, owners, interfaces, cgroup_map)]
+  let rows = collect {
+    for item in found {
+      continue when ! program.is_empty() and ! evaluate(program, item, context)
+      yield socket_row(item, config, names, owners, interfaces, cgroup_map)
+    }
   }
 
-  var visible: List[Bool] = []
-  for column in range(10) {
-    var shown = true
-    if column == 0 and tables.len() == 1 { shown = false }
-    if column == 1 and !show_state_column { shown = false }
-    if (column == 2 or column == 3) and config.no_queues { shown = false }
-    if column == 8 and !config.processes { shown = false }
-    visible += [shown]
+  let visible = collect {
+    for column in range(10) {
+      var shown = true
+      if column == 0 and tables.len() == 1 { shown = false }
+      if column == 1 and !show_state_column { shown = false }
+      if (column == 2 or column == 3) and config.no_queues { shown = false }
+      if column == 8 and !config.processes { shown = false }
+      yield shown
+    }
   }
   # A one-line listing joins the extra lines of each socket to its row.
   render(rows, visible, config)

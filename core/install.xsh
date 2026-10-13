@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.file_publish as files
+use lib.gnu
 use lib.selinux
 
 type Options = {
@@ -28,7 +28,7 @@ pure install_mode(spec: Str, directory: Bool) -> Int? {
   var mode = 0
   for clause in spec.split(",") {
     let pieces = rx"^([ugoa]*)([=+-])([rwxXstugo]*)$".captures(clause)
-    if pieces.is_empty() { return null }
+    return null when pieces.is_empty()
     let who = pieces[1]
     let op = pieces[2]
     let perms = pieces[3]
@@ -83,7 +83,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   let existing = files.present(target)?
   if existing {
     let old = fs.stat(target)?
-    if (metadata.dev == old.dev and metadata.ino == old.ino) or files.same_entry(source, target)? {
+    if (metadata.dev == old.dev and metadata.ino == old.ino) or files.same_entry(source, target) {
       gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
       exit 1
     }
@@ -99,34 +99,28 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
       old.mode.bit_and(0o7000) == 0 and (! opts.preserve or old.mtime_ns == metadata.mtime_ns) and
       old.uid == (uid ?? user.current()?.uid) and old.gid == (gid ?? group.current()?.gid) and
       (uid == null or old.uid == uid) and (gid == null or old.gid == gid) and
-      equal_contents(source, target, metadata.size)? { return Unchanged }
+      equal_contents(source, target, metadata.size) { return Unchanged }
   }
-  var saved: Path? = null
+  var saved = null
   if existing { saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")? }
-  if saved != null and files.same_entry(saved, source)? {
+  if saved != null and files.same_entry(saved, source) {
     gnu.error(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source;  {gnu.quote_bytes(source.bytes())} not copied")
     exit 1
   }
-  if opts.parents { make_ancestors(target.parent(), opts.verbose)? }
-  let resolved_parent = match target.parent().resolve() {
-    Ok(parent) => parent
-    Err(failure) => {
-      if existing {
-        gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
-        return Failed
-      }
-      return Err(failure)
+  if opts.parents { make_ancestors(target.parent(), opts.verbose) }
+  let resolved_parent = target.parent().resolve() ?? { |failure|
+    if existing {
+      gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
+      return Failed
     }
+    return Err(failure)
   }
-  let parent_root = match fs.open_root(resolved_parent) {
-    Ok(root) => root
-    Err(failure) => {
-      if existing {
-        gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
-        return Failed
-      }
-      return Err(failure)
+  let parent_root = fs.open_root(resolved_parent) ?? { |failure|
+    if existing {
+      gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
+      return Failed
     }
+    return Err(failure)
   }
   defer parent_root.close()
   # Publishing a prepared regular file replaces a symlink entry without
@@ -154,17 +148,14 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
         return Failed
       }
     }
-    let executable = match process.which(program) {
-      Ok(found) => found
-      Err(failure) => {
-        gnu.error(f"cannot run strip program {gnu.quote(program)}: {gnu.strerror(failure)}")
-        return Failed
-      }
+    let executable = process.which(program) ?? { |failure|
+      gnu.error(f"cannot run strip program {gnu.quote(program)}: {gnu.strerror(failure)}")
+      return Failed
     }
     let strip_path = if target.name().starts_with("-") { "./" + target.name() } else { target.name() }
     match process.run(process.command_argv(executable, [program, strip_path], cwd: staged_dir)) {
       Ok(status) => {
-        if ! status.exited() {
+        guard status.exited() else {
           gnu.error("strip process terminated abnormally")
           return Failed
         }
@@ -182,7 +173,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   # A failed ownership change still publishes the copy with its safe initial
   # permissions; requested special bits are applied only after chown succeeds.
   var ownership_changed = true
-  if let Err(failure) = fs.set_owner(staged, uid: uid, gid: gid) {
+  if let Err(failure) = fs.set_owner(staged, uid:, gid:) {
     gnu.error(f"cannot change ownership of {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
     ownership_changed = false
   }
@@ -209,11 +200,11 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
 
 # Intermediate directories keep the default mode the kernel gives new directories
 # (modified by the umask), not the installed mode, so -m never reaches them.
-proc make_ancestors(dest: Path, verbose = false) -> Result[Unit] {
-  if files.present(dest)? { return }
-  make_ancestors(dest.parent(), verbose)?
+proc make_ancestors(dest: Path, verbose = false) {
+  return when files.present(dest)
+  make_ancestors(dest.parent(), verbose)
   if let Err(failure) = dest.mkdir() {
-    if ! files.directory(dest, true)? { return Err(failure) }
+    return Err(failure) unless files.directory(dest, true)
   }
   if verbose { print f"install: creating directory {gnu.quote_bytes(dest.bytes())}" }
 }
@@ -224,14 +215,14 @@ proc install_directory(raw: Path, opts: Options, mode: Int, uid: Int?, gid: Int?
     raw_bytes = raw_bytes[..raw_bytes.len() - 1]
   }
   while raw_bytes.ends_with(b"/.") { raw_bytes = raw_bytes[..raw_bytes.len() - 2] }
-  let dest = if raw_bytes.is_empty() { p"/" } else { Path.parse_bytes(raw_bytes)? }
+  let dest = if raw_bytes.is_empty() { p"/" } else { raw_bytes as Path }
   let existed = files.present(dest)?
-  make_ancestors(dest.parent(), opts.verbose)?
-  dest.mkdir(parents: true)
-  if let Err(failure) = fs.set_owner(dest, uid: uid, gid: gid, follow_symlinks: true) {
+  make_ancestors(dest.parent(), opts.verbose)
+  dest.mkdir()
+  if let Err(failure) = fs.set_owner(dest, uid:, gid:, follow_symlinks: true) {
     # A new directory can inherit setgid from a setgid parent; a failed ownership
     # change must not leave special bits on the directory it created.
-    if ! existed { dest.chmod(0o700)? }
+    if ! existed { dest.chmod(0o700) }
     gnu.error(f"cannot change owner and permissions of {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}")
     return Failed
   }
@@ -248,7 +239,7 @@ proc main(...argv: List[Bytes]) {
     gnu.usage_error("options --compare (-C) and --strip are mutually exclusive")
     exit 1
   }
-  if b"-T" in argv and argv.len() > 0 and argv[-1] in [b"-t", b"--target-directory"] {
+  if b"-T" in argv and ! argv.is_empty() and argv[-1] in [b"-t", b"--target-directory"] {
     gnu.usage_error("option requires an argument -- 't'")
     exit 1
   }
@@ -298,38 +289,43 @@ proc main(...argv: List[Bytes]) {
   if opts.operands.is_empty() { gnu.usage_error("missing file operand") }
   if opts.strip_program != null and ! opts.strip { gnu.error("WARNING: ignoring --strip-program option as -s option was not specified") }
   let mode_bytes = gnu.argument_bytes(opts.mode, prepared.raw)
-  let mode_spec = match mode_bytes.utf8() {
-    Ok(text) => text
-    Err(_) => { gnu.usage_error(f"invalid mode {gnu.quote_bytes(mode_bytes)}"); exit 1 }
+  let mode_spec = if let Ok(text) = mode_bytes.utf8() {
+    text
+  } else {
+    gnu.usage_error(f"invalid mode {gnu.quote_bytes(mode_bytes)}")
+    exit 1
   }
   let mode = install_mode(mode_spec, opts.directory)
   if mode == null {
     gnu.error(f"invalid mode {gnu.quote_bytes(mode_bytes)}")
     exit 1
   }
-  var uid: Int? = null
-  var gid: Int? = null
+  var uid = null
+  var gid = null
   if opts.owner != null {
     if let Ok(number) = opts.owner.parse_int() { uid = number } else {
-      match user.lookup(opts.owner) {
-        Ok(owner) => uid = owner.uid
-        Err(_) => { gnu.error(f"invalid user {gnu.quote(opts.owner)}"); exit 1 }
+      if let Ok(owner) = user.lookup(opts.owner) {
+        uid = owner.uid
+      } else {
+        gnu.error(f"invalid user {gnu.quote(opts.owner)}")
+        exit 1
       }
     }
   }
   if opts.group_name != null {
     if let Ok(number) = opts.group_name.parse_int() { gid = number } else {
-      match group.lookup(opts.group_name) {
-        Ok(found) => gid = found.gid
-        Err(_) => { gnu.error(f"invalid group {gnu.quote(opts.group_name)}"); exit 1 }
+      if let Ok(found) = group.lookup(opts.group_name) {
+        gid = found.gid
+      } else {
+        gnu.error(f"invalid group {gnu.quote(opts.group_name)}")
+        exit 1
       }
     }
   }
   if opts.compare and mode.bit_and(0o7000) != 0 { gnu.error("the --compare (-C) option is ignored when you specify a mode with non-permission bits") }
-  var operands: List[Path] = []
-  for operand in opts.operands { operands += [Path.parse_bytes(gnu.argument_bytes(operand, prepared.raw))?] }
+  var operands = [gnu.argument_bytes(operand, prepared.raw) as Path for operand in opts.operands]
   let target_directory: Path? = if let target_text = opts.target {
-    Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
+    gnu.argument_bytes(target_text, prepared.raw) as Path
   } else { null }
   if opts.directory {
     if target_directory != null or opts.no_target_directory { gnu.usage_error("target directory not allowed when installing a directory") }
@@ -363,7 +359,7 @@ proc main(...argv: List[Bytes]) {
       }
     }
   }
-  if opts.parents and target_directory != null { make_ancestors(dest, opts.verbose)? }
+  if opts.parents and target_directory != null { make_ancestors(dest, opts.verbose) }
   var is_dir = false
   if ! opts.no_target_directory {
     match files.directory(dest, true) {
@@ -385,7 +381,7 @@ proc main(...argv: List[Bytes]) {
       Err(failure) => { gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}"); exit 1 }
     }
   }
-  if dest.bytes().ends_with(b"/") and ! files.directory(dest, true)? {
+  if dest.bytes().ends_with(b"/") and ! files.directory(dest, true) {
     gnu.error(f"cannot create regular file {gnu.quote_bytes(dest.bytes())}: Not a directory")
     exit 1
   }
@@ -401,7 +397,7 @@ proc main(...argv: List[Bytes]) {
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   var failed = false
-  var seen: List[Path] = []
+  var seen = []
   for source in sources {
     let target = if is_dir { files.destination(dest, source) } else { dest }
     if target in seen {
@@ -415,7 +411,7 @@ proc main(...argv: List[Bytes]) {
         if outcome == Failed { failed = true }
       }
       Err(failure) => {
-        if gnu.errno(failure) == 2 and ! files.present(source)? {
+        if gnu.errno(failure) == 2 and ! files.present(source) {
           gnu.error(f"cannot stat {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
         } else {
           gnu.error(f"cannot install {gnu.quote_bytes(source.bytes())} to {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")

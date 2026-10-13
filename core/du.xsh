@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.disk_usage as disk
+use lib.gnu
 
 type DuOptions = {
   summarize: Bool, all: Bool, total: Bool, apparent: Bool, bytes: Bool,
@@ -56,7 +56,7 @@ pure threshold_location(argv: List[Str]) -> ValueLocation? {
   var index = 0
   while index < argv.len() {
     let raw = argv[index]
-    if raw == "--" { return found }
+    return found when raw == "--"
     if raw == "-t" or raw == "--threshold" {
       found = if index + 1 < argv.len() { {index: index + 1, offset: 0} } else { null }
       index += 2
@@ -94,7 +94,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
   while index < argv.len() {
     let raw = argv[index]
-    if raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-"))) { break }
+    break when raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-")))
     var location: ValueLocation? = null
     var value = ""
     let option = if raw.starts_with("--") { "--block-size" } else { "-B" }
@@ -125,7 +125,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
     if let found = location {
       if value not in ["human-readable", "si"] {
         if let size = disk.parse_size(value) {
-          if size <= 0 { report_size_error("du", argv, found, value, block_size_error(value, option)); exit 1 }
+          guard size > 0 else { report_size_error("du", argv, found, value, block_size_error(value, option)); exit 1 }
         } else {
           report_size_error("du", argv, found, value, block_size_error(value, option))
           exit 1
@@ -237,20 +237,21 @@ proc entry_metadata(root: FsRoot, entry: Path, name: Str, follow: Bool) [fs, err
     Ok(meta) => Ok({meta: meta, external_target: null})
     Err(failure) => {
       return Err(failure) when ! follow
-      match root.stat(entry, follow_symlinks: false) {
-        Ok(link) => {
-          return Err(failure) when link.kind != "symlink"
-          let target = root.readlink(entry)?.display()
-          let resolved = if target.starts_with("/") { fp"{target}" } else {
-            let directory = root.host_path()?.display()
-            fp"{if directory.ends_with("/") { f"{directory}{target}" } else { f"{directory}/{target}" }}"
-          }
-          match fs.stat(resolved, follow_symlinks: true) {
-            Ok(meta) => Ok({meta: meta, external_target: resolved})
-            Err(target_failure) => Err(target_failure)
-          }
+      if let Ok(link) = root.stat(entry, follow_symlinks: false) {
+        return Err(failure) when link.kind != "symlink"
+        let target = root.readlink(entry)?.display()
+        let resolved = if target.starts_with("/") {
+          fp"{target}"
+        } else {
+          let directory = root.host_path()?.display()
+          fp"{if directory.ends_with("/") { f"{directory}{target}" } else { f"{directory}/{target}" }}"
         }
-        Err(_) => Err(failure)
+        match fs.stat(resolved, follow_symlinks: true) {
+          Ok(meta) => Ok({meta: meta, external_target: resolved})
+          Err(target_failure) => Err(target_failure)
+        }
+      } else {
+        Err(failure)
       }
     }
   }
@@ -394,13 +395,13 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   var depth = 9223372036854775807
   if let raw = opts.depth {
     if ! rx"^[0-9]+$".matches(raw) { gnu.usage_error(f"invalid maximum depth {gnu.quote_value(raw)}") }
-    depth = raw.parse_int()?
+    depth = raw as Int
   }
   if opts.summarize {
     if opts.depth != null and depth != 0 { gnu.usage_error("summarizing conflicts with --max-depth") }
     depth = 0
   }
-  var threshold: Int? = null
+  var threshold = null
   var negative = false
   if let raw = opts.threshold {
     let cleaned = rx"^[ \t\r\n\v\f]+".replace(raw, with: "")
@@ -423,7 +424,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   var failed = false
   for filename in opts.exclude_files {
     match fp"{filename}".read_text() {
-      Ok(text) => { excludes = excludes.extend(text.lines().collect()) }
+      Ok(text) => { excludes += text.lines().collect() }
       Err(failure) => {
         gnu.error(f"{gnu.quote_maybe(filename)}: {gnu.strerror(failure)}")
         gnu.try_help()
@@ -431,12 +432,14 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
       }
     }
   }
-  var patterns: List[Regex] = []
-  for pattern in excludes {
-    match regex.compile(glob_regex(pattern)) {
-      Ok(compiled) => patterns += [compiled]
-      Err(_) => { gnu.error(f"Invalid exclude syntax: {gnu.quote(pattern)}")
-        exit 1 }
+  let patterns = collect {
+    for pattern in excludes {
+      if let Ok(compiled) = regex.compile(glob_regex(pattern)) {
+        yield compiled
+      } else {
+        gnu.error(f"Invalid exclude syntax: {gnu.quote(pattern)}")
+        exit 1
+      }
     }
   }
   var time_field = ""
@@ -469,7 +472,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   var targets = opts.targets
   if let list = opts.files0 {
     # GNU reports the first operand, then the conflict without the program prefix.
-    if ! targets.is_empty() {
+    guard targets.is_empty() else {
       gnu.error(f"extra operand {gnu.quote(targets[0])}")
       eprint "file operands cannot be combined with --files0-from"
       gnu.try_help()
@@ -491,20 +494,21 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
       return }
     targets = text.split("\0")
     if ! targets.is_empty() and targets[-1] == "" { targets = targets[..targets.len() - 1] }
-    var valid: List[Str] = []
-    for index in range(targets.len()) {
-      let name = targets[index]
-      if name == "" {
-        gnu.error(f"{gnu.quote_maybe(list)}:{index + 1}: invalid zero-length file name")
-        failed = true
-      } else if name == "-" and list == "-" {
-        gnu.error("when reading file names from standard input, no file name of '-' allowed")
-        failed = true
-      } else { valid += [name] }
+    let valid = collect {
+      for index in range(targets.len()) {
+        let name = targets[index]
+        if name == "" {
+          gnu.error(f"{gnu.quote_maybe(list)}:{index + 1}: invalid zero-length file name")
+          failed = true
+        } else if name == "-" and list == "-" {
+          gnu.error("when reading file names from standard input, no file name of '-' allowed")
+          failed = true
+        } else { yield name }
+      }
     }
     targets = valid
   } else if targets.is_empty() { targets = ["."] }
-  let policy: Policy = {all: opts.all, total: opts.total, apparent: opts.apparent or opts.bytes, count_links: opts.count_links, follow_all: opts.follow_all, follow_args: opts.follow_args, separate: opts.separate, one_file_system: opts.one_file_system, inodes: opts.inodes, depth: depth, threshold: threshold, negative: negative, units: units, excludes: patterns, ending: if opts.zero { "\0" } else { "\n" }, time: time_field, time_style: style}
+  let policy: Policy = Policy(all: opts.all, total: opts.total, apparent: opts.apparent or opts.bytes, count_links: opts.count_links, follow_all: opts.follow_all, follow_args: opts.follow_args, separate: opts.separate, one_file_system: opts.one_file_system, inodes: opts.inodes, depth:, threshold:, negative:, units:, excludes: patterns, ending: if opts.zero { "\0" } else { "\n" }, time: time_field, time_style: style)
   var links: Map[Bool] = {}
   var total = 0
   var latest = 0

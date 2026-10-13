@@ -1,7 +1,7 @@
 ##! Changed-path verification plans and the complete integration gate.
 use context
-use docs as documentation
 use docker
+use docs as documentation
 use stage as stages
 use stage_contract as contract
 use test_workflows as tests
@@ -42,13 +42,13 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Runtime] when changed_path.starts_with("crates/xsh-net/") or changed_path == "tests/linux_priv.rs"
   return [Compile, Api] when changed_path == "Cargo.toml" or changed_path == "Cargo.lock" or changed_path == "build.rs" or changed_path == "rust-toolchain.toml" or changed_path.starts_with(".cargo/")
   return [Compile] when changed_path.starts_with("src/") or changed_path.starts_with("crates/") or changed_path.starts_with("tests/") or changed_path == "AGENTS.md" or changed_path == "TODO.md" or changed_path == "xsht-config.ini" or changed_path == "Dockerfile.test"
-  return Err(GateError.UnmappedPath(path: changed_path))
+  Err(GateError.UnmappedPath(path: changed_path))
 }
 
 ## Deduplicates gates while retaining the order in which their owners appear.
 export pure select(paths: List[Str]) -> Result[Selection, Error] {
   var areas: List[Area] = []
-  var native_files: List[Str] = []
+  var native_files = []
   for changed_path in paths {
     if ! changed_path.starts_with("tests/fixtures/") and changed_path.ends_with(".xsh") and (changed_path.starts_with("tests/") or changed_path.starts_with("dev/tests/") or changed_path.starts_with("core/tests/") or changed_path.starts_with("showcase/tests/")) {
       native_files += [changed_path] when changed_path not in native_files
@@ -108,7 +108,7 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
   plan
 }
 
-proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, env, error, io] -> Result[Unit, Error] {
+proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, env, error, io] {
   documentation.check(ctx.root, documentation.DocTools(
     xsh: tests.product_path(ctx, profile, "xsh"), xsht: tests.product_path(ctx, profile, "xsht")))
 }

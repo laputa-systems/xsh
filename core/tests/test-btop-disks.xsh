@@ -49,9 +49,9 @@ test test_btop_disk_rates_use_512_byte_accounting_sectors_and_start_warming {
   let initial = disks.step(first, null, 1000000000, null)
   assert initial.devices.len() == 1
   assert initial.devices[0].identity == "31:253:0"
-  assert initial.devices[0].read_state == report.Observed
-  assert initial.devices[0].read_bytes_per_second.state == rates.Warming
-  assert initial.devices[0].write_bytes_per_second.state == rates.Warming
+  assert initial.devices[0].read_state == .Observed
+  assert initial.devices[0].read_bytes_per_second.state == .Warming
+  assert initial.devices[0].write_bytes_per_second.state == .Warming
 
   let second_root = fs.tempdir()?
   defer second_root.close()
@@ -62,7 +62,7 @@ test test_btop_disk_rates_use_512_byte_accounting_sectors_and_start_warming {
   assert sample.devices[0].write_bytes_per_second.value == 2560.0
   assert sample.devices[0].in_flight == 2
   assert sample.devices[0].mount_targets == ["/mnt/a b", "/mnt/alias"]
-  assert sample.devices[0].capacity_state == report.Observed
+  assert sample.devices[0].capacity_state == .Observed
 }
 
 test test_btop_disk_device_replacement_and_counter_reset_do_not_reuse_rates {
@@ -74,25 +74,25 @@ test test_btop_disk_device_replacement_and_counter_reset_do_not_reuse_rates {
   defer replacement_root.close()
   let replacement = frame(replacement_root, 500, 600, 3, 32)
   let replaced = disks.step(replacement, first, 2000000000, 1000000000)
-  assert replaced.devices[0].read_bytes_per_second.state == rates.Warming
+  assert replaced.devices[0].read_bytes_per_second.state == .Warming
 
   replacement_root.remove(p"sys/devices/virtual/block/dm-0/diskseq")
   let missing_identity = disks.collect(replacement_root, 2000000000)?
   let without_identity = disks.step(missing_identity, first, 2000000000, 1000000000)
-  assert without_identity.devices[0].identity_state == report.Absent
-  assert without_identity.devices[0].read_bytes_per_second.state == rates.Unavailable
+  assert without_identity.devices[0].identity_state == .Absent
+  assert without_identity.devices[0].read_bytes_per_second.state == .Unavailable
 
   let gap = disks.step(first, first, 2000000000, 1000000000, gap: true)
-  assert gap.devices[0].read_bytes_per_second.state == rates.Gap
+  assert gap.devices[0].read_bytes_per_second.state == .Gap
   let invalid_time = disks.step(first, first, 1000000000, 1000000000)
-  assert invalid_time.devices[0].read_bytes_per_second.state == rates.Invalid
+  assert invalid_time.devices[0].read_bytes_per_second.state == .Invalid
 
   let reset_root = fs.tempdir()?
   defer reset_root.close()
   let reset = frame(reset_root, 50, 75, 0, 31)
   let reset_panel = disks.step(reset, first, 2000000000, 1000000000)
-  assert reset_panel.devices[0].read_bytes_per_second.state == rates.Reset
-  assert reset_panel.devices[0].write_bytes_per_second.state == rates.Reset
+  assert reset_panel.devices[0].read_bytes_per_second.state == .Reset
+  assert reset_panel.devices[0].write_bytes_per_second.state == .Reset
   assert reset_panel.devices[0].in_flight == 0, "an observed zero gauge is not absent"
 }
 
@@ -117,7 +117,7 @@ test test_btop_model_carries_disk_rates_and_captured_capacity {
   let initial = model.step(first, null)
   let current = model.step(second, first)
   assert first_fixture.blocks.devices.len() == 1 and second_fixture.mounts.mounts.len() == 2
-  assert initial.storage.devices[0].read_bytes_per_second.state == rates.Warming
+  assert initial.storage.devices[0].read_bytes_per_second.state == .Warming
   assert current.storage.devices.len() == 1
   assert current.storage.devices[0].read_bytes_per_second.value == 2048.0
   assert current.storage.devices[0].write_bytes_per_second.value == 2560.0
@@ -143,7 +143,7 @@ test test_btop_disk_rows_use_only_the_mounted_stacked_device_counters {
   assert panel.devices.len() == 1
   assert panel.devices[0].name == "dm-0"
   assert panel.devices[0].read_sectors == 10
-  assert panel.devices[0].read_bytes_per_second.state == rates.Warming
+  assert panel.devices[0].read_bytes_per_second.state == .Warming
   assert block.index_of_number(block.index_by_number(source.blocks.devices), 8, 0) != null
 }
 
@@ -156,8 +156,8 @@ test test_btop_disk_counter_byte_conversion_withholds_sector_delta_overflow {
   defer second_root.close()
   let second = frame(second_root, 9223372036854775807, 9223372036854775807, 1, 31)
   let sample = disks.step(second, first, 2000000000, 1000000000)
-  assert sample.devices[0].read_bytes_per_second.state == rates.Invalid
-  assert sample.devices[0].write_bytes_per_second.state == rates.Invalid
+  assert sample.devices[0].read_bytes_per_second.state == .Invalid
+  assert sample.devices[0].write_bytes_per_second.state == .Invalid
 }
 
 test test_btop_disk_invalid_stat_layout_keeps_malformed_separate_from_absent {
@@ -167,7 +167,7 @@ test test_btop_disk_invalid_stat_layout_keeps_malformed_separate_from_absent {
   root.write(p"sys/devices/virtual/block/dm-0/stat", "1 0 10 0 1 0 20 0 1 0 0 5 6\n")
   let source = disks.collect(root, 1000000000)?
   let panel = disks.step(source, null, 1000000000, null)
-  assert panel.devices[0].read_state == report.Malformed
+  assert panel.devices[0].read_state == .Malformed
   assert panel.devices[0].read_sectors == null
-  assert panel.devices[0].read_bytes_per_second.state == rates.Unavailable
+  assert panel.devices[0].read_bytes_per_second.state == .Unavailable
 }

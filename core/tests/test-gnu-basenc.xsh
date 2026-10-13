@@ -16,30 +16,30 @@ pure encoded_letters(util: Str, count: Int) -> Str {
 }
 
 pure lines_at(text: Str, width: Int) -> Str {
-  if text == "" or width == 0 { return text }
+  return text when text == "" or width == 0
   [text.byte_slice(index * width, length: width) for index in range((text.byte_len() + width - 1) / width)].join("\n") + "\n"
 }
 
 proc file_case(s: uu.Scene, util: Str, args: List[Str], input: Str) -> Result[uu.Ran] {
-  uu.write(s, "input", input)?
+  uu.write(s, "input", input)
   uu.invoke(s, util, args.extend(["input"]), vars: {LANGUAGE: "C", LANG: "C", LC_ALL: "C"})
 }
 
-proc decoded_case(s: uu.Scene, util: Str, input: Str, expected: Str) -> Result[Unit] {
+proc decoded_case(s: uu.Scene, util: Str, input: Str, expected: Str) {
   let result = file_case(s, util, ["--decode"], input)?
   uu.succeeds(result)
   uu.stdout_only(result, expected)
   Ok()
 }
 
-proc encoded_case(s: uu.Scene, util: Str, args: List[Str], input: Str, expected: Str) -> Result[Unit] {
+proc encoded_case(s: uu.Scene, util: Str, args: List[Str], input: Str, expected: Str) {
   let result = file_case(s, util, args, input)?
   uu.succeeds(result)
   uu.stdout_only(result, expected)
-  decoded_case(s, util, expected, input)?
+  decoded_case(s, util, expected, input)
   for position in range((if expected.byte_len() < 10 { expected.byte_len() } else { 10 }) + 1) {
     let with_newline = expected.byte_slice(0, length: position) + "\n" + expected.byte_slice(position)
-    decoded_case(s, util, with_newline, input)?
+    decoded_case(s, util, with_newline, input)
   }
   Ok()
 }
@@ -48,14 +48,14 @@ proc encoded_case(s: uu.Scene, util: Str, args: List[Str], input: Str, expected:
 test test_gnu_basenc_base64_log { |ctx|
   let s = uu.scene(ctx)?
   for util in ["base32", "base64"] {
-    encoded_case(s, util, [], "", "")?
+    encoded_case(s, util, [], "", "")
     for count in range(1, 6) {
-      encoded_case(s, util, [], letters(count), encoded_letters(util, count) + "\n")?
+      encoded_case(s, util, [], letters(count), encoded_letters(util, count) + "\n")
     }
-    encoded_case(s, util, ["--wrap", "0"], "a", encoded_letters(util, 1))?
-    encoded_case(s, util, ["--wrap", "08"], "a", encoded_letters(util, 1) + "\n")?
+    encoded_case(s, util, ["--wrap", "0"], "a", encoded_letters(util, 1))
+    encoded_case(s, util, ["--wrap", "08"], "a", encoded_letters(util, 1) + "\n")
     for count in range(39, 47) {
-      encoded_case(s, util, ["--wrap=5"], letters(count), lines_at(encoded_letters(util, count), 5))?
+      encoded_case(s, util, ["--wrap=5"], letters(count), lines_at(encoded_letters(util, count), 5))
     }
     for width in ["0x0", "1k", "-1"] {
       let result = file_case(s, util, [f"-w{width}"], "")?
@@ -63,11 +63,11 @@ test test_gnu_basenc_base64_log { |ctx|
       uu.stderr_only(result, f"{util}: invalid wrap size: '{width}'\n")
     }
     for count in [1, 2, 3, 4, 3072, 3073, 3074, 3075, 3071, 3070, 3069, 3068] {
-      decoded_case(s, util, encoded_letters(util, count), letters(count))?
+      decoded_case(s, util, encoded_letters(util, count), letters(count))
     }
     for count in range(1, 4) {
       let prefix = ["\n" for _ in range(count)].join("")
-      decoded_case(s, util, prefix + encoded_letters(util, 3072), letters(3072))?
+      decoded_case(s, util, prefix + encoded_letters(util, 3072), letters(3072))
     }
     for args in [["a", "b"], ["-di", "--wrap=40", "a", "b"]] {
       let result = file_case(s, util, args, "")?
@@ -81,7 +81,7 @@ test test_gnu_basenc_base64_log { |ctx|
     {input: "MTIzNA==MTIzNA", output: "12341234"},
     {input: "MTIzNA==\nMTIzNA", output: "12341234"},
   ] {
-    decoded_case(s, "base64", example.input, example.output)?
+    decoded_case(s, "base64", example.input, example.output)
   }
   # A malformed final quantum can emit complete bytes before the error.
   for invalid in [
@@ -103,8 +103,8 @@ test test_gnu_basenc_base64_log { |ctx|
 # origin: gnu basenc/large-input.log
 test test_gnu_basenc_large_input_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file.zeros")?
-  uu.truncate(s, "file.zeros", 20 * 1024 * 1024)?
+  uu.touch(s, "file.zeros")
+  uu.truncate(s, "file.zeros", 20 * 1024 * 1024)
   let output = uu.at(s, "encoded")
   let result = uu.invoke(s, "basenc", ["--base58", "file.zeros"], stdout: output)?
   assert uu.size(s, "encoded")? == 21247462

@@ -1,14 +1,14 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_env.rs.
 
-use support.uu as uu
+use support.uu
 
-proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, process, env, error, time] -> Result[Unit, Error] {
+proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, process, env, error, time] {
   let command = uu.command(s, "env", args.extend(["sleep", "1000"]))?
   let child = spawn command?
-  defer child.cancel(signal: "KILL", kill_after: 0ms)?
-  time.sleep(500ms)?
-  process.kill(child.pid, signal: signal)?
-  time.sleep(100ms)?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)
+  time.sleep(500ms)
+  process.kill(child.pid, signal:)
+  time.sleep(100ms)
   let done = process.wait_timeout([child], 0ms)?
   let running = done == null
   assert running == alive
@@ -16,7 +16,7 @@ proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, 
 }
 
 # Start with SIGPIPE ignored, so env must restore its default in the command.
-proc default_pipe(s: uu.Scene, option: Str) [fs, process, env, error] -> Result[Unit, Error] {
+proc default_pipe(s: uu.Scene, option: Str) [fs, process, env, error] {
   let argv = uu.argv(s, "env", [Path(option), p"sh", p"-c", p"trap - PIPE; seq 999999 2>err | head -n1 > out"])?
   let words = [p"sh", p"-c", Path(r"""trap '' PIPE; exec "$@"; """), p"env-parent"].extend(argv)
   let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {}, b"", uu.at(s, "stdout"), uu.at(s, "stderr")))?
@@ -78,7 +78,7 @@ test test_uu_env_env_help { |ctx|
 # origin: uutils test_env::test_env_permissions
 test test_uu_env_env_permissions { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "env", "empty", "empty")?
+  uu.fixture(s, "env", "empty", "empty")
   let r1 = uu.invoke(s, "env", ["./empty"])?
   uu.fails_with_code(r1, 126)
   uu.stderr_is(r1, "env: './empty': Permission denied\n")
@@ -298,7 +298,7 @@ test test_uu_env_shebang_error { |ctx|
 # origin: uutils test_env::test_simple_braced_variable
 test test_uu_env_simple_braced_variable { |ctx|
   let s = uu.scene(ctx)?
-  let r1 = uu.invoke(s, "env", [r"""-Secho ${TEST_VAR_12345}"""], vars: {"TEST_VAR_12345": "value"})?
+  let r1 = uu.invoke(s, "env", [r"""-Secho ${TEST_VAR_12345}"""], vars: {TEST_VAR_12345: "value"})?
   uu.succeeds(r1)
   uu.stdout_is(r1, "value\n")
 }
@@ -452,27 +452,27 @@ test test_uu_env_env_arg_ignore_signal_special_signals { |ctx|
 # origin: uutils test_env::test_env_arg_ignore_signal_valid_signals
 test test_uu_env_env_arg_ignore_signal_valid_signals { |ctx|
   let s = uu.scene(ctx)?
-  signal_target(s, ["--ignore-signal=int"], "INT", true)?
-  signal_target(s, ["--ignore-signal=usr2"], "USR2", true)?
-  signal_target(s, ["--ignore-signal=int,usr2"], "USR1", false)?
+  signal_target(s, ["--ignore-signal=int"], "INT", true)
+  signal_target(s, ["--ignore-signal=usr2"], "USR2", true)
+  signal_target(s, ["--ignore-signal=int,usr2"], "USR1", false)
 }
 
 # origin: uutils test_env::test_env_arg_ignore_signal_all_signals
 test test_uu_env_env_arg_ignore_signal_all_signals { |ctx|
   let s = uu.scene(ctx)?
-  signal_target(s, ["--ignore-signal"], "INT", true)?
+  signal_target(s, ["--ignore-signal"], "INT", true)
 }
 
 # origin: uutils test_env::test_env_default_signal_pipe
 test test_uu_env_env_default_signal_pipe { |ctx|
   let s = uu.scene(ctx)?
-  default_pipe(s, "--default-signal=PIPE")?
+  default_pipe(s, "--default-signal=PIPE")
 }
 
 # origin: uutils test_env::test_env_default_signal_all_signals
 test test_uu_env_env_default_signal_all_signals { |ctx|
   let s = uu.scene(ctx)?
-  default_pipe(s, "--default-signal")?
+  default_pipe(s, "--default-signal")
 }
 
 # origin: uutils test_env::test_env_list_signal_handling_reports_ignore
@@ -480,7 +480,7 @@ test test_uu_env_env_list_signal_handling_reports_ignore { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "env", ["--ignore-signal=INT", "--list-signal-handling", "true"])?
   uu.succeeds(r)
-  let stderr = r.stderr.utf8()?
+  let stderr = r.stderr as Str
   assert "INT" in stderr and "IGNORE" in stderr
 }
 
@@ -503,7 +503,7 @@ test test_uu_env_disallow_equals_sign_on_short_unset_option { |ctx|
 # origin: uutils test_env::test_simulation_of_terminal_false
 test test_uu_env_simulation_of_terminal_false { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "env", "is_a_tty.sh", "is_a_tty.sh")?
+  uu.fixture(s, "env", "is_a_tty.sh", "is_a_tty.sh")
   let r = uu.invoke(s, "env", ["sh", "is_a_tty.sh"])?
   uu.succeeds(r)
   uu.stdout_is(r, "stdin is not a tty\nstdout is not a tty\nstderr is not a tty\n")
@@ -523,7 +523,7 @@ test test_uu_env_reject_shell_style_variable_expansions { |ctx|
 # origin: uutils test_env::test_non_utf8_env_vars
 test test_uu_env_non_utf8_env_vars { |ctx|
   let s = uu.scene(ctx)?
-  let value = Path.parse_bytes(b"hello\x80world")?
+  let value = b"hello\x80world" as Path
   let r = uu.invoke(s, "env", [], vars: {NON_UTF8_VAR: value})?
   uu.succeeds(r)
   assert b"NON_UTF8_VAR='hello'$'\\200''world'" in r.stdout

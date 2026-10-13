@@ -1,6 +1,6 @@
 #!/bin/xsh
 use lib.gnu
-use lib.search as search
+use lib.search
 
 type RmOptions = {recursive: Bool, force: Bool, directory: Bool, verbose: Bool, progress: Bool, one_file_system: Bool, preserve_root: Str, no_preserve_root: Bool, interactive_always: Bool, interactive_once: Bool, interactive: Str?, help: Bool, version: Bool, targets: List[Str]}
 type RawArgument = {marker: Str, value: Bytes}
@@ -11,7 +11,7 @@ type Removal = {ok: Bool, removed: Bool, write_error: Error?}
 const DEEP_NAME_BYTES = 1024
 
 pure prepare_arguments(argv: List[Bytes], posix: Bool) -> RmArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   var options = true
   var presume_input_tty = false
@@ -21,21 +21,21 @@ pure prepare_arguments(argv: List[Bytes], posix: Bool) -> RmArguments {
       presume_input_tty = true
       continue
     }
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0rm-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0rm-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
+
     if argument == b"--" or (posix and options and (argument == b"-" or ! argument.starts_with(b"-"))) { options = false }
   }
   {argv: text, raw: raw, presume_input_tty: presume_input_tty}
 }
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
-  for argument in raw { if argument.marker == value { return argument.value } }
+  for argument in raw { return argument.value when argument.marker == value }
   bytes.from_text(value)
 }
 
@@ -48,8 +48,8 @@ pure operand_label(raw: Bytes) -> Bytes {
 }
 
 proc confirm(question: Str) [process, io, error] -> Bool {
-  io.write_stderr(f"{gnu.prog()}: {question}? ")?
-  io.flush_stderr()?
+  io.write_stderr(f"{gnu.prog()}: {question}? ")
+  io.flush_stderr()
   let reply = io.stdin_line()?
   reply.trim().lower().starts_with("y")
 }
@@ -60,14 +60,14 @@ pure file_kind(kind: Str, size: Int) -> Str {
 
 # Keep reports buffered until completion. Return write failures so removal continues
 # and the caller reports a broken output stream once after processing operands.
-proc report_removed(name: Bytes, directory: Bool) [process, env, io, error] -> Result[Unit] {
+proc report_removed(name: Bytes, directory: Bool) [process, env, io, error] {
   let verb = if directory { "removed directory" } else { "removed" }
   io.write_stdout(f"{verb} {gnu.quote_bytes(name)}\n")
 }
 
-proc report_progress(name: Bytes, opts: RmOptions) [process, env, io, error] -> Result[Unit] {
+proc report_progress(name: Bytes, opts: RmOptions) [process, env, io, error] {
   return when ! opts.progress or opts.verbose or unix.tty_attrs(2) is Err(_)
-  io.write_stderr(f"\rRemoving {gnu.quote_bytes(name)}... done\n")?
+  io.write_stderr(f"\rRemoving {gnu.quote_bytes(name)}... done\n")
   io.flush_stderr()
 }
 
@@ -90,7 +90,7 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
     return {ok: true, removed: false, write_error: null}
   }
   var success = true
-  var write_error: Error? = null
+  var write_error = null
   var protected = false
   if ! opts.force and meta.kind != "symlink" and (interactive or (automatic and (unix.isatty(0) or presume_input_tty))) {
     match fs.access(target, write: true) {
@@ -191,8 +191,7 @@ proc dash_filename_hint(argv: List[Str]) [fs, process, env, error] {
     break when raw in ["--", "--help", "--version"]
     if raw.starts_with("--") {
       let name = raw.byte_slice(2).split("=")[0]
-      var matches = []
-      for candidate in long_names { if candidate.starts_with(name) { matches += [candidate] } }
+      var matches = [candidate for candidate in long_names if candidate.starts_with(name)]
       if name in long_names { matches = [name] }
       break when matches.len() != 1
       let option = matches[0]
@@ -276,10 +275,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     return when ! confirm(f"remove {count} {noun}{recursive}")
   }
   var success = true
-  var write_error: Error? = null
+  var write_error = null
   let root = fs.stat(p"/")?
   for name in targets {
-    let target = Path.parse_bytes(name)?
+    let target = name as Path
     let base = search.basename_bytes(target.bytes())
     if base == b"." or base == b".." {
       gnu.error(f"refusing to remove '.' or '..' directory: skipping {gnu.quote_bytes(operand_label(name))}")
@@ -300,7 +299,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if opts.preserve_root == "all" {
       if let Ok(meta) = fs.stat(target) {
         if let Ok(parent) = fs.stat(target.parent(), follow_symlinks: true) {
-          if meta.dev != parent.dev {
+          guard meta.dev == parent.dev else {
             gnu.error(f"skipping {gnu.quote_bytes(name)}, since it's on a different device")
             success = false
             continue
@@ -308,7 +307,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         }
       }
     }
-    let device = match fs.stat(target) { Ok(meta) => meta.dev, Err(_) => 0 }
+    let device = if let Ok(meta) = fs.stat(target) { meta.dev } else { 0 }
     let result = remove_target(target, operand_label(name), opts, device, prompt_mode == 2, automatic, prepared.presume_input_tty)
     if ! result.ok { success = false }
     if let failure = result.write_error { if write_error == null { write_error = failure } }

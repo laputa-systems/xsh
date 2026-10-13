@@ -60,8 +60,8 @@ test test_paste_streams_a_record_before_its_terminator { |ctx|
 
 test test_paste_accepts_non_utf8_paths_and_delimiters { |ctx|
   let root = test.temp_dir(ctx, name: "paste-raw-arguments")?
-  let left = Path.parse_bytes(bytes.concat([root.bytes(), b"/left\xff"]))?
-  let right = Path.parse_bytes(bytes.concat([root.bytes(), b"/right\xfe"]))?
+  let left = bytes.concat([root.bytes(), b"/left\xff"]) as Path
+  let right = bytes.concat([root.bytes(), b"/right\xfe"]) as Path
   left.write("1\n")
   right.write("a\n")
   let output = test.temp_path(ctx, name: "output")

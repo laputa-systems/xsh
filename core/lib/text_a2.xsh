@@ -12,7 +12,7 @@ pure inline_value_prefix(raw: Bytes, options: List[Str]) -> Str? {
     let option_bytes = bytes.from_text(option)
     if option.starts_with("--") {
       let prefix = bytes.concat([option_bytes, b"="])
-      if raw.len() > prefix.len() and raw[..prefix.len()] == prefix { return option + "=" }
+      return option + "=" when raw.len() > prefix.len() and raw[..prefix.len()] == prefix
     } else if raw.len() > option_bytes.len() and raw[..option_bytes.len()] == option_bytes {
       return option
     }
@@ -23,8 +23,8 @@ pure inline_value_prefix(raw: Bytes, options: List[Str]) -> Str? {
 ## Keep invalid UTF-8 operands in a form the string option parser can carry.
 export pure normalize_arguments(original: List[Bytes], inline_value_options: List[Str] = []) -> RawArguments {
   var options = true
-  var values: List[Str] = []
-  var value_offsets: List[Int] = []
+  var values = []
+  var value_offsets = []
   for at in range(original.len()) {
     let raw = original[at]
     if raw == b"--" {
@@ -82,9 +82,9 @@ export type Character = {size: Int, width: Int}
 ## Decode one character without replacing invalid input bytes.
 export pure character(data: Bytes, at: Int) -> Character {
   let lead = data.byte_at(at) ?? 0
-  if lead < 128 { return {size: 1, width: if lead < 32 or lead == 127 { 0 } else { 1 }} }
+  return {size: 1, width: if lead < 32 or lead == 127 { 0 } else { 1 }} when lead < 128
   let size = if lead >= 194 and lead <= 223 { 2 } else if lead >= 224 and lead <= 239 { 3 } else if lead >= 240 and lead <= 244 { 4 } else { 1 }
-  if size == 1 or at + size > data.len() { return {size: 1, width: 1} }
+  return {size: 1, width: 1} when size == 1 or at + size > data.len()
   guard let decoded = data[at..at + size].utf8() else { |_| return {size: 1, width: 1} }
   let width = if ZERO.matches(decoded) or rx"[\x7f-\x9f]".matches(decoded) { 0 } else if WIDE.matches(decoded) { 2 } else { 1 }
   {size: size, width: width}
@@ -92,12 +92,13 @@ export pure character(data: Bytes, at: Int) -> Character {
 
 ## Read operands in order and retain successful input after a read error.
 export proc read(paths: List[Str]) -> Input {
-  var chunks: List[Bytes] = []
   var failed = false
-  for name in if paths.is_empty() { ["-"] } else { paths } {
-    match gnu.read_operand(name) {
-      Ok(data) => { chunks += [data] }
-      Err(failure) => { gnu.name_error(name, failure); failed = true }
+  let chunks = collect {
+    for name in if paths.is_empty() { ["-"] } else { paths } {
+      match gnu.read_operand(name) {
+        Ok(data) => { yield data }
+        Err(failure) => { gnu.name_error(name, failure); failed = true }
+      }
     }
   }
   {data: bytes.concat(chunks), failed: failed}
@@ -116,13 +117,14 @@ export proc name_error_bytes(name: Bytes, failure: Error) [process, env] {
 
 ## Read the parsed path operands without decoding their original bytes.
 export proc read_arguments(arguments: RawArguments, paths: List[Str]) -> Input {
-  var chunks: List[Bytes] = []
   var failed = false
-  for value in if paths.is_empty() { ["-"] } else { paths } {
-    let name = argument_bytes(arguments, value)
-    match read_operand_bytes(name) {
-      Ok(data) => { chunks += [data] }
-      Err(failure) => { name_error_bytes(name, failure); failed = true }
+  let chunks = collect {
+    for value in if paths.is_empty() { ["-"] } else { paths } {
+      let name = argument_bytes(arguments, value)
+      match read_operand_bytes(name) {
+        Ok(data) => { yield data }
+        Err(failure) => { name_error_bytes(name, failure); failed = true }
+      }
     }
   }
   {data: bytes.concat(chunks), failed: failed}
@@ -169,7 +171,7 @@ proc tab_error(message: Str) [process, env] -> Unit {
 
 ## Parse GNU tab lists, including final /N and +N continuation stops.
 export proc tabs(values: List[Str]) -> Tabs {
-  var stops: List[Int] = []
+  var stops = []
   var interval = 0
   var relative = false
   var last_marker = ""
@@ -183,7 +185,7 @@ export proc tabs(values: List[Str]) -> Tabs {
       }
       let extended = prefix > 0
       let digits = part.byte_slice(prefix)
-      if digits == "" { continue }
+      continue when digits == ""
       if ! rx"^[0-9]+$".matches(digits) {
         for offset in range(digits.byte_len()) {
           let mark = digits.byte_slice(offset, length: 1)
@@ -194,7 +196,7 @@ export proc tabs(values: List[Str]) -> Tabs {
         tab_error(f"tab size contains invalid character(s): {gnu.quote_value(digits.byte_slice(first_invalid))}")
       }
       guard let number = digits.parse_int() else { |_| tab_error(f"tab stop is too large {gnu.quote_value(digits)}"); exit 1 }
-      if number == 0 and extended and ! stops.is_empty() { continue }
+      continue when number == 0 and extended and ! stops.is_empty()
       if number <= 0 { tab_error("tab size cannot be 0") }
       if extended {
         interval = number
@@ -214,7 +216,7 @@ export proc tabs(values: List[Str]) -> Tabs {
 ## Return the next column or -1 when a finite tab list is exhausted.
 export pure next_stop(column: Int, spec: Tabs) -> Int {
   for stop in spec.stops { return stop when stop > column }
-  if spec.interval == 0 { return -1 }
+  return -1 when spec.interval == 0
   let base = if spec.relative and ! spec.stops.is_empty() { spec.stops[-1] } else { 0 }
   let distance = spec.interval - (column - base) % spec.interval
   if column > 9223372036854775807 - distance { -1 } else { column + distance }
@@ -255,23 +257,34 @@ export proc expand(data: Bytes, spec: Tabs, initial = false, tab_byte = 9) -> By
   var column = 0
   var leading = true
   var held = 0
-  var out: List[Bytes] = []
   var at = 0
-  while at < data.len() {
-    let unit = if by_bytes { {size: 1, width: 1} } else { character(data, at) }
-    let value = data.byte_at(at) ?? 0
-    if value == tab_byte or value == 9 {
-      let stop = if value == 9 and tab_byte != 9 { column + 8 - column % 8 } else { next_stop(column, spec) }
-      let width = if stop < 0 { 1 } else { stop - column }
-      if leading or ! initial {
-        out += [data[held..at], bytes.from_text(padding(width))]
-        held = at + 1
+  let out = collect {
+    while at < data.len() {
+      let unit = if by_bytes { {size: 1, width: 1} } else { character(data, at) }
+      let value = data.byte_at(at) ?? 0
+      if value == tab_byte or value == 9 {
+        let stop = if value == 9 and tab_byte != 9 { column + 8 - column % 8 } else { next_stop(column, spec) }
+        let width = if stop < 0 { 1 } else { stop - column }
+        if leading or ! initial {
+          yield @[data[held..at], bytes.from_text(padding(width))]
+          held = at + 1
+        }
+
+        column += width
+      } else {
+        if value == 10 {
+          column = 0
+          leading = true
+        } else if value == 8 {
+          if column > 0 { column -= 1 }
+        } else {
+          column += unit.width
+          if value != 32 { leading = false }
+        }
       }
-      column += width
-    } else {
-      if value == 10 { column = 0; leading = true } else if value == 8 { if column > 0 { column -= 1 } } else { column += unit.width; if value != 32 { leading = false } }
+
+      at += unit.size
     }
-    at += unit.size
   }
   bytes.concat([@out, data[held..]])
 }
@@ -279,7 +292,7 @@ export proc expand(data: Bytes, spec: Tabs, initial = false, tab_byte = 9) -> By
 ## Number of bytes in a blank character, or zero; byte mode recognizes only space and tab.
 export pure blank_size(data: Bytes, at: Int, by_bytes = false) -> Int {
   let byte = data.byte_at(at) ?? 0
-  if byte == 32 or byte == 9 { return 1 }
+  return 1 when byte == 32 or byte == 9
   return 0 when by_bytes
   let unit = character(data, at)
   if unit.size > 1 and rx"[\x{1680}\x{2000}-\x{2006}\x{2008}-\x{200a}\x{205f}\x{3000}]".matches(data[at..at + unit.size].utf8() ?? "") { unit.size } else { 0 }
@@ -289,7 +302,7 @@ export pure blank_size(data: Bytes, at: Int, by_bytes = false) -> Int {
 ## Byte mode counts undecodable bytes and controls as one column, except NUL;
 ## backspace and newline retain their cursor behavior.
 export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0, by_bytes = false) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var held = 0
   var at = 0
   var column = column_start
@@ -303,14 +316,14 @@ export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0, by_by
       while at < data.len() and blank_size(data, at, by_bytes) > 0 {
         if data.byte_at(at) == 9 {
           let next = next_stop(column, spec)
-          if next < 0 { break }
+          break when next < 0
           column = next
         } else { column += if by_bytes { 1 } else { character(data, at).width } }
         at += blank_size(data, at, by_bytes)
       }
       if at == start { out += [data[at..at + 1]]; at += 1; held = at; column += 1; continue }
       var pos = origin
-      var blanks: List[Bytes] = []
+      var blanks = []
       var converted = false
       while pos < column {
         let next = next_stop(pos, spec)
@@ -343,7 +356,7 @@ export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0, by_by
 ## Flush buffered output and choose the final command status.
 export proc finish(failed: Bool) -> Int {
   if let Err(failure) = io.flush_stdout() {
-    if gnu.errno(failure) == 32 { return 141 }
+    return 141 when gnu.errno(failure) == 32
     gnu.error(f"write error: {gnu.strerror(failure)}")
     return 1
   }
@@ -355,14 +368,14 @@ export enum TextSource { Stdin, File(Int) }
 
 ## Open a byte source without reading or seeking it.
 export proc open_source(name: Str) -> Result[TextSource, Error] {
-  if name == "-" { return Ok(Stdin) }
+  return Ok(Stdin) when name == "-"
   Ok(File(unix.open_fd(fp"{name}")?))
 }
 
 ## Open a byte-preserving file operand; `-` borrows standard input.
 export proc open_source_bytes(name: Bytes) -> Result[TextSource, Error] {
-  if name == b"-" { return Ok(Stdin) }
-  Ok(File(unix.open_fd(Path.parse_bytes(name)?)?))
+  return Ok(Stdin) when name == b"-"
+  Ok(File(unix.open_fd(name as Path)?))
 }
 
 ## Read one bounded chunk, allowing a short read and returning empty at EOF.

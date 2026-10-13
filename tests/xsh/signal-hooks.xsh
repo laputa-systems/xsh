@@ -61,11 +61,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   print $late_captured_global
 }
 """,
-  )?
+  )
 
   let command = process.command_argv(
     ctx.xsh_bin,
-    [ctx.xsh_bin.display(), child_script.display(), ready.display()],
+    [ctx.xsh_bin, child_script, ready],
     root,
     {},
     b"",
@@ -75,20 +75,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let handle = spawn command?
   defer {
     if let Ok(_) = process.kill(handle.pid, signal: "0") {
-      handle.cancel(signal: "KILL", kill_after: 0ms)?
+      handle.cancel(signal: "KILL", kill_after: 0ms)
     }
   }
 
   let started = time.now()
-  while ! ready.exists()? {
+  while ! ready.exists() {
     if time.now() - started > 2000 {
       let errors = stderr.read_text()?
       test.fail(f"startup barrier was not reached: {errors}")
     }
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
 
-  process.kill(handle.pid, signal: "TERM")?
+  process.kill(handle.pid, signal: "TERM")
   let finished = process.wait_timeout([handle], 2s)?
   let output = stdout.read_text()?
   let errors = stderr.read_text()?

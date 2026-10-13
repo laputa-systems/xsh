@@ -3,7 +3,7 @@ type FakeOutput = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_
 proc chattr_fake(ctx: TestContext, args: List[Str], flags: Int, log: Path) [fs, process, error] -> FakeOutput {
   test.linux_fake(ctx, {file_attrs_flags: flags, log: log})
   let source = fp"{ctx.core_dir}/chattr.xsh".read_text()?
-  test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "chattr")?
+  test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, b"", "chattr")?
 }
 
 test test_chattr_add_remove_assignment_and_generation { |ctx|

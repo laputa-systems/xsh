@@ -96,7 +96,7 @@ pure pretty_text(uptime: Int) -> Str {
   let days = uptime % 604800 / 86400
   let hours = uptime % 86400 / 3600
   let minutes = uptime % 3600 / 60
-  var parts: List[Str] = []
+  var parts = []
 
   if weeks > 0 {
     parts += [plural(weeks, "week", "weeks")]

@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu help/help-version-getopt.log
 test test_gnu_help_help_version_getopt_log { |ctx|

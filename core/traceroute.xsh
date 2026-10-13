@@ -145,9 +145,7 @@ pure hex_group(value: Int) -> Str {
     text = f"{HEX_DIGITS.byte_slice(digit, 1)}{text}"
     rest = rest / 16
 
-    if rest == 0 {
-      break
-    }
+    break when rest == 0
   }
 
   text
@@ -161,13 +159,13 @@ pure ipv4_text(raw: Bytes, at: Int) -> Str {
 # the longest run of zero groups (two or more) compressed, and IPv4-mapped
 # addresses with a dotted tail.
 pure ipv6_text(raw: Bytes, at: Int) -> Str {
-  var groups: List[Int] = []
+  let groups = collect {
+    for index in range(8) {
+      let high = raw.byte_at(at + index * 2) ?? 0
+      let low = raw.byte_at(at + index * 2 + 1) ?? 0
 
-  for index in range(8) {
-    let high = raw.byte_at(at + index * 2) ?? 0
-    let low = raw.byte_at(at + index * 2 + 1) ?? 0
-
-    groups += [high * 256 + low]
+      yield high * 256 + low
+    }
   }
 
   let mapped = groups[0] == 0 and groups[1] == 0 and groups[2] == 0 and groups[3] == 0 and groups[4] == 0 and groups[5] == 65535
@@ -260,7 +258,7 @@ pure unreachable_mark(code: Int, info: Int) -> Str {
     13 => "!X"
     14 => "!V"
     15 => "!C"
-    _ => f"!<{code}>"
+    else => f"!<{code}>"
   }
 }
 
@@ -270,7 +268,7 @@ pure unreachable_mark_v6(code: Int) -> Str {
     1 => "!X"
     2 => "!S"
     3 => "!H"
-    _ => f"!<{code}>"
+    else => f"!<{code}>"
   }
 }
 
@@ -297,9 +295,7 @@ pure classify(v6: Bool, kind: Int, code: Int, info: Int) -> Verdict {
 pure bounded(text: Str, low: Int, high: Int) -> Int? {
   let value = text.parse_int_decimal() ?? low - 1
 
-  if value < low or value > high {
-    return null
-  }
+  return null when value < low or value > high
 
   value
 }
@@ -308,15 +304,11 @@ pure bounded(text: Str, low: Int, high: Int) -> Int? {
 pure seconds_ms(text: Str) -> Int? {
   let value = text.parse_float() ?? -1.0
 
-  if value < 0.0 or value > 86400.0 {
-    return null
-  }
+  return null when value < 0.0 or value > 86400.0
 
   let milliseconds = (value * 1000.0).round() ?? -1
 
-  if milliseconds < 0 {
-    return null
-  }
+  return null when milliseconds < 0
 
   milliseconds
 }
@@ -347,9 +339,7 @@ pure span_ms(start_ns: Int, end_ns: Int) -> Float {
 pure control_stamp(control: List[Control], level: Int, kind: Int) -> Int {
   let found = [entry for entry in control if entry.level == level and entry.type == kind]
 
-  if found.is_empty() {
-    return 0
-  }
+  return 0 when found.is_empty()
 
   let seconds = bytes.unpack_le(found[0].data, 8, 0) ?? 0
   let nanos = bytes.unpack_le(found[0].data, 8, 8) ?? 0
@@ -359,7 +349,7 @@ pure control_stamp(control: List[Control], level: Int, kind: Int) -> Int {
 
 proc open_clock() [process, net, error] -> Clock {
   let c = linux.net_constants()
-  let unusable: Clock = {fd: -1, address: {address: "", family: "unspec", port: 0, raw: b"", scope_id: 0}}
+  let unusable: Clock = Clock(fd: -1, address: {address: "", family: "unspec", port: 0, raw: b"", scope_id: 0})
 
   guard let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM) else { |failure|
     return unusable
@@ -368,9 +358,7 @@ proc open_clock() [process, net, error] -> Clock {
   let bound = linux.bind(fd, {family: "inet", address: "127.0.0.1", port: 0})
   let stamped = linux.setsockopt_int(fd, c.SOL_SOCKET, c.SO_TIMESTAMPNS, 1)
 
-  if bound is Err(_) or stamped is Err(_) {
-    return unusable
-  }
+  return unusable when bound is Err(_) or stamped is Err(_)
 
   guard let address = linux.getsockname(fd) else { |failure|
     return unusable
@@ -386,9 +374,7 @@ proc stamp_ns(clock: Clock) [process, net, time, error] -> Int {
 
   return coarse when clock.fd < 0
 
-  if linux.sendto(clock.fd, b"t", clock.address) is Err(_) {
-    return coarse
-  }
+  return coarse when linux.sendto(clock.fd, b"t", clock.address) is Err(_)
 
   guard let message = linux.recvfrom(clock.fd, 1, c.MSG_DONTWAIT) else { |failure|
     return coarse
@@ -410,9 +396,7 @@ proc receive_ns(clock: Clock, control: List[Control]) [process, net, time, error
 proc resolve_one(name: Str, family: Str) [net, error] -> Result[Str] {
   let records = dns.resolve_host(name, family)?
 
-  if records.is_empty() {
-    return Err(error.failure(f"{name}: Name or service not known"))
-  }
+  return Err(error.failure(f"{name}: Name or service not known")) when records.is_empty()
 
   Ok(records[0].addr)
 }
@@ -439,10 +423,10 @@ proc resolve_host(name: Str, family: Str, argc: Int) [net, process, error] -> Re
 
 proc dotted_quad(name: Str) [net, error] -> Result[Bytes] {
   let addr = resolve_one(name, "ipv4")?
-  var octets: List[Int] = []
-
-  for part in addr.split(".") {
-    octets += [part.parse_int_decimal()?]
+  let octets = collect {
+    for part in addr.split(".") {
+      yield part.parse_int_decimal()?
+    }
   }
 
   bytes.from_ints(octets)
@@ -456,7 +440,7 @@ pure route_option(gateways: List[Bytes]) -> Bytes {
   bytes.concat([header].extend(gateways))
 }
 
-proc socket_option(fd: Int, level: Int, name: Int, value: Int, label: Str) [process, error] -> Result[Unit] {
+proc socket_option(fd: Int, level: Int, name: Int, value: Int, label: Str) [process, error] {
   if let Err(failure) = linux.setsockopt_int(fd, level, name, value) {
     return Err(describe(f"setsockopt {label}", failure))
   }
@@ -476,15 +460,15 @@ proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process,
   let ip_level = if s.v6 { c.SOL_IPV6 } else { c.SOL_IP }
 
   if s.debug {
-    socket_option(fd, c.SOL_SOCKET, c.SO_DEBUG, 1, "SO_DEBUG")?
+    socket_option(fd, c.SOL_SOCKET, c.SO_DEBUG, 1, "SO_DEBUG")
   }
 
   if s.bypass {
-    socket_option(fd, c.SOL_SOCKET, c.SO_DONTROUTE, 1, "SO_DONTROUTE")?
+    socket_option(fd, c.SOL_SOCKET, c.SO_DONTROUTE, 1, "SO_DONTROUTE")
   }
 
   if let mark = s.fwmark {
-    socket_option(fd, c.SOL_SOCKET, c.SO_MARK, mark, "SO_MARK")?
+    socket_option(fd, c.SOL_SOCKET, c.SO_MARK, mark, "SO_MARK")
   }
 
   if let name = s.interface {
@@ -496,14 +480,14 @@ proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process,
   }
 
   if let tos = s.tos {
-    socket_option(fd, ip_level, if s.v6 { c.IPV6_TCLASS } else { c.IP_TOS }, tos, "IP_TOS")?
+    socket_option(fd, ip_level, if s.v6 { c.IPV6_TCLASS } else { c.IP_TOS }, tos, "IP_TOS")
   }
 
   if s.dont_fragment {
     if s.v6 {
-      socket_option(fd, c.SOL_IPV6, c.IPV6_DONTFRAG, 1, "IPV6_DONTFRAG")?
+      socket_option(fd, c.SOL_IPV6, c.IPV6_DONTFRAG, 1, "IPV6_DONTFRAG")
     } else {
-      socket_option(fd, c.SOL_IP, c.IP_MTU_DISCOVER, c.IP_PMTUDISC_DO, "IP_MTU_DISCOVER")?
+      socket_option(fd, c.SOL_IP, c.IP_MTU_DISCOVER, c.IP_PMTUDISC_DO, "IP_MTU_DISCOVER")
     }
   }
 
@@ -513,14 +497,14 @@ proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process,
     }
   }
 
-  socket_option(fd, c.SOL_SOCKET, c.SO_TIMESTAMPNS, 1, "SO_TIMESTAMPNS")?
+  socket_option(fd, c.SOL_SOCKET, c.SO_TIMESTAMPNS, 1, "SO_TIMESTAMPNS")
 
   if recverr {
-    socket_option(fd, ip_level, if s.v6 { c.IPV6_RECVERR } else { c.IP_RECVERR }, 1, "IP_RECVERR")?
+    socket_option(fd, ip_level, if s.v6 { c.IPV6_RECVERR } else { c.IP_RECVERR }, 1, "IP_RECVERR")
   }
 
   if s.source_port != 0 {
-    socket_option(fd, c.SOL_SOCKET, c.SO_REUSEADDR, 1, "SO_REUSEADDR")?
+    socket_option(fd, c.SOL_SOCKET, c.SO_REUSEADDR, 1, "SO_REUSEADDR")
   }
 
   if s.source != null or s.source_port != 0 {
@@ -545,7 +529,7 @@ proc set_ttl(s: Settings, fd: Int, ttl: Int) [process, error] -> Result[Unit] {
   }
 }
 
-proc connect_target(s: Settings, fd: Int, port: Int) [process, net, error] -> Result[Unit] {
+proc connect_target(s: Settings, fd: Int, port: Int) [process, net, error] {
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: port}
 
   if let Err(failure) = linux.connect(fd, address) {
@@ -562,9 +546,7 @@ proc read_queue(s: Settings, fd: Int) [process, net, error] -> Result[Queued?] {
 
   match linux.recvfrom(fd, 2048, c.MSG_ERRQUEUE.bit_or(c.MSG_DONTWAIT)) {
     Err(failure) => {
-      if (failure.errno ?? 0) != 11 {
-        return Err(describe("recvmsg", failure))
-      }
+      return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
 
       let _ = linux.getsockopt_int(fd, c.SOL_SOCKET, c.SO_ERROR)
 
@@ -575,9 +557,7 @@ proc read_queue(s: Settings, fd: Int) [process, net, error] -> Result[Queued?] {
       let kind = if s.v6 { c.IPV6_RECVERR } else { c.IP_RECVERR }
       let entries = [entry for entry in message.control if entry.level == level and entry.type == kind]
 
-      if entries.is_empty() {
-        return Ok(null)
-      }
+      return Ok(null) when entries.is_empty()
 
       let raw = entries[0].data
       let origin = raw.byte_at(4) ?? 0
@@ -599,8 +579,8 @@ proc read_queue(s: Settings, fd: Int) [process, net, error] -> Result[Queued?] {
 # One UDP probe. The kernel queues the ICMP answer on the socket's error
 # queue; the destination port of the quoted datagram names the probe.
 proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms: Int) [process, net, time, error] -> Result[Reply?] {
-  set_ttl(s, fd, ttl)?
-  connect_target(s, fd, port)?
+  set_ttl(s, fd, ttl)
+  connect_target(s, fd, port)
 
   let start = stamp_ns(clock)
 
@@ -625,9 +605,7 @@ proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms:
       }
     }
 
-    if remaining_ms(deadline) == 0 {
-      return Ok(null)
-    }
+    return Ok(null) when remaining_ms(deadline) == 0
   }
 
   Ok(null)
@@ -640,13 +618,11 @@ pure echo_request(v6: Bool, seq: Int, ident: Int, checksum: Bool, payload: Bytes
   let head = bytes.concat([bytes.from_ints([kind, 0, 0, 0]) ?? b"", bytes.pack_be(ident, 2) ?? b"", bytes.pack_be(seq, 2) ?? b""])
   let message = bytes.concat([head, payload])
 
-  if ! checksum {
-    return message
-  }
+  return message unless checksum
 
   let sum = icmp_checksum(message)
 
-  bytes.concat([message.slice(0, 2), bytes.pack_be(sum, 2) ?? b"", message.slice(4)])
+  bytes.concat([message[..2], bytes.pack_be(sum, 2) ?? b"", message.slice(4)])
 }
 
 # Whether the ICMP header at `at` is our echo request with this identifier
@@ -664,8 +640,8 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
 
   defer unix.close_fd(fd)
 
-  set_ttl(s, fd, ttl)?
-  connect_target(s, fd, 0)?
+  set_ttl(s, fd, ttl)
+  connect_target(s, fd, 0)
 
   let start = stamp_ns(clock)
   let request = echo_request(s.v6, seq, 0, false, pattern(s.payload_len))
@@ -694,11 +670,7 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
 
     if "readable" in events {
       match linux.recvfrom(fd, 65535) {
-        Err(failure) => {
-          if (failure.errno ?? 0) != 11 {
-            return Err(describe("recvmsg", failure))
-          }
-        }
+        Err(failure) => return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
         Ok(message) => {
           if (message.data.byte_at(0) ?? -1) == reply_type and (bytes.unpack_be(message.data, 2, 6) ?? -1) == seq {
             let end = receive_ns(clock, message.control)
@@ -709,9 +681,7 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
       }
     }
 
-    if remaining_ms(deadline) == 0 {
-      return Ok(null)
-    }
+    return Ok(null) when remaining_ms(deadline) == 0
   }
 
   Ok(null)
@@ -723,15 +693,11 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
 pure quoted_start(v6: Bool, data: Bytes, at: Int) -> Int {
   let inner = at + 8
 
-  if v6 {
-    return inner + 40
-  }
+  return inner + 40 when v6
 
   let header = (data.byte_at(inner) ?? 0).bit_and(15) * 4
 
-  if header < 20 {
-    return -1
-  }
+  return -1 when header < 20
 
   inner + header
 }
@@ -742,7 +708,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
   let c = linux.net_constants()
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: 0}
 
-  set_ttl(s, fd, ttl)?
+  set_ttl(s, fd, ttl)
 
   let start = stamp_ns(clock)
   let request = echo_request(s.v6, seq, ident, ! s.v6, pattern(s.payload_len))
@@ -760,11 +726,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
 
     if "readable" in events {
       match linux.recvfrom(fd, 65535, c.MSG_DONTWAIT) {
-        Err(failure) => {
-          if (failure.errno ?? 0) != 11 {
-            return Err(describe("recvmsg", failure))
-          }
-        }
+        Err(failure) => return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
         Ok(message) => {
           let data = message.data
           let at = if s.v6 { 0 } else { (data.byte_at(0) ?? 0).bit_and(15) * 4 }
@@ -792,9 +754,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
       }
     }
 
-    if remaining_ms(deadline) == 0 {
-      return Ok(null)
-    }
+    return Ok(null) when remaining_ms(deadline) == 0
   }
 
   Ok(null)
@@ -810,7 +770,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
 
   defer unix.close_fd(fd)
 
-  set_ttl(s, fd, ttl)?
+  set_ttl(s, fd, ttl)
 
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: port}
   let start = stamp_ns(clock)
@@ -822,9 +782,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
       return Ok({from: s.target, rtt_ms: span_ms(start, stamp_ns(clock)), mark: "", last: true})
     }
 
-    if errno != 115 {
-      return Err(describe("connect", failure))
-    }
+    return Err(describe("connect", failure)) when errno != 115
   }
 
   let local = linux.getsockname(fd)?.port
@@ -849,11 +807,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
 
     if "readable" in ready {
       match linux.recvfrom(raw_fd, 65535, c.MSG_DONTWAIT) {
-        Err(failure) => {
-          if (failure.errno ?? 0) != 11 {
-            return Err(describe("recvmsg", failure))
-          }
-        }
+        Err(failure) => return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
         Ok(message) => {
           let data = message.data
           let at = if s.v6 { 0 } else { (data.byte_at(0) ?? 0).bit_and(15) * 4 }
@@ -873,9 +827,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
       }
     }
 
-    if remaining_ms(deadline) == 0 {
-      return Ok(null)
-    }
+    return Ok(null) when remaining_ms(deadline) == 0
   }
 
   Ok(null)
@@ -914,9 +866,7 @@ proc address_text(s: Settings, addr: Str) [net] -> Str {
 
   let names = dns.reverse(addr) ?? []
 
-  if names.is_empty() {
-    return f" {addr} ({addr})"
-  }
+  return f" {addr} ({addr})" when names.is_empty()
 
   f" {names[0]} ({addr})"
 }
@@ -930,7 +880,7 @@ proc pick_icmp_sockets(s: Settings) [process, net, error] -> Result[Str] {
   if s.icmp_sockets != "raw" {
     match linux.socket(if s.v6 { c.AF_INET6 } else { c.AF_INET }, c.SOCK_DGRAM, protocol) {
       Ok(fd) => {
-        unix.close_fd(fd)?
+        unix.close_fd(fd)
 
         return Ok("dgram")
       }
@@ -945,7 +895,7 @@ proc pick_icmp_sockets(s: Settings) [process, net, error] -> Result[Str] {
   Ok("raw")
 }
 
-proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time, net, error] -> Result[Unit] {
+proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time, net, error] {
   let c = linux.net_constants()
   let ident = (process.current_pid() ?? 1).bit_and(65535)
   let udp_fd = if s.method == "udp" or s.method == "udp-fixed" { open_socket(s, c.SOCK_DGRAM, 0, true)? } else { -1 }
@@ -962,12 +912,12 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
     var shown = ""
     var started = false
 
-    for _ in range(s.queries) {
+    repeat s.queries times {
       if s.send_wait_ms > 0 and last_send != 0 {
         let idle = time.now() - last_send
 
         if idle < s.send_wait_ms {
-          time.sleep(time.millis(s.send_wait_ms - idle))?
+          time.sleep(time.millis(s.send_wait_ms - idle))
         }
       }
 
@@ -978,7 +928,7 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
         "udp" => udp_probe(s, clock, udp_fd, ttl, port, limit_ms)?
         "udp-fixed" => udp_probe(s, clock, udp_fd, ttl, port, limit_ms)?
         "icmp" => if icmp_mode == "dgram" { icmp_dgram_probe(s, clock, ttl, seq, limit_ms)? } else { icmp_raw_probe(s, clock, raw_fd, ident, ttl, seq, limit_ms)? }
-        _ => tcp_probe(s, clock, raw_fd, ttl, port, limit_ms)?
+        else => tcp_probe(s, clock, raw_fd, ttl, port, limit_ms)?
       }
 
       # The hop number waits for the first probe to be sent, so a socket
@@ -1029,11 +979,11 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
   gnu.write_text("\n")
 
   if udp_fd >= 0 {
-    unix.close_fd(udp_fd)?
+    unix.close_fd(udp_fd)
   }
 
   if clock.fd >= 0 {
-    unix.close_fd(clock.fd)?
+    unix.close_fd(clock.fd)
   }
 
   Ok()
@@ -1043,7 +993,7 @@ pure module_name(method: Str) -> Str {
   match method {
     "udp-fixed" => "udp"
     "udp" => "default"
-    _ => method
+    else => method
   }
 }
 
@@ -1051,13 +1001,13 @@ pure method_help(method: Str) -> Str {
   match method {
     "icmp" => "  raw    use a raw ICMP socket only\n  dgram  use a datagram ICMP socket only\nOnly one of these may be specified: raw | dgram"
     "tcp" => "  syn    send a SYN (the default and only flag set)\n  reuse  allow reusing the local port (SO_REUSEADDR)"
-    _ => f"No options for module `{module_name(method)}'"
+    else => f"No options for module `{module_name(method)}'"
   }
 }
 
 # Picks the ICMP socket type, opens the raw socket an ICMP or TCP trace needs,
 # and runs the probes.
-proc trace(s: Settings, tcp_raw_fd: Int) [process, env, io, time, net, error] -> Result[Unit] {
+proc trace(s: Settings, tcp_raw_fd: Int) [process, env, io, time, net, error] {
   let c = linux.net_constants()
   var raw_fd = tcp_raw_fd
   var icmp_mode = ""
@@ -1154,7 +1104,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
       "icmp" => "icmp"
       "tcp" => "tcp"
       "udplite" | "dccp" | "raw" => ""
-      _ => "?"
+      else => "?"
     }
 
     if method == "" {
@@ -1260,19 +1210,19 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
       usage_die(f"Cannot handle `-w' option with arg `{text}' (argc {argc})")
     }
 
-    var numbers: List[Float] = []
+    let numbers = collect {
+      for part in parts {
+        guard let number = part.parse_float() else { |failure|
+          usage_die(f"Cannot handle `-w' option with arg `{text}' (argc {argc})")
+          return
+        }
 
-    for part in parts {
-      guard let number = part.parse_float() else { |failure|
-        usage_die(f"Cannot handle `-w' option with arg `{text}' (argc {argc})")
-        return
+        if number < 0.0 {
+          usage_die(f"bad wait specifications `{text}' used")
+        }
+
+        yield number
       }
-
-      if number < 0.0 {
-        usage_die(f"bad wait specifications `{text}' used")
-      }
-
-      numbers += [number]
     }
 
     max_wait_ms = seconds_ms(parts[0]) ?? max_wait_ms
@@ -1306,7 +1256,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     "icmp" => 1
     "tcp" => FIXED_TCP_PORT
     "udp-fixed" => FIXED_UDP_PORT
-    _ => FIRST_UDP_PORT
+    else => FIRST_UDP_PORT
   }
 
   if let text = opts.port {
@@ -1319,7 +1269,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     port = value ?? port
   }
 
-  var tos: Int? = null
+  var tos = null
 
   if let text = opts.tos {
     tos = bounded(text, 0, 255)
@@ -1341,7 +1291,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     source_port = value ?? 0
   }
 
-  var fwmark: Int? = null
+  var fwmark = null
 
   if let text = opts.fwmark {
     fwmark = bounded(text, 0, 4294967295)
@@ -1355,7 +1305,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
   let host = opts.operands[0]
   let target = resolve_host(host, family, argc)?
 
-  var source: Str? = null
+  var source = null
 
   if let text = opts.source {
     let found = dns.resolve_host(text, "any") ?? []
@@ -1374,21 +1324,21 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     source = found[0].addr
   }
 
-  var gateways: List[Bytes] = []
-
   if ! opts.gateway.is_empty() and target.v6 {
     usage_die("traceroute: option '-g' is not supported: IPv6 routing headers are not available")
   }
 
-  for list in opts.gateway {
-    for name in list.split(",") {
-      guard let gate = dotted_quad(name) else { |failure|
-        eprint f"{name}: Name or service not known"
-        usage_die(f"Cannot handle `-g' option with arg `{list}' (argc {argc})")
-        return
-      }
+  let gateways = collect {
+    for list in opts.gateway {
+      for name in list.split(",") {
+        guard let gate = dotted_quad(name) else { |failure|
+          eprint f"{name}: Name or service not known"
+          usage_die(f"Cannot handle `-g' option with arg `{list}' (argc {argc})")
+          return
+        }
 
-      gateways += [gate]
+        yield gate
+      }
     }
   }
 
@@ -1426,33 +1376,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     payload_len = packet_len - base
   }
 
-  let s: Settings = {
-    host: host,
-    target: target.addr,
-    v6: target.v6,
-    method: method,
-    numeric: opts.numeric,
-    first_ttl: first_ttl,
-    max_ttl: max_ttl,
-    queries: queries,
-    max_wait_ms: max_wait_ms,
-    here: here,
-    near: near,
-    send_wait_ms: send_wait_ms,
-    port: port,
-    source: source,
-    interface: opts.interface,
-    tos: tos,
-    dont_fragment: opts.dont_fragment,
-    bypass: opts.bypass,
-    debug: opts.debug,
-    fwmark: fwmark,
-    source_port: source_port,
-    gateways: gateways,
-    icmp_sockets: icmp_sockets,
-    payload_len: payload_len,
-    packet_len: packet_len,
-  }
+  let s: Settings = Settings(host:, target: target.addr, v6: target.v6, method:, numeric: opts.numeric, first_ttl:, max_ttl:, queries:, max_wait_ms:, here:, near:, send_wait_ms:, port:, source:, interface: opts.interface, tos:, dont_fragment: opts.dont_fragment, bypass: opts.bypass, debug: opts.debug, fwmark:, source_port:, gateways:, icmp_sockets:, payload_len:, packet_len:)
 
   let c = linux.net_constants()
   let protocol = if s.v6 { c.IPPROTO_ICMPV6 } else { c.IPPROTO_ICMP }

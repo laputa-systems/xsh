@@ -18,7 +18,7 @@ proc run_stat_with_path(ctx: TestContext, options: List[Path], name: Path) [fs, 
   let root = test.temp_dir(ctx, name: "stat-path")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/stat.xsh", p"--"].extend(options).extend([name])
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/stat.xsh", p"--", @options, name]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: stdout.read_bytes()?, stderr: stderr.read_text()?})
@@ -50,7 +50,7 @@ pure stat_hex(value: Int) -> Str {
   var output = ""
 
   if value < 0 {
-    for _ in range(16) {
+    repeat 16 times {
       let index = 15 - rest % 16
       output = f"{digits[index..index + 1]}{output}"
       rest /= 16
@@ -208,7 +208,7 @@ test test_stat_format_errors_point_into_terminal_arguments { |ctx|
 }
 
 test test_stat_reports_non_utf8_missing_names { |ctx|
-  let names = [Path.parse_bytes(b"missing-\xff")?, Path.parse_bytes(b"missing-\xc3\xa9")?]
+  let names = [b"missing-\xff" as Path, b"missing-\xc3\xa9" as Path]
   let quoted_names = ["'missing-'$'\\377'", "'missing-'$'\\303\\251'"]
   for index in range(names.len()) {
     let name = names[index]
@@ -224,7 +224,7 @@ test test_stat_reports_non_utf8_missing_names { |ctx|
 
 test test_stat_preserves_non_utf8_names_in_output_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "stat-raw-name")?
-  let name = Path.parse_bytes(bytes.concat([root.bytes(), b"/raw-\xff"]))?
+  let name = bytes.concat([root.bytes(), b"/raw-\xff"]) as Path
   name.write("data")
   let quoted_name = bytes.from_text(f"'{root}/raw-'$'\\377'")
 

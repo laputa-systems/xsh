@@ -80,14 +80,14 @@ pure option_tokens(argv: List[Str], format: Str) -> List[OptionToken] {
 }
 
 pure suffix(format: Str) -> Str {
-  match format { "gz" => ".gz", "bz2" => ".bz2", "xz" => ".xz", "zstd" => ".zst", _ => ".lzma" }
+  match format { "gz" => ".gz", "bz2" => ".bz2", "xz" => ".xz", "zstd" => ".zst", else => ".lzma" }
 }
 
 # The name a compressed file decodes to. A custom suffix (-S) is the only
 # suffix recognized; `auto` lets xz also strip the lzma suffixes, which it
 # decodes too until --format pins one container.
 pure decoded_name(name: Str, format: Str, custom: Str?, auto: Bool) -> Str? {
-  if custom != null {
+  guard custom == null else {
     if name.ends_with(custom) and name.byte_len() > custom.byte_len() { return name.byte_slice(0, length: name.byte_len() - custom.byte_len()) }
     return null
   }
@@ -120,7 +120,7 @@ pure combined_status(current: Int, incoming: Int, format: Str) -> Int {
 # Percentage columns round to tenths of a percent; an empty payload has no
 # ratio and gzip prints it as negative infinity.
 pure gzip_ratio(uncompressed: Int, stored: Int) -> Str {
-  if uncompressed == 0 { return " -Inf%" }
+  return " -Inf%" when uncompressed == 0
   let saved = uncompressed - stored
   let tenths = ((if saved < 0 { -saved } else { saved }) * 1000 + uncompressed / 2) / uncompressed
   let sign = if saved < 0 { "-" } else { "" }
@@ -137,7 +137,7 @@ pure gzip_header_length(head: Bytes) -> Int? {
   let flags = head.byte_at(3) ?? 0
   var at = 10
   if has_bit(flags, 4) {
-    if head.len() < at + 2 { return null }
+    return null when head.len() < at + 2
     at += 2 + (head.byte_at(at) ?? 0) + 256 * (head.byte_at(at + 1) ?? 0)
   }
   for bit in [8, 16] {
@@ -224,7 +224,7 @@ pure xz_varint(data: Bytes, at: Int) -> VarInt {
     value += byte % 128 * scale
     scale *= 128
     cursor += 1
-    if byte < 128 { return {value: value, next: cursor} }
+    return {value: value, next: cursor} when byte < 128
   }
   {value: 0, next: -1}
 }
@@ -235,14 +235,14 @@ pure xz_check_name(id: Int) -> Str {
     1 => "CRC32"
     4 => "CRC64"
     10 => "SHA-256"
-    _ => f"Unknown-{id}"
+    else => f"Unknown-{id}"
   }
 }
 
 # Sizes print as bytes below 10000 and otherwise in the largest binary unit
 # that keeps the value under 10000, with one decimal, as xz --list does.
 pure xz_nice_size(value: Int) -> Str {
-  if value < 10000 { return f"{value} B" }
+  return f"{value} B" when value < 10000
   var divisor = 1024
   var unit = 0
   let units = ["KiB", "MiB", "GiB", "TiB"]
@@ -257,9 +257,9 @@ pure xz_nice_size(value: Int) -> Str {
 # The ratio column is compressed over uncompressed to three places; xz prints
 # dashes for an empty payload and for ratios that no longer fit the column.
 pure xz_ratio(compressed: Int, uncompressed: Int) -> Str {
-  if uncompressed == 0 { return "---" }
+  return "---" when uncompressed == 0
   let thousandths = (compressed * 1000 + uncompressed / 2) / uncompressed
-  if thousandths > 9999 { return "---" }
+  return "---" when thousandths > 9999
   f"{thousandths / 1000}.{f"{thousandths % 1000:03}"}"
 }
 
@@ -277,29 +277,29 @@ proc xz_scan(file: Path, size: Int) [fs, error] -> Result[XzScan] {
   var end = size
   while end > 0 {
     while end >= 4 and bytes.read_at(file, end - 4, 4, regular: true)? == b"\0\0\0\0" { end -= 4 }
-    if end < 24 { return Ok(corrupt) }
+    return Ok(corrupt) when end < 24
     let footer = bytes.read_at(file, end - 12, 12, regular: true)?
-    if footer[10..12] != b"YZ" { return Ok(corrupt) }
+    return Ok(corrupt) when footer[10..12] != b"YZ"
     let index_size = (bytes.unpack_le(footer, 4, 4)? + 1) * 4
-    if index_size + 24 > end { return Ok(corrupt) }
+    return Ok(corrupt) when index_size + 24 > end
     let index = bytes.read_at(file, end - 12 - index_size, index_size, regular: true)?
-    if index.byte_at(0) != 0 { return Ok(corrupt) }
+    return Ok(corrupt) when index.byte_at(0) != 0
     let counted = xz_varint(index, 1)
-    if counted.next < 0 { return Ok(corrupt) }
+    return Ok(corrupt) when counted.next < 0
     var cursor = counted.next
     var payload = 0
     var uncompressed = 0
-    for _ in range(counted.value) {
+    repeat counted.value times {
       let unpadded = xz_varint(index, cursor)
-      if unpadded.next < 0 { return Ok(corrupt) }
+      return Ok(corrupt) when unpadded.next < 0
       let plain = xz_varint(index, unpadded.next)
-      if plain.next < 0 { return Ok(corrupt) }
+      return Ok(corrupt) when plain.next < 0
       cursor = plain.next
       payload += (unpadded.value + 3) / 4 * 4
       uncompressed += plain.value
     }
     let start = end - (12 + payload + index_size + 12)
-    if start < 0 { return Ok(corrupt) }
+    return Ok(corrupt) when start < 0
     let flags = bytes.read_at(file, start + 6, 2, regular: true)?
     let check = (flags.byte_at(1) ?? 0) % 16
     var checks = scan.checks
@@ -311,7 +311,7 @@ proc xz_scan(file: Path, size: Int) [fs, error] -> Result[XzScan] {
 }
 
 pure xz_check_label(checks: List[Int]) -> Str {
-  collect { for id in range(0, 16) { if id in checks { yield xz_check_name(id) } } }.join(",")
+  collect { for id in range(0, 16) { yield xz_check_name(id) when id in checks } }.join(",")
 }
 
 # xz -l: a table with one row per archive and, for several, a totals row.
@@ -323,7 +323,7 @@ proc list_xz(names: List[Str]) [fs, io, error, process, env] -> Result[Int] {
   var blocks = 0
   var compressed = 0
   var uncompressed = 0
-  var checks: List[Int] = []
+  var checks = []
   for name in names {
     if name == "-" {
       gnu.error("--list does not support reading from standard input")
@@ -363,7 +363,7 @@ type ZstdScan = {problem: Str, frames: Int, skips: Int, uncompressed: Int, known
 # that keeps the value at least 1, with two decimals below 10, one below 100
 # and none above (chosen before rounding), which is how zstd --list shows them.
 pure zstd_nice_size(value: Int) -> Str {
-  if value < 1024 { return f"{value:>6}   B" }
+  return f"{value:>6}   B" when value < 1024
   var divisor = 1024
   var unit = 0
   let units = ["KiB", "MiB", "GiB", "TiB"]
@@ -395,31 +395,31 @@ proc zstd_scan(file: Path, size: Int) [fs, error] -> Result[ZstdScan] {
   var at = 0
   let bad = {problem: "not a zstd frame sequence", frames: 0, skips: 0, uncompressed: 0, known: true, checksummed: false}
   while at < size {
-    if size - at < 4 { return Ok(bad) }
+    return Ok(bad) when size - at < 4
     let magic = bytes.unpack_le(bytes.read_at(file, at, 4, regular: true)?, 4)?
     # Skippable frames use magics 0x184D2A50 through 0x184D2A5F; zstd frames
     # use 0xFD2FB528.
     if magic / 16 == 25481893 {
-      if size - at < 8 { return Ok(bad) }
+      return Ok(bad) when size - at < 8
       let length = bytes.unpack_le(bytes.read_at(file, at + 4, 4, regular: true)?, 4)?
       at += 8 + length
-      if at > size { return Ok(bad) }
+      return Ok(bad) when at > size
       frames += 1
       skips += 1
       continue
     }
-    if magic != 4247762216 { return Ok(bad) }
+    return Ok(bad) when magic != 4247762216
     let head = bytes.read_at(file, at + 4, if size - at - 4 < 14 { size - at - 4 } else { 14 }, regular: true)?
-    if head.len() < 1 { return Ok(bad) }
+    return Ok(bad) when head.len() < 1
     let descriptor = head.byte_at(0) ?? 0
     let size_flag = descriptor / 64
     let single = descriptor / 32 % 2 == 1
     let has_checksum = descriptor / 4 % 2 == 1
     let dict_flag = descriptor % 4
-    let dict_bytes = match dict_flag { 0 => 0, 1 => 1, 2 => 2, _ => 4 }
+    let dict_bytes = match dict_flag { 0 => 0, 1 => 1, 2 => 2, else => 4 }
     var cursor = 1 + (if single { 0 } else { 1 }) + dict_bytes
-    let content_bytes = match size_flag { 0 => if single { 1 } else { 0 }, 1 => 2, 2 => 4, _ => 8 }
-    if head.len() < cursor + content_bytes { return Ok(bad) }
+    let content_bytes = match size_flag { 0 => if single { 1 } else { 0 }, 1 => 2, 2 => 4, else => 8 }
+    return Ok(bad) when head.len() < cursor + content_bytes
     if content_bytes == 0 {
       known = false
     } else {
@@ -428,18 +428,18 @@ proc zstd_scan(file: Path, size: Int) [fs, error] -> Result[ZstdScan] {
     at += 4 + cursor + content_bytes
     var last = false
     while ! last {
-      if size - at < 3 { return Ok(bad) }
+      return Ok(bad) when size - at < 3
       let block = bytes.read_at(file, at, 3, regular: true)?
       let header = (block.byte_at(0) ?? 0) + 256 * (block.byte_at(1) ?? 0) + 65536 * (block.byte_at(2) ?? 0)
       last = header % 2 == 1
       let kind = header / 2 % 4
-      if kind == 3 { return Ok(bad) }
+      return Ok(bad) when kind == 3
       at += 3 + (if kind == 1 { 1 } else { header / 8 })
-      if at > size { return Ok(bad) }
+      return Ok(bad) when at > size
     }
     if has_checksum {
       at += 4
-      if at > size { return Ok(bad) }
+      return Ok(bad) when at > size
       checksummed = true
     }
     frames += 1
@@ -474,7 +474,7 @@ proc list_zstd(names: List[Str]) [fs, io, error, process, env] -> Result[Int] {
   var compressed = 0
   var uncompressed = 0
   var known = true
-  var checks: List[Str] = []
+  var checks = []
   for name in names {
     let file = fp"{name}"
     guard let info = fs.stat(file) else { |failure|
@@ -518,7 +518,7 @@ proc xz_number(text: Str, option: Str, sizes: Bool) [error, process, env] -> Res
   }
   let tail = text.byte_slice(end)
   if tail != "" {
-    if ! sizes {
+    guard sizes else {
       gnu.error(f"{text}: Value is not a non-negative decimal integer")
       exit 1
     }
@@ -532,7 +532,7 @@ proc xz_number(text: Str, option: Str, sizes: Bool) [error, process, env] -> Res
     gnu.error(f"Value of the option '{option}' must be in the range [0, {if sizes { "9223372036854775807" } else { "16384" }}]")
     exit 1
   }
-  let value = text.byte_slice(0, length: end).parse_int()?
+  let value = text.byte_slice(0, length: end) as Int
   if ! sizes and value > 16384 {
     gnu.error(f"Value of the option '{option}' must be in the range [0, 16384]")
     exit 1
@@ -578,7 +578,7 @@ type Expansion = {names: List[Str], status: Int}
 # is verbose or testing, which is how it can be pointed at a mixed tree. zstd
 # tries every file.
 proc expand_directories(names: List[Str], format: Str, decode: Bool, custom: Str?, auto: Bool, force: Bool, explain: Bool) [fs, process, env, error] -> Result[Expansion] {
-  var expanded: List[Str] = []
+  var expanded = []
   var status = 0
   for name in names {
     if name == "-" or ! (fp"{name}".is_dir() ?? false) {
@@ -592,7 +592,7 @@ proc expand_directories(names: List[Str], format: Str, decode: Bool, custom: Str
       # Entries come back absolute and sorted, so the directory itself is first
       # and every other path extends it.
       if top == "" { top = text }
-      if entry.kind == "dir" { continue }
+      continue when entry.kind == "dir"
       let found = f"{prefix}{text.byte_slice(top.byte_len() + 1)}"
       if format == "gz" and ! force {
         if decode and decoded_name(found, format, custom, auto) == null {
@@ -628,8 +628,8 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
   }
   let scratch = fs.tempdir()?
   let part = fp"{scratch.host_path()?}/part"
-  var joined: List[Bytes] = []
-  var consumed: List[Str] = []
+  var joined = []
+  var consumed = []
   var status = 0
   for name in names {
     if name == output {
@@ -637,7 +637,7 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
       status = 1
       continue
     }
-    var source: Path? = null
+    var source = null
     if name != "-" {
       guard let info = fs.stat(fp"{name}") else { |failure|
         if show_errors { gnu.error(f"can't stat {name} : {gnu.strerror(failure)} -- ignored") }
@@ -651,7 +651,7 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
       }
       source = fp"{name}"
     }
-    match compression.transform(source, part, codec, decode: decode, level: level, test: false, metadata: false, overwrite: true, pass_through: false) {
+    match compression.transform(source, part, codec, decode:, level:, test: false, metadata: false, overwrite: true, pass_through: false) {
       Ok(_) => {
         joined += [part.read_bytes()?]
         if name != "-" { consumed += [name] }
@@ -662,8 +662,8 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
       }
     }
   }
-  if joined.is_empty() { return status }
-  fp"{output}".write_atomic(bytes.concat(joined))?
+  return status when joined.is_empty()
+  fp"{output}".write_atomic(bytes.concat(joined))
   if ! keep {
     for name in consumed {
       if let Err(failure) = fp"{name}".remove(missing_ok: false) {
@@ -693,9 +693,9 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
   var listing = false
   var recursive = false
   var stored_names = false
-  var output_file: Str? = null
-  var custom_suffix: Str? = null
-  var name_mode: Bool? = null
+  var output_file = null
+  var custom_suffix = null
+  var name_mode = null
   var level = if format == "bz2" { 9 } else if format == "zstd" { 3 } else { 6 }
   var ultra = false
   var names = []
@@ -804,7 +804,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       }
       custom_suffix = token.value
     } else if option == "format" and format == "zstd" {
-      if token.value != "zstd" {
+      guard token.value == "zstd" else {
         gnu.error(f"Incorrect parameter: --format={token.value}")
         exit 1
       }
@@ -812,7 +812,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       # The window log is a compression hint, so a valid value changes nothing
       # the decoder sees; the reference tool also lets a non-number through.
       if rx"^[0-9]+$".matches(token.value) {
-        let window = token.value.parse_int()?
+        let window = token.value as Int
         if window < 10 or window > 31 {
           gnu.error("error 11 : Parameter is out of bound")
           exit 11
@@ -824,7 +824,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       pass_through = false
     } else if option == "fast" {
       if format == "zstd" {
-        let speed = if token.value == "" { 1 } else { token.value.parse_int()? }
+        let speed = if token.value == "" { 1 } else { token.value as Int }
         if speed < 1 { gnu.usage_error("fast level must be at least 1") }
         level = -(if speed > 131072 { 131072 } else { speed })
       } else { level = 1 }
@@ -835,7 +835,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
     } else if tuning_option(format, option) {
       continue
     } else if token.kind == "short" and rx"^[0-9]+$".matches(option) {
-      level = option.parse_int()?
+      level = option as Int
       if (format != "zstd" and level > 9) or (format in ["gz", "bz2"] and level == 0) { gnu.usage_error("invalid compression level") }
     } else if option in ["repetitive-fast", "repetitive-best"] and format == "bz2" {
       if quiet == 0 { gnu.error(f"--{option} is redundant in versions 0.9.5 and above") }
@@ -881,7 +881,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
   # xz also reads .lzma content, so a decoding xz applet lets the codec pick
   # between the two from the stream itself; every other applet names its format.
   let codec = if decode and format == "xz" and auto_format { "xz,lzma" } else { format }
-  var fixed: Path? = null
+  var fixed = null
   if let target = output_file {
     if names.len() > 1 and ! testing {
       exit write_concatenated(names, target, codec, decode, level, force, keep, show_errors, show_warnings)
@@ -957,7 +957,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       continue
     }
     let passing_through = (force or pass_through) and decode and to_stdout and ! testing
-    match compression.transform(source, destination, codec, decode: decode, level: level, test: testing, metadata: metadata, overwrite: force, pass_through: passing_through) {
+    match compression.transform(source, destination, codec, decode:, level:, test: testing, metadata:, overwrite: force, pass_through: passing_through) {
       Ok(_) => {
         if destination != null and source != null and ! keep {
           if let Err(failure) = fp"{name}".remove(missing_ok: false) {

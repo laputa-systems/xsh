@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_mknod.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_mknod::test_mknod_overflow_major_minor
 test test_uu_mknod_mknod_overflow_major_minor { |ctx|
@@ -116,7 +116,7 @@ test test_uu_mknod_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "mknod", ["-m", "u+rw?", "some_node", "p"])?
   uu.fails_with_code(r, 1)
-  let stderr = r.stderr.utf8()?
+  let stderr = r.stderr as Str
   assert stderr.starts_with("mknod: ")
   assert ":1:" not in stderr
 }

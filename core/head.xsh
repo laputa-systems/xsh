@@ -42,18 +42,17 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 # Keep raw operands for paths while giving the text option parser safe markers.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
 
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0head-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
-      }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0head-raw-argument-{index}\0"
+      text += [marker]
+      raw += [{marker: marker, value: argument}]
     }
   }
 
@@ -62,7 +61,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
 
   bytes.from_text(value)
@@ -73,7 +72,7 @@ proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
     return tio.open_source(text)
   }
 
-  let input_path = Path.parse_bytes(name)?
+  let input_path = name as Path
   let target = input_path.resolve()?
 
   tio.source_of(target.display(), target)
@@ -146,7 +145,7 @@ proc output_failed(failure: Error, closing = false) [process, env] {
 # closing standard output retain their distinct GNU diagnostics.
 proc write_output(pending: Bytes, data: Bytes) [process, env, error, io] -> Bytes {
   let output = bytes.concat([pending, data])
-  if output.len() < 4096 { return output }
+  return output when output.len() < 4096
 
   if let Err(failure) = io.write_stdout_bytes(output) {
     output_failed(failure)
@@ -323,7 +322,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       }
     }
 
-    if elide and source.mode == "stdin" and held.len() > 0 and tio.standard_file(0) != "" {
+    if elide and source.mode == "stdin" and ! held.is_empty() and tio.standard_file(0) != "" {
       let _ = unix.seek_fd(0, tio.stdin_offset()? - held.len())?
     }
   }

@@ -200,7 +200,7 @@ test test_chrt_time_slice_reaches_the_fair_policies { |ctx|
 }
 
 test test_chrt_real_time_policies_need_privilege { |ctx|
-  if can_use_real_time()? {
+  if can_use_real_time() {
     test.skip("this process may use real-time policies")
   }
 

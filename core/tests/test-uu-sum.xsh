@@ -1,12 +1,12 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_sum.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_sum::test_bsd_multiple_files
 test test_uu_sum_bsd_multiple_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sum", "lorem_ipsum.txt", "lorem_ipsum.txt")?
-  uu.fixture(s, "sum", "alice_in_wonderland.txt", "alice_in_wonderland.txt")?
+  uu.fixture(s, "sum", "lorem_ipsum.txt", "lorem_ipsum.txt")
+  uu.fixture(s, "sum", "alice_in_wonderland.txt", "alice_in_wonderland.txt")
   let r = uu.invoke(s, "sum", ["lorem_ipsum.txt", "alice_in_wonderland.txt"])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fp"{ctx.core_dir}/tests/data/uutils/sum/bsd_multiple_files.expected".read_bytes()?)
@@ -15,7 +15,7 @@ test test_uu_sum_bsd_multiple_files { |ctx|
 # origin: uutils test_sum::test_bsd_single_file
 test test_uu_sum_bsd_single_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sum", "lorem_ipsum.txt", "lorem_ipsum.txt")?
+  uu.fixture(s, "sum", "lorem_ipsum.txt", "lorem_ipsum.txt")
   let r = uu.invoke(s, "sum", ["lorem_ipsum.txt"])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fp"{ctx.core_dir}/tests/data/uutils/sum/bsd_single_file.expected".read_bytes()?)
@@ -33,8 +33,8 @@ test test_uu_sum_bsd_stdin { |ctx|
 # origin: uutils test_sum::test_sysv_multiple_files
 test test_uu_sum_sysv_multiple_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sum", "lorem_ipsum.txt", "lorem_ipsum.txt")?
-  uu.fixture(s, "sum", "alice_in_wonderland.txt", "alice_in_wonderland.txt")?
+  uu.fixture(s, "sum", "lorem_ipsum.txt", "lorem_ipsum.txt")
+  uu.fixture(s, "sum", "alice_in_wonderland.txt", "alice_in_wonderland.txt")
   let r = uu.invoke(s, "sum", ["-s", "lorem_ipsum.txt", "alice_in_wonderland.txt"])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fp"{ctx.core_dir}/tests/data/uutils/sum/sysv_multiple_files.expected".read_bytes()?)
@@ -43,7 +43,7 @@ test test_uu_sum_sysv_multiple_files { |ctx|
 # origin: uutils test_sum::test_sysv_single_file
 test test_uu_sum_sysv_single_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sum", "lorem_ipsum.txt", "lorem_ipsum.txt")?
+  uu.fixture(s, "sum", "lorem_ipsum.txt", "lorem_ipsum.txt")
   let r = uu.invoke(s, "sum", ["-s", "lorem_ipsum.txt"])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, fp"{ctx.core_dir}/tests/data/uutils/sum/sysv_single_file.expected".read_bytes()?)
@@ -61,7 +61,7 @@ test test_uu_sum_sysv_stdin { |ctx|
 # origin: uutils test_sum::test_filename_ends_with_slash
 test test_uu_sum_filename_ends_with_slash { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "a")?
+  uu.touch(s, "a")
   let r = uu.invoke(s, "sum", ["a/"])?
   uu.fails_with_code(r, 1)
   uu.stderr_is(r, "sum: a/: Not a directory\n")
@@ -85,7 +85,7 @@ test test_uu_sum_invalid_arg { |ctx|
 # origin: uutils test_sum::test_invalid_file
 test test_uu_sum_invalid_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")?
+  uu.mkdir(s, "a")
   let r = uu.invoke(s, "sum", ["a"])?
   uu.fails(r)
   uu.stderr_is(r, "sum: a: Is a directory\n")
@@ -94,8 +94,8 @@ test test_uu_sum_invalid_file { |ctx|
 # origin: uutils test_sum::test_invalid_file_does_not_stop_other_files
 test test_uu_sum_invalid_file_does_not_stop_other_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "d")?
-  uu.write(s, "f", "hello\n")?
+  uu.mkdir(s, "d")
+  uu.write(s, "f", "hello\n")
   let r = uu.invoke(s, "sum", ["d", "f"])?
   uu.fails_with_code(r, 1)
   uu.stdout_is(r, "36979     1 f\n")
@@ -113,7 +113,7 @@ test test_uu_sum_invalid_metadata { |ctx|
 # origin: uutils test_sum::test_sum_non_utf8_paths
 test test_uu_sum_sum_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
-  uu.at_bytes(s, b"\xff\xfe")?.write(b"test content")?
-  let r = uu.invoke_paths(s, "sum", [Path.parse_bytes(b"\xff\xfe")?])?
+  uu.at_bytes(s, b"\xff\xfe")?.write(b"test content")
+  let r = uu.invoke_paths(s, "sum", [b"\xff\xfe" as Path])?
   uu.succeeds(r)
 }

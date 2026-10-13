@@ -1,9 +1,9 @@
 #!/bin/xsh
-use lib.gnu
-use lib.search
 use lib.date_parse as dates
 use lib.find_format as fmt
 use lib.find_match as match_name
+use lib.gnu
+use lib.search
 
 # One node of the parsed expression. Operators use `left` and `right`; every
 # other kind carries the fields its predicate needs: `text` the pattern or
@@ -46,17 +46,17 @@ pure permission_mode(spec: Str, directory: Bool) -> Int? {
     if number < 0 or number > 7 { octal = false; break }
     numeric_mode = numeric_mode * 8 + number
   }
-  if octal { return if numeric_mode > 0o7777 { null } else { numeric_mode } }
+  return if numeric_mode > 0o7777 { null } else { numeric_mode } when octal
   var mode = 0
   for clause in spec.split(",") {
     var at = 0
     var who = ""
     while at < clause.byte_len() and clause.byte_slice(at,1) in "ugoa" { who = f"{who}{clause.byte_slice(at,1)}"; at += 1 }
     if who == "" or "a" in who { who = "ugo" }
-    if at >= clause.byte_len() { return null }
+    return null when at >= clause.byte_len()
     while at < clause.byte_len() {
       let operation = clause.byte_slice(at,1); at += 1
-      if operation not in ["+","-","="] { return null }
+      return null when operation not in ["+", "-", "="]
       let start = at
       while at < clause.byte_len() and clause.byte_slice(at,1) not in ["+","-","="] { at += 1 }
       let permissions = clause.byte_slice(start,at - start)
@@ -73,7 +73,7 @@ pure permission_mode(spec: Str, directory: Bool) -> Int? {
             "X" => { if directory or mode.bit_and(0o111) != 0 { ordinary = ordinary.bit_or(1) } }
             "s" => { if "u" in who { bits = bits.bit_or(0o4000) }; if "g" in who { bits = bits.bit_or(0o2000) } }
             "t" => { if "o" in who { bits = bits.bit_or(0o1000) } }
-            _ => return null
+            else => return null
           }
         }
       }
@@ -97,23 +97,23 @@ pure signed_number(text: Str) -> Count? {
   var compare = 0
   var digits = text
   if text.starts_with("+") { compare = 1; digits = text.byte_slice(1) } else if text.starts_with("-") { compare = -1; digits = text.byte_slice(1) }
-  if digits == "" { return null }
-  for digit in digits { if (digit.parse_int() ?? -1) < 0 { return null } }
+  return null when digits == ""
+  for digit in digits { return null when (digit.parse_int() ?? -1) < 0 }
   let number = digits.parse_int() ?? -1
-  if number < 0 { return null }
+  return null when number < 0
   {compare: compare, number: number}
 }
 
 pure all_digits(text: Str) -> Bool {
-  if text == "" { return false }
-  for digit in text { if (digit.parse_int() ?? -1) < 0 { return false } }
+  return false when text == ""
+  for digit in text { return false when (digit.parse_int() ?? -1) < 0 }
   true
 }
 
 # A bare non-negative decimal, as -maxdepth and -mindepth require.
 pure plain_number(text: Str) -> Int? {
-  if text == "" { return null }
-  for digit in text { if (digit.parse_int() ?? -1) < 0 { return null } }
+  return null when text == ""
+  for digit in text { return null when (digit.parse_int() ?? -1) < 0 }
   let number = text.parse_int() ?? -1
   if number < 0 { null } else { number }
 }
@@ -136,7 +136,7 @@ pure regex_flavor(kind: Str) -> Str {
   match kind {
     "emacs" | "findutils-default" => "emacs"
     "awk" | "gnu-awk" | "posix-awk" | "egrep" | "posix-egrep" | "posix-extended" => "extended"
-    _ => "basic"
+    else => "basic"
   }
 }
 
@@ -146,7 +146,7 @@ pure whole_pattern(pattern: Str, flavor: Str) -> Str {
   match flavor {
     "emacs" => f"^({match_name.emacs_to_extended(pattern)})$"
     "extended" => f"^({pattern})$"
-    _ => f"^\\({pattern}\\)$"
+    else => f"^\\({pattern}\\)$"
   }
 }
 
@@ -158,36 +158,36 @@ pure snapshot(found: Stat) -> fmt.Meta {
 # nanosecond range cannot hold so that far-future dates still compare.
 proc time_reference(text: Str, start_ns: Int) [process, env, error, time] -> Result[Int, Error] {
   let base = dates.instant_from_ns(start_ns)
-  match dates.parse_instant(text, base: base) {
-    Ok(instant) => {
-      if instant.seconds > 9223372035 { return Ok(9223372036854775807) }
-      if instant.seconds < -9223372035 { return Ok(-9223372036854775807) }
-      Ok(instant.seconds * 1000000000 + instant.nanoseconds)
-    }
-    Err(_) => { search.reject(f"I cannot figure out how to interpret {gnu.quote_value(text)} as a date or time")?; Ok(0) }
+  if let Ok(instant) = dates.parse_instant(text, base:) {
+    return Ok(9223372036854775807) when instant.seconds > 9223372035
+    return Ok(-9223372036854775807) when instant.seconds < -9223372035
+    Ok(instant.seconds * 1000000000 + instant.nanoseconds)
+  } else {
+    search.reject(f"I cannot figure out how to interpret {gnu.quote_value(text)} as a date or time")
+    Ok(0)
   }
 }
 
 # The metadata of a reference file named in an expression. Missing files are
 # an error at parse time, before anything is printed.
 proc stat_reference(name: Str, follow: Bool, raw: List[gnu.RawArgument]) [fs, process, env, error] -> Result[fmt.Meta, Error] {
-  match fs.stat(Path.parse_bytes(gnu.argument_bytes(name, raw))?, follow_symlinks: follow) {
+  match fs.stat(gnu.argument_bytes(name, raw) as Path, follow_symlinks: follow) {
     Ok(found) => Ok(snapshot(found))
-    Err(failure) => { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}")?; Ok(snapshot(fs.stat(p".")?)) }
+    Err(failure) => { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}"); Ok(snapshot(fs.stat(p".")?)) }
   }
 }
 
 # Create or truncate an output file when the expression is parsed, as GNU
 # find does, so a run that matches nothing still leaves an empty file.
-proc prepare_output(name: Str, raw: List[gnu.RawArgument]) [fs, process, env, error] -> Result[Unit, Error] {
-  if name in ["/dev/stdout","/dev/stderr"] { return Ok() }
-  if let Err(failure) = Path.parse_bytes(gnu.argument_bytes(name, raw))?.write(b"") { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}")? }
+proc prepare_output(name: Str, raw: List[gnu.RawArgument]) [fs, process, env, error] {
+  return when name in ["/dev/stdout", "/dev/stderr"]
+  if let Err(failure) = Path.parse_bytes(gnu.argument_bytes(name, raw))?.write(b"") { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}") }
   Ok()
 }
 
 proc parse_exec(args: List[Str], parsed: Parsed, token: Str, opts: Options) [process, env, error] -> Result[Parsed, Error] {
   var at = parsed.at + 1
-  var argv: List[Str] = []
+  var argv = []
   var plus = false
   var found = false
   var braces = 0
@@ -195,13 +195,13 @@ proc parse_exec(args: List[Str], parsed: Parsed, token: Str, opts: Options) [pro
     let word = args[at]
     at += 1
     if word == ";" { found = true; break }
-    if word == "+" and token in ["-exec","-execdir"] and ! argv.is_empty() and argv[argv.len() - 1] == "{}" { found = true; plus = true; break }
+    if word == "+" and token in ["-exec","-execdir"] and ! argv.is_empty() and argv[-1] == "{}" { found = true; plus = true; break }
     if word.find("{}") != null { braces += 1 }
     argv += [word]
   }
-  if ! found { search.reject(f"missing argument to `{token}'")? }
-  if argv.is_empty() { search.reject(f"invalid argument `;' to `{token}'")? }
-  if plus and braces > 1 { search.reject("Only one instance of {} is supported with -exec ... +")? }
+  if ! found { search.reject(f"missing argument to `{token}'") }
+  if argv.is_empty() { search.reject(f"invalid argument `;' to `{token}'") }
+  if plus and braces > 1 { search.reject("Only one instance of {} is supported with -exec ... +") }
   var node = blank_node(f"{token.byte_slice(1)}{if plus { "+" } else { "" }}")
   node.argv = argv
   Ok(with_node(parsed, node, at, opts))
@@ -210,35 +210,35 @@ proc parse_exec(args: List[Str], parsed: Parsed, token: Str, opts: Options) [pro
 # Parse one test, action, option or parenthesised group.
 proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time] -> Result[Parsed, Error] {
   let start = parsed.at
-  if start >= args.len() { search.reject("invalid expression")? }
+  if start >= args.len() { search.reject("invalid expression") }
   let token = args[start]
   var at = start + 1
   var opts = parsed.opts
   if token == "(" {
-    if at < args.len() and args[at] == ")" { search.reject("invalid expression; empty parentheses are not allowed.")? }
-    if at >= args.len() { search.reject("invalid expression; I was expecting to find a ')' somewhere but did not see one.")? }
+    if at < args.len() and args[at] == ")" { search.reject("invalid expression; empty parentheses are not allowed.") }
+    if at >= args.len() { search.reject("invalid expression; I was expecting to find a ')' somewhere but did not see one.") }
     let inner = comma_expression(args, {nodes: parsed.nodes, root: -1, at: at, opts: opts})?
-    if inner.at >= args.len() or args[inner.at] != ")" { search.reject("invalid expression; I was expecting to find a ')' somewhere but did not see one.")? }
+    if inner.at >= args.len() or args[inner.at] != ")" { search.reject("invalid expression; I was expecting to find a ')' somewhere but did not see one.") }
     return Ok({nodes: inner.nodes, root: inner.root, at: inner.at + 1, opts: inner.opts})
   }
   if token in ["!","-not"] {
-    if at < args.len() and args[at] == ")" { search.reject(f"expected an expression between '{token}' and ')'")? }
-    if at >= args.len() { search.reject(f"expected an expression after '{token}'")? }
+    if at < args.len() and args[at] == ")" { search.reject(f"expected an expression between '{token}' and ')'") }
+    if at >= args.len() { search.reject(f"expected an expression after '{token}'") }
     let inner = primary(args, {nodes: parsed.nodes, root: -1, at: at, opts: opts})?
     var node = blank_node("not")
     node.left = inner.root
     return Ok(with_node(inner, node, inner.at, inner.opts))
   }
-  if token == ")" { search.reject("invalid expression; I was expecting to find a ')' somewhere but did not see one.")? }
-  if is_binary_operator(token) { search.reject(f"invalid expression; you have used a binary operator '{token}' with nothing before it.")? }
+  if token == ")" { search.reject("invalid expression; I was expecting to find a ')' somewhere but did not see one.") }
+  if is_binary_operator(token) { search.reject(f"invalid expression; you have used a binary operator '{token}' with nothing before it.") }
   if token in ["--help","-help"] { gnu.help(HELP); exit 0 }
   if token in ["--version","-version"] { gnu.version("find"); exit 0 }
-  if token == "-context" { search.reject("invalid predicate -context: SELinux is not enabled.")? }
+  if token == "-context" { search.reject("invalid predicate -context: SELinux is not enabled.") }
   if token.starts_with("-newer") and token.byte_len() == 8 {
     let left = token.byte_slice(6, 1)
     let right = token.byte_slice(7, 1)
-    if left not in ["a","B","c","m"] or right not in ["a","B","c","m","t"] { search.reject(f"invalid predicate `{token}'")? }
-    if at >= args.len() { search.reject(f"missing argument to `{token}'")? }
+    if left not in ["a","B","c","m"] or right not in ["a","B","c","m","t"] { search.reject(f"invalid predicate `{token}'") }
+    if at >= args.len() { search.reject(f"missing argument to `{token}'") }
     var node = blank_node("newerxy")
     node.text = f"{left}{right}"
     let reference = args[at]
@@ -247,18 +247,18 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       node.number = time_reference(reference, opts.start_ns)?
     } else {
       let found = stat_reference(reference, opts.follow == 2, opts.raw)?
-      if right == "B" and found.birth_ns == null { search.reject(f"{gnu.quote(reference)}: the birth time is not available")? }
-      node.number = match right { "a" => found.atime_ns; "c" => found.ctime_ns; "B" => found.birth_ns ?? 0; _ => found.mtime_ns }
+      if right == "B" and found.birth_ns == null { search.reject(f"{gnu.quote(reference)}: the birth time is not available") }
+      node.number = match right { "a" => found.atime_ns; "c" => found.ctime_ns; "B" => found.birth_ns ?? 0; else => found.mtime_ns }
     }
     opts.last_token = token
     opts.last_test = token
     return Ok(with_node(parsed, node, at, opts))
   }
   if token not in NEEDS_ARGUMENT and token not in NO_ARGUMENT and token not in ["-exec","-execdir","-ok","-okdir","-fprintf"] {
-    if token.starts_with("-") { search.reject(f"unknown predicate `{token}'")? }
+    if token.starts_with("-") { search.reject(f"unknown predicate `{token}'") }
     var message = f"paths must precede expression: `{token}'"
     if opts.last_token != "" { message = f"{message}\n{gnu.prog()}: possible unquoted pattern after predicate `{opts.last_token}'?" }
-    search.reject(message)?
+    search.reject(message)
   }
   if token in ["-exec","-execdir","-ok","-okdir"] {
     opts.last_token = token
@@ -266,19 +266,19 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     return parse_exec(args, parsed, token, opts)
   }
   if token == "-fprintf" {
-    if at >= args.len() { search.reject(f"missing argument to `{token}'")? }
-    if at + 1 >= args.len() { search.reject(invalid_argument(args[at], token))? }
+    if at >= args.len() { search.reject(f"missing argument to `{token}'") }
+    if at + 1 >= args.len() { search.reject(invalid_argument(args[at], token)) }
     var node = blank_node("fprintf")
     node.file = args[at]
     node.segments = fmt.compile(gnu.argument_bytes(args[at + 1], opts.raw))?
-    prepare_output(node.file, opts.raw)?
+    prepare_output(node.file, opts.raw)
     opts.last_token = token
     opts.last_test = token
     return Ok(with_node(parsed, node, at + 2, opts))
   }
   var value = ""
   if token in NEEDS_ARGUMENT {
-    if at >= args.len() { search.reject(f"missing argument to `{token}'")? }
+    if at >= args.len() { search.reject(f"missing argument to `{token}'") }
     value = args[at]
     at += 1
   }
@@ -305,54 +305,54 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       node.text = whole_pattern(value, flavor)
       if let Err(failure) = regex.find_bytes(node.text, b"", extended: flavor != "basic", ignore_case: node.flag) {
         let reason = if failure.message.find("Missing ')'") != null { "Unmatched ( or \\(" } else if failure.message.find("Missing ']'") != null { "Unmatched [, [^, [:, [., or [=" } else { "Invalid regular expression" }
-        search.reject(f"failed to compile regular expression '{value}': {reason}")?
+        search.reject(f"failed to compile regular expression '{value}': {reason}")
       }
     }
     "-regextype" => {
       let known = ["findutils-default","awk","ed","egrep","emacs","gnu-awk","grep","posix-awk","posix-basic","posix-egrep","posix-extended","posix-minimal-basic","sed"]
       if value not in known {
-        search.reject(f"Unknown regular expression type '{value}'; valid types are 'findutils-default', 'awk', 'ed', 'egrep', 'emacs', 'gnu-awk', 'grep', 'posix-awk', 'posix-basic', 'posix-egrep', 'posix-extended', 'posix-minimal-basic', 'sed'.")?
+        search.reject(f"Unknown regular expression type '{value}'; valid types are 'findutils-default', 'awk', 'ed', 'egrep', 'emacs', 'gnu-awk', 'grep', 'posix-awk', 'posix-basic', 'posix-egrep', 'posix-extended', 'posix-minimal-basic', 'sed'.")
       }
       opts.regex_type = value
       node.kind = "true"
     }
     "-type" | "-xtype" => {
       node.kind = token.byte_slice(1)
-      var kinds: List[Str] = []
+      var kinds = []
       var expect_letter = true
       for char in value {
         if expect_letter {
-          let kind = match char { "f" => "file"; "d" => "dir"; "l" => "symlink"; "p" => "fifo"; "s" => "socket"; "b" => "block"; "c" => "char"; "D" => "door"; _ => "" }
-          if kind == "" { search.reject(f"Unknown argument to {token}: {char}")? }
-          if kind in kinds { search.reject(f"Duplicate file type '{char}' in the argument list to {token}.")? }
+          let kind = match char { "f" => "file"; "d" => "dir"; "l" => "symlink"; "p" => "fifo"; "s" => "socket"; "b" => "block"; "c" => "char"; "D" => "door"; else => "" }
+          if kind == "" { search.reject(f"Unknown argument to {token}: {char}") }
+          if kind in kinds { search.reject(f"Duplicate file type '{char}' in the argument list to {token}.") }
           kinds += [kind]
           expect_letter = false
         } else {
-          if char != "," { search.reject(f"Must separate multiple arguments to {token} using: ','")? }
+          if char != "," { search.reject(f"Must separate multiple arguments to {token} using: ','") }
           expect_letter = true
         }
       }
-      if expect_letter { search.reject(f"Last file type in list argument to {token} is missing, i.e., list is ending on: ','")? }
+      if expect_letter { search.reject(f"Last file type in list argument to {token} is missing, i.e., list is ending on: ','") }
       node.argv = kinds
     }
     "-size" => {
-      if value == "" { search.reject("invalid null argument to -size")? }
+      if value == "" { search.reject("invalid null argument to -size") }
       var digits = value
       var unit = 512
       let last = value.byte_slice(value.byte_len() - 1)
       if last in ["b","c","w","k","M","G"] {
-        unit = match last { "b" => 512; "c" => 1; "w" => 2; "k" => 1024; "M" => 1048576; _ => 1073741824 }
+        unit = match last { "b" => 512; "c" => 1; "w" => 2; "k" => 1024; "M" => 1048576; else => 1073741824 }
         digits = value.byte_slice(0, value.byte_len() - 1)
-      } else if (last.parse_int() ?? -1) < 0 { search.reject(f"invalid -size type `{last}'")? }
+      } else if (last.parse_int() ?? -1) < 0 { search.reject(f"invalid -size type `{last}'") }
       let counted = signed_number(digits)
-      if counted == null { search.reject(f"Invalid argument `{value}' to -size")? }
+      if counted == null { search.reject(f"Invalid argument `{value}' to -size") }
       node.compare = (counted ?? {compare: 0, number: 0}).compare
       node.number = (counted ?? {compare: 0, number: 0}).number
       node.bound = unit
     }
     "-mtime" | "-atime" | "-ctime" | "-mmin" | "-amin" | "-cmin" | "-used" => {
       let counted = signed_number(value)
-      if counted == null { search.reject(invalid_argument(value, token))? }
+      if counted == null { search.reject(invalid_argument(value, token)) }
       node.compare = (counted ?? {compare: 0, number: 0}).compare
       node.number = (counted ?? {compare: 0, number: 0}).number
       node.kind = "time"
@@ -363,7 +363,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     "-newer" | "-anewer" | "-cnewer" => {
       let found = stat_reference(value, opts.follow == 2, opts.raw)?
       node.kind = "newerxy"
-      node.text = match token { "-newer" => "mm"; "-anewer" => "am"; _ => "cm" }
+      node.text = match token { "-newer" => "mm"; "-anewer" => "am"; else => "cm" }
       node.number = found.mtime_ns
     }
     "-perm" => {
@@ -372,7 +372,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       if spec.starts_with("-") { mode_kind = "all"; spec = spec.byte_slice(1) } else if spec.starts_with("/") { mode_kind = "any"; spec = spec.byte_slice(1) }
       let file_mode = permission_mode(spec, false)
       let dir_mode = permission_mode(spec, true)
-      if file_mode == null or dir_mode == null { search.reject(f"invalid file mode '{value}'")? }
+      if file_mode == null or dir_mode == null { search.reject(f"invalid file mode '{value}'") }
       node.text = mode_kind
       node.number = file_mode ?? 0
       node.bound = dir_mode ?? 0
@@ -382,7 +382,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     }
     "-uid" | "-gid" | "-links" | "-inum" => {
       let counted = signed_number(value)
-      if counted == null { search.reject(f"non-numeric argument to {token}: '{value}'")? }
+      if counted == null { search.reject(f"non-numeric argument to {token}: '{value}'") }
       node.kind = "count"
       node.text = token.byte_slice(1)
       node.compare = (counted ?? {compare: 0, number: 0}).compare
@@ -392,20 +392,20 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       node.kind = "count"
       node.text = "uid"
       let numeric = plain_number(value)
-      if numeric != null { node.number = numeric ?? 0 } else if all_digits(value) {
-        search.reject(f"invalid user name or UID argument to -user: '{value}'")?
+      if numeric != null { node.number = numeric } else if all_digits(value) {
+        search.reject(f"invalid user name or UID argument to -user: '{value}'")
       } else if let Ok(account) = user.lookup(value) { node.number = account.uid } else {
-        search.reject(f"invalid user name or UID argument to -user: '{value}'")?
+        search.reject(f"invalid user name or UID argument to -user: '{value}'")
       }
     }
     "-group" => {
       node.kind = "count"
       node.text = "gid"
       let numeric = plain_number(value)
-      if numeric != null { node.number = numeric ?? 0 } else if all_digits(value) {
-        search.reject(f"invalid group name or GID argument to -group: '{value}'")?
+      if numeric != null { node.number = numeric } else if all_digits(value) {
+        search.reject(f"invalid group name or GID argument to -group: '{value}'")
       } else if let Ok(account) = group.lookup(value) { node.number = account.gid } else {
-        search.reject(f"invalid group name or GID argument to -group: '{value}'")?
+        search.reject(f"invalid group name or GID argument to -group: '{value}'")
       }
     }
     "-samefile" => {
@@ -415,7 +415,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     }
     "-fstype" => node.kind = "fstype"
     "-printf" => node.segments = fmt.compile(gnu.argument_bytes(value, opts.raw))?
-    "-fprint" | "-fprint0" | "-fls" => { node.kind = token.byte_slice(1); node.file = value; prepare_output(value, opts.raw)? }
+    "-fprint" | "-fprint0" | "-fls" => { node.kind = token.byte_slice(1); node.file = value; prepare_output(value, opts.raw) }
     "-depth" | "-d" => { opts.depth = true; node.kind = "true" }
     "-mount" | "-xdev" => { opts.device = true; node.kind = "true" }
     "-noleaf" | "-ignore_readdir_race" | "-noignore_readdir_race" => node.kind = "true"
@@ -429,11 +429,11 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     }
     "-maxdepth" | "-mindepth" => {
       let number = plain_number(value)
-      if number == null { search.reject(f"Expected a positive decimal integer argument to {token}, but got '{value}'")? }
+      if number == null { search.reject(f"Expected a positive decimal integer argument to {token}, but got '{value}'") }
       if token == "-maxdepth" { opts.maximum = number ?? -1 } else { opts.minimum = number ?? 0 }
       node.kind = "true"
     }
-    _ => {}
+    else => {}
   }
   if opts.warn and token in GLOBAL_OPTIONS and opts.last_test != "" {
     eprint f"{gnu.prog()}: warning: you have specified the global option {token} after the argument {opts.last_test}, but global options are not positional, i.e., {token} affects tests specified before it as well as those specified after it.  Please specify global options before other arguments."
@@ -461,8 +461,8 @@ proc and_expression(args: List[Str], parsed: Parsed) [fs, io, process, env, erro
     var at = current.at
     if args[at] in ["-a","-and"] {
       at += 1
-      if at < args.len() and args[at] == ")" { search.reject(f"expected an expression between '{args[current.at]}' and ')'")? }
-      if at >= args.len() { search.reject(f"expected an expression after '{args[current.at]}'")? }
+      if at < args.len() and args[at] == ")" { search.reject(f"expected an expression between '{args[current.at]}' and ')'") }
+      if at >= args.len() { search.reject(f"expected an expression after '{args[current.at]}'") }
     }
     let right = primary(args, {nodes: current.nodes, root: -1, at: at, opts: current.opts})?
     var node = blank_node("and")
@@ -478,8 +478,8 @@ proc or_expression(args: List[Str], parsed: Parsed) [fs, io, process, env, error
   while current.at < args.len() and args[current.at] in ["-o","-or"] {
     let operator = args[current.at]
     let at = current.at + 1
-    if at < args.len() and args[at] == ")" { search.reject(f"expected an expression between '{operator}' and ')'")? }
-    if at >= args.len() { search.reject(f"expected an expression after '{operator}'")? }
+    if at < args.len() and args[at] == ")" { search.reject(f"expected an expression between '{operator}' and ')'") }
+    if at >= args.len() { search.reject(f"expected an expression after '{operator}'") }
     let right = and_expression(args, {nodes: current.nodes, root: -1, at: at, opts: current.opts})?
     var node = blank_node("or")
     node.left = current.root
@@ -493,8 +493,8 @@ proc comma_expression(args: List[Str], parsed: Parsed) [fs, io, process, env, er
   var current = or_expression(args, parsed)?
   while current.at < args.len() and args[current.at] == "," {
     let at = current.at + 1
-    if at < args.len() and args[at] == ")" { search.reject("expected an expression between ',' and ')'")? }
-    if at >= args.len() { search.reject("expected an expression after ','")? }
+    if at < args.len() and args[at] == ")" { search.reject("expected an expression between ',' and ')'") }
+    if at >= args.len() { search.reject("expected an expression after ','") }
     let right = or_expression(args, {nodes: current.nodes, root: -1, at: at, opts: current.opts})?
     var node = blank_node("comma")
     node.left = current.root
@@ -514,17 +514,17 @@ pure time_test(node: Node, meta: fmt.Meta) -> Bool {
   let stamp = if node.text == "a" { meta.atime_ns } else if node.text == "c" { meta.ctime_ns } else { meta.mtime_ns }
   let age = node.bound - stamp
   if node.flag {
-    if node.compare > 0 { return age > node.number * MINUTE_NS }
-    if node.compare < 0 { return age < node.number * MINUTE_NS }
+    return age > node.number * MINUTE_NS when node.compare > 0
+    return age < node.number * MINUTE_NS when node.compare < 0
     return age > (node.number - 1) * MINUTE_NS and age <= node.number * MINUTE_NS
   }
-  if node.compare > 0 { return age > (node.number + 1) * DAY_NS }
-  if node.compare < 0 { return age < node.number * DAY_NS }
+  return age > (node.number + 1) * DAY_NS when node.compare > 0
+  return age < node.number * DAY_NS when node.compare < 0
   age > node.number * DAY_NS and age <= (node.number + 1) * DAY_NS
 }
 
 pure replace_marker(word: Bytes, value: Bytes) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   while at < word.len() {
     let found = search.find_fixed(word, b"{}", offset: at)
@@ -539,11 +539,11 @@ pure replace_marker(word: Bytes, value: Bytes) -> Bytes {
 # Output goes to the process streams for the /dev/stdout and /dev/stderr
 # names, and is appended to the file otherwise, which several actions may
 # share.
-proc write_output(name: Str, data: Bytes, raw: List[gnu.RawArgument]) [fs, io, process, env, error] -> Result[Unit, Error] {
-  if name == "/dev/stdout" { gnu.write_bytes(data); return Ok() }
-  if name == "/dev/stderr" { io.write_stderr(data.utf8() ?? "")?; io.flush_stderr()?; return Ok() }
-  let target = Path.parse_bytes(gnu.argument_bytes(name, raw))?
-  let size = match fs.stat(target) { Ok(found) => found.size; Err(_) => 0 }
+proc write_output(name: Str, data: Bytes, raw: List[gnu.RawArgument]) [fs, io, process, env, error] {
+  if name == "/dev/stdout" { gnu.write_bytes(data); return }
+  if name == "/dev/stderr" { io.write_stderr(data.utf8() ?? ""); io.flush_stderr(); return }
+  let target = gnu.argument_bytes(name, raw) as Path
+  let size = if let Ok(found) = fs.stat(target) { found.size } else { 0 }
   let _ = bytes.write_at(target, size, data, create: true)?
   Ok()
 }
@@ -557,7 +557,7 @@ proc start_failure(command: Path) [fs, process] -> Str {
   if has_slash {
     return match fs.stat(command) { Ok(_) => "Permission denied"; Err(failure) => gnu.strerror(failure) }
   }
-  if process.which(command.display()) is Err(_) { "No such file or directory" } else { "Permission denied" }
+  if process.which(command) is Err(_) { "No such file or directory" } else { "Permission denied" }
 }
 
 # Run a command and report whether it exited 0. A command that cannot be
@@ -565,7 +565,7 @@ proc start_failure(command: Path) [fs, process] -> Str {
 # false result rather than a failure of the whole run.
 proc command_succeeds(words: List[Path], directory: Path?) [fs, process, env, error] -> Result[Bool, Error] {
   let command = words[0]
-  let plan = if directory != null { process.command_argv(command, words, directory ?? p".") } else { process.command_argv(command, words) }
+  let plan = if directory != null { process.command_argv(command, words, directory) } else { process.command_argv(command, words) }
   let status = process.run(plan)?
   if status.signaled() {
     gnu.error(f"{gnu.quote_bytes(command.bytes())} terminated by signal {status.signal_number() ?? 0}")
@@ -579,7 +579,7 @@ proc command_succeeds(words: List[Path], directory: Path?) [fs, process, env, er
 }
 
 proc dot_name(raw: Bytes) [error] -> Result[Path, Error] {
-  Ok(Path.parse_bytes(bytes.concat([b"./", search.basename_bytes(raw)]))?)
+  Ok(bytes.concat([b"./", search.basename_bytes(raw)]) as Path)
 }
 
 proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, index: Int) [fs, io, process, env, error, time] -> Result[Decision, Error] {
@@ -597,7 +597,7 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
   var failed = false
   var deferred: List[Deferred] = []
   let raw = target.bytes()
-  let entry: fmt.Entry = {path: target, start: start, depth: depth, meta: meta}
+  let entry: fmt.Entry = fmt.Entry(path: target, start:, depth:, meta:)
   match node.kind {
     "true" => matched = true
     "false" => matched = false
@@ -614,21 +614,29 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
       var kind = meta.kind
       let followed = plan.follow == 2 or (plan.follow == 1 and depth == 0)
       if ! followed and meta.kind == "symlink" {
-        kind = match fs.stat(target, follow_symlinks: true) { Ok(found) => found.kind; Err(_) => "symlink" }
+        kind = if let Ok(found) = fs.stat(target, follow_symlinks: true) {
+          found.kind
+        } else {
+          "symlink"
+        }
       } else if followed {
-        kind = match fs.stat(target, follow_symlinks: false) { Ok(found) => found.kind; Err(_) => meta.kind }
+        kind = if let Ok(found) = fs.stat(target, follow_symlinks: false) {
+          found.kind
+        } else {
+          meta.kind
+        }
       }
       matched = kind in node.argv
     }
     "count" => {
-      let actual = match node.text { "uid" => meta.uid; "gid" => meta.gid; "inum" => meta.ino; _ => meta.nlink }
+      let actual = match node.text { "uid" => meta.uid; "gid" => meta.gid; "inum" => meta.ino; else => meta.nlink }
       matched = compare_number(actual, node.compare, node.number)
     }
     "size" => matched = compare_number((meta.size + node.bound - 1) / node.bound, node.compare, node.number)
     "time" => matched = time_test(node, meta)
     "newerxy" => {
       let side = node.text.byte_slice(0, 1)
-      let stamp = match side { "a" => meta.atime_ns; "c" => meta.ctime_ns; "B" => meta.birth_ns ?? -9223372036854775807; _ => meta.mtime_ns }
+      let stamp = match side { "a" => meta.atime_ns; "c" => meta.ctime_ns; "B" => meta.birth_ns ?? -9223372036854775807; else => meta.mtime_ns }
       matched = stamp > node.number and (side != "B" or meta.birth_ns != null)
     }
     "perm" => {
@@ -656,13 +664,13 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
     "nouser" => matched = user.by_uid(meta.uid) is Err(_)
     "nogroup" => matched = group.by_gid(meta.gid) is Err(_)
     "samefile" => matched = meta.ino == node.number and meta.dev == node.bound
-    "fstype" => matched = match fs.mount_for(target) { Ok(found) => found.fstype == node.text; Err(_) => false }
+    "fstype" => matched = if let Ok(found) = fs.mount_for(target) { found.fstype == node.text } else { false }
     "print" | "print0" => gnu.write_bytes(bytes.concat([raw, if node.kind == "print0" { b"\0" } else { b"\n" }]))
     "printf" => gnu.write_bytes(fmt.render(node.segments, entry)?)
-    "fprint" | "fprint0" => write_output(node.file, bytes.concat([raw, if node.kind == "fprint0" { b"\0" } else { b"\n" }]), plan.raw)?
-    "fprintf" => write_output(node.file, fmt.render(node.segments, entry)?, plan.raw)?
+    "fprint" | "fprint0" => write_output(node.file, bytes.concat([raw, if node.kind == "fprint0" { b"\0" } else { b"\n" }]), plan.raw)
+    "fprintf" => write_output(node.file, fmt.render(node.segments, entry)?, plan.raw)
     "ls" => gnu.write_bytes(fmt.ls_line(entry, plan.opts.start_ns)?)
-    "fls" => write_output(node.file, fmt.ls_line(entry, plan.opts.start_ns)?, plan.raw)?
+    "fls" => write_output(node.file, fmt.ls_line(entry, plan.opts.start_ns)?, plan.raw)
     "prune" => prune = ! plan.opts.depth
     "quit" => quit = true
     "delete" => {
@@ -681,23 +689,24 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
     "exec" | "execdir" | "ok" | "okdir" => {
       let in_directory = node.kind in ["execdir","okdir"]
       let value = if in_directory { dot_name(raw)?.bytes() } else { raw }
-      var words: List[Path] = []
-      for word in node.argv { words += [Path.parse_bytes(replace_marker(gnu.argument_bytes(word, plan.raw), value))?] }
+      let words = collect {
+        for word in node.argv { yield replace_marker(gnu.argument_bytes(word, plan.raw), value) as Path }
+      }
       var proceed = true
       if node.kind in ["ok","okdir"] {
-        io.write_stderr(f"< {node.argv[0]} ... {raw.utf8() ?? gnu.quote_bytes(raw)} > ? ")?
-        io.flush_stderr()?
+        io.write_stderr(f"< {node.argv[0]} ... {raw.utf8() ?? gnu.quote_bytes(raw)} > ? ")
+        io.flush_stderr()
         let answer = io.stdin_line() ?? ""
         proceed = answer.starts_with("y") or answer.starts_with("Y")
       }
       matched = false
       if proceed {
-        io.flush_stdout()?
+        io.flush_stdout()
         let directory: Path? = if in_directory { target.parent() } else { null }
         matched = command_succeeds(words, directory)?
       }
     }
-    _ => search.reject(f"unsupported predicate {node.kind}")?
+    else => search.reject(f"unsupported predicate {node.kind}")
   }
   Ok({matched: matched, prune: prune, quit: quit, failed: failed, deferred: deferred})
 }
@@ -707,7 +716,7 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
 # link is still listed; other errors (a link loop) are reported.
 proc stat_entry(target: Path, depth: Int, follow: Int) [fs, error] -> Result[fmt.Meta, Error] {
   let following = follow == 2 or (follow == 1 and depth == 0)
-  if ! following { return Ok(snapshot(fs.stat(target, follow_symlinks: false)?)) }
+  return Ok(snapshot(fs.stat(target, follow_symlinks: false)?)) unless following
   match fs.stat(target, follow_symlinks: true) {
     Ok(found) => Ok(snapshot(found))
     Err(failure) => {
@@ -726,7 +735,7 @@ proc visit(target: Path, depth: Int, hint: Str, ancestors: List[Ancestor], devic
   # that cannot be searched, as GNU find does.
   let known = hint in ["file","dir","symlink","fifo","socket","block","char"]
   let lazy = depth > 0 and ! plan.stat_needed and known and (plan.follow != 2 or (hint != "symlink" and hint != "dir"))
-  var meta: fmt.Meta = {kind: hint, size: 0, uid: 0, gid: 0, ino: 0, dev: 0, nlink: 0, mode: 0, atime_ns: 0, mtime_ns: 0, ctime_ns: 0, birth_ns: null, blocks_512: 0}
+  var meta: fmt.Meta = fmt.Meta(kind: hint, size: 0, uid: 0, gid: 0, ino: 0, dev: 0, nlink: 0, mode: 0, atime_ns: 0, mtime_ns: 0, ctime_ns: 0, birth_ns: null, blocks_512: 0)
   if ! lazy { meta = stat_entry(target, depth, plan.follow)? }
   let identity = f"{meta.dev}:{meta.ino}"
   if meta.kind == "dir" and ! lazy {
@@ -737,12 +746,12 @@ proc visit(target: Path, depth: Int, hint: Str, ancestors: List[Ancestor], devic
       }
     }
   }
-  var decision: Decision = {matched: false, prune: false, quit: false, failed: false, deferred: []}
+  var decision: Decision = Decision(matched: false, prune: false, quit: false, failed: false, deferred: [])
   if ! opts.depth and depth >= opts.minimum {
     decision = evaluate(target, meta, depth, start, plan, plan.root)?
     deferred += decision.deferred
     failed = failed or decision.failed
-    if decision.quit { return Ok({quit: true, failed: failed, deferred: deferred}) }
+    return Ok({quit: true, failed: failed, deferred: deferred}) when decision.quit
   }
   var descend = meta.kind == "dir" and ! decision.prune and (opts.maximum < 0 or depth < opts.maximum)
   if descend and opts.device and device != null and meta.dev != device { descend = false }
@@ -753,7 +762,7 @@ proc visit(target: Path, depth: Int, hint: Str, ancestors: List[Ancestor], devic
           let leaf = search.child(target, search.basename_bytes(entry.path.bytes()))?
           let below = visit(leaf, depth + 1, entry.kind, ancestors + [{identity: identity, path: target}], device ?? meta.dev, start, plan)
           match below {
-            Ok(result) => { failed = failed or result.failed; deferred += result.deferred; if result.quit { return Ok({quit: true, failed: failed, deferred: deferred}) } }
+            Ok(result) => { failed = failed or result.failed; deferred += result.deferred; return Ok({quit: true, failed: failed, deferred: deferred}) when result.quit }
             Err(failure) => { gnu.error(f"{gnu.quote_bytes(leaf.bytes())}: {gnu.strerror(failure)}"); failed = true }
           }
         }
@@ -775,25 +784,26 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
   var failed = false
   for index in range(plan.nodes.len()) {
     let node = plan.nodes[index]
-    if node.kind not in kinds { continue }
-    var initial: List[Path] = []
+    continue when node.kind not in kinds
     var initial_size = 0
-    for word in node.argv[..node.argv.len() - 1] {
-      let bytes_of_word = gnu.argument_bytes(word, plan.raw)
-      initial += [Path.parse_bytes(bytes_of_word)?]
-      initial_size += bytes_of_word.len() + 1
+    let initial = collect {
+      for word in node.argv[..node.argv.len() - 1] {
+        let bytes_of_word = gnu.argument_bytes(word, plan.raw)
+        yield bytes_of_word as Path
+        initial_size += bytes_of_word.len() + 1
+      }
     }
-    var batch: List[Path] = []
-    var directory: Path? = null
+    var batch = []
+    var directory = null
     var size = 0
     for item in deferred {
-      if item.node != index { continue }
+      continue when item.node != index
       let cwd: Path? = if node.kind == "execdir+" { item.directory } else { null }
-      let name = Path.parse_bytes(item.name)?
+      let name = item.name as Path
       let needed = item.name.len() + 1
       if ! batch.is_empty() and (cwd != directory or initial_size + size + needed > BATCH_LIMIT) {
-        io.flush_stdout()?
-        if ! command_succeeds(initial + batch, directory)? { failed = true }
+        io.flush_stdout()
+        if ! command_succeeds(initial + batch, directory) { failed = true }
         batch = []
         size = 0
       }
@@ -802,8 +812,8 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
       size += needed
     }
     if ! batch.is_empty() {
-      io.flush_stdout()?
-      if ! command_succeeds(initial + batch, directory)? { failed = true }
+      io.flush_stdout()
+      if ! command_succeeds(initial + batch, directory) { failed = true }
     }
   }
   Ok(failed)
@@ -811,8 +821,7 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
 
 proc main(...operands: List[Bytes]) {
   let prepared = gnu.prepare_arguments(operands)
-  let args = prepared.text
-  let raw = prepared.raw
+  let {text: args, raw, ..} = prepared
   var follow = 0
   var at = 0
   let start_ns = time.now() * 1000000
@@ -838,7 +847,7 @@ proc main(...operands: List[Bytes]) {
     if token == "--" { at += 1; break }
     break
   }
-  var roots: List[Path] = []
+  var roots = []
   var last_token = ""
   var read_failed = false
   if at < args.len() and args[at] == "-files0-from" {
@@ -865,10 +874,10 @@ proc main(...operands: List[Bytes]) {
   }
   var expression_args: List[Str] = args[at..]
   if expression_args.is_empty() { expression_args = ["-true"] }
-  let initial: Options = {follow: follow, minimum: 0, maximum: -1, depth: false, device: false, warn: false, start_ns: start_ns, day_start_ns: 0, regex_type: "emacs", last_token: last_token, last_test: "", raw: raw}
+  let initial: Options = Options(follow:, minimum: 0, maximum: -1, depth: false, device: false, warn: false, start_ns:, day_start_ns: 0, regex_type: "emacs", last_token:, last_test: "", raw:)
   let outcome = try {
     let parsed = comma_expression(expression_args, {nodes: [], root: -1, at: 0, opts: initial})?
-    if parsed.at < expression_args.len() { search.reject("you have too many ')'")? }
+    if parsed.at < expression_args.len() { search.reject("you have too many ')'") }
     parsed
   }
   if let Err(failure) = outcome { gnu.error(failure.message); exit 1 }
@@ -904,7 +913,7 @@ proc main(...operands: List[Bytes]) {
     if node.kind in ["count","size","time","newerxy","perm","empty","samefile","nouser","nogroup","fstype","ls","fls"] { stat_needed = true }
     if node.kind in ["printf","fprintf"] and fmt.needs_stat(node.segments) { stat_needed = true }
   }
-  let plan: Run = {nodes: nodes, root: root, follow: final_opts.follow, opts: final_opts, stat_needed: stat_needed, raw: raw}
+  let plan: Run = Run(nodes:, root:, follow: final_opts.follow, opts: final_opts, stat_needed:, raw:)
   var failed = read_failed
   var deferred: List[Deferred] = []
   for target in roots {
@@ -918,10 +927,11 @@ proc main(...operands: List[Bytes]) {
       Ok(any_failed) => { failed = failed or any_failed }
       Err(failure) => { gnu.error(failure.message); exit 1 }
     }
-    var kept: List[Deferred] = []
-    for item in deferred { if plan.nodes[item.node].kind != "execdir+" { kept += [item] } }
+    let kept: List[Deferred] = collect {
+      for item in deferred { yield item when plan.nodes[item.node].kind != "execdir+" }
+    }
     deferred = kept
-    if quit { break }
+    break when quit
   }
   match run_batches(plan, deferred, ["exec+"]) {
     Ok(any_failed) => { failed = failed or any_failed }

@@ -40,12 +40,12 @@ const A_CENTER_FREQ1 = 160
 const A_SPLIT_WIPHY_DUMP = 174
 
 proc genl(cmd: Int, attrs: List[Bytes]) [error] -> Result[Bytes, Error] {
-  bytes.concat([bytes.from_ints([cmd, 1, 0, 0])?] + attrs)
+  bytes.concat([bytes.from_ints([cmd, 1, 0, 0])?, @attrs])
 }
 
 # The payload `lib/nl80211.xsh` sends for `cmd` with `attrs`.
 proc request_payload(cmd: Int, attrs: List[Bytes]) [error] -> Result[Bytes, Error] {
-  bytes.concat([bytes.from_ints([cmd, 0, 0, 0])?] + attrs)
+  bytes.concat([bytes.from_ints([cmd, 0, 0, 0])?, @attrs])
 }
 
 proc reply_of(cmd: Int, attrs: List[Bytes]) [error] -> Result[Record, Error] {
@@ -134,7 +134,7 @@ proc wlan0_reply() [error] -> Result[Record, Error] {
 
 proc fixture(ctx: TestContext, name: Str, lines: List[Record]) [fs, error] -> Result[Path, Error] {
   let file = test.temp_file(ctx, name: f"{name}.jsonl", contents: b"")?
-  var values: List[Any] = []
+  var values = []
   for line in lines {
     values += [line]
   }
@@ -146,7 +146,7 @@ proc fixture(ctx: TestContext, name: Str, lines: List[Record]) [fs, error] -> Re
 proc run_iw(ctx: TestContext, name: Str, lines: List[Record], argv: List[Str]) [fs, process, error] -> Result[IwRun, Error] {
   let recorded = fixture(ctx, name, lines)?
   let log = test.temp_file(ctx, name: f"{name}.log", contents: b"")?
-  test.linux_fake(ctx, {netlink_fixture: recorded, log: log})?
+  test.linux_fake(ctx, {netlink_fixture: recorded, log: log})
   let source = fp"{ctx.core_dir}/iw.xsh".read_text()?
   let ran = test.run_script(ctx, source, argv, {XSH_MODULE_PATH: ctx.core_dir}, b"", "iw")?
   {success: ran.success, status: ran.status, stdout: ran.stdout, stderr: ran.stderr, calls: log.read_text()?}
@@ -409,7 +409,7 @@ proc phy_messages() [error] -> Result[List[Record], Error] {
 test test_list_and_phy_info_merge_a_split_wiphy_dump { |ctx|
   let split = nl.attr_flag(A_SPLIT_WIPHY_DUMP)?
   let by_index = nl.attr_u32(A_WIPHY, 0)?
-  let lines: List[Record] = [
+  let lines = [
     family_line(),
     dump_line(1, [split], phy_messages()?)?,
     dump_line(1, [split, by_index], phy_messages()?)?,
@@ -546,7 +546,7 @@ test test_scan_dump_prints_bss_blocks_in_iw_layout { |ctx|
 
   let unknown = run_iw(ctx, "scan-dump-u", lines, ["dev", "wlan0", "scan", "dump", "-u"])?
   assert unknown.success, unknown.stderr
-  assert unknown.stdout == (expected + ["\tUnknown IE (45): ef 09 1b"]).join("\n") + "\n"
+  assert unknown.stdout == [@expected, "\tUnknown IE (45): ef 09 1b"].join("\n") + "\n"
 }
 
 test test_scan_dump_reports_both_element_sets_and_status { |ctx|
@@ -816,7 +816,7 @@ test test_scan_trigger_builds_the_request_from_every_option { |ctx|
   # `trigger` returns once the kernel accepted the request, with no results.
   assert output.success and output.stdout == "", output.stderr
   for words in [["bogus"], ["duration"], ["ies", "zz"], ["ies", "00:"], ["passive", "ssid", "a"], ["-u"], ["meshid"]] {
-    let bad = run_iw(ctx, "scan-bad", lines, ["dev", "wlan0", "scan", "trigger"] + words)?
+    let bad = run_iw(ctx, "scan-bad", lines, ["dev", "wlan0", "scan", "trigger", @words])?
     assert bad.status == 1 and "dev <devname> scan trigger" in bad.stdout, words.join(" ")
   }
   let coloc = run_iw(ctx, "scan-coloc", lines, ["dev", "wlan0", "scan", "coloc"])?

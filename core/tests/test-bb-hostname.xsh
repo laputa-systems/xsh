@@ -9,9 +9,9 @@ test test_bb_hostname_hostname_d_works_e9855ad2 { |ctx|
   uu.succeeds(domain)
   uu.no_stderr(full)
   uu.no_stderr(domain)
-  let fqdn = rx"\n+$".replace(full.stdout.utf8()?, with: "") + "."
+  let fqdn = rx"\n+$".replace(full.stdout as Str, with: "") + "."
   let suffix = rx"^[^.]*\.".replace(fqdn, with: "")
-  let value = rx"\n+$".replace(domain.stdout.utf8()?, with: "")
+  let value = rx"\n+$".replace(domain.stdout as Str, with: "")
   assert suffix == value + (if value == "" { "" } else { "." })
 }
 

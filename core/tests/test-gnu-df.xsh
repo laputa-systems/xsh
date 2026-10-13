@@ -1,7 +1,7 @@
 use support.uu
 
 proc verify_total(output: Str) [error] {
-  let row = regex.compile("^(.*?) +(-?[0-9]+|-) +(-?[0-9]+|-) +(-?[0-9]+|-) +(?:-|[0-9]+%) (.*)$")?
+  let row = rx"^(.*?) +(-?[0-9]+|-) +(-?[0-9]+|-) +(-?[0-9]+|-) +(?:-|[0-9]+%) (.*)$"
   let lines = output.trim().split("\n")
   var size = 0
   var used = 0
@@ -12,14 +12,14 @@ proc verify_total(output: Str) [error] {
     let fields = row.captures(lines[index])
     assert fields.len() == 6, f"invalid df row: {lines[index]}"
     if fields[1] == "total" and fields[5] == "-" {
-      assert size == fields[2].parse_int()?
-      assert used == fields[3].parse_int()?
-      assert available == fields[4].parse_int()?
+      assert size == fields[2] as Int
+      assert used == fields[3] as Int
+      assert available == fields[4] as Int
       saw_total = true
     } else {
-      if fields[2] != "-" { size += fields[2].parse_int()? }
-      if fields[3] != "-" { used += fields[3].parse_int()? }
-      if fields[4] != "-" { available += fields[4].parse_int()? }
+      if fields[2] != "-" { size += fields[2] as Int }
+      if fields[3] != "-" { used += fields[3] as Int }
+      if fields[4] != "-" { available += fields[4] as Int }
     }
   }
   assert saw_total, "missing totals row"
@@ -32,7 +32,7 @@ test test_gnu_df_df_P_log { |ctx|
   let configured = uu.invoke(s, "df", ["-P", "."], vars: {BLOCK_SIZE: "1M"})?
   uu.succeeds(plain)
   uu.succeeds(configured)
-  let spaces = regex.compile(" +")?
+  let spaces = rx" +"
   assert spaces.replace(plain.stdout.utf8()?.split("\n")[0], with: " ") == spaces.replace(configured.stdout.utf8()?.split("\n")[0], with: " ")
 }
 
@@ -65,7 +65,7 @@ test test_gnu_df_total_verify_log { |ctx|
   for args in [["--total", "-P", "--block-size=512"], ["--total", "-i", "-P"]] {
     let r = uu.invoke(s, "df", args)?
     uu.succeeds(r)
-    verify_total(r.stdout.utf8()?)
+    verify_total(r.stdout as Str)
   }
 }
 
@@ -73,9 +73,9 @@ test test_gnu_df_total_verify_log { |ctx|
 test test_gnu_df_unreadable_log { |ctx|
   if unix.id()?.euid == 0 { test.skip("requires an unprivileged owner"); return }
   let s = uu.scene(ctx)?
-  uu.touch(s, "unreadable")?
-  uu.set_mode(s, "unreadable", 0o200)?
+  uu.touch(s, "unreadable")
+  uu.set_mode(s, "unreadable", 0o200)
   uu.succeeds(uu.invoke(s, "df", ["unreadable"])?)
-  uu.mkfifo(s, "fifo")?
+  uu.mkfifo(s, "fifo")
   uu.succeeds(uu.invoke(s, "df", ["fifo"], timeout: 10s)?)
 }

@@ -64,15 +64,15 @@ test test_printenv_help_and_version { |ctx|
 }
 
 test test_printenv_values_are_printed_as_bytes { |ctx|
-  let raw = Path.parse_bytes(b"/tmp/lib.so\xff")?
+  let raw = b"/tmp/lib.so\xff" as Path
   let vars = {LC_ALL: "C", RAW_VALUE: raw, PATHLIKE: "a:b//c/"}
 
-  let named = applet_run(ctx, ["RAW_VALUE"], vars: vars)?
+  let named = applet_run(ctx, ["RAW_VALUE"], vars:)?
   assert named.status == 0
   assert named.bytes == b"/tmp/lib.so\xff\n"
 
-  assert applet_run(ctx, ["PATHLIKE"], vars: vars)?.stdout == "a:b//c/\n", "a value is not split or normalized"
+  assert applet_run(ctx, ["PATHLIKE"], vars:)?.stdout == "a:b//c/\n", "a value is not split or normalized"
 
-  let listed = applet_run(ctx, [], vars: vars)?
+  let listed = applet_run(ctx, [], vars:)?
   assert b"RAW_VALUE=/tmp/lib.so\xff" in listed.bytes.lines()
 }

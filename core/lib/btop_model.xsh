@@ -2,8 +2,8 @@
 ##!
 ##! The model owns interval semantics and stable process ranking; neither the
 ##! renderer nor replay decides whether a counter represents a reset or rate.
-use btop_rates as rates
 use btop_disks as disks
+use btop_rates as rates
 use btop_sensors as sensors
 use sys_cpu as syscpu
 use sys_mem as memory
@@ -120,20 +120,16 @@ pure rate(state: rates.RateState) -> rates.Rate {
 }
 
 pure same_source_baseline(current: Observation, previous: Observation?) -> Observation? {
-  if previous == null {
-    return null
-  }
+  return null when previous == null
 
   let before = previous ?? current
-  if before.source_id != current.source_id {
-    return null
-  }
+  return null when before.source_id != current.source_id
 
   before
 }
 
 pure observed_interface(source: network.NetworkSource) -> network.NetworkInterface? {
-  if source.state == report.Observed { network.selected_interface(source.interfaces) } else { null }
+  if source.state == .Observed { network.selected_interface(source.interfaces) } else { null }
 }
 
 pure memory_panel(source: memory.MemorySource) -> MemoryPanel {
@@ -152,25 +148,17 @@ pure memory_panel(source: memory.MemorySource) -> MemoryPanel {
 }
 
 pure cpu_interval(current: Observation, previous: Observation?, gap: Bool) -> rates.Rate {
-  if current.cpu.stat.aggregate == null {
-    return rate(if current.cpu.stat.state == report.Observed { rates.Invalid } else { rates.Unavailable })
+  guard current.cpu.stat.aggregate != null else {
+    return rate(if current.cpu.stat.state == .Observed { rates.Invalid } else { rates.Unavailable })
   }
 
-  if previous == null {
-    return rate(rates.Warming)
-  }
+  return rate(rates.Warming) when previous == null
 
   let before = previous ?? current
-  if current.at_ns <= before.at_ns {
-    return rate(rates.Invalid)
-  }
+  return rate(rates.Invalid) when current.at_ns <= before.at_ns
 
-  if before.cpu.stat.aggregate == null {
-    return rate(rates.Warming)
-  }
-  if gap {
-    return rate(rates.Gap)
-  }
+  return rate(rates.Warming) when before.cpu.stat.aggregate == null
+  return rate(rates.Gap) when gap
 
   rates.cpu_percent(current.cpu.stat.aggregate, before.cpu.stat.aggregate)
 }
@@ -180,7 +168,7 @@ pure prior_interface(
   current: network.NetworkInterface,
 ) -> network.NetworkInterface? {
   for candidate in source.interfaces {
-    if candidate.name == current.name { return candidate }
+    return candidate when candidate.name == current.name
   }
   null
 }
@@ -192,18 +180,16 @@ pure interface_rate(
   receive: Bool,
   gap: Bool,
 ) -> rates.Rate {
-  if previous == null { return rate(rates.Warming) }
+  return rate(rates.Warming) when previous == null
 
   let before = previous ?? current_observation
-  if current_observation.at_ns <= before.at_ns {
-    return rate(rates.Invalid)
-  }
+  return rate(rates.Invalid) when current_observation.at_ns <= before.at_ns
 
   if let prior = prior_interface(before.network, current) {
     if prior.ifindex == null or current.ifindex == null or prior.ifindex != current.ifindex {
       return rate(rates.Warming)
     }
-    if gap { return rate(rates.Gap) }
+    return rate(rates.Gap) when gap
 
     let now_bytes = if receive { current.rx_bytes } else { current.tx_bytes }
     let prior_bytes = if receive { prior.rx_bytes } else { prior.tx_bytes }
@@ -233,9 +219,9 @@ pure network_metrics(
 }
 
 pure find_network_metric(values: List[NetworkMetric], name: Str?) -> NetworkMetric? {
-  if name == null { return null }
+  return null when name == null
   for value in values {
-    if value.name == (name ?? "") { return value }
+    return value when value.name == name
   }
   null
 }
@@ -262,13 +248,9 @@ pure core_rate(
   core: syscpu.CpuCore,
   gap: Bool,
 ) -> rates.Rate {
-  if previous == null {
-    return rate(rates.Warming)
-  }
+  return rate(rates.Warming) when previous == null
   let before = previous ?? current
-  if current.at_ns <= before.at_ns {
-    return rate(rates.Invalid)
-  }
+  return rate(rates.Invalid) when current.at_ns <= before.at_ns
   if let Ok(counters) = prior_cores.get(core.id) {
     if gap { rate(rates.Gap) } else { rates.cpu_percent(core.counters, counters) }
   } else {
@@ -306,39 +288,29 @@ pure process_rate(
   gap: Bool,
   per_core: Bool = false,
 ) -> rates.Rate {
-  if row.cpu_ticks == null {
-    return rate(rates.Unavailable)
-  }
+  return rate(rates.Unavailable) when row.cpu_ticks == null
 
-  if previous == null {
-    return rate(rates.Warming)
-  }
+  return rate(rates.Warming) when previous == null
 
   let before = previous ?? current
-  if current.at_ns <= before.at_ns {
-    return rate(rates.Invalid)
-  }
+  return rate(rates.Invalid) when current.at_ns <= before.at_ns
 
   if before.cpu.stat.aggregate == null or current.cpu.stat.aggregate == null {
     return rate(rates.Warming)
   }
 
   if let older = previous_process {
-    if older.cpu_ticks == null {
-      return rate(rates.Warming)
-    }
-    if gap {
-      return rate(rates.Gap)
-    }
+    return rate(rates.Warming) when older.cpu_ticks == null
+    return rate(rates.Gap) when gap
 
     let core_count = current.cpu.stat.cores.len()
     return rates.process_percent(
-      row.cpu_ticks ?? 0,
+      row.cpu_ticks,
       older.cpu_ticks,
       current.cpu.stat.aggregate,
       before.cpu.stat.aggregate,
       if core_count == 0 { 1 } else { core_count },
-      per_core: per_core,
+      per_core:,
     )
   }
 
@@ -350,13 +322,11 @@ pure process_average_rate(current: Observation, row: processes.Process) -> rates
     return rate(rates.Unavailable)
   }
   let ticks_per_second = current.clock_ticks_per_second.float()
-  let elapsed_seconds = (current.cpu.uptime.seconds ?? 0.0) - row.start_ticks.float() / ticks_per_second
-  if elapsed_seconds <= 0.0 {
-    return rate(rates.Invalid)
-  }
+  let elapsed_seconds = current.cpu.uptime.seconds - row.start_ticks.float() / ticks_per_second
+  return rate(rates.Invalid) when elapsed_seconds <= 0.0
   {
     state: rates.Observed,
-    value: (row.cpu_ticks ?? 0).float() / ticks_per_second / elapsed_seconds * 100.0,
+    value: row.cpu_ticks.float() / ticks_per_second / elapsed_seconds * 100.0,
   }
 }
 
@@ -379,15 +349,15 @@ pure cached_uid(row: processes.Process, current: Observation, cache: MetadataCac
 }
 
 pure process_sort_rate_tenths(row: ProcessRow) -> Int {
-  if row.cpu_percent.state == rates.Observed and row.cpu_percent.value != null {
-    if let Ok(tenth) = ((row.cpu_percent.value ?? 0.0) * 10.0).round() { -tenth } else { 0 }
+  if row.cpu_percent.state == .Observed and row.cpu_percent.value != null {
+    if let Ok(tenth) = (row.cpu_percent.value * 10.0).round() { -tenth } else { 0 }
   } else {
     0
   }
 }
 
 pure process_sort_availability(row: ProcessRow) -> Int {
-  if row.cpu_percent.state == rates.Observed and row.cpu_percent.value != null { 0 } else { 1 }
+  if row.cpu_percent.state == .Observed and row.cpu_percent.value != null { 0 } else { 1 }
 }
 
 ## Applies one source observation and retains only current process metadata.
@@ -477,8 +447,8 @@ export pure step_cached(
       process_state: current.processes.state,
       processes: process_rows
         |> sort-by .pid
-        |> sort-by { |row| process_sort_rate_tenths(row) }
-        |> sort-by { |row| process_sort_availability(row) },
+        |> sort-by(process_sort_rate_tenths)
+        |> sort-by(process_sort_availability),
       storage: disks.step(current.storage, storage_previous, current.at_ns, storage_previous_at, gap),
     },
     metadata: {

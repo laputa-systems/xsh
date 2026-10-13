@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu timeout/timeout-blocked.log
 test test_gnu_timeout_timeout_blocked_log { |ctx|
@@ -13,9 +13,9 @@ test test_gnu_timeout_timeout_blocked_log { |ctx|
   let command = process.command_argv(argv[0], argv)
   unix.exec_env(command, environment, block_signals: ["ALRM"])?
 }
-""")?
+""")
   let words = uu.argv(s, "timeout", [p".1", p"sleep", p"10"])?
-  let masked = words[..3].extend([s.ctx.xsh_bin, adapter]).extend(words[3..])
+  let masked = [@words[..3], s.ctx.xsh_bin, adapter, @words[3..]]
   let status = process.run(process.command_argv(masked[0], masked, s.root,
     stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 5s))?
   assert status.exited_with(124), uu.read_text(s, "err")?

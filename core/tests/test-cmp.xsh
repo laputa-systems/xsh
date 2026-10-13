@@ -26,21 +26,22 @@ pure hex_value(pair: Str) -> Int {
 
 # Decode the escapes of a stored line: `\\` and `\xHH`.
 pure decode(text: Str) -> Bytes {
-  if text.find("\\") == null { return bytes.from_text(text) }
+  return bytes.from_text(text) when text.find("\\") == null
   let raw = bytes.from_text(text)
-  var values: List[Int] = []
   var at = 0
-  while at < raw.len() {
-    let value = raw.byte_at(at) ?? 0
-    if value == 92 and raw.byte_at(at + 1) == 92 {
-      values += [92]
-      at += 2
-    } else if value == 92 and raw.byte_at(at + 1) == 120 {
-      values += [hex_value(raw[at + 2..at + 4].utf8() ?? "00")]
-      at += 4
-    } else {
-      values += [value]
-      at += 1
+  let values = collect {
+    while at < raw.len() {
+      let value = raw.byte_at(at) ?? 0
+      if value == 92 and raw.byte_at(at + 1) == 92 {
+        yield 92
+        at += 2
+      } else if value == 92 and raw.byte_at(at + 1) == 120 {
+        yield hex_value(raw[at + 2..at + 4].utf8() ?? "00")
+        at += 4
+      } else {
+        yield value
+        at += 1
+      }
     }
   }
   bytes.from_ints(values) ?? b""
@@ -49,10 +50,11 @@ pure decode(text: Str) -> Bytes {
 # The stream bytes of stored lines: a lower-case tag ends the line with a
 # newline, an upper-case tag is a final line without one.
 pure joined(lines: List[Str], small: Str) -> Bytes {
-  var chunks: List[Bytes] = []
-  for line in lines {
-    chunks += [decode(line.byte_slice(2))]
-    if line.starts_with(small) { chunks += [b"\n"] }
+  let chunks = collect {
+    for line in lines {
+      yield decode(line.byte_slice(2))
+      yield b"\n" when line.starts_with(small)
+    }
   }
   bytes.concat(chunks)
 }
@@ -61,12 +63,13 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
   var cases: List[Recorded] = []
   var current: Recorded? = null
   for line in table.lines()? {
-    if line.starts_with("#") or line == "" { continue }
+    continue when line.starts_with("#") or line == ""
     if line.starts_with("@") {
       if let done = current { cases += [done] }
       let fields = line.byte_slice(1).split("\t")
-      var arguments: List[Str] = []
-      for field in fields[1..] { arguments += [decode(field).utf8() ?? ""] }
+      let arguments = collect {
+        for field in fields[1..] { yield decode(field).utf8() ?? "" }
+      }
       current = {id: fields[0], args: arguments, stdin: "", locale: "C", status: 0, out: [], err: []}
       continue
     }
@@ -78,9 +81,9 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
     } else if line.starts_with("status ") {
       current = {...found, status: line.byte_slice(7).parse_int() ?? 0}
     } else if line.starts_with("o:") or line.starts_with("O:") {
-      current = {...found, out: found.out + [line]}
+      current = {...found, out: [@found.out, line]}
     } else if line.starts_with("e:") or line.starts_with("E:") {
-      current = {...found, err: found.err + [line]}
+      current = {...found, err: [@found.err, line]}
     }
   }
   if let done = current { cases += [done] }
@@ -104,7 +107,7 @@ test test_cmp_recorded_cases_match_gnu_cmp { |ctx|
   let root = test.temp_dir(ctx, name: "cmp-recorded")?
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/cmp/fixtures", fp"{root}/fx")?
   # A non-ASCII name is created here instead of being stored.
-  fp"{root}/fx/caf\u{e9}".write("x\n")?
+  fp"{root}/fx/caf\u{e9}".write("x\n")
   let all = load(fp"{ctx.core_dir}/tests/data/cmp/cases.txt")?
   assert !all.is_empty()
   let verdicts = all |> par-map(jobs: 8) { |item| check(ctx, fp"{root}/fx", item) } |> collect()
@@ -139,7 +142,7 @@ test test_cmp_chunk_boundary_and_zero_limit_missing_file { |ctx|
   assert bytes.write_at(right, 65536, b"b")? == 1
   let result = invoke(ctx, [left.display(), right.display()])?
   assert result.status == 1
-  assert result.stdout.utf8()?.ends_with("differ: char 65537, line 1\n"), result.stdout.utf8()?
+  assert result.stdout.utf8()?.ends_with("differ: char 65537, line 1\n"), result.stdout as Str
   let missing = test.temp_path(ctx, name: "missing")
   assert invoke(ctx, ["-n0", missing.display(), right.display()])?.status == 2
 }
@@ -157,11 +160,11 @@ test test_cmp_eof_is_difference_and_io_errors_are_trouble { |ctx|
 
 test test_cmp_directory_operand_is_a_read_error { |ctx|
   let root = test.temp_dir(ctx, name: "cmp-dir")?
-  fp"{root}/d".mkdir()?
-  fp"{root}/f".write("x\n")?
+  fp"{root}/d".mkdir()
+  fp"{root}/f".write("x\n")
   let result = invoke(ctx, ["d", "f"], cwd: root)?
   assert result.status == 2
-  assert result.stderr.utf8()? == "cmp: d: Is a directory\n", result.stderr.utf8()?
+  assert result.stderr as Str == "cmp: d: Is a directory\n", result.stderr as Str
   assert invoke(ctx, ["d", "d"], cwd: root)?.status == 0
 }
 
@@ -172,12 +175,11 @@ test test_cmp_unreadable_file_is_trouble_unless_silent { |ctx|
   }
   let root = test.temp_dir(ctx, name: "cmp-unreadable")?
   let secret = fp"{root}/secret"
-  secret.write("x\n")?
-  secret.chmod(0o000)?
-  fp"{root}/ok".write("x\n")?
+  secret.write("x\n", mode: 0o000)
+  fp"{root}/ok".write("x\n")
   let loud = invoke(ctx, ["secret", "ok"], cwd: root)?
   assert loud.status == 2
-  assert loud.stderr.utf8()? == "cmp: secret: Permission denied\n", loud.stderr.utf8()?
+  assert loud.stderr as Str == "cmp: secret: Permission denied\n", loud.stderr as Str
   let quiet = invoke(ctx, ["-s", "secret", "ok"], cwd: root)?
   assert quiet.status == 2
   assert quiet.stderr == b""

@@ -143,7 +143,7 @@ test test_chown_numeric_owner_dot_is_invalid_user { |ctx|
 
 test test_chown_accepts_non_utf8_operand_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "raw-owner-operand")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write("x")
   let current = user.current()?
   let result = perm_run(ctx, [current.name, file])?
@@ -153,7 +153,7 @@ test test_chown_accepts_non_utf8_operand_bytes { |ctx|
 
 test test_chown_reference_accepts_non_utf8_path_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "raw-reference")?
-  let reference = Path.parse_bytes(bytes.concat([root.bytes(), b"/reference\xff"]))?
+  let reference = bytes.concat([root.bytes(), b"/reference\xff"]) as Path
   let target = fp"{root}/target"
   reference.write("reference")
   target.write("target")
@@ -165,7 +165,7 @@ test test_chown_reference_accepts_non_utf8_path_bytes { |ctx|
 test test_chown_recursive_preserves_non_utf8_child_names { |ctx|
   if user.current()?.uid != 0 { test.skip("changing numeric owners requires root") }
   let root = test.temp_dir(ctx, name: "raw-owner-name")?
-  let child = Path.parse_bytes(bytes.concat([root.bytes(), b"/child\xff"]))?
+  let child = bytes.concat([root.bytes(), b"/child\xff"]) as Path
   child.write("x")
   let result = perm_run(ctx, ["-R", "12345", root.display()])?
   assert result.status == 0, result.stderr

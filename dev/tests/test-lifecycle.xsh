@@ -1,7 +1,7 @@
 use targets as target_policy
 
 pure context_source(root: Path, host_os: target_policy.HostOs = target_policy.Linux) -> Str {
-  let host = if host_os == target_policy.Linux { "target_policy.Linux" } else { "target_policy.Darwin" }
+  let host = if host_os == .Linux { "target_policy.Linux" } else { "target_policy.Darwin" }
   f"""{{
     root: p"{root}",
     target_dir: p"{root}/target",

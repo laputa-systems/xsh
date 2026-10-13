@@ -258,7 +258,7 @@ pure big_divmod(a: List[Int], b: List[Int]) -> Division {
   let width = b.len()
   let divisor_top = b[width - 1].float() * 1000000000.0 + b[width - 2].float()
   var quotient: List[Int] = [0 for slot in range(a.len())]
-  var rest: List[Int] = []
+  var rest = []
   var at = a.len() - 1
 
   while at >= 0 {
@@ -386,8 +386,8 @@ pure sequence_width(data: Bytes, at: Int) -> Int {
 # Units of `data`: bytes in a single-byte locale; in UTF-8 each character's
 # code point, and 0x110000 plus the byte for a byte that is not part of one.
 pure decode_units(data: Bytes, utf8: Bool) -> Units {
-  var units: List[Int] = []
-  var offsets: List[Int] = []
+  var units = []
+  var offsets = []
   var at = 0
   let total = data.len()
 
@@ -469,8 +469,8 @@ pure parse_bracket(pat: List[Int], state: Parsed) -> Parsed {
   let unmatched = "Unmatched [, [^, [:, [., or [="
   var at = state.at
   var negated = false
-  var lows: List[Int] = []
-  var highs: List[Int] = []
+  var lows = []
+  var highs = []
 
   if at < pat.len() and pat[at] == 94 {
     negated = true
@@ -764,7 +764,7 @@ pure run_program(
   let first = [item.a for item in code]
   let second = [item.b for item in code]
   var best = -1
-  var best_caps: List[Int] = []
+  var best_caps = []
   var seen: Set[Str] = set.empty()
   var stack_pc: List[Int] = [0]
   var stack_pos: List[Int] = [0]
@@ -1064,7 +1064,7 @@ pure match_value(subject: Bytes, pattern: Bytes, utf8: Bool) -> Outcome {
 
 # The value of `op` applied to two computed operands.
 pure apply_operator(op: Str, left: Outcome, right: Outcome, here: Locale) -> Outcome {
-  let left_null = is_null(text_of(left.value))
+  let left_null = text_of(left.value) |> is_null(_)
 
   if op == "|" {
     return left when left.error != "" or ! left_null
@@ -1129,9 +1129,9 @@ proc syntax_error(message: Str) [process, env] -> Unit {
 proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
   let total = args.len()
   var vals: List[Outcome] = []
-  var ops: List[Str] = []
-  var weights: List[Int] = []
-  var evaluating: List[Bool] = []
+  var ops = []
+  var weights = []
+  var evaluating = []
   var enabled = true
   var vtop = 0
   var otop = 0

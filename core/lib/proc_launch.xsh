@@ -118,7 +118,7 @@ export pure interval(text: Str) -> Duration? {
   let seconds = interval_seconds(text)
   return null when seconds == null
   let millis = seconds * 1000.0
-  return time.millis(9223372036854) when millis > 9223372036854.0
+  return 9223372036854 * 1ms when millis > 9223372036854.0
   # Floating point underflow must not turn a positive mantissa into no timeout.
   let scanned = scan_number(text)
   let numeric = text.byte_slice(0, text.byte_len() - scanned.rest.byte_len())

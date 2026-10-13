@@ -1,4 +1,4 @@
-use core.lib.icmp as icmp
+use core.lib.icmp
 
 # Every probe here goes to a loopback address. The output shapes below are
 # the ones iputils prints for the same command lines on loopback; time values
@@ -25,7 +25,7 @@ proc ping(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran]
 
 # Skips the test unless the kernel lets this user open an ICMP datagram socket
 # of the family ("inet" or "inet6") and the loopback address is configured.
-proc need_icmp(family: Str) [process, net, error] -> Result[Unit] {
+proc need_icmp(family: Str) [process, net, error] {
   let c = linux.net_constants()
   let domain = if family == "inet6" { c.AF_INET6 } else { c.AF_INET }
   let protocol = if family == "inet6" { c.IPPROTO_ICMPV6 } else { c.IPPROTO_ICMP }
@@ -56,7 +56,7 @@ test test_icmp_checksum_and_echo_request_layout {
   assert icmp.checksum(b"\xff") == 255
   let payload = icmp.echo_stamped(icmp.echo_fill(20, b"")?, bytes.zero(16)?)
   let raw = icmp.echo_request("inet", 4660, 7, payload, true)?
-  assert raw.slice(0, 2) == b"\x08\x00"
+  assert raw[..2] == b"\x08\x00"
   assert bytes.unpack_be(raw, 2, 4)? == 4660
   assert bytes.unpack_be(raw, 2, 6)? == 7
   assert icmp.checksum_ok(raw)
@@ -76,7 +76,7 @@ test test_icmp_payload_fill_and_pattern {
   let plain = icmp.echo_fill(20, b"")?
   assert plain.byte_at(0) == 0 and plain.byte_at(19) == 19
   let stamped = icmp.echo_stamped(plain, bytes.from_ints([255, 255, 255, 255])?)
-  assert stamped.slice(0, 4) == b"\xff\xff\xff\xff"
+  assert stamped[..4] == b"\xff\xff\xff\xff"
   assert stamped.byte_at(4) == 4 and stamped.len() == 20
   assert icmp.echo_stamped(b"\x01", b"\xaa\xbb") == b"\x01"
   let patterned = icmp.echo_fill(5, b"\x12\x03")?
@@ -240,7 +240,7 @@ test test_ping_socket_options_are_applied_or_refused_by_the_kernel { |ctx|
     assert ran.status == 0, f"{hint}: {ran.stderr}"
   }
   for args in [["-t", "5"], ["-Q", "0x10"], ["-Q", "16"], ["-S", "65536"], ["-r"], ["-L"], ["-v"], ["-b"], ["-n"], ["-W", "0.5"], ["-i", "0.5"]] {
-    let ran = ping(ctx, ["-c", "1", "-q"].extend(args).extend(["127.0.0.1"]))?
+    let ran = ping(ctx, ["-c", "1", "-q", @args, "127.0.0.1"])?
     assert ran.status == 0, f"{args.join(" ")}: {ran.stderr}"
   }
   # A mark and the debug flag need CAP_NET_ADMIN: the kernel's answer is
@@ -338,16 +338,13 @@ test test_ping_raw_socket_identifier_needs_cap_net_raw { |ctx|
   need_icmp("inet")
   let c = linux.net_constants()
   let ran = ping(ctx, ["-c", "1", "-e", "77", "127.0.0.1"])?
-  match linux.socket(c.AF_INET, c.SOCK_RAW, c.IPPROTO_ICMP) {
-    Ok(fd) => {
-      unix.close_fd(fd)
-      assert ran.status == 0, ran.stderr
-      assert REPLY_V4.matches(ran.stdout.split("\n")[1]), ran.stdout
-    }
-    Err(_) => {
-      assert ran.status == 2
-      assert ran.stderr == "ping: socktype: SOCK_RAW\nping: socket: Operation not permitted\nping: => missing cap_net_raw+p capability or setuid?\n", ran.stderr
-    }
+  if let Ok(fd) = linux.socket(c.AF_INET, c.SOCK_RAW, c.IPPROTO_ICMP) {
+    unix.close_fd(fd)
+    assert ran.status == 0, ran.stderr
+    assert REPLY_V4.matches(ran.stdout.split("\n")[1]), ran.stdout
+  } else {
+    assert ran.status == 2
+    assert ran.stderr == "ping: socktype: SOCK_RAW\nping: socket: Operation not permitted\nping: => missing cap_net_raw+p capability or setuid?\n", ran.stderr
   }
 }
 
@@ -357,7 +354,7 @@ test test_ping_interrupt_prints_the_statistics_and_the_reply_status { |ctx|
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let entry = fp"{ctx.core_dir}/ping.xsh"
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), entry.display(), "-i", "0.2", "127.0.0.1"], root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err)
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, entry, "-i", "0.2", "127.0.0.1"], root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err)
   let handle = spawn plan?
   let started = time.now()
   while "icmp_seq=2 " not in out.read_text()? {

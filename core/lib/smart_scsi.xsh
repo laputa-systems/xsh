@@ -28,7 +28,7 @@ export pure inquiry(page: Bytes) -> Inquiry {
 }
 
 pure field(page: Bytes, offset: Int, length: Int) -> Str {
-  let raw = page.slice(offset, length: length)
+  let raw = page.slice(offset, length:)
   let decoded = raw.utf8() ?? ""
   decoded.trim()
 }
@@ -44,7 +44,7 @@ export pure serial_number(page: Bytes) -> Str? {
   let length = smart.at(page, 3)
   guard smart.at(page, 1) == 128 and length > 0 else { return null }
   let text = field(page, 4, length)
-  if text == "" { return null }
+  return null when text == ""
   text
 }
 
@@ -56,7 +56,7 @@ export pure device_type_name(code: Int) -> Str {
     5 => "cd/dvd"
     7 => "optical"
     14 => "simplified disk"
-    _ => f"unknown (0x{smart.hex(code, 2)})"
+    else => f"unknown (0x{smart.hex(code, 2)})"
   }
 }
 
@@ -68,7 +68,7 @@ export pure compliance(version: Int) -> Str {
     5 => "SPC-3"
     6 => "SPC-4"
     7 => "SPC-5"
-    _ => "SCSI"
+    else => "SCSI"
   }
 }
 
@@ -97,8 +97,8 @@ export pure exceptions(page: Bytes) -> Exceptions {
 ## The temperature log page's current and reference temperatures; null when a
 ## parameter is absent or reports 0xff.
 export pure temperatures(page: Bytes) -> Temperatures {
-  var current: Int? = null
-  var trip: Int? = null
+  var current = null
+  var trip = null
   var offset = 4
   let end = 4 + be(page, 2, 2)
   while offset + 4 <= end {
@@ -139,7 +139,7 @@ export const READ_HEADER = "=== START OF READ SMART DATA SECTION ===\n"
 
 ## The `SMART Health Status` line.
 export pure health_text(report: Exceptions) -> Str {
-  if report.asc == 0 { return "SMART Health Status: OK\n" }
+  return "SMART Health Status: OK\n" when report.asc == 0
   f"SMART Health Status: FAILURE PREDICTION THRESHOLD EXCEEDED: ascq=0x{smart.hex(report.ascq, 2)}\n"
 }
 
@@ -177,8 +177,9 @@ export pure health_json(report: Exceptions) -> List[j.Member] {
 
 ## JSON members for the temperatures.
 export pure temperature_json(temps: Temperatures) -> List[j.Member] {
-  var out: List[j.Member] = []
-  if let current = temps.current { out += [j.m("temperature", j.object([j.m("current", current)]))] }
-  if let trip = temps.trip { out += [j.m("scsi_temperature", j.object([j.m("drive_trip", trip)]))] }
+  let out: List[j.Member] = collect {
+    if let current = temps.current { yield j.m("temperature", j.object([j.m("current", current)])) }
+    if let trip = temps.trip { yield j.m("scsi_temperature", j.object([j.m("drive_trip", trip)])) }
+  }
   out
 }

@@ -149,7 +149,7 @@ pure split_fields(line: Bytes, layout: Layout) -> List[Bytes] {
     }
   }
 
-  var out: List[Bytes] = []
+  var out = []
 
   if layout.mode == "sep" {
     let width = layout.sep.len()
@@ -248,7 +248,7 @@ proc read_input(name: Bytes) [fs, process, env, error, io] -> Bytes {
     return data
   }
 
-  let target = Path.parse_bytes(name)?
+  let target = name as Path
   guard let data = target.read_bytes() else { |failure|
     gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
     exit 1
@@ -605,7 +605,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let inputs: List[Input] = collect {
     for side in [0, 1] {
       let raw_name = gnu.argument_bytes(opts.files[side], prepared.raw)
-      let texts = split_records(read_input(raw_name), eol_value)
+      let texts = read_input(raw_name) |> split_records(_, eol_value)
       let fields = [split_fields(text, layout) for text in texts]
       let keys = [
         field_value(row, layout.keys[side], b"")

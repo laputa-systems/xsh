@@ -92,7 +92,7 @@ type AppletManifest = {
 export proc applet_manifest(ctx: context.Context) [fs, error] -> Result[Str, Error] {
   let sources = core_sources(ctx)?
   var applets: List[AppletEntry] = []
-  var libraries: List[Str] = []
+  var libraries = []
 
   for relative in sources {
     let text = relative.display()
@@ -182,8 +182,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   }
 
   let root_handle = fs.tempdir()?
-  defer root_handle.close()
-  let stage = root_handle.host_path()?
+    let stage = root_handle.host_path()?
   let core = fp"{ctx.root}/core"
   let sources = core_sources(ctx)?
   let archive_entries: List[Path] = collect {

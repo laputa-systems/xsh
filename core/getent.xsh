@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.accounts
+use lib.gnu
 
 type Options = {service: Str?, help: Bool, version: Bool, arguments: List[Str]}
 
@@ -47,7 +47,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error, net] {
     }
     var found = false
     for item in rows {
-      if sought in item.keys { gnu.write_text(item.text + "\n"); found = true; if database != "hosts" { break } }
+      if sought in item.keys { gnu.write_text(item.text + "\n"); found = true; break when database != "hosts" }
     }
     if !found and database == "hosts" and opts.service == null and e"XSH_HOSTS_FILE" is Err(_) {
       let resolved = accounts.resolve_hosts(key)

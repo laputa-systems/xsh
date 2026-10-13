@@ -87,19 +87,21 @@ pure empty_identity() -> Identity { {uid: null, gid: null, username: null} }
 proc identity(spec: Str) [fs, error] -> Result[Identity] {
   let parts = spec.split(":")
   return Err(IdentityError.Invalid("invalid group")) when parts.len() > 2
-  var uid: Int? = null
-  var gid: Int? = null
-  var username: Str? = null
+  var uid = null
+  var gid = null
+  var username = null
   if parts[0] != "" {
-    match perm.uid(parts[0]) {
-      Ok(id) => uid = id
-      Err(_) => return Err(IdentityError.Invalid("invalid user"))
+    if let Ok(id) = perm.uid(parts[0]) {
+      uid = id
+    } else {
+      return Err(IdentityError.Invalid("invalid user"))
     }
   }
   if parts.len() == 2 and parts[1] != "" {
-    match perm.gid(parts[1]) {
-      Ok(id) => gid = id
-      Err(_) => return Err(IdentityError.Invalid("invalid group"))
+    if let Ok(id) = perm.gid(parts[1]) {
+      gid = id
+    } else {
+      return Err(IdentityError.Invalid("invalid group"))
     }
   }
   if let id = uid {
@@ -112,14 +114,16 @@ proc identity(spec: Str) [fs, error] -> Result[Identity] {
 }
 
 proc additional_groups(spec: Str) [fs, error, env] -> Result[List[Int]] {
-  if spec == "" { return [] }
-  var groups: List[Int] = []
-  for name in spec.split(",") {
-    if name == "" { continue }
-    let group_name = name.trim()
-    match perm.gid(group_name) {
-      Ok(id) => groups += [id]
-      Err(_) => return Err(IdentityError.Invalid(f"invalid group {gnu.quote(name)}"))
+  return [] when spec == ""
+  let groups = collect {
+    for name in spec.split(",") {
+      continue when name == ""
+      let group_name = name.trim()
+      if let Ok(id) = perm.gid(group_name) {
+        yield id
+      } else {
+        return Err(IdentityError.Invalid(f"invalid group {gnu.quote(name)}"))
+      }
     }
   }
   return Err(IdentityError.Invalid(f"invalid group list {gnu.quote(spec)}")) when groups.is_empty()
@@ -146,14 +150,17 @@ proc set_identity(opts: Options, outer: Result[Identity], outer_groups: Result[L
     let memberships = if let spec = opts.groups { additional_groups(spec) } else {
       if let name = ids.username { user.groups(name, primary_gid: ids.gid) } else { Ok([]) }
     }
-    let groups = match memberships {
-      Ok(found) => found
-      Err(failure) => match outer_groups {
-        Ok(before) => {
-          if before.is_empty() { gnu.error(failure.message); exit 125 }
-          before
+    let groups = memberships ?? { |failure|
+      if let Ok(before) = outer_groups {
+        if before.is_empty() {
+          gnu.error(failure.message)
+          exit 125
         }
-        Err(_) => { gnu.error(failure.message); exit 125 }
+      
+        before
+      } else {
+        gnu.error(failure.message)
+        exit 125
       }
     }
     if let Err(failure) = unix.set_groups(groups) {

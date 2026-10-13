@@ -1,9 +1,9 @@
 ##! Native ports of the uutils timeout integration tests.
-use support.uu as uu
+use support.uu
 
 # timeout may terminate itself with KILL when it signals the entire process group.
 # Shell status preserves that observable result as 128 plus the signal number.
-proc invoke(s: uu.Scene, args: List[Str], limit: Duration = 15s) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc invoke(s: uu.Scene, args: List[Str], limit = 15s) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let plan = uu.command(s, "timeout", args, timeout: limit)?
   let status = process.run(plan)?
   Ok({util: "timeout", args: args, status: status.shell_code()?, stdout: uu.read(s, ".uu-stdout")?, stderr: uu.read(s, ".uu-stderr")?})
@@ -18,9 +18,9 @@ proc usage_error(r: uu.Ran, message: Str) {
 proc interrupt(s: uu.Scene, args: List[Str], signal: Str) [fs, process, env, time, error] -> Result[uu.Ran, Error] {
   let plan = uu.command(s, "timeout", args, timeout: 8s)?
   let child = spawn plan?
-  time.sleep(100ms)?
+  time.sleep(100ms)
   let child_pid = child.pid
-  process.kill(child_pid, signal)?
+  process.kill(child_pid, signal)
   let status = wait child?
   test.error_kind(process.kill(child_pid, "0"), "process-missing")
   Ok({util: "timeout", args: args, status: status.shell_code()?, stdout: uu.read(s, ".uu-stdout")?, stderr: uu.read(s, ".uu-stderr")?})

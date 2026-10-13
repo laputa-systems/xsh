@@ -65,7 +65,7 @@ export pure geometry(size: Int, bits: Int, sector: Int, cluster: Int, reserved: 
       let roots = if kind == 32 { 0 } else { 512 }
       let root_count = (roots * 32 + sector - 1) / sector
       var fat_sectors = 1
-      for _ in range(64) {
+      repeat 64 times {
         let overhead = reserved_count + fats * fat_sectors + root_count
         break when overhead >= total
         let count = (total - overhead) / spc
@@ -106,7 +106,7 @@ export pure parse(boot: Bytes, size: Int) -> Result[Layout, Error] {
   if bits == 32 {
     guard roots == 0 and short_fat == 0 and number(boot, 42, 2)? == 0 and number(boot, 40, 2)?.bit_and(128) == 0 else { return Err(error.failure("unsupported FAT32 version or active-FAT layout")) }
   } else { guard roots > 0 and short_fat > 0 else { return Err(error.failure("invalid FAT12/16 root directory")) } }
-  let layout: Layout = {bits, sector, spc, reserved, fats, fat_sectors, roots, total, clusters, root_cluster: if bits == 32 { number(boot, 44, 4)? } else { 0 }, fsinfo: if bits == 32 { number(boot, 48, 2)? } else { 0 }, backup: if bits == 32 { number(boot, 50, 2)? } else { 0 }}
+  let layout: Layout = Layout(bits:, sector:, spc:, reserved:, fats:, fat_sectors:, roots:, total:, clusters:, root_cluster: if bits == 32 { number(boot, 44, 4)? } else { 0 }, fsinfo: if bits == 32 { number(boot, 48, 2)? } else { 0 }, backup: if bits == 32 { number(boot, 50, 2)? } else { 0 })
   if bits == 32 { guard valid(layout, layout.root_cluster) and layout.fsinfo > 0 and layout.fsinfo < reserved and layout.backup > 0 and layout.backup + 1 < reserved else { return Err(error.failure("invalid FAT32 root or reserved-sector references")) } }
   Ok(layout)
 }
@@ -114,7 +114,7 @@ export pure parse(boot: Bytes, size: Int) -> Result[Layout, Error] {
 ## Decode one FAT entry, including FAT12's shared nibble and FAT32's reserved bits.
 export pure table_get(table: Bytes, layout: Layout, cluster: Int) -> Result[Int, Error] {
   if layout.bits == 12 { let value = number(table, cluster + cluster / 2, 2)?; return Ok(if cluster % 2 == 0 { value % 4096 } else { value / 16 }) }
-  if layout.bits == 16 { return number(table, cluster * 2, 2) }
+  return number(table, cluster * 2, 2) when layout.bits == 16
   Ok(number(table, cluster * 4, 4)? % 268435456)
 }
 
@@ -129,7 +129,7 @@ export pure table_patch(table: Bytes, layout: Layout, cluster: Int, value: Int) 
     let encoded = if cluster % 2 == 0 { old / 4096 * 4096 + value % 4096 } else { old % 16 + value % 4096 * 16 }
     return Ok({offset, data: bytes.pack_le(encoded, 2)?})
   }
-  if layout.bits == 16 { return Ok({offset: cluster * 2, data: bytes.pack_le(value, 2)?}) }
+  return Ok({offset: cluster * 2, data: bytes.pack_le(value, 2)?}) when layout.bits == 16
   let offset = cluster * 4
   Ok({offset, data: bytes.pack_le(number(table, offset, 4)? / 268435456 * 268435456 + value % 268435456, 4)?})
 }

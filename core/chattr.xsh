@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fileattrs
+use lib.gnu
 
 type Changes = {add: Int, remove: Int, assigned: Int?, generation: Int?, project: Int?, recursive: Bool, verbose: Bool, quiet: Bool}
 
@@ -14,7 +14,7 @@ proc changed(name: Str, changes: Changes, descendant: Bool) [fs, process, env, e
     return false
   }
   let kind = metadata?.kind
-  if kind == "symlink" and descendant { return true }
+  return true when kind == "symlink" and descendant
   if kind not in ["file", "dir"] {
     if ! changes.quiet { gnu.error(f"Operation not supported while reading flags on {name}") }
     return false
@@ -32,15 +32,15 @@ proc changed(name: Str, changes: Changes, descendant: Bool) [fs, process, env, e
     return false
   }
   if changes.generation != null {
-    if changes.verbose { gnu.write_text(f"Version of {name} set as {changes.generation ?? 0}\n") }
-    if let Err(failure) = linux.set_file_version(target, changes.generation ?? 0) {
+    if changes.verbose { gnu.write_text(f"Version of {name} set as {changes.generation}\n") }
+    if let Err(failure) = linux.set_file_version(target, changes.generation) {
       if ! changes.quiet { gnu.error(f"{gnu.strerror(failure)} while setting version on {name}") }
       return false
     }
   }
   if changes.project != null {
-    if changes.verbose { gnu.write_text(f"Project of {name} set as {changes.project ?? 0}\n") }
-    if let Err(failure) = linux.set_file_project(target, changes.project ?? 0) {
+    if changes.verbose { gnu.write_text(f"Project of {name} set as {changes.project}\n") }
+    if let Err(failure) = linux.set_file_project(target, changes.project) {
       if ! changes.quiet { gnu.error(f"{gnu.strerror(failure)} while setting project on {name}") }
       return false
     }
@@ -51,9 +51,9 @@ proc changed(name: Str, changes: Changes, descendant: Bool) [fs, process, env, e
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var add = 0
   var remove = 0
-  var assigned: Int? = null
-  var generation: Int? = null
-  var project: Int? = null
+  var assigned = null
+  var generation = null
+  var project = null
   var recursive = false
   var verbose = false
   var quiet = false
@@ -101,7 +101,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if assigned != null and (additive or subtractive) { gnu.error("= is incompatible with - and +"); exit 1 }
   if add.bit_and(remove) != 0 { gnu.error("Can't both set and unset same flag."); exit 1 }
   if verbose { eprint (gnu.version_text("chattr")) }
-  let changes: Changes = {add: add, remove: remove, assigned: assigned, generation: generation, project: project, recursive: recursive, verbose: verbose, quiet: quiet}
+  let changes: Changes = Changes(add:, remove:, assigned:, generation:, project:, recursive:, verbose:, quiet:)
   var pending: List[Str] = argv[at..]
   var top = pending.len()
   var success = true

@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils stdbuf integration tests.
 
-use support.uu as uu
+use support.uu
 
 # A FIFO keeps stderr nonterminal and pipe-backed while stdout stays a separate stream.
 proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
@@ -8,7 +8,7 @@ proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resu
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
   let fifo = fp"{captures}/pipe"
-  fs.mkfifo(fifo, 0o600)?
+  fs.mkfifo(fifo, 0o600)
   let words = uu.argv(s, "stdbuf", [Path(word) for word in args])?
   let argv = [p"/bin/sh", p"-c", Path(r"""fifo=$1; shift; cat "$fifo" >&2 & reader=$!; "$@" 2>"$fifo"; rc=$?; wait "$reader" || exit; exit "$rc"; """), p"stdbuf-pipe", fifo].extend(words)
   let status = process.run(process.command_argv(p"/bin/sh", argv, s.root, stdout: out, stderr: err, timeout: 5s))?.exit_code()?
@@ -76,7 +76,7 @@ test test_uu_stdbuf_stdbuf_line_buffering_stdin_fails { |ctx|
 test test_uu_stdbuf_stdbuf_no_tmpdir_leak { |ctx|
   let s = uu.scene(ctx)?
   let dedicated = test.temp_dir(ctx, name: "stdbuf-tmpdir")?
-  for _ in range(5) {
+  repeat 5 times {
     let result = uu.invoke(s, "stdbuf", ["-oL", "true"], vars: {TMPDIR: dedicated}, timeout: 5s)?
   }
   let leaked = fs.children(dedicated)? |> where { |entry| entry.path.is_dir()? } |> count()

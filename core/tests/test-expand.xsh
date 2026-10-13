@@ -26,7 +26,7 @@ test test_expand_utf8_bytes_count_as_columns { |ctx|
 
 test test_expand_accepts_non_utf8_path_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "expand-raw-path")?
-  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let input = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   input.write("a\tb\n")
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/expand.xsh" -- $input
   assert output == "a       b\n"

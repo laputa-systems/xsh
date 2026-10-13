@@ -76,7 +76,7 @@ pure meminfo_issue(field: Str, state: report.ObservationState, error_kind: Str) 
 }
 
 pure error_field(name: Str, error_kind: Str, state: report.ObservationState = report.Malformed) -> MemInfoField {
-  meminfo_field(name, state, error_kind: error_kind)
+  meminfo_field(name, state, error_kind:)
 }
 
 pure parse_value(name: Str, values: List[Str]) -> FieldParse {
@@ -97,7 +97,7 @@ pure parse_value(name: Str, values: List[Str]) -> FieldParse {
   let parsed = src.parse_integer(values[0])
   if parsed == null {
     let state = if src.decimal_digits(values[0]) { report.RangeFailure } else { report.Malformed }
-    let error_kind = if state == report.RangeFailure { "integer_out_of_range" } else { "invalid_integer" }
+    let error_kind = if state == .RangeFailure { "integer_out_of_range" } else { "invalid_integer" }
     return {
       field: error_field(name, error_kind, state),
       issue: meminfo_issue(name, state, error_kind),
@@ -150,14 +150,10 @@ pure parse_value(name: Str, values: List[Str]) -> FieldParse {
 
 pure missing_field(name: Str, fields: List[MemInfoField]) -> MemoryField {
   let matches = fields |> where .name == name
-  if matches.is_empty() {
-    return empty_field(report.Absent)
-  }
+  return empty_field(report.Absent) when matches.is_empty()
 
   let item = matches[0]
-  if item.state != report.Observed {
-    return empty_field(item.state, item.error_kind)
-  }
+  return empty_field(item.state, item.error_kind) when item.state != .Observed
 
   if item.unit != "bytes" {
     return empty_field(report.Malformed, "invalid_byte_counter_unit")
@@ -167,19 +163,19 @@ pure missing_field(name: Str, fields: List[MemInfoField]) -> MemoryField {
 }
 
 pure project_fields(state: report.ObservationState, fields: List[MemInfoField]) -> ProjectedFields {
-  let fallback = if state == report.Observed { report.Absent } else { state }
+  let fallback = if state == .Observed { report.Absent } else { state }
   {
-    total: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("MemTotal", fields) },
-    free: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("MemFree", fields) },
-    available: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("MemAvailable", fields) },
-    buffers: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("Buffers", fields) },
-    cached: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("Cached", fields) },
-    active: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("Active", fields) },
-    inactive: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("Inactive", fields) },
-    dirty: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("Dirty", fields) },
-    writeback: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("Writeback", fields) },
-    swap_total: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("SwapTotal", fields) },
-    swap_free: if fields.is_empty() and fallback != report.Absent { empty_field(fallback) } else { missing_field("SwapFree", fields) },
+    total: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("MemTotal", fields) },
+    free: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("MemFree", fields) },
+    available: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("MemAvailable", fields) },
+    buffers: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("Buffers", fields) },
+    cached: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("Cached", fields) },
+    active: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("Active", fields) },
+    inactive: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("Inactive", fields) },
+    dirty: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("Dirty", fields) },
+    writeback: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("Writeback", fields) },
+    swap_total: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("SwapTotal", fields) },
+    swap_free: if fields.is_empty() and fallback != .Absent { empty_field(fallback) } else { missing_field("SwapFree", fields) },
   }
 }
 
@@ -192,7 +188,7 @@ pure make_source(source: src.SourceRead, fields: List[MemInfoField], issues: Lis
   let counters = [
     {name: field.name, value: field.value ?? 0, unit: field.unit ?? "count"}
     for field in fields
-    if field.state == report.Observed
+    if field.state == .Observed
   ]
   {
     state: source.observation.state,
@@ -217,7 +213,7 @@ pure make_source(source: src.SourceRead, fields: List[MemInfoField], issues: Lis
 
 ## Parses meminfo once while retaining all counters and per-field failures.
 export pure parse(source: src.SourceRead) -> MemorySource {
-  if source.observation.state != report.Observed or source.observation.value == null {
+  if source.observation.state != .Observed or source.observation.value == null {
     return make_source(source, [], [source_error(source)])
   }
 

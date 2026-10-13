@@ -8,7 +8,7 @@ type Listener = {fd: Int, port: Int}
 
 const USAGE = "usage: nc [-46CDdFhklNnrStUuvZz] [-I length] [-i interval] [-M ttl]\n\t  [-m minttl] [-O length] [-P proxy_username] [-p source_port]\n\t  [-q seconds] [-s sourceaddr] [-T keyword] [-V rtable] [-W recvlimit]\n\t  [-w timeout] [-X proxy_protocol] [-x proxy_address[:port]]\n\t  [destination] [port]\n"
 
-proc nc_command(ctx: TestContext, root: Path, tag: Str, args: List[Str], stdin: Bytes = b"") [process] -> Command {
+proc nc_command(ctx: TestContext, root: Path, tag: Str, args: List[Str], stdin = b"") [process] -> Command {
   let script = fp"{ctx.core_dir}/nc.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   process.command_argv(
@@ -27,7 +27,7 @@ proc finished(root: Path, tag: Str, status: Status) [fs, process, error] -> Resu
   Ok({status: status.shell_code()?, stdout: fp"{root}/{tag}.out".read_bytes()?, stderr: fp"{root}/{tag}.err".read_text()?})
 }
 
-proc run_nc(ctx: TestContext, args: List[Str], stdin: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc run_nc(ctx: TestContext, args: List[Str], stdin = b"") [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "nc")?
   let status = process.run(nc_command(ctx, root, "run", args, stdin))?
   finished(root, "run", status)
@@ -35,55 +35,50 @@ proc run_nc(ctx: TestContext, args: List[Str], stdin: Bytes = b"") [fs, process,
 
 # Polls a spawned process's stderr until it shows `needle`, which is how a
 # listener says it is ready without a probe connection stealing its accept.
-proc await_text(file: Path, needle: Str) [fs, time, error] -> Result[Unit] {
+proc await_text(file: Path, needle: Str) [fs, time, error] {
   let started = time.now()
   while time.now() - started < 10000 {
-    if (file.read_text() ?? "").find(needle) != null {
-      return Ok()
-    }
-    time.sleep(20ms)?
+    return when (file.read_text() ?? "").find(needle) != null
+    time.sleep(20ms)
   }
   Err(error.failure(f"{file} never showed {needle}"))
 }
 
-proc tcp_listener(address: Str = "127.0.0.1") [net, process, error] -> Result[Listener] {
+proc tcp_listener(address = "127.0.0.1") [net, process, error] -> Result[Listener] {
   let c = linux.net_constants()
   let family = if address.find(":") != null { c.AF_INET6 } else { c.AF_INET }
   let fd = linux.socket(family, c.SOCK_STREAM)?
-  linux.bind(fd, {family: if address.find(":") != null { "inet6" } else { "inet" }, address: address, port: 0})?
-  linux.listen(fd, 8)?
+  linux.bind(fd, {family: if address.find(":") != null { "inet6" } else { "inet" }, address: address, port: 0})
+  linux.listen(fd, 8)
   Ok({fd: fd, port: linux.getsockname(fd)?.port})
 }
 
 # A port nothing listens on at the moment the listener closes.
 proc closed_port() [net, process, error] -> Result[Int] {
   let held = tcp_listener()?
-  unix.close_fd(held.fd)?
+  unix.close_fd(held.fd)
   Ok(held.port)
 }
 
-proc wait_readable(fd: Int) [net, process, error] -> Result[Unit] {
+proc wait_readable(fd: Int) [net, process, error] {
   let events = unix.poll_fd(fd, ["readable"], 10000)?
-  if events.is_empty() {
-    return Err(error.failure("nothing arrived within 10 seconds"))
-  }
+  return Err(error.failure("nothing arrived within 10 seconds")) when events.is_empty()
   Ok()
 }
 
 proc read_to_eof(fd: Int) [net, process, error] -> Result[Bytes] {
-  var chunks: List[Bytes] = []
-  while true {
-    wait_readable(fd)?
-    let data = unix.read_fd(fd, 65536)?
-    if data.is_empty() {
-      break
+  let chunks = collect {
+    while true {
+      wait_readable(fd)
+      let data = unix.read_fd(fd, 65536)?
+      break when data.is_empty()
+      yield data
     }
-    chunks += [data]
   }
   Ok(bytes.concat(chunks))
 }
 
-proc send_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
+proc send_all(fd: Int, data: Bytes) [net, process, error] {
   var rest = data
   while ! rest.is_empty() {
     rest = rest.slice(unix.write_fd(fd, rest)?)
@@ -92,29 +87,30 @@ proc send_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
 }
 
 # Opens a TCP connection to `port` on loopback from the test itself.
-proc tcp_client(port: Int, address: Str = "127.0.0.1") [net, process, error] -> Result[Int] {
+proc tcp_client(port: Int, address = "127.0.0.1") [net, process, error] -> Result[Int] {
   let c = linux.net_constants()
   let v6 = address.find(":") != null
   let fd = linux.socket(if v6 { c.AF_INET6 } else { c.AF_INET }, c.SOCK_STREAM)?
-  linux.connect(fd, {family: if v6 { "inet6" } else { "inet" }, address: address, port: port})?
+  linux.connect(fd, {family: if v6 { "inet6" } else { "inet" }, address: address, port: port})
   Ok(fd)
 }
 
 proc udp_socket() [net, process, error] -> Result[Listener] {
   let c = linux.net_constants()
   let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
-  linux.bind(fd, {family: "inet", address: "127.0.0.1", port: 0})?
+  linux.bind(fd, {family: "inet", address: "127.0.0.1", port: 0})
   Ok({fd: fd, port: linux.getsockname(fd)?.port})
 }
 
 # A payload that covers every byte value and spans several relay buffers.
 proc pattern(length: Int) [error] -> Result[Bytes] {
-  var chunks: List[Bytes] = []
   var made = 0
   let block = bytes.from_ints([n for n in range(256)])?
-  while made < length {
-    chunks += [block]
-    made += 256
+  let chunks = collect {
+    while made < length {
+      yield block
+      made += 256
+    }
   }
   Ok(bytes.concat(chunks).slice(0, length))
 }
@@ -140,7 +136,7 @@ test test_nc_help_and_usage_match_the_utility { |ctx|
 }
 
 test test_nc_diagnoses_bad_operands_and_values { |ctx|
-  let cases: List[List[Str]] = [
+  let cases = [
     ["-l"], ["127.0.0.1"], ["-lk", "-z", "5700"], ["-zk", "127.0.0.1", "5700"],
     ["-lv", "1", "2", "3"], ["-l", "-s", "127.0.0.1", "5700"], ["-l", "-p", "5700", "5701"],
     ["-U"], ["-U", "/a", "/b"], ["-U", "-p", "5", "/a"], ["-U", "-F", "/a"],
@@ -182,7 +178,7 @@ test test_nc_diagnoses_bad_operands_and_values { |ctx|
 # The options below change no behavior on Linux the utility could honor, so
 # each names why it stops instead of being accepted and ignored.
 test test_nc_refuses_unimplemented_options_by_name { |ctx|
-  let cases: List[List[Str]] = [
+  let cases = [
     ["-x", "127.0.0.1:9", "127.0.0.1", "22"], ["-X", "5", "127.0.0.1", "22"], ["-P", "user", "127.0.0.1", "22"],
     ["-S", "127.0.0.1", "22"], ["-F", "127.0.0.1", "22"], ["-Z", "127.0.0.1", "22"],
   ]
@@ -207,11 +203,11 @@ test test_nc_client_sends_stdin_and_prints_the_reply { |ctx|
   let payload = pattern(200000)?
   let handle = spawn nc_command(ctx, root, "client", ["-v", "-n", "-N", "127.0.0.1", f"{server.port}"], payload)?
 
-  wait_readable(server.fd)?
+  wait_readable(server.fd)
   let accepted = linux.accept(server.fd)?
   assert read_to_eof(accepted.fd)? == payload
-  send_all(accepted.fd, b"reply\n")?
-  unix.close_fd(accepted.fd)?
+  send_all(accepted.fd, b"reply\n")
+  unix.close_fd(accepted.fd)
 
   let status = wait handle?
   let ran = finished(root, "client", status)?
@@ -224,14 +220,14 @@ test test_nc_listener_receives_binary_stdin_and_replies { |ctx|
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-listener")?
   let handle = spawn nc_command(ctx, root, "server", ["-v", "-n", "-l", "127.0.0.1", f"{port}"], b"srv-reply\n")?
-  await_text(fp"{root}/server.err", "Listening on")?
+  await_text(fp"{root}/server.err", "Listening on")
 
   let client = tcp_client(port)?
   defer unix.close_fd(client)
   let local = linux.getsockname(client)?
   let payload = pattern(70000)?
-  send_all(client, payload)?
-  linux.shutdown(client, linux.net_constants().SHUT_WR)?
+  send_all(client, payload)
+  linux.shutdown(client, linux.net_constants().SHUT_WR)
   assert read_to_eof(client)? == b"srv-reply\n"
 
   let status = wait handle?
@@ -245,7 +241,7 @@ test test_nc_talks_to_itself_and_half_closes { |ctx|
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-pair")?
   let server = spawn nc_command(ctx, root, "server", ["-v", "-n", "-l", "127.0.0.1", f"{port}"], b"from the listener\n")?
-  await_text(fp"{root}/server.err", "Listening on")?
+  await_text(fp"{root}/server.err", "Listening on")
 
   let client = run_nc(ctx, ["-v", "-n", "-N", "127.0.0.1", f"{port}"], b"from the client\n")?
   assert client.status == 0
@@ -258,42 +254,38 @@ test test_nc_talks_to_itself_and_half_closes { |ctx|
 }
 
 test test_nc_listen_without_n_names_the_address { |ctx|
-  match dns.reverse("127.0.0.1") {
-    Ok(names) => {
-      if names != ["localhost"] {
-        test.skip("127.0.0.1 does not reverse-resolve to localhost here")
-        return
-      }
-    }
-    Err(_) => {
-      test.skip("127.0.0.1 does not reverse-resolve here")
+  if let Ok(names) = dns.reverse("127.0.0.1") {
+    guard names == ["localhost"] else {
+      test.skip("127.0.0.1 does not reverse-resolve to localhost here")
       return
     }
+  } else {
+    test.skip("127.0.0.1 does not reverse-resolve here")
+    return
   }
+
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-names")?
   let handle = spawn nc_command(ctx, root, "server", ["-v", "-l", "127.0.0.1", f"{port}"])?
-  await_text(fp"{root}/server.err", "Listening on")?
+  await_text(fp"{root}/server.err", "Listening on")
   let client = tcp_client(port)?
   let local = linux.getsockname(client)?
-  unix.close_fd(client)?
+  unix.close_fd(client)
   let ran = finished(root, "server", wait handle?)?
   assert ran.stderr == f"Listening on localhost {port}\nConnection received on localhost {local.port}\n", ran.stderr
 }
 
 test test_nc_without_n_to_a_name_prints_the_address_it_used { |ctx|
-  match dns.resolve_host("localhost") {
-    Ok(rows) => {
-      if [r for r in rows if r.addr == "127.0.0.1"].is_empty() {
-        test.skip("localhost has no IPv4 address here")
-        return
-      }
-    }
-    Err(_) => {
-      test.skip("localhost does not resolve here")
+  if let Ok(rows) = dns.resolve_host("localhost") {
+    if [r for r in rows if r.addr == "127.0.0.1"].is_empty() {
+      test.skip("localhost has no IPv4 address here")
       return
     }
+  } else {
+    test.skip("localhost does not resolve here")
+    return
   }
+
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let ran = run_nc(ctx, ["-4", "-z", "-v", "localhost", f"{server.port}"])?
@@ -331,32 +323,33 @@ test test_nc_scans_ascending_ranges_even_when_given_backwards { |ctx|
   # Three consecutive ports of which only the middle one listens.
   var base = 0
   var middle = -1
-  for _ in range(20) {
+  repeat 20 times {
     let seed = closed_port()?
-    var held: List[Int] = []
     let c = linux.net_constants()
     var usable = true
-    for offset in range(3) {
-      let fd = linux.socket(c.AF_INET, c.SOCK_STREAM)?
-      match linux.bind(fd, {family: "inet", address: "127.0.0.1", port: seed + offset}) {
-        Ok(_) => held += [fd]
-        Err(_) => {
-          unix.close_fd(fd)?
-          usable = false
-          break
+    let held = collect {
+      for offset in range(3) {
+        let fd = linux.socket(c.AF_INET, c.SOCK_STREAM)?
+        match linux.bind(fd, {family: "inet", address: "127.0.0.1", port: seed + offset}) {
+          Ok(_) => yield fd
+          Err(_) => {
+            unix.close_fd(fd)
+            usable = false
+            break
+          }
         }
       }
     }
     if usable {
-      linux.listen(held[1], 4)?
+      linux.listen(held[1], 4)
       middle = held[1]
       base = seed
-      unix.close_fd(held[0])?
-      unix.close_fd(held[2])?
+      unix.close_fd(held[0])
+      unix.close_fd(held[2])
       break
     }
     for fd in held {
-      unix.close_fd(fd)?
+      unix.close_fd(fd)
     }
   }
   if middle < 0 {
@@ -410,26 +403,26 @@ test test_nc_connect_timeout_is_reported_by_name { |ctx|
   let c = linux.net_constants()
   let held = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(held)
-  linux.bind(held, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(held, 0)?
+  linux.bind(held, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(held, 0)
   let port = linux.getsockname(held)?.port
-  var fillers: List[Int] = []
   var full = false
-  for _ in range(16) {
-    let filler = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?
-    fillers += [filler]
-    match linux.connect(filler, {family: "inet", address: "127.0.0.1", port: port}) {
-      Ok(_) => { }
-      Err(_) => { }
-    }
-    if unix.poll_fd(filler, ["writable"], 300)?.is_empty() {
-      full = true
-      break
+  let fillers = collect {
+    repeat 16 times {
+      let filler = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?
+      yield filler
+      match linux.connect(filler, {family: "inet", address: "127.0.0.1", port: port}) {
+        Ok(_) | Err(_) => { }
+      }
+      if unix.poll_fd(filler, ["writable"], 300)?.is_empty() {
+        full = true
+        break
+      }
     }
   }
   if ! full {
     for filler in fillers {
-      unix.close_fd(filler)?
+      unix.close_fd(filler)
     }
     test.skip("the kernel accepted every queued connection")
     return
@@ -440,7 +433,7 @@ test test_nc_connect_timeout_is_reported_by_name { |ctx|
   assert time.now() - began >= 1000
   assert ran.stderr == f"nc: connect to 127.0.0.1 port {port} (tcp) failed: Operation timed out\n", ran.stderr
   for filler in fillers {
-    unix.close_fd(filler)?
+    unix.close_fd(filler)
   }
 }
 
@@ -456,21 +449,21 @@ test test_nc_keep_open_serves_connections_in_turn { |ctx|
   let port = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-keep")?
   let handle = spawn nc_command(ctx, root, "server", ["-v", "-n", "-k", "-l", "127.0.0.1", f"{port}"])?
-  await_text(fp"{root}/server.err", "Listening on")?
+  await_text(fp"{root}/server.err", "Listening on")
   for word in ["one\n", "two\n", "three\n"] {
     let client = tcp_client(port)?
-    send_all(client, bytes.from_text(word))?
-    unix.close_fd(client)?
+    send_all(client, bytes.from_text(word))
+    unix.close_fd(client)
   }
   var got = ""
   let started = time.now()
   while got != "one\ntwo\nthree\n" and time.now() - started < 10000 {
     got = fp"{root}/server.out".read_text() ?? ""
-    time.sleep(20ms)?
+    time.sleep(20ms)
   }
   assert got == "one\ntwo\nthree\n", got
-  handle.cancel(signal: "TERM", kill_after: 2s)?
-  let lines = fp"{root}/server.err".read_text()?.lines()
+  handle.cancel(signal: "TERM", kill_after: 2s)
+  let lines = fp"{root}/server.err".read_lines()?
   assert [l for l in lines if l.starts_with("Connection received on 127.0.0.1 ")].len() == 3
 }
 
@@ -482,14 +475,15 @@ test test_nc_receive_limit_ends_the_session { |ctx|
   var client = -1
   let started = time.now()
   while client < 0 and time.now() - started < 10000 {
-    match tcp_client(port) {
-      Ok(fd) => client = fd
-      Err(_) => time.sleep(20ms)?
+    if let Ok(fd) = tcp_client(port) {
+      client = fd
+    } else {
+      time.sleep(20ms)
     }
   }
   assert client >= 0
   defer unix.close_fd(client)
-  send_all(client, b"one\n")?
+  send_all(client, b"one\n")
   let ran = finished(root, "server", wait handle?)?
   assert ran.status == 0
   assert ran.stdout == b"one\n"
@@ -500,10 +494,10 @@ test test_nc_crlf_adds_a_carriage_return_before_bare_newlines { |ctx|
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-crlf")?
   let handle = spawn nc_command(ctx, root, "client", ["-C", "-N", "-n", "127.0.0.1", f"{server.port}"], b"a\nb\r\nc\n\r\r\nd\n\ne\r")?
-  wait_readable(server.fd)?
+  wait_readable(server.fd)
   let accepted = linux.accept(server.fd)?
   assert read_to_eof(accepted.fd)? == b"a\r\nb\r\nc\r\n\r\r\nd\r\n\r\ne\r"
-  unix.close_fd(accepted.fd)?
+  unix.close_fd(accepted.fd)
   let ran = finished(root, "client", wait handle?)?
   assert ran.status == 0
 }
@@ -513,17 +507,17 @@ test test_nc_detached_stdin_is_not_sent { |ctx|
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-detached")?
   let handle = spawn nc_command(ctx, root, "client", ["-d", "-n", "127.0.0.1", f"{server.port}"], b"ignored\n")?
-  wait_readable(server.fd)?
+  wait_readable(server.fd)
   let accepted = linux.accept(server.fd)?
-  send_all(accepted.fd, b"hello\n")?
-  linux.shutdown(accepted.fd, linux.net_constants().SHUT_WR)?
+  send_all(accepted.fd, b"hello\n")
+  linux.shutdown(accepted.fd, linux.net_constants().SHUT_WR)
   # The client's stdin held data, but -d never reads it: the server sees only
   # the end of the stream once the client has finished.
   let ran = finished(root, "client", wait handle?)?
   assert ran.status == 0
   assert ran.stdout == b"hello\n"
   assert read_to_eof(accepted.fd)? == b""
-  unix.close_fd(accepted.fd)?
+  unix.close_fd(accepted.fd)
 }
 
 test test_nc_quit_timer_ends_the_session_after_stdin_eof { |ctx|
@@ -532,7 +526,7 @@ test test_nc_quit_timer_ends_the_session_after_stdin_eof { |ctx|
   let root = test.temp_dir(ctx, name: "nc-quit")?
   let began = time.now()
   let handle = spawn nc_command(ctx, root, "client", ["-q", "1", "-n", "127.0.0.1", f"{server.port}"], b"x\n")?
-  wait_readable(server.fd)?
+  wait_readable(server.fd)
   let accepted = linux.accept(server.fd)?
   defer unix.close_fd(accepted.fd)
   let ran = finished(root, "client", wait handle?)?
@@ -549,7 +543,7 @@ test test_nc_idle_timeout_ends_a_quiet_session { |ctx|
   let root = test.temp_dir(ctx, name: "nc-idle")?
   let began = time.now()
   let handle = spawn nc_command(ctx, root, "client", ["-w", "1", "-n", "127.0.0.1", f"{server.port}"])?
-  wait_readable(server.fd)?
+  wait_readable(server.fd)
   let accepted = linux.accept(server.fd)?
   defer unix.close_fd(accepted.fd)
   let ran = finished(root, "client", wait handle?)?
@@ -562,10 +556,10 @@ test test_nc_answers_telnet_negotiation { |ctx|
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-telnet")?
   let handle = spawn nc_command(ctx, root, "client", ["-t", "-n", "-N", "127.0.0.1", f"{server.port}"])?
-  wait_readable(server.fd)?
+  wait_readable(server.fd)
   let accepted = linux.accept(server.fd)?
   # IAC DO 1, then IAC WILL 3: refused with WONT and DONT.
-  send_all(accepted.fd, bytes.from_ints([255, 253, 1, 255, 251, 3])?)?
+  send_all(accepted.fd, bytes.from_ints([255, 253, 1, 255, 251, 3])?)
   let reply = unix.poll_fd(accepted.fd, ["readable"], 10000)?
   assert ! reply.is_empty()
   var got = b""
@@ -573,7 +567,7 @@ test test_nc_answers_telnet_negotiation { |ctx|
     got = bytes.concat([got, unix.read_fd(accepted.fd, 6)?])
   }
   assert got == bytes.from_ints([255, 252, 1, 255, 254, 3])?
-  unix.close_fd(accepted.fd)?
+  unix.close_fd(accepted.fd)
   let ran = finished(root, "client", wait handle?)?
   assert ran.stdout == bytes.from_ints([255, 253, 1, 255, 251, 3])?
 }
@@ -584,11 +578,11 @@ test test_nc_binds_the_requested_source_port { |ctx|
   let source = closed_port()?
   let root = test.temp_dir(ctx, name: "nc-source")?
   let handle = spawn nc_command(ctx, root, "client", ["-n", "-N", "-s", "127.0.0.1", "-p", f"{source}", "127.0.0.1", f"{server.port}"])?
-  wait_readable(server.fd)?
+  wait_readable(server.fd)
   let accepted = linux.accept(server.fd)?
   assert accepted.peer.port == source
   assert accepted.peer.address == "127.0.0.1"
-  unix.close_fd(accepted.fd)?
+  unix.close_fd(accepted.fd)
   let ran = finished(root, "client", wait handle?)?
   assert ran.status == 0
 
@@ -604,13 +598,13 @@ test test_nc_udp_client_sends_a_datagram { |ctx|
   let receiver = udp_socket()?
   defer unix.close_fd(receiver.fd)
   let c = linux.net_constants()
-  linux.setsockopt_int(receiver.fd, c.SOL_IP, c.IP_RECVTTL, 1)?
-  linux.setsockopt_int(receiver.fd, c.SOL_IP, c.IP_RECVTOS, 1)?
+  linux.setsockopt_int(receiver.fd, c.SOL_IP, c.IP_RECVTTL, 1)
+  linux.setsockopt_int(receiver.fd, c.SOL_IP, c.IP_RECVTOS, 1)
   # -M, -T, -b, -I and -O all configure the socket before the first datagram.
   let ran = run_nc(ctx, ["-u", "-v", "-n", "-q", "0", "-M", "17", "-T", "lowdelay", "-b", "-I", "4096", "-O", "4096", "127.0.0.1", f"{receiver.port}"], b"ping\n")?
   assert ran.status == 0
   assert ran.stderr == "", ran.stderr
-  wait_readable(receiver.fd)?
+  wait_readable(receiver.fd)
   let got = linux.recvfrom(receiver.fd, 64)?
   assert got.data == b"ping\n"
   let ttl = [m for m in got.control if m.level == c.SOL_IP and m.type == c.IP_TTL]
@@ -623,17 +617,17 @@ test test_nc_udp_listener_pairs_with_its_first_sender { |ctx|
   let c = linux.net_constants()
   let held = udp_socket()?
   let port = held.port
-  unix.close_fd(held.fd)?
+  unix.close_fd(held.fd)
   let root = test.temp_dir(ctx, name: "nc-udp")?
   let handle = spawn nc_command(ctx, root, "server", ["-u", "-v", "-n", "-l", "-W", "1", "127.0.0.1", f"{port}"], b"pong\n")?
-  await_text(fp"{root}/server.err", "Bound on")?
+  await_text(fp"{root}/server.err", "Bound on")
 
   let peer = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(peer)
-  linux.bind(peer, {family: "inet", address: "127.0.0.1", port: 0})?
+  linux.bind(peer, {family: "inet", address: "127.0.0.1", port: 0})
   let local = linux.getsockname(peer)?
   assert linux.sendto(peer, b"datagram\n", {family: "inet", address: "127.0.0.1", port: port})? == 9
-  wait_readable(peer)?
+  wait_readable(peer)
   assert linux.recvfrom(peer, 64)?.data == b"pong\n"
 
   let ran = finished(root, "server", wait handle?)?
@@ -648,13 +642,13 @@ test test_nc_udp_scan_sends_four_probes_and_detects_closed_ports { |ctx|
   let ran = run_nc(ctx, ["-vzu", "-n", "127.0.0.1", f"{open.port}"])?
   assert ran.status == 0
   assert ran.stderr == f"Connection to 127.0.0.1 {open.port} port [udp/*] succeeded!\n", ran.stderr
-  for _ in range(4) {
-    wait_readable(open.fd)?
+  repeat 4 times {
+    wait_readable(open.fd)
     assert linux.recvfrom(open.fd, 16)?.data == b"X"
   }
 
   let dead = udp_socket()?
-  unix.close_fd(dead.fd)?
+  unix.close_fd(dead.fd)
   let closed = run_nc(ctx, ["-vzu", "-n", "127.0.0.1", f"{dead.port}"])?
   assert closed.status == 1
   assert closed.stderr == ""
@@ -675,7 +669,7 @@ test test_nc_unix_stream_client_and_listener { |ctx|
   defer fp"{socket}".remove()
   let root = test.temp_dir(ctx, name: "nc-unix")?
   let server = spawn nc_command(ctx, root, "server", ["-v", "-U", "-l", socket], b"srv\n")?
-  await_text(fp"{root}/server.err", "Listening on")?
+  await_text(fp"{root}/server.err", "Listening on")
   let client = run_nc(ctx, ["-v", "-U", "-N", socket], b"cli\n")?
   assert client.status == 0
   assert client.stdout == b"srv\n"
@@ -703,7 +697,7 @@ test test_nc_unix_datagram_listener_answers_a_client { |ctx|
   defer fp"{socket}".remove()
   let root = test.temp_dir(ctx, name: "nc-unix-dgram")?
   let server = spawn nc_command(ctx, root, "server", ["-v", "-U", "-u", "-l", "-W", "1", socket], b"back\n")?
-  await_text(fp"{root}/server.err", "Bound on")?
+  await_text(fp"{root}/server.err", "Bound on")
   let client = run_nc(ctx, ["-U", "-u", "-q", "2", socket], b"dgram")?
   assert client.status == 0
   assert client.stdout == b"back\n"

@@ -124,7 +124,7 @@ export pure choose(left: Str, right: Str) -> Str { left + right }
 ## Returns the imported procedure value.
 export proc capture(left: Str, right: Str) -> Str { left + right }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""use helper as source
 pure choose(value: Int) -> Int { value + 1 }
@@ -134,10 +134,10 @@ print choose(40)
 print source.capture("module", "proc")
 print capture(40)
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == """modulepure
 41
 moduleproc
@@ -258,19 +258,25 @@ test test_typed_callable_guard_failure_binding_keeps_its_checked_type {
 
 test test_typed_callable_with_failure_binding_keeps_its_checked_type {
   let result = recover_with_typed_with_failure(Ok(2), Ok(3))
-  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  let value = result ?? { |failure|
+    failure(4)
+  }
   assert value == 7
 }
 
 test test_typed_callable_with_propagated_failure_binding_keeps_its_checked_type {
   let result = recover_with_typed_with_failure(Ok(2), Err(double))
-  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  let value = result ?? { |failure|
+    failure(4)
+  }
   assert value == 8
 }
 
 test test_typed_callable_with_initial_failure_binding_keeps_its_checked_type {
   let result = recover_with_typed_with_failure(Err(double), Ok(3))
-  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  let value = result ?? { |failure|
+    failure(4)
+  }
   assert value == 8
 }
 
@@ -303,11 +309,11 @@ test test_typed_callable_is_returned_passed_and_stored {
 test test_typed_callable_record_field_is_called_like_a_method {
   assert get_holder().callback(7) == 21
 
-  var holder: Holder = {callback: double}
+  var holder: Holder = Holder(callback: double)
   holder.callback = triple
   assert holder.callback(3) == 9
 
-  var bundle: Bundle = {nested: Holder(callback: double)}
+  var bundle: Bundle = Bundle(nested: Holder(callback: double))
   bundle.nested.callback = triple
   assert bundle.nested.callback(3) == 9
 
@@ -327,7 +333,7 @@ test test_typed_callable_record_field_is_called_like_a_method {
 }
 
 pure apply_validated_collection(callbacks: NonEmpty[Scale]) -> Int {
-  var holder: CallbackCollection = {callbacks: [double]}
+  var holder: CallbackCollection = CallbackCollection(callbacks: [double])
   holder.callbacks = callbacks
   let updated = {...holder, callbacks: callbacks}
   updated.callbacks[0](7)
@@ -525,7 +531,7 @@ test test_typed_callable_container_methods_keep_their_element_types {
   let stored = by_name.set("double", double)
   with selected = stored.get("double")? {
     assert selected(4) == 8
-  } else { |failure| test.fail(failure.message)? }
+  } else { |failure| test.fail(failure.message) }
 }
 
 test test_registered_method_checks_intrinsic_formatted_string_receiver {
@@ -581,7 +587,7 @@ test test_alias_that_kept_its_signature_fits_a_callable_type {
 }
 
 test test_record_spread_keeps_a_compatible_callable_field {
-  let specific: SpecificBuilderRecord = {build: release_build}
+  let specific: SpecificBuilderRecord = SpecificBuilderRecord(build: release_build)
   let widened: BuilderRecord = {...specific}
   assert widened.build(/a)? == "release /a false"
 }
@@ -935,7 +941,7 @@ proc select(stage: Stage) [error] -> Result[Unit] {
 # with the type's labels, and its effect bound is charged to the caller.
 test test_module_exported_callable_value_is_called_through_its_type { |ctx|
   let root = test.temp_dir(ctx, name: "typed-callable-module")?
-  fp"{root}/nested".mkdir()?
+  fp"{root}/nested".mkdir()
   fp"{root}/nested/handlers.xsh".write(r"""
 ##! Handlers chosen when the module loads.
 ## What a handler is called with and returns.
@@ -1027,7 +1033,7 @@ test test_path_read_checks_each_inline_path_result { |ctx|
   var selected = ""
   with text = (match "selected" {
     "other" => fp"{root}/other"
-    _ => fp"{root}/note"
+    else => fp"{root}/note"
   }).read_text() {
     selected = text
   } else { |failure|
@@ -1068,7 +1074,7 @@ test test_path_read_checks_each_inline_path_result { |ctx|
   }
   assert updated_projection == "contents"
 
-  let checked_holder: PathHolder = {path: fp"{root}/note"}
+  let checked_holder: PathHolder = PathHolder(path: fp"{root}/note")
   var checked_projection = ""
   with text = checked_holder.path.read_text() {
     checked_projection = text
@@ -1077,7 +1083,7 @@ test test_path_read_checks_each_inline_path_result { |ctx|
   }
   assert checked_projection == "contents"
 
-  let indexed_paths: List[Path] = [fp"{root}/note"]
+  let indexed_paths = [fp"{root}/note"]
   var indexed = ""
   with text = indexed_paths[0].read_text() {
     indexed = text
@@ -1121,7 +1127,7 @@ test test_with_try_path_results_keep_registry_error_types { |ctx|
   let file = fp"{root}/file"
   file.write("contents")
   let link = fp"{root}/link"
-  fs.symlink(file, link)
+  link.symlink(to: file)
 
   var resolved = ""
   with resolved_path = link.resolve()? {
@@ -1150,14 +1156,14 @@ test test_with_try_path_results_keep_registry_error_types { |ctx|
   let callbacks: List[Scale] = [double]
   with listed = callbacks.get(0)? {
     assert listed(4) == 8
-  } else { |failure| test.fail(failure.message)? }
+  } else { |failure| test.fail(failure.message) }
 
   let callback_result: Result[Scale] = Ok(double)
   with contextual = callback_result.context("typed-callee")? {
     assert contextual(4) == 8
-  } else { |failure| test.fail(failure.message)? }
+  } else { |failure| test.fail(failure.message) }
 
-  with parsed = "12".parse_int()? {
+  with parsed = "12" as Int {
     assert parsed == 12
-  } else { |failure| test.fail(failure.message)? }
+  } else { |failure| test.fail(failure.message) }
 }

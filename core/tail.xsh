@@ -284,25 +284,25 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
 # connected or while a writer is silent.
 proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: Duration) [fs, process, net, time, error] -> Result[Bytes] {
   let fd = unix.open_fd(fifo, nonblock: true)?
-  var chunks: List[Bytes] = []
-
-  loop {
-    match unix.read_fd(fd, tio.CHUNK) {
-      Ok(chunk) => { if ! chunk.is_empty() { chunks += [chunk] } }
-      Err(failure) => {
-        if gnu.errno(failure) not in [11, 35] {
-          unix.close_fd(fd)?
-          return Err(failure)
+  let chunks = collect {
+    loop {
+      match unix.read_fd(fd, tio.CHUNK) {
+        Ok(chunk) => yield chunk unless chunk.is_empty()
+        Err(failure) => {
+          if gnu.errno(failure) not in [11, 35] {
+            unix.close_fd(fd)
+            return Err(failure)
+          }
         }
       }
-    }
 
-    let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
-    break when ! alive
-    time.sleep(interval)?
+      let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
+      break when ! alive
+      time.sleep(interval)
+    }
   }
 
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
   let data = bytes.concat(chunks)
   Ok(data[data_start(data, spec, zero)..])
 }
@@ -373,7 +373,7 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
 
     # A name that was missing when following began (under --retry) is opened once it
     # is a regular file, and read from its start like any file that appears later.
-    var still_missing: List[Str] = []
+    var still_missing = []
     for name in pending {
       match fs.stat(fp"{name}", follow_symlinks: true) {
         Ok(entry) => {
@@ -429,7 +429,7 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
             next += [file]
           } else {
             gnu.error_reading(file.label, failure)
-            unix.close_fd(file.fd)?
+            unix.close_fd(file.fd)
             failed = true
           }
         }
@@ -445,8 +445,8 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
         let events = unix.poll_fd(1, [])?
         break when "error" in events or "hangup" in events
       }
-      io.flush_stderr()?
-      time.sleep(poll_pause(interval))?
+      io.flush_stderr()
+      time.sleep(poll_pause(interval))
     }
   }
 
@@ -454,15 +454,16 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
     gnu.error("no files remaining")
   }
 
-  for file in active { unix.close_fd(file.fd)? }
+  for file in active { unix.close_fd(file.fd) }
   failed
 }
 
 # Whether NAME is a symbolic link itself. A missing name is not a link.
 proc is_link(name: Str) [fs] -> Bool {
-  match fs.stat(fp"{name}", follow_symlinks: false) {
-    Ok(entry) => entry.kind == "symlink"
-    Err(_) => false
+  if let Ok(entry) = fs.stat(fp"{name}", follow_symlinks: false) {
+    entry.kind == "symlink"
+  } else {
+    false
   }
 }
 
@@ -534,9 +535,7 @@ proc follow_name_once(file: NameFile, retrying: Bool, headers: Bool, last: Str) 
     return gone_step(file, failure, retrying, last)
   }
 
-  if entry.kind != "file" {
-    return untailable_step(file, "file", retrying, last)
-  }
+  return untailable_step(file, "file", retrying, last) when entry.kind != "file"
 
   var current = file
   var position = last
@@ -595,21 +594,19 @@ proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int
   var reverted = false
 
   loop {
-    var next: List[NameFile] = []
+    let next: List[NameFile] = collect {
+      for file in active {
+        let step = follow_name_once(file, retrying, headers, last)
+        last = step.last
+        failed = failed or step.failed
 
-    for file in active {
-      let step = follow_name_once(file, retrying, headers, last)
-      last = step.last
-      failed = failed or step.failed
+        if step.dir_removed and inotify and ! reverted {
+          gnu.error("directory containing watched file was removed")
+          gnu.error("inotify cannot be used, reverting to polling")
+          reverted = true
+        }
 
-      if step.dir_removed and inotify and ! reverted {
-        gnu.error("directory containing watched file was removed")
-        gnu.error("inotify cannot be used, reverting to polling")
-        reverted = true
-      }
-
-      if step.keep {
-        next += [step.file]
+        yield step.file when step.keep
       }
     }
 
@@ -622,8 +619,8 @@ proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int
 
     let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
     break when ! alive
-    io.flush_stderr()?
-    time.sleep(poll_pause(interval))?
+    io.flush_stderr()
+    time.sleep(poll_pause(interval))
   }
 
   failed
@@ -654,17 +651,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   # parser strips the leading dashes of long names, so this spelling cannot be declared
   # as an option; it is removed here before parsing, and this pre-scan can go once the
   # form can name it.
-  var rest: List[Str] = []
   var operands_only = false
   var inotify = true
-  for arg in tio.without_presume_pipe(argv) {
-    if operands_only or arg == "--" {
-      operands_only = true
-      rest += [arg]
-    } else if arg == "---disable-inotify" {
-      inotify = false
-    } else {
-      rest += [arg]
+  let rest = collect {
+    for arg in tio.without_presume_pipe(argv) {
+      if operands_only or arg == "--" {
+        operands_only = true
+        yield arg
+      } else if arg == "---disable-inotify" {
+        inotify = false
+      } else {
+        yield arg
+      }
     }
   }
 
@@ -730,7 +728,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   }
 
   if let sleep_interval = opts.sleep {
-    if ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(sleep_interval) {
+    guard rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(sleep_interval) else {
       gnu.error(f"invalid number of seconds: {gnu.quote_value(sleep_interval)}")
       exit 1
     }
@@ -758,7 +756,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   }
 
   # Preserve warning order when stderr and stdout share the same destination.
-  if ! following and (retrying or opts.pid != "") { io.flush_stderr()? }
+  if ! following and (retrying or opts.pid != "") { io.flush_stderr() }
 
   let operands = if opts.files.is_empty() { ["-"] } else { opts.files }
 
@@ -783,10 +781,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
   var last = ""
   var failed = false
-  var waiting: List[Str] = []
+  var waiting = []
   var name_files: List[NameFile] = []
   var follow_files: List[FollowFile] = []
-  var follow_classes: List[Str] = []
+  var follow_classes = []
   var pid_fifos: List[PidFifo] = []
 
   for name in operands {

@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.date_dircolors as colors
+use lib.gnu
 
 pure term_matches(pattern: Str, value: Str) -> Bool {
   var regex_text = "^"
@@ -8,7 +8,7 @@ pure term_matches(pattern: Str, value: Str) -> Bool {
   for char in pattern {
     if char == "*" and ! bracket { regex_text = f"{regex_text}.*" } else if char == "?" and ! bracket { regex_text = f"{regex_text}." } else if char == "[" { bracket = true; regex_text = f"{regex_text}[" } else if char == "]" { bracket = false; regex_text = f"{regex_text}]" } else if char == "!" and bracket { regex_text = f"{regex_text}^" } else if ! bracket and ".+(){}^$|\\".find(char) != null { regex_text = f"{regex_text}\\{char}" } else { regex_text = f"{regex_text}{char}" }
   }
-  if bracket { return false }
+  return false when bracket
   match regex.compile(f"{regex_text}$") {
     Ok(found) => found.matches(value)
     Err(failure) => false
@@ -70,9 +70,10 @@ pure shell_output_field(text: Str) -> Str {
 # Operands that are not UTF-8 reach the text parser as NUL markers; these helpers
 # recover the raw bytes for opening files and for naming them in messages.
 proc display_name(name: Bytes) [env] -> Str {
-  match name.utf8() {
-    Ok(text) => text
-    Err(_) => gnu.quote_bytes(name, always: false)
+  if let Ok(text) = name.utf8() {
+    text
+  } else {
+    gnu.quote_bytes(name, always: false)
   }
 }
 
@@ -87,7 +88,7 @@ const LONG_OPTIONS = ["--bourne-shell", "--c-shell", "--csh", "--help", "--print
 # The long options an argument names: an exact name, or every name it prefixes
 # (getopt_long accepts any unambiguous abbreviation).
 pure long_candidates(arg: Str) -> List[Str] {
-  if arg in LONG_OPTIONS { return [arg] }
+  return [arg] when arg in LONG_OPTIONS
   [name for name in LONG_OPTIONS if name.starts_with(arg)]
 }
 
@@ -127,7 +128,7 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
       let found = long_candidates(arg)
       if found.is_empty() { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") }
       let action = long_action(found[0])
-      if [name for name in found if long_action(name) != action].len() > 0 {
+      if ! [name for name in found if long_action(name) != action].is_empty() {
         gnu.usage_error(f"option '{arg}' is ambiguous; possibilities: {[f"'{name}'" for name in found].join(" ")}")
       }
       match action {
@@ -177,9 +178,11 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
     if file != "-" and (is_directory(file_bytes) ?? false) { gnu.error(f"{gnu.quote_bytes(file_bytes, always: false)}: read error: Is a directory"); exit 1 }
     match read_database(file_bytes) {
       Ok(data) => {
-        match data.utf8() {
-          Ok(value) => input = value
-          else => { gnu.error("database is not UTF-8"); exit 1 }
+        if let Ok(value) = data.utf8() {
+          input = value
+        } else {
+          gnu.error("database is not UTF-8")
+          exit 1
         }
       }
       Err(failure) => { gnu.error(f"{gnu.quote_bytes(file_bytes, always: false)}: {gnu.strerror(failure)}"); exit 1 }
@@ -195,7 +198,7 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
   for original in input.lines() {
     line_number += 1
     var line = original.trim()
-    if line == "" or line.starts_with("#") { continue }
+    continue when line == "" or line.starts_with("#")
     let words = line.replace("\t", with: " ").split(" ") |> where . != ""
     if words.len() < 2 { gnu.error(f"{file_name}:{line_number}: invalid line;  missing second token"); exit 1 }
     let key = words[0]
@@ -210,7 +213,7 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
       continue
     }
     entries = true
-    if ! selected { continue }
+    continue unless selected
     if key.lower() == "options" or key.lower() == "color" or key.lower() == "eightbit" { continue }
     let named = color_key(key)
     let code = if key.starts_with(".") { f"*{key}" } else if key.starts_with("*") { key } else { named }

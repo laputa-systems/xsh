@@ -3,16 +3,16 @@ use core.lib.btop_model as model
 use core.lib.btop_rates as rates
 use core.lib.btop_render as renderer
 use core.lib.btop_source as source
+use core.lib.btop_surface as surface
 use core.lib.sys_block as block
 use core.lib.sys_mount as mounts
 use core.lib.sys_proc as sysproc
-use core.lib.btop_surface as surface
 use core.lib.system_report as report
 use core.tests.support.btop as fixture
 
-const process_seed: Int = 424242
-const process_count: Int = 256
-const disk_count: Int = 64
+const process_seed = 424242
+const process_count = 256
+const disk_count = 64
 
 pure synthetic_processes(count: Int, first_pid: Int, cpu_base: Int, seed: Int) -> List[sysproc.Process] {
   var state = seed
@@ -40,12 +40,7 @@ pure with_processes(
   at_ns: Int,
   rows: List[sysproc.Process],
 ) -> model.Observation {
-  {
-    ...base,
-    source_id: source_id,
-    at_ns: at_ns,
-    processes: {...base.processes, processes: rows},
-  }
+  {...base, source_id: source_id, at_ns: at_ns, processes.processes: rows}
 }
 
 proc measured_process_join(current: List[sysproc.Process], previous: List[sysproc.Process]) [time, error] -> Int {
@@ -108,11 +103,7 @@ pure disk_epoch(base: disks.Source, count: Int, epoch: Int, counter_base: Int) -
       }
     }
   }
-  {
-    ...base,
-    blocks: {...base.blocks, devices: devices},
-    mounts: {...base.mounts, mounts: mount_rows},
-  }
+  {...base, blocks.devices: devices, mounts.mounts: mount_rows}
 }
 
 test test_btop_process_join_scales_from_one_thousand_to_two_thousand {
@@ -155,9 +146,9 @@ test test_btop_process_join_scales_from_one_thousand_to_two_thousand {
 
   let _ = measured_process_join(current_1000.processes.processes, previous_1000.processes.processes)
   let _ = measured_process_join(current_2000.processes.processes, previous_2000.processes.processes)
-  var samples_1000: List[Int] = []
-  var samples_2000: List[Int] = []
-  for _ in range(5) {
+  var samples_1000 = []
+  var samples_2000 = []
+  repeat 5 times {
     samples_1000 += [measured_process_join(current_1000.processes.processes, previous_1000.processes.processes)]
     samples_2000 += [measured_process_join(current_2000.processes.processes, previous_2000.processes.processes)]
   }
@@ -193,8 +184,8 @@ test test_btop_preloaded_model_render_and_diff_profile_at_one_thousand_processes
   let initial_surface = surface.from_lines(120, 40, initial_screen.lines)?
   let initial_update = surface.prepare(surface.initial(), initial_surface)
   var committed = surface.complete(initial_update, initial_update.bytes.byte_len())
-  var samples: List[Int] = []
-  for _ in range(20) {
+  var samples = []
+  repeat 20 times {
     let started_ns = time.monotonic()?
     let updated = model.step_cached(current, previous, model.empty_metadata_cache("profile"))
     let screen = renderer.render(updated.value, 120, 40)?
@@ -228,13 +219,7 @@ test test_btop_process_and_device_identity_churn_stays_bounded_and_warms_new_epo
       100000 + cycle * 100,
       process_seed + cycle,
     )
-    let current: model.Observation = {
-      ...base,
-      source_id: "churn",
-      at_ns: (cycle + 1) * 1000000000,
-      processes: {...base.processes, processes: current_processes},
-      storage: disk_epoch(base.storage, disk_count, cycle * 1000 + 10, cycle * 100),
-    }
+    let current: model.Observation = {...base, source_id: "churn", at_ns: (cycle + 1) * 1000000000, processes.processes: current_processes, storage: disk_epoch(base.storage, disk_count, cycle * 1000 + 10, cycle * 100)}
     let updated = model.step_cached(current, previous, cache)
     assert updated.value.processes.len() == process_count
     assert updated.metadata.by_pid.len() == process_count
@@ -243,8 +228,8 @@ test test_btop_process_and_device_identity_churn_stays_bounded_and_warms_new_epo
       first_pid = current_processes[0].pid
     } else {
       assert first_pid not in updated.metadata.by_pid
-      assert updated.value.processes[0].cpu_percent.state == rates.Warming
-      assert updated.value.storage.devices[0].read_bytes_per_second.state == rates.Warming
+      assert updated.value.processes[0].cpu_percent.state == .Warming
+      assert updated.value.storage.devices[0].read_bytes_per_second.state == .Warming
     }
     previous = current
     cache = updated.metadata
@@ -269,11 +254,11 @@ test test_btop_optional_source_loss_keeps_process_view_and_labels_unavailable_fi
   let screen = renderer.render(value, 80, 24)?
   let visible = screen.lines.join("\n")
 
-  assert value.process_state == report.Observed
+  assert value.process_state == .Observed
   assert value.processes.len() == 1 and value.processes[0].pid == 42
-  assert value.memory.total_state == report.Absent and value.memory.total_bytes == null
-  assert value.network.source_state == report.Absent and value.network.interface_name == null
-  assert value.storage.block_state == report.Absent and value.storage.mount_state == report.Absent
+  assert value.memory.total_state == .Absent and value.memory.total_bytes == null
+  assert value.network.source_state == .Absent and value.network.interface_name == null
+  assert value.storage.block_state == .Absent and value.storage.mount_state == .Absent
   assert "Total absent" in visible
   assert "Interface absent" in visible
   assert "Temperature absent" in visible

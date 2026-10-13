@@ -27,7 +27,7 @@ test test_printf_escapes_and_usage { |ctx|
 
 type PrintfResult = {status: Int, stdout: Str, stderr: Str}
 
-proc printf_run(ctx: TestContext, args: List[Str], posix: Bool = false) [fs, process, error] -> Result[PrintfResult] {
+proc printf_run(ctx: TestContext, args: List[Str], posix = false) [fs, process, error] -> Result[PrintfResult] {
   let root = test.temp_dir(ctx, name: "printf-argv")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -70,16 +70,16 @@ test test_printf_preserves_output_bytes { |ctx|
 }
 
 test test_printf_flushes_stdout_and_reports_write_errors { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "printf-write-error")?
   let script = fp"{ctx.core_dir}/printf.xsh"
   let error_path = fp"{root}/error"
   let failed = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "greeting"], root,
+    [ctx.xsh_bin, "--", script, "greeting"], root,
     {LC_ALL: "C"}, b"", p"/dev/full", error_path))?
   let empty_error = fp"{root}/empty-error"
   let empty = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), ""], root,
+    [ctx.xsh_bin, "--", script, ""], root,
     {LC_ALL: "C"}, b"", p"/dev/full", empty_error))?
 
   assert failed.exit_code()? == 1
@@ -94,7 +94,7 @@ test test_printf_streams_large_field_widths { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "A%1000001sB", "x"], root,
+    [ctx.xsh_bin, "--", script, "A%1000001sB", "x"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   let data = stdout.read_bytes()?
 
@@ -106,31 +106,31 @@ test test_printf_streams_large_field_widths { |ctx|
   assert data.byte_at(1000002) == 66
   assert stderr.read_text()? == ""
 
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
   let full_error = fp"{root}/error-full"
   let full = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "%20000000f", "1"], root,
+    [ctx.xsh_bin, "--", script, "%20000000f", "1"], root,
     {LC_ALL: "C"}, b"", p"/dev/full", full_error))?
   assert full.exit_code()? == 1
   assert full_error.read_text()? == "printf: write error: No space left on device\n"
 
   let overflow_error = fp"{root}/error-overflow"
   let overflow = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "%999999999999999999999999d", "1"], root,
+    [ctx.xsh_bin, "--", script, "%999999999999999999999999d", "1"], root,
     {LC_ALL: "C"}, b"", p"/dev/full", overflow_error))?
   assert overflow.exit_code()? == 1
   assert overflow_error.read_text()? == "printf: write error\n"
 }
 
 test test_printf_matches_c_field_width_limits { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "printf-width-limits")?
   let script = fp"{ctx.core_dir}/printf.xsh"
 
   for width in ["-9223372036854775808", "2147483648", "9223372036854775808"] {
     let error_path = fp"{root}/dynamic-{width.byte_len()}"
     let result = process.run(process.command_argv(ctx.xsh_bin,
-      [ctx.xsh_bin.display(), "--", script.display(), "%*d", width, "1"], root,
+      [ctx.xsh_bin, "--", script, "%*d", width, "1"], root,
       {LC_ALL: "C"}, b"", p"/dev/full", error_path))?
 
     assert result.exit_code()? == 1
@@ -144,7 +144,7 @@ test test_printf_matches_c_field_width_limits { |ctx|
 
   let overflow_error = fp"{root}/literal-overflow"
   let overflow = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display(), "%999999999999999999999999d", "1"], root,
+    [ctx.xsh_bin, "--", script, "%999999999999999999999999d", "1"], root,
     {LC_ALL: "C"}, b"", p"/dev/full", overflow_error))?
   assert overflow.exit_code()? == 1
   assert overflow_error.read_text()? == "printf: write error\n"

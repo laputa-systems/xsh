@@ -1,10 +1,10 @@
 #!/bin/xsh
-use core.lib.btop_loop as scheduler
-use core.lib.btop_input as input
 use core.lib.btop_graphs as graph_series
+use core.lib.btop_input as input
+use core.lib.btop_loop as scheduler
 use core.lib.btop_model as model
-use core.lib.btop_replay as replay
 use core.lib.btop_render as renderer
+use core.lib.btop_replay as replay
 use core.lib.btop_schedule as collection_schedule
 use core.lib.btop_source as source
 use core.lib.btop_surface as surface
@@ -60,10 +60,8 @@ pure apply_events(
 ) -> InputResult {
   var view = initial_ui
   for event in events {
-    if event == input.Eof or event == input.Pressed(input.Cancel) {
-      return {quit: true, ui: view}
-    }
-    if ! view.editing_filter and (event == input.Pressed(input.Text("q")) or event == input.Pressed(input.Text("Q"))) {
+    return {quit: true, ui: view} when event == .Eof or event == input.Pressed(input.Cancel)
+    if ! view.editing_filter and (event == input.Pressed(.Text("q")) or event == input.Pressed(.Text("Q"))) {
       return {quit: true, ui: view}
     }
     view = ui.reduce(view, event, value, local_display)
@@ -151,25 +149,19 @@ proc wait_until(
 }
 
 pure limited_observations(observations: List[model.Observation], count: Int?) -> List[model.Observation] {
-  if count == null or (count ?? 0) >= observations.len() {
-    return observations
-  }
-  observations |> take(count ?? 0)
+  return observations when count == null or count >= observations.len()
+  observations |> take(count)
 }
 
 pure limited_models(frames: List[model.Model], count: Int?) -> List[model.Model] {
-  if count == null or (count ?? 0) >= frames.len() {
-    return frames
-  }
-  frames |> take(count ?? 0)
+  return frames when count == null or count >= frames.len()
+  frames |> take(count)
 }
 
 proc parse_frame_limit(value: Str?) -> Result[Int?, Error] {
-  if value == null {
-    return Ok(null)
-  }
+  return Ok(null) when value == null
   let parsed = src.parse_integer(value)
-  if parsed == null or (parsed ?? 0) <= 0 {
+  if parsed == null or parsed <= 0 {
     return Err(error.failure("--frames requires a positive integer"))
   }
   Ok(parsed)
@@ -180,18 +172,19 @@ proc dump_frames(
   model_path: Str?,
   screen_path: Str?,
   display: terminal.Inputs,
-) [fs, error] -> Result[Unit, Error] {
+) [fs, error] {
   if let output_path = model_path {
-    var lines: List[Str] = []
-    for frame in frames {
-      lines += [model.encode_wire_json(frame)?]
+    let lines = collect {
+      for frame in frames {
+        yield model.encode_wire_json(frame)?
+      }
     }
-    fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))?
+    fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))
   }
   if let output_path = screen_path {
     var histories = graph_series.empty()
     let capabilities = terminal.detect(display)
-    var lines: List[Str] = []
+    var lines = []
     for frame in frames {
       let view = ui.initial(frame, renderer.process_capacity(display.rows))
       histories = graph_series.observe(histories, frame, view.network_interface)?
@@ -206,25 +199,22 @@ proc dump_frames(
       )?
       lines += [json.encode({at_ns: frame.at_ns, width: screen.width, height: screen.height, too_small: screen.too_small, lines: screen.lines}, pretty: false)?]
     }
-    fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))?
+    fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))
   }
-  return
 }
 
-proc headless_replay(bundle: replay.Bundle, count: Int?, dump_model_path: Str?, dump_screen_path: Str?) [fs, error] -> Result[Unit, Error] {
+proc headless_replay(bundle: replay.Bundle, count: Int?, dump_model_path: Str?, dump_screen_path: Str?) [fs, error] {
   let observations = limited_observations(bundle.observations, count)
   let frames = limited_models(replay.models(observations), count)
   dump_frames(frames, dump_model_path, dump_screen_path, bundle.display)
 }
 
-proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, error] -> Result[Unit, Error] {
+proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, error] {
   let selected_observations = limited_observations(bundle.observations, count)
   let frames = replay.models(selected_observations)
   let session = terminal.begin_with(bundle.display)?
-  defer { terminal.finish(session)? }
-  if frames.is_empty() {
-    return
-  }
+  defer { terminal.finish(session) }
+  return when frames.is_empty()
 
   let started_at = time.monotonic()?
   let first_at = selected_observations[0].at_ns
@@ -252,9 +242,7 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
     decoder = waited.input
     view = waited.ui
     committed = waited.committed
-    if waited.quit {
-      return
-    }
+    return when waited.quit
     let size = unix.window_size(1)?
     rows = size.rows
     cols = size.cols
@@ -263,12 +251,11 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
     histories = graph_series.observe(histories, frames[index], view.network_interface)?
     committed = draw(frames[index], view, rows, cols, committed, histories, session.capabilities)?
   }
-  return
 }
 
-proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit, Error] {
+proc interactive_live(count: Int?) [fs, process, time, io, error] {
   let session = terminal.begin()?
-  defer { terminal.finish(session)? }
+  defer { terminal.finish(session) }
 
   let root = fs.open_root(/)?
   defer root.close()
@@ -287,11 +274,11 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   var gauges_due = false
   var storage_due = false
   for item in first_collection.due {
-    if item.class == collection_schedule.Counters {
+    if item.class == .Counters {
       counters_due = true
-    } else if item.class == collection_schedule.Gauges {
+    } else if item.class == .Gauges {
       gauges_due = true
-    } else if item.class == collection_schedule.Inventory or item.class == collection_schedule.Blocking {
+    } else if item.class == .Inventory or item.class == .Blocking {
       storage_due = true
     }
   }
@@ -321,9 +308,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   while true {
     committed = draw(current, view, rows, cols, committed, histories, session.capabilities, local_display)?
     sampled += 1
-    if count != null and sampled >= (count ?? 0) {
-      break
-    }
+    break when count != null and sampled >= count
     let waited = wait_until(
       schedule.next_due_ns,
       current,
@@ -339,9 +324,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
     decoder = waited.input
     view = waited.ui
     committed = waited.committed
-    if waited.quit {
-      break
-    }
+    break when waited.quit
     let due = scheduler.take_due(schedule, time.monotonic()?)?
     schedule = due.state
     if let ticket = due.ticket {
@@ -351,11 +334,11 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       var gauges_due = false
       var storage_due = false
       for item in collection_plan.due {
-        if item.class == collection_schedule.Counters {
+        if item.class == .Counters {
           counters_due = true
-        } else if item.class == collection_schedule.Gauges {
+        } else if item.class == .Gauges {
           gauges_due = true
-        } else if item.class == collection_schedule.Inventory or item.class == collection_schedule.Blocking {
+        } else if item.class == .Inventory or item.class == .Blocking {
           storage_due = true
         }
       }
@@ -391,7 +374,6 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
     cols = size.cols
     view = ui.resize(view, current, renderer.process_capacity(rows), local_display)
   }
-  return
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
@@ -411,12 +393,9 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
     gnu.error("btop: unexpected operand")
     exit 2
   }
-  let count = match parse_frame_limit(opts.frames) {
-    Ok(value) => value
-    Err(failure) => {
-      gnu.error(f"btop: {failure.message}")
-      exit 2
-    }
+  let count = parse_frame_limit(opts.frames) ?? { |failure|
+    gnu.error(f"btop: {failure.message}")
+    exit 2
   }
   if opts.headless and opts.replay == null {
     gnu.error("btop: --headless requires --replay")
@@ -428,13 +407,13 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
   }
 
   if let bundle = opts.replay {
-    let loaded = replay.load(Path(bundle))?
+    let loaded = replay.load(fp"{bundle}")?
     if opts.headless {
-      headless_replay(loaded, count, opts.dump_model, opts.dump_screen)?
+      headless_replay(loaded, count, opts.dump_model, opts.dump_screen)
     } else {
-      interactive_replay(loaded, count)?
+      interactive_replay(loaded, count)
     }
   } else {
-    interactive_live(count)?
+    interactive_live(count)
   }
 }

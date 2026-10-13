@@ -198,20 +198,21 @@ type Pair = {name: Str, value: Str}
 # Splits `NAME VALUE ...` parameters, rejecting a name outside `known` and a
 # name without a value, in command-line order.
 proc pairs(option: Str, rest: List[Str], known: List[Str]) -> List[Pair] {
-  var found: List[Pair] = []
   var index = 0
-  while index < rest.len() {
-    let name = rest[index]
-    if name not in known {
-      warn(f"ethtool ({option}): unknown parameter '{name}'")
-      exit 1
+  let found: List[Pair] = collect {
+    while index < rest.len() {
+      let name = rest[index]
+      if name not in known {
+        warn(f"ethtool ({option}): unknown parameter '{name}'")
+        exit 1
+      }
+      if index + 1 >= rest.len() {
+        warn(f"ethtool ({option}): no value for parameter '{name}'")
+        exit 1
+      }
+      yield {name: name, value: rest[index + 1]}
+      index += 2
     }
-    if index + 1 >= rest.len() {
-      warn(f"ethtool ({option}): no value for parameter '{name}'")
-      exit 1
-    }
-    found += [{name: name, value: rest[index + 1]}]
-    index += 2
   }
   found
 }
@@ -271,8 +272,8 @@ proc show_features(fd: Int, device: Str, rest: List[Str], as_json: Bool) {
 # bit within its request message; the offset is rebuilt here from the same
 # attribute layout so the report names the same position.
 proc set_features(fd: Int, device: Str, rest: List[Str]) {
-  var words: List[Str] = []
-  var values: List[Bool] = []
+  var words = []
+  var values = []
   var index = 0
   while index < rest.len() and rest[index] != "--" {
     let value = if index + 1 < rest.len() { rest[index + 1] } else { "" }
@@ -465,8 +466,9 @@ proc show_coalesce(fd: Int, device: Str, rest: List[Str]) {
 }
 
 pure range_zero(count: Int) -> List[Int] {
-  var zeros: List[Int] = []
-  for _ in range(count) { zeros += [0] }
+  let zeros = collect {
+    repeat count times { yield 0 }
+  }
   zeros
 }
 
@@ -512,9 +514,9 @@ proc show_pause(fd: Int, device: Str, rest: List[Str]) {
 }
 
 proc set_pause(fd: Int, device: Str, rest: List[Str]) {
-  var autoneg: Bool? = null
-  var rx: Bool? = null
-  var tx: Bool? = null
+  var autoneg = null
+  var rx = null
+  var tx = null
   for pair in pairs("-A", rest, ["autoneg", "rx", "tx"]) {
     let value = switch_value("-A", pair.name, pair.value)
     if pair.name == "autoneg" { autoneg = value } else if pair.name == "rx" { rx = value } else { tx = value }
@@ -534,10 +536,10 @@ proc show_eee(fd: Int, device: Str, rest: List[Str]) {
 }
 
 proc set_eee(fd: Int, device: Str, rest: List[Str]) {
-  var enabled: Bool? = null
-  var tx_lpi: Bool? = null
-  var advertise: Int? = null
-  var timer: Int? = null
+  var enabled = null
+  var tx_lpi = null
+  var advertise = null
+  var timer = null
   for pair in pairs("--set-eee", rest, ["eee", "advertise", "tx-lpi", "tx-timer"]) {
     if pair.name == "eee" {
       enabled = switch_value("--set-eee", pair.name, pair.value)
@@ -583,7 +585,7 @@ proc run_test(fd: Int, device: Str, rest: List[Str]) {
 # What the device reports for `ethtool DEV`: link settings, wake-on-LAN, the
 # message level, and link state, each independently available.
 proc show_settings(fd: Int, device: Str) {
-  var lines: List[Str] = []
+  var lines = []
   var any = false
   let first = eth_request(fd, device, dec.link_settings_request(0)?, LINK_HEAD_SIZE)
   if let Err(failure) = first {
@@ -628,7 +630,7 @@ proc show_settings(fd: Int, device: Str) {
     gnu.write_text("No data available\n")
     exit 75
   }
-  emit([f"Settings for {device}:"] + lines)
+  emit([f"Settings for {device}:", @lines])
 }
 
 # `-s`: the generic settings of the link. Fields are written back into the
@@ -644,17 +646,17 @@ proc change_settings(fd: Int, device: Str, rest: List[Str]) {
   let given = pairs("-s", rest, known)
   return when given.is_empty()
 
-  var speed: Int? = null
-  var duplex: Int? = null
-  var port: Int? = null
-  var phy: Int? = null
-  var autoneg: Int? = null
-  var mdix: Int? = null
-  var advertise: Int? = null
-  var wol: Int? = null
-  var secure: Bytes? = null
-  var level: Int? = null
-  var level_mask: Int? = null
+  var speed = null
+  var duplex = null
+  var port = null
+  var phy = null
+  var autoneg = null
+  var mdix = null
+  var advertise = null
+  var wol = null
+  var secure = null
+  var level = null
+  var level_mask = null
   for pair in given {
     if pair.name == "speed" {
       speed = number_value("-s", "speed", pair.value)
@@ -679,8 +681,9 @@ proc change_settings(fd: Int, device: Str, rest: List[Str]) {
       wol = mask
     } else if pair.name == "sopass" {
       let octets = pair.value.split(":")
-      var password: List[Int] = []
-      for octet in octets { password += [("0x" + octet).parse_int() ?? -1] }
+      let password = collect {
+        for octet in octets { yield ("0x" + octet).parse_int() ?? -1 }
+      }
       if octets.len() != 6 or ! [o for o in password if o < 0 or o > 255].is_empty() {
         warn(f"ethtool (-s): invalid value '{pair.value}' for parameter 'sopass'")
         exit 1

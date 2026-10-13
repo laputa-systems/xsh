@@ -120,7 +120,7 @@ test test_cat_help_and_version_go_to_stdout { |ctx|
 
 test test_cat_accepts_non_utf8_file_path_arguments { |ctx|
   let root = test.temp_dir(ctx, name: "cat-raw-path")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write(b"raw path data\n")
   let output = fp"{root}/out"
   let error = fp"{root}/err"
@@ -135,7 +135,7 @@ test test_cat_accepts_non_utf8_file_path_arguments { |ctx|
 }
 
 test test_cat_streams_show_all_from_an_unbounded_device { |ctx|
-  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "cat-device")?
   let script = fp"{ctx.core_dir}/cat.xsh"

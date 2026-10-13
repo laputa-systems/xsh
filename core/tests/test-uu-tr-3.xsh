@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_tr.rs.
 ##! Each test names its origin; expected values are the original assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_tr::uppercase_conversion_works_1
 test test_uu_tr_uppercase_conversion_works_1 { |ctx|

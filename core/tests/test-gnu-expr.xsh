@@ -7,7 +7,7 @@ type ExpressionCase = {args: List[Str], out: Str, status: Int, err: Str}
 # Run every row before reporting failures so unrelated arithmetic, syntax and
 # locale behavior stays observable when one expression differs.
 proc check_rows(s: uu.Scene, rows: List[ExpressionCase], locale: Str) [fs, process, env, error] -> Result[List[Str], Error] {
-  var failures: List[Str] = []
+  var failures = []
   for item in rows {
     let r = uu.invoke(s, "expr", item.args, vars: {LC_ALL: locale, LANGUAGE: "C", LANG: "C"}, timeout: 5s)?
     # Regex libraries report either invalid interval content or an oversized
@@ -135,80 +135,641 @@ test test_gnu_expr_expr_log { |ctx|
     {args: ["(", "2", "a"], out: "", status: 2, err: "expr: syntax error: expecting ')' instead of 'a'\n"},
   ]
   var failures = check_rows(s, rows, "C")?
-  failures = failures.extend(check_rows(s, rows[..100], "fr_FR.UTF-8")?)
+  failures += check_rows(s, rows[..100], "fr_FR.UTF-8")?
   assert failures.is_empty(), failures.join("\n")
 }
 
 # origin: gnu expr/expr-multibyte.log
 test test_gnu_expr_expr_multibyte_log { |ctx|
   let s = uu.scene(ctx)?
-  var failures: List[Str] = []
-  for item in [
-    {locale: "fr_FR.UTF-8", args: [b"length", b"abcdef"], out: b"6\x0a", status: 0},
-    {locale: "C", args: [b"length", b"abcdef"], out: b"6\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"length", b"\xce\xb1bcdef"], out: b"6\x0a", status: 0},
-    {locale: "C", args: [b"length", b"\xce\xb1bcdef"], out: b"7\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"length", b"abc\xce\xb4ef"], out: b"6\x0a", status: 0},
-    {locale: "C", args: [b"length", b"abc\xce\xb4ef"], out: b"7\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"length", b"fedcb\xce\xb1"], out: b"6\x0a", status: 0},
-    {locale: "C", args: [b"length", b"fedcb\xce\xb1"], out: b"7\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"length", b"\xb1aaa"], out: b"4\x0a", status: 0},
-    {locale: "C", args: [b"length", b"\xb1aaa"], out: b"4\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"length", b"aaa\xce"], out: b"4\x0a", status: 0},
-    {locale: "C", args: [b"length", b"aaa\xce"], out: b"4\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"length", b"\xe1\xbc\x94\xce\xba\xcf\x86\xcf\x81\xce\xb1\xcf\x83\xce\xb9\xcf\x82"], out: b"8\x0a", status: 0},
-    {locale: "C", args: [b"length", b"\xe1\xbc\x94\xce\xba\xcf\x86\xcf\x81\xce\xb1\xcf\x83\xce\xb9\xcf\x82"], out: b"17\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"index", b"abcdef", b"fb"], out: b"2\x0a", status: 0},
-    {locale: "C", args: [b"index", b"abcdef", b"fb"], out: b"2\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"b"], out: b"2\x0a", status: 0},
-    {locale: "C", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"b"], out: b"3\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"f"], out: b"6\x0a", status: 0},
-    {locale: "C", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"f"], out: b"8\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"\xce\xb4"], out: b"4\x0a", status: 0},
-    {locale: "C", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"\xce\xb4"], out: b"1\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"index", b"\xcebc\xce\xb4ef", b"\xce\xb4"], out: b"4\x0a", status: 0},
-    {locale: "C", args: [b"index", b"\xcebc\xce\xb4ef", b"\xce\xb4"], out: b"1\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"\xb4"], out: b"0\x0a", status: 1},
-    {locale: "C", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"\xb4"], out: b"6\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"index", b"\xce\xb1bc\xb4ef", b"\xb4"], out: b"4\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"substr", b"abcdef", b"2", b"3"], out: b"bcd\x0a", status: 0},
-    {locale: "C", args: [b"substr", b"abcdef", b"2", b"3"], out: b"bcd\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"1", b"1"], out: b"\xce\xb1\x0a", status: 0},
-    {locale: "C", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"1", b"1"], out: b"\xce\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"3", b"2"], out: b"c\xce\xb4\x0a", status: 0},
-    {locale: "C", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"3", b"2"], out: b"bc\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"4", b"1"], out: b"\xce\xb4\x0a", status: 0},
-    {locale: "C", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"4", b"1"], out: b"c\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"4", b"2"], out: b"\xce\xb4e\x0a", status: 0},
-    {locale: "C", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"4", b"2"], out: b"c\xce\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"6", b"1"], out: b"f\x0a", status: 0},
-    {locale: "C", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"6", b"1"], out: b"\xb4\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"7", b"1"], out: b"\x0a", status: 1},
-    {locale: "C", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"7", b"1"], out: b"e\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"substr", b"\xce\xb1bc\xb4ef", b"3", b"3"], out: b"c\xb4e\x0a", status: 0},
-    {locale: "C", args: [b"substr", b"\xce\xb1bc\xb4ef", b"3", b"3"], out: b"bc\xb4\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"match", b"abcdef", b"ab"], out: b"2\x0a", status: 0},
-    {locale: "C", args: [b"match", b"abcdef", b"ab"], out: b"2\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"match", b"abcdef", b"\\(ab\\)"], out: b"ab\x0a", status: 0},
-    {locale: "C", args: [b"match", b"abcdef", b"\\(ab\\)"], out: b"ab\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"match", b"\xce\xb1bc\xce\xb4ef", b".bc"], out: b"3\x0a", status: 0},
-    {locale: "C", args: [b"match", b"\xce\xb1bc\xce\xb4ef", b".bc"], out: b"0\x0a", status: 1},
-    {locale: "fr_FR.UTF-8", args: [b"match", b"\xce\xb1bc\xce\xb4ef", b"..bc"], out: b"0\x0a", status: 1},
-    {locale: "C", args: [b"match", b"\xce\xb1bc\xce\xb4ef", b"..bc"], out: b"4\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"match", b"\xce\xb1bc\xce\xb4ef", b"\\(.b\\)c"], out: b"\xce\xb1b\x0a", status: 0},
-    {locale: "C", args: [b"match", b"\xce\xb1bc\xce\xb4ef", b"\\(.b\\)c"], out: b"\x0a", status: 1},
-    {locale: "fr_FR.UTF-8", args: [b"match", b"\xcebc\xce\xb4ef", b"\\(.\\)"], out: b"\x0a", status: 1},
-    {locale: "C", args: [b"match", b"\xcebc\xce\xb4ef", b"\\(.\\)"], out: b"\xce\x0a", status: 0},
-    {locale: "fr_FR.UTF-8", args: [b"match", b"\xce\xb1bc\xce\xb4e", b"\\([\xce\xb1]\\)"], out: b"\xce\xb1\x0a", status: 0},
-    {locale: "C", args: [b"match", b"\xce\xb1bc\xce\xb4e", b"\\([\xce\xb1]\\)"], out: b"\xce\x0a", status: 0},
-    {locale: "C.UTF-8", args: [b"length", b"abc\xce\xb4ef"], out: b"6\x0a", status: 0},
-    {locale: "C.UTF-8", args: [b"index", b"\xce\xb1bc\xce\xb4ef", b"\xce\xb4"], out: b"4\x0a", status: 0},
-    {locale: "C.UTF-8", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"3", b"2"], out: b"c\xce\xb4\x0a", status: 0},
-    {locale: "C.UTF-8", args: [b"match", b"\xce\xb1bc\xce\xb4ef", b".bc"], out: b"3\x0a", status: 0},
-  ] {
-    let r = uu.invoke_paths(s, "expr", [Path.parse_bytes(word)? for word in item.args], vars: {LC_ALL: item.locale, LANGUAGE: "C", LANG: "C"}, timeout: 5s)?
-    if r.status != item.status or r.stdout != item.out or r.stderr != b"" {
-      failures += [f"{item.locale} expr {[byte_text(word) for word in item.args].join(" / ")}: status {r.status} expected {item.status}; output bytes {byte_text(r.stdout)} expected {byte_text(item.out)}; stderr {byte_text(r.stderr)}"]
+  let failures = collect {
+    for item in [
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"length",
+          b"abcdef",
+        ],
+        out: b"6\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"length",
+          b"abcdef",
+        ],
+        out: b"6\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"length",
+          b"\xce\xb1bcdef",
+        ],
+        out: b"6\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"length",
+          b"\xce\xb1bcdef",
+        ],
+        out: b"7\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"length",
+          b"abc\xce\xb4ef",
+        ],
+        out: b"6\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"length",
+          b"abc\xce\xb4ef",
+        ],
+        out: b"7\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"length",
+          b"fedcb\xce\xb1",
+        ],
+        out: b"6\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"length",
+          b"fedcb\xce\xb1",
+        ],
+        out: b"7\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"length",
+          b"\xb1aaa",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"length",
+          b"\xb1aaa",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"length",
+          b"aaa\xce",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"length",
+          b"aaa\xce",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"length",
+          b"\xe1\xbc\x94\xce\xba\xcf\x86\xcf\x81\xce\xb1\xcf\x83\xce\xb9\xcf\x82",
+        ],
+        out: b"8\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"length",
+          b"\xe1\xbc\x94\xce\xba\xcf\x86\xcf\x81\xce\xb1\xcf\x83\xce\xb9\xcf\x82",
+        ],
+        out: b"17\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"index",
+          b"abcdef",
+          b"fb",
+        ],
+        out: b"2\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"index",
+          b"abcdef",
+          b"fb",
+        ],
+        out: b"2\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"b",
+        ],
+        out: b"2\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"b",
+        ],
+        out: b"3\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"f",
+        ],
+        out: b"6\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"f",
+        ],
+        out: b"8\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"\xce\xb4",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"\xce\xb4",
+        ],
+        out: b"1\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"index",
+          b"\xcebc\xce\xb4ef",
+          b"\xce\xb4",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"index",
+          b"\xcebc\xce\xb4ef",
+          b"\xce\xb4",
+        ],
+        out: b"1\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"\xb4",
+        ],
+        out: b"0\n",
+        status: 1,
+      },
+      {
+        locale: "C",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"\xb4",
+        ],
+        out: b"6\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xb4ef",
+          b"\xb4",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"substr",
+          b"abcdef",
+          b"2",
+          b"3",
+        ],
+        out: b"bcd\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"substr",
+          b"abcdef",
+          b"2",
+          b"3",
+        ],
+        out: b"bcd\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"1",
+          b"1",
+        ],
+        out: b"\xce\xb1\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"1",
+          b"1",
+        ],
+        out: b"\xce\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"3",
+          b"2",
+        ],
+        out: b"c\xce\xb4\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"3",
+          b"2",
+        ],
+        out: b"bc\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"4",
+          b"1",
+        ],
+        out: b"\xce\xb4\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"4",
+          b"1",
+        ],
+        out: b"c\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"4",
+          b"2",
+        ],
+        out: b"\xce\xb4e\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"4",
+          b"2",
+        ],
+        out: b"c\xce\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"6",
+          b"1",
+        ],
+        out: b"f\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"6",
+          b"1",
+        ],
+        out: b"\xb4\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"7",
+          b"1",
+        ],
+        out: b"\n",
+        status: 1,
+      },
+      {
+        locale: "C",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"7",
+          b"1",
+        ],
+        out: b"e\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xb4ef",
+          b"3",
+          b"3",
+        ],
+        out: b"c\xb4e\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xb4ef",
+          b"3",
+          b"3",
+        ],
+        out: b"bc\xb4\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"match",
+          b"abcdef",
+          b"ab",
+        ],
+        out: b"2\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"match",
+          b"abcdef",
+          b"ab",
+        ],
+        out: b"2\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"match",
+          b"abcdef",
+          b"\\(ab\\)",
+        ],
+        out: b"ab\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"match",
+          b"abcdef",
+          b"\\(ab\\)",
+        ],
+        out: b"ab\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4ef",
+          b".bc",
+        ],
+        out: b"3\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4ef",
+          b".bc",
+        ],
+        out: b"0\n",
+        status: 1,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"..bc",
+        ],
+        out: b"0\n",
+        status: 1,
+      },
+      {
+        locale: "C",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"..bc",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"\\(.b\\)c",
+        ],
+        out: b"\xce\xb1b\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"\\(.b\\)c",
+        ],
+        out: b"\n",
+        status: 1,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"match",
+          b"\xcebc\xce\xb4ef",
+          b"\\(.\\)",
+        ],
+        out: b"\n",
+        status: 1,
+      },
+      {
+        locale: "C",
+        args: [
+          b"match",
+          b"\xcebc\xce\xb4ef",
+          b"\\(.\\)",
+        ],
+        out: b"\xce\n",
+        status: 0,
+      },
+      {
+        locale: "fr_FR.UTF-8",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4e",
+          b"\\([\xce\xb1]\\)",
+        ],
+        out: b"\xce\xb1\n",
+        status: 0,
+      },
+      {
+        locale: "C",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4e",
+          b"\\([\xce\xb1]\\)",
+        ],
+        out: b"\xce\n",
+        status: 0,
+      },
+      {
+        locale: "C.UTF-8",
+        args: [
+          b"length",
+          b"abc\xce\xb4ef",
+        ],
+        out: b"6\n",
+        status: 0,
+      },
+      {
+        locale: "C.UTF-8",
+        args: [
+          b"index",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"\xce\xb4",
+        ],
+        out: b"4\n",
+        status: 0,
+      },
+      {
+        locale: "C.UTF-8",
+        args: [
+          b"substr",
+          b"\xce\xb1bc\xce\xb4ef",
+          b"3",
+          b"2",
+        ],
+        out: b"c\xce\xb4\n",
+        status: 0,
+      },
+      {
+        locale: "C.UTF-8",
+        args: [
+          b"match",
+          b"\xce\xb1bc\xce\xb4ef",
+          b".bc",
+        ],
+        out: b"3\n",
+        status: 0,
+      },
+    ] {
+      let r = uu.invoke_paths(
+        s,
+        "expr",
+        [
+          word as Path
+          for word in item.args
+        ],
+        vars: {LC_ALL: item.locale, LANGUAGE: "C", LANG: "C"},
+        timeout: 5s,
+      )?
+      if r.status != item.status or r.stdout != item.out or r.stderr != b"" {
+        yield f"{item.locale} expr {[byte_text(word) for word in item.args].join(" / ")}: status {r.status} expected {item.status}; output bytes {byte_text(r.stdout)} expected {byte_text(item.out)}; stderr {byte_text(r.stderr)}"
+      }
     }
   }
   assert failures.is_empty(), failures.join("\n")

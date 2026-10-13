@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_basenc.rs.
 ##! Each test names its origin; expected values are the original assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_basenc::test_base16
 test test_uu_basenc_base16 { |ctx|
@@ -191,10 +191,10 @@ test test_uu_basenc_base58_large_file_no_chunking { |ctx|
   repeat 50 times {
     input += "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
   }
-  uu.write(s, "large_file.txt", input)?
+  uu.write(s, "large_file.txt", input)
   let r = uu.invoke(s, "basenc", ["--base58", "large_file.txt"])?
   uu.succeeds(r)
-  let encoded = r.stdout.utf8()?
+  let encoded = r.stdout as Str
   let trimmed = rx"\s+$".replace(encoded, with: "")
   assert trimmed.ends_with("ZNRRacEnhrY83ZEYkpwWVZNFK5DFRasr\nw693NsNGtiQ9fYAj")
 }
@@ -258,7 +258,7 @@ test test_uu_basenc_choose_last_encoding_base64 { |ctx|
 # origin: uutils test_basenc::test_file
 test test_uu_basenc_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file", "foo")?
+  uu.write(s, "file", "foo")
   let r = uu.invoke(s, "basenc", ["file", "--base64"])?
   uu.succeeds(r)
   uu.stdout_is(r, "Zm9v\n")
@@ -268,7 +268,7 @@ test test_uu_basenc_file { |ctx|
 test test_uu_basenc_file_with_non_utf8_name { |ctx|
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"\xff\xfe")?
-  file.write(b"foo")?
+  file.write(b"foo")
   let r = uu.invoke_paths(s, "basenc", [b"\xff\xfe" as Path, p"--base64"])?
   uu.succeeds(r)
   uu.stdout_is(r, "Zm9v\n")

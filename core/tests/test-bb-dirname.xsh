@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox dirname/dirname-handles-absolute-path
 test test_bb_dirname_dirname_handles_absolute_path_fb8adf49 { |ctx|

@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils sort integration tests.
-use support.uu as uu
+use support.uu
 
 # Apply both descriptor limits before the applet launcher starts; the oracle uses the same argv.
 proc limited(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran] {
@@ -32,8 +32,8 @@ test test_uu_sort_sort_empty_chunk { |ctx|
 # origin: uutils test_sort::sort_multiple
 test test_uu_sort_sort_multiple { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "no_trailing_newline1.txt", "no_trailing_newline1.txt")?
-  uu.fixture(s, "sort", "no_trailing_newline2.txt", "no_trailing_newline2.txt")?
+  uu.fixture(s, "sort", "no_trailing_newline1.txt", "no_trailing_newline1.txt")
+  uu.fixture(s, "sort", "no_trailing_newline2.txt", "no_trailing_newline2.txt")
   let r1 = uu.invoke(s, "sort", ["no_trailing_newline1.txt", "no_trailing_newline2.txt"])?
   uu.succeeds(r1)
   uu.stdout_is(r1, "a\nb\nb\n")
@@ -79,14 +79,14 @@ test test_uu_sort_batch_size_too_large { |ctx|
 # origin: uutils test_sort::test_blanks
 test test_uu_sort_blanks { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "blanks.txt", "blanks.txt")?
+  uu.fixture(s, "sort", "blanks.txt", "blanks.txt")
   let r1 = uu.invoke(s, "sort", ["blanks.txt", "-b"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "blanks.expected", "blanks.expected")?
+  uu.fixture(s, "sort", "blanks.expected", "blanks.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "blanks.expected")?)
   let r2 = uu.invoke(s, "sort", ["blanks.txt", "--debug", "-b"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "blanks.expected.debug", "blanks.expected.debug")?
+  uu.fixture(s, "sort", "blanks.expected.debug", "blanks.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "blanks.expected.debug")?)
   let r3 = uu.invoke(s, "sort", ["blanks.txt", "--ignore-leading-blanks"])?
   uu.succeeds(r3)
@@ -99,11 +99,11 @@ test test_uu_sort_blanks { |ctx|
 # origin: uutils test_sort::test_check
 test test_uu_sort_check { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "check_fail.txt", "check_fail.txt")?
+  uu.fixture(s, "sort", "check_fail.txt", "check_fail.txt")
   let r1 = uu.invoke(s, "sort", ["-c", "check_fail.txt", "--buffer-size=10b"])?
   uu.fails(r1)
   uu.stderr_only(r1, "sort: check_fail.txt:6: disorder: 5\n")
-  uu.fixture(s, "sort", "multiple_files.expected", "multiple_files.expected")?
+  uu.fixture(s, "sort", "multiple_files.expected", "multiple_files.expected")
   let r2 = uu.invoke(s, "sort", ["-c", "multiple_files.expected"])?
   uu.succeeds(r2)
   uu.no_output(r2)
@@ -150,11 +150,11 @@ test test_uu_sort_check_disorder_echoes_line_verbatim { |ctx|
 # origin: uutils test_sort::test_check_silent
 test test_uu_sort_check_silent { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "check_fail.txt", "check_fail.txt")?
+  uu.fixture(s, "sort", "check_fail.txt", "check_fail.txt")
   let r1 = uu.invoke(s, "sort", ["-C", "check_fail.txt"])?
   uu.fails(r1)
   uu.no_output(r1)
-  uu.fixture(s, "sort", "empty.txt", "empty.txt")?
+  uu.fixture(s, "sort", "empty.txt", "empty.txt")
   let r2 = uu.invoke(s, "sort", ["-C", "empty.txt"])?
   uu.succeeds(r2)
   uu.no_output(r2)
@@ -215,7 +215,7 @@ test test_uu_sort_check_unique_combined { |ctx|
 # origin: uutils test_sort::test_check_zero_terminated_success
 test test_uu_sort_check_zero_terminated_success { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "zero-terminated.expected", "zero-terminated.expected")?
+  uu.fixture(s, "sort", "zero-terminated.expected", "zero-terminated.expected")
   let r1 = uu.invoke(s, "sort", ["-z", "-c", "zero-terminated.expected"])?
   uu.succeeds(r1)
 }
@@ -223,36 +223,36 @@ test test_uu_sort_check_zero_terminated_success { |ctx|
 # origin: uutils test_sort::test_compress
 test test_uu_sort_compress { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")?
+  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
   let r1 = uu.invoke(s, "sort", ["ext_sort.txt", "-n", "--compress-program", "gzip", "-S", "10"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "ext_sort.expected", "ext_sort.expected")?
+  uu.fixture(s, "sort", "ext_sort.expected", "ext_sort.expected")
   uu.stdout_only_bytes(r1, uu.read(s, "ext_sort.expected")?)
 }
 
 # origin: uutils test_sort::test_compress_merge
 test test_uu_sort_compress_merge { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")?
-  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")?
+  uu.fixture(s, "sort", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_1.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_2.txt")
+  uu.fixture(s, "sort", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt")
   let r1 = uu.invoke(s, "sort", ["--compress-program", "gzip", "-S", "10", "--batch-size=2", "-m", "--unique", "merge_ints_interleaved_1.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_3.txt", "merge_ints_interleaved_2.txt", "merge_ints_interleaved_1.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "merge_ints_interleaved.expected", "merge_ints_interleaved.expected")?
+  uu.fixture(s, "sort", "merge_ints_interleaved.expected", "merge_ints_interleaved.expected")
   uu.stdout_only_bytes(r1, uu.read(s, "merge_ints_interleaved.expected")?)
 }
 
 # origin: uutils test_sort::test_default_unsorted_ints
 test test_uu_sort_default_unsorted_ints { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "default_unsorted_ints.txt", "default_unsorted_ints.txt")?
+  uu.fixture(s, "sort", "default_unsorted_ints.txt", "default_unsorted_ints.txt")
   let r1 = uu.invoke(s, "sort", ["default_unsorted_ints.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "default_unsorted_ints.expected", "default_unsorted_ints.expected")?
+  uu.fixture(s, "sort", "default_unsorted_ints.expected", "default_unsorted_ints.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "default_unsorted_ints.expected")?)
   let r2 = uu.invoke(s, "sort", ["default_unsorted_ints.txt", "--debug"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "default_unsorted_ints.expected.debug", "default_unsorted_ints.expected.debug")?
+  uu.fixture(s, "sort", "default_unsorted_ints.expected.debug", "default_unsorted_ints.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "default_unsorted_ints.expected.debug")?)
 }
 
@@ -267,14 +267,14 @@ test test_uu_sort_default_unsorted_ints2 { |ctx|
 # origin: uutils test_sort::test_dictionary_order
 test test_uu_sort_dictionary_order { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "dictionary_order.txt", "dictionary_order.txt")?
+  uu.fixture(s, "sort", "dictionary_order.txt", "dictionary_order.txt")
   let r1 = uu.invoke(s, "sort", ["dictionary_order.txt", "-d"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "dictionary_order.expected", "dictionary_order.expected")?
+  uu.fixture(s, "sort", "dictionary_order.expected", "dictionary_order.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "dictionary_order.expected")?)
   let r2 = uu.invoke(s, "sort", ["dictionary_order.txt", "--debug", "-d"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "dictionary_order.expected.debug", "dictionary_order.expected.debug")?
+  uu.fixture(s, "sort", "dictionary_order.expected.debug", "dictionary_order.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "dictionary_order.expected.debug")?)
 }
 
@@ -297,7 +297,7 @@ test test_uu_sort_does_not_inherit_key_settings { |ctx|
 # origin: uutils test_sort::test_empty_input_empty_output
 test test_uu_sort_empty_input_empty_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file", "test test test")?
+  uu.write(s, "file", "test test test")
   let r1 = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["-o", "file"])?
   uu.succeeds(r2)
@@ -315,14 +315,14 @@ test test_uu_sort_error_on_multiple_output_flags { |ctx|
 # origin: uutils test_sort::test_exponents_general
 test test_uu_sort_exponents_general { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "exponents_general.txt", "exponents_general.txt")?
+  uu.fixture(s, "sort", "exponents_general.txt", "exponents_general.txt")
   let r1 = uu.invoke(s, "sort", ["exponents_general.txt", "-g"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "exponents_general.expected", "exponents_general.expected")?
+  uu.fixture(s, "sort", "exponents_general.expected", "exponents_general.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "exponents_general.expected")?)
   let r2 = uu.invoke(s, "sort", ["exponents_general.txt", "--debug", "-g"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "exponents_general.expected.debug", "exponents_general.expected.debug")?
+  uu.fixture(s, "sort", "exponents_general.expected.debug", "exponents_general.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "exponents_general.expected.debug")?)
 }
 
@@ -337,14 +337,14 @@ test test_uu_sort_exponents_positive_general { |ctx|
 # origin: uutils test_sort::test_exponents_positive_numeric
 test test_uu_sort_exponents_positive_numeric { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "exponents-positive-numeric.txt", "exponents-positive-numeric.txt")?
+  uu.fixture(s, "sort", "exponents-positive-numeric.txt", "exponents-positive-numeric.txt")
   let r1 = uu.invoke(s, "sort", ["exponents-positive-numeric.txt", "-n"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "exponents-positive-numeric.expected", "exponents-positive-numeric.expected")?
+  uu.fixture(s, "sort", "exponents-positive-numeric.expected", "exponents-positive-numeric.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "exponents-positive-numeric.expected")?)
   let r2 = uu.invoke(s, "sort", ["exponents-positive-numeric.txt", "--debug", "-n"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "exponents-positive-numeric.expected.debug", "exponents-positive-numeric.expected.debug")?
+  uu.fixture(s, "sort", "exponents-positive-numeric.expected.debug", "exponents-positive-numeric.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "exponents-positive-numeric.expected.debug")?)
   let r3 = uu.invoke(s, "sort", ["exponents-positive-numeric.txt", "--numeric-sort"])?
   uu.succeeds(r3)
@@ -363,30 +363,30 @@ test test_uu_sort_exponents_positive_numeric { |ctx|
 # origin: uutils test_sort::test_ext_sort_as64_bailout
 test test_uu_sort_ext_sort_as64_bailout { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "multiple_decimals_general.txt", "multiple_decimals_general.txt")?
+  uu.fixture(s, "sort", "multiple_decimals_general.txt", "multiple_decimals_general.txt")
   let r1 = uu.invoke(s, "sort", ["-g", "-S 5K", "multiple_decimals_general.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "multiple_decimals_general.expected", "multiple_decimals_general.expected")?
+  uu.fixture(s, "sort", "multiple_decimals_general.expected", "multiple_decimals_general.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "multiple_decimals_general.expected")?)
 }
 
 # origin: uutils test_sort::test_ext_sort_stable
 test test_uu_sort_ext_sort_stable { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "ext_stable.txt", "ext_stable.txt")?
+  uu.fixture(s, "sort", "ext_stable.txt", "ext_stable.txt")
   let r1 = uu.invoke(s, "sort", ["-n", "--stable", "-S", "0M", "ext_stable.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "ext_stable.expected", "ext_stable.expected")?
+  uu.fixture(s, "sort", "ext_stable.expected", "ext_stable.expected")
   uu.stdout_only_bytes(r1, uu.read(s, "ext_stable.expected")?)
 }
 
 # origin: uutils test_sort::test_ext_sort_zero_terminated
 test test_uu_sort_ext_sort_zero_terminated { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "zero-terminated.txt", "zero-terminated.txt")?
+  uu.fixture(s, "sort", "zero-terminated.txt", "zero-terminated.txt")
   let r1 = uu.invoke(s, "sort", ["-z", "-S", "10K", "zero-terminated.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "zero-terminated.expected", "zero-terminated.expected")?
+  uu.fixture(s, "sort", "zero-terminated.expected", "zero-terminated.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "zero-terminated.expected")?)
 }
 
@@ -417,7 +417,7 @@ test test_uu_sort_files0_from_double_nul_is_invalid { |ctx|
 # origin: uutils test_sort::test_files0_from_empty_input_file
 test test_uu_sort_files0_from_empty_input_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let r1 = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "file"])?
   uu.fails_with_code(r2, 2)
@@ -452,8 +452,8 @@ test test_uu_sort_files0_from_rejects_extra_positional { |ctx|
 # origin: uutils test_sort::test_files0_from_single_entry
 test test_uu_sort_files0_from_single_entry { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "words")?
-  uu.append(s, "words", "mango\nkiwi")?
+  uu.touch(s, "words")
+  uu.append(s, "words", "mango\nkiwi")
   let r1 = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "-"], stdin: b"words")?
   uu.succeeds(r2)
@@ -463,8 +463,8 @@ test test_uu_sort_files0_from_single_entry { |ctx|
 # origin: uutils test_sort::test_files0_from_single_entry_trailing_nul
 test test_uu_sort_files0_from_single_entry_trailing_nul { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "words")?
-  uu.append(s, "words", "mango\nkiwi")?
+  uu.touch(s, "words")
+  uu.append(s, "words", "mango\nkiwi")
   let r1 = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "-"], stdin: b"words\x00")?
   uu.succeeds(r2)
@@ -482,8 +482,8 @@ test test_uu_sort_files0_from_single_nul_is_invalid { |ctx|
 # origin: uutils test_sort::test_files0_from_two_entries
 test test_uu_sort_files0_from_two_entries { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "words")?
-  uu.append(s, "words", "mango\nkiwi")?
+  uu.touch(s, "words")
+  uu.append(s, "words", "mango\nkiwi")
   let r1 = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "-"], stdin: b"words\x00words")?
   uu.succeeds(r2)
@@ -493,8 +493,8 @@ test test_uu_sort_files0_from_two_entries { |ctx|
 # origin: uutils test_sort::test_files0_from_two_entries_trailing_nul
 test test_uu_sort_files0_from_two_entries_trailing_nul { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "words")?
-  uu.append(s, "words", "mango\nkiwi")?
+  uu.touch(s, "words")
+  uu.append(s, "words", "mango\nkiwi")
   let r1 = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "-"], stdin: b"words\x00words\x00")?
   uu.succeeds(r2)
@@ -536,14 +536,14 @@ test test_uu_sort_g_misc { |ctx|
 # origin: uutils test_sort::test_human_block_sizes
 test test_uu_sort_human_block_sizes { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "human_block_sizes.txt", "human_block_sizes.txt")?
+  uu.fixture(s, "sort", "human_block_sizes.txt", "human_block_sizes.txt")
   let r1 = uu.invoke(s, "sort", ["human_block_sizes.txt", "-h"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "human_block_sizes.expected", "human_block_sizes.expected")?
+  uu.fixture(s, "sort", "human_block_sizes.expected", "human_block_sizes.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "human_block_sizes.expected")?)
   let r2 = uu.invoke(s, "sort", ["human_block_sizes.txt", "--debug", "-h"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "human_block_sizes.expected.debug", "human_block_sizes.expected.debug")?
+  uu.fixture(s, "sort", "human_block_sizes.expected.debug", "human_block_sizes.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "human_block_sizes.expected.debug")?)
   let r3 = uu.invoke(s, "sort", ["human_block_sizes.txt", "--human-numeric-sort"])?
   uu.succeeds(r3)
@@ -584,14 +584,14 @@ test test_uu_sort_human_blocks_r_and_q { |ctx|
 # origin: uutils test_sort::test_human_numeric_whitespace
 test test_uu_sort_human_numeric_whitespace { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "human-numeric-whitespace.txt", "human-numeric-whitespace.txt")?
+  uu.fixture(s, "sort", "human-numeric-whitespace.txt", "human-numeric-whitespace.txt")
   let r1 = uu.invoke(s, "sort", ["human-numeric-whitespace.txt", "-h"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "human-numeric-whitespace.expected", "human-numeric-whitespace.expected")?
+  uu.fixture(s, "sort", "human-numeric-whitespace.expected", "human-numeric-whitespace.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "human-numeric-whitespace.expected")?)
   let r2 = uu.invoke(s, "sort", ["human-numeric-whitespace.txt", "--debug", "-h"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "human-numeric-whitespace.expected.debug", "human-numeric-whitespace.expected.debug")?
+  uu.fixture(s, "sort", "human-numeric-whitespace.expected.debug", "human-numeric-whitespace.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "human-numeric-whitespace.expected.debug")?)
   let r3 = uu.invoke(s, "sort", ["human-numeric-whitespace.txt", "--human-numeric-sort"])?
   uu.succeeds(r3)
@@ -636,14 +636,14 @@ test test_uu_sort_human_numeric_zero_stable { |ctx|
 # origin: uutils test_sort::test_ignore_case
 test test_uu_sort_ignore_case { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "ignore_case.txt", "ignore_case.txt")?
+  uu.fixture(s, "sort", "ignore_case.txt", "ignore_case.txt")
   let r1 = uu.invoke(s, "sort", ["ignore_case.txt", "-f"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "ignore_case.expected", "ignore_case.expected")?
+  uu.fixture(s, "sort", "ignore_case.expected", "ignore_case.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "ignore_case.expected")?)
   let r2 = uu.invoke(s, "sort", ["ignore_case.txt", "--debug", "-f"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "ignore_case.expected.debug", "ignore_case.expected.debug")?
+  uu.fixture(s, "sort", "ignore_case.expected.debug", "ignore_case.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "ignore_case.expected.debug")?)
 }
 
@@ -711,52 +711,52 @@ test test_uu_sort_k_overflow { |ctx|
 # origin: uutils test_sort::test_key_takes_one_arg
 test test_uu_sort_key_takes_one_arg { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "keys_open_ended.txt", "keys_open_ended.txt")?
+  uu.fixture(s, "sort", "keys_open_ended.txt", "keys_open_ended.txt")
   let r1 = uu.invoke(s, "sort", ["-k", "2.3", "keys_open_ended.txt"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "keys_open_ended.expected", "keys_open_ended.expected")?
+  uu.fixture(s, "sort", "keys_open_ended.expected", "keys_open_ended.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "keys_open_ended.expected")?)
 }
 
 # origin: uutils test_sort::test_keys_blanks_with_char_idx
 test test_uu_sort_keys_blanks_with_char_idx { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "keys_blanks.txt", "keys_blanks.txt")?
+  uu.fixture(s, "sort", "keys_blanks.txt", "keys_blanks.txt")
   let r1 = uu.invoke(s, "sort", ["keys_blanks.txt", "-k", "1.2b"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "keys_blanks.expected", "keys_blanks.expected")?
+  uu.fixture(s, "sort", "keys_blanks.expected", "keys_blanks.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "keys_blanks.expected")?)
   let r2 = uu.invoke(s, "sort", ["keys_blanks.txt", "--debug", "-k", "1.2b"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "keys_blanks.expected.debug", "keys_blanks.expected.debug")?
+  uu.fixture(s, "sort", "keys_blanks.expected.debug", "keys_blanks.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "keys_blanks.expected.debug")?)
 }
 
 # origin: uutils test_sort::test_keys_closed_range
 test test_uu_sort_keys_closed_range { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "keys_closed_range.txt", "keys_closed_range.txt")?
+  uu.fixture(s, "sort", "keys_closed_range.txt", "keys_closed_range.txt")
   let r1 = uu.invoke(s, "sort", ["keys_closed_range.txt", "-k", "2.2,2.2"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "keys_closed_range.expected", "keys_closed_range.expected")?
+  uu.fixture(s, "sort", "keys_closed_range.expected", "keys_closed_range.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "keys_closed_range.expected")?)
   let r2 = uu.invoke(s, "sort", ["keys_closed_range.txt", "--debug", "-k", "2.2,2.2"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "keys_closed_range.expected.debug", "keys_closed_range.expected.debug")?
+  uu.fixture(s, "sort", "keys_closed_range.expected.debug", "keys_closed_range.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "keys_closed_range.expected.debug")?)
 }
 
 # origin: uutils test_sort::test_keys_custom_separator
 test test_uu_sort_keys_custom_separator { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "keys_custom_separator.txt", "keys_custom_separator.txt")?
+  uu.fixture(s, "sort", "keys_custom_separator.txt", "keys_custom_separator.txt")
   let r1 = uu.invoke(s, "sort", ["keys_custom_separator.txt", "-k", "2.2,2.2", "-t", "x"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "keys_custom_separator.expected", "keys_custom_separator.expected")?
+  uu.fixture(s, "sort", "keys_custom_separator.expected", "keys_custom_separator.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "keys_custom_separator.expected")?)
   let r2 = uu.invoke(s, "sort", ["keys_custom_separator.txt", "--debug", "-k", "2.2,2.2", "-t", "x"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "keys_custom_separator.expected.debug", "keys_custom_separator.expected.debug")?
+  uu.fixture(s, "sort", "keys_custom_separator.expected.debug", "keys_custom_separator.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "keys_custom_separator.expected.debug")?)
 }
 
@@ -771,14 +771,14 @@ test test_uu_sort_keys_empty_match { |ctx|
 # origin: uutils test_sort::test_keys_ignore_flag
 test test_uu_sort_keys_ignore_flag { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "keys_ignore_flag.txt", "keys_ignore_flag.txt")?
+  uu.fixture(s, "sort", "keys_ignore_flag.txt", "keys_ignore_flag.txt")
   let r1 = uu.invoke(s, "sort", ["keys_ignore_flag.txt", "-k", "1n", "-b"])?
   uu.succeeds(r1)
-  uu.fixture(s, "sort", "keys_ignore_flag.expected", "keys_ignore_flag.expected")?
+  uu.fixture(s, "sort", "keys_ignore_flag.expected", "keys_ignore_flag.expected")
   uu.stdout_is_bytes(r1, uu.read(s, "keys_ignore_flag.expected")?)
   let r2 = uu.invoke(s, "sort", ["keys_ignore_flag.txt", "--debug", "-k", "1n", "-b"])?
   uu.succeeds(r2)
-  uu.fixture(s, "sort", "keys_ignore_flag.expected.debug", "keys_ignore_flag.expected.debug")?
+  uu.fixture(s, "sort", "keys_ignore_flag.expected.debug", "keys_ignore_flag.expected.debug")
   uu.stdout_is_bytes(r2, uu.read(s, "keys_ignore_flag.expected.debug")?)
 }
 
@@ -801,7 +801,7 @@ test test_uu_sort_keys_invalid_field { |ctx|
 # origin: uutils test_sort::test_batch_size_above_fd_limit_is_rejected
 test test_uu_sort_batch_size_above_fd_limit_is_rejected { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "gamma.txt", "delta\nalpha\n")?
+  uu.write(s, "gamma.txt", "delta\nalpha\n")
   let r = limited(s, ["--batch-size=31", "gamma.txt"])?
   uu.fails_with_code(r, 2)
   uu.stderr_contains(r, "--batch-size argument '31' too large")
@@ -811,7 +811,7 @@ test test_uu_sort_batch_size_above_fd_limit_is_rejected { |ctx|
 # origin: uutils test_sort::test_batch_size_at_fd_limit_is_accepted
 test test_uu_sort_batch_size_at_fd_limit_is_accepted { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "gamma.txt", "delta\nalpha\n")?
+  uu.write(s, "gamma.txt", "delta\nalpha\n")
   let r = limited(s, ["--batch-size=24", "gamma.txt"])?
   uu.succeeds(r)
   uu.stdout_only(r, "alpha\ndelta\n")
@@ -838,8 +838,8 @@ test test_uu_sort_buffer_sizes { |ctx|
   # This corpus sorts 20,000 rows with nine buffer-size forms, including two external merges.
   test.timeout(ctx, 240s)
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")?
-  uu.fixture(s, "sort", "ext_sort.expected", "ext_sort.expected")?
+  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
+  uu.fixture(s, "sort", "ext_sort.expected", "ext_sort.expected")
   for size in ["0", "50K", "50k", "1M", "100M", "0%", "10%", "1000G", "10T"] {
     let r = uu.invoke(s, "sort", ["-n", "-S", size, "ext_sort.txt"])?
     uu.succeeds(r)
@@ -851,7 +851,7 @@ test test_uu_sort_buffer_sizes { |ctx|
 test test_uu_sort_check_stops_early_without_panicking { |ctx|
   let s = uu.scene(ctx)?
   let half = ["c\n" for _ in range(20000)].join("")
-  uu.write(s, "disorder.txt", f"{half}a\n{half}")?
+  uu.write(s, "disorder.txt", f"{half}a\n{half}")
   let r = uu.invoke(s, "sort", ["-c", "--buffer-size=1K", "disorder.txt"])?
   uu.fails_with_code(r, 1)
   uu.stderr_only(r, "sort: disorder.txt:20001: disorder: a\n")
@@ -860,7 +860,7 @@ test test_uu_sort_check_stops_early_without_panicking { |ctx|
 # origin: uutils test_sort::test_compress_fail
 test test_uu_sort_compress_fail { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")?
+  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
   let r = uu.invoke(s, "sort", ["ext_sort.txt", "-n", "--compress-program", "nonexistent-program", "-S", "10"])?
   uu.succeeds(r)
   uu.stderr_contains(r, "sort: could not run compress program 'nonexistent-program': No such file or directory")
@@ -877,11 +877,11 @@ test test_uu_sort_debug_key_annotations { |ctx|
     for key in [f"-k2{mode}", f"-k1.3{mode}", f"-k1{mode}"] {
       let r = uu.invoke(s, "sort", ["-s", key, "--debug"], stdin: b"1\n\n44\n33\n2\n")?
       uu.succeeds(r)
-      output += r.stdout.utf8()?
+      output += r.stdout as Str
     }
     let r = uu.invoke(s, "sort", ["-s", "-k2g", "--debug"], stdin: b"1\t2\n2\t\n3\t1\n")?
     uu.succeeds(r)
-    output += r.stdout.utf8()?
+    output += r.stdout as Str
   }
   for case in [
     {args: ["-s", "-k1M", "--debug"], input: "FEB\n\nJAN\n"},
@@ -905,7 +905,7 @@ test test_uu_sort_debug_key_annotations { |ctx|
   ] {
     let r = uu.invoke(s, "sort", case.args, stdin: bytes.from_text(case.input))?
     uu.succeeds(r)
-    output += r.stdout.utf8()?
+    output += r.stdout as Str
   }
   let zero = uu.invoke(s, "sort", ["-s", "-k2b,2", "--debug"], stdin: b"\x00\ta\n")?
   uu.succeeds(zero)
@@ -916,25 +916,25 @@ test test_uu_sort_debug_key_annotations { |ctx|
   ] {
     let r = uu.invoke(s, "sort", case.args, stdin: bytes.from_text(case.input))?
     uu.succeeds(r)
-    output += r.stdout.utf8()?
+    output += r.stdout as Str
   }
-  uu.fixture(s, "sort", "debug-key-annotations.expected", "debug-key-annotations.expected")?
+  uu.fixture(s, "sort", "debug-key-annotations.expected", "debug-key-annotations.expected")
   assert output == uu.read_text(s, "debug-key-annotations.expected")?
 }
 
 # Keep the three locale annotation launches and the original normalization together.
-proc locale_annotations(s: uu.Scene, locale: Str) [fs, process, env, error] -> Result[Unit] {
+proc locale_annotations(s: uu.Scene, locale: Str) [fs, process, env, error] {
   var output = ""
   for locale in ["C", locale] {
     let r = uu.invoke(s, "sort", ["--debug", "-k2g", "-k1b,1"], stdin: bytes.from_text("   1²---++3   1,234  Mi\n"), vars: {LC_ALL: locale})?
     uu.succeeds(r)
-    output += r.stdout.utf8()?
+    output += r.stdout as Str
   }
   let r = uu.invoke(s, "sort", ["--debug", "-k1,1n", "-k1,1g", "-k1,1h", "-k2,2n", "-k2,2g", "-k2,2h", "-k3,3n", "-k3,3g", "-k3,3h"], stdin: b"+1234 1234Gi 1,234M\n", vars: {LC_ALL: locale})?
   uu.succeeds(r)
-  output += r.stdout.utf8()?
+  output += r.stdout as Str
   let normalized = [if line.starts_with("^^ ") { "^ no match for key" } else { line } for line in output.lines()].join("\n") + "\n"
-  uu.fixture(s, "sort", "debug-key-annotations-locale.expected", "debug-key-annotations-locale.expected")?
+  uu.fixture(s, "sort", "debug-key-annotations-locale.expected", "debug-key-annotations-locale.expected")
   assert normalized == uu.read_text(s, "debug-key-annotations-locale.expected")?
   Ok()
 }
@@ -945,7 +945,7 @@ test test_uu_sort_debug_key_annotations_locale { |ctx|
   if let Ok(locale) = env.get("LOCALE_FR_UTF8") {
     if locale != "none" {
       let probe = uu.invoke(s, "sort", ["-g", "--debug", "/dev/null"], vars: {LC_NUMERIC: locale, LC_MESSAGES: "C"})?
-      if "numbers use .*,.* as a decimal point" in probe.stderr.utf8()? { locale_annotations(s, locale)? }
+      if "numbers use .*,.* as a decimal point" in probe.stderr as Str { locale_annotations(s, locale) }
     }
   }
 }
@@ -953,7 +953,7 @@ test test_uu_sort_debug_key_annotations_locale { |ctx|
 # The upstream literal-string guard is not a regular expression and suppresses this behavior.
 test test_sort_locale_annotations_regression { |ctx|
   let s = uu.scene(ctx)?
-  locale_annotations(s, "fr_FR.UTF-8")?
+  locale_annotations(s, "fr_FR.UTF-8")
 }
 
 # origin: uutils test_sort::test_dictionary_and_nonprinting_conflicts
@@ -978,13 +978,13 @@ test test_uu_sort_dictionary_and_nonprinting_conflicts { |ctx|
 # origin: uutils test_sort::test_fifo_without_trailing_newline
 test test_uu_sort_fifo_without_trailing_newline { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "FIFO")?
+  uu.mkfifo(s, "FIFO")
   let out = uu.at(s, "fifo.stdout")
   let err = uu.at(s, "fifo.stderr")
   let plan = uu.command(s, "sort", ["FIFO"], stdout: out, stderr: err)?
   let child = spawn plan?
-  defer child.cancel(signal: "KILL", kill_after: 0ms)?
-  uu.at(s, "FIFO").write("hello")?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)
+  uu.at(s, "FIFO").write("hello")
   let done = process.wait_timeout([child], 5s)?
   assert done != null, "sort did not exit after the FIFO writer closed"
   assert done.status.exit_code()? == 0
@@ -995,8 +995,8 @@ test test_uu_sort_fifo_without_trailing_newline { |ctx|
 test test_uu_sort_files0_from_non_utf8_content { |ctx|
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"a\xffb")?
-  file.write(b"20\n10\n")?
-  uu.write_bytes(s, "list0", b"a\xffb\x00")?
+  file.write(b"20\n10\n")
+  uu.write_bytes(s, "list0", b"a\xffb\x00")
   let r = uu.invoke(s, "sort", ["--files0-from", "list0"])?
   uu.succeeds(r)
   uu.stdout_only(r, "10\n20\n")
@@ -1037,7 +1037,7 @@ test test_uu_sort_human_numeric_blank_thousands_sep_locale { |ctx|
   let first = bytes.concat([b"1 1k 1 M 4", separator, b"003 1M"])
   let second = bytes.concat([b"2k 2M 2 k 4", separator, b"002 2"])
   let third = bytes.concat([b"3M 3 3 G 4", separator, b"001 3k"])
-  uu.write_bytes(s, "blank-thousands.txt", bytes.concat([first, b"\n", second, b"\n", third, b"\n"]) )?
+  uu.write_bytes(s, "blank-thousands.txt", bytes.concat([first, b"\n", second, b"\n", third, b"\n"]) )
   for case in [
     {key: "1", expected: bytes.concat([first, b"\n", second, b"\n", third, b"\n"])},
     {key: "2", expected: bytes.concat([third, b"\n", first, b"\n", second, b"\n"])},
@@ -1063,7 +1063,7 @@ test test_uu_sort_invalid_buffer_size { |ctx|
     uu.fails_with_code(r, 2)
     uu.stderr_only(r, case.message)
   }
-  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")?
+  uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
   let r = uu.invoke(s, "sort", ["-n", "-S", "1Y", "ext_sort.txt"])?
   uu.fails_with_code(r, 2)
   uu.stderr_only(r, "sort: -S argument '1Y' too large\n")

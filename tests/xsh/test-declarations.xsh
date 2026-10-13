@@ -133,7 +133,7 @@ print \${helper.value()}
 }
 
 test frame_routed_run_script_child_selects_eager_values { |ctx|
-  let result = test.run_script(
+  test.expect(
     ctx,
     """let seed = [
   {value: [3, 5]},
@@ -142,8 +142,8 @@ let rows = [@seed]
 let selected_index: Int = if rows[-1].value[-1] == 5 { 0 } else { 99 }
 let selected: Int = [7][selected_index]
 """,
+    status: 0,
   )?
-  assert result.status == 0, result.stderr
 }
 
 test frame_routed_run_xsh_child_selects_eager_values { |ctx|

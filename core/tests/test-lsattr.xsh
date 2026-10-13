@@ -1,9 +1,9 @@
 type FakeOutput = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}
 
-proc lsattr_fake(ctx: TestContext, args: List[Str], flags: Int, generation: Int = 7, project: Int = 19) [fs, process, error] -> FakeOutput {
+proc lsattr_fake(ctx: TestContext, args: List[Str], flags: Int, generation = 7, project = 19) [fs, process, error] -> FakeOutput {
   test.linux_fake(ctx, {file_attrs_flags: flags, file_version: generation, file_project: project})
   let source = fp"{ctx.core_dir}/lsattr.xsh".read_text()?
-  test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "lsattr")?
+  test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, b"", "lsattr")?
 }
 
 test test_lsattr_compact_long_and_generation_output { |ctx|
@@ -41,7 +41,7 @@ test test_lsattr_directory_filters_and_symlinks { |ctx|
 
 test test_lsattr_preserves_operand_order_and_recursive_headings { |ctx|
   let root = test.temp_dir(ctx, name: "lsattr-order")?
-  fp"{root}/dir/subdir".mkdir(parents: true)
+  fp"{root}/dir/subdir".mkdir()
   fp"{root}/dir/subdir/inner".write("content")
   fp"{root}/after".write("content")
   let output = lsattr_fake(ctx, ["-R", fp"{root}/dir".display(), fp"{root}/after".display()], 0)

@@ -31,7 +31,7 @@ test test_btop_graph_pairs_time_columns_and_keeps_an_autoscale_spike {
   history = graph.append(history, {at_ns: 3, value: 100.0, state: graph.Observed})?
   let frame = graph.project(history, terminal.detect(utf8_inputs()), 2, 1, false, null)?
 
-  assert frame.symbol_set == graph.Braille
+  assert frame.symbol_set == .Braille
   assert frame.scale == 100.0
   assert frame.visible_sample_times == [1, 2, 3]
   assert frame.rows == ["\u{28a0}\u{28fe}"]
@@ -72,7 +72,7 @@ test test_btop_graph_history_retention_is_independent_of_viewport_size {
   assert narrow.visible_sample_times.len() == 2
   assert wide.visible_sample_times.len() == 40
   assert history.samples == before
-  assert history.samples[history.samples.len() - 1].at_ns == graph.HISTORY_LIMIT + 1
+  assert history.samples[-1].at_ns == graph.HISTORY_LIMIT + 1
 }
 
 test test_btop_graph_symbol_set_follows_captured_encoding_capabilities {
@@ -93,8 +93,8 @@ test test_btop_graph_symbol_set_follows_captured_encoding_capabilities {
     null,
   )?
 
-  assert unicode.symbol_set == graph.Braille
-  assert ascii.symbol_set == graph.Tty
+  assert unicode.symbol_set == .Braille
+  assert ascii.symbol_set == .Tty
   assert ascii.rows == ["  "]
 }
 

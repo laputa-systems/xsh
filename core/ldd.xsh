@@ -6,18 +6,18 @@ type Options = {help: Bool, version: Bool, files: List[Str]}
 # Dependency paths are inspected as files; target code and interpreters are
 # never run, so this report has paths rather than runtime load addresses.
 proc resolve_library(name: Str, origin: Path, search: Str) [fs, env, error, process] -> Result[Path?] {
-  if name.find("/") != null {
+  guard name.find("/") == null else {
     let target = fp"{name}"
-    return Ok(if target.exists()? { target } else { null })
+    return Ok(if target.exists() { target } else { null })
   }
   let environment = env.get_or("LD_LIBRARY_PATH", "") ?? ""
   let paths = (environment + ":" + search).split(":").extend(["/lib", "/usr/local/lib", "/usr/lib", "/lib64", "/usr/lib64", "/lib/aarch64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/lib/x86_64-linux-gnu", "/usr/lib/x86_64-linux-gnu"])
   for directory in paths {
-    if directory == "" { continue }
+    continue when directory == ""
     let expanded = directory.replace(r"${ORIGIN}", with: origin.display()).replace(r"$ORIGIN", with: origin.display())
     if expanded.find("$") != null { gnu.error(f"unsupported loader path expansion {gnu.quote(expanded)}"); return Ok(null) }
     let candidate = fp"{expanded}/{name}"
-    if candidate.exists()? { return Ok(candidate) }
+    return Ok(candidate) when candidate.exists()
   }
   Ok(null)
 }
@@ -50,7 +50,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     if initial.needed.is_empty() and initial.interpreter == "" { gnu.write_text("\tstatically linked\n"); continue }
     if initial.interpreter != "" { gnu.write_text(f"\t{initial.interpreter}\n") }
     var pending = [fp"{name}"]
-    var visited: List[Str] = []
+    var visited = []
     var index = 0
     while index < pending.len() {
       let object = pending[index]
@@ -58,7 +58,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
       let info = elf.inspect(object)?
       let search = if info.runpath != "" { info.runpath } else { info.rpath }
       for dependency in info.needed {
-        if dependency in visited { continue }
+        continue when dependency in visited
         visited += [dependency]
         let resolved = resolve_library(dependency, object.resolve()?.parent(), search)?
         if let resolved_path = resolved {

@@ -18,7 +18,7 @@ test test_rfkill_block_uses_fake_native_operation { |ctx|
   let devices: List[LinuxRfkill] = [{id: 7, name: "phy7", type: "wlan", soft_blocked: false, hard_blocked: false}]
   let log = test.temp_path(ctx, name: "rfkill.jsonl")
   test.linux_fake(ctx, {log: log})
-  hardware.rfkill_set(devices, ["7"], true)?
+  hardware.rfkill_set(devices, ["7"], true)
   assert "\"op\":\"rfkill_block\"" in log.read_text()?
   assert "\"id\":\"7\"" in log.read_text()?
 }
@@ -37,7 +37,7 @@ test test_rfkill_invalid_command_is_rejected_before_inventory { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/rfkill.xsh"
   let err = fp"{root}/err"
-  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "toggle", "all"], root, {}, b"", fp"{root}/out", err, timeout: 5s)
+  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "toggle", "all"], root, {}, b"", fp"{root}/out", err, timeout: 5s)
   assert process.run(command)?.exited_with(1)
   assert "unsupported rfkill command" in err.read_text()?
 }

@@ -172,7 +172,7 @@ pure separate_negative_pids(args: List[Str]) -> List[Str] {
     let word = args[index]
 
     return args when word == "--"
-    return args[..index].extend(["--"]).extend(args[index..]) when NEGATIVE_PID_WORD.matches(word)
+    return [@args[..index], "--", @args[index..]] when NEGATIVE_PID_WORD.matches(word)
 
     index += if word == "-s" or word == "-n" or word == "--signal" { 2 } else { 1 }
   }
@@ -249,7 +249,7 @@ pure list_or_table_count(words: List[Str]) -> Int {
 proc signal_every_process(name: Str) [process, error] -> Result[Bool, Error] {
   let self_pid = process.current_pid()?
   var members = false
-  var failure: Error? = null
+  var failure = null
 
   for entry in process.list()? {
     continue when entry.pid <= 1 or entry.pid == self_pid

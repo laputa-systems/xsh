@@ -67,9 +67,8 @@ test test_chmod_malformed_option_like_mode_is_invalid_mode { |ctx|
 
 test test_chmod_accepts_non_utf8_operand_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "raw-operand")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
-  file.write("x")
-  file.chmod(0o644)
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
+  file.write("x", mode: 0o644)
   let result = perm_run(ctx, ["755", file])?
   assert result.status == 0, result.stderr
   assert fs.stat(file)?.mode.bit_and(0o7777) == 0o755
@@ -125,8 +124,7 @@ test test_chmod_root_guard_and_long_abbreviation { |ctx|
 test test_chmod_recursive_grants_access_before_descent { |ctx|
   let root = test.temp_dir(ctx, name: "inaccessible")?
   let child = fp"{root}/child"
-  child.write("x")
-  child.chmod(0o000)
+  child.write("x", mode: 0o000)
   root.chmod(0o000)
   let result = perm_run(ctx, ["-R", "u+rwX", root.display()])?
   assert result.status == 0, result.stderr
@@ -138,8 +136,7 @@ test test_chmod_no_dereference_skips_symlink { |ctx|
   let root = test.temp_dir(ctx, name: "links")?
   let file = fp"{root}/file"
   let link = fp"{root}/link"
-  file.write("x")
-  file.chmod(0o640)
+  file.write("x", mode: 0o640)
   link.symlink(to: file)
   assert perm_run(ctx, ["--no-dereference", "000", link.display()])?.status == 0
   assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
@@ -148,8 +145,7 @@ test test_chmod_no_dereference_skips_symlink { |ctx|
 test test_chmod_verbose_uses_four_octal_digits_and_relative_descendants { |ctx|
   let root = test.temp_dir(ctx, name: "relative-mode")?
   fp"{root}/dir".mkdir()
-  fp"{root}/dir/child".write("x")
-  fp"{root}/dir/child".chmod(0o644)
+  fp"{root}/dir/child".write("x", mode: 0o644)
   let output = fp"{root}/output"
   cd $root {
     let result = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/chmod.xsh" -- -Rv 600 dir
@@ -196,8 +192,7 @@ test test_chmod_traversal_is_independent_of_link_mutation { |ctx|
   let tree = fp"{root}/tree"
   tree.mkdir()
   let child = fp"{tree}/child"
-  child.write("x")
-  child.chmod(0o644)
+  child.write("x", mode: 0o644)
   let link = fp"{root}/link"
   link.symlink(to: tree)
   let directory_mode = fs.stat(tree)?.mode.bit_and(0o7777)
@@ -237,9 +232,8 @@ test test_chmod_recursive_reports_inaccessible_descendant { |ctx|
 
 test test_chmod_recursive_preserves_non_utf8_child_names { |ctx|
   let root = test.temp_dir(ctx, name: "raw-name")?
-  let child = Path.parse_bytes(bytes.concat([root.bytes(), b"/child\xff"]))?
-  child.write("x")
-  child.chmod(0o644)
+  let child = bytes.concat([root.bytes(), b"/child\xff"]) as Path
+  child.write("x", mode: 0o644)
   let result = perm_run(ctx, ["-R", "700", root.display()])?
   assert result.status == 0, result.stderr
   assert fs.stat(child)?.mode.bit_and(0o7777) == 0o700

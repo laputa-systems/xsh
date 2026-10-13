@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu unexpand/unexpand.log
 test test_gnu_unexpand_unexpand_log { |ctx|
@@ -87,11 +87,11 @@ test test_gnu_unexpand_mb_log { |ctx|
     ["ä", "ö", "ü", "ß"].join("       "), dots, "   äöü  .    öüä.       ä xx"].join("\n") + "\n"
   let expected = [scale, ".\t.\t.\t.", "a\tb\tc\td", ".\t.\t.\t.",
     "ä\tö\tü\tß", ".\t.\t.\t.", "   äöü\t.    öüä.\tä xx"].join("\n") + "\n"
-  uu.write(s, "in", basic)?
-  let first = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars: vars)?
+  uu.write(s, "in", basic)
+  let first = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars:)?
   uu.succeeds(first)
   uu.stdout_is(first, expected)
-  let twice = uu.invoke(s, "unexpand", ["-a", "./in", "./in"], vars: vars)?
+  let twice = uu.invoke(s, "unexpand", ["-a", "./in", "./in"], vars:)?
   uu.succeeds(twice)
   uu.stdout_is(twice, expected + expected)
 
@@ -99,33 +99,33 @@ test test_gnu_unexpand_mb_log { |ctx|
     "　      |ideo-space(2)", "　　　　|ideo-space(2) * 4", "－      |full-hypen(2)"].join("\n") + "\n"
   let width_expected = ["12345678", "e\t|ascii(1)", "é\t|composed(1)", "é\t|decomposed(1)",
     "\t|ideo-space(2)", "\t|ideo-space(2) * 4", "－\t|full-hypen(2)"].join("\n") + "\n"
-  uu.write(s, "in", width_input)?
-  for _ in range(2) {
-    let width = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars: vars)?
+  uu.write(s, "in", width_input)
+  repeat 2 times {
+    let width = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars:)?
     uu.succeeds(width)
     uu.stdout_is(width, width_expected)
   }
 
   let invalid_input = b"12345678\n        \xff|\n\xff       |\n        \xff\xc3\xa4|\n\xc3\xa4\xff      |\n        \xc3\xa4\xff|\n\xff       \xc3\xa4|\n\xc3\xa4bcde\xff  |\n"
   let invalid_expected = b"12345678\n\t\xff|\n\xff\t|\n\t\xff\xc3\xa4|\n\xc3\xa4\xff\t|\n\t\xc3\xa4\xff|\n\xff\t\xc3\xa4|\n\xc3\xa4bcde\xff\t|\n"
-  uu.write_bytes(s, "in", invalid_input)?
-  let invalid = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars: vars)?
+  uu.write_bytes(s, "in", invalid_input)
+  let invalid = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars:)?
   uu.succeeds(invalid)
   uu.stdout_is_bytes(invalid, invalid_expected)
 
   let bom_input = bytes.concat([b"\xef\xbb\xbf", bytes.from_text(basic)])
   let bom_expected = bytes.concat([b"\xef\xbb\xbf", bytes.from_text(expected)])
-  uu.write_bytes(s, "in", bom_input)?
-  let bom = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars: vars)?
+  uu.write_bytes(s, "in", bom_input)
+  let bom = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars:)?
   uu.succeeds(bom)
   uu.stdout_is_bytes(bom, bom_expected)
-  let repeated = uu.invoke(s, "unexpand", ["-a", "./in", "./in"], vars: vars)?
+  let repeated = uu.invoke(s, "unexpand", ["-a", "./in", "./in"], vars:)?
   uu.succeeds(repeated)
   uu.stdout_is_bytes(repeated, bytes.concat([bom_expected, bom_expected]))
   for stop in ["4611686018427387904", "3074457345618258603"] {
-    let result = uu.invoke(s, "unexpand", ["-t", stop], stdin: b"   \n", vars: vars)?
+    let result = uu.invoke(s, "unexpand", ["-t", stop], stdin: b"   \n", vars:)?
     assert result.status in [0, 1]
   }
   let wide_run = bytes.from_text(["　" for _ in range(40000)].join("") + "\n")
-  uu.succeeds(uu.invoke(s, "unexpand", ["-t1"], stdin: wide_run, vars: vars)?)
+  uu.succeeds(uu.invoke(s, "unexpand", ["-t1"], stdin: wide_run, vars:)?)
 }

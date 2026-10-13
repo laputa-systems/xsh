@@ -28,8 +28,8 @@
 ##! rendered `docs/user-tour.md`.
 use cargo_steps
 use context
-use test_workflows as tests
 use stage as stages
+use test_workflows as tests
 use tour_html
 
 ## A generated-documentation failure, rendered at the development command boundary.
@@ -212,8 +212,8 @@ pure trim_blank_edges(lines: List[Str]) -> List[Str] {
 # The text a document shows for a snippet: the whole file when it has no
 # example region, otherwise its regions in order.
 pure shown_source(name: Str, source: Str) -> Result[Str] {
-  var shown: List[Str] = []
-  var region: List[Str] = []
+  var shown = []
+  var region = []
   var inside = false
   var regions = 0
   for line in source.lines() {
@@ -249,10 +249,8 @@ pure shown_source(name: Str, source: Str) -> Result[Str] {
 # `cd` scope, which would serialize the `par-map` workers.
 proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -> Result[Str] {
   let sandbox = fs.tempdir()?
-  defer sandbox.close()
-  let capture = fs.tempdir()?
-  defer capture.close()
-  let stdout = fp"{capture.host_path()?}/stdout"
+    let capture = fs.tempdir()?
+    let stdout = fp"{capture.host_path()?}/stdout"
   let stderr = fp"{capture.host_path()?}/stderr"
   let argv = ["-i", f"PATH={search_path}", xsh.display(), file.display()]
   let plan = process.command_argv(/usr/bin/env, argv, cwd: sandbox.host_path()?, stdout:, stderr:, timeout: 60s)

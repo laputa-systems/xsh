@@ -197,7 +197,7 @@ pure numeric_prefix_raw(line: Bytes, opts: SortOptions) -> Bytes {
   var start = 0
   while start < line.len() and (line.byte_at(start) ?? 0) in [32, 9] { start += 1 }
   let value = line[start..]
-  if value.starts_with(b"+") { return b"" }
+  return b"" when value.starts_with(b"+")
   let sign_length = if value.starts_with(b"-") or value.starts_with(b"+") { 1 } else { 0 }
   var at = sign_length
   var digits = 0
@@ -226,16 +226,17 @@ pure numeric_prefix_raw(line: Bytes, opts: SortOptions) -> Bytes {
 pure normalized_numeric_prefix_raw(prefix: Bytes, opts: SortOptions) -> Bytes {
   let point = bytes.from_text(opts.decimal_point)
   var at = 0
-  var normalized: List[Bytes] = []
-  while at < prefix.len() {
-    if numeric_decimal_at(prefix, at, opts) {
-      normalized += [b"."]
-      at += point.len()
-    } else if opts.thousands_separator.len() == 1 and prefix.byte_at(at) == opts.thousands_separator.byte_at(0) {
-      at += 1
-    } else {
-      normalized += [prefix[at..at + 1]]
-      at += 1
+  let normalized = collect {
+    while at < prefix.len() {
+      if numeric_decimal_at(prefix, at, opts) {
+        yield b"."
+        at += point.len()
+      } else if opts.thousands_separator.len() == 1 and prefix.byte_at(at) == opts.thousands_separator.byte_at(0) {
+        at += 1
+      } else {
+        yield prefix[at..at + 1]
+        at += 1
+      }
     }
   }
   bytes.concat(normalized)
@@ -243,7 +244,7 @@ pure normalized_numeric_prefix_raw(prefix: Bytes, opts: SortOptions) -> Bytes {
 
 pure decimal_prefix(line: Str, opts: SortOptions) -> Str {
   let value = trim_leading_blanks(line)
-  if value.starts_with("+") { return "" }
+  return "" when value.starts_with("+")
   let sign_length = if value.starts_with("-") or value.starts_with("+") { 1 } else { 0 }
   let input = bytes.from_text(value)
   var at = sign_length
@@ -265,7 +266,7 @@ pure decimal_prefix(line: Str, opts: SortOptions) -> Str {
       digits += 1
     }
   }
-  if digits == 0 { return "" }
+  return "" when digits == 0
   value.byte_slice(0, length: at)
 }
 
@@ -276,7 +277,7 @@ pure numeric_prefix(line: Str, opts: SortOptions) -> Str {
 pure human_numeric_prefix(line: Str, opts: SortOptions) -> Str {
   let value = trim_leading_blanks(line)
   let prefix = decimal_prefix(value, opts)
-  if prefix == "" { return "" }
+  return "" when prefix == ""
   let unit = value.byte_at(prefix.byte_len()) ?? 0
   if human_unit_order(unit) > 0 {
     prefix + value.byte_slice(prefix.byte_len(), length: 1)
@@ -304,16 +305,16 @@ pure human_numeric_order_key_raw(line: Bytes, opts: SortOptions) -> Str {
 }
 
 pure human_unit_order(unit: Int) -> Int {
-  if unit in [75, 107] { return 1 }
-  if unit == 77 { return 2 }
-  if unit == 71 { return 3 }
-  if unit == 84 { return 4 }
-  if unit == 80 { return 5 }
-  if unit == 69 { return 6 }
-  if unit == 90 { return 7 }
-  if unit == 89 { return 8 }
-  if unit == 82 { return 9 }
-  if unit == 81 { return 10 }
+  return 1 when unit in [75, 107]
+  return 2 when unit == 77
+  return 3 when unit == 71
+  return 4 when unit == 84
+  return 5 when unit == 80
+  return 6 when unit == 69
+  return 7 when unit == 90
+  return 8 when unit == 89
+  return 9 when unit == 82
+  return 10 when unit == 81
   0
 }
 
@@ -322,14 +323,14 @@ pure human_unit_order(unit: Int) -> Int {
 pure month_order(line: Str, opts: SortOptions) -> Int {
   let value = trim_leading_blanks(line).upper()
   for index in range(opts.months.len()) {
-    if value.starts_with(opts.months[index]) { return index + 1 }
+    return index + 1 when value.starts_with(opts.months[index])
   }
   0
 }
 
 pure month_prefix(line: Str, opts: SortOptions) -> Str {
   let month = month_order(line, opts)
-  if month == 0 { return "" }
+  return "" when month == 0
   trim_leading_blanks(line).byte_slice(0, length: opts.months[month - 1].byte_len())
 }
 
@@ -369,8 +370,8 @@ pure invert_numeric_exponent_key(key: Str) -> Str {
 
 pure numeric_order_key_raw(line: Bytes, opts: SortOptions) -> Str {
   let raw_prefix = numeric_prefix_raw(line, opts)
-  if raw_prefix.is_empty() { return "1" }
-  numeric_order_key_normalized(normalized_numeric_prefix_raw(raw_prefix, opts))
+  return "1" when raw_prefix.is_empty()
+  normalized_numeric_prefix_raw(raw_prefix, opts) |> numeric_order_key_normalized(_)
 }
 
 pure numeric_order_key_normalized(prefix: Bytes) -> Str {
@@ -393,7 +394,7 @@ pure numeric_order_key_normalized(prefix: Bytes) -> Str {
   while first_significant < digits.byte_len() and digits.byte_slice(first_significant, length: 1) == "0" {
     first_significant += 1
   }
-  if first_significant == digits.byte_len() { return "1" }
+  return "1" when first_significant == digits.byte_len()
   let decimal_exponent = decimal_position - first_significant - 1
   var significant = digits.byte_slice(first_significant)
   while significant.ends_with("0") and significant.byte_len() > 1 {
@@ -408,9 +409,9 @@ pure numeric_order_key_normalized(prefix: Bytes) -> Str {
 }
 
 pure has_general_numeric_keys(opts: SortOptions) -> Bool {
-  if opts.key.is_empty() { return is_general_numeric_sort(opts) }
+  return is_general_numeric_sort(opts) when opts.key.is_empty()
   for spec in opts.key {
-    if is_general_numeric_sort(key_effective_options(spec, opts)) { return true }
+    return true when is_general_numeric_sort(key_effective_options(spec, opts))
   }
   false
 }
@@ -420,19 +421,20 @@ pure has_general_numeric_keys(opts: SortOptions) -> Bool {
 proc general_numeric_input(value: Bytes, opts: SortOptions) [error] -> GeneralNumericInput {
   let decimal_point = bytes.from_text(opts.decimal_point)
   var text_value = ""
-  var source_ends: List[Int] = []
   var at = 0
-  while at < value.len() {
-    if decimal_point.len() > 0 and value.slice(at, length: decimal_point.len()) == decimal_point {
-      text_value += "."
-      source_ends += [at + decimal_point.len()]
-      at += decimal_point.len()
-    } else {
-      let byte = value.byte_at(at) ?? 0
-      if byte >= 128 { break }
-      text_value += if opts.decimal_point != "." and byte == 46 { "/" } else { bytes.from_ints([byte])?.utf8()? }
-      source_ends += [at + 1]
-      at += 1
+  let source_ends = collect {
+    while at < value.len() {
+      if ! decimal_point.is_empty() and value.slice(at, length: decimal_point.len()) == decimal_point {
+        text_value += "."
+        yield at + decimal_point.len()
+        at += decimal_point.len()
+      } else {
+        let byte = value.byte_at(at) ?? 0
+        break when byte >= 128
+        text_value += if opts.decimal_point != "." and byte == 46 { "/" } else { bytes.from_ints([byte])?.utf8()? }
+        yield at + 1
+        at += 1
+      }
     }
   }
   {text: text_value, source_ends: source_ends}
@@ -442,9 +444,10 @@ proc general_numeric_input(value: Bytes, opts: SortOptions) [error] -> GeneralNu
 ## rounding and range. Keeping only requested strings bounds merge caches to the
 ## current records; a failed host conversion propagates before comparisons start.
 proc prepare_general_numeric_keys(lines: List[SortRecord], opts: SortOptions) [env, error] -> SortOptions {
-  var specs: List[Str] = []
-  for spec in opts.key {
-    if is_general_numeric_sort(key_effective_options(spec, opts)) { specs += [spec] }
+  let specs = collect {
+    for spec in opts.key {
+      yield spec when is_general_numeric_sort(key_effective_options(spec, opts))
+    }
   }
   if (opts.key.is_empty() and ! is_general_numeric_sort(opts)) or
     (! opts.key.is_empty() and specs.is_empty()) { return opts }
@@ -490,7 +493,7 @@ pure key_index(spec: Str) -> Int {
   let input = bytes.from_text(segment)
   var end = 0
   while end < input.len() and is_ascii_digit(input.byte_at(end) ?? 0) { end += 1 }
-  if end == 0 { return 0 }
+  return 0 when end == 0
   (segment.byte_slice(0, length: end).parse_int() ?? 9223372036854775807) - 1
 }
 
@@ -506,24 +509,22 @@ pure key_spec_error(spec: Str) -> SortKeyError? {
     var at = component_start
     while at < component_end and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
     if at == component_start {
-      if component == 0 { return {kind: "field-start", value: spec} }
+      return {kind: "field-start", value: spec} when component == 0
       return {kind: "comma-count", value: spec.byte_slice(component_start)}
     }
 
     let field_text = spec.byte_slice(component_start, length: at - component_start)
     let field = field_text.parse_int() ?? 9223372036854775807
-    if field == 0 { return {kind: "field-zero", value: spec} }
+    return {kind: "field-zero", value: spec} when field == 0
 
     if at < component_end and input.byte_at(at) == 46 {
       at += 1
       let count_start = at
       while at < component_end and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
-      if at == count_start {
-        return {kind: "dot-count", value: spec.byte_slice(count_start)}
-      }
+      return {kind: "dot-count", value: spec.byte_slice(count_start)} when at == count_start
       let count_text = spec.byte_slice(count_start, length: at - count_start)
       let count = count_text.parse_int() ?? 9223372036854775807
-      if count == 0 { return {kind: "character-zero", value: spec} }
+      return {kind: "character-zero", value: spec} when count == 0
     }
 
     while at < component_end {
@@ -534,8 +535,8 @@ pure key_spec_error(spec: Str) -> SortKeyError? {
       at += 1
     }
 
-    if component_end == input.len() { break }
-    if component > 0 { return {kind: "stray", value: spec} }
+    break when component_end == input.len()
+    return {kind: "stray", value: spec} when component > 0
     component = 1
     component_start = component_end + 1
   }
@@ -553,7 +554,7 @@ pure separator_value(raw: Str) -> Str {
 
 ## The last separator given wins; `main` rejects a set of separators that disagree.
 pure sort_delimiter(opts: SortOptions) -> Str {
-  if opts.delimiter.is_empty() { "" } else { separator_value(opts.delimiter[opts.delimiter.len() - 1]) }
+  if opts.delimiter.is_empty() { "" } else { separator_value(opts.delimiter[-1]) }
 }
 
 pure key_character_offset(spec: Str) -> Int {
@@ -561,13 +562,13 @@ pure key_character_offset(spec: Str) -> Int {
   let input = bytes.from_text(start)
   var end = 0
   while end < input.len() and is_ascii_digit(input.byte_at(end) ?? 0) { end += 1 }
-  if end == 0 { return 0 }
+  return 0 when end == 0
   let position = start.byte_slice(0, length: end).parse_int() ?? 9223372036854775807
   if position > 0 { position - 1 } else { 0 }
 }
 
 pure key_end_field_index(spec: Str) -> Int? {
-  if spec.split(",").len() < 2 { return null }
+  return null when spec.split(",").len() < 2
   key_index(spec.split(",").get(1) ?? "")
 }
 
@@ -576,7 +577,7 @@ pure key_end_character_count(spec: Str) -> Int {
   let input = bytes.from_text(end)
   var digits = 0
   while digits < input.len() and is_ascii_digit(input.byte_at(digits) ?? 0) { digits += 1 }
-  if digits == 0 { return 0 }
+  return 0 when digits == 0
   let position = end.byte_slice(0, length: digits).parse_int() ?? 9223372036854775807
   if position > 0 { position } else { 0 }
 }
@@ -605,7 +606,7 @@ pure key_options_are_explicit(spec: Str) -> Bool {
 }
 
 pure key_effective_options(spec: Str, opts: SortOptions) -> SortOptions {
-  if ! key_options_are_explicit(spec) { return opts }
+  return opts unless key_options_are_explicit(spec)
   let flags = key_flags(spec)
   {
     ...opts,
@@ -664,13 +665,13 @@ pure character_order_sort_key(input: Bytes, dictionary: Bool, ignore_nonprinting
 
 ## Numeric key parsers require valid text; offsets inside UTF-8 cannot start a numeric prefix.
 pure key_text_boundary(line: Str, offset: Int) -> Bool {
-  if offset <= 0 or offset >= line.byte_len() { return true }
+  return true when offset <= 0 or offset >= line.byte_len()
   let byte = line.byte_at(offset) ?? 0
   byte < 128 or byte > 191
 }
 
 pure key_byte_field_count(line: Bytes, delimiter: Bytes) -> Int {
-  if delimiter.len() > 0 {
+  if ! delimiter.is_empty() {
     var count = 1
     var at = 0
     while at + delimiter.len() <= line.len() {
@@ -696,11 +697,11 @@ pure key_byte_field_count(line: Bytes, delimiter: Bytes) -> Int {
 }
 
 pure key_byte_field_start(line: Bytes, delimiter: Bytes, field: Int) -> Int {
-  if delimiter.len() > 0 {
+  if ! delimiter.is_empty() {
     var at = 0
     var current = 0
     while at + delimiter.len() <= line.len() {
-      if current == field { return at }
+      return at when current == field
       if line[at..at + delimiter.len()] == delimiter {
         at += delimiter.len()
         current += 1
@@ -721,11 +722,11 @@ pure key_byte_field_start(line: Bytes, delimiter: Bytes, field: Int) -> Int {
 }
 
 pure key_byte_field_end(line: Bytes, delimiter: Bytes, field: Int) -> Int? {
-  if field >= key_byte_field_count(line, delimiter) { return null }
+  return null when field >= key_byte_field_count(line, delimiter)
   var at = key_byte_field_start(line, delimiter, field)
-  if delimiter.len() > 0 {
+  if ! delimiter.is_empty() {
     while at + delimiter.len() <= line.len() {
-      if line[at..at + delimiter.len()] == delimiter { return at }
+      return at when line[at..at + delimiter.len()] == delimiter
       at += 1
     }
     return line.len()
@@ -736,21 +737,21 @@ pure key_byte_field_end(line: Bytes, delimiter: Bytes, field: Int) -> Int? {
 }
 
 pure key_text_byte_boundary(line: Bytes, offset: Int, opts: SortOptions) -> Bool {
-  if opts.debug_byte_columns or offset <= 0 or offset >= line.len() { return true }
+  return true when opts.debug_byte_columns or offset <= 0 or offset >= line.len()
   var at = 0
   while at < offset {
     let unit = text.character(line, at)
-    if at + unit.size > offset { return false }
+    return false when at + unit.size > offset
     at += unit.size
   }
   at == offset
 }
 
 pure key_start_byte_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: SortOptions) -> Int {
-  if key_index(spec) >= key_byte_field_count(line, delimiter) { return line.len() }
-  var at = key_byte_field_start(line, delimiter, key_index(spec))
+  return line.len() when key_index(spec) >= key_byte_field_count(line, delimiter)
+  var at = key_index(spec) |> key_byte_field_start(line, delimiter, _)
   let start_spec = spec.split(",").get(0) ?? ""
-  if delimiter.len() == 0 and (opts.blank or "b" in key_flags(start_spec) or is_numeric_sort(opts) or
+  if delimiter.is_empty() and (opts.blank or "b" in key_flags(start_spec) or is_numeric_sort(opts) or
     is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_month_sort(opts)) {
     while at < line.len() and (line.byte_at(at) ?? 0) in [32, 9] { at += 1 }
   }
@@ -761,13 +762,13 @@ pure key_start_byte_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: SortOpti
 pure key_range_end_byte_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: SortOptions) -> Int? {
   let start_field = key_index(spec)
   if let end_field = key_end_field_index(spec) {
-    if end_field < start_field { return null }
+    return null when end_field < start_field
     if let field_end = key_byte_field_end(line, delimiter, end_field) {
       let end_count = key_end_character_count(spec)
       if end_count > 0 {
         var end_start = key_byte_field_start(line, delimiter, end_field)
         let end_spec = spec.split(",").get(1) ?? ""
-        if delimiter.len() == 0 and (opts.blank or "b" in key_flags(end_spec)) {
+        if delimiter.is_empty() and (opts.blank or "b" in key_flags(end_spec)) {
           while end_start < line.len() and (line.byte_at(end_start) ?? 0) in [32, 9] { end_start += 1 }
         }
         let remaining = field_end - end_start
@@ -791,7 +792,7 @@ pure key_range_bytes_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: SortOpt
 
 pure key_field_value_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: SortOptions) -> Bytes {
   let start = key_start_byte_raw(line, delimiter, spec, opts)
-  if ! key_text_byte_boundary(line, start, opts) { return b"" }
+  return b"" unless key_text_byte_boundary(line, start, opts)
   if let end = key_range_end_byte_raw(line, delimiter, spec, opts) {
     var aligned_end = end
     while aligned_end > start and ! key_text_byte_boundary(line, aligned_end, opts) { aligned_end -= 1 }
@@ -803,7 +804,7 @@ pure key_field_value_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: SortOpt
 
 pure key_field_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Str {
   let start = key_start_byte(line, delimiter, spec, opts)
-  if ! key_text_boundary(line, start) { return "" }
+  return "" unless key_text_boundary(line, start)
   if let end = key_range_end_byte(line, delimiter, spec, opts) {
     var aligned_end = end
     while aligned_end > start and ! key_text_boundary(line, aligned_end) { aligned_end -= 1 }
@@ -817,7 +818,7 @@ pure key_field_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) ->
 pure key_range_end_byte(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Int? {
   let start_field = key_index(spec)
   if let end_field = key_end_field_index(spec) {
-    if end_field < start_field { return null }
+    return null when end_field < start_field
     if let field_end = key_field_end_byte(line, delimiter, end_field) {
       let end_count = key_end_character_count(spec)
       if end_count > 0 {
@@ -848,9 +849,9 @@ pure key_range_bytes(line: Str, delimiter: Str, spec: Str, opts: SortOptions) ->
 }
 
 pure key_field_start_byte(line: Str, delimiter: Str, field: Int) -> Int {
-  if delimiter != "" {
+  guard delimiter == "" else {
     let parts = line.split(delimiter)
-    if field >= parts.len() { return line.byte_len() }
+    return line.byte_len() when field >= parts.len()
     var position = 0
     for index in range(field) { position += parts[index].byte_len() + delimiter.byte_len() }
     return position
@@ -868,14 +869,14 @@ pure key_field_start_byte(line: Str, delimiter: Str, field: Int) -> Int {
 }
 
 pure key_field_end_byte(line: Str, delimiter: Str, field: Int) -> Int? {
-  if delimiter != "" {
+  guard delimiter == "" else {
     let parts = line.split(delimiter)
-    if field >= parts.len() { return null }
+    return null when field >= parts.len()
     return key_field_start_byte(line, delimiter, field) + parts[field].byte_len()
   }
 
   let input = bytes.from_text(line)
-  if field >= line.trim().words().len() { return null }
+  return null when field >= line.trim().words().len()
   var position = key_field_start_byte(line, delimiter, field)
   while position < input.len() and (input.byte_at(position) ?? 0) in [32, 9] { position += 1 }
   while position < input.len() and (input.byte_at(position) ?? 0) not in [32, 9] { position += 1 }
@@ -885,7 +886,7 @@ pure key_field_end_byte(line: Str, delimiter: Str, field: Int) -> Int? {
 pure key_start_byte(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Int {
   if key_index(spec) >= (if delimiter == "" { line.trim().words().len() } else { line.split(delimiter).len() }) { return line.byte_len() }
   let input = bytes.from_text(line)
-  var position = key_field_start_byte(line, delimiter, key_index(spec))
+  var position = key_index(spec) |> key_field_start_byte(line, delimiter, _)
   let start_spec = spec.split(",").get(0) ?? ""
   if opts.blank or "b" in key_flags(start_spec) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or
     is_general_numeric_sort(opts) or is_month_sort(opts) {
@@ -908,7 +909,7 @@ pure non_nul_byte_count(input: Bytes) -> Int {
 ## Debug tabs are displayed as one marker; other decoded characters use the
 ## shared renderer's terminal width. Byte locales count every non-NUL byte.
 pure debug_column_count(input: Bytes, opts: SortOptions) -> Int {
-  if opts.debug_byte_columns { return non_nul_byte_count(input) }
+  return non_nul_byte_count(input) when opts.debug_byte_columns
   var columns = 0
   var at = 0
   while at < input.len() {
@@ -941,9 +942,9 @@ pure version_hex_byte(byte: Int) -> Str {
 # filevercmp's file suffixes: the prefix before a trailing `.alpha...` run is compared first, and the
 # whole name breaks ties. A leading dot ranks "." before ".." before other dot names, then ordinary names.
 pure version_key_bytes(input: Bytes) -> Str {
-  if input.is_empty() { return "A" }
-  if input == b"." { return "B" }
-  if input == b".." { return "C" }
+  return "A" when input.is_empty()
+  return "B" when input == b"."
+  return "C" when input == b".."
   let class = if input.byte_at(0) == 46 { "D" } else { "E" }
   let prefix = version_prefix_length(input)
   class + version_revision_key_bytes(input[0..prefix]) + version_revision_key_bytes(input)
@@ -1100,8 +1101,9 @@ pure sort_record_key_value(record: SortRecord, spec: Str, opts: SortOptions) -> 
 
 pure sort_record_primary_keys(record: SortRecord, opts: SortOptions, has_key: Bool) -> List[Str] {
   if has_key {
-    var keys: List[Str] = []
-    for spec in opts.key { keys += [sort_record_key_value(record, spec, opts)] }
+    let keys = collect {
+      for spec in opts.key { yield sort_record_key_value(record, spec, opts) }
+    }
     return keys
   }
   if is_month_sort(opts) {
@@ -1158,25 +1160,27 @@ pure plain_whole_line_sort(opts: SortOptions, has_key: Bool) -> Bool {
 
 pure sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool) -> List[SortRecord] {
   let unique_input = if opts.unique { records |> unique-by . } else { records }
-  if opts.merge { return unique_input }
+  return unique_input when opts.merge
   ## UTF-8 string order matches raw byte order only when every record is valid UTF-8.
   if plain_whole_line_sort(opts, has_key) {
-    var ordered: List[SortRecordOrder] = []
     var all_text = true
-    for record in unique_input {
-      if let text = record.text {
-        ordered += [{record: record, key: text}]
-      } else {
-        all_text = false
-        break
+    let ordered: List[SortRecordOrder] = collect {
+      for record in unique_input {
+        if let text = record.text {
+          yield {record: record, key: text}
+        } else {
+          all_text = false
+          break
+        }
       }
     }
     if all_text {
       return [entry.record for entry in ordered |> sort-by(desc: opts.reverse) .key]
     }
   }
-  var ordered: List[SortRecordOrder] = []
-  for record in unique_input { ordered += [{record: record, key: sort_record_order(record, opts, has_key)}] }
+  let ordered: List[SortRecordOrder] = collect {
+    for record in unique_input { yield {record: record, key: sort_record_order(record, opts, has_key)} }
+  }
   [entry.record for entry in ordered |> sort-by .key]
 }
 
@@ -1185,10 +1189,10 @@ pure same_sort_record_key(left: SortRecord, right: SortRecord, opts: SortOptions
 }
 
 pure unique_sorted_records(records: List[SortRecord], opts: SortOptions, has_key: Bool) -> List[SortRecord] {
-  if ! opts.unique { return records }
+  return records unless opts.unique
   var unique: List[SortRecord] = []
   for record in records {
-    if unique.is_empty() or ! same_sort_record_key(unique[unique.len() - 1], record, opts, has_key) {
+    if unique.is_empty() or ! same_sort_record_key(unique[-1], record, opts, has_key) {
       unique += [record]
     }
   }
@@ -1208,45 +1212,48 @@ pure sort_merge_reader_order(reader: SortMergeReader, opts: SortOptions, has_key
 }
 
 pure sort_record_bytes(records: List[SortRecord], ending: Bytes) -> Bytes {
-  var output: List[Bytes] = []
-  for record in records { output += [record.bytes, ending] }
+  let output = collect {
+    for record in records { yield @[record.bytes, ending] }
+  }
   bytes.concat(output)
 }
 
 pure input_records(input: Bytes, zero_terminated: Bool) -> List[SortRecord] {
   let separator = if zero_terminated { 0 } else { 10 }
-  if input.is_empty() { return [] }
+  return [] when input.is_empty()
   if let Ok(text) = input.utf8() {
     let delimiter = if zero_terminated { "\0" } else { "\n" }
     let parts = text.split(delimiter)
     let count = parts.len() - (if input.byte_at(input.len() - 1) == separator { 1 } else { 0 })
     return [{bytes: bytes.from_text(parts[index]), text: parts[index]} for index in range(count)]
   }
-  var records: List[SortRecord] = []
   var start = 0
   var at = 0
-  while at < input.len() {
-    if input.byte_at(at) == separator {
-      records += [sort_record(input[start..at])]
-      start = at + 1
+  let records: List[SortRecord] = collect {
+    while at < input.len() {
+      if input.byte_at(at) == separator {
+        yield sort_record(input[start..at])
+        start = at + 1
+      }
+      at += 1
     }
-    at += 1
+    yield sort_record(input[start..]) when start < input.len()
   }
-  if start < input.len() { records += [sort_record(input[start..])] }
   records
 }
 
 ## Split before decoding so POSIX filenames with invalid UTF-8 remain usable paths.
 pure files0_names(data: Bytes) -> List[Bytes] {
-  var names: List[Bytes] = []
   var start = 0
-  for at in range(data.len()) {
-    if data.byte_at(at) == 0 {
-      names += [data[start..at]]
-      start = at + 1
+  let names = collect {
+    for at in range(data.len()) {
+      if data.byte_at(at) == 0 {
+        yield data[start..at]
+        start = at + 1
+      }
     }
+    yield data[start..] when start < data.len()
   }
-  if start < data.len() { names += [data[start..]] }
   names
 }
 
@@ -1279,7 +1286,7 @@ pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: 
 
 pure debug_key_text(line: Str, opts: SortOptions, spec: Str) -> Str {
   let key_opts = key_effective_options(spec, opts)
-  let selected = key_field_value(line, sort_delimiter(opts), spec, key_opts)
+  let selected = sort_delimiter(opts) |> key_field_value(line, _, spec, key_opts)
   if is_month_sort(key_opts) {
     month_prefix(selected, opts)
   } else if is_human_numeric_sort(key_opts) {
@@ -1311,10 +1318,10 @@ pure debug_annotation(value: Str, opts: SortOptions) -> Str {
 pure debug_key_annotation(line: Str, opts: SortOptions, spec: Str) -> Str {
   let key_opts = key_effective_options(spec, opts)
   if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) {
-    debug_annotation(debug_key_text(line, opts, spec), opts)
+    debug_key_text(line, opts, spec) |> debug_annotation(_, opts)
   } else {
-    let range = key_range_bytes(line, sort_delimiter(opts), spec, key_opts)
-    if range.len() == 0 { "^ no match for key" } else { text.padding(debug_column_count(range, opts), "_") }
+    let range = sort_delimiter(opts) |> key_range_bytes(line, _, spec, key_opts)
+    if range.is_empty() { "^ no match for key" } else { text.padding(debug_column_count(range, opts), "_") }
   }
 }
 
@@ -1326,8 +1333,8 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
     if has_key {
       for spec in opts.key {
         let key_opts = key_effective_options(spec, opts)
-        let start = key_start_byte(line, sort_delimiter(opts), spec, key_opts)
-        let selected = key_field_value(line, sort_delimiter(opts), spec, key_opts)
+        let start = sort_delimiter(opts) |> key_start_byte(line, _, spec, key_opts)
+        let selected = sort_delimiter(opts) |> key_field_value(line, _, spec, key_opts)
         let numeric_blanks = if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) { leading_blank_count(selected) } else { 0 }
         let indentation = text.padding(debug_column_count(bytes.from_text(line).slice(0, length: start), opts) + numeric_blanks, " ")
         output += indentation + debug_key_annotation(line, opts, spec) + "\n"
@@ -1344,9 +1351,10 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
 }
 
 pure debug_visible_bytes(line: Bytes) -> Bytes {
-  var visible: List[Bytes] = []
-  for at in range(line.len()) {
-    visible += [if line.byte_at(at) == 9 { b">" } else { line[at..at + 1] }]
+  let visible = collect {
+    for at in range(line.len()) {
+      yield if line.byte_at(at) == 9 { b">" } else { line[at..at + 1] }
+    }
   }
   bytes.concat(visible)
 }
@@ -1366,21 +1374,21 @@ pure leading_blank_count_raw(line: Bytes) -> Int {
 pure human_numeric_prefix_raw(line: Bytes, opts: SortOptions) -> Bytes {
   let value = trim_leading_blanks_raw(line)
   let prefix = numeric_prefix_raw(value, opts)
-  if prefix.is_empty() { return b"" }
+  return b"" when prefix.is_empty()
   let unit = value.byte_at(prefix.len()) ?? 0
   if human_unit_order(unit) > 0 { bytes.concat([prefix, value[prefix.len()..prefix.len() + 1]]) } else { prefix }
 }
 
 pure debug_record_primary_bytes(record: SortRecord, opts: SortOptions, has_key: Bool) -> Bytes {
   if has_key {
-    let selected = sort_record_key_bytes(record, primary_key_spec(opts), opts)
+    let selected = primary_key_spec(opts) |> sort_record_key_bytes(record, _, opts)
     let key_opts = key_effective_options(primary_key_spec(opts), opts)
     if is_month_sort(key_opts) {
       if let Ok(value) = selected.utf8() { return bytes.from_text(month_prefix(value, opts)) }
       return b""
     }
-    if is_human_numeric_sort(key_opts) { return human_numeric_prefix_raw(selected, key_opts) }
-    if is_numeric_sort(key_opts) { return numeric_prefix_raw(selected, key_opts) }
+    return human_numeric_prefix_raw(selected, key_opts) when is_human_numeric_sort(key_opts)
+    return numeric_prefix_raw(selected, key_opts) when is_numeric_sort(key_opts)
     if is_general_numeric_sort(key_opts) {
       return bytes.from_text(opts.general_numeric_keys[sort_direction_bytes(selected, false)].prefix)
     }
@@ -1390,12 +1398,12 @@ pure debug_record_primary_bytes(record: SortRecord, opts: SortOptions, has_key: 
     if let value = record.text { return bytes.from_text(month_prefix(value, opts)) }
     return b""
   }
-  if is_human_numeric_sort(opts) { return human_numeric_prefix_raw(record.bytes, opts) }
-  if is_numeric_sort(opts) { return numeric_prefix_raw(record.bytes, opts) }
+  return human_numeric_prefix_raw(record.bytes, opts) when is_human_numeric_sort(opts)
+  return numeric_prefix_raw(record.bytes, opts) when is_numeric_sort(opts)
   if is_general_numeric_sort(opts) {
     return bytes.from_text(opts.general_numeric_keys[sort_direction_bytes(record.bytes, false)].prefix)
   }
-  if opts.blank { return trim_leading_blanks_raw(record.bytes) }
+  return trim_leading_blanks_raw(record.bytes) when opts.blank
   record.bytes
 }
 
@@ -1421,30 +1429,51 @@ pure debug_key_annotation_bytes(record: SortRecord, opts: SortOptions, spec: Str
 
 pure debug_sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool, key_field: Int) -> Bytes {
   let has_last_resort = has_key or is_month_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
-  var output: List[Bytes] = []
-  for record in records {
-    if let line = record.text {
-      output += [bytes.from_text(debug_sort_text([line], opts, has_key, key_field))]
-    } else {
-      output += [debug_visible_bytes(record.bytes), b"\n"]
-      if has_key {
-        for spec in opts.key {
-          let key_opts = key_effective_options(spec, opts)
-          let start = key_start_byte_raw(record.bytes, bytes.from_text(sort_delimiter(opts)), spec, key_opts)
-          let selected = sort_record_key_bytes(record, spec, opts)
-          let numeric_blanks = if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) { leading_blank_count_raw(selected) } else { 0 }
-          output += [bytes.from_text(text.padding(debug_column_count(record.bytes[0..start], opts) + numeric_blanks, " ")),
-            bytes.from_text(debug_key_annotation_bytes(record, opts, spec)), b"\n"]
-        }
-        if ! opts.stable and ! opts.unique {
-          output += [bytes.from_text(debug_annotation_bytes(record.bytes, opts)), b"\n"]
-        }
+  let output = collect {
+    for record in records {
+      if let line = record.text {
+        yield bytes.from_text(debug_sort_text([line], opts, has_key, key_field))
       } else {
-        let primary = debug_record_primary_bytes(record, opts, false)
-        let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or opts.blank { leading_blank_count_raw(record.bytes) } else { 0 }
-        output += [bytes.from_text(text.padding(indentation, " ")), bytes.from_text(debug_annotation_bytes(primary, opts)), b"\n"]
-        if has_last_resort and ! opts.stable and ! opts.unique {
-          output += [bytes.from_text(debug_annotation_bytes(record.bytes, opts)), b"\n"]
+        yield @[debug_visible_bytes(record.bytes), b"\n"]
+        if has_key {
+          for spec in opts.key {
+            let key_opts = key_effective_options(spec, opts)
+            let start = key_start_byte_raw(record.bytes, bytes.from_text(sort_delimiter(opts)), spec, key_opts)
+            let selected = sort_record_key_bytes(record, spec, opts)
+            let numeric_blanks = if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(
+              key_opts,
+            ) or is_general_numeric_sort(key_opts) {
+              leading_blank_count_raw(selected)
+            } else {
+              0
+            }
+            yield @[
+              bytes.from_text(text.padding(debug_column_count(record.bytes[0..start], opts) + numeric_blanks, " ")),
+              bytes.from_text(debug_key_annotation_bytes(record, opts, spec)),
+              b"\n",
+            ]
+          }
+
+          if ! opts.stable and ! opts.unique {
+            yield @[bytes.from_text(debug_annotation_bytes(record.bytes, opts)), b"\n"]
+          }
+        } else {
+          let primary = debug_record_primary_bytes(record, opts, false)
+          let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(
+            opts,
+          ) or opts.blank {
+            leading_blank_count_raw(record.bytes)
+          } else {
+            0
+          }
+          yield @[
+            bytes.from_text(text.padding(indentation, " ")),
+            bytes.from_text(debug_annotation_bytes(primary, opts)),
+            b"\n",
+          ]
+          if has_last_resort and ! opts.stable and ! opts.unique {
+            yield @[bytes.from_text(debug_annotation_bytes(record.bytes, opts)), b"\n"]
+          }
         }
       }
     }
@@ -1458,7 +1487,7 @@ pure debug_annotation_bytes(value: Bytes, opts: SortOptions) -> Str {
 
 pure has_random_key(opts: SortOptions) -> Bool {
   for spec in opts.key {
-    if "R" in key_flags(spec) { return true }
+    return true when "R" in key_flags(spec)
   }
   false
 }
@@ -1468,7 +1497,7 @@ pure has_random_key(opts: SortOptions) -> Bool {
 pure random_sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool, salt: Bytes) -> List[SortRecord] {
   records |> sort-by(desc: opts.reverse) { |record| {
     digest: {
-      let selected = if has_key { sort_record_key_bytes(record, primary_key_spec(opts), opts) } else { record.bytes }
+      let selected = if has_key { primary_key_spec(opts) |> sort_record_key_bytes(record, _, opts) } else { record.bytes }
       let key = if let Ok(value) = selected.utf8() {
         bytes.from_text(character_order_key(value, opts.dictionary, opts.ignore_nonprinting, opts.fold_case))
       } else {
@@ -1508,7 +1537,7 @@ proc random_salt(source: Str?) [fs, process, env, error] -> Bytes {
 
 ## A required output operand may start with a dash, so attach it before parsing options.
 pure normalize_output_args(argv: List[Str]) -> List[Str] {
-  var normalized: List[Str] = []
+  var normalized = []
   var operands_only = false
   var at = 0
   while at < argv.len() {
@@ -1552,7 +1581,7 @@ pure unsigned_count(digits: Str) -> Str {
 
 pure unsigned_successor(digits: Str) -> Str {
   let count = unsigned_count(digits)
-  if count == "18446744073709551615" { return count }
+  return count when count == "18446744073709551615"
   var sum = ""
   var carry = 1
   var at = count.byte_len()
@@ -1570,14 +1599,14 @@ pure legacy_key_part(spec: Str) -> LegacyKeyPart? {
   let input = bytes.from_text(spec)
   var at = 0
   while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
-  if at == 0 { return null }
+  return null when at == 0
   var char_pos = "0"
   var rest = spec.byte_slice(at)
   if rest.starts_with(".") {
     let tail = bytes.from_text(rest)
     var stop = 1
     while stop < tail.len() and is_ascii_digit(tail.byte_at(stop) ?? 0) { stop += 1 }
-    if stop == 1 { return null }
+    return null when stop == 1
     char_pos = unsigned_count(rest.byte_slice(1, length: stop - 1))
     rest = rest.byte_slice(stop)
   }
@@ -1615,34 +1644,39 @@ proc traditional_key_syntax() [env] -> Bool {
 }
 
 pure legacy_key_args(argv: List[Str], traditional: Bool) -> List[Str] {
-  if ! traditional { return argv }
-  var normalized: List[Str] = []
+  return argv unless traditional
   var at = 0
-  while at < argv.len() {
-    let arg = argv[at]
-    if arg == "--" {
-      for index in range(at, argv.len()) { normalized += [argv[index]] }
-      break
-    }
-    let from: LegacyKeyPart? = if arg.starts_with("+") { legacy_key_part(arg.byte_slice(1)) } else { null }
-    if let start = from {
-      var to: LegacyKeyPart? = null
-      let next_is_position = at + 1 < argv.len() and argv[at + 1].starts_with("-") and argv[at + 1].byte_len() > 1 and is_ascii_digit(bytes.from_text(argv[at + 1]).byte_at(1) ?? 0)
-      if next_is_position {
-        if let parsed = legacy_key_part(argv[at + 1].byte_slice(1)) {
-          to = parsed
-          at += 1
-        } else {
-          normalized += [arg, argv[at + 1]]
-          at += 2
-          continue
-        }
+  let normalized = collect {
+    while at < argv.len() {
+      let arg = argv[at]
+      if arg == "--" {
+        for index in range(at, argv.len()) { yield argv[index] }
+        break
       }
-      normalized += [f"-k{legacy_key_spec(start, to)}"]
-      at += 1
-    } else {
-      normalized += [arg]
-      at += 1
+
+      let from: LegacyKeyPart? = if arg.starts_with("+") { legacy_key_part(arg.byte_slice(1)) } else { null }
+      if let start = from {
+        var to: LegacyKeyPart? = null
+        let next_is_position = at + 1 < argv.len() and argv[at + 1].starts_with("-") and argv[at + 1].byte_len() > 1 and is_ascii_digit(
+          bytes.from_text(argv[at + 1]).byte_at(1) ?? 0,
+        )
+        if next_is_position {
+          if let parsed = legacy_key_part(argv[at + 1].byte_slice(1)) {
+            to = parsed
+            at += 1
+          } else {
+            yield @[arg, argv[at + 1]]
+            at += 2
+            continue
+          }
+        }
+
+        yield f"-k{legacy_key_spec(start, to)}"
+        at += 1
+      } else {
+        yield arg
+        at += 1
+      }
     }
   }
   normalized
@@ -1650,52 +1684,52 @@ pure legacy_key_args(argv: List[Str], traditional: Bool) -> List[Str] {
 
 ## A final unterminated record in one operand ends before the next operand starts.
 proc read_sort_records(sources: List[SortInput], zero_terminated: Bool) [fs, io, process, error] -> List[List[SortRecord]] {
-  var records: List[List[SortRecord]] = []
-  for source in sources {
-    let part = if source.stdin {
-      io.stdin_bytes()?
-    } else {
-      match source.path.read_bytes() {
-        Ok(data) => data
-        Err(failure) => {
-          gnu.error(f"cannot read: {gnu.quote_bytes(source.name, always: false)}: {gnu.strerror(failure)}")
-          exit 2
+  let records: List[List[SortRecord]] = collect {
+    for source in sources {
+      let part = if source.stdin {
+        io.stdin_bytes()?
+      } else {
+        match source.path.read_bytes() {
+          Ok(data) => data
+          Err(failure) => {
+            gnu.error(f"cannot read: {gnu.quote_bytes(source.name, always: false)}: {gnu.strerror(failure)}")
+            exit 2
+          }
         }
       }
+      yield input_records(part, zero_terminated)
     }
-    records += [input_records(part, zero_terminated)]
   }
   records
 }
 
 ## Merge one current record from each input; ties keep the earlier input first.
 pure merge_sort_records(sources: List[List[SortRecord]], opts: SortOptions, has_key: Bool, key_field: Int) -> List[SortRecord] {
-  var positions: List[Int] = []
-  for _ in sources { positions += [0] }
-  var merged: List[SortRecord] = []
-
-  loop {
-    var selected: Int? = null
-    for index in range(sources.len()) {
-      let position = positions[index]
-      if position < sources[index].len() {
-        if let current_index = selected {
-          let candidate = sources[index][position]
-          let current = sources[current_index][positions[current_index]]
-          if sort_record_precedes(candidate, current, opts, has_key) {
+  var positions = [0 for _ in sources]
+  let merged: List[SortRecord] = collect {
+    loop {
+      var selected = null
+      for index in range(sources.len()) {
+        let position = positions[index]
+        if position < sources[index].len() {
+          if let current_index = selected {
+            let candidate = sources[index][position]
+            let current = sources[current_index][positions[current_index]]
+            if sort_record_precedes(candidate, current, opts, has_key) {
+              selected = index
+            }
+          } else {
             selected = index
           }
-        } else {
-          selected = index
         }
       }
-    }
 
-    if let index = selected {
-      merged += [sources[index][positions[index]]]
-      positions[index] += 1
-    } else {
-      break
+      if let index = selected {
+        yield sources[index][positions[index]]
+        positions[index] += 1
+      } else {
+        break
+      }
     }
   }
 
@@ -1742,7 +1776,7 @@ proc can_stream_sort_merge(inputs: List[SortInput], opts: SortOptions, check_ena
 
   let limit = process.rlimit("nofile")?
   let open_limit = if let soft = limit.soft { soft - 3 } else { inputs.len() }
-  let batch_limit = if let size = opts.batch_size { size.parse_int()? } else { open_limit }
+  let batch_limit = if let size = opts.batch_size { size as Int } else { open_limit }
   let maximum = if batch_limit < open_limit { batch_limit } else { open_limit }
   inputs.len() <= maximum
 }
@@ -1771,19 +1805,20 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   }
 
   let line_ending = if opts.zero_terminated { b"\0" } else { b"\n" }
-  var output: List[Bytes] = []
+  var output = []
   var output_bytes = 0
   var previous: SortRecord? = null
   var prepared = opts
   loop {
     if has_general_numeric_keys(opts) {
-      var active: List[SortRecord] = []
-      for reader in readers { if let line = reader.current { active += [line] } }
-      if let line = previous { active += [line] }
+      let active: List[SortRecord] = collect {
+        for reader in readers { if let line = reader.current { yield line } }
+        if let line = previous { yield line }
+      }
       prepared = prepare_general_numeric_keys(active, prepared)
       for index in range(readers.len()) { readers[index] = sort_merge_reader_order(readers[index], prepared, has_key) }
     }
-    var selected: Int? = null
+    var selected = null
     for index in range(readers.len()) {
       if let candidate = readers[index].current {
         if let current_index = selected {
@@ -1825,13 +1860,13 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   }
 
   if ! output.is_empty() { finish_sort_stdout_bytes(bytes.concat(output)) }
-  for reader in readers { unix.close_fd(reader.fd)? }
+  for reader in readers { unix.close_fd(reader.fd) }
 }
 
 ## GNU sort reserves three descriptors for standard streams and signal handling.
 proc validate_batch_size(value: Str) [process, env, error] -> Unit {
   let raw = bytes.from_text(value)
-  var valid = raw.len() > 0
+  var valid = ! raw.is_empty()
   for at in range(raw.len()) {
     if ! is_ascii_digit(raw.byte_at(at) ?? 0) { valid = false }
   }
@@ -1844,7 +1879,7 @@ proc validate_batch_size(value: Str) [process, env, error] -> Unit {
   let maximum = if let soft = limit.soft { soft - 3 } else { 9223372036854775807 }
   match value.parse_int() {
     Ok(size) => {
-      if size < 2 {
+      guard size >= 2 else {
         gnu.error(f"invalid --batch-size argument {gnu.quote(value)}")
         gnu.error("minimum --batch-size argument is '2'")
         exit 2
@@ -1916,12 +1951,9 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
       exit 2
     }
   }
-  let number = match number_text.parse_int() {
-    Ok(number) => number
-    Err(_) => {
-      gnu.error(f"-S argument {gnu.quote(value)} too large")
-      exit 2
-    }
+  let number = number_text.parse_int() ?? { |_|
+    gnu.error(f"-S argument {gnu.quote(value)} too large")
+    exit 2
   }
   if suffix == "%" {
     let memory = linux.meminfo()?
@@ -1939,7 +1971,7 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
 
   let maximum = 9223372036854775807
   var multiplier = 1
-  for _ in range(power) {
+  repeat power times {
     if multiplier > maximum / 1024 {
       gnu.error(f"-S argument {gnu.quote(value)} too large")
       exit 2
@@ -1957,7 +1989,7 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
 ## The runtime buffers stdout, so an intermediate chunk's flush still belongs
 ## to the write phase; only the final flush uses the fflush diagnostic. A closed
 ## reader ends the process with the SIGPIPE status and no diagnostic.
-proc finish_sort_stdout_bytes(data: Bytes, intermediate: Bool = false) [io, env, process] -> Unit {
+proc finish_sort_stdout_bytes(data: Bytes, intermediate = false) [io, env, process] -> Unit {
   if let Err(failure) = io.write_stdout_bytes(data) {
     if gnu.errno(failure) == 32 { exit 141 }
     gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
@@ -2007,8 +2039,8 @@ proc create_sort_temp_root(directory: Str?) [fs, io, process, env, error] -> FsR
 
 proc sort_temp_path(root: FsRoot, name: Str) [fs, error] -> Path {
   let relative = fp"{name}"
-  root.write(relative, b"")?
-  root.chmod(relative, 0o600)?
+  root.write(relative, b"")
+  root.chmod(relative, 0o600)
   fp"{root.host_path()?}/{name}"
 }
 
@@ -2030,12 +2062,9 @@ proc startable_compress_program(program: Str?) [process, env] -> Str? {
 ## Runs the compression program with the bytes as stdin and the output file as stdout.
 ## A program that does not exit 0 leaves a truncated run behind, so it stops the sort.
 proc run_compress_program(program: Str, argv: List[Str], input: Bytes, output: Path) [process, env, error] {
-  let status = match process.run(process.command_argv(program, argv, stdin: input, stdout: output)) {
-    Ok(status) => status
-    Err(failure) => {
-      gnu.error(f"could not run compress program {gnu.quote(program)}: {gnu.strerror(failure)}")
-      exit 2
-    }
+  let status = process.run(process.command_argv(program, argv, stdin: input, stdout: output)) ?? { |failure|
+    gnu.error(f"could not run compress program {gnu.quote(program)}: {gnu.strerror(failure)}")
+    exit 2
   }
   if ! status.exited_with(0) {
     gnu.error(f"{gnu.quote(program)} terminated abnormally")
@@ -2048,20 +2077,20 @@ proc write_temp_run(root: FsRoot, name: Str, contents: Bytes, compress: Str?) [f
   if let program = compress {
     run_compress_program(program, [program], contents, run_path)
   } else {
-    root.write(fp"{name}", contents)?
-    root.chmod(fp"{name}", 0o600)?
+    root.write(fp"{name}", contents)
+    root.chmod(fp"{name}", 0o600)
   }
-  {name: bytes.from_text(run_path.display()), path: run_path, stdin: false, compressed: compress}
+  {name: run_path.bytes(), path: run_path, stdin: false, compressed: compress}
 }
 
 ## A plain file that was merged into can become a run only after compression; the plain copy is then removed.
 proc compress_temp_run(root: FsRoot, name: Str, plain: Path, compress: Str?) [fs, process, env, error] -> SortInput {
   if let program = compress {
     let stored = write_temp_run(root, name, plain.read_bytes()?, compress)
-    plain.remove()?
+    plain.remove()
     stored
   } else {
-    {name: bytes.from_text(plain.display()), path: plain, stdin: false, compressed: null}
+    {name: plain.bytes(), path: plain, stdin: false, compressed: null}
   }
 }
 
@@ -2070,16 +2099,17 @@ proc plain_sort_input(root: FsRoot, input: SortInput, name: Str) [fs, process, e
   if let program = input.compressed {
     let plain = sort_temp_path(root, name)
     run_compress_program(program, [program, "-d"], input.path.read_bytes()?, plain)
-    {name: bytes.from_text(plain.display()), path: plain, stdin: false, compressed: null}
+    {name: plain.bytes(), path: plain, stdin: false, compressed: null}
   } else {
     input
   }
 }
 
 proc plain_sort_inputs(root: FsRoot, inputs: List[SortInput], prefix: Str) [fs, process, env, error] -> List[SortInput] {
-  var plain: List[SortInput] = []
-  for index in range(inputs.len()) {
-    plain += [plain_sort_input(root, inputs[index], f"{prefix}-in-{index}")]
+  let plain: List[SortInput] = collect {
+    for index in range(inputs.len()) {
+      yield plain_sort_input(root, inputs[index], f"{prefix}-in-{index}")
+    }
   }
   plain
 }
@@ -2097,7 +2127,7 @@ proc sort_merge_batch_limit(opts: SortOptions) [process, error] -> Int {
   let available = if let soft = limit.soft { if soft > 8 { soft - 6 } else { 2 } } else { 32 }
   let bounded = if available > 64 { 64 } else { available }
   if let requested = opts.batch_size {
-    let size = requested.parse_int()?
+    let size = requested as Int
     if size < bounded { size } else { bounded }
   } else {
     bounded
@@ -2138,19 +2168,20 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   }
 
   let line_ending = if opts.zero_terminated { b"\0" } else { b"\n" }
-  var output: List[Bytes] = []
+  var output = []
   var output_bytes = 0
   var previous: SortRecord? = null
   var prepared = opts
   loop {
     if has_general_numeric_keys(opts) {
-      var active: List[SortRecord] = []
-      for reader in readers { if let line = reader.current { active += [line] } }
-      if let line = previous { active += [line] }
+      let active: List[SortRecord] = collect {
+        for reader in readers { if let line = reader.current { yield line } }
+        if let line = previous { yield line }
+      }
       prepared = prepare_general_numeric_keys(active, prepared)
       for index in range(readers.len()) { readers[index] = sort_merge_reader_order(readers[index], prepared, has_key) }
     }
-    var selected: Int? = null
+    var selected = null
     for index in range(readers.len()) {
       if let candidate = readers[index].current {
         if let current_index = selected {
@@ -2207,8 +2238,9 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
     var group_number = 0
     while start < runs.len() {
       let stop = if start + batch_limit < runs.len() { start + batch_limit } else { runs.len() }
-      var input_group: List[SortInput] = []
-      for index in range(start, stop) { input_group += [runs[index]] }
+      let input_group: List[SortInput] = collect {
+        for index in range(start, stop) { yield runs[index] }
+      }
       if input_group.len() == 1 {
         next += input_group
       } else {
@@ -2217,7 +2249,7 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
         let merged = sort_temp_path(root, f"{name}-plain")
         let fd = unix.open_fd(merged, write: true)?
         merge_sort_stream(plain_inputs, opts, has_key, key_field, fd, false)
-        unix.close_fd(fd)?
+        unix.close_fd(fd)
         next += [compress_temp_run(root, name, merged, compress)]
       }
       start = stop
@@ -2232,8 +2264,8 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
 
 proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int, has_key: Bool, key_field: Int, output: Path, has_output: Bool) [fs, io, env, process, error] {
   let compress = startable_compress_program(opts.compress_program)
-  var temp_root: FsRoot? = null
-  defer { if let root = temp_root { root.close()? } }
+  var temp_root = null
+  defer { if let root = temp_root { root.close() } }
 
   let requested_limit = if buffer_size == 0 { 9223372036854775807 } else { buffer_size }
   ## A minimum run size prevents tiny -S values from creating a temporary file for every short record.
@@ -2256,7 +2288,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
         }
       }
     }
-    var reader: SortMergeReader = {fd: fd, name: input.name, pending: b"", pending_at: 0, eof: false, current: null, current_order: null}
+    var reader: SortMergeReader = SortMergeReader(fd:, name: input.name, pending: b"", pending_at: 0, eof: false, current: null, current_order: null)
     loop {
       match advance_sort_merge_reader(reader, opts.zero_terminated) {
         Ok(next) => {
@@ -2285,7 +2317,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
         }
       }
     }
-    if ! input.stdin { unix.close_fd(fd)? }
+    if ! input.stdin { unix.close_fd(fd) }
   }
 
   if runs.is_empty() {
@@ -2322,7 +2354,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
       }
       let fd = unix.open_fd(output, write: true)?
       merge_sort_batched(runs, root, opts, has_key, key_field, batch_limit, fd, opts.unique, compress)
-      unix.close_fd(fd)?
+      unix.close_fd(fd)
     } else {
       merge_sort_batched(runs, root, opts, has_key, key_field, batch_limit, null, opts.unique, compress)
     }
@@ -2333,9 +2365,9 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
 
 proc sort_locale_name(category: Str) [env, error] -> Str {
   let all = env.get_or("LC_ALL", "")?
-  if all != "" { return all }
+  return all when all != ""
   let selected = env.get_or(category, "")?
-  if selected != "" { return selected }
+  return selected when selected != ""
   let language = env.get_or("LANG", "")?
   if language != "" { language } else { "C" }
 }
@@ -2344,7 +2376,7 @@ pure sort_needs_numeric_conventions(opts: SortOptions) -> Bool {
   if is_numeric_sort(opts) or is_general_numeric_sort(opts) or is_human_numeric_sort(opts) { return true }
   for spec in opts.key {
     let flags = key_flags(spec)
-    if "n" in flags or "g" in flags or "h" in flags { return true }
+    return true when "n" in flags or "g" in flags or "h" in flags
   }
   false
 }
@@ -2504,7 +2536,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if sort_needs_numeric_conventions(opts) {
     let conventions = system.locale_numeric_info(sort_locale_name("LC_NUMERIC"))?
-    opts = {...opts, decimal_point: conventions.decimal_point.utf8()?, thousands_separator: conventions.thousands_separator}
+    opts = {...opts, decimal_point: conventions.decimal_point as Str, thousands_separator: conventions.thousands_separator}
   }
   var needs_months = is_month_sort(opts)
   for spec in opts.key {
@@ -2512,8 +2544,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if needs_months {
     let calendar = system.locale_time_info(sort_locale_name("LC_TIME"))?
-    var months: List[Str] = []
-    for name in calendar.abbreviated_months { months += [name.utf8()?.upper()] }
+    let months = collect {
+      for name in calendar.abbreviated_months { yield name.utf8()?.upper() }
+    }
     opts = {...opts, months: months}
   }
 
@@ -2613,11 +2646,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let has_key = ! opts.key.is_empty()
-  let key_field = if has_key { key_index(primary_key_spec(opts)) } else { 0 }
+  let key_field = if has_key { primary_key_spec(opts) |> key_index(_) } else { 0 }
   let output_path = opts.output.get(0) ?? ""
   let has_output = ! opts.output.is_empty()
   for candidate in opts.output[1..] {
-    if candidate != output_path {
+    guard candidate == output_path else {
       gnu.error("multiple output files specified")
       exit 2
     }
@@ -2664,7 +2697,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   var inputs: List[SortInput] = []
   if let list = opts.files0_from {
-    if ! paths.is_empty() {
+    guard paths.is_empty() else {
       gnu.error(f"extra operand {gnu.quote(paths[0])}")
       eprint "file operands cannot be combined with --files0-from"
       gnu.try_help()
@@ -2701,7 +2734,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         gnu.error("when reading file names from standard input, no file name of '-' allowed")
         exit 2
       }
-      let input_path = Path.parse_bytes(name)?
+      let input_path = name as Path
       inputs += [{name: name, path: input_path, stdin: name == b"-", compressed: null}]
     }
   } else if paths.is_empty() {
@@ -2731,7 +2764,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let batch_limit = sort_merge_batch_limit(opts)
     if inputs.len() > batch_limit {
       let scratch = create_sort_temp_root(opts.temp_directory)
-      defer scratch.close()?
+      defer scratch.close()
       merge_sort_batched(inputs, scratch, opts, has_key, key_field, batch_limit, null, opts.unique, startable_compress_program(opts.compress_program))
       return
     }
@@ -2750,8 +2783,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   let source_records = read_sort_records(inputs, opts.zero_terminated)
   if has_general_numeric_keys(opts) {
-    var numeric_source_lines: List[SortRecord] = []
-    for records in source_records { numeric_source_lines += records }
+    let numeric_source_lines: List[SortRecord] = collect {
+      for records in source_records { yield @records }
+    }
     opts = prepare_general_numeric_keys(numeric_source_lines, opts)
   }
   var input_lines: List[SortRecord] = []
@@ -2776,7 +2810,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
               bytes.from_text(f"{gnu.prog()}: {gnu.quote_bytes(name, always: false)}:{index + 1}: disorder: "),
               current.bytes,
               record_ending,
-            ]))?
+            ]))
           }
           exit 1
         }

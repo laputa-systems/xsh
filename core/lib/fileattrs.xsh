@@ -34,9 +34,10 @@ export const FLAGS: List[FileFlag] = [
 ## Display raw inode flags, including flags that cannot be changed.
 export pure flag_text(flags: Int, long = false) -> Str {
   var text = ""
-  var names: List[Str] = []
-  for flag in FLAGS {
-    if flags.bit_and(flag.bit) != 0 { text += flag.letter; names += [flag.name] } else { text += "-" }
+  let names = collect {
+    for flag in FLAGS {
+      if flags.bit_and(flag.bit) != 0 { text += flag.letter; yield flag.name } else { text += "-" }
+    }
   }
   if ! long { text } else if names.is_empty() { "---" } else { names.join(", ") }
 }
@@ -70,7 +71,7 @@ export pure encode(value: Bytes, encoding: Str) -> Result[Bytes, Error] {
     }
     format = if value.len() >= nonprint * 8 { "text" } else { "base64" }
   }
-  if format == "base64" { return bytes.from_text("0s" + value.base64()) }
+  return bytes.from_text("0s" + value.base64()) when format == "base64"
   if format == "hex" {
     let digits = "0123456789abcdef"
     var text = "0x"
@@ -93,7 +94,7 @@ export pure encode(value: Bytes, encoding: Str) -> Result[Bytes, Error] {
 export pure unquote_bytes(raw: Bytes, quoted = false) -> Result[Bytes, Error] {
   var text = raw
   if quoted and text.len() >= 2 and text.byte_at(0) == 34 and text.byte_at(text.len() - 1) == 34 { text = text[1..text.len() - 1] }
-  var decoded: List[Int] = []
+  var decoded = []
   var at = 0
   while at < text.len() {
     let byte = text.byte_at(at) ?? 0
@@ -119,7 +120,7 @@ export pure unquote_bytes(raw: Bytes, quoted = false) -> Result[Bytes, Error] {
 
 ## Decode escaped text from an argument or a dump name.
 export pure unquote(raw: Str, quoted = false) -> Result[Bytes, Error] {
-  unquote_bytes(bytes.from_text(raw), quoted: quoted)
+  unquote_bytes(bytes.from_text(raw), quoted:)
 }
 
 ## Decode setfattr's explicit encodings; --raw bypasses this conversion.
@@ -127,8 +128,9 @@ export pure decode(raw: Str) -> Result[Bytes, Error] {
   if raw.starts_with("0x") or raw.starts_with("0X") {
     let text = rx"[[:space:]]".replace(raw.byte_slice(2), with: "")
     return Err(AttributeError.Encoding("bad input encoding")) when text.byte_len() % 2 != 0 or ! rx"^[0-9A-Fa-f]*$".matches(text)
-    var values: List[Int] = []
-    for index in range(text.byte_len() / 2) { values += [("0x" + text.byte_slice(index * 2, length: 2)).parse_int()?] }
+    let values = collect {
+      for index in range(text.byte_len() / 2) { yield ("0x" + text.byte_slice(index * 2, length: 2)) as Int }
+    }
     return bytes.from_ints(values)
   }
   if raw.starts_with("0s") or raw.starts_with("0S") {
@@ -159,7 +161,7 @@ export pure field(value: Str, width: Int, left = true) -> Str {
 ## Decode a dump value without requiring its raw text bytes to be UTF-8.
 export pure decode_bytes(raw: Bytes) -> Result[Bytes, Error] {
   if raw.len() >= 2 and raw[0..2] in [b"0x", b"0X", b"0s", b"0S"] {
-    return decode(raw.utf8()?)
+    return decode(raw as Str)
   }
   unquote_bytes(raw, quoted: true)
 }

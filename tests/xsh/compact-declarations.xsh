@@ -43,7 +43,7 @@ export type Envelope = {value: Scalar}
 ## Name extraction.
 export pure extract(input: Envelope) -> Scalar { input.value }
 """)
-  let output = test.run_script(
+  test.expect(
     ctx,
     r"""use counts as c
 use names as n
@@ -52,28 +52,16 @@ let name: n.Envelope = n.Envelope(value: "seven")
 assert c.extract(count) + 1 == 8
 assert n.extract(name).upper() == "SEVEN"
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
 }
 
 test test_null_storage_keeps_explicit_boundary_type { |ctx|
-  let returned = test.run_script(
-    ctx,
-    "pure absent() -> Null { null }\nassert absent() == null\n",
-  )?
-  assert returned.success, returned.stderr
+  test.expect(ctx, "pure absent() -> Null { null }\nassert absent() == null\n", status: 0)?
 
-  let accepted = test.run_script(
-    ctx,
-    "let exact: Null = null\nassert exact == null\n",
-  )?
-  assert accepted.success, accepted.stderr
+  test.expect(ctx, "let exact: Null = null\nassert exact == null\n", status: 0)?
 
-  let rejected = test.run_script(
-    ctx,
-    "let raw: Any = \"not null\"\ntest.error_kind(raw.require(Null), \"schema\")\n",
-  )?
-  assert rejected.success, rejected.stderr
+  test.expect(ctx, "let raw: Any = \"not null\"\ntest.error_kind(raw.require(Null), \"schema\")\n", status: 0)?
 }

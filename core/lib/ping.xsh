@@ -115,7 +115,7 @@ pure is_address(text: Str) -> Bool {
 # otherwise decimal.
 proc tos_option(text: Str) [process, env] -> Int {
   let lower = text.trim().lower()
-  var value: Int? = null
+  var value = null
   if lower.starts_with("0x") {
     var number = 0
     var valid = lower.byte_len() > 2
@@ -208,8 +208,8 @@ proc plan_of(opts: Options, forced: Str) [process, env, io, error] -> Plan {
       gnu.write_text("PATTERN: 0x" + [hex_byte(value) for value in pattern].join("") + "\n")
     }
   }
-  var interface: Str? = null
-  var source: Str? = null
+  var interface = null
+  var source = null
   if let text = opts.interface {
     if is_address(text) { source = text } else { interface = text }
   }
@@ -231,9 +231,7 @@ pure hex_byte(value: Int) -> Str {
 # Microseconds as a reply's "time=" value: three decimals under 1 ms, two
 # under 10 ms, one under 100 ms, whole milliseconds above.
 pure reply_time_text(us: Int) -> Str {
-  if us >= 100000 - 50 {
-    return f"{(us + 500) / 1000}"
-  }
+  return f"{(us + 500) / 1000}" when us >= 100000 - 50
   if us >= 10000 - 5 {
     let tenths = (us + 50) / 100
     return f"{tenths / 10}.{tenths % 10}"
@@ -251,7 +249,7 @@ pure millis_text(us: Int) -> Str {
 }
 
 pure isqrt(value: Int) -> Int {
-  if value <= 0 { return 0 }
+  return 0 when value <= 0
   var root = value.float().sqrt().floor() ?? 0
   while root * root > value { root -= 1 }
   while (root + 1) * (root + 1) <= value { root += 1 }
@@ -266,7 +264,7 @@ type Stats = {
 }
 
 pure percent_loss(stats: Stats) -> Int {
-  if stats.sent == 0 { return 0 }
+  return 0 when stats.sent == 0
   (stats.sent - stats.received) * 100 / stats.sent
 }
 
@@ -304,8 +302,8 @@ pure summary_text(given: Str, stats: Stats, adaptive: Bool, interval_ms: Int) ->
 
 # The status a finished (or interrupted) run reports.
 pure exit_status(stats: Stats, plan: Plan) -> Int {
-  if stats.received == 0 { return 1 }
-  if plan.count > 0 and plan.deadline_s > 0 and stats.received < plan.count { return 1 }
+  return 1 when stats.received == 0
+  return 1 when plan.count > 0 and plan.deadline_s > 0 and stats.received < plan.count
   0
 }
 
@@ -331,16 +329,16 @@ proc resolve(name: Str, family: Str) [net, process, env] -> Target {
 
 # The address of a reply with the name its reverse lookup found, if any.
 pure label(address: Str, names: Map[Str], show: Bool) -> Str {
-  if ! show { return address }
+  return address unless show
   let known = names.get(address) ?? ""
-  if known == "" { return address }
+  return address when known == ""
   f"{known} ({address})"
 }
 
 proc reverse_name(address: Str) [net] -> Str {
   let found = dns.reverse(address)
   if let Ok(list) = found {
-    if ! list.is_empty() { return list[0] }
+    return list[0] unless list.is_empty()
   }
   ""
 }
@@ -390,7 +388,7 @@ proc probe_route(target: Target, interface: Str?, requested: Str?) [process, net
     linux.setsockopt_bytes(fd, c.SOL_SOCKET, c.SO_BINDTODEVICE, bytes.from_text(device))
   }
   if let Err(failure) = linux.connect(fd, {family: target.family, address: target.address, port: 1025}) {
-    if gnu.errno(failure) == 13 { return Ok({source: requested ?? "", broadcast: true}) }
+    return Ok({source: requested ?? "", broadcast: true}) when gnu.errno(failure) == 13
     return Err(failure)
   }
   Ok({source: requested ?? linux.getsockname(fd)?.address, broadcast: false})
@@ -502,27 +500,21 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
     exit 1
   }
   let v6 = target.family == "inet6"
-  let sock = match icmp.open_echo(target.family, plan.identifier != null) {
-    Ok(opened) => opened
-    Err(failure) => {
-      eprint f"{gnu.prog()}: socktype: SOCK_RAW"
-      gnu.error(f"socket: {gnu.strerror(failure)}")
-      if gnu.errno(failure) == 1 or gnu.errno(failure) == 13 {
-        eprint f"{gnu.prog()}: => missing cap_net_raw+p capability or setuid?"
-      }
-      exit 2
+  let sock = icmp.open_echo(target.family, plan.identifier != null) ?? { |failure|
+    eprint f"{gnu.prog()}: socktype: SOCK_RAW"
+    gnu.error(f"socket: {gnu.strerror(failure)}")
+    if gnu.errno(failure) == 1 or gnu.errno(failure) == 13 {
+      eprint f"{gnu.prog()}: => missing cap_net_raw+p capability or setuid?"
     }
+    exit 2
   }
   defer unix.close_fd(sock.fd)
   let c = linux.net_constants()
   icmp.enable_ancillary(sock)
   configure(sock, plan, opts, target)
-  let route = match probe_route(target, plan.interface, plan.source) {
-    Ok(found) => found
-    Err(failure) => {
-      gnu.error(f"connect: {gnu.strerror(failure)}")
-      exit 2
-    }
+  let route = probe_route(target, plan.interface, plan.source) ?? { |failure|
+    gnu.error(f"connect: {gnu.strerror(failure)}")
+    exit 2
   }
   if route.broadcast and ! opts.broadcast {
     gnu.error("Do you want to ping broadcast? Then -b. If not, check your local firewall rules")
@@ -556,7 +548,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
   var names: Map[Str] = {}
   let destination = {family: target.family, address: target.address, port: 0}
   let started_ms = time.now()
-  var stats: Stats = {sent: 0, received: 0, duplicates: 0, errors: 0, corrupted: 0, rtt_min: 0, rtt_max: 0, rtt_sum: 0, rtt_sum2: 0, pipe: 0, ewma8: 0, first_ns: 0, last_ns: 0}
+  var stats: Stats = Stats(sent: 0, received: 0, duplicates: 0, errors: 0, corrupted: 0, rtt_min: 0, rtt_max: 0, rtt_sum: 0, rtt_sum2: 0, pipe: 0, ewma8: 0, first_ns: 0, last_ns: 0)
   var seen: Set[Int] = set.empty()
   var sent_at: Map[Int, Int] = {}
   var next_send_ms = started_ms
@@ -581,7 +573,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
     }
     if sending and now >= next_send_ms {
       let burst = if stats.sent == 0 { plan.preload } else { 1 }
-      for _ in range(burst) {
+      repeat burst times {
         let sequence = (stats.sent + 1) % 65536
         if opts.outstanding and stats.sent > 0 and stats.sent % 65536 not in seen {
           gnu.write_text(f"no answer yet for icmp_seq={stats.sent % 65536}\n")
@@ -619,7 +611,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
     if ! sending {
       # Nothing is left to wait for when every probe that left was answered
       # or none could be sent.
-      if delivered <= stats.received {
+      guard delivered > stats.received else {
         finished = true
         continue
       }
@@ -646,7 +638,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
           continue
         }
         stats = {...stats, errors: stats.errors + 1, last_ns: icmp.clock_ns(clock)?}
-        if opts.quiet { continue }
+        continue when opts.quiet
         report_error(failure, target, names, show_names, v6)
       }
     }
@@ -657,8 +649,8 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
         let offset = if sock.raw and ! v6 { icmp.ip_header_length(got.data) } else { 0 }
         let message = got.data.slice(offset)
         guard let echo = icmp.parse_echo(message) else { continue }
-        if echo.kind != icmp.reply_type(target.family) { continue }
-        if sock.raw and echo.identifier != identifier { continue }
+        continue when echo.kind != icmp.reply_type(target.family)
+        continue when sock.raw and echo.identifier != identifier
         guard sent_at.get(echo.sequence) is Ok(_) else { continue }
         if checksummed and ! icmp.checksum_ok(message) {
           stats = {...stats, corrupted: stats.corrupted + 1}
@@ -686,7 +678,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
         let ewma = if stats.ewma8 == 0 { rtt * 8 } else { stats.ewma8 + rtt - stats.ewma8 / 8 }
         let outstanding = stats.sent - echo.sequence + 1
         stats = {...stats, rtt_min: tmin, rtt_max: tmax, rtt_sum: stats.rtt_sum + rtt, rtt_sum2: stats.rtt_sum2 + rtt * rtt, ewma8: ewma, pipe: max_int(stats.pipe, outstanding)}
-        if opts.quiet { continue }
+        continue when opts.quiet
         if got.address not in names and show_names {
           names = names.set(got.address, reverse_name(got.address))
         }

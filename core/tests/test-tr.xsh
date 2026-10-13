@@ -35,7 +35,7 @@ test test_tr_does_not_add_newline_and_single_set_squeezes { |ctx|
 
 test test_tr_squeezes_runs_across_stdin_reads { |ctx|
   let contents = bytes.from_text([" " for _ in range(65537)].join(""))
-  let input = test.temp_file(ctx, name: "long-space-run", contents: contents)?
+  let input = test.temp_file(ctx, name: "long-space-run", contents:)?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -s " " < $input
   assert output == " "
 }
@@ -110,7 +110,10 @@ test test_tr_errors_identify_range_and_delete_mode_requirements { |ctx|
   assert error.read_text()? == "tr: range-endpoints of 'z-a' are in reverse collating sequence order\n"
   let escaped_range = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -d r"\046-\048" < /dev/null 2> $error
   assert escaped_range.exited_with(1)
-  assert error.read_text()? == r"tr: range-endpoints of '&-\004' are in reverse collating sequence order" + "\n"
+  assert error.read_text()? == """
+    tr: range-endpoints of '&-\\004' are in reverse collating sequence order
+    
+    """
   let delete_error = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -d ab cd < /dev/null 2> $error
   assert delete_error.exited_with(1)
   assert "Only one string may be given when deleting without squeezing repeats." in error.read_text()?

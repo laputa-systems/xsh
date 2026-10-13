@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_uptime.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_uptime::test_invalid_arg
 test test_uu_uptime_invalid_arg { |ctx|
@@ -16,13 +16,13 @@ test test_uu_uptime_uptime { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, " up ")
   uu.stdout_contains(r, "load average:")
-  assert ! (",  ," in r.stdout.utf8()?)
+  assert ! (",  ," in r.stdout as Str)
 }
 
 # origin: uutils test_uptime::test_uptime_for_file_without_utmpx_records
 test test_uu_uptime_uptime_for_file_without_utmpx_records { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "file1", "hello")?
+  uu.write(s, "file1", "hello")
   let r = uu.invoke(s, "uptime", [uu.at(s, "file1").display()])?
   uu.fails(r)
   uu.stderr_contains(r, "uptime: couldn't get boot time")
@@ -33,7 +33,7 @@ test test_uu_uptime_uptime_for_file_without_utmpx_records { |ctx|
 # origin: uutils test_uptime::test_uptime_with_dir
 test test_uu_uptime_uptime_with_dir { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir1")?
+  uu.mkdir(s, "dir1")
   let r = uu.invoke(s, "uptime", ["dir1"])?
   uu.fails(r)
   uu.stderr_contains(r, "uptime: couldn't get boot time: Is a directory")
@@ -43,11 +43,11 @@ test test_uu_uptime_uptime_with_dir { |ctx|
 # origin: uutils test_uptime::test_uptime_with_fifo
 test test_uu_uptime_uptime_with_fifo { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "fifo1")?
-  uu.write(s, "a", "hello")?
+  uu.mkfifo(s, "fifo1")
+  uu.write(s, "a", "hello")
   let cp = process.which("cp")?
   let writer = spawn process.command_argv(cp, [cp, uu.at(s, "a"), uu.at(s, "fifo1")], s.root, {}, b"", uu.at(s, "writer-out"), uu.at(s, "writer-err"), timeout: 5s)?
-  defer writer.cancel(kill_after: 100ms)?
+  defer writer.cancel(kill_after: 100ms)
   let r = uu.invoke(s, "uptime", ["fifo1"], timeout: 5s)?
   uu.fails(r)
   uu.stderr_contains(r, "uptime: couldn't get boot time")

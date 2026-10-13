@@ -13,9 +13,9 @@ pure statement_label(level: Level) -> Str {
 
 pure simple_statement_label(level: Level) -> Str {
   match level {
-    Info() => return "info"
-    Warn() => return "warn"
-    else => return "other"
+    Info() => "info"
+    Warn() => "warn"
+    else => "other"
   }
 }
 

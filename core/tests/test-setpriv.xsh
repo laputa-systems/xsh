@@ -48,25 +48,27 @@ proc applet_words(ctx: TestContext) [fs, process, error] -> List[Str] {
 # A script the command can read after setpriv has dropped to another user.
 proc shared_script(ctx: TestContext, name: Str, source: Str) [fs, error] -> Result[Str] {
   ctx.temp_root.chmod(0o755)
-  let script = test.temp_file(ctx, name: name, contents: bytes.from_text(source))?
+  let script = test.temp_file(ctx, name:, contents: bytes.from_text(source))?
   script.chmod(0o644)
   script.display()
 }
 
 proc has_capability(number: Int) [process, error] -> Bool {
-  match linux.privileges() {
-    Ok(state) => number in state.effective
-    Err(_) => false
+  if let Ok(state) = linux.privileges() {
+    number in state.effective
+  } else {
+    false
   }
 }
 
 pure list_after(text: Str, label: Str) -> List[Int] {
-  var found: List[Int] = []
-  for line in text.lines() {
-    if line.starts_with(label) {
-      for word in line.byte_slice(label.byte_len()).trim().split("\t") {
-        for piece in word.split(" ") {
-          if piece != "" { found += [piece.parse_int() ?? -1] }
+  let found = collect {
+    for line in text.lines() {
+      if line.starts_with(label) {
+        for word in line.byte_slice(label.byte_len()).trim().split("\t") {
+          for piece in word.split(" ") {
+            yield piece.parse_int() ?? -1 when piece != ""
+          }
         }
       }
     }
@@ -193,7 +195,7 @@ test test_setpriv_dump_layout_matches_util_linux { |ctx|
   # The layout util-linux prints, down to labels, "[none]" and comma lists.
   let child = shared_script(ctx, "state.xsh", STATE_SCRIPT)?
   let me = unix.id()?
-  let chain = applet_words(ctx).extend(["--inh-caps=-all", "--nnp", "--pdeathsig=TERM", ctx.xsh_bin.display()]).extend(applet_words(ctx)[1..])
+  let chain = [@applet_words(ctx), "--inh-caps=-all", "--nnp", "--pdeathsig=TERM", ctx.xsh_bin.display(), @applet_words(ctx)[1..]]
   let short = run_command(ctx, ctx.xsh_bin, chain.extend(["-d"]))?
   assert short.status == 0, short.stderr
   let lines = short.stdout.lines()
@@ -247,11 +249,11 @@ test test_setpriv_sets_no_new_privs_and_the_parent_death_signal { |ctx|
 test test_setpriv_pdeathsig_keep_and_clear_act_on_an_inherited_signal { |ctx|
   let child = shared_script(ctx, "state.xsh", STATE_SCRIPT)?
   let tail = [ctx.xsh_bin.display()].extend(applet_words(ctx)[1..])
-  let inherited = setpriv(ctx, ["--pdeathsig=TERM"].extend(tail).extend([ctx.xsh_bin.display(), child]))?
+  let inherited = setpriv(ctx, ["--pdeathsig=TERM", @tail, ctx.xsh_bin.display(), child])?
   assert inherited.stdout.find("pdeathsig=15") != null, inherited.stderr
-  let kept = setpriv(ctx, ["--pdeathsig=TERM"].extend(tail).extend(["--pdeathsig=keep", ctx.xsh_bin.display(), child]))?
+  let kept = setpriv(ctx, ["--pdeathsig=TERM", @tail, "--pdeathsig=keep", ctx.xsh_bin.display(), child])?
   assert kept.stdout.find("pdeathsig=15") != null, kept.stderr
-  let cleared = setpriv(ctx, ["--pdeathsig=TERM"].extend(tail).extend(["--pdeathsig=clear", ctx.xsh_bin.display(), child]))?
+  let cleared = setpriv(ctx, ["--pdeathsig=TERM", @tail, "--pdeathsig=clear", ctx.xsh_bin.display(), child])?
   assert cleared.stdout.find("pdeathsig=0") != null, cleared.stderr
 }
 
@@ -301,7 +303,7 @@ test test_setpriv_reset_env_rebuilds_the_environment_from_the_account { |ctx|
   let lines = result.stdout.lines()
   assert ! ("FOO=bar" in lines)
   assert "TERM=xsh-term" in lines
-  assert f"HOME={entry.home.display()}" in lines
+  assert f"HOME={entry.home}" in lines
   assert f"USER={entry.name}" in lines
   assert f"LOGNAME={entry.name}" in lines
   assert f"SHELL={if entry.shell == "" { "/bin/sh" } else { entry.shell }}" in lines
@@ -434,12 +436,12 @@ test test_setpriv_bounding_set_edits_drop_and_cannot_grow { |ctx|
   let only = setpriv(ctx, ["--bounding-set=-all,+chown", ctx.xsh_bin.display(), child])?
   assert only.stdout.find("bounding=[0]") != null, only.stdout
   # A capability that was dropped cannot be named back into the set.
-  let chain = ["--bounding-set=-chown", ctx.xsh_bin.display()].extend(applet_words(ctx)[1..]).extend(["--bounding-set=+chown", ctx.xsh_bin.display(), child])
+  let chain = ["--bounding-set=-chown", ctx.xsh_bin.display(), @applet_words(ctx)[1..], "--bounding-set=+chown", ctx.xsh_bin.display(), child]
   let regrown = setpriv(ctx, chain)?
   assert regrown.status == 127
   assert regrown.stderr.find("setpriv: apply bounding set: Operation not permitted") != null
   # `+all` only names what is still there.
-  let everything = setpriv(ctx, ["--bounding-set=-chown", ctx.xsh_bin.display()].extend(applet_words(ctx)[1..]).extend(["--bounding-set=+all", ctx.xsh_bin.display(), child]))?
+  let everything = setpriv(ctx, ["--bounding-set=-chown", ctx.xsh_bin.display(), @applet_words(ctx)[1..], "--bounding-set=+all", ctx.xsh_bin.display(), child])?
   assert everything.status == 0, everything.stderr
 }
 
@@ -452,7 +454,7 @@ test test_setpriv_securebits_are_edited_from_the_current_flags { |ctx|
   let removed = setpriv(ctx, ["--securebits=+noroot,+no_setuid_fixup,-noroot", ctx.xsh_bin.display(), child])?
   assert removed.stdout.find("securebits=[\"no_setuid_fixup\"]") != null, removed.stdout
   # A locked flag stays: the kernel refuses to clear it.
-  let chain = ["--securebits=+noroot,+noroot_locked", ctx.xsh_bin.display()].extend(applet_words(ctx)[1..]).extend(["--securebits=-noroot", ctx.xsh_bin.display(), child])
+  let chain = ["--securebits=+noroot,+noroot_locked", ctx.xsh_bin.display(), @applet_words(ctx)[1..], "--securebits=-noroot", ctx.xsh_bin.display(), child]
   let locked = setpriv(ctx, chain)?
   assert locked.status == 127
   assert locked.stderr.find("setpriv: set process securebits failed: Operation not permitted") != null

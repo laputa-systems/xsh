@@ -9,16 +9,19 @@ const LONG_OPTION_ORDER = ["backup", "prefix", "context", "directory", "ifdef", 
 export pure reorder_candidates(message: Str) -> Str {
   let marker = "; possibilities: "
   let at = message.find(marker) ?? -1
-  if at < 0 { return message }
+  return message when at < 0
   let head = message.byte_slice(0, at + marker.byte_len())
-  var names: List[Str] = []
-  for part in message.byte_slice(at + marker.byte_len()).split(" ") {
-    if part != "" { names += [part] }
+  let names = collect {
+    for part in message.byte_slice(at + marker.byte_len()).split(" ") {
+      yield part when part != ""
+    }
   }
-  var ordered: List[Str] = []
-  for known in LONG_OPTION_ORDER {
-    for name in names { if name == f"'--{known}'" { ordered += [name] } }
-  }
+  var ordered = [
+    name
+    for known in LONG_OPTION_ORDER
+    for name in names
+    if name == f"'--{known}'"
+  ]
   for name in names { if !(name in ordered) { ordered += [name] } }
   head + ordered.join(" ")
 }
@@ -32,11 +35,11 @@ export pure version_style(text: Str) -> Str {
     {name: "existing", style: "existing"}, {name: "nil", style: "existing"},
     {name: "numbered", style: "numbered"}, {name: "t", style: "numbered"},
   ]
-  for entry in table { if entry.name == text { return entry.style } }
+  for entry in table { return entry.style when entry.name == text }
   var found = ""
   for entry in table {
     if text != "" and entry.name.starts_with(text) {
-      if found != "" and found != entry.style { return "" }
+      return "" when found != "" and found != entry.style
       found = entry.style
     }
   }
@@ -48,7 +51,7 @@ export pure version_style(text: Str) -> Str {
 export pure chosen_format(argv: List[Str]) -> Str {
   var format = "any"
   for argument in argv {
-    if argument == "--" { break }
+    break when argument == "--"
     if argument.starts_with("--") {
       let name = argument.byte_slice(2).split("=")[0]
       if name != "" {
@@ -62,7 +65,7 @@ export pure chosen_format(argv: List[Str]) -> Str {
       for letter in argument.byte_slice(1) {
         if letter == "u" { format = "unified" } else if letter == "c" { format = "context" } else if letter == "n" { format = "normal" } else if letter == "e" { format = "ed" }
         # Letters that take a value end the cluster.
-        if letter in ["p", "F", "d", "D", "i", "o", "r", "B", "Y", "z", "V", "g", "x"] { break }
+        break when letter in ["p", "F", "d", "D", "i", "o", "r", "B", "Y", "z", "V", "g", "x"]
       }
     }
   }

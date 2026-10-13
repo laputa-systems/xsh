@@ -44,7 +44,7 @@ proc split_error(message: Str) [process, env, error] {
 }
 
 proc split_string(text: Str) [process, env, error] -> List[Str] {
-  var words: List[Str] = []
+  var words = []
   var word = ""
   var state = 0
   var started = false
@@ -152,15 +152,16 @@ proc split_string(text: Str) [process, env, error] -> List[Str] {
 
 pure assignment_separator(arg: Bytes) -> Int? {
   for at in range(arg.len()) {
-    if arg.byte_at(at) == 61 { return at }
+    return at when arg.byte_at(at) == 61
   }
   null
 }
 
 pure text_if_utf8(arg: Bytes) -> Str {
-  match arg.utf8() {
-    Ok(text) => text
-    Err(_) => ""
+  if let Ok(text) = arg.utf8() {
+    text
+  } else {
+    ""
   }
 }
 
@@ -183,8 +184,7 @@ proc print_environment(environment: Map[Str, Bytes], null_delimited: Bool) [proc
 # The inherited environment with its values as raw bytes: `env.list` rejects a
 # value that is not valid UTF-8, and env passes such values through unchanged.
 proc inherited_environment() [env, error] -> Result[Map[Str, Bytes]] {
-  var environment: Map[Str, Bytes] = {}
-  for item in env.entries()? { environment[item.name.utf8()?] = item.value }
+  var environment: Map[Str, Bytes] = {[item.name as Str]: item.value for item in env.entries()?}
   Ok(environment)
 }
 
@@ -197,18 +197,21 @@ proc environment_map(ignore_inherited: Bool, unset_names: List[Str], assignments
 }
 
 pure signal_names(text: Str) -> List[Str] {
-  var names: List[Str] = []
-  for name in text.split(",") {
-    if ! name.is_empty() { names += [name] }
+  let names = collect {
+    for name in text.split(",") {
+      yield name unless name.is_empty()
+    }
   }
   names
 }
 
 proc validate_signal_names(names: List[Str]) [process, env, error] {
   for name in names {
-    let signal = match process.signal(name) {
-      Ok(signal) => signal
-      Err(_) => { gnu.error(f"{gnu.quote(name)}: invalid signal"); exit 125 }
+    let signal = if let Ok(signal) = process.signal(name) {
+      signal
+    } else {
+      gnu.error(f"{gnu.quote(name)}: invalid signal")
+      exit 125
     }
     if signal.number == 0 {
       gnu.error(f"{gnu.quote(name)}: invalid signal")
@@ -221,9 +224,11 @@ proc apply_signal_actions(options: List[SignalActionOption]) [process, env, erro
   for option in options {
     if let names = option.names {
       for name in names {
-        let signal = match process.signal(name) {
-          Ok(signal) => signal
-          Err(_) => { gnu.error(f"{gnu.quote(name)}: invalid signal"); exit 125 }
+        let signal = if let Ok(signal) = process.signal(name) {
+          signal
+        } else {
+          gnu.error(f"{gnu.quote(name)}: invalid signal")
+          exit 125
         }
         if signal.number == 0 {
           gnu.error(f"{gnu.quote(name)}: invalid signal")
@@ -237,7 +242,7 @@ proc apply_signal_actions(options: List[SignalActionOption]) [process, env, erro
     } else {
       # The all-signals form skips dispositions the host does not allow changing.
       for signal in process.signals() {
-        if signal.number == 0 { continue }
+        continue when signal.number == 0
         if let Err(_) = process.set_signal_action(signal.name, option.action) { continue }
       }
     }
@@ -246,10 +251,10 @@ proc apply_signal_actions(options: List[SignalActionOption]) [process, env, erro
 
 proc list_signal_actions(blocked: List[Str]) [process, error, io] {
   for signal in process.signals() {
-    if signal.number == 0 { continue }
+    continue when signal.number == 0
     let is_blocked = signal.name in blocked
     let is_ignored = process.signal_action(signal.name)? == "ignore"
-    if ! is_blocked and ! is_ignored { continue }
+    continue when ! is_blocked and ! is_ignored
 
     var name_field = signal.name
     while name_field.byte_len() < 10 { name_field += " " }
@@ -262,13 +267,14 @@ proc list_signal_actions(blocked: List[Str]) [process, error, io] {
 # The signal names a run of --block-signal options blocks: an option without a
 # list stands for every signal.
 proc blocked_signal_names(options: List[SignalActionOption]) [process] -> List[Str] {
-  var blocked: List[Str] = []
-  for option in options {
-    if let names = option.names {
-      blocked = blocked.extend(names)
-    } else {
-      for signal in process.signals() {
-        if signal.number != 0 { blocked += [signal.name] }
+  let blocked = collect {
+    for option in options {
+      if let names = option.names {
+        yield @names
+      } else {
+        for signal in process.signals() {
+          if signal.number != 0 { yield signal.name }
+        }
       }
     }
   }
@@ -276,7 +282,12 @@ proc blocked_signal_names(options: List[SignalActionOption]) [process] -> List[S
 }
 
 proc split_words(source: Bytes, verbose: Bool) [process, env, error, io] -> List[Bytes] {
-  let text = match source.utf8() { Ok(text) => text, Err(_) => { split_error("invalid split string"); "" } }
+  let text = if let Ok(text) = source.utf8() {
+    text
+  } else {
+    split_error("invalid split string")
+    ""
+  }
   let words = split_string(text)
   if verbose and ! words.is_empty() {
     io.write_stderr(f"split -S:  {gnu.quote(text)}\n")
@@ -295,7 +306,7 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
   if let directory = cwd {
     match fs.stat(directory) {
       Ok(metadata) => {
-        if metadata.kind != "dir" {
+        guard metadata.kind == "dir" else {
           gnu.error(f"cannot change directory to {gnu.quote(directory.display())}: Not a directory")
           exit 125
         }
@@ -308,14 +319,16 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
   }
 
   let argv0_text: Str? = if let selected = argv0 {
-    match selected.utf8() {
-      Ok(text) => text
-      Err(_) => { gnu.error("--argv0 argument is not valid UTF-8"); exit 125 }
+    if let Ok(text) = selected.utf8() {
+      text
+    } else {
+      gnu.error("--argv0 argument is not valid UTF-8")
+      exit 125
     }
   } else { null }
 
   let words: List[Path] = collect {
-    for argument in command_argv { yield Path.parse_bytes(argument)? }
+    for argument in command_argv { yield argument as Path }
   }
   let target = words[0]
   if verbose {
@@ -342,10 +355,7 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
   }
 
   env (search_environment) {
-    let executable = match process.which(target) {
-      Ok(executable_path) => executable_path
-      Err(_) => target
-    }
+    let executable = if let Ok(executable_path) = process.which(target) { executable_path } else { target }
     let command = if let directory = cwd {
       process.command_argv(executable, words, cwd: directory)
     } else {
@@ -386,12 +396,12 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
 
 proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
   var argv = raw
-  var cwd: Path? = null
+  var cwd = null
   var null_delimited = false
   var ignore_inherited = false
   var verbose = false
-  var argv0: Bytes? = null
-  var unset_names: List[Str] = []
+  var argv0 = null
+  var unset_names = []
   var assignments: Map[Str, Bytes] = {}
   var signal_actions: List[SignalActionOption] = []
   var block_options: List[SignalActionOption] = []
@@ -429,7 +439,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         name_bytes = raw_word[8..]
         option_index += 1
       }
-      let name = name_bytes.utf8()?
+      let name = name_bytes as Str
       if name == "" or name.find("=") != null { gnu.error(f"cannot unset {gnu.quote(name)}: Invalid argument"); exit 125 }
       unset_names += [name]
       continue
@@ -438,10 +448,10 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
     if raw_word == b"--chdir" or byte_prefix(raw_word, b"--chdir=") {
       if raw_word == b"--chdir" {
         if option_index + 1 >= argv.len() { gnu.error("option '--chdir' requires an argument"); exit 125 }
-        cwd = Path.parse_bytes(argv[option_index + 1])?
+        cwd = argv[option_index + 1] as Path
         option_index += 2
       } else {
-        cwd = Path.parse_bytes(raw_word[8..])?
+        cwd = raw_word[8..] as Path
         option_index += 1
       }
       continue
@@ -458,7 +468,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         source = raw_word[15..]
       }
       let expanded = split_words(source, verbose)
-      argv = argv[0..option_index].extend(expanded).extend(argv[option_index + consumed..])
+      argv = [@argv[0..option_index], @expanded, @argv[option_index + consumed..]]
       continue
     }
 
@@ -469,7 +479,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         null
       } else {
         let value_start = if action == "ignore" { 16 } else { 17 }
-        let value = raw_word[value_start..].utf8()?
+        let value = raw_word[value_start..] as Str
         let names = signal_names(value)
         validate_signal_names(names)
         names
@@ -482,7 +492,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
       let names: List[Str]? = if raw_word == b"--block-signal" {
         null
       } else {
-        let listed = signal_names(raw_word[15..].utf8()?)
+        let listed = signal_names(raw_word[15..] as Str)
         validate_signal_names(listed)
         listed
       }
@@ -492,7 +502,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
     }
 
     if byte_prefix(raw_word, b"--") {
-      gnu.error(f"unrecognized option '{raw_word.utf8()?}'")
+      gnu.error(f"unrecognized option '{raw_word as Str}'")
       io.write_stderr(f"Try '{gnu.phrase()} --help' for more information.\n")
       exit 125
     }
@@ -502,30 +512,30 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
       var consume_word = false
       var split_seen = false
       while cursor < raw_word.len() {
-        let option = raw_word[cursor..cursor + 1].utf8()?
+        let option = raw_word[cursor..cursor + 1] as Str
         cursor += 1
         if option == "i" { ignore_inherited = true; continue }
         if option == "v" { verbose = true; continue }
         if option == "0" { null_delimited = true; continue }
         if option in ["u", "C", "S", "a"] {
           var argument = raw_word[cursor..]
-          if argument.len() == 0 {
+          if argument.is_empty() {
             if option_index + 1 >= argv.len() { gnu.error(f"option '-{option}' requires an argument"); exit 125 }
             argument = argv[option_index + 1]
             consume_word = true
           }
           if option == "u" {
-            let name = argument.utf8()?
+            let name = argument as Str
             if name == "" or name.find("=") != null { gnu.error(f"cannot unset {gnu.quote(name)}: Invalid argument"); exit 125 }
             unset_names += [name]
           } else if option == "C" {
-            cwd = Path.parse_bytes(argument)?
+            cwd = argument as Path
           } else if option == "a" {
             argv0 = argument
           } else {
             let expanded = split_words(argument, verbose)
             let consumed = if consume_word { 2 } else { 1 }
-            argv = argv[0..option_index].extend(expanded).extend(argv[option_index + consumed..])
+            argv = [@argv[0..option_index], @expanded, @argv[option_index + consumed..]]
             split_seen = true
           }
           break
@@ -533,7 +543,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         gnu.error(f"invalid option -- '{option}'")
         exit 125
       }
-      if split_seen { continue }
+      continue when split_seen
       option_index += if consume_word { 2 } else { 1 }
       continue
     }
@@ -544,7 +554,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
   var assignment_index = 0
   while assignment_index < argv.len() and assignment_separator(argv[assignment_index]) != null {
     let separator = assignment_separator(argv[assignment_index]) ?? 0
-    let name = argv[assignment_index][0..separator].utf8()?
+    let name = argv[assignment_index][0..separator] as Str
     let value = argv[assignment_index][separator + 1..]
     if name == "" { gnu.error("cannot set '': Invalid argument"); exit 125 }
     assignments[name] = value
@@ -554,7 +564,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
   let environment = environment_map(ignore_inherited, unset_names, assignments)?
   argv = argv[assignment_index..]
   if argv.is_empty() {
-    if cwd != null { gnu.error("must specify command with --chdir (-C)"); exit 125 }
+    guard cwd == null else { gnu.error("must specify command with --chdir (-C)"); exit 125 }
     if argv0 != null { gnu.error("must specify command with --argv0 (-a)"); exit 125 }
     print_environment(environment, null_delimited)
     return

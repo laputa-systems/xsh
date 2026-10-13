@@ -38,8 +38,9 @@ test test_fs_children_for_yields_precollected_entries { |ctx|
   fp"{root}/second".write("2")
   fp"{root}/first".write("1")
 
-  var names: List[Str] = []
-  for entry in fs.children(root)? { names += [entry.name] }
+  let names = collect {
+    for entry in fs.children(root)? { yield entry.name }
+  }
 
   assert names == ["first", "second"]
 }
@@ -439,7 +440,7 @@ test test_fs_root_stat_preserves_metadata_and_symlink_policy { |ctx|
 }
 
 test test_fs_root_children_reads_without_search_permission { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("Linux descriptor semantics are required")
     return
   }

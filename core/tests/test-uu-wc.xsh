@@ -1,12 +1,12 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_wc.rs.
 
-use support.uu as uu
+use support.uu
 
 proc wc_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir with spaces")?
+  uu.mkdir(s, "dir with spaces")
   for name in ["UTF_8_test.txt", "UTF_8_weirdchars.txt", "alice in wonderland.txt", "alice_in_wonderland.txt", "dir with spaces/.keep", "emptyfile.txt", "files0 with nonexistent.txt", "files0_list.txt", "files0_list_with_stdin.txt", "lorem_ipsum.txt", "manyemptylines.txt", "moby_dick.txt", "notrailingnewline.txt", "onelongemptyline.txt", "onelongword.txt"] {
-    uu.fixture(s, "wc", name, name)?
+    uu.fixture(s, "wc", name, name)
   }
   Ok(s)
 }
@@ -185,9 +185,9 @@ test test_uu_wc_files0_from_with_stdin_try_read_from_stdin { |ctx|
 # origin: uutils test_wc::test_files0_progressive_stream
 test test_uu_wc_files0_progressive_stream { |ctx|
   let s = wc_scene(ctx)?
-  uu.mkfifo(s, "stream-input")?
-  uu.mkfifo(s, "stream-output")?
-  uu.mkfifo(s, "stream-errors")?
+  uu.mkfifo(s, "stream-input")
+  uu.mkfifo(s, "stream-output")
+  uu.mkfifo(s, "stream-errors")
   let reader = unix.open_fd(uu.at(s, "stream-output"), nonblock: true)?
   defer unix.close_fd(reader)
   let errors = unix.open_fd(uu.at(s, "stream-errors"), nonblock: true)?
@@ -197,12 +197,12 @@ test test_uu_wc_files0_progressive_stream { |ctx|
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let deadline = time.now() + 5000
-  var writer: Int? = null
+  var writer = null
   while writer == null {
     assert time.now() < deadline, "wc did not open stdin"
     match unix.open_fd(uu.at(s, "stream-input"), write: true, nonblock: true) {
       Ok(fd) => writer = fd,
-      Err(failure) => { assert failure.errno == 6, failure.message; time.sleep(1ms)? },
+      Err(failure) => { assert failure.errno == 6, failure.message; time.sleep(1ms) },
     }
   }
   let producer = writer ?? -1
@@ -216,7 +216,7 @@ test test_uu_wc_files0_progressive_stream { |ctx|
   assert read_exact(errors, 39, deadline)? == b"wc: -:3: invalid zero-length file name\n"
   assert unix.write_fd(producer, b"alice_in_wonderland.txt\0")? == 24
   assert read_exact(reader, 33, deadline)? == b"5 57 302 alice_in_wonderland.txt\n"
-  unix.close_fd(producer)?
+  unix.close_fd(producer)
   producer_open = false
   let done = process.wait_timeout([child], 5s)?
   assert done != null, "wc should finish"
@@ -231,7 +231,7 @@ test test_uu_wc_files0_stops_after_stdout_write_error { |ctx|
   let s = wc_scene(ctx)?
   let r = uu.invoke(s, "wc", ["--files0-from=-", "--total=never"], stdin: b"/dev/null\0/dev/null\0/dev/null\0", stdout: p"/dev/full")?
   uu.fails(r)
-  assert r.stderr.utf8()?.split("write error: No space left on device").len() - 1 == 1, r.stderr.utf8()?
+  assert r.stderr.utf8()?.split("write error: No space left on device").len() - 1 == 1, r.stderr as Str
 }
 
 # origin: uutils test_wc::test_files_from_pseudo_filesystem
@@ -240,7 +240,7 @@ test test_uu_wc_files_from_pseudo_filesystem { |ctx|
   let r = uu.invoke(s, "wc", ["-c", "/proc/cpuinfo"])?
   uu.succeeds(r)
   assert r.stdout != b"0 /proc/cpuinfo\n"
-  if p"/sys/kernel/profiling".exists()? {
+  if p"/sys/kernel/profiling".exists() {
     let profile = uu.invoke(s, "wc", ["-c", "/sys/kernel/profiling"])?
     uu.succeeds(profile)
     let actual = p"/sys/kernel/profiling".read_bytes()?.len()
@@ -251,8 +251,8 @@ test test_uu_wc_files_from_pseudo_filesystem { |ctx|
 # origin: uutils test_wc::test_gnu_compatible_quotation
 test test_uu_wc_gnu_compatible_quotation { |ctx|
   let s = wc_scene(ctx)?
-  uu.mkdir(s, "some-dir1")?
-  uu.touch(s, "some-dir1/12\n34.txt")?
+  uu.mkdir(s, "some-dir1")
+  uu.touch(s, "some-dir1/12\n34.txt")
   let r = uu.invoke(s, "wc", ["some-dir1/12\n34.txt"])?
   uu.succeeds(r)
   uu.stdout_is(r, "0 0 0 'some-dir1/12'$'\\n''34.txt'\n")
@@ -296,7 +296,7 @@ test test_uu_wc_posixly_correct_whitespace { |ctx|
 # origin: uutils test_wc::test_read_error_order_with_stderr_to_stdout
 test test_uu_wc_read_error_order_with_stderr_to_stdout { |ctx|
   let s = wc_scene(ctx)?
-  uu.mkdir(s, "ioerrdir")?
+  uu.mkdir(s, "ioerrdir")
   let words = uu.argv(s, "wc", [p"ioerrdir"])?
   let out = uu.at(s, "merged-output")
   let err = uu.at(s, "outer-errors")
@@ -329,7 +329,7 @@ test test_uu_wc_simd_respects_glibc_tunables { |ctx|
   let s = wc_scene(ctx)?
   let debug = uu.invoke(s, "wc", ["-l", "--debug", "/dev/null"], vars: {GLIBC_TUNABLES: "glibc.cpu.hwcaps=-AVX2,-AVX512F"})?
   uu.succeeds(debug)
-  let diagnostic = debug.stderr.utf8()?
+  let diagnostic = debug.stderr as Str
   assert ! ("using hardware support" in diagnostic), diagnostic
   assert "support not detected" in diagnostic, diagnostic
   for lines in [0, 1, 7, 128, 513, 999] {

@@ -1,20 +1,20 @@
 use support.uu
 
 proc sequence(count: Int) -> Bytes { bytes.from_text([f"{n}\n" for n in range(1, count + 1)].join("")) }
-proc integers(data: Bytes) [error] -> Result[List[Int], Error] { Ok([word.parse_int()? for word in data.utf8()?.lines()] |> sort-by .) }
+proc integers(data: Bytes) [error] -> Result[List[Int], Error] { Ok([word as Int for word in data.utf8()?.lines()] |> sort-by .) }
 proc distinct(values: List[Str]) -> List[Str] {
-  var result: List[Str] = []
+  var result = []
   for value in values |> sort-by . { if value not in result { result += [value] } }
   result
 }
 # The isolation launcher runs before the wrapper so descriptor and address-space
 # changes apply to the applet, rather than the launcher's own preparation.
-proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Bytes = b"", timeout: Duration = 30s) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let isolated = uu.argv(s, "shuf", [Path(arg) for arg in args])?
-  let words = isolated[..3].extend(prefix).extend(isolated[3..])
+proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input = b"", timeout = 30s) [fs, process, env, error] -> Result[uu.Ran, Error] {
+  let isolated = uu.argv(s, "shuf", [fp"{arg}" for arg in args])?
+  let words = [@isolated[..3], @prefix, @isolated[3..]]
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
-  let plan = process.command_argv(words[0], words, s.root, {}, input, out, err, timeout: timeout)
+  let plan = process.command_argv(words[0], words, s.root, {}, input, out, err, timeout:)
   let status = process.run(plan)?
   Ok({util: "shuf", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
@@ -26,24 +26,24 @@ proc minimum_vm(s: uu.Scene) [fs, process, env, time, error] -> Result[Int?, Err
     let upper = level * 5000
     let started = time.now() / 1000
     let probe = limited(s, upper, ["-i1-1"])?
-    if time.now() / 1000 - started >= 10 { return Ok(null) }
-    if probe.status == 77 { return Ok(null) }
+    return Ok(null) when time.now() / 1000 - started >= 10
+    return Ok(null) when probe.status == 77
     if probe.status == 0 {
       var previous = upper
       for step in range(upper / 1000 - 1) {
         let lower = upper - 1000 * (step + 1)
         let descending_started = time.now() / 1000
         let descending = limited(s, lower, ["-i1-1"])?
-        if time.now() / 1000 - descending_started >= 10 { return Ok(null) }
-        if descending.status == 77 { return Ok(null) }
-        if descending.status != 0 { return Ok(previous + 4) }
+        return Ok(null) when time.now() / 1000 - descending_started >= 10
+        return Ok(null) when descending.status == 77
+        return Ok(previous + 4) when descending.status != 0
         previous = lower
       }
     }
   }
   Ok(null)
 }
-proc first_thousand(s: uu.Scene, args: List[Str], input: Bytes = b"") [fs, process, env, error] {
+proc first_thousand(s: uu.Scene, args: List[Str], input = b"") [fs, process, env, error] {
   let r = wrapped(s, [p"/bin/sh", p"-c", p"\"$@\" | head -n 1000", p"first-lines"], args, input)
   let completed = r?
   uu.succeeds(completed)
@@ -60,7 +60,7 @@ test test_gnu_shuf_shuf_log { |ctx|
     if second.status == 0 { assert first.stdout != second.stdout }
   }
   let input = sequence(100)
-  uu.write_bytes(s, "in", input)?
+  uu.write_bytes(s, "in", input)
   for args in [["in"], ["-i", "1-100"]] {
     let r = uu.invoke(s, "shuf", args)?
     uu.succeeds(r)
@@ -91,8 +91,8 @@ test test_gnu_shuf_shuf_log { |ctx|
   }
   let subset = uu.invoke(s, "shuf", ["-i1-18446744073709551615", "-n2"], stdout: p"/dev/null", timeout: 10s)?
   uu.succeeds(subset)
-  uu.touch(s, "unreadable")?
-  uu.set_mode(s, "unreadable", 0)?
+  uu.touch(s, "unreadable")
+  uu.set_mode(s, "unreadable", 0)
   uu.succeeds(uu.invoke(s, "shuf", ["-n0", "unreadable"])?)
   uu.fails_with_code(uu.invoke(s, "shuf", ["-n1", "unreadable"])?, 1)
   let multiple_counts = uu.invoke(s, "shuf", ["-n10", "-i0-9", "-n3", "-n20"])?
@@ -116,7 +116,7 @@ test test_gnu_shuf_shuf_log { |ctx|
   ]
   for args in invalid { uu.fails_with_code(uu.invoke(s, "shuf", args)?, 1) }
   for args in [["-o", "out", "missing-input"], ["-o", "out", "--random-source=missing-input", "in"]] {
-    uu.write(s, "out", "precious\n")?
+    uu.write(s, "out", "precious\n")
     uu.fails_with_code(uu.invoke(s, "shuf", args)?, 1)
     uu.file_is(s, "out", "precious\n")
   }

@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils factor integration tests.
 
-use support.uu as uu
+use support.uu
 
 pure integer_input(last: Int) -> Bytes {
   bytes.from_text([f"{n} " for n in range(last + 1)].join(""))
@@ -147,7 +147,7 @@ test test_uu_factor_invalid_cmdline_arg_continues { |ctx|
 # origin: uutils test_factor::test_stdin_clean_error_message
 test test_uu_factor_stdin_clean_error_message { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "directory")?
+  uu.mkdir(s, "directory")
   let r = uu.invoke_from_path(s, "factor", [], uu.at(s, "directory"))?
   uu.fails(r)
   uu.stderr_is(r, "factor: error reading input: Is a directory\n")
@@ -2367,7 +2367,7 @@ test test_uu_factor_random_big { |ctx|
 # origin: uutils test_factor::test_parallel
 test test_uu_factor_parallel { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "output")?
+  uu.touch(s, "output")
   let input = integer_input(50000)
   let children = collect {
     for index in range(8) {

@@ -42,16 +42,16 @@ pure process_index(rows: List[model.ProcessRow]) -> Map[Int, model.ProcessRow] {
 }
 
 pure add_rate(left: rates.Rate, right: rates.Rate) -> rates.Rate {
-  if left.state != rates.Observed or right.state != rates.Observed or left.value == null or right.value == null {
+  if left.state != .Observed or right.state != .Observed or left.value == null or right.value == null {
     return {state: rates.Unavailable, value: null}
   }
-  {state: rates.Observed, value: (left.value ?? 0.0) + (right.value ?? 0.0)}
+  {state: rates.Observed, value: left.value + right.value}
 }
 
 pure add_bytes(left: Int?, right: Int?) -> Int? {
-  if left == null or right == null { return null }
-  let a = left ?? 0
-  let b = right ?? 0
+  return null when left == null or right == null
+  let a = left
+  let b = right
   return null when a < 0 or b < 0 or a > 9223372036854775807 - b
   a + b
 }
@@ -74,7 +74,7 @@ export pure build(
       continue
     }
     seen_rows = seen_rows.add(row.pid)
-    if row.parent_pid == 0 { continue }
+    continue when row.parent_pid == 0
     if row.parent_pid == row.pid {
       issues += [{pid: row.pid, kind: "self_parent"}]
       continue
@@ -97,11 +97,11 @@ export pure build(
   for row in ordered {
     continue when row.pid in finished
     var cursor = row.pid
-    var predecessor: Int? = null
-    var walked: List[Int] = []
+    var predecessor = null
+    var walked = []
     var path_index: Map[Int, Int] = {}
-    for _ in range(ordered.len() + 1) {
-      if cursor in finished { break }
+    repeat ordered.len() + 1 times {
+      break when cursor in finished
       if let Ok(_) = path_index.get(cursor) {
         let broken = predecessor ?? cursor
         parent_by_pid = parent_by_pid.remove(broken)
@@ -121,20 +121,21 @@ export pure build(
     for pid in walked { finished = finished.add(pid) }
   }
 
-  var roots: List[Int] = []
   var children_by_pid: Map[Int, List[Int]] = {}
-  for row in ordered {
-    if let Ok(parent) = parent_by_pid.get(row.pid) {
-      let children = if let Ok(found) = children_by_pid.get(parent) { found } else { [] }
-      children_by_pid = children_by_pid.set(parent, children + [row.pid])
-    } else {
-      roots += [row.pid]
+  let roots = collect {
+    for row in ordered {
+      if let Ok(parent) = parent_by_pid.get(row.pid) {
+        let children = if let Ok(found) = children_by_pid.get(parent) { found } else { [] }
+        children_by_pid = children_by_pid.set(parent, [@children, row.pid])
+      } else {
+        yield row.pid
+      }
     }
   }
 
   var nodes: Map[Int, TreeNode] = {}
   for row in ordered {
-    var parent: Int? = null
+    var parent = null
     if let Ok(found) = parent_by_pid.get(row.pid) { parent = found }
     let children = if let Ok(found) = children_by_pid.get(row.pid) { found } else { [] }
     let orphan = if let Ok(found) = orphan_by_pid.get(row.pid) { found } else { false }
@@ -151,13 +152,10 @@ export pure build(
     })
   }
 
-  var stack: List[PendingNode] = []
-  for index in range(roots.len()) {
-    stack += [{pid: roots[roots.len() - index - 1], depth: 0}]
-  }
-  var preorder: List[Int] = []
+  var stack: List[PendingNode] = [{pid: roots[roots.len() - index - 1], depth: 0} for index in range(roots.len())]
+  var preorder = []
   while ! stack.is_empty() {
-    let pending = stack[stack.len() - 1]
+    let pending = stack[-1]
     stack = stack |> take(stack.len() - 1)
     preorder += [pending.pid]
     if let Ok(node) = nodes.get(pending.pid) {

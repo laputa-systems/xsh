@@ -1,6 +1,6 @@
 type Outcome = {status: Int, stdout: Str, stderr: Str}
 
-proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "") [fs, process, error] -> Result[Outcome] {
+proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir = "") [fs, process, error] -> Result[Outcome] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/mktemp.xsh"
@@ -60,55 +60,55 @@ test test_mktemp_option_terminator_keeps_dash_p_as_template { |ctx|
 
 test test_mktemp_non_utf8_template_is_preserved { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-template-bytes")?
-  let pattern = Path.parse_bytes(b"template_\xff\xfe_XXXXXX")?
+  let pattern = b"template_\xff\xfe_XXXXXX" as Path
   let args: List[Union[Str, Path]] = [pattern]
   let result = run_applet_paths(ctx, root, args)?
   assert result.status == 0, result.stderr
   assert result.stdout.starts_with(b"template_\xff\xfe_")
   assert result.stdout.ends_with(b"\n")
-  let created = Path.parse_bytes(bytes.concat([root.bytes(), b"/", result.stdout[0..result.stdout.len() - 1]]))?
+  let created = bytes.concat([root.bytes(), b"/", result.stdout[0..result.stdout.len() - 1]]) as Path
   assert created.exists()?
 }
 
 test test_mktemp_non_utf8_tmpdir_paths { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-tmpdir-bytes")?
-  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/dir_\xff\xfe"]))?
-  directory.mkdir(parents: false)?
+  let directory = bytes.concat([root.bytes(), b"/dir_\xff\xfe"]) as Path
+  directory.mkdir(parents: false)
   let short_args: List[Union[Str, Path]] = ["-p", directory]
   let short = run_applet_paths(ctx, root, short_args)?
   assert short.status == 0, short.stderr
   assert short.stdout.starts_with(bytes.concat([directory.bytes(), b"/tmp."]))
-  let created_short = Path.parse_bytes(short.stdout[0..short.stdout.len() - 1])?
+  let created_short = short.stdout[0..short.stdout.len() - 1] as Path
   assert created_short.exists()?
-  let tmpdir_option = Path.parse_bytes(bytes.concat([b"--tmpdir=", directory.bytes()]))?
+  let tmpdir_option = bytes.concat([b"--tmpdir=", directory.bytes()]) as Path
   let long_args: List[Union[Str, Path]] = [tmpdir_option, "tmpXXXXXX"]
   let long = run_applet_paths(ctx, root, long_args)?
   assert long.status == 0, long.stderr
   assert long.stdout.starts_with(bytes.concat([directory.bytes(), b"/tmp"]))
-  let created_long = Path.parse_bytes(long.stdout[0..long.stdout.len() - 1])?
+  let created_long = long.stdout[0..long.stdout.len() - 1] as Path
   assert created_long.exists()?
 }
 
 test test_mktemp_non_utf8_suffix { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-suffix-bytes")?
-  let suffix = Path.parse_bytes(b"\xc3|\xed\xba\xad")?
+  let suffix = b"\xc3|\xed\xba\xad" as Path
   let args: List[Union[Str, Path]] = ["-p", root, "--suffix", suffix, "tmpXXXXXX"]
   let result = run_applet_paths(ctx, root, args)?
   assert result.status == 0, result.stderr
   assert result.stdout.ends_with(bytes.concat([suffix.bytes(), b"\n"]))
-  let created = Path.parse_bytes(result.stdout[0..result.stdout.len() - 1])?
+  let created = result.stdout[0..result.stdout.len() - 1] as Path
   assert created.exists()?
 }
 
 test test_mktemp_creates_directory_under_non_utf8_tmpdir { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-dir-bytes")?
-  let parent = Path.parse_bytes(bytes.concat([root.bytes(), b"/parent_\xff\xfe"]))?
-  parent.mkdir(parents: false)?
+  let parent = bytes.concat([root.bytes(), b"/parent_\xff\xfe"]) as Path
+  parent.mkdir(parents: false)
   let args: List[Union[Str, Path]] = ["-d", "-p", parent]
   let result = run_applet_paths(ctx, root, args)?
   assert result.status == 0, result.stderr
   assert result.stdout.starts_with(bytes.concat([parent.bytes(), b"/tmp."]))
-  let created = Path.parse_bytes(result.stdout[0..result.stdout.len() - 1])?
+  let created = result.stdout[0..result.stdout.len() - 1] as Path
   assert fs.stat(created)?.kind == "dir"
 }
 
@@ -131,7 +131,7 @@ test test_mktemp_tmpdir_aliases_obey_command_line_order { |ctx|
 # Command file sinks persist captured output; descriptor redirection keeps the
 # special device intact and makes the child observe the write failure itself.
 test test_mktemp_failed_stdout_removes_created_entry { |ctx|
-  guard p"/dev/full".exists()? else { test.skip("requires the full device"); return }
+  guard p"/dev/full".exists() else { test.skip("requires the full device"); return }
   for directory in [false, true] {
     let root = test.temp_dir(ctx, name: "mktemp-write-failure")?
     let script = fp"{ctx.core_dir}/mktemp.xsh"

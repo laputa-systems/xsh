@@ -23,8 +23,8 @@ proc run_ss(ctx: TestContext, args: List[Str], hosts_text: Str, services_text: S
   let err = fp"{root}/stderr"
   let hosts = fp"{root}/hosts"
   let services = fp"{root}/services"
-  hosts.write(hosts_text)?
-  services.write(services_text)?
+  hosts.write(hosts_text)
+  services.write(services_text)
   let script = fp"{ctx.core_dir}/ss.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   let variables = {LC_ALL: "C", XSH_EXECUTION_PHRASE: "", XSH_HOSTS_FILE: hosts.display(), XSH_SERVICES_FILE: services.display(), XSH_PROTOCOLS_FILE: services.display()}
@@ -40,10 +40,10 @@ proc ss(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran, E
 proc stream_pair(family: Int, kind: Str, address: Str, backlog: Int) [process, net, error] -> Result[List[Int], Error] {
   let c = linux.net_constants()
   let listener = linux.socket(family, c.SOCK_STREAM)?
-  linux.bind(listener, {family: kind, address: address, port: 0})?
-  linux.listen(listener, backlog)?
+  linux.bind(listener, {family: kind, address: address, port: 0})
+  linux.listen(listener, backlog)
   let client = linux.socket(family, c.SOCK_STREAM)?
-  linux.connect(client, linux.getsockname(listener)?)?
+  linux.connect(client, linux.getsockname(listener)?)
   let accepted = linux.accept(listener)?
   Ok([listener, client, accepted.fd])
 }
@@ -56,17 +56,10 @@ proc build_scene() [process, net, error] -> Result[Scene, Error] {
   let _ = unix.write_fd(four[1], bytes.zero(100)?)?
   let six = stream_pair(c.AF_INET6, "inet6", "::1", 4)?
   let udp = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
-  linux.bind(udp, {family: "inet", address: "127.0.0.1", port: 0})?
+  linux.bind(udp, {family: "inet", address: "127.0.0.1", port: 0})
   let udp_client = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
-  linux.connect(udp_client, linux.getsockname(udp)?)?
-  let scene: Scene = {
-    listen4: four[0], client4: four[1], server4: four[2],
-    listen6: six[0], client6: six[1], server6: six[2],
-    udp: udp, udp_client: udp_client,
-    a: linux.getsockname(four[0])?.port, ca: linux.getsockname(four[1])?.port,
-    b: linux.getsockname(six[0])?.port, cb: linux.getsockname(six[1])?.port,
-    c: linux.getsockname(udp)?.port, cu: linux.getsockname(udp_client)?.port,
-  }
+  linux.connect(udp_client, linux.getsockname(udp)?)
+  let scene: Scene = Scene(listen4: four[0], client4: four[1], server4: four[2], listen6: six[0], client6: six[1], server6: six[2], udp:, udp_client:, a: linux.getsockname(four[0])?.port, ca: linux.getsockname(four[1])?.port, b: linux.getsockname(six[0])?.port, cb: linux.getsockname(six[1])?.port, c: linux.getsockname(udp)?.port, cu: linux.getsockname(udp_client)?.port)
   Ok(scene)
 }
 
@@ -164,14 +157,14 @@ test test_ss_unix_sockets_print_inodes_as_ports { |ctx|
   if socket_path.display().byte_len() > 100 { test.skip("the scratch path is too long for a unix socket"); return }
   let server = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
   defer unix.close_fd(server)
-  linux.bind(server, {family: "unix", address: socket_path.display()})?
-  linux.listen(server, 5)?
+  linux.bind(server, {family: "unix", address: socket_path.display()})
+  linux.listen(server, 5)
   let client = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
   defer unix.close_fd(client)
-  linux.connect(client, {family: "unix", address: socket_path.display()})?
+  linux.connect(client, {family: "unix", address: socket_path.display()})
   let accepted = linux.accept(server)?
   defer unix.close_fd(accepted.fd)
-  let ran = ss(ctx, ["-xan", f"src {socket_path.display()}"])?
+  let ran = ss(ctx, ["-xan", f"src {socket_path}"])?
   assert ran.status == 0, ran.stderr
   let lines = ran.stdout.lines()
   assert lines.len() == 3, ran.stdout
@@ -199,7 +192,7 @@ test test_ss_unix_sockets_print_inodes_as_ports { |ctx|
   assert listening == 1 and connected == 1
   # Without -a the listener is hidden, and the State column goes with a
   # single-state selection.
-  let only_listener = ss(ctx, ["-xlnH", f"src {socket_path.display()}"])?
+  let only_listener = ss(ctx, ["-xlnH", f"src {socket_path}"])?
   assert only_listener.stdout.lines().len() == 1
   assert only_listener.stdout.starts_with("u_str LISTEN 0      5      ")
 }
@@ -217,7 +210,7 @@ test test_ss_single_state_filters_drop_the_state_column { |ctx|
   # Closing the client side leaves the accepted socket in CLOSE-WAIT and the
   # closer in FIN-WAIT-2; the state keywords select each.
   let c = linux.net_constants()
-  linux.shutdown(scene.client4, c.SHUT_WR)?
+  linux.shutdown(scene.client4, c.SHUT_WR)
   assert unix.poll_fd(scene.server4, ["readable"], 1000)? == ["readable"]
   let waiting = ss(ctx, ["-tnH", "state", "close-wait", "sport", "=", f":{scene.a}"])?
   assert waiting.stdout.lines().len() == 1, waiting.stdout
@@ -270,8 +263,8 @@ test test_ss_extended_and_timer_text { |ctx|
   # A half-closed connection shows its shutdown directions and, with -o, the
   # armed keepalive timer.
   let c = linux.net_constants()
-  linux.setsockopt_int(scene.client4, c.SOL_SOCKET, c.SO_KEEPALIVE, 1)?
-  linux.shutdown(scene.client4, c.SHUT_WR)?
+  linux.setsockopt_int(scene.client4, c.SOL_SOCKET, c.SO_KEEPALIVE, 1)
+  linux.shutdown(scene.client4, c.SHUT_WR)
   let half = ss(ctx, ["-tneoH", f"sport = :{scene.ca} and dport = :{scene.a}"])?
   assert half.status == 0, half.stderr
   assert rx"timer:\(keepalive,[0-9a-z.]+,0\) .* <--\n$".matches(half.stdout), half.stdout
@@ -312,7 +305,7 @@ test test_ss_process_column_names_the_owner { |ctx|
   assert lines[1].ends_with(f"users:((\"{name}\",pid={me},fd={scene.listen4}))"), lines[1]
   # A socket held by two descriptors lists both, the later one first.
   let duplicate = 200
-  unix.dup_fd(scene.listen4, duplicate)?
+  unix.dup_fd(scene.listen4, duplicate)
   defer unix.close_fd(duplicate)
   let twice = ss(ctx, ["-tlnHp", f"sport = :{scene.a} and dport = :0"])?
   let low = scene.listen4
@@ -532,7 +525,7 @@ test test_net_sockets_raw_dump_falls_back_to_procfs_only_without_a_handler { |ct
   let fixture = test.temp_file(ctx, name: "diag.jsonl", contents: b"")?
   let log = test.temp_file(ctx, name: "diag.log", contents: b"")?
   fixture.write(json.encode_lines([{op: "netlink_request", type: 20, errno: 2}])?)
-  test.linux_fake(ctx, {netlink_fixture: fixture, log: log})?
+  test.linux_fake(ctx, {netlink_fixture: fixture, log: log})
   let channel = sockets.open()?
   defer unix.close_fd(channel)
   let raw = sockets.collect_inet(channel, sockets.AF_INET, 255, 4095, false, false)?

@@ -1,7 +1,7 @@
 use support.uu
 
-proc check(s: uu.Scene, args: List[Str], expected: Bytes, status: Int = 0, diagnostic: Str = "", vars: Record = {}) [fs, process, env, error] {
-  let r = uu.invoke(s, "printf", args, vars: vars)?
+proc check(s: uu.Scene, args: List[Str], expected: Bytes, status = 0, diagnostic = "", vars: Record = {}) [fs, process, env, error] {
+  let r = uu.invoke(s, "printf", args, vars:)?
   uu.fails_with_code(r, status)
   uu.stdout_is_bytes(r, expected)
   uu.stderr_is(r, diagnostic)
@@ -69,8 +69,8 @@ test test_gnu_printf_printf_cov_log { |ctx|
   check(s, ["%d", "9z"], b"9", 1, "printf: '9z': value not completely converted\n")
   let overflow = uu.invoke(s, "printf", ["%d", "999999999999999999999999999999"])?
   uu.fails_with_code(overflow, 1)
-  assert regex.compile("^[0-9]+$")?.matches(overflow.stdout.utf8()?)
-  assert regex.compile("^printf: '9{30}[^\n]*\n$")?.matches(overflow.stderr.utf8()?)
+  assert regex.compile("^[0-9]+$")?.matches(overflow.stdout as Str)
+  assert regex.compile("^printf: '9{30}[^\n]*\n$")?.matches(overflow.stderr as Str)
   check(s, ["B", "1"], b"B", 0, "printf: warning: ignoring excess arguments, starting with '1'\n")
   check(s, ["%#d", "3333"], b"", 1, "printf: %#d: invalid conversion specification\n")
 }
@@ -126,7 +126,7 @@ test test_gnu_printf_printf_mb_log { |ctx|
     {argument: bytes.from_text("\"á="), locale: "fr_FR.UTF-8", trailing: true},
     {argument: b"'\xe1=", locale: "fr_FR.UTF-8", trailing: true},
   ] {
-    let r = uu.invoke_paths(s, "printf", [format, Path.parse_bytes(case.argument)?], vars: {LC_ALL: case.locale})?
+    let r = uu.invoke_paths(s, "printf", [format, case.argument as Path], vars: {LC_ALL: case.locale})?
     uu.stdout_is_bytes(r, b"00e1\n")
     if case.trailing {
       let messages = r.stderr.utf8()?.split("\n")
@@ -143,7 +143,7 @@ test test_gnu_printf_printf_quote_log { |ctx|
   uu.stdout_is(r, "''\n\"'\"\na\n'a b'\n'~a'\na~\n'a'$'\\r'\n''$'\\001'\\'''$'\\001'\n")
   let printable = uu.invoke(s, "printf", ["%q\\n", "áḃç"], vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.stdout_is(printable, "áḃç\n")
-  let control = uu.invoke_paths(s, "printf", [p"%q\\n", Path.parse_bytes(b"\xc2\x81")?], vars: {LC_ALL: "fr_FR.UTF-8"})?
+  let control = uu.invoke_paths(s, "printf", [p"%q\\n", b"\xc2\x81" as Path], vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.stdout_is(control, "''$'\\302\\201'\n")
   let plain = uu.invoke(s, "printf", ["%q\\n", "áḃç"], vars: {LC_ALL: "C"})?
   uu.stdout_is(plain, "''$'\\303\\241\\341\\270\\203\\303\\247'\n")

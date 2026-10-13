@@ -1,6 +1,6 @@
 ##! Native ports of the uutils touch integration tests.
 
-use support.uu as uu
+use support.uu
 
 # The read-only descriptor must remain fd 1 across exec; a writable capture
 # would miss the contract for an existing file opened without write permission.
@@ -11,7 +11,7 @@ proc readonly_stdout_touch(s: uu.Scene, file: Str) [fs, process, env, error] -> 
   let cwd = Path(root)
   cd $cwd { unix.exec(process.command_argv(words[0], words))? }
 }
-""")?
+""")
   let argv = uu.argv(s, "touch", [p"-"])?
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
@@ -101,7 +101,7 @@ test test_uu_touch_touch_2_digit_years_69 { |ctx|
 # origin: uutils test_touch::test_touch_changes_time_of_file_in_stdout
 test test_uu_touch_touch_changes_time_of_file_in_stdout { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_touch_changes_time_of_file_in_stdout")?
+  uu.touch(s, "test_touch_changes_time_of_file_in_stdout")
   assert uu.file_exists(s, "test_touch_changes_time_of_file_in_stdout")?
   let before = fs.stat(uu.at(s, "test_touch_changes_time_of_file_in_stdout"))?.mtime_ns
   let r = uu.invoke(s, "touch", ["-"], stdout: uu.at(s, "test_touch_changes_time_of_file_in_stdout"))?
@@ -122,12 +122,12 @@ test test_uu_touch_touch_dash { |ctx|
 # origin: uutils test_touch::test_touch_dash_updates_stdout_file
 test test_uu_touch_touch_dash_updates_stdout_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "c")?
-  fs.set_times(uu.at(s, "c"), atime_ns: 1000000000000000, mtime_ns: 1000000000000000)?
+  uu.touch(s, "c")
+  fs.set_times(uu.at(s, "c"), atime_ns: 1000000000000000, mtime_ns: 1000000000000000)
   let r = readonly_stdout_touch(s, "c")?
   uu.succeeds(r)
-  uu.touch(s, ".clock")?
-  fs.set_times(uu.at(s, ".clock"), mtime_now: true)?
+  uu.touch(s, ".clock")
+  fs.set_times(uu.at(s, ".clock"), mtime_now: true)
   let age = fs.stat(uu.at(s, ".clock"))?.mtime_ns - fs.stat(uu.at(s, "c"))?.mtime_ns
   assert age >= 0
   assert age / 1000000000 < 60
@@ -153,8 +153,8 @@ test test_uu_touch_touch_device_files { |ctx|
 # origin: uutils test_touch::test_touch_does_not_truncate_symlink_target
 test test_uu_touch_touch_does_not_truncate_symlink_target { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "victim", "do not truncate me")?
-  uu.at(s, "link").symlink(to: uu.at(s, "victim"))?
+  uu.write(s, "victim", "do not truncate me")
+  uu.at(s, "link").symlink(to: uu.at(s, "victim"))
   let r = uu.invoke(s, "touch", ["link"])?
   uu.succeeds(r)
   uu.file_is(s, "victim", "do not truncate me")
@@ -167,13 +167,13 @@ test test_uu_touch_touch_f_option { |ctx|
   uu.succeeds(r)
   uu.no_output(r)
   assert uu.file_exists(s, "test_f_option.txt")?
-  uu.remove(s, "test_f_option.txt")?
+  uu.remove(s, "test_f_option.txt")
 }
 
 # origin: uutils test_touch::test_touch_fifo
 test test_uu_touch_touch_fifo { |ctx|
   let s = uu.scene(ctx)?
-  fs.mkfifo(uu.at(s, "fifo"), 0o600)?
+  fs.mkfifo(uu.at(s, "fifo"), 0o600)
   let r = uu.invoke(s, "touch", ["-d", "2020-01-01 00:00:00", "fifo"])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -248,7 +248,7 @@ test test_uu_touch_touch_no_create_file_absent { |ctx|
 # origin: uutils test_touch::test_touch_no_create_file_exists
 test test_uu_touch_touch_no_create_file_exists { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_touch_no_create_file_exists")?
+  uu.touch(s, "test_touch_no_create_file_exists")
   assert uu.file_exists(s, "test_touch_no_create_file_exists")?
   let r = uu.invoke(s, "touch", ["-c", "test_touch_no_create_file_exists"])?
   uu.succeeds(r)
@@ -259,9 +259,9 @@ test test_uu_touch_touch_no_create_file_exists { |ctx|
 # origin: uutils test_touch::test_touch_no_dereference
 test test_uu_touch_touch_no_dereference { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_touch_no_dereference_a")?
-  fs.set_times(uu.at(s, "test_touch_no_dereference_a"), atime_ns: 1420070400000000000, mtime_ns: 1420070400000000000)?
-  uu.at(s, "test_touch_no_dereference_b").symlink(to: uu.at(s, "test_touch_no_dereference_a"))?
+  uu.touch(s, "test_touch_no_dereference_a")
+  fs.set_times(uu.at(s, "test_touch_no_dereference_a"), atime_ns: 1420070400000000000, mtime_ns: 1420070400000000000)
+  uu.at(s, "test_touch_no_dereference_b").symlink(to: uu.at(s, "test_touch_no_dereference_a"))
   assert uu.file_exists(s, "test_touch_no_dereference_a")?
   assert uu.is_symlink(s, "test_touch_no_dereference_b")?
   let r = uu.invoke(s, "touch", ["-t", "201512312359", "-h", "test_touch_no_dereference_b"])?
@@ -281,7 +281,7 @@ test test_uu_touch_touch_no_dereference { |ctx|
 # origin: uutils test_touch::test_touch_no_dereference_dangling
 test test_uu_touch_touch_no_dereference_dangling { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "nowhere", "dangling")?
+  uu.symlink(s, "nowhere", "dangling")
   let r = uu.invoke(s, "touch", ["-h", "dangling"])?
   uu.succeeds(r)
 }
@@ -289,8 +289,8 @@ test test_uu_touch_touch_no_dereference_dangling { |ctx|
 # origin: uutils test_touch::test_touch_no_dereference_ref_dangling
 test test_uu_touch_touch_no_dereference_ref_dangling { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
-  uu.symlink(s, "nowhere", "dangling")?
+  uu.touch(s, "file")
+  uu.symlink(s, "nowhere", "dangling")
   let r = uu.invoke(s, "touch", ["-h", "-r", "dangling", "file"])?
   uu.succeeds(r)
 }
@@ -307,7 +307,7 @@ test test_uu_touch_touch_no_such_file_error_msg { |ctx|
 test test_uu_touch_touch_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?
-  let r = uu.invoke_paths(s, "touch", [Path.parse_bytes(b"test_\xff\xfe.txt")?])?
+  let r = uu.invoke_paths(s, "touch", [b"test_\xff\xfe.txt" as Path])?
   uu.succeeds(r)
   uu.no_output(r)
   assert fs.stat(file) is Ok(_)
@@ -316,8 +316,8 @@ test test_uu_touch_touch_non_utf8_paths { |ctx|
 # origin: uutils test_touch::test_touch_permission_denied_error_msg
 test test_uu_touch_touch_permission_denied_error_msg { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir_with_read_only_access")?
-  uu.set_mode(s, "dir_with_read_only_access", 0o555)?
+  uu.mkdir(s, "dir_with_read_only_access")
+  uu.set_mode(s, "dir_with_read_only_access", 0o555)
   let file = uu.at(s, "dir_with_read_only_access/file")
   let r = uu.invoke(s, "touch", [file.display()])?
   uu.fails(r)
@@ -327,8 +327,8 @@ test test_uu_touch_touch_permission_denied_error_msg { |ctx|
 # origin: uutils test_touch::test_touch_reference
 test test_uu_touch_touch_reference { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_touch_reference_a")?
-  fs.set_times(uu.at(s, "test_touch_reference_a"), atime_ns: 1420070400000000000, mtime_ns: 1420070400000000000)?
+  uu.touch(s, "test_touch_reference_a")
+  fs.set_times(uu.at(s, "test_touch_reference_a"), atime_ns: 1420070400000000000, mtime_ns: 1420070400000000000)
   assert uu.file_exists(s, "test_touch_reference_a")?
   for option in ["-r", "--ref", "--reference"] {
     let r = uu.invoke(s, "touch", [option, "test_touch_reference_a", "test_touch_reference_b"])?
@@ -339,14 +339,14 @@ test test_uu_touch_touch_reference { |ctx|
     assert meta.atime_ns == meta.mtime_ns
     assert meta.atime_ns == 1420070400000000000
     assert meta.mtime_ns == 1420070400000000000
-    uu.remove(s, "test_touch_reference_b")?
+    uu.remove(s, "test_touch_reference_b")
   }
 }
 
 # origin: uutils test_touch::test_touch_reference_dangling
 test test_uu_touch_touch_reference_dangling { |ctx|
   let s = uu.scene(ctx)?
-  uu.at(s, "test_touch_reference_dangling").symlink(to: uu.at(s, "nonexistent_target"))?
+  uu.at(s, "test_touch_reference_dangling").symlink(to: uu.at(s, "nonexistent_target"))
   let r = uu.invoke(s, "touch", ["--reference", uu.at(s, "test_touch_reference_dangling").display(), "some_file"])?
   uu.fails(r)
   uu.stderr_contains(r, "touch: failed to get attributes of")
@@ -355,10 +355,10 @@ test test_uu_touch_touch_reference_dangling { |ctx|
 # origin: uutils test_touch::test_touch_reference_symlink_with_no_deref
 test test_uu_touch_touch_reference_symlink_with_no_deref { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo.txt")?
-  uu.symlink(s, "foo.txt", "bar.txt")?
-  fs.set_times(uu.at(s, "bar.txt"), atime_ns: 123000000000, mtime_ns: 123000000000, follow_symlinks: false)?
-  uu.touch(s, "baz.txt")?
+  uu.touch(s, "foo.txt")
+  uu.symlink(s, "foo.txt", "bar.txt")
+  fs.set_times(uu.at(s, "bar.txt"), atime_ns: 123000000000, mtime_ns: 123000000000, follow_symlinks: false)
+  uu.touch(s, "baz.txt")
   let r = uu.invoke(s, "touch", ["--reference", "bar.txt", "--no-dereference", "baz.txt"])?
   uu.succeeds(r)
   let meta = fs.stat(uu.at(s, "baz.txt"), follow_symlinks: false)?
@@ -381,8 +381,8 @@ test test_uu_touch_touch_set_both { |ctx|
 # origin: uutils test_touch::test_touch_set_both_date_and_reference
 test test_uu_touch_touch_set_both_date_and_reference { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_touch_reference")?
-  fs.set_times(uu.at(s, "test_touch_reference"), atime_ns: 1420115640000000000, mtime_ns: 1420115640000000000)?
+  uu.touch(s, "test_touch_reference")
+  fs.set_times(uu.at(s, "test_touch_reference"), atime_ns: 1420115640000000000, mtime_ns: 1420115640000000000)
   assert uu.file_exists(s, "test_touch_reference")?
   let r = uu.invoke(s, "touch", ["-d", "Thu Jan 01 12:34:00 2015", "-r", "test_touch_reference", "test_touch_set_both_date_and_reference"])?
   uu.succeeds(r)
@@ -397,8 +397,8 @@ test test_uu_touch_touch_set_both_date_and_reference { |ctx|
 # origin: uutils test_touch::test_touch_set_both_offset_date_and_reference
 test test_uu_touch_touch_set_both_offset_date_and_reference { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_touch_reference")?
-  fs.set_times(uu.at(s, "test_touch_reference"), atime_ns: 1420115640000000000, mtime_ns: 1420115640000000000)?
+  uu.touch(s, "test_touch_reference")
+  fs.set_times(uu.at(s, "test_touch_reference"), atime_ns: 1420115640000000000, mtime_ns: 1420115640000000000)
   assert uu.file_exists(s, "test_touch_reference")?
   let r = uu.invoke(s, "touch", ["-d", "+5 days", "-r", "test_touch_reference", "test_touch_set_both_date_and_reference"])?
   uu.succeeds(r)
@@ -420,8 +420,8 @@ test test_uu_touch_touch_set_both_time_and_date { |ctx|
 # origin: uutils test_touch::test_touch_set_both_time_and_reference
 test test_uu_touch_touch_set_both_time_and_reference { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "test_touch_reference")?
-  fs.set_times(uu.at(s, "test_touch_reference"), atime_ns: 1420070400000000000, mtime_ns: 1420070400000000000)?
+  uu.touch(s, "test_touch_reference")
+  fs.set_times(uu.at(s, "test_touch_reference"), atime_ns: 1420070400000000000, mtime_ns: 1420070400000000000)
   assert uu.file_exists(s, "test_touch_reference")?
   let r = uu.invoke(s, "touch", ["-t", "2015010112342", "-r", "test_touch_reference", "test_touch_set_both_time_and_reference"])?
   uu.fails(r)
@@ -550,11 +550,11 @@ test test_uu_touch_touch_set_date7 { |ctx|
 test test_uu_touch_touch_set_date_relative_smoke { |ctx|
   let s = uu.scene(ctx)?
   for date in ["-1 fortnight", "+1 fortnight", "-1 fortnights", "+1 fortnights", "fortnight", "fortnights", "-1 week", "+1 week", "-1 weeks", "+1 weeks", "week", "weeks", "-1 day", "+1 day", "-1 days", "+1 days", "day", "days", "-1 hour", "+1 hour", "-1 hours", "+1 hours", "hour", "hours", "-1 minute", "+1 minute", "-1 minutes", "+1 minutes", "minute", "minutes", "-1 min", "+1 min", "-1 mins", "+1 mins", "min", "mins", "-1 second", "+1 second", "-1 seconds", "+1 seconds", "second", "seconds", "-1 sec", "+1 sec", "-1 secs", "+1 secs", "sec", "secs", "yesterday", "tomorrow", "now", "2 seconds", "2 years 1 week", "2 days ago", "2 months 1 second", "a"] {
-    uu.touch(s, "f")?
+    uu.touch(s, "f")
     let r = uu.invoke(s, "touch", ["-d", date, "f"])?
     uu.succeeds(r)
     uu.no_output(r)
-    uu.remove(s, "f")?
+    uu.remove(s, "f")
   }
 }
 
@@ -619,7 +619,7 @@ test test_uu_touch_touch_set_only_atime { |ctx|
     let meta = fs.stat(uu.at(s, file))?
     assert meta.atime_ns != meta.mtime_ns
     assert meta.atime_ns / 1000000000 - 1420070400 == 45240
-    uu.remove(s, file)?
+    uu.remove(s, file)
   }
 }
 
@@ -636,7 +636,7 @@ test test_uu_touch_touch_set_only_mtime { |ctx|
     let meta = fs.stat(uu.at(s, file))?
     assert meta.atime_ns != meta.mtime_ns
     assert meta.mtime_ns / 1000000000 - 1420070400 == 45240
-    uu.remove(s, file)?
+    uu.remove(s, file)
   }
 }
 
@@ -650,12 +650,12 @@ test test_uu_touch_touch_set_only_mtime_failed { |ctx|
 # origin: uutils test_touch::test_touch_set_time_on_unreadable_unwritable_file
 test test_uu_touch_touch_set_time_on_unreadable_unwritable_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "no_rights")?
-  uu.set_mode(s, "no_rights", 0o000)?
+  uu.touch(s, "no_rights")
+  uu.set_mode(s, "no_rights", 0o000)
   let r = uu.invoke(s, "touch", ["-d", "2000-01-03 00:00", "-c", "no_rights"])?
   uu.succeeds(r)
   uu.no_output(r)
-  uu.set_mode(s, "no_rights", 0o644)?
+  uu.set_mode(s, "no_rights", 0o644)
   let meta = fs.stat(uu.at(s, "no_rights"))?
   assert meta.atime_ns == 946857600000000000
   assert meta.mtime_ns == 946857600000000000
@@ -692,10 +692,10 @@ test test_uu_touch_touch_set_ymdhms_time { |ctx|
 # origin: uutils test_touch::test_touch_symlink_with_no_deref
 test test_uu_touch_touch_symlink_with_no_deref { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "foo.txt")?
+  uu.touch(s, "foo.txt")
   let before = fs.stat(uu.at(s, "foo.txt"))?
-  uu.symlink(s, "foo.txt", "bar.txt")?
-  fs.set_times(uu.at(s, "bar.txt"), atime_ns: 123000000000, mtime_ns: 123000000000, follow_symlinks: false)?
+  uu.symlink(s, "foo.txt", "bar.txt")
+  fs.set_times(uu.at(s, "bar.txt"), atime_ns: 123000000000, mtime_ns: 123000000000, follow_symlinks: false)
   let r = uu.invoke(s, "touch", ["-a", "--no-dereference", "-d", "@456", "bar.txt"])?
   uu.succeeds(r)
   let link = fs.stat(uu.at(s, "bar.txt"), follow_symlinks: false)?
@@ -715,7 +715,7 @@ test test_uu_touch_touch_system_fails { |ctx|
 # origin: uutils test_touch::test_touch_through_dangling_symlink_creates_target
 test test_uu_touch_touch_through_dangling_symlink_creates_target { |ctx|
   let s = uu.scene(ctx)?
-  uu.at(s, "link").symlink(to: uu.at(s, "missing"))?
+  uu.at(s, "link").symlink(to: uu.at(s, "missing"))
   let r = uu.invoke(s, "touch", ["link"])?
   uu.succeeds(r)
   assert uu.file_exists(s, "missing")?
@@ -733,26 +733,26 @@ test test_uu_touch_touch_trailing_slash { |ctx|
 # origin: uutils test_touch::test_touch_trailing_slash_no_create
 test test_uu_touch_touch_trailing_slash_no_create { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   uu.fails_with_code(uu.invoke(s, "touch", ["-c", "file/"])?, 1)
   uu.succeeds(uu.invoke(s, "touch", ["-c", "no-file/"])?)
   assert ! uu.exists(s, "no-file")?
-  uu.symlink(s, "nowhere", "dangling")?
+  uu.symlink(s, "nowhere", "dangling")
   uu.succeeds(uu.invoke(s, "touch", ["-c", "dangling/"])?)
   assert ! uu.exists(s, "nowhere")?
   assert uu.is_symlink(s, "dangling")?
-  uu.symlink(s, "loop", "loop")?
+  uu.symlink(s, "loop", "loop")
   uu.fails_with_code(uu.invoke(s, "touch", ["-c", "loop/"])?, 1)
   let loop_metadata = fs.stat(uu.at(s, "loop"), follow_symlinks: true)
   assert loop_metadata is Err(_)
   if let Err(failure) = loop_metadata { assert failure.errno == 40 }
-  uu.touch(s, "file2")?
-  uu.symlink(s, "file2", "link1")?
+  uu.touch(s, "file2")
+  uu.symlink(s, "file2", "link1")
   uu.fails_with_code(uu.invoke(s, "touch", ["-c", "link1/"])?, 1)
   assert uu.file_exists(s, "file2")? and uu.is_symlink(s, "link1")?
-  uu.mkdir(s, "dir")?
+  uu.mkdir(s, "dir")
   uu.succeeds(uu.invoke(s, "touch", ["-c", "dir/"])?)
-  uu.mkdir(s, "dir2")?
-  uu.symlink(s, "dir2", "link2")?
+  uu.mkdir(s, "dir2")
+  uu.symlink(s, "dir2", "link2")
   uu.succeeds(uu.invoke(s, "touch", ["-c", "link2/"])?)
 }

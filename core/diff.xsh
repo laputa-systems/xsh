@@ -1,8 +1,8 @@
 #!/bin/xsh
-use lib.gnu
-use lib.search
-use lib.gnudiff
 use lib.diffrender
+use lib.gnu
+use lib.gnudiff
+use lib.search
 use lib.textio_a1 as tio
 
 const HELP = """Usage: diff [OPTION]... FILES
@@ -152,7 +152,7 @@ pure type_name(item: Probe) -> Str {
     "socket" => "socket"
     "block" => "block special file"
     "char" => "character special file"
-    _ => "weird file"
+    else => "weird file"
   }
 }
 
@@ -169,7 +169,7 @@ pure has_any(word: Str, chars: Str) -> Bool {
   let raw = bytes.from_text(word)
   let members = bytes.from_text(chars)
   for index in range(raw.len()) {
-    if raw[index..index + 1] in members { return true }
+    return true when raw[index..index + 1] in members
   }
   false
 }
@@ -179,17 +179,17 @@ pure has_any(word: Str, chars: Str) -> Bool {
 # quoting, otherwise single-quoted with embedded quotes spliced in.
 pure shell_quote(word: Str) -> Str {
   let special = word == "" or word == "{" or word == "}" or word.starts_with("#") or word.starts_with("~") or has_any(word, SHELL_SPECIAL)
-  if !special { return word }
-  if word.find("'") != null and !has_any(word, "$`\"\\") { return "\"" + word + "\"" }
+  return word unless special
+  return "\"" + word + "\"" when word.find("'") != null and ! has_any(word, "$`\"\\")
   "'" + word.replace("'", with: "'\\''") + "'"
 }
 
 # Whether a possibly abbreviated long option takes a value in the next word.
 pure long_takes_value(word: Str) -> Bool {
   let name = word.byte_slice(2)
-  if name in VALUE_LONGS { return true }
+  return true when name in VALUE_LONGS
   for candidate in VALUE_LONGS {
-    if candidate.starts_with(name) { return true }
+    return true when candidate.starts_with(name)
   }
   false
 }
@@ -233,7 +233,7 @@ pure switch_text(argv: List[Str]) -> Str {
 # space and sign, then decimal digits that saturate beyond the range. The empty
 # string reads as zero; anything else left over is invalid (null).
 pure parse_count(text: Str) -> Int? {
-  if text == "" { return 0 }
+  return 0 when text == ""
   var digits = text
   while digits.starts_with(" ") or digits.starts_with("\t") { digits = digits.byte_slice(1) }
   var negative = false
@@ -243,11 +243,11 @@ pure parse_count(text: Str) -> Int? {
     negative = true
     digits = digits.byte_slice(1)
   }
-  if digits == "" { return null }
+  return null when digits == ""
   let raw = bytes.from_text(digits)
   for index in range(raw.len()) {
     let value = raw.byte_at(index) ?? 0
-    if value < 48 or value > 57 { return null }
+    return null when value < 48 or value > 57
   }
   var magnitude = 4611686018427387904
   if digits.byte_len() <= 18 {
@@ -259,14 +259,14 @@ pure parse_count(text: Str) -> Int? {
 
 pure excluded(patterns: List[Str], name: Str) -> Bool {
   let raw = bytes.from_text(name)
-  for pattern in patterns { if search.glob(pattern, raw) { return true } }
+  for pattern in patterns { return true when search.glob(pattern, raw) }
   false
 }
 
 # The name used in a report about the compared files: a `--label` replaces it
 # (printed as given), otherwise the name is quoted when it needs it.
 proc shown(cfg: Settings, side: Int, name: Str) [env] -> Str {
-  if cfg.labels.len() > side { return cfg.labels[side] }
+  return cfg.labels[side] when cfg.labels.len() > side
   gnu.quote_maybe(name)
 }
 
@@ -324,7 +324,7 @@ pure c_name(name: Str, utf8: Bool) -> Str {
         11 => "\\v"
         12 => "\\f"
         13 => "\\r"
-        _ => f"\\{value / 64}{value / 8 % 8}{value % 8}"
+        else => f"\\{value / 64}{value / 8 % 8}{value % 8}"
       }
     } else {
       piece = raw[at..at + 1].utf8() ?? ""
@@ -372,17 +372,18 @@ proc stamp(moment: Int, unified: Bool) [env, time, error] -> Str {
 proc header(cfg: Settings, left: Probe, right: Probe) [env, time, error] -> Bytes {
   let unified = cfg.style == "unified"
   let marks = if unified { ["---", "+++"] } else { ["***", "---"] }
-  var chunks: List[Bytes] = []
-  for side in range(2) {
-    let item = if side == 0 { left } else { right }
-    var text = ""
-    if cfg.labels.len() > side {
-      text = f"{marks[side]} {cfg.labels[side]}"
-    } else {
-      let moment = if item.kind == "absent" { 0 } else { item.mtime_ns }
-      text = f"{marks[side]} {c_name(item.name, utf8_locale())}\t{stamp(moment, unified)}"
+  let chunks = collect {
+    for side in range(2) {
+      let item = if side == 0 { left } else { right }
+      var text = ""
+      if cfg.labels.len() > side {
+        text = f"{marks[side]} {cfg.labels[side]}"
+      } else {
+        let moment = if item.kind == "absent" { 0 } else { item.mtime_ns }
+        text = f"{marks[side]} {c_name(item.name, utf8_locale())}\t{stamp(moment, unified)}"
+      }
+      yield @[diffrender.paint(cfg.fmt, 1, bytes.from_text(text)), b"\n"]
     }
-    chunks += [diffrender.paint(cfg.fmt, 1, bytes.from_text(text)), b"\n"]
   }
   bytes.concat(chunks)
 }
@@ -460,21 +461,24 @@ const DEVICE_LIMIT = 67108864
 # Read a character or block device in chunks until it ends or passes the limit.
 proc read_device(name: Str) [fs, io, error] -> Result[Bytes, Error] {
   let source = tio.open_source(name)?
-  var parts: List[Bytes] = []
   var total = 0
-  while true {
-    let chunk = tio.read_chunk(source, total, 65536)?
-    if chunk.is_empty() { break }
-    parts += [chunk]
-    total += chunk.len()
-    if total >= DEVICE_LIMIT { return Err(DeviceError.TooLarge(message: "input is unbounded or too large to compare")) }
+  let parts = collect {
+    while true {
+      let chunk = tio.read_chunk(source, total, 65536)?
+      break when chunk.is_empty()
+      yield chunk
+      total += chunk.len()
+      if total >= DEVICE_LIMIT {
+        return Err(DeviceError.TooLarge(message: "input is unbounded or too large to compare"))
+      }
+    }
   }
   Ok(bytes.concat(parts))
 }
 
 proc read_side(item: Probe) [fs, io, error] -> Result[Bytes, Error] {
-  if item.kind == "absent" { return Ok(b"") }
-  if item.kind == "char" or item.kind == "block" { return read_device(item.name) }
+  return Ok(b"") when item.kind == "absent"
+  return read_device(item.name) when item.kind == "char" or item.kind == "block"
   gnu.read_operand(item.name)
 }
 
@@ -482,16 +486,18 @@ proc read_side(item: Probe) [fs, io, error] -> Result[Bytes, Error] {
 # `--ignore-file-name-case`), minus excluded names. An absent side (`-N`) is
 # an empty directory.
 proc entry_names(cfg: Settings, side: Probe) [fs, error] -> Result[List[Str], Error] {
-  var names: List[Str] = []
-  if side.kind == "absent" { return Ok(names) }
+  var names = []
+  return Ok(names) when side.kind == "absent"
   for child in fs.children(fp"{side.name}", stat: false, ordered: true)? {
     if !excluded(cfg.patterns, child.name) { names += [child.name] }
   }
   if cfg.fold_names {
-    var keyed: List[Folded] = []
-    for name in names { keyed += [{key: name.lower(), name: name}] }
-    var ordered: List[Str] = []
-    for item in keyed |> sort-by .key { ordered += [item.name] }
+    let keyed: List[Folded] = collect {
+      for name in names { yield {key: name.lower(), name: name} }
+    }
+    let ordered = collect {
+      for item in keyed |> sort-by .key { yield item.name }
+    }
     names = ordered
   }
   Ok(names)
@@ -546,7 +552,7 @@ proc diff_dirs(cfg: Settings, left: Probe, right: Probe, trail: List[Str], top: 
     if in_left { left_at += 1 }
     if in_right { right_at += 1 }
     let name = if in_left { left_name } else { right_name }
-    if top and start != "" and name < start { continue }
+    continue when top and start != "" and name < start
     if in_left and in_right {
       status = worse(status, compare_entry(cfg, join(left.name, left_name), join(right.name, right_name), trail, false))
     } else if in_left {
@@ -589,7 +595,7 @@ proc compare_known(cfg: Settings, left: Probe, right: Probe, entry: Bool, trail:
       gnu.error(f"{gnu.quote_maybe(left.name)}: recursive directory loop")
       return 2
     }
-    return diff_dirs(cfg, left, right, trail + [pair], !entry)
+    return diff_dirs(cfg, left, right, [@trail, pair], !entry)
   }
   if left_dir or right_dir {
     gnu.write_text(f"File {left_shown} is a {type_name(left)} while file {right_shown} is a {type_name(right)}\n")
@@ -658,12 +664,14 @@ proc compare_entry(cfg: Settings, left_name: Str, right_name: Str, trail: List[S
   if let Err(failure) = left { gnu.name_error(left_name, failure); return 2 }
   let right = probe(cfg, right_name, missing)
   if let Err(failure) = right { gnu.name_error(right_name, failure); return 2 }
-  match left {
-    Ok(first) => match right {
-      Ok(second) => compare_known(cfg, first, second, true, trail)
-      Err(_) => 2
+  if let Ok(first) = left {
+    if let Ok(second) = right {
+      compare_known(cfg, first, second, true, trail)
+    } else {
+      2
     }
-    Err(_) => 2
+  } else {
+    2
   }
 }
 
@@ -679,10 +687,10 @@ proc compare_operands(cfg: Settings, left_name: Str, right_name: Str) [fs, io, p
     if !(failed and left_name == right_name) { gnu.name_error(right_name, failure) }
     failed = true
   }
-  if failed { return 2 }
-  let blank: Probe = {name: "", kind: "absent", size: 0, identity: "", target: "", mtime_ns: 0, rdev: 0}
-  let first = match left { Ok(item) => item, Err(_) => blank }
-  let second = match right { Ok(item) => item, Err(_) => blank }
+  return 2 when failed
+  let blank: Probe = Probe(name: "", kind: "absent", size: 0, identity: "", target: "", mtime_ns: 0, rdev: 0)
+  let first = if let Ok(item) = left { item } else { blank }
+  let second = if let Ok(item) = right { item } else { blank }
   if first.kind == "absent" and second.kind == "absent" {
     if left_name == right_name {
       gnu.error(gnu.quote_maybe(left_name))
@@ -699,7 +707,7 @@ proc compare_operands(cfg: Settings, left_name: Str, right_name: Str) [fs, io, p
       gnu.error("-D option not supported with directories")
       return 2
     }
-    if cfg.style != "sdiff" or cfg.opts.suppress_common or cfg.opts.brief { return 0 }
+    return 0 when cfg.style != "sdiff" or cfg.opts.suppress_common or cfg.opts.brief
     if left_name == right_name {
       # Side-by-side output names every entry of a directory compared with
       # itself as present in only one of them.
@@ -714,11 +722,11 @@ proc compare_operands(cfg: Settings, left_name: Str, right_name: Str) [fs, io, p
     gnu.error(f"{gnu.quote_maybe(right_name)}: Is a directory")
     return 2
   }
-  if first_dir == second_dir { return compare_known(cfg, first, second, false, []) }
+  return compare_known(cfg, first, second, false, []) when first_dir == second_dir
   let directory = if first_dir { first } else { second }
   let other = if first_dir { second } else { first }
   if other.kind == "stdin" { gnu.error("cannot compare '-' to a directory"); return 2 }
-  if other.kind == "absent" { return compare_known(cfg, first, second, false, []) }
+  return compare_known(cfg, first, second, false, []) when other.kind == "absent"
   let inside = join(directory.name, fp"{other.name}".name())
   match probe(cfg, inside, cfg.opts.new_file) {
     Ok(moved) => if first_dir { compare_known(cfg, moved, second, false, []) } else { compare_known(cfg, first, moved, false, []) }
@@ -739,12 +747,12 @@ pure regex_problem(pattern: Str) -> Str? {
   while at < size {
     let value = raw.byte_at(at) ?? 0
     if value == 92 {
-      if at + 1 >= size { return "Trailing backslash" }
+      return "Trailing backslash" when at + 1 >= size
       let next = raw.byte_at(at + 1) ?? 0
       if next == 40 {
         depth += 1
       } else if next == 41 {
-        if depth == 0 { return "Unmatched ) or \\)" }
+        return "Unmatched ) or \\)" when depth == 0
         depth -= 1
       } else if next == 123 {
         var close = at + 2
@@ -756,10 +764,10 @@ pure regex_problem(pattern: Str) -> Str? {
           }
           close += 1
         }
-        if !found { return "Unmatched \\{" }
+        return "Unmatched \\{" unless found
         let text = raw[at + 2..close].utf8() ?? ""
         let parts = text.split(",")
-        if parts.len() > 2 { return "Invalid content of \\{\\}" }
+        return "Invalid content of \\{\\}" when parts.len() > 2
         var low = 0
         var high = -1
         if parts[0] != "" {
@@ -774,8 +782,8 @@ pure regex_problem(pattern: Str) -> Str? {
         } else if parts.len() == 1 {
           high = low
         }
-        if low > 32767 or high > 32767 { return "Regular expression too big" }
-        if high >= 0 and low > high { return "Invalid content of \\{\\}" }
+        return "Regular expression too big" when low > 32767 or high > 32767
+        return "Invalid content of \\{\\}" when high >= 0 and low > high
         at = close + 2
         continue
       }
@@ -805,15 +813,15 @@ pure regex_problem(pattern: Str) -> Str? {
             }
             end += 1
           }
-          if !shut { return "Unmatched [, [^, [:, [., or [=" }
+          return "Unmatched [, [^, [:, [., or [=" unless shut
           let word = raw[cursor + 2..end].utf8() ?? ""
-          if kind == 58 and !(word in classes) { return "Invalid character class name" }
+          return "Invalid character class name" when kind == 58 and ! (word in classes)
           cursor = end + 2
           continue
         }
         if raw.byte_at(cursor + 1) == 45 and cursor + 2 < size and raw.byte_at(cursor + 2) != 93 {
           let high = raw.byte_at(cursor + 2) ?? 0
-          if inner > high { return "Invalid range end" }
+          return "Invalid range end" when inner > high
           cursor += 3
           continue
         }
@@ -828,7 +836,7 @@ pure regex_problem(pattern: Str) -> Str? {
     }
     at += 1
   }
-  if depth > 0 { return "Unmatched ( or \\(" }
+  return "Unmatched ( or \\(" when depth > 0
   null
 }
 
@@ -843,14 +851,14 @@ pure format_events(argv: List[Str]) -> List[FormatEvent] {
   var index = 0
   while index < argv.len() {
     let arg = argv[index]
-    if arg == "--" { break }
+    break when arg == "--"
     if arg.starts_with("--") {
       let body = arg.byte_slice(2)
       let equals = body.find("=")
-      let name = if equals == null { body } else { body.byte_slice(0, length: equals ?? 0) }
+      let name = if equals == null { body } else { body.byte_slice(0, length: equals) }
       var resolved = ""
-      var candidates: List[Str] = []
-      for known in FORMAT_LONGS + VALUE_LONGS + OTHER_LONGS + ["digits"] {
+      var candidates = []
+      for known in [@FORMAT_LONGS, @VALUE_LONGS, @OTHER_LONGS, "digits"] {
         if known == name { resolved = known }
         if known.starts_with(name) and !(known in candidates) { candidates += [known] }
       }
@@ -859,7 +867,7 @@ pure format_events(argv: List[Str]) -> List[FormatEvent] {
       if resolved in FORMAT_LONGS {
         var value = ""
         if equals != null {
-          value = body.byte_slice((equals ?? 0) + 1)
+          value = body.byte_slice(equals + 1)
         } else {
           index += 1
           value = argv.get(index) ?? ""
@@ -897,9 +905,9 @@ proc merged_templates(events: List[FormatEvent]) [process, env] -> diffrender.Te
   let group_names = ["--old-group-format", "--new-group-format", "--changed-group-format", "--unchanged-group-format"]
   let line_names = ["--old-line-format", "--new-line-format", "--unchanged-line-format"]
   for event in events {
-    var texts: List[Str] = []
+    var texts = []
     var is_group = false
-    var slots: List[Int] = []
+    var slots = []
     if event.name == "-D" {
       is_group = true
       slots = [0, 1, 2, 3]
@@ -943,7 +951,7 @@ proc merged_templates(events: List[FormatEvent]) [process, env] -> diffrender.Te
 # locale the curly quotes need no escape for an apostrophe inside the value.
 proc locale_quote(text: Str) [env] -> Str {
   let quoted = gnu.quote_value(text)
-  if quoted.starts_with("\u{2018}") { return quoted.replace("\\'", with: "'") }
+  return quoted.replace("\\'", with: "'") when quoted.starts_with("‘")
   quoted
 }
 
@@ -958,7 +966,7 @@ proc usage_trouble(message: Str) [process, env] -> Unit {
 # A count option, or the usage error GNU gives for a bad value.
 proc count_option(text: Str, what: Str, minimum: Int) [process, env] -> Int {
   let value = parse_count(text)
-  if value == null or (value ?? 0) < minimum { usage_trouble(f"invalid {what} {locale_quote(text)}") }
+  if value == null or value < minimum { usage_trouble(f"invalid {what} {locale_quote(text)}") }
   value ?? 0
 }
 
@@ -1036,7 +1044,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   if opts.help { gnu.write_text(HELP); return }
   if opts.version { gnu.version("diff"); return }
 
-  var styles: List[Str] = []
+  var styles = []
   if opts.normal { styles += ["normal"] }
   if opts.unified or !opts.unified_short.is_empty() or !opts.unified_long.is_empty() { styles += ["unified"] }
   if opts.context_c or !opts.context_short.is_empty() or !opts.context_long.is_empty() { styles += ["context"] }
@@ -1049,7 +1057,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   let style = if !styles.is_empty() { styles[0] } else if opts.show_c { "context" } else { "normal" }
 
   var context = -1
-  for text in opts.unified_short + opts.unified_long + opts.context_short + opts.context_long {
+  for text in [@opts.unified_short, @opts.unified_long, @opts.context_short, @opts.context_long] {
     let value = count_option(text, "context length", 0)
     if value > context { context = value }
   }
@@ -1084,14 +1092,14 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
     let names = ["rs", "hd", "ad", "de", "ln"]
     var broken = false
     for item in text.split(":") {
-      if item == "" { continue }
+      continue when item == ""
       let equals = item.find("=")
       if equals == null {
         broken = true
         continue
       }
-      let key = item.byte_slice(0, length: equals ?? 0)
-      let value = item.byte_slice((equals ?? 0) + 1)
+      let key = item.byte_slice(0, length: equals)
+      let value = item.byte_slice(equals + 1)
       var known = false
       for position in range(names.len()) {
         if names[position] == key {
@@ -1132,7 +1140,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   for pattern in opts.ignore_matching + function_patterns {
     let problem = regex_problem(pattern)
     if problem != null {
-      gnu.error(f"'{pattern}': {problem ?? ""}")
+      gnu.error(f"'{pattern}': {problem}")
       exit 2
     }
     if let Err(_) = regex.find_bytes(pattern, b"") {
@@ -1143,7 +1151,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
 
   var fold_names = false
   for word in argv {
-    if word == "--" { break }
+    break when word == "--"
     if word == "--ignore-file-name-case" { fold_names = true }
     if word == "--no-ignore-file-name-case" { fold_names = false }
   }
@@ -1151,26 +1159,27 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   let templates = merged_templates(format_events(argv))
   # GNU does not expand tabs for comparison when trailing white space is also
   # ignored: the combination compares like `-Z` alone.
-  let rules: gnudiff.Rules = {utf8: utf8_locale(), tabsize: tabsize, ignore_case: opts.ignore_case, all_space: opts.all_space, space_change: opts.space_change, trailing_space: opts.trailing_space, expand_tabs: opts.ignore_tab and !opts.trailing_space, minimal: opts.minimal, speed_large_files: opts.speed, horizon: horizon}
-  let fmt: diffrender.Format = {utf8: rules.utf8, style: style, context: context, initial_tab: opts.initial_tab, expand_tabs: opts.expand_tabs, tabsize: tabsize, suppress_blank_empty: opts.suppress_blank_empty, width: width, left_column: opts.left_column, suppress_common: opts.suppress_common, function_patterns: function_patterns, ignore_blank: opts.ignore_blank, blank_skips_space: opts.space_change or opts.all_space, patterns: opts.ignore_matching, palette: if colored { palette } else { [] }}
-  let cfg: Settings = {opts: opts, rules: rules, fmt: fmt, templates: templates, labels: opts.label, switches: switch_text(argv), patterns: patterns, style: style, fold_names: fold_names}
+  let rules: gnudiff.Rules = gnudiff.Rules(utf8: utf8_locale(), tabsize:, ignore_case: opts.ignore_case, all_space: opts.all_space, space_change: opts.space_change, trailing_space: opts.trailing_space, expand_tabs: opts.ignore_tab and !opts.trailing_space, minimal: opts.minimal, speed_large_files: opts.speed, horizon:)
+  let fmt: diffrender.Format = diffrender.Format(utf8: rules.utf8, style:, context:, initial_tab: opts.initial_tab, expand_tabs: opts.expand_tabs, tabsize:, suppress_blank_empty: opts.suppress_blank_empty, width:, left_column: opts.left_column, suppress_common: opts.suppress_common, function_patterns:, ignore_blank: opts.ignore_blank, blank_skips_space: opts.space_change or opts.all_space, patterns: opts.ignore_matching, palette: if colored { palette } else { [] })
+  let cfg: Settings = Settings(opts:, rules:, fmt:, templates:, labels: opts.label, switches: switch_text(argv), patterns:, style:, fold_names:)
 
-  var pairs: List[List[Str]] = []
-  if let from = opts.from_file {
-    for operand in opts.files { pairs += [[from, operand]] }
-  } else if let to = opts.to_file {
-    for operand in opts.files { pairs += [[operand, to]] }
-  } else {
-    if opts.files.len() < 2 {
-      var last = gnu.prog()
-      for word in argv {
-        if word != "--" { last = word }
+  let pairs = collect {
+    if let from = opts.from_file {
+      for operand in opts.files { yield [from, operand] }
+    } else if let to = opts.to_file {
+      for operand in opts.files { yield [operand, to] }
+    } else {
+      if opts.files.len() < 2 {
+        var last = gnu.prog()
+        for word in argv {
+          if word != "--" { last = word }
+        }
+        if opts.files.len() == 1 { last = opts.files[0] }
+        usage_trouble(f"missing operand after {locale_quote(last)}")
       }
-      if opts.files.len() == 1 { last = opts.files[0] }
-      usage_trouble(f"missing operand after {locale_quote(last)}")
+      if opts.files.len() > 2 { usage_trouble(f"extra operand {locale_quote(opts.files[2])}") }
+      yield [opts.files[0], opts.files[1]]
     }
-    if opts.files.len() > 2 { usage_trouble(f"extra operand {locale_quote(opts.files[2])}") }
-    pairs += [[opts.files[0], opts.files[1]]]
   }
   var status = 0
   for pair in pairs {

@@ -1,6 +1,6 @@
 use core.lib.procps
 
-pure row(pid: Int, name: Str, argv: Str, uid: Int = 1000, parent: Int = 1) -> ProcessEntry {
+pure row(pid: Int, name: Str, argv: Str, uid = 1000, parent = 1) -> ProcessEntry {
   {pid: pid, parent_pid: parent, command: name, argv: argv, argv0: name, user: "fixture", uid: uid, status: "S", start_time: "", start_time_ms: pid * 1000, runtime_seconds: 10, user_ticks: null, system_ticks: null, cpu_ticks: null, start_ticks: null, ticks_per_second: null, rss_bytes: null, vsize_bytes: null, pgrp: null, session: null, tty_number: null, nice: null, priority: null, thread_count: null, processor: null, tty: null}
 }
 
@@ -38,7 +38,7 @@ while ! release.exists()? { time.sleep(10ms) }
   # The marker is written after exec and interpreter naming; observing a process
   # row alone can catch a command name that changes during program startup.
   repeat 20 times {
-    break when ready.exists()?
+    break when ready.exists()
     time.sleep(10ms)
   }
   assert ready.exists()?, "owned child did not announce readiness"
@@ -46,13 +46,13 @@ while ! release.exists()? { time.sleep(10ms) }
   let owned: List[ProcessEntry] = process.list()? |> where .pid == child.pid |> collect
   assert owned.len() == 1
   let parent = owned[0].parent_pid
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pgrep.xsh" -- -P $parent -x ${owned[0].command}
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pgrep.xsh" -- -P $parent -x owned[0].command
   assert f"{child.pid}" in output.split("\n")
-  let delivered = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/pkill.xsh" -- --signal 0 -P $parent -x ${owned[0].command}
+  let delivered = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/pkill.xsh" -- --signal 0 -P $parent -x owned[0].command
   assert delivered.exited_with(0)
   let ps = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ps.xsh" -- -p ${child.pid} -o pid=,comm=
   assert ps.trim() == f"{child.pid} {owned[0].command}"
-  let pidof = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pidof.xsh" -- ${owned[0].command}
+  let pidof = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pidof.xsh" -- owned[0].command
   assert f"{child.pid}" in pidof.trim().split(" ")
   release.write("done")
   let child_pid = child.pid
@@ -105,8 +105,7 @@ test test_procps_sampling_tools_render_bounded_samples { |ctx|
 
 test test_procps_sampling_native_fixture_retains_units {
   let root = fs.tempdir()?
-  defer root.close()
-  root.write(p"stat", "cpu 20 5 10 50 5 4 4 2\nbtime 1000\nctxt 100\nprocesses 30\nprocs_running 2\nprocs_blocked 1\nintr 50 0 0\n")
+    root.write(p"stat", "cpu 20 5 10 50 5 4 4 2\nbtime 1000\nctxt 100\nprocesses 30\nprocs_running 2\nprocs_blocked 1\nintr 50 0 0\n")
   root.write(p"vmstat", "pgpgin 10\npgpgout 20\npswpin 3\npswpout 4\n")
   root.write(p"uptime", "20.25 10.00\n")
   root.write(p"meminfo", "MemTotal: 1000 kB\nMemFree: 100 kB\nMemAvailable: 300 kB\nBuffers: 40 kB\nCached: 80 kB\nShmem: 10 kB\nSReclaimable: 20 kB\nSwapTotal: 400 kB\nSwapFree: 200 kB\n")
@@ -121,8 +120,7 @@ test test_procps_sampling_native_fixture_retains_units {
 
 test test_procps_inspection_finds_owned_directory_descriptor { |ctx|
   let root = fs.tempdir()?
-  defer root.close()
-  let directory = root.host_path()?
+    let directory = root.host_path()?
   let pid = process.current_pid()?
   let listing = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/lsof.xsh" -- -p $pid $directory
   assert "DIR" in listing and f"{pid}" in listing
@@ -139,8 +137,8 @@ test test_ps_orders_secondary_keys_within_primary_ties { |ctx|
   var previous_pid = 9223372036854775807
   for line in output.trim().split("\n") {
     let fields = line.split(" ") |> where . != ""
-    let uid = fields[0].parse_int()?
-    let pid = fields[1].parse_int()?
+    let uid = fields[0] as Int
+    let pid = fields[1] as Int
     assert uid >= previous_uid
     if uid == previous_uid { assert pid < previous_pid }
     previous_uid = uid
@@ -170,10 +168,10 @@ proc unique_name(ctx: TestContext, tag: Str) [process, error] -> Result[Str, Err
 # exits on its own after about ten seconds if a test fails before releasing it.
 type Sleeper = {name: Str, pid: Int, release: Path, child: ProcessHandle}
 
-proc start_sleeper(ctx: TestContext, tag: Str, token: Str = "", reading: Path? = null, appending: Path? = null) [fs, process, time, error] -> Result[Sleeper, Error] {
+proc start_sleeper(ctx: TestContext, tag: Str, token = "", reading: Path? = null, appending: Path? = null) [fs, process, time, error] -> Result[Sleeper, Error] {
   let name = unique_name(ctx, tag)?
-  let link = fp"{test.temp_dir(ctx, name: name)?}/{name}"
-  fs.symlink(ctx.xsh_bin, link)?
+  let link = fp"{test.temp_dir(ctx, name:)?}/{name}"
+  link.symlink(to: ctx.xsh_bin)
   let ready = test.temp_path(ctx, name: f"{name}.ready")
   let release = test.temp_path(ctx, name: f"{name}.release")
   let script = test.temp_file(ctx, name: f"{name}.xsh", contents: bytes.from_text("""
@@ -192,7 +190,7 @@ repeat 1000 times {
     spawn run $link $script -- $ready $release $token ?
   }
   repeat 200 times {
-    break when ready.exists()?
+    break when ready.exists()
     time.sleep(10ms)
   }
   assert ready.exists()?, f"sleeper {name} did not announce readiness"
@@ -242,7 +240,7 @@ test test_pkill_sends_term_by_default_and_honours_signal_option { |ctx|
 
 test test_pkill_name_and_full_command_matching { |ctx|
   let token = f"needle-{process.current_pid()?}"
-  let target = start_sleeper(ctx, "a", token: token)?
+  let target = start_sleeper(ctx, "a", token:)?
   defer stop(target)
   let prefix = target.name.byte_slice(0, target.name.byte_len() - 1)
   assert pkill(ctx, ["--signal", "0", prefix])?.status.exited_with(0), "an unanchored pattern matches part of the name"
@@ -310,8 +308,8 @@ test test_pkill_reports_usage_and_selection_errors_with_distinct_statuses { |ctx
 
 test test_pkill_and_killall_never_select_their_own_process { |ctx|
   let name = unique_name(ctx, "s")?
-  let link = fp"{test.temp_dir(ctx, name: name)?}/{name}"
-  fs.symlink(ctx.xsh_bin, link)?
+  let link = fp"{test.temp_dir(ctx, name:)?}/{name}"
+  link.symlink(to: ctx.xsh_bin)
   let own = run.capture --text $link fp"{ctx.core_dir}/pkill.xsh" -- -x $name
   assert own.status.exited_with(1), "pkill matched its own process"
   let full = run.capture --text $link fp"{ctx.core_dir}/pkill.xsh" -- -f $name
@@ -483,14 +481,14 @@ test test_lsof_lists_a_regular_file_as_reg_while_tcp_time_wait_rows_exist { |ctx
   let c = linux.net_constants()
   let listener = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(listener)
-  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(listener, 1)?
+  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(listener, 1)
   let address = linux.getsockname(listener)?
   let client = linux.socket(c.AF_INET, c.SOCK_STREAM)?
-  linux.connect(client, address)?
+  linux.connect(client, address)
   let peer = linux.accept(listener)?
-  unix.close_fd(peer.fd)?
-  unix.close_fd(client)?
+  unix.close_fd(peer.fd)
+  unix.close_fd(client)
 
   let held = test.temp_file(ctx, name: "lsof-held.txt", contents: bytes.from_text("held"))?
   let holder = start_sleeper(ctx, "l", reading: held)?
@@ -507,8 +505,8 @@ test test_fuser_namespace_finds_the_owner_of_a_listening_port { |ctx|
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(server)
-  linux.bind(server, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(server, 1)?
+  linux.bind(server, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(server, 1)
   let port = linux.getsockname(server)?.port
   let me = f"{process.current_pid()?}"
   let named = fuser(ctx, ["-n", "tcp", f"{port}"])?
@@ -519,10 +517,10 @@ test test_fuser_namespace_finds_the_owner_of_a_listening_port { |ctx|
   assert suffix.status.exited_with(0) and me in suffix.stdout.fields()
   assert fuser(ctx, ["-n", "udp", f"{port}"])?.status.exited_with(1)
   let closed = linux.socket(c.AF_INET, c.SOCK_STREAM)?
-  linux.bind(closed, {family: "inet", address: "127.0.0.1", port: 0})?
-  linux.listen(closed, 1)?
+  linux.bind(closed, {family: "inet", address: "127.0.0.1", port: 0})
+  linux.listen(closed, 1)
   let gone = linux.getsockname(closed)?.port
-  unix.close_fd(closed)?
+  unix.close_fd(closed)
   assert fuser(ctx, ["-n", "tcp", f"{gone}"])?.status.exited_with(1)
 }
 
@@ -545,9 +543,10 @@ pure are_fixed_point(words: List[Str]) -> Bool {
 }
 
 pure data_rows(text: Str) -> List[Str] {
-  var rows: List[Str] = []
-  for line in text.lines() {
-    rows = rows.push(line) when ! line.starts_with("UID")
+  let rows = collect {
+    for line in text.lines() {
+      yield line when ! line.starts_with("UID")
+    }
   }
   rows
 }
@@ -566,7 +565,7 @@ test test_iostat_prints_cpu_and_device_blocks_for_each_report { |ctx|
       let shares = line.fields()
       assert shares.len() == 6 and are_fixed_point(shares), line
       var total = 0.0
-      for share in shares { total = total + share.parse_float()? }
+      for share in shares { total = total + share as Float }
       # An interval too short to cross a kernel tick reports all zeros.
       assert total == 0.0 or (total > 99.9 and total < 100.1), "the six CPU shares add up to the whole interval"
       cpu_next = false
@@ -632,7 +631,7 @@ test test_pidstat_command_filter_and_memory_columns { |ctx|
   assert rows.len() == 1
   let columns = rows[0].fields()
   assert columns.len() == 6 and columns[1] == f"{target.pid}" and columns[5] == target.name
-  assert columns[2].parse_int()? > 0 and columns[3].parse_int()? > 0 and is_fixed_point(columns[4])
+  assert columns[2] as Int > 0 and columns[3] as Int > 0 and is_fixed_point(columns[4])
   let none = sample_tool(ctx, "pidstat", ["-C", f"^{target.name}x$", "0.01", "1"])?
   assert none.status.exited_with(0)
   assert none.stdout.trim() == "UID PID %usr %system %CPU CPU Command"
@@ -644,7 +643,7 @@ test test_pidstat_command_filter_and_memory_columns { |ctx|
 # differ from that run onward, `fail_at` makes it fail from that run onward, and
 # `numbered` appends the run number to the output (which then always differs).
 proc counting_command(ctx: TestContext, name: Str) [fs, error] -> Result[Path, Error] {
-  test.temp_file(ctx, name: name, contents: bytes.from_text("""
+  test.temp_file(ctx, name:, contents: bytes.from_text("""
 let counter = fp"{args[0]}"
 let seen = (if counter.exists()? { counter.read_text()?.trim().parse_int()? } else { 0 }) + 1
 counter.write(f"{seen}")

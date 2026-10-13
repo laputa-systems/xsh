@@ -6,24 +6,23 @@ type RawArgument = {marker: Str, value: Bytes}
 type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
-    match argument.utf8() {
-      Ok(value) => text += [value]
-      Err(_) => {
-        let marker = f"\0mktemp-raw-argument-{index}\0"
-        if argument.starts_with(b"--suffix=") {
-          text += [f"--suffix={marker}"]
-          raw += [{marker: marker, value: argument[9..]}]
-        } else if argument.starts_with(b"--tmpdir=") {
-          text += [f"--tmpdir={marker}"]
-          raw += [{marker: marker, value: argument[9..]}]
-        } else {
-          text += [marker]
-          raw += [{marker: marker, value: argument}]
-        }
+    if let Ok(value) = argument.utf8() {
+      text += [value]
+    } else {
+      let marker = f"\0mktemp-raw-argument-{index}\0"
+      if argument.starts_with(b"--suffix=") {
+        text += [f"--suffix={marker}"]
+        raw += [{marker: marker, value: argument[9..]}]
+      } else if argument.starts_with(b"--tmpdir=") {
+        text += [f"--tmpdir={marker}"]
+        raw += [{marker: marker, value: argument[9..]}]
+      } else {
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
       }
     }
   }
@@ -65,14 +64,14 @@ pure directory_option(argv: List[Bytes], initial: Bytes) -> Bytes {
 }
 
 pure contains_separator(value: Bytes) -> Bool {
-  for index in range(value.len()) { if value.byte_at(index) == 47 { return true } }
+  for index in range(value.len()) { return true when value.byte_at(index) == 47 }
   false
 }
 
-proc create_directory(target: Path) [fs, error] -> Result[Unit] {
+proc create_directory(target: Path) [fs, error] {
   let parent_root = fs.open_root(target.parent())?
   let components = target.components()
-  parent_root.mkdir(components[components.len() - 1], mode: 0o700.clear_bits(fs.umask()?))
+  parent_root.mkdir(components[-1], mode: 0o700.clear_bits(fs.umask()?))
 }
 
 # Creation is rolled back if its name cannot be delivered to the caller.
@@ -115,7 +114,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   if opts.version { gnu.version("mktemp"); return }
   if opts.templates.len() > 1 { gnu.usage_error("too many templates") }
   let pattern = if opts.templates.is_empty() { b"tmp.XXXXXXXXXX" } else { gnu.argument_bytes(opts.templates[0], prepared.raw) }
-  let option_suffix = if opts.suffix == null { b"" } else { gnu.argument_bytes(opts.suffix ?? "", prepared.raw) }
+  let option_suffix = if opts.suffix == null { b"" } else { gnu.argument_bytes(opts.suffix, prepared.raw) }
   if opts.suffix != null and !pattern.ends_with(b"X") { gnu.error(f"with --suffix, template {gnu.quote_bytes(pattern)} must end in X"); exit 1 }
   var end = pattern.len()
   while end > 0 and pattern.byte_at(end - 1) != 88 { end -= 1 }
@@ -129,7 +128,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let configured_tmpdir = env.path("TMPDIR", p"")?.bytes()
   let has_tmpdir = !configured_tmpdir.is_empty()
   let default_dir = if has_tmpdir { configured_tmpdir } else { b"/tmp" }
-  var directory = if opts.parent != null { gnu.argument_bytes(opts.parent ?? "", prepared.raw) } else if opts.tmpdir != null { gnu.argument_bytes(opts.tmpdir ?? "", prepared.raw) } else { b"" }
+  var directory = if opts.parent != null { gnu.argument_bytes(opts.parent, prepared.raw) } else if opts.tmpdir != null { gnu.argument_bytes(opts.tmpdir, prepared.raw) } else { b"" }
   directory = directory_option(argv, directory)
   let use_dir = opts.tmpdir != null or opts.parent != null or opts.legacy or opts.templates.is_empty()
   if opts.legacy and has_tmpdir { directory = default_dir }
@@ -151,7 +150,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       }
     }
     let name = bytes.concat([prefix, bytes.from_text(random), suffix])
-    let target = Path.parse_bytes(name)?
+    let target = name as Path
     if opts.dry { gnu.write_bytes(bytes.concat([name, b"\n"])); return }
     let made = if opts.directory {
       create_directory(target)

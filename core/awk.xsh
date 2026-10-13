@@ -75,7 +75,7 @@ along with this program. If not, see http://www.gnu.org/licenses/.
 
 const LONG_OPTIONS = ["assign", "load", "include", "source", "file", "exec", "field-separator", "characters-as-bytes", "traditional", "copyright", "dump-variables", "debug", "gen-pot", "help", "trace", "csv", "lint", "bignum", "use-lc-numeric", "non-decimal-data", "pretty-print", "optimize", "profile", "posix", "re-interval", "no-optimize", "sandbox", "lint-old", "version"]
 const OPTIONS_WITH_VALUE = ["assign", "load", "include", "source", "file", "exec", "field-separator"]
-const SHORT_LONG: Map[Str] = {"v": "assign", "l": "load", "i": "include", "e": "source", "f": "file", "E": "exec", "F": "field-separator", "b": "characters-as-bytes", "c": "traditional", "C": "copyright", "d": "dump-variables", "D": "debug", "g": "gen-pot", "h": "help", "I": "trace", "k": "csv", "L": "lint", "M": "bignum", "N": "use-lc-numeric", "n": "non-decimal-data", "o": "pretty-print", "O": "optimize", "p": "profile", "P": "posix", "r": "re-interval", "s": "no-optimize", "S": "sandbox", "t": "lint-old", "V": "version"}
+const SHORT_LONG: Map[Str] = {v: "assign", l: "load", i: "include", e: "source", f: "file", E: "exec", F: "field-separator", b: "characters-as-bytes", c: "traditional", C: "copyright", d: "dump-variables", D: "debug", g: "gen-pot", h: "help", I: "trace", k: "csv", L: "lint", M: "bignum", N: "use-lc-numeric", n: "non-decimal-data", o: "pretty-print", O: "optimize", p: "profile", P: "posix", r: "re-interval", s: "no-optimize", S: "sandbox", t: "lint-old", V: "version"}
 const SHORT_WITH_VALUE = ["v", "l", "i", "e", "f", "E", "F"]
 const SHORT_OPTIONAL_VALUE = ["d", "D", "L", "o", "p"]
 
@@ -102,7 +102,7 @@ proc usage_failure(prefix: Str) [io] -> Unit {
 # GNU awk looks program files up on AWKPATH and retries each name with ".awk"
 # appended; a name with a slash is taken as it stands.
 proc find_program(name: Str) [fs, env] -> Str? {
-  var candidates: List[Str] = []
+  var candidates = []
   if "/" in name { candidates = [name, f"{name}.awk"] } else {
     let search = env.get("AWKPATH") ?? ".:/usr/local/share/awk"
     for directory in search.split(":") {
@@ -111,9 +111,8 @@ proc find_program(name: Str) [fs, env] -> Str? {
     }
   }
   for candidate in candidates {
-    match fs.stat(fp"{candidate}", follow_symlinks: true) {
-      Ok(info) => { if info.kind == "file" { return candidate } }
-      Err(_) => {}
+    if let Ok(info) = fs.stat(fp"{candidate}", follow_symlinks: true) {
+      return candidate when info.kind == "file"
     }
   }
   null
@@ -134,16 +133,16 @@ proc read_program(name: Str, kind: Str) [fs, io, env, error] -> Loaded {
     exit 2
   }
   match fp"{found ?? name}".read_text() {
-    Ok(text) => { return {source: {label: name, text: text}, found: found ?? name} }
+    Ok(text) => { {source: {label: name, text: text}, found: found ?? name} }
     Err(failure) => {
       var reason = failure.message
       let cut = reason.find(" (os error")
-      if cut != null { reason = reason.byte_slice(0, length: cut ?? 0) }
+      if cut != null { reason = reason.byte_slice(0, length: cut) }
       var tail = reason
       loop {
         let at = tail.find(": ")
-        if at == null { break }
-        tail = tail.byte_slice((at ?? 0) + 2)
+        break when at == null
+        tail = tail.byte_slice(at + 2)
       }
       eprint f"awk: fatal: cannot open {kind} `{name}' for reading: {tail}"
       exit 2
@@ -154,13 +153,13 @@ proc read_program(name: Str, kind: Str) [fs, io, env, error] -> Loaded {
 # The operand of a `@directive "name"` line, or null when the line is not one.
 pure directive_operand(line: Str, directive: Str) -> Str? {
   let trimmed = line.trim()
-  if ! trimmed.starts_with(directive) { return null }
+  return null unless trimmed.starts_with(directive)
   let rest = trimmed.byte_slice(directive.byte_len())
-  if rest.is_empty() or ! (rest.starts_with(" ") or rest.starts_with("\t")) { return null }
+  return null when rest.is_empty() or ! (rest.starts_with(" ") or rest.starts_with("\t"))
   let quoted = rest.trim()
   if quoted.byte_len() < 2 or ! quoted.starts_with("\"") or ! quoted.ends_with("\"") { return null }
   let name = quoted.byte_slice(1, length: quoted.byte_len() - 2)
-  if "\"" in name { return null }
+  return null when "\"" in name
   name
 }
 
@@ -184,8 +183,9 @@ proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Ex
       exit 1
     }
     let wanted = directive_operand(lines[index], "@include")
-    if wanted == null { continue }
-    let name = wanted ?? ""
+    guard let name = wanted else {
+      continue
+    }
     let found = find_program(name)
     if found == null {
       eprint f"awk: {source.label}:{index + 1}: error: cannot open source file `{name}' for reading: No such file or directory"
@@ -197,14 +197,14 @@ proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Ex
     # Once a command-line program has included a file, GNU awk names the
     # whole program text, not "cmd. line", in the messages for what follows.
     if source.label == "cmd. line" { label_here = source.text }
-    if (found ?? name) in included { continue }
+    continue when (found ?? name) in included
     included += [found ?? name]
     let loaded = read_program(name, "source file")
     let inner = expand_includes(loaded.source, included)
     sources += inner.sources
     included = inner.included
   }
-  if chunk_start == 0 { return {sources: [source], included: included} }
+  return {sources: [source], included: included} when chunk_start == 0
   let rest = lines[chunk_start..].join("\n")
   if ! rest.trim().is_empty() { sources += [{label: label_here, text: newlines(chunk_start) + rest}] }
   {sources: sources, included: included}
@@ -215,55 +215,56 @@ proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Ex
 type Given = {name: Str, value: Str?}
 
 proc main(...args: List[Str]) [fs, process, env, error, io, time] {
-  var settings: Settings = {pieces: [], assignments: [], operands: [], sandbox: false, version: false, help: false}
+  var settings: Settings = Settings(pieces: [], assignments: [], operands: [], sandbox: false, version: false, help: false)
   var index = 0
   var program_given = false
-  var seen: List[Given] = []
-  var include_found: List[Str] = []
-  var program_found: List[Str] = []
-  while index < args.len() {
-    let argument = args[index]
-    if argument == "--" { index += 1; break }
-    if ! argument.starts_with("-") or argument == "-" { break }
-    index += 1
-    if argument.starts_with("--") {
-      var body = argument.byte_slice(2)
-      var value: Str? = null
-      let equals = body.find("=")
-      if equals != null {
-        value = body.byte_slice((equals ?? 0) + 1)
-        body = body.byte_slice(0, length: equals ?? 0)
-      }
-      let candidates = [name for name in LONG_OPTIONS if name.starts_with(body)]
-      var option = ""
-      if body in LONG_OPTIONS { option = body } else if candidates.len() == 1 { option = candidates[0] } else {
-        usage_failure("")
-      }
-      if option in OPTIONS_WITH_VALUE and value == null {
-        if index >= args.len() { usage_failure(f"awk: option '--{option}' requires an argument\n") }
-        value = args[index]
-        index += 1
-      }
-      seen += [{name: option, value: value}]
-    } else {
-      var at = 1
-      while at < argument.byte_len() {
-        let letter = argument.byte_slice(at, length: 1)
-        at += 1
-        if letter not in SHORT_LONG { usage_failure("") }
-        let option = SHORT_LONG.get(letter) ?? ""
-        var value: Str? = null
-        if letter in SHORT_WITH_VALUE {
-          if at < argument.byte_len() { value = argument.byte_slice(at); at = argument.byte_len() } else {
-            if index >= args.len() { usage_failure(f"awk: option requires an argument -- {letter}\n") }
-            value = args[index]
-            index += 1
-          }
-        } else if letter in SHORT_OPTIONAL_VALUE and at < argument.byte_len() {
-          value = argument.byte_slice(at)
-          at = argument.byte_len()
+  var include_found = []
+  var program_found = []
+  let seen: List[Given] = collect {
+    while index < args.len() {
+      let argument = args[index]
+      if argument == "--" { index += 1; break }
+      break when ! argument.starts_with("-") or argument == "-"
+      index += 1
+      if argument.starts_with("--") {
+        var body = argument.byte_slice(2)
+        var value = null
+        let equals = body.find("=")
+        if equals != null {
+          value = body.byte_slice(equals + 1)
+          body = body.byte_slice(0, length: equals)
         }
-        seen += [{name: option, value: value}]
+        let candidates = [name for name in LONG_OPTIONS if name.starts_with(body)]
+        var option = ""
+        if body in LONG_OPTIONS { option = body } else if candidates.len() == 1 { option = candidates[0] } else {
+          usage_failure("")
+        }
+        if option in OPTIONS_WITH_VALUE and value == null {
+          if index >= args.len() { usage_failure(f"awk: option '--{option}' requires an argument\n") }
+          value = args[index]
+          index += 1
+        }
+        yield {name: option, value: value}
+      } else {
+        var at = 1
+        while at < argument.byte_len() {
+          let letter = argument.byte_slice(at, length: 1)
+          at += 1
+          if letter not in SHORT_LONG { usage_failure("") }
+          let option = SHORT_LONG.get(letter) ?? ""
+          var value = null
+          if letter in SHORT_WITH_VALUE {
+            if at < argument.byte_len() { value = argument.byte_slice(at); at = argument.byte_len() } else {
+              if index >= args.len() { usage_failure(f"awk: option requires an argument -- {letter}\n") }
+              value = args[index]
+              index += 1
+            }
+          } else if letter in SHORT_OPTIONAL_VALUE and at < argument.byte_len() {
+            value = argument.byte_slice(at)
+            at = argument.byte_len()
+          }
+          yield {name: option, value: value}
+        }
       }
     }
   }
@@ -322,11 +323,11 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
     }
   }
   if settings.version {
-    io.write_stdout(VERSION)?
+    io.write_stdout(VERSION)
     return
   }
   if settings.help {
-    io.write_stdout(USAGE)?
+    io.write_stdout(USAGE)
     return
   }
   if ! program_given {

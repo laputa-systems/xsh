@@ -34,7 +34,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
     ctx.darwin_deployment_target,
   )?
   let build_std_value = env.get_or("INSTALL_BUILD_STD_FLAGS", "-Z build-std=std")?
-  var build_std: List[Str] = []
+  var build_std = []
 
   if build_std_value.trim() != "" {
     build_std = process.argv_words(build_std_value)?

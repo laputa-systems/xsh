@@ -214,7 +214,7 @@ proc read_sessions() [fs, process, env, error] -> List[UnixUtmp] {
         exit 1
       }
 
-      let none: List[UnixUtmp] = []
+      let none = []
       none
     }
   }
@@ -281,7 +281,7 @@ proc entry_line(
 
   if columns.where and entry.host != "" {
     var host = entry.host
-    var display: Str? = null
+    var display = null
     let colon = host.find(":")
 
     if colon != null {

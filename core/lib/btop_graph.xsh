@@ -11,7 +11,7 @@ const MAX_GRAPH_HEIGHT = 2000
 const LEFT_DOT_BITS = [1, 2, 4, 64]
 const RIGHT_DOT_BITS = [8, 16, 32, 128]
 
-const BRAILLE_GLYPHS: List[Str] = [
+const BRAILLE_GLYPHS = [
   "\u{2800}", "\u{2801}", "\u{2802}", "\u{2803}", "\u{2804}", "\u{2805}", "\u{2806}", "\u{2807}",
   "\u{2808}", "\u{2809}", "\u{280a}", "\u{280b}", "\u{280c}", "\u{280d}", "\u{280e}", "\u{280f}",
   "\u{2810}", "\u{2811}", "\u{2812}", "\u{2813}", "\u{2814}", "\u{2815}", "\u{2816}", "\u{2817}",
@@ -83,10 +83,8 @@ export pure empty_history() -> History {
 ## Adds one ordered observation and evicts only samples beyond the fixed horizon.
 ## Replay timestamps may start at zero because they use a virtual time origin.
 export pure append(history: History, sample: Sample) -> Result[History, Error] {
-  if sample.at_ns < 0 {
-    return Err(error.failure("graph sample time cannot be negative"))
-  }
-  if history.samples.len() > 0 and sample.at_ns <= history.samples[history.samples.len() - 1].at_ns {
+  return Err(error.failure("graph sample time cannot be negative")) when sample.at_ns < 0
+  if ! history.samples.is_empty() and sample.at_ns <= history.samples[-1].at_ns {
     return Err(error.failure("graph sample times must increase"))
   }
   if sample.state == .Observed and sample.value == null {
@@ -96,9 +94,7 @@ export pure append(history: History, sample: Sample) -> Result[History, Error] {
     return Err(error.failure("missing graph samples cannot carry a value"))
   }
   if let value = sample.value {
-    if value != value {
-      return Err(error.failure("graph sample value must be finite"))
-    }
+    return Err(error.failure("graph sample value must be finite")) when value != value
   }
 
   let samples = history.samples + [sample]
@@ -133,15 +129,13 @@ pure retained_scale(history: History, minimum: Float) -> Float {
 }
 
 pure bounded_ratio(value: Float, minimum: Float, maximum: Float) -> Float {
-  if value <= minimum { return 0.0 }
-  if value >= maximum { return 1.0 }
+  return 0.0 when value <= minimum
+  return 1.0 when value >= maximum
   (value - minimum) / (maximum - minimum)
 }
 
 pure sample_pixels(sample: Sample, minimum: Float, maximum: Float, rows: Int) -> Result[Int, Error] {
-  if sample.state != .Observed or sample.value == null {
-    return Ok(0)
-  }
+  return Ok(0) when sample.state != .Observed or sample.value == null
   let ratio = bounded_ratio(sample.value ?? minimum, minimum, maximum)
   Ok((ratio * (rows * 4).float()).round()?)
 }
@@ -162,13 +156,11 @@ pure dots_in_cell_row(pixels: Int, row: Int, rows: Int, inverted: Bool, right: B
 }
 
 pure tty_glyph(sample: Sample, minimum: Float, maximum: Float, row: Int, height: Int, inverted: Bool) -> Result[Str, Error] {
-  if sample.state != .Observed or sample.value == null {
-    return Ok(" ")
-  }
+  return Ok(" ") when sample.state != .Observed or sample.value == null
   let pixels = sample_pixels(sample, minimum, maximum, height)?
   let filled_rows = (pixels + 3) / 4
   let filled = if inverted { row < filled_rows } else { row >= height - filled_rows }
-  if ! filled { return Ok(" ") }
+  return Ok(" ") unless filled
   Ok(if filled_rows <= 1 { "." } else if filled_rows < height { ":" } else { "#" })
 }
 
@@ -176,7 +168,7 @@ pure check_history(history: History) -> Result[Unit, Error] {
   if history.samples.len() > HISTORY_LIMIT {
     return Err(error.failure("graph history exceeds its retained sample bound"))
   }
-  var previous_at: Int? = null
+  var previous_at = null
   for sample in history.samples {
     if sample.at_ns < 0 or (previous_at != null and sample.at_ns <= (previous_at ?? sample.at_ns)) {
       return Err(error.failure("graph history times must increase"))
@@ -188,9 +180,7 @@ pure check_history(history: History) -> Result[Unit, Error] {
       return Err(error.failure("missing graph samples cannot carry a value"))
     }
     if let value = sample.value {
-      if value != value {
-        return Err(error.failure("graph sample value must be finite"))
-      }
+      return Err(error.failure("graph sample value must be finite")) when value != value
     }
     previous_at = sample.at_ns
   }
@@ -212,16 +202,14 @@ export pure project(
   }
   let _ = check_history(history)?
   let scale = if let requested = maximum { requested } else { retained_scale(history, minimum) }
-  if scale <= minimum {
-    return Err(error.failure("graph maximum must exceed its minimum"))
-  }
+  return Err(error.failure("graph maximum must exceed its minimum")) when scale <= minimum
 
   let symbols = symbol_set(capabilities)
   let samples_per_cell = if symbols == .Braille { 2 } else { 1 }
   let capacity = width * samples_per_cell
   let start = if history.samples.len() > capacity { history.samples.len() - capacity } else { 0 }
   let visible = history.samples |> drop(start)
-  let times: List[Int] = [sample.at_ns for sample in visible]
+  let times = [sample.at_ns for sample in visible]
   let states: List[SampleState] = [sample.state for sample in visible]
   let graph_width = if symbols == .Braille { (visible.len() + 1) / 2 } else { visible.len() }
   let left_padding = width - graph_width
@@ -230,7 +218,7 @@ export pure project(
     for row in range(height) {
       var line = ""
       for column in range(width) {
-        if column < left_padding {
+        guard column >= left_padding else {
           line += " "
           continue
         }
@@ -242,12 +230,10 @@ export pure project(
             continue
           }
           let right_sample = visible[right_index]
-          let right_pixels = sample_pixels(right_sample, minimum, scale, height)?
-          let right_mask = dots_in_cell_row(right_pixels, row, height, inverted, true)
+          let right_mask = sample_pixels(right_sample, minimum, scale, height)? |> dots_in_cell_row(_, row, height, inverted, true)
           let left_index = right_index - 1
           let left_mask = if left_index >= 0 {
-            let left_pixels = sample_pixels(visible[left_index], minimum, scale, height)?
-            dots_in_cell_row(left_pixels, row, height, inverted, false)
+            sample_pixels(visible[left_index], minimum, scale, height)? |> dots_in_cell_row(_, row, height, inverted, false)
           } else {
             0
           }

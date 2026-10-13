@@ -72,7 +72,7 @@ test test_unix_duplicate_fd_shares_offset_and_owns_its_descriptor { |ctx|
   assert saved >= 100 and saved != source
   assert unix.read_fd(source, 2)? == b"ab"
   assert unix.read_fd(saved, 2)? == b"cd"
-  unix.close_fd(saved)?
+  unix.close_fd(saved)
   assert unix.read_fd(source, 2)? == b"ef"
   assert unix.read_fd(saved, 1) is Err(is HostIo)
   test.error_kind(unix.duplicate_fd(-1), "unix-duplicate-fd")
@@ -85,8 +85,7 @@ test test_unix_duplicate_fd_shares_offset_and_owns_its_descriptor { |ctx|
 test test_unix_redirect_exact_create_mode_preserves_existing_permissions { |ctx|
   let root = test.temp_dir(ctx)?
   let log = fp"{root}/log"
-  log.write("prefix")
-  log.chmod(0o640)
+  log.write("prefix", mode: 0o640)
   let result = test.expect(ctx, r"""unix.redirect_fd(1, Path(args[0]), write: true, append: true, mode: 0o600, exact_create_mode: true)?
 print "suffix"
 """, status: 0, args: [log])?
@@ -144,14 +143,13 @@ test test_unix_credentials_transition_inside_namespace { |ctx|
     test.skip("credential transitions require root inside a Linux namespace")
     return
   }
-  let unshare = match process.which("unshare") {
-    Ok(executable) => executable
-    Err(_) => {
-      test.skip("unshare is unavailable")
-      return
-    }
+  let unshare = if let Ok(executable) = process.which("unshare") {
+    executable
+  } else {
+    test.skip("unshare is unavailable")
+    return
   }
-  let probe = process.run(process.command_argv(unshare, [unshare.display(), "--mount", "--pid", "--fork", "--", "true"]))?
+  let probe = process.run(process.command_argv(unshare, [unshare, "--mount", "--pid", "--fork", "--", "true"]))?
   guard probe.ok else {
     test.skip("private mount and PID namespaces are unavailable")
     return
@@ -177,7 +175,7 @@ print "credentials-changed"
 """))?
   let output = test.temp_path(ctx, name: "credentials.stdout")
   let errors = test.temp_path(ctx, name: "credentials.stderr")
-  let status = process.run(process.command_argv(unshare, [unshare.display(), "--mount", "--pid", "--fork", "--", ctx.xsh_bin.display(), script.display()], stdout: output, stderr: errors))?
+  let status = process.run(process.command_argv(unshare, [unshare, "--mount", "--pid", "--fork", "--", ctx.xsh_bin, script], stdout: output, stderr: errors))?
   assert status.ok, errors.read_text()?
   assert output.read_text()? == "credentials-changed\n"
 }
@@ -205,20 +203,24 @@ test test_unix_poll_fd_validates_requests {
 
 test test_unix_poll_fd_regular_file_ready_and_closed { |ctx|
   let file = test.temp_file(ctx, contents: b"payload")?
-  let result = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 let fd = unix.open_fd(Path(args[0]))?
 assert unix.poll_fd(fd, ["readable"], timeout_ms: -1)? == ["readable"]
 assert unix.poll_fd(fd, ["readable", "readable"])? == ["readable"]
 unix.close_fd(fd)?
 assert unix.poll_fd(fd, [])? == ["invalid"]
-""", args: [file])?
-  assert result.success, result.stderr
+""",
+    status: 0,
+    args: [file],
+  )?
 }
 
 test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   let root = test.temp_dir(ctx)?
   let fifo = fp"{root}/pipe"
-  fs.mkfifo(fifo, mode: 384)?
+  fs.mkfifo(fifo, mode: 384)
   let reader = unix.open_fd(fifo, nonblock: true)?
   var reader_open = true
   defer { if reader_open { unix.close_fd(reader) } }
@@ -232,17 +234,21 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   run sh -c "printf payload > \"$1\"" sh $fifo
   let ready = unix.poll_fd(reader, ["readable"])?
   assert "readable" in ready and "hangup" in ready
-  unix.close_fd(reader)?
+  unix.close_fd(reader)
   reader_open = false
-  let result = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 let fifo = Path(args[0])
 let reader = unix.open_fd(fifo, nonblock: true)?
 unix.redirect_fd(100, fifo, write: true)?
 unix.close_fd(reader)?
 assert "error" in unix.poll_fd(100, ["writable"])?
 unix.close_fd(100)?
-""", args: [fifo])?
-  assert result.success, result.stderr
+""",
+    status: 0,
+    args: [fifo],
+  )?
 }
 
 test test_unix_read_fd_validates_fd_and_count { |ctx|
@@ -252,25 +258,33 @@ test test_unix_read_fd_validates_fd_and_count { |ctx|
   test.error_kind(unix.read_fd(0, -1), "unix-read-fd")
   assert unix.read_fd(2147483647, 1) is Err(is HostIo)
   let file = test.temp_file(ctx, contents: b"payload")?
-  let result = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 unix.redirect_fd(100, Path(args[0]), write: true)?
 assert unix.read_fd(100, 1) is Err(is HostIo)
 unix.close_fd(100)?
-""", args: [file])?
-  assert result.success, result.stderr
+""",
+    status: 0,
+    args: [file],
+  )?
 }
 
 test test_unix_write_fd_writes_one_chunk_and_reports_errors { |ctx|
   let file = test.temp_file(ctx, contents: b"")?
-  let result = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 let fd = unix.open_fd(Path(args[0]), write: true)?
 assert unix.write_fd(fd, b"-bytes")? == 6
 assert unix.write_fd(fd, b"")? == 0
 unix.close_fd(fd)?
 test.error_kind(unix.write_fd(-1, b"x"), "unix-write-fd")
 assert unix.write_fd(2147483647, b"x") is Err(is HostIo)
-""", args: [file])?
-  assert result.success, result.stderr
+""",
+    status: 0,
+    args: [file],
+  )?
   assert file.read_bytes()? == b"-bytes"
 }
 
@@ -288,7 +302,7 @@ test test_unix_seek_fd_uses_absolute_positions { |ctx|
 
   let fifo_dir = test.temp_dir(ctx, name: "seek-fifo")?
   let fifo = fp"{fifo_dir}/pipe"
-  fs.mkfifo(fifo, mode: 0o600)?
+  fs.mkfifo(fifo, mode: 0o600)
   let reader = unix.open_fd(fifo, nonblock: true)?
   defer unix.close_fd(reader)
   assert unix.seek_fd(reader, 0) is Err(is HostIo)
@@ -310,7 +324,9 @@ test test_unix_seek_fd_relative_and_end_positions { |ctx|
 
 test test_unix_read_fd_preserves_byte_cursor_and_eof { |ctx|
   let file = test.temp_file(ctx, contents: b"\0\xffabc")?
-  let result = test.run_script(ctx, r"""
+  test.expect(
+    ctx,
+    r"""
 let reader = unix.open_fd(Path(args[0]))?
 assert unix.read_fd(reader, 2)? == b"\0\xff"
 assert unix.read_fd(reader, 1)? == b"a"
@@ -318,26 +334,32 @@ assert unix.read_fd(reader, 8)? == b"bc"
 assert unix.read_fd(reader, 1)? == b""
 unix.close_fd(reader)?
 assert unix.read_fd(reader, 1) is Err(is HostIo)
-""", args: [file])?
-  assert result.success, result.stderr
+""",
+    status: 0,
+    args: [file],
+  )?
 }
 
 test test_unix_read_fd_and_stdin_read_share_descriptor_cursor { |ctx|
-  let result = test.run_script(ctx, """
+  test.expect(
+    ctx,
+    """
 assert unix.read_fd(0, 1)? == b"a"
 assert io.stdin_read(1)? == b"b"
 assert unix.read_fd(0, 1)? == b"c"
 assert io.stdin_line()? == "d"
 assert unix.read_fd(0, 8)? == b"ef"
 assert io.stdin_bytes()? == b""
-""", stdin: b"abcd\nef")?
-  assert result.success, result.stderr
+""",
+    status: 0,
+    stdin: b"abcd\nef",
+  )?
 }
 
 test test_unix_read_fd_reads_fifo_without_seeking_or_waiting_for_requested_size { |ctx|
   let root = test.temp_dir(ctx)?
   let fifo = fp"{root}/pipe"
-  fs.mkfifo(fifo, mode: 384)?
+  fs.mkfifo(fifo, mode: 384)
   let reader = unix.open_fd(fifo, nonblock: true)?
   defer unix.close_fd(reader)
   run sh -c "printf payload > \"$1\"" sh $fifo
@@ -450,7 +472,7 @@ test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|
   let output = fp"{root}/must-not-exist"
   let command = process.command_argv(p"/bin/true", ["true"], stdout: output)
   let bad_key: Map[Str, Str] = {"BAD=KEY": "value"}
-  let bad_value: Map[Str, Str] = {"VALID": "bad\u{0}value"}
+  let bad_value: Map[Str, Str] = {VALID: "bad\u{0}value"}
   let empty: Map[Str, Str] = {}
   test.error_kind(unix.exec_env(command, bad_key), "unix-exec-env")
   test.error_kind(unix.exec_env(command, bad_value), "unix-exec-env")

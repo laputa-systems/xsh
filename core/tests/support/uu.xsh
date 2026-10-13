@@ -35,25 +35,25 @@ export pure at(s: Scene, name: Str) -> Path {
 
 ## Creates an empty file.
 export proc touch(s: Scene, name: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".write("")?
+  fp"{s.root}/{name}".write("")
   Ok()
 }
 
 ## Writes text to a file.
 export proc write(s: Scene, name: Str, content: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".write(content)?
+  fp"{s.root}/{name}".write(content)
   Ok()
 }
 
 ## Writes bytes to a file.
 export proc write_bytes(s: Scene, name: Str, content: Bytes) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".write(content)?
+  fp"{s.root}/{name}".write(content)
   Ok()
 }
 
 ## Creates a directory (and parents).
 export proc mkdir(s: Scene, name: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".mkdir()?
+  fp"{s.root}/{name}".mkdir()
   Ok()
 }
 
@@ -65,13 +65,13 @@ export proc symlink(s: Scene, target: Str, name: Str) [fs, error] -> Result[Unit
 
 ## Creates a hard link `name` to `target`.
 export proc hard_link(s: Scene, target: Str, name: Str) [fs, error] -> Result[Unit, Error] {
-  fs.link(fp"{s.root}/{target}", fp"{s.root}/{name}")?
+  fs.link(fp"{s.root}/{target}", fp"{s.root}/{name}")
   Ok()
 }
 
 ## Sets permission bits.
 export proc set_mode(s: Scene, name: Str, mode: Int) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".chmod(mode)?
+  fp"{s.root}/{name}".chmod(mode)
   Ok()
 }
 
@@ -103,15 +103,15 @@ type Alias = {name: Str, target: Str}
 # launch fixtures outside the working directory so listings cannot observe them.
 proc applet_script(s: Scene, util: Str) [fs, error] -> Result[Path, Error] {
   let script = fp"{s.ctx.core_dir}/{util}.xsh"
-  return Ok(script) when script.exists()?
+  return Ok(script) when script.exists()
   let registry = fp"{s.ctx.core_dir}/aliases.json"
   let aliases = json.get(json.decode(registry.read_text()?)?, ["aliases"])?.require(List[Alias])?
   for alias in aliases {
     if alias.name == util {
       let bin = test.temp_dir(s.ctx, name: "uu-applets")?
       let named = fp"{bin}/{util}.xsh"
-      named.symlink(to: fp"{s.ctx.core_dir}/{alias.target}.xsh")?
-      fp"{bin}/lib".symlink(to: fp"{s.ctx.core_dir}/lib")?
+      named.symlink(to: fp"{s.ctx.core_dir}/{alias.target}.xsh")
+      fp"{bin}/lib".symlink(to: fp"{s.ctx.core_dir}/lib")
       return Ok(named)
     }
   }
@@ -132,7 +132,7 @@ export proc argv(
   let script = applet_script(s, util)?
   let words = [s.ctx.xsh_bin, script, p"--"].extend(args)
   let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
-  Ok([s.ctx.xsh_bin, launcher, Path(metadata)].extend(words))
+  Ok([s.ctx.xsh_bin, launcher, fp"{metadata}"].extend(words))
 }
 
 ## Creates an isolated applet command for callers that own spawning and waiting.
@@ -154,11 +154,11 @@ export proc command(
 ) [fs, process, env, error] -> Result[Command, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let argv = argv(s, util, [Path(word) for word in args], vars, umask)?
+  let argv = argv(s, util, [fp"{word}" for word in args], vars, umask)?
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout: timeout)
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout:)
   }
   Ok(plan)
 }
@@ -190,8 +190,8 @@ proc finish(s: Scene, util: Str, args: List[Str], plan: Command, capture_stdout:
   let code = status.exit_code()?
   let stdout = if capture_stdout { out.read_bytes()? } else { b"" }
   let stderr = if capture_stderr { err.read_bytes()? } else { b"" }
-  if capture_stdout { out.remove()? }
-  if capture_stderr { err.remove()? }
+  if capture_stdout { out.remove() }
+  if capture_stderr { err.remove() }
   Ok({util: util, args: args, status: code, stdout: stdout, stderr: stderr})
 }
 
@@ -216,7 +216,7 @@ export proc invoke_paths(
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, timeout: timeout)
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, timeout:)
   }
   finish(s, util, [word.display() for word in args], plan)
 }
@@ -238,18 +238,18 @@ export proc invoke_from_path(
 ) [fs, process, env, error] -> Result[Ran, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let argv = argv(s, util, [Path(word) for word in args], vars, umask)?
+  let argv = argv(s, util, [fp"{word}" for word in args], vars, umask)?
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {
-    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout: timeout)
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout:)
   }
   finish(s, util, args, plan, stdout == null, stderr == null)
 }
 
 ## Creates a directory and every missing parent (`mkdir_all`).
 export proc mkdir_all(s: Scene, name: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".mkdir()?
+  fp"{s.root}/{name}".mkdir()
   Ok()
 }
 
@@ -278,7 +278,7 @@ export proc append(s: Scene, name: Str, content: Str) [fs, process, io, error] -
   let fd = unix.open_fd(/dev/null)?
   var open = true
   defer { if open { unix.close_fd(fd) } }
-  unix.redirect_fd(fd, fp"{s.root}/{name}", write: true, append: true)?
+  unix.redirect_fd(fd, fp"{s.root}/{name}", write: true, append: true)
   let data = bytes.from_text(content)
   var offset = 0
   while offset < data.len() {
@@ -287,37 +287,37 @@ export proc append(s: Scene, name: Str, content: Str) [fs, process, io, error] -
     offset += written
   }
   open = false
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
   Ok()
 }
 
 ## Removes a file, link or directory tree (`remove`).
 export proc remove(s: Scene, name: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".remove(missing_ok: true)?
+  fp"{s.root}/{name}".remove()
   Ok()
 }
 
 ## Renames `from` to `to` inside the scene (`rename`).
 export proc rename(s: Scene, from: Str, to: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{from}".rename(to: fp"{s.root}/{to}")?
+  fp"{s.root}/{from}".rename(to: fp"{s.root}/{to}")
   Ok()
 }
 
 ## Truncates or extends a file to `size` bytes (`truncate`).
 export proc truncate(s: Scene, name: Str, size: Int) [fs, error] -> Result[Unit, Error] {
-  fp"{s.root}/{name}".truncate(size)?
+  fp"{s.root}/{name}".truncate(size)
   Ok()
 }
 
 ## Creates a named pipe (`mkfifo`).
 export proc mkfifo(s: Scene, name: Str) [fs, error] -> Result[Unit, Error] {
-  fs.mkfifo(fp"{s.root}/{name}", 0o644)?
+  fs.mkfifo(fp"{s.root}/{name}", 0o644)
   Ok()
 }
 
 ## Copies a recorded upstream fixture `core/tests/data/uutils/<util>/<name>` to `as_name` in the scene.
 export proc fixture(s: Scene, util: Str, name: Str, as_name: Str) [fs, error] -> Result[Unit, Error] {
-  fp"{s.ctx.core_dir}/tests/data/uutils/{util}/{name}".copy(to: fp"{s.root}/{as_name}")?
+  fp"{s.ctx.core_dir}/tests/data/uutils/{util}/{name}".copy(to: fp"{s.root}/{as_name}")
   Ok()
 }
 
@@ -378,36 +378,39 @@ export proc stderr_is(r: Ran, expected: Str) {
 
 ## Asserts standard output contains `needle`.
 export proc stdout_contains(r: Ran, needle: Str) {
-  match r.stdout.utf8() {
-    Ok(actual) => assert needle in actual, f"{shown(r)}: stdout {actual} lacks {needle}"
-    Err(_) => assert false, f"{shown(r)}: stdout is not valid UTF-8"
+  if let Ok(actual) = r.stdout.utf8() {
+    assert needle in actual, f"{shown(r)}: stdout {actual} lacks {needle}"
+  } else {
+    assert false, f"{shown(r)}: stdout is not valid UTF-8"
   }
 }
 
 ## Asserts standard error contains `needle`.
 export proc stderr_contains(r: Ran, needle: Str) {
-  match r.stderr.utf8() {
-    Ok(actual) => assert needle in actual, f"{shown(r)}: stderr {actual} lacks {needle}"
-    Err(_) => assert false, f"{shown(r)}: stderr is not valid UTF-8"
+  if let Ok(actual) = r.stderr.utf8() {
+    assert needle in actual, f"{shown(r)}: stderr {actual} lacks {needle}"
+  } else {
+    assert false, f"{shown(r)}: stderr is not valid UTF-8"
   }
 }
 
 ## Asserts standard output starts with `prefix`.
 export proc stdout_str_starts_with(r: Ran, prefix: Str) {
-  match r.stdout.utf8() {
-    Ok(actual) => assert actual.starts_with(prefix), f"{shown(r)}: stdout {actual} does not start with {prefix}"
-    Err(_) => assert false, f"{shown(r)}: stdout is not valid UTF-8"
+  if let Ok(actual) = r.stdout.utf8() {
+    assert actual.starts_with(prefix), f"{shown(r)}: stdout {actual} does not start with {prefix}"
+  } else {
+    assert false, f"{shown(r)}: stdout is not valid UTF-8"
   }
 }
 
 ## Asserts empty standard output.
 export proc no_stdout(r: Ran) {
-  assert r.stdout.len() == 0, f"{shown(r)}: unexpected stdout {text(r.stdout)}"
+  assert r.stdout.is_empty(), f"{shown(r)}: unexpected stdout {text(r.stdout)}"
 }
 
 ## Asserts empty standard error.
 export proc no_stderr(r: Ran) {
-  assert r.stderr.len() == 0, f"{shown(r)}: unexpected stderr {text(r.stderr)}"
+  assert r.stderr.is_empty(), f"{shown(r)}: unexpected stderr {text(r.stderr)}"
 }
 
 ## Asserts both streams are empty.

@@ -13,7 +13,7 @@ export type Options = {
 }
 
 pure find_byte(data: Bytes, wanted: Int) -> Int? {
-  for at in range(data.len()) { if data.byte_at(at) == wanted { return at } }
+  for at in range(data.len()) { return at when data.byte_at(at) == wanted }
   null
 }
 
@@ -28,10 +28,10 @@ export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[O
   var dereference = true
   var explicit_dereference = false
   var preserve_root = false
-  var reference: Bytes? = null
-  var from: Bytes? = null
-  var operands: List[Bytes] = []
-  var option_mode: Str? = null
+  var reference = null
+  var from = null
+  var operands = []
+  var option_mode = null
   var stopped = false
   var at = 0
   while at < argv.len() {
@@ -56,7 +56,7 @@ export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[O
       let equal = word.find("=")
       let name = if let split = equal { word.byte_slice(0, split) } else { word }
       let known = ["--recursive", "--silent", "--quiet", "--verbose", "--changes", "--dereference", "--no-dereference", "--preserve-root", "--no-preserve-root", "--reference", "--help", "--version"]
-      let choices = if chmod { known } else { known + ["--from"] }
+      let choices = if chmod { known } else { [@known, "--from"] }
       let matches = collect { for option in choices { yield option when option.starts_with(name) } }
       if ! (name in choices) and matches.len() == 1 {
         word = f"{matches[0]}{if let split = equal { word.byte_slice(split) } else { "" }}"
@@ -124,7 +124,7 @@ export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[O
       }
     }
   }
-  if let mode = option_mode { operands = [bytes.from_text(mode)] + operands }
+  if let mode = option_mode { operands = [bytes.from_text(mode), @operands] }
   if recursive and traversal == "P" {
     if explicit_dereference and dereference {
       gnu.usage_error("-R --dereference requires -H or -L")
@@ -138,7 +138,7 @@ export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[O
 export proc uid(raw: Str) [fs, error] -> Result[Int, Error] {
   if ! raw.starts_with("+") { if let Ok(account) = user.lookup(raw) { return account.uid } }
   if rx"^[ \t\n\u{b}\u{c}\r]*\+?[0-9]+$".matches(raw) {
-    let value = raw.trim().parse_int()?
+    let value = raw.trim() as Int
     return Err(PermError.Invalid("invalid user")) when value < 0 or value >= 4294967295
     return value
   }
@@ -149,7 +149,7 @@ export proc uid(raw: Str) [fs, error] -> Result[Int, Error] {
 export proc gid(raw: Str) [fs, error] -> Result[Int, Error] {
   if ! raw.starts_with("+") { if let Ok(account) = group.lookup(raw) { return account.gid } }
   if rx"^[ \t\n\u{b}\u{c}\r]*\+?[0-9]+$".matches(raw) {
-    let value = raw.trim().parse_int()?
+    let value = raw.trim() as Int
     return Err(PermError.Invalid("invalid group")) when value < 0 or value >= 4294967295
     return value
   }
@@ -159,7 +159,7 @@ export proc gid(raw: Str) [fs, error] -> Result[Int, Error] {
 ## Parse owner and optional group; a trailing colon selects the login group.
 export proc owner(raw: Str, group_only = false) [fs, error, process] -> Result[Owner, Error] {
   if group_only {
-    if raw == "" { return {uid: null, gid: null} }
+    return {uid: null, gid: null} when raw == ""
     return {uid: null, gid: gid(raw)?}
   }
   let spec = raw
@@ -175,19 +175,21 @@ export proc owner(raw: Str, group_only = false) [fs, error, process] -> Result[O
   let parts = spec.split(":")
   return Err(PermError.Invalid("invalid group")) when parts.len() > 2
   let username = parts[0]
-  var user_id: Int? = null
-  var group_id: Int? = null
+  var user_id = null
+  var group_id = null
   if username != "" {
-    match uid(username) {
-      Ok(id) => user_id = id
-      Err(_) => return Err(PermError.Invalid("invalid user"))
+    if let Ok(id) = uid(username) {
+      user_id = id
+    } else {
+      return Err(PermError.Invalid("invalid user"))
     }
   }
   if parts.len() == 2 {
     if parts[1] != "" {
-      match gid(parts[1]) {
-        Ok(id) => group_id = id
-        Err(_) => return Err(PermError.Invalid("invalid group"))
+      if let Ok(id) = gid(parts[1]) {
+        group_id = id
+      } else {
+        return Err(PermError.Invalid("invalid group"))
       }
     } else if username != "" {
       group_id = if rx"^[ \t\n\u{b}\u{c}\r]*\+?[0-9]+$".matches(username) { user.by_uid(uid(username)?)?.gid } else { user.lookup(username)?.gid }
@@ -213,8 +215,8 @@ proc requested_names(raw: Str, ids: Owner, group_only: Bool) [fs, error] -> Owne
   }
   let spec = if ! (":" in raw) and "." in raw and user.lookup(raw) is Err(_) { raw.replace(".", with: ":") } else { raw }
   let parts = spec.split(":")
-  var user_name: Str? = null
-  var group_name: Str? = null
+  var user_name = null
+  var group_name = null
   if parts[0] != "" and ! parts[0].starts_with("+") and user.lookup(parts[0]) is Ok(_) { user_name = parts[0] }
   if parts.len() == 2 and ids.gid != null {
     if parts[1] == "" { group_name = owner_label({uid: null, gid: ids.gid}, true) } else if ! parts[1].starts_with("+") and group.lookup(parts[1]) is Ok(_) { group_name = parts[1] }
@@ -250,13 +252,13 @@ proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, names
     if (required.uid != null and required.uid != meta.uid) or (required.gid != null and required.gid != meta.gid) {
       if opts.verbosity == "verbose" {
         let noun = if names.user != null { "ownership" } else if names.group != null { "group" } else { "ownership" }
-        let retained: Owner = {uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null }}
+        let retained: Owner = Owner(uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null })
         gnu.write_text(f"{noun} of {gnu.quote(name)} retained as {owner_label(retained, names.user == null)}\n")
       }
       return true
     }
   }
-  let old: Owner = {uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null }}
+  let old: Owner = Owner(uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null })
   let changed = (ids.uid != null and ids.uid != meta.uid) or (ids.gid != null and ids.gid != meta.gid)
   let noun = if names.user != null { "ownership" } else if names.group != null { "group" } else { "ownership" }
   let result = fs.set_owner(target, uid: ids.uid, gid: ids.gid, follow_symlinks: opts.dereference)
@@ -283,13 +285,13 @@ proc owner_tree(target: Path, ids: Owner, filter: Owner?, opts: Options, names: 
   if let Ok(meta) = fs.stat(target, follow_symlinks: follow) {
     if opts.recursive and meta.kind == "dir" {
       let key = f"{meta.dev}:{meta.ino}"
-      if key in ancestors { return change_owner(target, ids, filter, opts, names) }
+      return change_owner(target, ids, filter, opts, names) when key in ancestors
       if opts.preserve_root {
         let root = fs.stat(p"/", follow_symlinks: true)?
         if root.dev == meta.dev and root.ino == meta.ino { refuse_root(target); return false }
       }
       match fs.children(target) {
-        Ok(children) => for child in children { if ! owner_tree(child_path(target, child.path)?, ids, filter, opts, names, false, ancestors + [key]) { success = false } }
+        Ok(children) => for child in children { if ! owner_tree(child_path(target, child.path)?, ids, filter, opts, names, false, [@ancestors, key]) { success = false } }
         Err(failure) => { if ! opts.quiet { gnu.cannot("read directory", f"{target}", failure) }; success = false }
       }
     }
@@ -310,11 +312,11 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
   if opts.version { gnu.version(command); return }
   if opts.operands.is_empty() { gnu.missing_operand() }
   if opts.reference == null and opts.operands.len() < 2 { missing_operand_after_bytes(opts.operands[0]) }
-  var ids: Owner = {uid: null, gid: null}
+  var ids: Owner = Owner(uid: null, gid: null)
   var targets = opts.operands
-  var names: OwnerNames = {user: null, group: null}
+  var names: OwnerNames = OwnerNames(user: null, group: null)
   if let reference = opts.reference {
-    let reference_path = Path.parse_bytes(reference)?
+    let reference_path = reference as Path
     match fs.stat(reference_path, follow_symlinks: true) {
       Ok(meta) => {
         ids = {uid: if group_only { null } else { meta.uid }, gid: meta.gid}
@@ -353,7 +355,7 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
     }
   }
   var success = true
-  for target in targets { if ! owner_tree(Path.parse_bytes(target)?, ids, filter, opts, names, true, []) { success = false } }
+  for target in targets { if ! owner_tree(target as Path, ids, filter, opts, names, true, []) { success = false } }
   if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }

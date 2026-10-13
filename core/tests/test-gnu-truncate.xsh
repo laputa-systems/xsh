@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu truncate/multiple-files.log
 test test_gnu_truncate_multiple_files_log { |ctx|
@@ -8,13 +8,13 @@ test test_gnu_truncate_multiple_files_log { |ctx|
   assert uu.file_exists(s, "a")?
   assert uu.file_exists(s, "b")?
   uu.no_stdout(r)
-  assert r.stderr.len() > 0
+  assert ! r.stderr.is_empty()
 }
 
 # origin: gnu truncate/truncate-dangling-symlink.log
 test test_gnu_truncate_truncate_dangling_symlink_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "truncate-target", "t-symlink")?
+  uu.symlink(s, "truncate-target", "t-symlink")
   uu.succeeds(uu.invoke(s, "truncate", ["-s0", "t-symlink"])?)
   assert uu.file_exists(s, "truncate-target")?
 }
@@ -37,10 +37,10 @@ test test_gnu_truncate_truncate_fail_diag_log { |ctx|
 # origin: gnu truncate/truncate-fifo.log
 test test_gnu_truncate_truncate_fifo_log { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkfifo(s, "fifo")?
+  uu.mkfifo(s, "fifo")
   let target = uu.invoke(s, "truncate", ["-s0", "fifo"], timeout: 10s)?
   assert target.status != 124
-  uu.touch(s, "file")?
+  uu.touch(s, "file")
   let reference = uu.invoke(s, "truncate", ["--reference=fifo", "file"], timeout: 10s)?
   assert reference.status != 124
 }
@@ -55,12 +55,12 @@ test test_gnu_truncate_truncate_no_create_missing_log { |ctx|
 test test_gnu_truncate_truncate_overflow_log { |ctx|
   let s = uu.scene(ctx)?
   uu.succeeds(uu.invoke(s, "truncate", ["-s-1", "create-zero-len-file"])?)
-  uu.write(s, "non-empty-file", "\n")?
+  uu.write(s, "non-empty-file", "\n")
   uu.fails_with_code(uu.invoke(s, "truncate", ["-s9223372036854775808", "file"])?, 1)
   uu.fails_with_code(uu.invoke(s, "truncate", ["-s+9223372036854775807", "non-empty-file"])?, 1)
   let stats = run.capture --text stat -f -c%s $s.root
   assert stats.status.exited_with(0)
-  let block_size = stats.stdout.trim().parse_int()?
+  let block_size = stats.stdout.trim() as Int
   let overflow = 9223372036854775807 / block_size + 1
   uu.fails_with_code(uu.invoke(s, "truncate", ["--io-blocks", f"--size={overflow}", "file"])?, 1)
 }

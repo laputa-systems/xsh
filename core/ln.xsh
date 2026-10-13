@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.file_publish as files
+use lib.gnu
 
 type Options = {
   symbolic: Bool, force: Bool, interactive: Bool, no_dereference: Bool,
@@ -46,10 +46,9 @@ proc relative_link(target: Path, base: Path) -> Result[Path] {
   while common < to.len() and common < from.len() and to[common].bytes() == from[common].bytes() {
     common += 1
   }
-  var parts: List[Bytes] = []
-  for _ in range(from.len() - common) { parts += [b".."] }
+  var parts = [b".." for _ in range(from.len() - common)]
   for index in range(common, to.len()) { parts += [to[index].bytes()] }
-  if parts.len() == 0 { parts = [b"."] }
+  if parts.is_empty() { parts = [b"."] }
   var text = parts[0]
   for index in range(1, parts.len()) { text = bytes.concat([text, b"/", parts[index]]) }
   Path.parse_bytes(text)
@@ -65,12 +64,9 @@ proc same_destination(source: Path, target: Path, symbolic: Bool) -> Result[Bool
 proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
   if ! opts.symbolic {
     # The source is statted before the destination changes, so a missing source is an access error that removes nothing.
-    let source_meta = match fs.stat(source, follow_symlinks: opts.logical) {
-      Ok(meta) => meta
-      Err(failure) => {
-        gnu.error(f"failed to access {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
-        return false
-      }
+    let source_meta = fs.stat(source, follow_symlinks: opts.logical) ?? { |failure|
+      gnu.error(f"failed to access {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
+      return false
     }
     if source_meta.kind == "dir" and ! opts.hard_dir { gnu.error(f"{gnu.quote_bytes(source.bytes(), always: false)}: hard link not allowed for directory"); return false }
   }
@@ -82,7 +78,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     Err(failure) => {
       # Only a replacing link examines the destination first, so only it reports
       # an examination failure as an access error; otherwise link(2) reports it.
-      if ! replacing { return Err(failure) }
+      return Err(failure) unless replacing
       gnu.error(f"failed to access {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
       return false
     }
@@ -94,19 +90,19 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   # GNU backs up a destination that names the source before making a symbolic
   # link, so the link may name its own destination. A hard link to itself is refused.
   let self_symlink_with_backup = opts.symbolic and backup != "none"
-  if existing and replacing and ! self_symlink_with_backup and same_destination(source, target, opts.symbolic)? {
+  if existing and replacing and ! self_symlink_with_backup and same_destination(source, target, opts.symbolic) {
     gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
     exit 1
   }
-  if existing and policy == "interactive" and ! files.confirm(target, "replace")? { return false }
-  var saved: Path? = null
+  if existing and policy == "interactive" and ! files.confirm(target, "replace") { return false }
+  var saved = null
   if existing and backup != "none" {
     saved = files.backup_name(target, backup, opts.suffix ?? "~")?
     if saved != null {
       target.rename(to: saved, overwrite: true)
       # rename(2) does nothing when the destination and the backup name are one hard
       # link, so the original name is removed here as GNU does before linking.
-      if files.present(target)? { target.remove() }
+      if files.present(target) { target.remove() }
       existing = false
     }
   }
@@ -155,17 +151,16 @@ proc main(...argv: List[Bytes]) {
     gnu.error("cannot do --relative without --symbolic")
     exit 1
   }
-  var paths: List[Path] = []
-  for raw_path in opts.paths { paths += [Path.parse_bytes(gnu.argument_bytes(raw_path, prepared.raw))?] }
+  var paths = [gnu.argument_bytes(raw_path, prepared.raw) as Path for raw_path in opts.paths]
   let target_directory: Path? = if let target_text = opts.target {
-    Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
+    gnu.argument_bytes(target_text, prepared.raw) as Path
   } else { null }
   # GNU follows a symbolic link named by -t even under -n, and every failure to
   # examine it is an access error. This runs before the -T conflict checks.
   if let directory = target_directory {
     match fs.stat(directory, follow_symlinks: true) {
       Ok(meta) => {
-        if meta.kind != "dir" {
+        guard meta.kind == "dir" else {
           gnu.error(f"target {gnu.quote_bytes(directory.bytes())} is not a directory")
           exit 1
         }
@@ -227,7 +222,7 @@ proc main(...argv: List[Bytes]) {
   opts.suffix = suffix
   let replacing = policy != "default" or backup != "none"
   var failed = false
-  var seen: List[Path] = []
+  var seen = []
   for source in sources {
     let target = if is_dir { files.destination(dest, source) } else { dest }
     # A plain link into a name this run already created fails with EEXIST below;

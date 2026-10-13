@@ -211,8 +211,8 @@ proc select_device(root: FsRoot, opts: InfoOptions) [fs, env, io, process, error
     gnu.extra_operand(opts.operands[1])
   }
 
-  var sysfs_path: Str? = null
-  var node_name: Str? = null
+  var sysfs_path = null
+  var node_name = null
   if opts.path != null {
     sysfs_path = udev.sysfs_relative(opts.path)
   } else if opts.name != null {
@@ -231,7 +231,7 @@ proc select_device(root: FsRoot, opts: InfoOptions) [fs, env, io, process, error
     exit 2
   }
 
-  var devpath: Str? = null
+  var devpath = null
   if node_name != null {
     let given = node_name
     let relative = if given.starts_with("/dev/") { given.byte_slice(5) } else { given }
@@ -275,7 +275,7 @@ proc select_device(root: FsRoot, opts: InfoOptions) [fs, env, io, process, error
 proc remove_database(root: FsRoot) [fs, process, error] {
   let host = root.host_path()?
   var failed = false
-  var doomed: List[Path] = []
+  var doomed = []
   if root.exists(p"run/udev/queue.bin") {
     doomed += [p"run/udev/queue.bin"]
   }
@@ -494,7 +494,7 @@ pure property_selected(device: udev.Device, selector: Str) -> Bool {
 # device path: `/dev/NAME` through the device node name, anything else as a
 # sysfs path (with or without the `/sys` prefix).
 proc device_argument(root: FsRoot, given: Str, shown: Str) [fs, process, error] -> Result[Str, Error] {
-  var devpath: Str? = null
+  var devpath = null
   if given.starts_with("/dev/") {
     devpath = udev.find_by_name(root, given.byte_slice(5))?
   } else {
@@ -560,7 +560,7 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
 
   let root = open_root()?
   defer root.close()
-  var targets: List[Str] = []
+  var targets = []
   if opts.kind == "subsystems" {
     let unsupported = [@opts.attr_match, @opts.attr_nomatch, @opts.property_match, @opts.tag_match, @opts.sysname_match, @opts.name_match, @opts.operands]
     if ! unsupported.is_empty() or opts.parent_match != null {
@@ -585,7 +585,7 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
       targets += [device_argument(root, if given.starts_with("/dev/") { given } else { f"/dev/{given}" }, given)?]
     }
   } else {
-    var parent: Str? = null
+    var parent = null
     if opts.parent_match != null {
       parent = device_argument(root, opts.parent_match, opts.parent_match)?
     }
@@ -597,9 +597,9 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
       }
 
       let device = udev.load(root, devpath)?
-      continue when device == null
-
-      let facts = device ?? {devpath: "", sysname: "", subsystem: null, driver: null, devnode: null, major: null, minor: null, symlinks: [], link_priority: 0, tags: [], properties: []}
+      guard let facts = device else {
+        continue
+      }
       let subsystem = facts.subsystem ?? ""
       if ! opts.subsystem_match.is_empty() {
         continue when ! matches_any(opts.subsystem_match, subsystem)
@@ -676,7 +676,7 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
 
 type SettleOptions = {timeout: Str?, exit_if_exists: Str?, help: Bool, version: Bool, operands: List[Str]}
 
-proc settle(argv: List[Str]) [fs, env, process, io, time, error] -> Result[Unit, Error] {
+proc settle(argv: List[Str]) [fs, env, process, io, time, error] {
   let opts: SettleOptions = cli.applet(argv, {
     gnu: {prog: "udevadm settle", status: 1},
     timeout: {form: "-t --timeout SECONDS"},
@@ -701,13 +701,16 @@ proc settle(argv: List[Str]) [fs, env, process, io, time, error] -> Result[Unit,
 
   var seconds = 120
   if opts.timeout != null {
-    let text = opts.timeout ?? ""
-    match text.parse_uint() {
-      Ok(value) => seconds = value
-      Err(_) => {
-        let reason = if text.starts_with("-") and text.byte_len() > 1 { "Result not representable" } else { "Invalid argument" }
-        die(f"Invalid timeout value '{text}': {reason}", 1)
+    let text = opts.timeout
+    if let Ok(value) = text.parse_uint() {
+      seconds = value
+    } else {
+      let reason = if text.starts_with("-") and text.byte_len() > 1 {
+        "Result not representable"
+      } else {
+        "Invalid argument"
       }
+      die(f"Invalid timeout value '{text}': {reason}", 1)
     }
   }
 
@@ -715,21 +718,21 @@ proc settle(argv: List[Str]) [fs, env, process, io, time, error] -> Result[Unit,
   defer root.close()
   # A root caller first pings the daemon's control socket; without a daemon
   # nothing will ever drain the queue, so settle has nothing to wait for.
-  return when unix.id()?.euid == 0 and ! udev.daemon_present(root)?
+  return when unix.id()?.euid == 0 and ! udev.daemon_present(root)
 
   let deadline = time.now() + seconds * 1000
   while true {
     if let marker = opts.exit_if_exists {
-      return when fp"{marker}".exists()?
+      return when fp"{marker}".exists()
     }
 
-    return when ! udev.queue_pending(root)?
+    return when ! udev.queue_pending(root)
 
     if time.now() >= deadline {
       exit 1
     }
 
-    time.sleep(time.millis(50))?
+    time.sleep(50 * 1ms)
   }
 }
 
@@ -749,15 +752,13 @@ pure monitor_selected(event: LinuxUevent, filters: List[Str]) -> Bool {
 
   for filter in filters {
     let pair = filter.split("/", maxsplit: 1)
-    if pair[0] == event.subsystem and (pair.len() == 1 or pair[1] == devtype) {
-      return true
-    }
+    return true when pair[0] == event.subsystem and (pair.len() == 1 or pair[1] == devtype)
   }
 
   false
 }
 
-proc monitor(argv: List[Str]) [env, process, io, time, error] -> Result[Unit, Error] {
+proc monitor(argv: List[Str]) [env, process, io, time, error] {
   let opts: MonitorOptions = cli.applet(argv, {
     gnu: {
       prog: "udevadm monitor",
@@ -816,7 +817,7 @@ proc monitor(argv: List[Str]) [env, process, io, time, error] -> Result[Unit, Er
 
 type ControlOptions = {help: Bool, version: Bool, operands: List[Str]}
 
-proc control(argv: List[Str]) [env, process, io, error] -> Result[Unit, Error] {
+proc control(argv: List[Str]) [env, process, io, error] {
   let opts: ControlOptions = cli.applet(argv, {
     gnu: {
       prog: "udevadm control",
@@ -892,11 +893,11 @@ proc main(...argv: List[Str]) {
   }
 
   match command {
-    "info" => info(arguments)?
-    "trigger" => trigger(arguments)?
-    "settle" => settle(arguments)?
-    "monitor" => monitor(arguments)?
-    "control" => control(arguments)?
+    "info" => info(arguments)
+    "trigger" => trigger(arguments)
+    "settle" => settle(arguments)
+    "monitor" => monitor(arguments)
+    "control" => control(arguments)
     "version" => gnu.write_text(f"{UDEV_VERSION}\n")
     "help" => gnu.help(TOP_HELP)
     "hwdb" | "test" | "test-builtin" => die(f"udevadm: command {gnu.quote(command)} is not supported: it needs the udev rules engine", 1)

@@ -1,11 +1,11 @@
 ##! Transcribed from the uutils coreutils cat integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_cat::test_output_simple
 test test_uu_cat_output_simple { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
   let r = uu.invoke(s, "cat", ["alpha.txt"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_only(r, "abcde\nfghij\nklmno\npqrst\nuvwxyz\n")
@@ -14,8 +14,8 @@ test test_uu_cat_output_simple { |ctx|
 # origin: uutils test_cat::test_numbered_lines_no_trailing_newline
 test test_uu_cat_numbered_lines_no_trailing_newline { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "nonewline.txt", "nonewline.txt")?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
+  uu.fixture(s, "cat", "nonewline.txt", "nonewline.txt")
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
   let r = uu.invoke(s, "cat", ["nonewline.txt", "alpha.txt", "-n"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_only(r, "     1\ttext without a trailing newlineabcde\n     2\tfghij\n     3\tklmno\n     4\tpqrst\n     5\tuvwxyz\n")
@@ -88,8 +88,8 @@ test test_uu_cat_non_blank_overrides_number_even_when_present { |ctx|
 # origin: uutils test_cat::test_output_multi_files_print_all_chars
 test test_uu_cat_output_multi_files_print_all_chars { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
-  uu.fixture(s, "cat", "256.txt", "256.txt")?
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
+  uu.fixture(s, "cat", "256.txt", "256.txt")
   let r = uu.invoke(s, "cat", ["alpha.txt", "256.txt", "-A", "-n"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_only(r, "     1\tabcde$\n     2\tfghij$\n     3\tklmno$\n     4\tpqrst$\n     5\tuvwxyz$\n     6\t^@^A^B^C^D^E^F^G^H^I$\n     7\t^K^L^M^N^O^P^Q^R^S^T^U^V^W^X^Y^Z^[^\\^]^^^_ !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~^?M-^@M-^AM-^BM-^CM-^DM-^EM-^FM-^GM-^HM-^IM-^JM-^KM-^LM-^MM-^NM-^OM-^PM-^QM-^RM-^SM-^TM-^UM-^VM-^WM-^XM-^YM-^ZM-^[M-^\\M-^]M-^^M-^_M- M-!M-\"M-#M-$M-%M-&M-'M-(M-)M-*M-+M-,M--M-.M-/M-0M-1M-2M-3M-4M-5M-6M-7M-8M-9M-:M-;M-<M-=M->M-?M-@M-AM-BM-CM-DM-EM-FM-GM-HM-IM-JM-KM-LM-MM-NM-OM-PM-QM-RM-SM-TM-UM-VM-WM-XM-YM-ZM-[M-\\M-]M-^M-_M-`M-aM-bM-cM-dM-eM-fM-gM-hM-iM-jM-kM-lM-mM-nM-oM-pM-qM-rM-sM-tM-uM-vM-wM-xM-yM-zM-{M-|M-}M-~M-^?")
@@ -98,8 +98,8 @@ test test_uu_cat_output_multi_files_print_all_chars { |ctx|
 # origin: uutils test_cat::test_output_multi_files_print_all_chars_repeated
 test test_uu_cat_output_multi_files_print_all_chars_repeated { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
-  uu.fixture(s, "cat", "256.txt", "256.txt")?
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
+  uu.fixture(s, "cat", "256.txt", "256.txt")
   let r = uu.invoke(s, "cat", ["alpha.txt", "256.txt", "-A", "-n", "-A", "-n"], stdin: b"")?
   uu.succeeds(r)
   uu.stdout_only(r, "     1\tabcde$\n     2\tfghij$\n     3\tklmno$\n     4\tpqrst$\n     5\tuvwxyz$\n     6\t^@^A^B^C^D^E^F^G^H^I$\n     7\t^K^L^M^N^O^P^Q^R^S^T^U^V^W^X^Y^Z^[^\\^]^^^_ !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~^?M-^@M-^AM-^BM-^CM-^DM-^EM-^FM-^GM-^HM-^IM-^JM-^KM-^LM-^MM-^NM-^OM-^PM-^QM-^RM-^SM-^TM-^UM-^VM-^WM-^XM-^YM-^ZM-^[M-^\\M-^]M-^^M-^_M- M-!M-\"M-#M-$M-%M-&M-'M-(M-)M-*M-+M-,M--M-.M-/M-0M-1M-2M-3M-4M-5M-6M-7M-8M-9M-:M-;M-<M-=M->M-?M-@M-AM-BM-CM-DM-EM-FM-GM-HM-IM-JM-KM-LM-MM-NM-OM-PM-QM-RM-SM-TM-UM-VM-WM-XM-YM-ZM-[M-\\M-]M-^M-_M-`M-aM-bM-cM-dM-eM-fM-gM-hM-iM-jM-kM-lM-mM-nM-oM-pM-qM-rM-sM-tM-uM-vM-wM-xM-yM-zM-{M-|M-}M-~M-^?")
@@ -198,8 +198,8 @@ test test_uu_cat_u_ignored { |ctx|
 # origin: uutils test_cat::test_squeeze_all_files
 test test_uu_cat_squeeze_all_files { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input1", "a\n\n")?
-  uu.write(s, "input2", "\n\nb")?
+  uu.write(s, "input1", "a\n\n")
+  uu.write(s, "input2", "\n\nb")
   let r = uu.invoke(s, "cat", ["input1", "input2", "-s"])?
   uu.succeeds(r)
   uu.stdout_only(r, "a\n\nb")
@@ -208,8 +208,8 @@ test test_uu_cat_squeeze_all_files { |ctx|
 # origin: uutils test_cat::test_squeeze_all_files_repeated
 test test_uu_cat_squeeze_all_files_repeated { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "input1", "a\n\n")?
-  uu.write(s, "input2", "\n\nb")?
+  uu.write(s, "input1", "a\n\n")
+  uu.write(s, "input2", "\n\nb")
   let r = uu.invoke(s, "cat", ["-s", "input1", "input2", "-s"])?
   uu.succeeds(r)
   uu.stdout_only(r, "a\n\nb")
@@ -219,7 +219,7 @@ test test_uu_cat_squeeze_all_files_repeated { |ctx|
 test test_uu_cat_no_options { |ctx|
   let s = uu.scene(ctx)?
   for fixture in ["empty.txt", "alpha.txt", "nonewline.txt"] {
-    uu.fixture(s, "cat", fixture, fixture)?
+    uu.fixture(s, "cat", fixture, fixture)
     let expected = uu.read(s, fixture)?
     let file = uu.invoke(s, "cat", [fixture])?
     uu.succeeds(file)
@@ -246,7 +246,7 @@ test test_uu_cat_no_options_big_input { |ctx|
 # origin: uutils test_cat::test_directory
 test test_uu_cat_directory { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "test_directory")?
+  uu.mkdir(s, "test_directory")
   let r = uu.invoke(s, "cat", ["test_directory"])?
   uu.fails(r)
   uu.stderr_is(r, "cat: test_directory: Is a directory\n")
@@ -255,9 +255,9 @@ test test_uu_cat_directory { |ctx|
 # origin: uutils test_cat::test_directory_and_file
 test test_uu_cat_directory_and_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "test_directory2")?
+  uu.mkdir(s, "test_directory2")
   for fixture in ["empty.txt", "alpha.txt", "nonewline.txt"] {
-    uu.fixture(s, "cat", fixture, fixture)?
+    uu.fixture(s, "cat", fixture, fixture)
     let r = uu.invoke(s, "cat", ["test_directory2", fixture])?
     uu.fails(r)
     uu.stderr_is(r, "cat: test_directory2: Is a directory\n")
@@ -268,11 +268,11 @@ test test_uu_cat_directory_and_file { |ctx|
 # origin: uutils test_cat::test_three_directories_and_file_and_stdin
 test test_uu_cat_three_directories_and_file_and_stdin { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
-  uu.fixture(s, "cat", "nonewline.txt", "nonewline.txt")?
-  uu.fixture(s, "cat", "three_directories_and_file_and_stdin.stderr.expected", "three_directories_and_file_and_stdin.stderr.expected")?
-  uu.mkdir(s, "test_directory3/test_directory4")?
-  uu.mkdir(s, "test_directory3/test_directory5")?
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
+  uu.fixture(s, "cat", "nonewline.txt", "nonewline.txt")
+  uu.fixture(s, "cat", "three_directories_and_file_and_stdin.stderr.expected", "three_directories_and_file_and_stdin.stderr.expected")
+  uu.mkdir(s, "test_directory3/test_directory4")
+  uu.mkdir(s, "test_directory3/test_directory5")
   let r = uu.invoke(s, "cat", ["test_directory3/test_directory4", "alpha.txt", "-", "file_which_does_not_exist.txt", "nonewline.txt", "test_directory3/test_directory5", "test_directory3/../test_directory3/test_directory5", "test_directory3"], stdin: b"stdout bytes")?
   uu.fails(r)
   uu.stderr_is_bytes(r, uu.read(s, "three_directories_and_file_and_stdin.stderr.expected")?)
@@ -282,19 +282,19 @@ test test_uu_cat_three_directories_and_file_and_stdin { |ctx|
 # origin: uutils test_cat::test_piped_to_regular_file
 test test_uu_cat_piped_to_regular_file { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
   for append in [true, false] {
     let r = uu.invoke(s, "cat", [], stdin: uu.read(s, "alpha.txt")?, stdout: uu.at(s, "file.txt"), stdout_append: append)?
     uu.succeeds(r)
     uu.file_is(s, "file.txt", "abcde\nfghij\nklmno\npqrst\nuvwxyz\n")
-    uu.remove(s, "file.txt")?
+    uu.remove(s, "file.txt")
   }
 }
 
 # origin: uutils test_cat::test_piped_to_dev_null
 test test_uu_cat_piped_to_dev_null { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
   for append in [true, false] {
     let r = uu.invoke(s, "cat", [], stdin: uu.read(s, "alpha.txt")?, stdout: p"/dev/null", stdout_append: append)?
     uu.succeeds(r)
@@ -304,7 +304,7 @@ test test_uu_cat_piped_to_dev_null { |ctx|
 # origin: uutils test_cat::test_piped_to_dev_full
 test test_uu_cat_piped_to_dev_full { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
   for append in [true, false] {
     let r = uu.invoke(s, "cat", [], stdin: uu.read(s, "alpha.txt")?, stdout: p"/dev/full", stdout_append: append)?
     uu.fails(r)
@@ -318,8 +318,8 @@ test test_uu_cat_domain_socket { |ctx|
   let c = linux.net_constants()
   let socket = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
   defer unix.close_fd(socket)
-  linux.bind(socket, {family: "unix", address: uu.at(s, "sock").display()})?
-  linux.listen(socket, 128)?
+  linux.bind(socket, {family: "unix", address: uu.at(s, "sock").display()})
+  linux.listen(socket, 128)
   let r = uu.invoke(s, "cat", [uu.at(s, "sock").display()])?
   uu.fails(r)
   uu.stderr_contains(r, "No such device or address")
@@ -328,9 +328,9 @@ test test_uu_cat_domain_socket { |ctx|
 # origin: uutils test_cat::test_error_loop
 test test_uu_cat_error_loop { |ctx|
   let s = uu.scene(ctx)?
-  uu.symlink(s, "2", "1")?
-  uu.symlink(s, "3", "2")?
-  uu.symlink(s, "1", "3")?
+  uu.symlink(s, "2", "1")
+  uu.symlink(s, "3", "2")
+  uu.symlink(s, "1", "3")
   let r = uu.invoke(s, "cat", ["1"])?
   uu.fails(r)
   uu.stderr_is(r, "cat: 1: Too many levels of symbolic links\n")
@@ -348,7 +348,7 @@ test test_uu_cat_exit_code_is_one_regardless_of_error_count { |ctx|
 test test_uu_cat_cat_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let input_path = uu.at_bytes(s, b"test_\xff\xfe.txt")?
-  input_path.write("Hello, non-UTF-8 world!\n")?
+  input_path.write("Hello, non-UTF-8 world!\n")
   let r = uu.invoke_paths(s, "cat", [input_path])?
   uu.succeeds(r)
   uu.stdout_is(r, "Hello, non-UTF-8 world!\n")
@@ -357,7 +357,7 @@ test test_uu_cat_cat_non_utf8_paths { |ctx|
 # origin: uutils test_cat::test_appending_same_input_output
 test test_uu_cat_appending_same_input_output { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "foo", "content")?
+  uu.write(s, "foo", "content")
   let r = uu.invoke_from_path(s, "cat", [], stdin: uu.at(s, "foo"), stdout: uu.at(s, "foo"), stdout_append: true)?
   uu.fails(r)
   uu.no_stdout(r)
@@ -367,7 +367,7 @@ test test_uu_cat_appending_same_input_output { |ctx|
 # origin: uutils test_cat::test_write_to_self_empty
 test test_uu_cat_write_to_self_empty { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "file.txt")?
+  uu.touch(s, "file.txt")
   let r = uu.invoke(s, "cat", ["file.txt"], stdout: uu.at(s, "file.txt"), stdout_append: true)?
   uu.succeeds(r)
 }
@@ -375,9 +375,9 @@ test test_uu_cat_write_to_self_empty { |ctx|
 # origin: uutils test_cat::test_write_to_self
 test test_uu_cat_write_to_self { |ctx|
   let s = uu.scene(ctx)?
-  uu.touch(s, "first_file")?
-  uu.write(s, "second_file", "second_file_content.")?
-  uu.append(s, "first_file", "first_file_content.")?
+  uu.touch(s, "first_file")
+  uu.write(s, "second_file", "second_file_content.")
+  uu.append(s, "first_file", "first_file_content.")
   let r = uu.invoke(s, "cat", ["first_file", "first_file", "second_file"], stdout: uu.at(s, "first_file"), stdout_append: true)?
   uu.fails_with_code(r, 1)
   uu.stderr_only(r, "cat: first_file: input file is output file\ncat: first_file: input file is output file\n")
@@ -387,7 +387,7 @@ test test_uu_cat_write_to_self { |ctx|
 # origin: uutils test_cat::test_write_fast_fallthrough_uses_flush
 test test_uu_cat_write_fast_fallthrough_uses_flush { |ctx|
   let s = uu.scene(ctx)?
-  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")?
+  uu.fixture(s, "cat", "alpha.txt", "alpha.txt")
   let cmdline = p"/proc/1/cmdline".read_bytes()?
   let r = uu.invoke(s, "cat", ["/proc/1/cmdline", "alpha.txt"])?
   uu.succeeds(r)
@@ -397,8 +397,8 @@ test test_uu_cat_write_fast_fallthrough_uses_flush { |ctx|
 # origin: uutils test_cat::test_write_fast_read_error
 test test_uu_cat_write_fast_read_error { |ctx|
   let s = uu.scene(ctx)?
-  uu.write(s, "foo", "content")?
-  uu.set_mode(s, "foo", 0o000)?
+  uu.write(s, "foo", "content")
+  uu.set_mode(s, "foo", 0o000)
   let r = uu.invoke(s, "cat", ["foo"])?
   uu.fails(r)
   uu.stderr_contains(r, "Permission denied")
@@ -418,11 +418,11 @@ test test_uu_cat_version_help_dev_full { |ctx|
 # origin: uutils test_cat::test_fifo_symlink
 test test_uu_cat_fifo_symlink { |ctx|
   let s = uu.scene(ctx)?
-  uu.mkdir(s, "dir")?
-  uu.mkfifo(s, "dir/pipe")?
+  uu.mkdir(s, "dir")
+  uu.mkfifo(s, "dir/pipe")
   assert fs.stat(uu.at(s, "dir/pipe"))?.kind == "fifo"
-  uu.symlink(s, "dir/pipe", "sympipe")?
-  uu.fixture(s, "cat", "fifo-writer.xsh", "fifo-writer.xsh")?
+  uu.symlink(s, "dir/pipe", "sympipe")
+  uu.fixture(s, "cat", "fifo-writer.xsh", "fifo-writer.xsh")
   let writer_plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, uu.at(s, "fifo-writer.xsh"), uu.at(s, "dir/pipe")], timeout: 5s)
   let writer = spawn writer_plan?
   let data = bytes.concat([b"a" for _ in range(131072)])

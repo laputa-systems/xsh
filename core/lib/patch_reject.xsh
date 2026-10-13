@@ -26,8 +26,8 @@ export pure unified_reject(hunk: patch_parse.Hunk) -> Bytes {
 }
 
 pure context_range(first: Int, count: Int) -> Str {
-  if count == 0 { return f"{first - 1}" }
-  if count == 1 { return f"{first}" }
+  return f"{first - 1}" when count == 0
+  return f"{first}" when count == 1
   f"{first},{first + count - 1}"
 }
 
@@ -35,30 +35,40 @@ pure context_range(first: Int, count: Int) -> Str {
 ## context lines and prints the bare ranges GNU patch prints for such hunks;
 ## `cr_marked` is set for a CRLF context patch whose first hunk changes lines.
 export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool, cr_marked: Bool) -> Bytes {
-  var old_lines: List[Bytes] = []
-  var new_lines: List[Bytes] = []
+  var old_lines = []
+  var new_lines = []
   let kinds = hunk.kinds
   # Within one change group, removed and added lines show as changed (`!`)
   # when the group has both, otherwise as `-` or `+`.
-  var marks: List[Str] = []
   var index = 0
-  while index < kinds.len() {
-    if kinds[index] == 0 {
-      marks += [" "]
-      index += 1
-      continue
+  let marks = collect {
+    while index < kinds.len() {
+      if kinds[index] == 0 {
+        yield " "
+        index += 1
+        continue
+      }
+
+      var end = index
+      var removed = 0
+      var added = 0
+      while end < kinds.len() and kinds[end] != 0 {
+        if kinds[end] == 1 { removed += 1 } else { added += 1 }
+        end += 1
+      }
+
+      for k in range(end - index) {
+        if removed > 0 and added > 0 and ! from_normal {
+          yield "!"
+        } else if kinds[index + k] == 1 {
+          yield "-"
+        } else {
+          yield "+"
+        }
+      }
+
+      index = end
     }
-    var end = index
-    var removed = 0
-    var added = 0
-    while end < kinds.len() and kinds[end] != 0 {
-      if kinds[end] == 1 { removed += 1 } else { added += 1 }
-      end += 1
-    }
-    for k in range(end - index) {
-      if removed > 0 and added > 0 and !from_normal { marks += ["!"] } else if kinds[index + k] == 1 { marks += ["-"] } else { marks += ["+"] }
-    }
-    index = end
   }
   for at in range(kinds.len()) {
     let mark = marks[at]

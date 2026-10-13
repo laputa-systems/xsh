@@ -1,12 +1,12 @@
 #!/bin/xsh
-use lib.gnu
 use lib.accounts
+use lib.gnu
 
 type Options = {preauthenticated: Bool, preserve: Bool, remote: Str, help: Bool, version: Bool, users: List[Str]}
 
 pure equal_groups(requested: List[Int], actual: List[Int]) -> Bool {
-  for value in requested { if value not in actual { return false } }
-  for value in actual { if value not in requested { return false } }
+  for value in requested { return false when value not in actual }
+  for value in actual { return false when value not in requested }
   true
 }
 
@@ -39,17 +39,17 @@ proc main(...argv: List[Str]) [fs, env, process, error, io, time] {
   if let Err(failure) = lookup { gnu.error(failure.message); exit 1 }
   let entry = lookup?
   let notice = accounts.nologin_file()
-  if entry.uid != 0 and notice.exists()? { gnu.write_text(notice.read_text()?); exit 1 }
+  if entry.uid != 0 and notice.exists() { gnu.write_text(notice.read_text()?); exit 1 }
   if !opts.preauthenticated {
     let authenticated = accounts.authenticate(entry)
     if authenticated is Err(_) { gnu.error("Login incorrect"); exit 1 }
-    if !authenticated? { gnu.error("Login incorrect"); exit 1 }
+    if !authenticated { gnu.error("Login incorrect"); exit 1 }
   }
   if let Err(failure) = accounts.check_expiration(entry) { gnu.error(failure.message); exit 1 }
   let requested = accounts.login_groups(entry)
   if let Err(failure) = requested { gnu.error(failure.message); exit 1 }
   let groups = requested?
-  let actual: List[Int] = identity.groups |> map .gid
+  let actual = identity.groups |> map .gid
   let environment = accounts.session_environment(entry, opts.preserve, opts.remote)?
   let shell = fp"{entry.shell}"
   let home = fs.stat(entry.home, follow_symlinks: true)
@@ -59,7 +59,7 @@ proc main(...argv: List[Str]) [fs, env, process, error, io, time] {
   # Credential changes cannot roll back. Resolve groups and build the complete
   # session request first; a failed transition or exec ends this login process.
   if entry.uid != identity.uid or entry.uid != applet.current_euid() or entry.gid != identity.gid or entry.gid != identity.egid or !equal_groups(groups, actual) {
-    if let Err(failure) = unix.set_credentials(uid: entry.uid, gid: entry.gid, groups: groups) { gnu.error(failure.message); exit 1 }
+    if let Err(failure) = unix.set_credentials(uid: entry.uid, gid: entry.gid, groups:) { gnu.error(failure.message); exit 1 }
   }
   if let Err(failure) = unix.exec_env(command, environment, argv0: f"-{shell.basename()}") { gnu.error(failure.message); exit 1 }
 }

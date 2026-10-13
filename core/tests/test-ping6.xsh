@@ -16,7 +16,7 @@ proc ping6(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran
 
 # Skips the test unless this user can send ICMPv6 echo over a datagram socket
 # on ::1.
-proc need_ipv6_echo() [process, net, error] -> Result[Unit] {
+proc need_ipv6_echo() [process, net, error] {
   let c = linux.net_constants()
   match linux.socket(c.AF_INET6, c.SOCK_DGRAM, c.IPPROTO_ICMPV6) {
     Err(failure) => {
@@ -87,7 +87,7 @@ test test_ping6_hop_limit_option_is_applied_to_the_socket { |ctx|
 }
 
 test test_ping6_reports_a_failed_send_once_and_does_not_wait_for_a_reply { |ctx|
-  need_ipv6_echo()?
+  need_ipv6_echo()
   # With path MTU discovery set to "do", a datagram larger than the loopback
   # MTU is refused by the local stack on every send.
   let started = time.now()

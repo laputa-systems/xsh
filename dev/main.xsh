@@ -7,9 +7,9 @@ use context as lifecycle
 use coverage as coverage_workflow
 use dist as distributions
 use docs as documentation
+use gates
 use install as installations
 use internal as container_internal
-use gates
 use release as releases
 use system_report_check as system_reports
 use test_workflows as tests

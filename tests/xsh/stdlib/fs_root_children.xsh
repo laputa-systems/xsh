@@ -23,8 +23,7 @@ test test_fs_root_children_rejects_regular_file_as_directory { |ctx|
 test test_fs_root_children_order_matches_filesystem_enumeration { |ctx|
   let root_path = test.temp_dir(ctx, name: "root-children-order")?
   let root = fs.open_root(root_path)?
-  defer root.close()
-  root.mkdir(p"nested")
+    root.mkdir(p"nested")
   for name in ["zebra", "alpha", "middle", "beta"] {
     root.write(fp"nested/{name}", name)
   }

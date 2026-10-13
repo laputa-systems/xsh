@@ -1,6 +1,6 @@
 type Outcome = {status: Int, stdout: Str, stderr: Str}
 
-proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "", diagnostics: Str = "") [fs, process, error] -> Result[Outcome] {
+proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir = "", diagnostics = "") [fs, process, error] -> Result[Outcome] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/truncate.xsh"
@@ -82,7 +82,7 @@ test test_truncate_invalid_size_diagnostic_stays_plain { |ctx|
 
 test test_truncate_non_utf8_paths { |ctx|
   let root = test.temp_dir(ctx, name: "truncate-invalid-utf8")?.resolve()?
-  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]))?
+  let target = bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]) as Path
   target.write("test content")
   let script = fp"{ctx.core_dir}/truncate.xsh"
   let stdout = fp"{root}/stdout"
@@ -95,7 +95,7 @@ test test_truncate_non_utf8_paths { |ctx|
 
 test test_truncate_non_utf8_reference_path { |ctx|
   let root = test.temp_dir(ctx, name: "truncate-reference-invalid-utf8")?.resolve()?
-  let reference = Path.parse_bytes(bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]))?
+  let reference = bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]) as Path
   let target = fp"{root}/target"
   target.write("initial")
   let script = fp"{ctx.core_dir}/truncate.xsh"

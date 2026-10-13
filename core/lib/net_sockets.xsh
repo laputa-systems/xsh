@@ -115,7 +115,7 @@ export type Owner = {inode: Int, name: Str, pid: Int, fd: Int}
 
 ## Lowercase hexadecimal text of a non-negative integer.
 export pure hex(value: Int) -> Str {
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var rest = value
   var out = ""
   while rest > 0 {
@@ -127,12 +127,12 @@ export pure hex(value: Int) -> Str {
 }
 
 pure u32(data: Bytes, offset: Int) -> Int {
-  if offset + 4 > data.len() { return 0 }
+  return 0 when offset + 4 > data.len()
   bytes.unpack_le(data, 4, offset) ?? 0
 }
 
 pure u64(data: Bytes, offset: Int) -> Int {
-  if offset + 8 > data.len() { return 0 }
+  return 0 when offset + 8 > data.len()
   bytes.unpack_le(data, 8, offset) ?? 0
 }
 
@@ -145,21 +145,22 @@ type Attribute = {kind: Int, data: Bytes}
 # Splits the rtattr list that follows a fixed header of `start` bytes. The
 # type field's nested and byte-order flag bits are masked off.
 pure attributes(payload: Bytes, start: Int) -> List[Attribute] {
-  var found: List[Attribute] = []
   var offset = start
-  while offset + 4 <= payload.len() {
-    let length = bytes.unpack_le(payload, 2, offset) ?? 0
-    let kind = (bytes.unpack_le(payload, 2, offset + 2) ?? 0).bit_and(16383)
-    if length < 4 or offset + length > payload.len() { break }
-    found += [{kind: kind, data: payload.slice(offset + 4, length - 4)}]
-    offset += (length + 3) / 4 * 4
+  let found: List[Attribute] = collect {
+    while offset + 4 <= payload.len() {
+      let length = bytes.unpack_le(payload, 2, offset) ?? 0
+      let kind = (bytes.unpack_le(payload, 2, offset + 2) ?? 0).bit_and(16383)
+      break when length < 4 or offset + length > payload.len()
+      yield {kind: kind, data: payload.slice(offset + 4, length - 4)}
+      offset += (length + 3) / 4 * 4
+    }
   }
   found
 }
 
 pure find_attribute(list: List[Attribute], kind: Int) -> Bytes? {
   for item in list {
-    if item.kind == kind { return item.data }
+    return item.data when item.kind == kind
   }
   null
 }
@@ -176,14 +177,14 @@ pure cstring(data: Bytes) -> Str {
 }
 
 pure cookie_text(low: Int, high: Int) -> Str {
-  if high == 0 { return hex(low) }
+  return hex(low) when high == 0
   let tail = hex(low)
   hex(high) + "00000000".byte_slice(0, length: 8 - tail.byte_len()) + tail
 }
 
 ## The column text the reference tool prints for a kernel state number.
 export pure state_name(state: Int) -> Str {
-  if state < 0 or state >= STATE_NAMES.len() { return "UNKNOWN" }
+  return "UNKNOWN" when state < 0 or state >= STATE_NAMES.len()
   STATE_NAMES[state]
 }
 
@@ -209,15 +210,15 @@ pure decode_inet(payload: Bytes, protocol: Int) -> DiagSocket? {
   let reported = find_attribute(list, INET_DIAG_PROTOCOL)
   let real_protocol = if let data = reported { data.byte_at(0) ?? protocol } else { protocol }
   let netid = if real_protocol == IPPROTO_UDP { "udp" } else if real_protocol == IPPROTO_TCP { "tcp" } else { "raw" }
-  var congestion: Str? = null
+  var congestion = null
   if let data = find_attribute(list, INET_DIAG_CONG) { congestion = cstring(data) }
-  var mark: Int? = null
+  var mark = null
   if let data = find_attribute(list, INET_DIAG_MARK) { mark = u32(data, 0) }
-  var cgroup_id: Int? = null
+  var cgroup_id = null
   if let data = find_attribute(list, INET_DIAG_CGROUP_ID) { cgroup_id = u64(data, 0) }
-  var shutdown: Int? = null
+  var shutdown = null
   if let data = find_attribute(list, INET_DIAG_SHUTDOWN) { shutdown = data.byte_at(0) }
-  var v6only: Int? = null
+  var v6only = null
   if let data = find_attribute(list, INET_DIAG_SKV6ONLY) { v6only = data.byte_at(0) }
   {
     netid: netid,
@@ -257,7 +258,7 @@ pure decode_unix(payload: Bytes) -> DiagSocket? {
   let kind = payload.byte_at(1) ?? 0
   let netid = if kind == 1 { "u_str" } else if kind == 2 { "u_dgr" } else { "u_seq" }
   let list = attributes(payload, 16)
-  var name: Str? = null
+  var name = null
   if let data = find_attribute(list, UNIX_DIAG_NAME) {
     if data.byte_at(0) == 0 {
       # An abstract name begins with a NUL byte and may hold more of them;
@@ -282,11 +283,12 @@ pure decode_unix(payload: Bytes) -> DiagSocket? {
   if let data = find_attribute(list, UNIX_DIAG_PEER) { peer = u32(data, 0) }
   var vfs: VfsIdentity? = null
   if let data = find_attribute(list, UNIX_DIAG_VFS) { vfs = {inode: u32(data, 0), device: u32(data, 4)} }
-  var pending: List[Int] = []
-  if let data = find_attribute(list, UNIX_DIAG_ICONS) {
-    for index in range(data.len() / 4) { pending += [u32(data, index * 4)] }
+  let pending = collect {
+    if let data = find_attribute(list, UNIX_DIAG_ICONS) {
+      for index in range(data.len() / 4) { yield u32(data, index * 4) }
+    }
   }
-  var shutdown: Int? = null
+  var shutdown = null
   if let data = find_attribute(list, UNIX_DIAG_SHUTDOWN) { shutdown = data.byte_at(0) }
   {
     netid: netid,
@@ -344,9 +346,10 @@ export proc collect_inet(nl: Int, family: Int, protocol: Int, states: Int, memor
 
     return Err(failure)
   }
-  var found: List[DiagSocket] = []
-  for reply in outcome? {
-    if let item = decode_inet(reply.payload, protocol) { found += [item] }
+  let found: List[DiagSocket] = collect {
+    for reply in outcome? {
+      if let item = decode_inet(reply.payload, protocol) { yield item }
+    }
   }
   Ok(found)
 }
@@ -368,9 +371,10 @@ export proc collect_unix(nl: Int, states: Int, memory: Bool, details: Bool) [pro
     ],
   )
   let replies = dump(nl, request)?
-  var found: List[DiagSocket] = []
-  for reply in replies {
-    if let item = decode_unix(reply.payload) { found += [item] }
+  let found: List[DiagSocket] = collect {
+    for reply in replies {
+      if let item = decode_unix(reply.payload) { yield item }
+    }
   }
   Ok(found)
 }
@@ -378,12 +382,13 @@ export proc collect_unix(nl: Int, states: Int, memory: Bool, details: Bool) [pro
 # Decodes the hex of a /proc/net address: each 32-bit word is printed in
 # host (little-endian) order.
 pure proc_address(text: Str, size: Int) -> Bytes {
-  var raw: List[Int] = []
-  for word in range(size / 4) {
-    let chunk = text.byte_slice(word * 8, length: 8)
-    for index in range(4) {
-      let at = (3 - index) * 2
-      raw += [f"0x{chunk.byte_slice(at, length: 2)}".parse_int() ?? 0]
+  let raw = collect {
+    for word in range(size / 4) {
+      let chunk = text.byte_slice(word * 8, length: 8)
+      for index in range(4) {
+        let at = (3 - index) * 2
+        yield f"0x{chunk.byte_slice(at, length: 2)}".parse_int() ?? 0
+      }
     }
   }
   bytes.from_ints(raw) ?? b""
@@ -394,34 +399,35 @@ pure proc_address(text: Str, size: Int) -> Bytes {
 # shutdown or cgroup attributes, so `detailed` is false and callers print no
 # extended text for them.
 proc collect_raw_proc(family: Int, states: Int) [fs, error] -> Result[List[DiagSocket], Error] {
-  var found: List[DiagSocket] = []
   let source = if family == AF_INET6 { fp"/proc/net/raw6" } else { fp"/proc/net/raw" }
   let size = if family == AF_INET6 { 16 } else { 4 }
   let content = source.read_text() ?? ""
   var first = true
-  for line in content.lines() {
-    if first {
-      first = false
-      continue
+  let found: List[DiagSocket] = collect {
+    for line in content.lines() {
+      if first {
+        first = false
+        continue
+      }
+      let fields = line.fields()
+      continue when fields.len() < 10
+      let local = fields[1].split(":")
+      let remote = fields[2].split(":")
+      let queues = fields[4].split(":")
+      continue when local.len() != 2 or remote.len() != 2 or queues.len() != 2
+      let state = f"0x{fields[3]}".parse_int() ?? 0
+      let bit = if state >= 0 and state < 12 { [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048][state] } else { 0 }
+      continue when states / bit % 2 != 1
+      yield {
+        netid: "raw", family: family, protocol: 0, state: state, timer: 0, retrans: 0, expires: 0,
+        recv_queue: f"0x{queues[1]}".parse_int() ?? 0, send_queue: f"0x{queues[0]}".parse_int() ?? 0,
+        local: proc_address(local[0], size), remote: proc_address(remote[0], size),
+        local_port: f"0x{local[1]}".parse_int() ?? 0, remote_port: f"0x{remote[1]}".parse_int() ?? 0,
+        ifindex: 0, uid: fields[7].parse_int() ?? 0, inode: fields[9].parse_int() ?? 0, cookie: "0",
+        name: null, memory: null, info: null, congestion: null, shutdown: null, v6only: null,
+        mark: null, cgroup_id: null, vfs: null, pending: [], detailed: false,
+      }
     }
-    let fields = line.fields()
-    if fields.len() < 10 { continue }
-    let local = fields[1].split(":")
-    let remote = fields[2].split(":")
-    let queues = fields[4].split(":")
-    if local.len() != 2 or remote.len() != 2 or queues.len() != 2 { continue }
-    let state = f"0x{fields[3]}".parse_int() ?? 0
-    let bit = if state >= 0 and state < 12 { [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048][state] } else { 0 }
-    if states / bit % 2 != 1 { continue }
-    found += [{
-      netid: "raw", family: family, protocol: 0, state: state, timer: 0, retrans: 0, expires: 0,
-      recv_queue: f"0x{queues[1]}".parse_int() ?? 0, send_queue: f"0x{queues[0]}".parse_int() ?? 0,
-      local: proc_address(local[0], size), remote: proc_address(remote[0], size),
-      local_port: f"0x{local[1]}".parse_int() ?? 0, remote_port: f"0x{remote[1]}".parse_int() ?? 0,
-      ifindex: 0, uid: fields[7].parse_int() ?? 0, inode: fields[9].parse_int() ?? 0, cookie: "0",
-      name: null, memory: null, info: null, congestion: null, shutdown: null, v6only: null,
-      mark: null, cgroup_id: null, vfs: null, pending: [], detailed: false,
-    }]
   }
   Ok(found)
 }
@@ -436,7 +442,7 @@ export type Summary = {
 # The number after KEY in the line that starts with SECTION and a colon.
 pure sockstat_number(text: Str, section: Str, key: Str) -> Int {
   for line in text.lines() {
-    if !line.starts_with(section + ":") { continue }
+    continue unless line.starts_with(section + ":")
     let fields = line.fields()
     for index in range(fields.len()) {
       if fields[index] == key and index + 1 < fields.len() {
@@ -457,9 +463,9 @@ export proc summary() [fs, error] -> Result[Summary, Error] {
   let four = v4 ?? ""
   let six = fp"/proc/net/sockstat6".read_text() ?? ""
   var established = 0
-  var header: List[Str] = []
+  var header = []
   for line in (fp"/proc/net/snmp".read_text() ?? "").lines() {
-    if !line.starts_with("Tcp:") { continue }
+    continue unless line.starts_with("Tcp:")
     let fields = line.fields()
     if header.is_empty() {
       header = fields
@@ -524,7 +530,7 @@ export proc cgroup_names() [fs, error] -> Map[Str, Str] {
     found[f"{top.ino}"] = "/"
     if let Ok(entries) = fs.walk(root, stat: true) {
       for entry in entries {
-        if entry.kind != "dir" { continue }
+        continue when entry.kind != "dir"
         if let Ok(info) = fs.stat(entry.path) {
           let shown = entry.path.display()
           let relative = shown.byte_slice(root.display().byte_len())
@@ -554,14 +560,15 @@ export pure protocol_number(netid: Str) -> Int {
 ## Every descriptor that refers to a socket, in the order the reference tool
 ## prints owners: the last one found for an inode comes first.
 export proc owners() [process, error] -> Result[List[Owner], Error] {
-  var found: List[Owner] = []
   let table: List[ProcessEntry] = process.list()? |> sort-by .pid
-  for entry in table {
-    let files = linux.open_files(entry.pid)
-    if let Ok(list) = files {
-      for file in list {
-        if file.path.display().starts_with("socket:[") {
-          found += [{inode: file.inode, name: entry.command, pid: entry.pid, fd: file.fd}]
+  let found: List[Owner] = collect {
+    for entry in table {
+      let files = linux.open_files(entry.pid)
+      if let Ok(list) = files {
+        for file in list {
+          if file.path.display().starts_with("socket:[") {
+            yield {inode: file.inode, name: entry.command, pid: entry.pid, fd: file.fd}
+          }
         }
       }
     }
@@ -571,8 +578,8 @@ export proc owners() [process, error] -> Result[List[Owner], Error] {
 
 ## `users:(("name",pid=N,fd=N),...)` text for one inode, or null.
 export pure owners_text(list: List[Owner], inode: Int) -> Str? {
-  if inode == 0 { return null }
-  var parts: List[Str] = []
+  return null when inode == 0
+  var parts = []
   for item in list {
     if item.inode == inode { parts = [f"(\"{item.name}\",pid={item.pid},fd={item.fd})"].extend(parts) }
   }
@@ -597,10 +604,7 @@ export pure ipv6_text(data: Bytes) -> Str {
     return f"::ffff:{ipv4_text(data.slice(12, 4))}"
   }
 
-  var groups: List[Int] = []
-  for index in range(8) {
-    groups += [(data.byte_at(index * 2) ?? 0) * 256 + (data.byte_at(index * 2 + 1) ?? 0)]
-  }
+  var groups = [(data.byte_at(index * 2) ?? 0) * 256 + (data.byte_at(index * 2 + 1) ?? 0) for index in range(8)]
   # The first longest run of two or more zero groups becomes "::".
   var best_start = -1
   var best_length = 1
@@ -636,13 +640,13 @@ export pure ipv6_text(data: Bytes) -> Str {
 ## The address text of an inet socket endpoint: `*` for the unspecified IPv6
 ## address of a dual-stack socket, otherwise the numeric text.
 export pure endpoint_address(data: Bytes, family: Int, v6only: Bool) -> Str {
-  if family == AF_INET { return ipv4_text(data) }
+  return ipv4_text(data) when family == AF_INET
 
   var zero = true
   for index in range(16) {
     if data.byte_at(index) != 0 { zero = false }
   }
-  if zero and !v6only { return "*" }
+  return "*" when zero and ! v6only
 
   ipv6_text(data)
 }
@@ -662,7 +666,7 @@ pure format_g(microseconds: Int) -> Str {
   var shown = whole
   if keep < 3 {
     var divisor = 1
-    for _ in range(3 - keep) { divisor *= 10 }
+    repeat 3 - keep times { divisor *= 10 }
     scaled = (fraction + divisor / 2) / divisor
     if scaled * divisor >= 1000 {
       shown += 1
@@ -670,7 +674,7 @@ pure format_g(microseconds: Int) -> Str {
     }
     fraction = scaled * divisor
   }
-  if fraction == 0 { return f"{shown}" }
+  return f"{shown}" when fraction == 0
 
   var text = f"{fraction}"
   while text.byte_len() < 3 { text = "0" + text }
@@ -683,18 +687,19 @@ pure round_div(numerator: Int, denominator: Int) -> Int {
   let quotient = numerator / denominator
   let remainder = numerator % denominator
   let twice = remainder * 2
-  if twice > denominator { return quotient + 1 }
-  if twice == denominator and quotient % 2 == 1 { return quotient + 1 }
+  return quotient + 1 when twice > denominator
+  return quotient + 1 when twice == denominator and quotient % 2 == 1
   quotient
 }
 
 ## `skmem:(r..,rb..)` text from a SKMEMINFO or MEMINFO attribute.
 export pure skmem_text(data: Bytes) -> Str {
   let names = ["r", "rb", "t", "tb", "f", "w", "o", "bl", "d"]
-  var parts: List[Str] = []
-  for index in range(names.len()) {
-    if index * 4 + 4 > data.len() { break }
-    parts += [f"{names[index]}{u32(data, index * 4)}"]
+  let parts = collect {
+    for index in range(names.len()) {
+      break when index * 4 + 4 > data.len()
+      yield f"{names[index]}{u32(data, index * 4)}"
+    }
   }
   f"skmem:({parts.join(",")})"
 }
@@ -741,7 +746,7 @@ export pure timer_text(timer: Int, expires: Int, retrans: Int) -> Str? {
 ## order. Zero counters are omitted. Algorithm-specific blocks (bbr, dctcp,
 ## vegas) are not decoded.
 export pure tcp_info_text(info: Bytes, congestion: Str?, state: Int, options: Bool) -> Str {
-  var out: List[Str] = []
+  var out = []
   let flags = info.byte_at(5) ?? 0
   if options {
     if flags.bit_and(1) != 0 { out += ["ts"] }
