@@ -214,8 +214,8 @@ test test_uu_id_id_no_specified_user_posixly { |ctx|
 # origin: uutils test_id::test_id_digital_username
 test test_uu_id_id_digital_username { |ctx|
   var exists = false
-  if let Ok(account) = user.lookup("200") { exists = true }
-  if let Ok(account) = user.by_uid(200) { exists = true }
+  if let Ok(_) = user.lookup("200") { exists = true }
+  if let Ok(_) = user.by_uid(200) { exists = true }
   if exists {
     uu.succeeds(uu.invoke(uu.scene(ctx)?, "id", ["200"])?)
   }

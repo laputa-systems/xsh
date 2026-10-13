@@ -9,8 +9,8 @@ proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resu
   let err = fp"{captures}/stderr"
   let fifo = fp"{captures}/pipe"
   fs.mkfifo(fifo, 0o600)
-  let words = uu.argv(s, "stdbuf", [Path(word) for word in args])?
-  let argv = [p"/bin/sh", p"-c", Path(r"""fifo=$1; shift; cat "$fifo" >&2 & reader=$!; "$@" 2>"$fifo"; rc=$?; wait "$reader" || exit; exit "$rc"; """), p"stdbuf-pipe", fifo].extend(words)
+  let words = uu.argv(s, "stdbuf", [fp"{word}" for word in args])?
+  let argv = [p"/bin/sh", p"-c", r"""fifo=$1; shift; cat "$fifo" >&2 & reader=$!; "$@" 2>"$fifo"; rc=$?; wait "$reader" || exit; exit "$rc"; """ as Path, p"stdbuf-pipe", fifo].extend(words)
   let status = process.run(process.command_argv(p"/bin/sh", argv, s.root, stdout: out, stderr: err, timeout: 5s))?.exit_code()?
   Ok({util: "stdbuf", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
@@ -77,7 +77,7 @@ test test_uu_stdbuf_stdbuf_no_tmpdir_leak { |ctx|
   let s = uu.scene(ctx)?
   let dedicated = test.temp_dir(ctx, name: "stdbuf-tmpdir")?
   repeat 5 times {
-    let result = uu.invoke(s, "stdbuf", ["-oL", "true"], vars: {TMPDIR: dedicated}, timeout: 5s)?
+    let _ = uu.invoke(s, "stdbuf", ["-oL", "true"], vars: {TMPDIR: dedicated}, timeout: 5s)?
   }
   let leaked = fs.children(dedicated)? |> where { |entry| entry.path.is_dir()? } |> count()
   assert leaked == 0

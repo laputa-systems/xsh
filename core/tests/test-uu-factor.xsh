@@ -2,165 +2,6 @@
 
 use support.uu
 
-pure integer_input(last: Int) -> Bytes {
-  bytes.from_text([f"{n} " for n in range(last + 1)].join(""))
-}
-
-proc factor_case(s: uu.Scene, args: List[Str], expected: Str) [fs, process, env, error] {
-  let r = uu.invoke(s, "factor", args)?
-  uu.succeeds(r)
-  uu.stdout_is(r, expected)
-}
-
-# origin: uutils test_factor::test_invalid_arg
-test test_uu_factor_invalid_arg { |ctx|
-  let s = uu.scene(ctx)?
-  uu.fails_with_code(uu.invoke(s, "factor", ["--definitely-invalid"])?, 1)
-}
-
-# origin: uutils test_factor::test_valid_arg_exponents
-test test_uu_factor_valid_arg_exponents { |ctx|
-  let s = uu.scene(ctx)?
-  uu.succeeds(uu.invoke(s, "factor", ["-h"])?)
-  uu.succeeds(uu.invoke(s, "factor", ["--exponents"])?)
-}
-
-# origin: uutils test_factor::test_repeated_exponents
-test test_uu_factor_repeated_exponents { |ctx|
-  let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "factor", ["-hh", "1234", "10240"])?
-  uu.succeeds(r)
-  uu.stdout_only(r, "1234: 2 617\n10240: 2^11 5\n")
-  uu.no_stderr(r)
-}
-
-# origin: uutils test_factor::test_trim_null_chars
-test test_uu_factor_trim_null_chars { |ctx|
-  let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "factor", [], b"42\0")?
-  uu.succeeds(r)
-  uu.stdout_only(r, "42: 2 3 7\n")
-  uu.no_stderr(r)
-}
-
-# origin: uutils test_factor::test_first_1000_integers
-test test_uu_factor_first_1000_integers { |ctx|
-  let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "factor", [], integer_input(1000))?
-  uu.succeeds(r)
-  assert hash.sha1(r.stdout).hex() == "c734327bd18b90fca5762f671672b5eda19f7dca"
-}
-
-# origin: uutils test_factor::test_first_1000_integers_with_exponents
-test test_uu_factor_first_1000_integers_with_exponents { |ctx|
-  let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "factor", ["-h"], integer_input(1000))?
-  uu.succeeds(r)
-  assert hash.sha1(r.stdout).hex() == "45f5f758a9319870770bd1fec2de23d54331944d"
-}
-
-# origin: uutils test_factor::test_cli_args
-test test_uu_factor_cli_args { |ctx|
-  let s = uu.scene(ctx)?
-  let one = uu.invoke(s, "factor", ["3"])?
-  uu.succeeds(one)
-  uu.stdout_contains(one, "3: 3")
-  let many = uu.invoke(s, "factor", ["3", "6", " +9"])?
-  uu.succeeds(many)
-  uu.stdout_contains(many, "3: 3")
-  uu.stdout_contains(many, "9: 3 3")
-}
-
-# origin: uutils test_factor::fails_on_invalid_number
-test test_uu_factor_fails_on_invalid_number { |ctx|
-  let s = uu.scene(ctx)?
-  uu.fails(uu.invoke(s, "factor", ["not-a-valid-number"])?)
-  let r = uu.invoke(s, "factor", ["not-a-valid-number", "12"])?
-  uu.fails(r)
-  uu.stdout_contains(r, "12: 2 2 3")
-}
-
-# origin: uutils test_factor::fails_on_directory
-test test_uu_factor_fails_on_directory { |ctx|
-  let s = uu.scene(ctx)?
-  uu.fails(uu.invoke(s, "factor", [], b".")?)
-}
-
-# origin: uutils test_factor::test_large_number
-test test_uu_factor_large_number { |ctx|
-  let s = uu.scene(ctx)?
-  factor_case(s, ["4611686018427387896"], "4611686018427387896: 2 2 2 179951 3203431780337\n")
-}
-
-# origin: uutils test_factor::succeeds_with_numbers_larger_than_u64
-test test_uu_factor_succeeds_with_numbers_larger_than_u64 { |ctx|
-  let s = uu.scene(ctx)?
-  factor_case(s, ["158909489063877810457"], "158909489063877810457: 3401347 3861211 12099721\n")
-  factor_case(s, ["222087527029934481871"], "222087527029934481871: 15601 26449 111427 4830277\n")
-  factor_case(s, ["12847291069740315094892340035"], "12847291069740315094892340035: 5 4073 18899 522591721 63874247821\n")
-}
-
-# origin: uutils test_factor::succeeds_with_numbers_larger_than_u128
-test test_uu_factor_succeeds_with_numbers_larger_than_u128 { |ctx|
-  let s = uu.scene(ctx)?
-  factor_case(s, ["-h", "340282366920938463463374607431768211456"], "340282366920938463463374607431768211456: 2^128\n")
-  factor_case(s, ["+170141183460469231731687303715884105729"], "170141183460469231731687303715884105729: 3 56713727820156410577229101238628035243\n")
-}
-
-# origin: uutils test_factor::succeeds_with_numbers_larger_than_u256
-test test_uu_factor_succeeds_with_numbers_larger_than_u256 { |ctx|
-  let s = uu.scene(ctx)?
-  factor_case(s, ["-h", "115792089237316195423570985008687907853269984665640564039457584007913129639936"], "115792089237316195423570985008687907853269984665640564039457584007913129639936: 2^256\n")
-}
-
-# origin: uutils test_factor::factors_many_primes_of_similar_size_completely
-test test_uu_factor_factors_many_primes_of_similar_size_completely { |ctx|
-  let s = uu.scene(ctx)?
-  factor_case(s, ["2037036890754971402431340509217469262474509779036256996849055359081480084266333562576864437"], "2037036890754971402431340509217469262474509779036256996849055359081480084266333562576864437: 1073741827 1073741831 1073741833 1073741839 1073741843 1073741857 1073741891 1073741909 1073741939 1073741953\n")
-}
-
-# origin: uutils test_factor::factors_a_wide_prime_power
-test test_uu_factor_factors_a_wide_prime_power { |ctx|
-  let s = uu.scene(ctx)?
-  factor_case(s, ["-h", "56539106683390492137844827055225747632151249167945695848217966183182073341"], "56539106683390492137844827055225747632151249167945695848217966183182073341: 34359738421^7\n")
-}
-
-# origin: uutils test_factor::handles_non_unicode_data
-test test_uu_factor_handles_non_unicode_data { |ctx|
-  let s = uu.scene(ctx)?
-  let input = b"\0 \xff\0\xff\xaa\0\xaa\x44 a&#2\n6 9\x003\xc024\t2\t\t4\x000+4\xff \xf7\xc1"
-  let r = uu.invoke(s, "factor", [], input)?
-  uu.fails_with_code(r, 1)
-  uu.stdout_is(r, "6: 2 3\n9: 3 3\n2: 2\n4: 2 2\n")
-  uu.stderr_is(r, "factor: '' is not a valid positive integer\nfactor: '\\377' is not a valid positive integer\nfactor: 'a&#2' is not a valid positive integer\nfactor: '\\367\\301' is not a valid positive integer\n")
-}
-
-# origin: uutils test_factor::invalid_cmdline_arg_continues
-test test_uu_factor_invalid_cmdline_arg_continues { |ctx|
-  let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "factor", ["a", "4"])?
-  uu.fails_with_code(r, 1)
-  uu.stdout_is(r, "4: 2 2\n")
-  uu.stderr_is(r, "factor: 'a' is not a valid positive integer\n")
-}
-
-# origin: uutils test_factor::test_stdin_clean_error_message
-test test_uu_factor_stdin_clean_error_message { |ctx|
-  let s = uu.scene(ctx)?
-  uu.mkdir(s, "directory")
-  let r = uu.invoke_from_path(s, "factor", [], uu.at(s, "directory"))?
-  uu.fails(r)
-  uu.stderr_is(r, "factor: error reading input: Is a directory\n")
-}
-
-# origin: uutils test_factor::short_circuit_write_error
-test test_uu_factor_short_circuit_write_error { |ctx|
-  let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "factor", ["12", "10"], stdout: p"/dev/full")?
-  uu.fails(r)
-  uu.stderr_is(r, "factor: write error: No space left on device\n")
-}
-
 const TEST_BIG_PRIMES_OUTPUT = [
   "18446744073709551557: 18446744073709551557\n",
   "18446744073709551533: 18446744073709551533\n",
@@ -212,18 +53,6 @@ const TEST_BIG_PRIMES_OUTPUT = [
   "18446744073709549583: 18446744073709549583\n",
   "18446744073709549571: 18446744073709549571\n",
 ]
-
-# origin: uutils test_factor::test_big_primes
-test test_uu_factor_big_primes { |ctx|
-  test.timeout(ctx, 250s)
-  let s = uu.scene(ctx)?
-  let expected = TEST_BIG_PRIMES_OUTPUT.join("")
-  let input = bytes.from_text([line.split(":")[0] + " " for line in expected.lines()].join(""))
-  let r = uu.invoke(s, "factor", [], input, timeout: 240s)?
-  uu.succeeds(r)
-  uu.stdout_is(r, expected)
-}
-
 const TEST_PRIMES_WITH_EXPONENTS_OUTPUT = [
   "16381: 16381\n",
   "16369: 16369\n",
@@ -2122,18 +1951,6 @@ const TEST_PRIMES_WITH_EXPONENTS_OUTPUT = [
   "1125899906841623: 1125899906841623\n",
   "1125899906841613: 1125899906841613\n",
 ]
-
-# origin: uutils test_factor::test_primes_with_exponents
-test test_uu_factor_primes_with_exponents { |ctx|
-  test.timeout(ctx, 250s)
-  let s = uu.scene(ctx)?
-  let expected = TEST_PRIMES_WITH_EXPONENTS_OUTPUT.join("")
-  let input = bytes.from_text([line.split(":")[0] + " " for line in expected.lines()].join(""))
-  let r = uu.invoke(s, "factor", ["--exponents"], input, timeout: 240s)?
-  uu.succeeds(r)
-  uu.stdout_is(r, expected)
-}
-
 # Seed 1729 freezes 100 samples from the upstream prime-product distribution.
 const TEST_RANDOM_OUTPUT = [
   "3070938890988506239: 13 61 139 251 439 4817 52489\n",
@@ -2237,18 +2054,6 @@ const TEST_RANDOM_OUTPUT = [
   "2888450026196508635: 5 41 1381 7211 14197 99661\n",
   "813607128801252181: 11 17 263 281 359 6691 24509\n",
 ]
-
-# origin: uutils test_factor::test_random
-test test_uu_factor_random { |ctx|
-  test.timeout(ctx, 250s)
-  let s = uu.scene(ctx)?
-  let expected = TEST_RANDOM_OUTPUT.join("")
-  let input = bytes.from_text([line.split(":")[0] + " " for line in expected.lines()].join(""))
-  let r = uu.invoke(s, "factor", [], input, timeout: 240s)?
-  uu.succeeds(r)
-  uu.stdout_is(r, expected)
-}
-
 # Seed 1729 freezes 100 samples from the upstream prime-product distribution.
 const TEST_RANDOM_BIG_OUTPUT = [
   "18446656112021212703: 1048571 17592186043693\n",
@@ -2352,6 +2157,202 @@ const TEST_RANDOM_BIG_OUTPUT = [
   "18446204728998054017: 33553451 549755812867\n",
   "17458347356476541521: 15619 65179 65423 262127\n",
 ]
+
+pure integer_input(last: Int) -> Bytes {
+  bytes.from_text([f"{n} " for n in range(last + 1)].join(""))
+}
+
+proc factor_case(s: uu.Scene, args: List[Str], expected: Str) [fs, process, env, error] {
+  let r = uu.invoke(s, "factor", args)?
+  uu.succeeds(r)
+  uu.stdout_is(r, expected)
+}
+
+# origin: uutils test_factor::test_invalid_arg
+test test_uu_factor_invalid_arg { |ctx|
+  let s = uu.scene(ctx)?
+  uu.fails_with_code(uu.invoke(s, "factor", ["--definitely-invalid"])?, 1)
+}
+
+# origin: uutils test_factor::test_valid_arg_exponents
+test test_uu_factor_valid_arg_exponents { |ctx|
+  let s = uu.scene(ctx)?
+  uu.succeeds(uu.invoke(s, "factor", ["-h"])?)
+  uu.succeeds(uu.invoke(s, "factor", ["--exponents"])?)
+}
+
+# origin: uutils test_factor::test_repeated_exponents
+test test_uu_factor_repeated_exponents { |ctx|
+  let s = uu.scene(ctx)?
+  let r = uu.invoke(s, "factor", ["-hh", "1234", "10240"])?
+  uu.succeeds(r)
+  uu.stdout_only(r, "1234: 2 617\n10240: 2^11 5\n")
+  uu.no_stderr(r)
+}
+
+# origin: uutils test_factor::test_trim_null_chars
+test test_uu_factor_trim_null_chars { |ctx|
+  let s = uu.scene(ctx)?
+  let r = uu.invoke(s, "factor", [], b"42\0")?
+  uu.succeeds(r)
+  uu.stdout_only(r, "42: 2 3 7\n")
+  uu.no_stderr(r)
+}
+
+# origin: uutils test_factor::test_first_1000_integers
+test test_uu_factor_first_1000_integers { |ctx|
+  let s = uu.scene(ctx)?
+  let r = uu.invoke(s, "factor", [], integer_input(1000))?
+  uu.succeeds(r)
+  assert hash.sha1(r.stdout).hex() == "c734327bd18b90fca5762f671672b5eda19f7dca"
+}
+
+# origin: uutils test_factor::test_first_1000_integers_with_exponents
+test test_uu_factor_first_1000_integers_with_exponents { |ctx|
+  let s = uu.scene(ctx)?
+  let r = uu.invoke(s, "factor", ["-h"], integer_input(1000))?
+  uu.succeeds(r)
+  assert hash.sha1(r.stdout).hex() == "45f5f758a9319870770bd1fec2de23d54331944d"
+}
+
+# origin: uutils test_factor::test_cli_args
+test test_uu_factor_cli_args { |ctx|
+  let s = uu.scene(ctx)?
+  let one = uu.invoke(s, "factor", ["3"])?
+  uu.succeeds(one)
+  uu.stdout_contains(one, "3: 3")
+  let many = uu.invoke(s, "factor", ["3", "6", " +9"])?
+  uu.succeeds(many)
+  uu.stdout_contains(many, "3: 3")
+  uu.stdout_contains(many, "9: 3 3")
+}
+
+# origin: uutils test_factor::fails_on_invalid_number
+test test_uu_factor_fails_on_invalid_number { |ctx|
+  let s = uu.scene(ctx)?
+  uu.fails(uu.invoke(s, "factor", ["not-a-valid-number"])?)
+  let r = uu.invoke(s, "factor", ["not-a-valid-number", "12"])?
+  uu.fails(r)
+  uu.stdout_contains(r, "12: 2 2 3")
+}
+
+# origin: uutils test_factor::fails_on_directory
+test test_uu_factor_fails_on_directory { |ctx|
+  let s = uu.scene(ctx)?
+  uu.fails(uu.invoke(s, "factor", [], b".")?)
+}
+
+# origin: uutils test_factor::test_large_number
+test test_uu_factor_large_number { |ctx|
+  let s = uu.scene(ctx)?
+  factor_case(s, ["4611686018427387896"], "4611686018427387896: 2 2 2 179951 3203431780337\n")
+}
+
+# origin: uutils test_factor::succeeds_with_numbers_larger_than_u64
+test test_uu_factor_succeeds_with_numbers_larger_than_u64 { |ctx|
+  let s = uu.scene(ctx)?
+  factor_case(s, ["158909489063877810457"], "158909489063877810457: 3401347 3861211 12099721\n")
+  factor_case(s, ["222087527029934481871"], "222087527029934481871: 15601 26449 111427 4830277\n")
+  factor_case(s, ["12847291069740315094892340035"], "12847291069740315094892340035: 5 4073 18899 522591721 63874247821\n")
+}
+
+# origin: uutils test_factor::succeeds_with_numbers_larger_than_u128
+test test_uu_factor_succeeds_with_numbers_larger_than_u128 { |ctx|
+  let s = uu.scene(ctx)?
+  factor_case(s, ["-h", "340282366920938463463374607431768211456"], "340282366920938463463374607431768211456: 2^128\n")
+  factor_case(s, ["+170141183460469231731687303715884105729"], "170141183460469231731687303715884105729: 3 56713727820156410577229101238628035243\n")
+}
+
+# origin: uutils test_factor::succeeds_with_numbers_larger_than_u256
+test test_uu_factor_succeeds_with_numbers_larger_than_u256 { |ctx|
+  let s = uu.scene(ctx)?
+  factor_case(s, ["-h", "115792089237316195423570985008687907853269984665640564039457584007913129639936"], "115792089237316195423570985008687907853269984665640564039457584007913129639936: 2^256\n")
+}
+
+# origin: uutils test_factor::factors_many_primes_of_similar_size_completely
+test test_uu_factor_factors_many_primes_of_similar_size_completely { |ctx|
+  let s = uu.scene(ctx)?
+  factor_case(s, ["2037036890754971402431340509217469262474509779036256996849055359081480084266333562576864437"], "2037036890754971402431340509217469262474509779036256996849055359081480084266333562576864437: 1073741827 1073741831 1073741833 1073741839 1073741843 1073741857 1073741891 1073741909 1073741939 1073741953\n")
+}
+
+# origin: uutils test_factor::factors_a_wide_prime_power
+test test_uu_factor_factors_a_wide_prime_power { |ctx|
+  let s = uu.scene(ctx)?
+  factor_case(s, ["-h", "56539106683390492137844827055225747632151249167945695848217966183182073341"], "56539106683390492137844827055225747632151249167945695848217966183182073341: 34359738421^7\n")
+}
+
+# origin: uutils test_factor::handles_non_unicode_data
+test test_uu_factor_handles_non_unicode_data { |ctx|
+  let s = uu.scene(ctx)?
+  let input = b"\0 \xff\0\xff\xaa\0\xaa\x44 a&#2\n6 9\x003\xc024\t2\t\t4\x000+4\xff \xf7\xc1"
+  let r = uu.invoke(s, "factor", [], input)?
+  uu.fails_with_code(r, 1)
+  uu.stdout_is(r, "6: 2 3\n9: 3 3\n2: 2\n4: 2 2\n")
+  uu.stderr_is(r, "factor: '' is not a valid positive integer\nfactor: '\\377' is not a valid positive integer\nfactor: 'a&#2' is not a valid positive integer\nfactor: '\\367\\301' is not a valid positive integer\n")
+}
+
+# origin: uutils test_factor::invalid_cmdline_arg_continues
+test test_uu_factor_invalid_cmdline_arg_continues { |ctx|
+  let s = uu.scene(ctx)?
+  let r = uu.invoke(s, "factor", ["a", "4"])?
+  uu.fails_with_code(r, 1)
+  uu.stdout_is(r, "4: 2 2\n")
+  uu.stderr_is(r, "factor: 'a' is not a valid positive integer\n")
+}
+
+# origin: uutils test_factor::test_stdin_clean_error_message
+test test_uu_factor_stdin_clean_error_message { |ctx|
+  let s = uu.scene(ctx)?
+  uu.mkdir(s, "directory")
+  let r = uu.invoke_from_path(s, "factor", [], uu.at(s, "directory"))?
+  uu.fails(r)
+  uu.stderr_is(r, "factor: error reading input: Is a directory\n")
+}
+
+# origin: uutils test_factor::short_circuit_write_error
+test test_uu_factor_short_circuit_write_error { |ctx|
+  let s = uu.scene(ctx)?
+  let r = uu.invoke(s, "factor", ["12", "10"], stdout: p"/dev/full")?
+  uu.fails(r)
+  uu.stderr_is(r, "factor: write error: No space left on device\n")
+}
+
+
+# origin: uutils test_factor::test_big_primes
+test test_uu_factor_big_primes { |ctx|
+  test.timeout(ctx, 250s)
+  let s = uu.scene(ctx)?
+  let expected = TEST_BIG_PRIMES_OUTPUT.join("")
+  let input = bytes.from_text([line.split(":")[0] + " " for line in expected.lines()].join(""))
+  let r = uu.invoke(s, "factor", [], input, timeout: 240s)?
+  uu.succeeds(r)
+  uu.stdout_is(r, expected)
+}
+
+
+# origin: uutils test_factor::test_primes_with_exponents
+test test_uu_factor_primes_with_exponents { |ctx|
+  test.timeout(ctx, 250s)
+  let s = uu.scene(ctx)?
+  let expected = TEST_PRIMES_WITH_EXPONENTS_OUTPUT.join("")
+  let input = bytes.from_text([line.split(":")[0] + " " for line in expected.lines()].join(""))
+  let r = uu.invoke(s, "factor", ["--exponents"], input, timeout: 240s)?
+  uu.succeeds(r)
+  uu.stdout_is(r, expected)
+}
+
+
+# origin: uutils test_factor::test_random
+test test_uu_factor_random { |ctx|
+  test.timeout(ctx, 250s)
+  let s = uu.scene(ctx)?
+  let expected = TEST_RANDOM_OUTPUT.join("")
+  let input = bytes.from_text([line.split(":")[0] + " " for line in expected.lines()].join(""))
+  let r = uu.invoke(s, "factor", [], input, timeout: 240s)?
+  uu.succeeds(r)
+  uu.stdout_is(r, expected)
+}
+
 
 # origin: uutils test_factor::test_random_big
 test test_uu_factor_random_big { |ctx|

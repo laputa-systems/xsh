@@ -225,7 +225,7 @@ test test_uu_shred_shred_remove { |ctx|
 
 # origin: uutils test_shred::test_shred_remove_unlink
 test test_uu_shred_shred_remove_unlink { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   for argument in ["--remove=unlink", "--remove=unlin", "--remove=u"] {
     let scene = uu.scene(ctx)?
     uu.touch(scene, "test_shred_remove_unlink")
@@ -256,7 +256,7 @@ test test_uu_shred_shred_remove_wipe { |ctx|
 
 # origin: uutils test_shred::test_shred_remove_wipesync
 test test_uu_shred_shred_remove_wipesync { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   for argument in ["--remove=wipesync", "--remove=wipesyn", "--remove=wipes"] {
     let scene = uu.scene(ctx)?
     uu.touch(scene, "test_shred_remove_wipesync")

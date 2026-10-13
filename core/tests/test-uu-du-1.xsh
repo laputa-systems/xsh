@@ -623,7 +623,7 @@ test test_uu_du_du_files0_from_dir { |ctx|
 
 # origin: uutils test_du::test_du_h_locale_decimal_separator
 test test_uu_du_du_h_locale_decimal_separator { |ctx|
-  let s = scene(ctx)?
+  let _ = scene(ctx)?
   for case in [{locale: "fr_FR.UTF-8", text: "8,4K"}, {locale: "C", text: "8.4K"}] {
     let each = scene(ctx)?
     uu.touch(each, "test.txt")
@@ -637,7 +637,7 @@ test test_uu_du_du_h_locale_decimal_separator { |ctx|
 
 # origin: uutils test_du::test_du_h_precision
 test test_uu_du_du_h_precision { |ctx|
-  let s = scene(ctx)?
+  let _ = scene(ctx)?
   for case in [{size: 133456345, text: "128M"}, {size: 12582912, text: "12M"}, {size: 8500, text: "8.4K"}] {
     let each = scene(ctx)?
     uu.touch(each, "test.txt")

@@ -250,7 +250,7 @@ test test_uu_chgrp_chgrp_non_utf8_paths { |ctx|
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"test content")
   let gid = unix.id()?.egid
-  let r = uu.invoke_paths(s, "chgrp", [Path(f"{gid}"), b"\xff\xfe" as Path])?
+  let r = uu.invoke_paths(s, "chgrp", [fp"{gid}", b"\xff\xfe" as Path])?
   uu.succeeds(r)
 }
 

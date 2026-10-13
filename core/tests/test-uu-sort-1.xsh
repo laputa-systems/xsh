@@ -5,7 +5,7 @@ use support.uu
 proc limited(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran] {
   let out = uu.at(s, "limited.stdout")
   let err = uu.at(s, "limited.stderr")
-  let argv = [p"/bin/sh", p"-c", Path(r"""ulimit -Sn 27 && ulimit -Hn 27 && exec "$@" """), p"sort-limit"].extend(uu.argv(s, "sort", [Path(arg) for arg in args])?)
+  let argv = [p"/bin/sh", p"-c", r"""ulimit -Sn 27 && ulimit -Hn 27 && exec "$@" """ as Path, p"sort-limit"].extend(uu.argv(s, "sort", [fp"{arg}" for arg in args])?)
   let status = process.run(process.command_argv(p"/bin/sh", argv, s.root, {}, b"", out, err))?
   Ok({util: "sort", args: args, status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
@@ -298,7 +298,7 @@ test test_uu_sort_does_not_inherit_key_settings { |ctx|
 test test_uu_sort_empty_input_empty_output { |ctx|
   let s = uu.scene(ctx)?
   uu.write(s, "file", "test test test")
-  let r1 = uu.invoke(s, "sort", [])?
+  let _ = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["-o", "file"])?
   uu.succeeds(r2)
   assert uu.read_text(s, "file")? == ""
@@ -418,7 +418,7 @@ test test_uu_sort_files0_from_double_nul_is_invalid { |ctx|
 test test_uu_sort_files0_from_empty_input_file { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "file")
-  let r1 = uu.invoke(s, "sort", [])?
+  let _ = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "file"])?
   uu.fails_with_code(r2, 2)
   uu.stderr_only(r2, "sort: no input from 'file'\n")
@@ -454,7 +454,7 @@ test test_uu_sort_files0_from_single_entry { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "words")
   uu.append(s, "words", "mango\nkiwi")
-  let r1 = uu.invoke(s, "sort", [])?
+  let _ = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "-"], stdin: b"words")?
   uu.succeeds(r2)
   uu.stdout_only(r2, "kiwi\nmango\n")
@@ -465,7 +465,7 @@ test test_uu_sort_files0_from_single_entry_trailing_nul { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "words")
   uu.append(s, "words", "mango\nkiwi")
-  let r1 = uu.invoke(s, "sort", [])?
+  let _ = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "-"], stdin: b"words\x00")?
   uu.succeeds(r2)
   uu.stdout_only(r2, "kiwi\nmango\n")
@@ -484,7 +484,7 @@ test test_uu_sort_files0_from_two_entries { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "words")
   uu.append(s, "words", "mango\nkiwi")
-  let r1 = uu.invoke(s, "sort", [])?
+  let _ = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "-"], stdin: b"words\x00words")?
   uu.succeeds(r2)
   uu.stdout_only(r2, "kiwi\nkiwi\nmango\nmango\n")
@@ -495,7 +495,7 @@ test test_uu_sort_files0_from_two_entries_trailing_nul { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "words")
   uu.append(s, "words", "mango\nkiwi")
-  let r1 = uu.invoke(s, "sort", [])?
+  let _ = uu.invoke(s, "sort", [])?
   let r2 = uu.invoke(s, "sort", ["--files0-from", "-"], stdin: b"words\x00words\x00")?
   uu.succeeds(r2)
   uu.stdout_only(r2, "kiwi\nkiwi\nmango\nmango\n")
@@ -925,8 +925,8 @@ test test_uu_sort_debug_key_annotations { |ctx|
 # Keep the three locale annotation launches and the original normalization together.
 proc locale_annotations(s: uu.Scene, locale: Str) [fs, process, env, error] {
   var output = ""
-  for locale in ["C", locale] {
-    let r = uu.invoke(s, "sort", ["--debug", "-k2g", "-k1b,1"], stdin: bytes.from_text("   1²---++3   1,234  Mi\n"), vars: {LC_ALL: locale})?
+  for current_locale in ["C", locale] {
+    let r = uu.invoke(s, "sort", ["--debug", "-k2g", "-k1b,1"], stdin: bytes.from_text("   1²---++3   1,234  Mi\n"), vars: {LC_ALL: current_locale})?
     uu.succeeds(r)
     output += r.stdout as Str
   }

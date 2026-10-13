@@ -207,46 +207,46 @@ test test_uu_split_elide_empty_files_n_chunks { |ctx|
 
 # origin: uutils test_split::test_empty_input_does_not_create_output
 test test_uu_split_empty_input_does_not_create_output { |ctx|
-  let s = split_scene(ctx)?
+  let _ = split_scene(ctx)?
   for args in [[], ["-b", "1"], ["-l", "1"], ["-C", "1"]] {
-    let s = split_scene(ctx)?
-    let r = uu.invoke(s, "split", args.extend(["--verbose"]), stdin: b"")?
+    let fresh = split_scene(ctx)?
+    let r = uu.invoke(fresh, "split", args.extend(["--verbose"]), stdin: b"")?
     uu.succeeds(r)
     uu.no_output(r)
-    assert !uu.exists(s, "xaa")?
-    uu.touch(s, "empty")
-    let file = uu.invoke(s, "split", args.extend(["empty"]))?
+    assert !uu.exists(fresh, "xaa")?
+    uu.touch(fresh, "empty")
+    let file = uu.invoke(fresh, "split", args.extend(["empty"]))?
     uu.succeeds(file)
     uu.no_output(file)
-    assert !uu.exists(s, "xaa")?
+    assert !uu.exists(fresh, "xaa")?
   }
 }
 
 # origin: uutils test_split::test_empty_input_preserves_existing_output
 test test_uu_split_empty_input_preserves_existing_output { |ctx|
-  let s = split_scene(ctx)?
+  let _ = split_scene(ctx)?
   for args in [[], ["-b", "1"], ["-l", "1"], ["-C", "1"]] {
-    let s = split_scene(ctx)?
-    uu.write(s, "xaa", "keep this output\n")
-    let r = uu.invoke(s, "split", args, stdin: b"")?
+    let fresh = split_scene(ctx)?
+    uu.write(fresh, "xaa", "keep this output\n")
+    let r = uu.invoke(fresh, "split", args, stdin: b"")?
     uu.succeeds(r)
     uu.no_output(r)
-    uu.file_is(s, "xaa", "keep this output\n")
-    assert !uu.exists(s, "xab")?
+    uu.file_is(fresh, "xaa", "keep this output\n")
+    assert !uu.exists(fresh, "xab")?
   }
 }
 
 # origin: uutils test_split::test_empty_input_with_output_directory
 test test_uu_split_empty_input_with_output_directory { |ctx|
-  let s = split_scene(ctx)?
+  let _ = split_scene(ctx)?
   for args in [[], ["-b", "1"], ["-l", "1"], ["-C", "1"]] {
-    let s = split_scene(ctx)?
-    uu.mkdir(s, "xaa")
-    let r = uu.invoke(s, "split", args, stdin: b"")?
+    let fresh = split_scene(ctx)?
+    uu.mkdir(fresh, "xaa")
+    let r = uu.invoke(fresh, "split", args, stdin: b"")?
     uu.succeeds(r)
     uu.no_output(r)
-    assert uu.dir_exists(s, "xaa")?
-    assert !uu.exists(s, "xab")?
+    assert uu.dir_exists(fresh, "xaa")?
+    assert !uu.exists(fresh, "xab")?
   }
 }
 
@@ -263,7 +263,7 @@ test test_uu_split_filter { |ctx|
 # origin: uutils test_split::test_filter_broken_pipe
 test test_uu_split_filter_broken_pipe { |ctx|
   let s = split_scene(ctx)?
-  random_lines(s, "filter-big-input", 1024 * 10)
+  random_lines(s, "filter-big-input", 10KiB)
   let r = uu.invoke(s, "split", ["--filter=head -c1 > /dev/null", "-n", "r/1", "filter-big-input"], timeout: 5s)?
   uu.succeeds(r)
 }
@@ -905,16 +905,16 @@ test test_uu_split_split_default_with_io_blksize { |ctx|
 
 # origin: uutils test_split::test_split_directory_already_exists
 test test_uu_split_split_directory_already_exists { |ctx|
-  let s = split_scene(ctx)?
+  let _ = split_scene(ctx)?
   for args in [[], ["-b", "1"], ["-l", "1"], ["-C", "1"]] {
-    let s = split_scene(ctx)?
-    uu.mkdir(s, "xaa")
-    let r = uu.invoke(s, "split", args, stdin: b"data\n")?
+    let fresh = split_scene(ctx)?
+    uu.mkdir(fresh, "xaa")
+    let r = uu.invoke(fresh, "split", args, stdin: b"data\n")?
     uu.fails_with_code(r, 1)
     uu.no_stdout(r)
     uu.stderr_is(r, "split: xaa: Is a directory\n")
-    assert uu.dir_exists(s, "xaa")?
-    assert !uu.exists(s, "xab")?
+    assert uu.dir_exists(fresh, "xaa")?
+    assert !uu.exists(fresh, "xab")?
   }
 }
 

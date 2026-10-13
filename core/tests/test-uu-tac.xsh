@@ -268,7 +268,7 @@ test test_uu_tac_stdin_non_newline_separator_before { |ctx|
 test test_uu_tac_tac_file_truncated_during_read_does_not_crash { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "input")
-  uu.truncate(s, "input", 64 * 1024 * 1024)
+  uu.truncate(s, "input", 64MiB)
   let plan = uu.command(s, "tac", ["input"], stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 10s)?
   let child = spawn plan?
   time.sleep(2ms)
@@ -290,7 +290,7 @@ test test_uu_tac_tac_non_utf8_paths { |ctx|
 test test_uu_tac_tac_stdin_redirected_file_truncated_during_read_does_not_crash { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "input")
-  uu.truncate(s, "input", 64 * 1024 * 1024)
+  uu.truncate(s, "input", 64MiB)
   let argv = uu.argv(s, "tac", [])?
   let plan = process.command_argv(ctx.xsh_bin, argv, s.root, {}, uu.at(s, "input"), uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
   let child = spawn plan?

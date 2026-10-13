@@ -608,35 +608,35 @@ test test_uu_touch_touch_set_mdhms_time { |ctx|
 
 # origin: uutils test_touch::test_touch_set_only_atime
 test test_uu_touch_touch_set_only_atime { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   for option in ["-a", "--time=access", "--time=atime", "--time=atim", "--time=a", "--time=use"] {
-    let s = uu.scene(ctx)?
+    let fresh = uu.scene(ctx)?
     let file = "test_touch_set_only_atime"
-    let r = uu.invoke(s, "touch", ["-t", "201501011234", option, file])?
+    let r = uu.invoke(fresh, "touch", ["-t", "201501011234", option, file])?
     uu.succeeds(r)
     uu.no_stderr(r)
-    assert uu.file_exists(s, file)?
-    let meta = fs.stat(uu.at(s, file))?
+    assert uu.file_exists(fresh, file)?
+    let meta = fs.stat(uu.at(fresh, file))?
     assert meta.atime_ns != meta.mtime_ns
     assert meta.atime_ns / 1000000000 - 1420070400 == 45240
-    uu.remove(s, file)
+    uu.remove(fresh, file)
   }
 }
 
 # origin: uutils test_touch::test_touch_set_only_mtime
 test test_uu_touch_touch_set_only_mtime { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   for option in ["-m", "--time=modify", "--time=mtime", "--time=m"] {
-    let s = uu.scene(ctx)?
+    let fresh = uu.scene(ctx)?
     let file = "test_touch_set_only_mtime"
-    let r = uu.invoke(s, "touch", ["-t", "201501011234", option, file])?
+    let r = uu.invoke(fresh, "touch", ["-t", "201501011234", option, file])?
     uu.succeeds(r)
     uu.no_stderr(r)
-    assert uu.file_exists(s, file)?
-    let meta = fs.stat(uu.at(s, file))?
+    assert uu.file_exists(fresh, file)?
+    let meta = fs.stat(uu.at(fresh, file))?
     assert meta.atime_ns != meta.mtime_ns
     assert meta.mtime_ns / 1000000000 - 1420070400 == 45240
-    uu.remove(s, file)
+    uu.remove(fresh, file)
   }
 }
 

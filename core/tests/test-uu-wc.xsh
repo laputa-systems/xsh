@@ -193,7 +193,7 @@ test test_uu_wc_files0_progressive_stream { |ctx|
   let errors = unix.open_fd(uu.at(s, "stream-errors"), nonblock: true)?
   defer unix.close_fd(errors)
   let words = uu.argv(s, "wc", [p"--files0-from=-"])?
-  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", Path(r"""exec "$@" <stream-input >stream-output 2>stream-errors """), p"sh"].extend(words), s.root, {}, b"", uu.at(s, "outer-out"), uu.at(s, "outer-err"), timeout: 10s)
+  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", r"""exec "$@" <stream-input >stream-output 2>stream-errors """ as Path, p"sh"].extend(words), s.root, {}, b"", uu.at(s, "outer-out"), uu.at(s, "outer-err"), timeout: 10s)
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let deadline = time.now() + 5000
@@ -300,7 +300,7 @@ test test_uu_wc_read_error_order_with_stderr_to_stdout { |ctx|
   let words = uu.argv(s, "wc", [p"ioerrdir"])?
   let out = uu.at(s, "merged-output")
   let err = uu.at(s, "outer-errors")
-  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", Path(r"""exec "$@" 2>&1 """), p"sh"].extend(words), s.root, {}, b"", out, err)
+  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", r"""exec "$@" 2>&1 """ as Path, p"sh"].extend(words), s.root, {}, b"", out, err)
   let status = process.run(plan)?
   assert ! status.exited_with(0)
   assert out.read_bytes()? == b"      0       0       0 ioerrdir\nwc: ioerrdir: Is a directory\n"

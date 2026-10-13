@@ -179,7 +179,7 @@ test test_uu_echo_child_when_run_with_a_non_blocking_util { |ctx|
 test test_uu_echo_cmd_result_signal_when_normal_exit_then_no_signal { |ctx|
   let s = uu.scene(ctx)?
   # The helper requires an exit code; a signaled child cannot produce Ran.
-  let r = uu.invoke(s, "echo", [])?
+  let _ = uu.invoke(s, "echo", [])?
 }
 
 # origin: uutils test_echo::test_cmd_result_stderr_check_and_stderr_str_check

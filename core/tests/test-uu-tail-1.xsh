@@ -1,5 +1,5 @@
 ##! Transcribed behavior from the MIT-licensed uutils tail integration tests.
-use support.uu as uu
+use support.uu
 type InputCase = {args: List[Str], input: Union[Bytes, Path], expected: Str}
 
 proc fixture_bytes(ctx: TestContext, name: Str) [fs, error] -> Result[Bytes, Error] {
@@ -25,12 +25,12 @@ proc append(s: uu.Scene, name: Str, data: Str) [fs, process, net, error] {
 }
 
 # Every follow run uses its own captures; callers own the handle and cancel it on scope exit.
-proc follow(s: uu.Scene, args: List[Str], input: Union[Bytes, Path] = b"", merged: Bool = false) [fs, process, env, error] -> Result[Command, Error] {
-  let argv = uu.argv(s, "tail", [Path(word) for word in args])?
+proc follow(s: uu.Scene, args: List[Str], input: Union[Bytes, Path] = b"", merged = false) [fs, process, env, error] -> Result[Command, Error] {
+  let argv = uu.argv(s, "tail", [fp"{word}" for word in args])?
   let out = uu.at(s, ".live-out")
   let err = uu.at(s, ".live-err")
   if merged {
-    let words = [p"/bin/sh", p"-c", Path(r"""exec "$@" 2>&1"""), p"tail-merged"].extend(argv)
+    let words = [p"/bin/sh", p"-c", r"""exec "$@" 2>&1""" as Path, p"tail-merged"].extend(argv)
     if input is Path { Ok(process.command_argv(p"/bin/sh", words, s.root, {}, input, out, err)) } else { Ok(process.command_argv(p"/bin/sh", words, s.root, {}, input, out, err)) }
   } else {
     if input is Path { Ok(process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, input, out, err)) } else { Ok(process.command_argv(s.ctx.xsh_bin, argv, s.root, {}, input, out, err)) }
@@ -38,7 +38,7 @@ proc follow(s: uu.Scene, args: List[Str], input: Union[Bytes, Path] = b"", merge
 }
 
 # Status belongs to the separately asserted process handle. This view carries only stream bytes.
-proc streams(s: uu.Scene, out_offset: Int = 0, err_offset: Int = 0) [fs, error] -> Result[uu.Ran, Error] {
+proc streams(s: uu.Scene, out_offset = 0, err_offset = 0) [fs, error] -> Result[uu.Ran, Error] {
   let out = uu.at(s, ".live-out").read_bytes()?
   let err = uu.at(s, ".live-err").read_bytes()?
   Ok({util: "tail", args: [], status: 0, stdout: out[out_offset..], stderr: err[err_offset..]})
@@ -49,9 +49,9 @@ proc alive(child: ProcessHandle) [process, error] {
 }
 
 proc wait_output(s: uu.Scene, out: Bytes, err: Bytes) [fs, process, time, error] {
-  for i in range(500) {
+  repeat 500 times {
     let current = streams(s)?
-    if current.stdout == out and current.stderr == err { return }
+    return when current.stdout == out and current.stderr == err
     time.sleep(10ms)
   }
   let current = streams(s)?
@@ -323,7 +323,7 @@ test test_uu_tail_bytes_big { |ctx|
 test test_uu_tail_bytes_for_funny_unix_files { |ctx|
   let s = uu.scene(ctx)?
   for file in [p"/proc/version", p"/sys/kernel/profiling"] {
-    if !file.is_file() { continue }
+    guard file.is_file() else { continue }
     let data = file.read_bytes()?
     let expected = if data.is_empty() { b"" } else { data[data.len() - 1..] }
     let r = uu.invoke(s, "tail", ["--bytes", "1", file.display()])?
@@ -451,16 +451,16 @@ test test_uu_tail_fifo { |ctx|
 test test_uu_tail_fifo_with_pid { |ctx|
   let s = uu.scene(ctx)?
   uu.mkfifo(s, ".dummy-input")
-  let dummy_plan = process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", Path(r"""echo $$ > .dummy-pid; exec /bin/sh < .dummy-input""")], s.root, {}, b"", uu.at(s, ".dummy-out"), uu.at(s, ".dummy-err"))
+  let dummy_plan = process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", r"""echo $$ > .dummy-pid; exec /bin/sh < .dummy-input""" as Path], s.root, {}, b"", uu.at(s, ".dummy-out"), uu.at(s, ".dummy-err"))
   let dummy = spawn dummy_plan ?
   defer dummy.cancel(signal: "KILL", kill_after: 0ms)
   let writer = unix.open_fd(uu.at(s, ".dummy-input"), write: true)?
   defer unix.close_fd(writer)
-  for i in range(500) {
+  repeat 500 times {
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }
-  let pid = uu.read_text(s, ".dummy-pid")?.trim().parse_int()?
+  let pid = uu.read_text(s, ".dummy-pid")?.trim() as Int
   uu.mkfifo(s, "FIFO")
   let plan = follow(s, ["-f", f"--pid={pid}", "FIFO"])?
   let child = spawn plan ?
@@ -468,7 +468,7 @@ test test_uu_tail_fifo_with_pid { |ctx|
   time.sleep(500ms)
   alive(child)
   process.kill(pid, "USR1")
-  let dead = process.wait_any([dummy])?
+  let _ = process.wait_any([dummy])?
   time.sleep(1000ms)
   let finished = process.wait_timeout([child], 0ms)?
   assert finished != null
@@ -551,7 +551,7 @@ test test_uu_tail_follow_detects_file_truncation { |ctx|
   for row in [{delay: 1000ms, extra: ["---disable-inotify"]}, {delay: 250ms, extra: []}] {
     for mode in ["-f", "-F"] {
       uu.write(s, "data", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-  let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "data"].extend(row.extra).extend([mode]))?
+  let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "data", @row.extra, mode])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
       time.sleep(row.delay)
@@ -670,7 +670,7 @@ test test_uu_tail_follow_name_multiple { |ctx|
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let initial_expected = fixture_bytes(ctx, "foobar_follow_multiple.expected")?
-  wait_output(s, initial_expected, b"")?
+  wait_output(s, initial_expected, b"")
   alive(child)
   let initial = streams(s)?
   uu.stdout_only_bytes(initial, initial_expected)
@@ -728,14 +728,14 @@ test test_uu_tail_follow_name_truncate1 { |ctx|
   let s = uu.scene(ctx)?
   uu.fixture(s, "tail", "follow_name.txt", "follow_name.txt")
   let expected = fixture_bytes(ctx, "follow_name.expected")?
-  let text = expected.utf8()?
+  let text = expected as Str
   let prefix = text.split("END(25)\n")[0] + "END(25)\n"
   let plan = follow(s, ["--follow=name", "follow_name.txt"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   alive(child)
-  for i in range(500) {
-    if streams(s)?.stdout == bytes.from_text(prefix) { break }
+  repeat 500 times {
+    break when streams(s)?.stdout == bytes.from_text(prefix)
     time.sleep(10ms)
   }
   uu.at(s, "follow_name.txt").copy(to: uu.at(s, "backup"))
@@ -873,8 +873,8 @@ test test_uu_tail_follow_stdin_descriptor { |ctx|
   let s = uu.scene(ctx)?
   uu.mkfifo(s, ".input-pipe")
   for args in [["-f", "-"], ["-f"]] {
-  let argv = uu.argv(s, "tail", [Path(word) for word in args])?
-  let words = [p"/bin/sh", p"-c", Path(r"""exec "$@" < .input-pipe"""), p"tail-input"].extend(argv)
+  let argv = uu.argv(s, "tail", [fp"{word}" for word in args])?
+  let words = [p"/bin/sh", p"-c", r"""exec "$@" < .input-pipe""" as Path, p"tail-input"].extend(argv)
   let plan = process.command_argv(p"/bin/sh", words, s.root, {}, b"", uu.at(s, ".live-out"), uu.at(s, ".live-err"))
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
@@ -915,7 +915,7 @@ test test_uu_tail_follow_stdout_pipe_close { |ctx|
   uu.write(s, "f", "line1\nline2\n")
   uu.mkfifo(s, ".output-pipe")
   let argv = uu.argv(s, "tail", [p"-f", p"-s.1", p"--max-unchanged-stats=1", p"f"])?
-  let words = [p"/bin/sh", p"-c", Path(r"""exec "$@" > .output-pipe"""), p"tail-output"].extend(argv)
+  let words = [p"/bin/sh", p"-c", r"""exec "$@" > .output-pipe""" as Path, p"tail-output"].extend(argv)
   let plan = process.command_argv(p"/bin/sh", words, s.root, {}, b"", uu.at(s, ".live-out"), uu.at(s, ".live-err"))
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
@@ -969,16 +969,16 @@ test test_uu_tail_follow_with_pid { |ctx|
   uu.fixture(s, "tail", "foobar.txt", "foobar.txt")
   uu.fixture(s, "tail", "foobar2.txt", "foobar2.txt")
   uu.mkfifo(s, ".dummy-input")
-  let dummy_plan = process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", Path(r"""echo $$ > .dummy-pid; exec /bin/sh < .dummy-input""")], s.root, {}, b"", uu.at(s, ".dummy-out"), uu.at(s, ".dummy-err"))
+  let dummy_plan = process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", r"""echo $$ > .dummy-pid; exec /bin/sh < .dummy-input""" as Path], s.root, {}, b"", uu.at(s, ".dummy-out"), uu.at(s, ".dummy-err"))
   let dummy = spawn dummy_plan ?
   defer dummy.cancel(signal: "KILL", kill_after: 0ms)
   let writer = unix.open_fd(uu.at(s, ".dummy-input"), write: true)?
   defer unix.close_fd(writer)
-  for i in range(500) {
+  repeat 500 times {
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }
-  let pid = uu.read_text(s, ".dummy-pid")?.trim().parse_int()?
+  let pid = uu.read_text(s, ".dummy-pid")?.trim() as Int
   let plan = follow(s, ["-f", f"--pid={pid}", "foobar.txt", "foobar2.txt"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
@@ -996,7 +996,7 @@ test test_uu_tail_follow_with_pid { |ctx|
   let second = streams(s)?
   uu.stdout_only_bytes(streams(s, first.stdout.len(), first.stderr.len())?, fixture_bytes(ctx, "foobar_follow_multiple_appended.expected")?)
   process.kill(pid, "USR1")
-  let dead = process.wait_any([dummy])?
+  let _ = process.wait_any([dummy])?
   time.sleep(1000ms)
   append(s, "foobar.txt", "should\nbe\nignored\n")
   time.sleep(1000ms)
@@ -1010,25 +1010,25 @@ test test_uu_tail_follow_with_pid { |ctx|
 test test_uu_tail_following_with_pid { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "f")
-  let dummy_plan = process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", Path(r"""echo $$ > .dummy-pid; exec sleep 999d""")], s.root, {}, b"", uu.at(s, ".dummy-out"), uu.at(s, ".dummy-err"))
+  let dummy_plan = process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", r"""echo $$ > .dummy-pid; exec sleep 999d""" as Path], s.root, {}, b"", uu.at(s, ".dummy-out"), uu.at(s, ".dummy-err"))
   let dummy = spawn dummy_plan ?
   defer dummy.cancel(signal: "KILL", kill_after: 0ms)
-  for i in range(500) {
-    if uu.at(s, ".dummy-pid").exists() { break }
+  repeat 500 times {
+    break when uu.at(s, ".dummy-pid").exists()
     time.sleep(10ms)
   }
-  for i in range(500) {
+  repeat 500 times {
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }
-  let pid = uu.read_text(s, ".dummy-pid")?.trim().parse_int()?
+  let pid = uu.read_text(s, ".dummy-pid")?.trim() as Int
   let plan = follow(s, ["--pid", f"{pid}", "-f", uu.at(s, "f").display()], merged: true)?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   time.sleep(2000ms)
   alive(child)
   process.kill(pid, "KILL")
-  let dead = process.wait_any([dummy])?
+  let _ = process.wait_any([dummy])?
   time.sleep(2000ms)
   assert process.wait_timeout([child], 0ms)? != null
   child.cancel(signal: "KILL", kill_after: 0ms)

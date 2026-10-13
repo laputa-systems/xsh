@@ -65,7 +65,7 @@ proc seek_stdin(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resul
   unix.exec(process.command_argv(words[1], words[1..]))?
 }
 """))?
-  let argv = uu.argv(s, "tail", [Path(arg) for arg in args])?
+  let argv = uu.argv(s, "tail", [fp"{arg}" for arg in args])?
   wrapped(s, args, [s.ctx.xsh_bin, launcher, uu.at(s, "k")].extend(argv))
 }
 
@@ -75,7 +75,7 @@ proc start(s: uu.Scene, args: List[Str], held_stdin = false) [fs, process, env, 
   let err = fp"{captures}/stderr"
   out.write(b"")
   err.write(b"")
-  let argv = uu.argv(s, "tail", [Path(arg) for arg in args])?
+  let argv = uu.argv(s, "tail", [fp"{arg}" for arg in args])?
   let words = if held_stdin {
     let fifo = fp"{captures}/stdin"
     fs.mkfifo(fifo, 0o600)
@@ -1298,7 +1298,7 @@ test test_uu_tail_stdin_via_script_redirection_and_pipe { |ctx|
   let argv = uu.argv(s, "tail", [], vars)?
   shim.write("#!/bin/sh\nexec " + [shell_quote(word) for word in argv].join(" ") + "\n", mode: 0o755)
   for script in ["./test.sh < file.txt", "cat file.txt | ./test.sh"] {
-    let r = wrapped(s, [], [p"/bin/sh", p"-c", Path(script)], vars)?
+    let r = wrapped(s, [], [p"/bin/sh", p"-c", fp"{script}"], vars)?
     uu.succeeds(r)
     uu.stdout_only(r, "line1\nline2\n")
   }
@@ -1590,8 +1590,8 @@ test test_uu_tail_when_output_closed_then_no_broken_pipe { |ctx|
   let state = test.temp_dir(ctx, name: "tail-closed")?
   let status_file = fp"{state}/status"
   let args = ["-c", "10000000", "input"]
-  let argv = uu.argv(s, "tail", [Path(arg) for arg in args])?
-  let shell = Path(r"""status=$1; shift; ( "$@"; rc=$?; printf '%s\n' "$rc" >"$status" ) | { exit 0; }""")
+  let argv = uu.argv(s, "tail", [fp"{arg}" for arg in args])?
+  let shell = r"""status=$1; shift; ( "$@"; rc=$?; printf '%s\n' "$rc" >"$status" ) | { exit 0; }""" as Path
   let result = wrapped(s, args, [p"/bin/sh", p"-c", shell, p"sh", status_file].extend(argv))?
   let status = status_file.read_text()?.trim() as Int
   assert status != 0, "closed stdout must make tail fail"

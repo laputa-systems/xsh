@@ -319,24 +319,24 @@ test test_uu_date_date_ethiopian_locale_calendar { |ctx|
   uu.succeeds(r)
   let current_year = r.stdout.utf8()?.trim() as Int
   {
-  let r = uu.invoke(s, "date", ["-d", f"{current_year}-09-10", "+%Y"], vars: {LC_ALL: "am_ET.UTF-8"})?
-  uu.succeeds(r)
-  assert r.stdout.utf8()?.trim() as Int == current_year - 8
+  let localized = uu.invoke(s, "date", ["-d", f"{current_year}-09-10", "+%Y"], vars: {LC_ALL: "am_ET.UTF-8"})?
+  uu.succeeds(localized)
+  assert localized.stdout.utf8()?.trim() as Int == current_year - 8
   }
   {
-  let r = uu.invoke(s, "date", ["-d", f"{current_year}-09-12", "+%Y"], vars: {LC_ALL: "am_ET.UTF-8"})?
-  uu.succeeds(r)
-  assert r.stdout.utf8()?.trim() as Int == current_year - 7
+  let localized = uu.invoke(s, "date", ["-d", f"{current_year}-09-12", "+%Y"], vars: {LC_ALL: "am_ET.UTF-8"})?
+  uu.succeeds(localized)
+  assert localized.stdout.utf8()?.trim() as Int == current_year - 7
   }
   {
-  let r = uu.invoke(s, "date", ["--iso-8601=hours"], vars: {LC_ALL: "am_ET.UTF-8"})?
-  uu.succeeds(r)
-  assert r.stdout.utf8()?.starts_with(f"{current_year}")
+  let localized = uu.invoke(s, "date", ["--iso-8601=hours"], vars: {LC_ALL: "am_ET.UTF-8"})?
+  uu.succeeds(localized)
+  assert localized.stdout.utf8()?.starts_with(f"{current_year}")
   }
   {
-  let r = uu.invoke(s, "date", ["--rfc-3339=date"], vars: {LC_ALL: "am_ET.UTF-8"})?
-  uu.succeeds(r)
-  assert r.stdout.utf8()?.starts_with(f"{current_year}")
+  let localized = uu.invoke(s, "date", ["--rfc-3339=date"], vars: {LC_ALL: "am_ET.UTF-8"})?
+  uu.succeeds(localized)
+  assert localized.stdout.utf8()?.starts_with(f"{current_year}")
   }
 }
 
@@ -865,24 +865,24 @@ test test_uu_date_date_iranian_locale_solar_hijri_calendar { |ctx|
   uu.succeeds(r)
   let current_year = r.stdout.utf8()?.trim() as Int
   {
-  let r = uu.invoke(s, "date", ["-d", f"{current_year}-03-19", "+%Y"], vars: {LC_ALL: "fa_IR.UTF-8"})?
-  uu.succeeds(r)
-  assert r.stdout.utf8()?.trim() as Int == current_year - 622
+  let localized = uu.invoke(s, "date", ["-d", f"{current_year}-03-19", "+%Y"], vars: {LC_ALL: "fa_IR.UTF-8"})?
+  uu.succeeds(localized)
+  assert localized.stdout.utf8()?.trim() as Int == current_year - 622
   }
   {
-  let r = uu.invoke(s, "date", ["-d", f"{current_year}-03-22", "+%Y"], vars: {LC_ALL: "fa_IR.UTF-8"})?
-  uu.succeeds(r)
-  assert r.stdout.utf8()?.trim() as Int == current_year - 621
+  let localized = uu.invoke(s, "date", ["-d", f"{current_year}-03-22", "+%Y"], vars: {LC_ALL: "fa_IR.UTF-8"})?
+  uu.succeeds(localized)
+  assert localized.stdout.utf8()?.trim() as Int == current_year - 621
   }
   {
-  let r = uu.invoke(s, "date", ["--iso-8601=hours"], vars: {LC_ALL: "fa_IR.UTF-8"})?
-  uu.succeeds(r)
-  assert r.stdout.utf8()?.starts_with(f"{current_year}")
+  let localized = uu.invoke(s, "date", ["--iso-8601=hours"], vars: {LC_ALL: "fa_IR.UTF-8"})?
+  uu.succeeds(localized)
+  assert localized.stdout.utf8()?.starts_with(f"{current_year}")
   }
   {
-  let r = uu.invoke(s, "date", ["--rfc-3339=date"], vars: {LC_ALL: "fa_IR.UTF-8"})?
-  uu.succeeds(r)
-  assert r.stdout.utf8()?.starts_with(f"{current_year}")
+  let localized = uu.invoke(s, "date", ["--rfc-3339=date"], vars: {LC_ALL: "fa_IR.UTF-8"})?
+  uu.succeeds(localized)
+  assert localized.stdout.utf8()?.starts_with(f"{current_year}")
   }
 }
 

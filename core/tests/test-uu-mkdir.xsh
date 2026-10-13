@@ -266,7 +266,7 @@ test test_uu_mkdir_mkdir_trailing_dot { |ctx|
   uu.stdout_contains(r, "created directory 'test_dir_b'")
   let listing = uu.scene(ctx)?
   let listed = uu.invoke(listing, "ls", ["-al"])?
-  print listed.stdout.utf8()?
+  print ${listed.stdout as Str}
 }
 
 # origin: uutils test_mkdir::test_mkdir_trailing_dot_and_slash
@@ -280,7 +280,7 @@ test test_uu_mkdir_mkdir_trailing_dot_and_slash { |ctx|
   uu.stdout_contains(r, "created directory 'test_dir_a'")
   let listing = uu.scene(ctx)?
   let listed = uu.invoke(listing, "ls", ["-al"])?
-  print listed.stdout.utf8()?
+  print ${listed.stdout as Str}
 }
 
 # origin: uutils test_mkdir::test_recursive_reporting
@@ -374,7 +374,7 @@ test test_uu_mkdir_mkdir_explicit_mode_with_umask { |ctx|
 
 # origin: uutils test_mkdir::test_umask_compliance
 test test_uu_mkdir_umask_compliance { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   for mask in range(0o027) {
     let separate = uu.scene(ctx)?
     uu.succeeds(uu.invoke(separate, "mkdir", ["test_dir"], umask: mask)?)
@@ -384,7 +384,7 @@ test test_uu_mkdir_umask_compliance { |ctx|
 
 # origin: uutils test_mkdir::test_mkdir_mode_ignores_umask
 test test_uu_mkdir_mkdir_mode_ignores_umask { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   for case in [{spec: "0700", name: "test_700", mask: 0o077, expected: 0o40700}, {spec: "0777", name: "test_777", mask: 0o022, expected: 0o40777}, {spec: "0755", name: "test_755", mask: 0o077, expected: 0o40755}, {spec: "a=rwx", name: "test_symbolic", mask: 0o022, expected: 0o40777}] {
     let separate = uu.scene(ctx)?
     uu.succeeds(uu.invoke(separate, "mkdir", ["-m", case.spec, case.name], umask: case.mask)?)
@@ -438,8 +438,8 @@ test test_uu_mkdir_mkdir_acl_inheritance_with_restrictive_mask { |ctx|
 
 # origin: uutils test_mkdir::test_mkdir_concurrent_creation
 test test_uu_mkdir_mkdir_concurrent_creation { |ctx|
-  let s = uu.scene(ctx)?
-  for round in range(10) {
+  let _ = uu.scene(ctx)?
+  repeat 10 times {
     let separate = uu.scene(ctx)?
     let target = uu.at(separate, ["concurrent_test", ["a" for _ in range(41)].join("/")].join("/"))
     let jobs = [spawn (uu.command(separate, "mkdir", ["-p", target.display()],
@@ -453,7 +453,7 @@ test test_uu_mkdir_mkdir_concurrent_creation { |ctx|
 
 # origin: uutils test_mkdir::test_mkdir_concurrent_non_recursive
 test test_uu_mkdir_mkdir_concurrent_non_recursive { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   for round in range(10) {
     let separate = uu.scene(ctx)?
     let target = uu.at(separate, f"concurrent_target_{round}")

@@ -647,7 +647,7 @@ test test_uu_printf_positional_format_specifiers { |ctx|
   let r6 = uu.invoke(s, "printf", ["%0$d%d-", "5", "10", "6", "20"])?
   uu.fails_with_code(r6, 1)
   uu.stderr_only(r6, "printf: %0$: invalid conversion specification\n")
-  let r7 = uu.invoke(s, "printf", ["Octal: %6$o, Int: %1$d, Float: %4$f, String: %2$s, Hex: %7$x, Scientific: %5$e, Char: %9$c, Unsigned: %3$u, Integer: %8$i", "42", "hello", "100", "3.14159", "0.00001", "77", "255", "123", "A"])?
+  let r7 = uu.invoke(s, "printf", [r"Octal: %6$o, Int: %1$d, Float: %4$f, String: %2$s, Hex: %7$x, Scientific: %5$e, Char: %9$c, Unsigned: %3$u, Integer: %8$i", "42", "hello", "100", "3.14159", "0.00001", "77", "255", "123", "A"])?
   uu.succeeds(r7)
   uu.stdout_only(r7, "Octal: 115, Int: 42, Float: 3.141590, String: hello, Hex: ff, Scientific: 1.000000e-05, Char: A, Unsigned: 100, Integer: 123")
 }

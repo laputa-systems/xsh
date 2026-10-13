@@ -78,13 +78,13 @@ test test_uu_yes_long_line_exceeds_pipe_capacity { |ctx|
 # origin: uutils test_yes::test_long_odd_output
 test test_uu_yes_long_odd_output { |ctx|
   let s = uu.scene(ctx)?
-  yes_prefix(s, [p"abcdef"], bytes.from_text(repeat_text("abcdef\n", 1024 * 1024)))
+  yes_prefix(s, [p"abcdef"], bytes.from_text(repeat_text("abcdef\n", 1MiB)))
 }
 
 # origin: uutils test_yes::test_long_output
 test test_uu_yes_long_output { |ctx|
   let s = uu.scene(ctx)?
-  yes_prefix(s, [], bytes.from_text(repeat_text("y\n", 512 * 1024)))
+  yes_prefix(s, [], bytes.from_text(repeat_text("y\n", 512KiB)))
 }
 
 # origin: uutils test_yes::test_non_utf8

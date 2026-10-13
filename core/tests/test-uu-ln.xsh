@@ -159,7 +159,7 @@ test test_uu_ln_relative_dst_already_symlink { |ctx|
   uu.touch(s, "file1")
   scene_symlink(s, "file1", "file2")
   uu.succeeds(uu.invoke(s, "ln", ["-srf", "file1", "file2"])?)
-  let linked = uu.is_symlink(s, "file2")?
+  let _ = uu.is_symlink(s, "file2")?
 }
 
 # origin: uutils test_ln::test_relative_recursive

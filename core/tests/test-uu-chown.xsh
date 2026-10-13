@@ -235,7 +235,7 @@ test test_uu_chown_chown_no_change_to_user { |ctx|
 # origin: uutils test_chown::test_chown_no_change_to_group
 test test_uu_chown_chown_no_change_to_group { |ctx|
   let s = uu.scene(ctx)?
-  let user_name = identity(s, "whoami", [])?
+  let _ = identity(s, "whoami", [])?
   let group_name = identity(s, "id", ["-ng"])?
   let froms = ["42", ":42", "42:42"]
   for i in range(froms.len()) {

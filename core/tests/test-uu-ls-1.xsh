@@ -432,8 +432,8 @@ test test_uu_ls_ls_cf_output_should_be_delimited_by_tab { |ctx|
 test test_uu_ls_ls_bad_ls_colors_is_an_error_not_a_warning { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "marker")
-  let r1 = ls_run(s, [])?
-  let r2 = ls_run(s, [])?
+  let _ = ls_run(s, [])?
+  let _ = ls_run(s, [])?
 }
 
 # origin: uutils test_ls::test_a_overrides_f_files
@@ -863,7 +863,7 @@ test test_uu_ls_ls_block_size_si_file_size { |ctx|
 
 # origin: uutils test_ls::quoting::test_locale_aware_quoting
 test test_uu_ls_quoting_locale_aware_quoting { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   let scene0 = uu.scene(ctx)?
   let file0 = uu.at_bytes(scene0, b"\xf0\x9f\x98\x81")?
   file0.write(b"")

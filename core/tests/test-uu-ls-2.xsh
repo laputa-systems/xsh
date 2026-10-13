@@ -28,8 +28,8 @@ proc invoke_pipe(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resu
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
   let code = fp"{captures}/status"
-  let words = uu.argv(s, "ls", [Path(word) for word in args])?
-  let argv = [p"/bin/sh", p"-c", Path(r"""status=$1; shift; ("$@"; rc=$?; printf '%s\n' "$rc" >"$status") | cat; """), p"ls-pipe", code].extend(words)
+  let words = uu.argv(s, "ls", [fp"{word}" for word in args])?
+  let argv = [p"/bin/sh", p"-c", r"""status=$1; shift; ("$@"; rc=$?; printf '%s\n' "$rc" >"$status") | cat; """ as Path, p"ls-pipe", code].extend(words)
   let completed = process.run(process.command_argv(p"/bin/sh", argv, s.root, stdout: out, stderr: err, timeout: 30s))?
   assert completed.exited_with(0), "stdout capture pipeline failed"
   let status = code.read_text()?.trim() as Int
@@ -41,8 +41,8 @@ proc invoke_fd(s: uu.Scene, args: List[Str], file: Path) [fs, process, env, erro
   let captures = test.temp_dir(s.ctx, name: "ls-fd-captures")?
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
-  let words = uu.argv(s, "ls", [Path(word) for word in args])?
-  let argv = [p"/bin/sh", p"-c", Path(r"""exec 3<"$1"; shift; exec "$@"; """), p"ls-fd", file].extend(words)
+  let words = uu.argv(s, "ls", [fp"{word}" for word in args])?
+  let argv = [p"/bin/sh", p"-c", r"""exec 3<"$1"; shift; exec "$@"; """ as Path, p"ls-fd", file].extend(words)
   let status = process.run(process.command_argv(p"/bin/sh", argv, s.root, stdout: out, stderr: err, timeout: 30s))?.exit_code()?
   Ok({util: "ls", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
@@ -685,7 +685,7 @@ test test_uu_ls_ls_human_si { |ctx|
   
   }
   uu.touch(s, "test-human-2")
-  uu.truncate(s, "test-human-2", 12300 * 1024)
+  uu.truncate(s, "test-human-2", 12300KiB)
   {
   let r = invoke(s, ["-hl", "test-human-2"])?
   uu.succeeds(r)
@@ -1252,7 +1252,7 @@ test test_uu_ls_ls_long_padding_of_size_column_with_multiple_files { |ctx|
   uu.touch(s, "dir/a")
   uu.touch(s, "dir/b")
   {
-  let r = invoke(s, [])?
+  let _ = invoke(s, [])?
   
   }
   {
@@ -1443,7 +1443,7 @@ test test_uu_ls_ls_order_time { |ctx|
     uu.write(s, f"test-{index}", [f"{index}" for _ in range(index)].join(""))
     time.sleep(100ms)
   }
-  let accessed = uu.read(s, "test-3")?
+  let _ = uu.read(s, "test-3")?
   let mode = uu.mode(s, "test-2")?
   uu.set_mode(s, "test-2", mode)
   uu.succeeds(invoke(s, ["-al"])?)
@@ -1465,8 +1465,8 @@ test test_uu_ls_ls_order_time { |ctx|
     let r = invoke(s, args)?
     uu.succeeds(r)
     uu.stdout_only(r, ordered)
-    let third = fs.stat(uu.at(s, "test-3"))?.atime_ns
-    let fourth = fs.stat(uu.at(s, "test-4"))?.atime_ns
+    let _ = fs.stat(uu.at(s, "test-3"))?.atime_ns
+    let _ = fs.stat(uu.at(s, "test-4"))?.atime_ns
   }
   for option in ["-tc", "-c"] {
     let r = invoke(s, [option])?

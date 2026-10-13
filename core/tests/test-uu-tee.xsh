@@ -8,7 +8,7 @@ pure numbered_input(count: Int) -> Bytes {
 # broken. Shell status preserves signal deaths as well as ordinary exits.
 proc broken_stdout(s: uu.Scene, args: List[Str], input: Bytes, idle = false) [fs, process, env, error] -> Result[uu.Ran] {
   uu.mkfifo(s, "broken-stdout")
-  let words = uu.argv(s, "tee", [Path(word) for word in args])?
+  let words = uu.argv(s, "tee", [fp"{word}" for word in args])?
   let setup = if idle {
     uu.mkfifo(s, "idle-input")
     r"""exec 3<>idle-input; (exec 4<broken-stdout) & reader=$!; exec 4>broken-stdout; wait "$reader"; exec "$@" <idle-input >&4 """
@@ -17,7 +17,7 @@ proc broken_stdout(s: uu.Scene, args: List[Str], input: Bytes, idle = false) [fs
   }
   let out = uu.at(s, "capture-out")
   let err = uu.at(s, "capture-err")
-  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", Path(setup), p"sh"].extend(words), s.root, {}, input, out, err, timeout: if idle { 1s } else { 10s })
+  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", fp"{setup}", p"sh"].extend(words), s.root, {}, input, out, err, timeout: if idle { 1s } else { 10s })
   let status = process.run(plan)?
   Ok({util: "tee", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
@@ -54,8 +54,8 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
   let reader = unix.open_fd(uu.at(s, "stream-output"), nonblock: true)?
   defer unix.close_fd(reader)
   let file = if short_read { "tee_short_read_out" } else { "tee_file_out" }
-  let words = uu.argv(s, "tee", [Path(file)])?
-  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", Path(r"""exec "$@" <stream-input >stream-output """), p"sh"].extend(words), s.root, {}, b"", uu.at(s, "stream-capture"), uu.at(s, "stream-errors"), timeout: 5s)
+  let words = uu.argv(s, "tee", [fp"{file}"])?
+  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", r"""exec "$@" <stream-input >stream-output """ as Path, p"sh"].extend(words), s.root, {}, b"", uu.at(s, "stream-capture"), uu.at(s, "stream-errors"), timeout: 5s)
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   var writer = null

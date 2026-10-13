@@ -29,7 +29,7 @@ test test_uu_realpath_realpath_file_and_links { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "foo")
   uu.symlink(s, f"{s.root}/foo", "bar")
-  for option in [""] {
+  for _ in [""] {
     for name in ["foo", "bar"] {
       let args = [name]
       let r = uu.invoke(s, "realpath", args)?
@@ -45,7 +45,7 @@ test test_uu_realpath_realpath_file_and_links_zero { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "foo")
   uu.symlink(s, f"{s.root}/foo", "bar")
-  for option in [""] {
+  for _ in [""] {
     for name in ["foo", "bar"] {
       let args = [name].extend(["-z"])
       let r = uu.invoke(s, "realpath", args)?

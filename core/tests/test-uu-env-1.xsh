@@ -17,8 +17,8 @@ proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, 
 
 # Start with SIGPIPE ignored, so env must restore its default in the command.
 proc default_pipe(s: uu.Scene, option: Str) [fs, process, env, error] {
-  let argv = uu.argv(s, "env", [Path(option), p"sh", p"-c", p"trap - PIPE; seq 999999 2>err | head -n1 > out"])?
-  let words = [p"sh", p"-c", Path(r"""trap '' PIPE; exec "$@"; """), p"env-parent"].extend(argv)
+  let argv = uu.argv(s, "env", [fp"{option}", p"sh", p"-c", p"trap - PIPE; seq 999999 2>err | head -n1 > out"])?
+  let words = [p"sh", p"-c", r"""trap '' PIPE; exec "$@"; """ as Path, p"env-parent"].extend(argv)
   let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {}, b"", uu.at(s, "stdout"), uu.at(s, "stderr")))?
   assert status.exit_code()? == 0
   uu.file_is(s, "out", "1\n")
@@ -373,7 +373,7 @@ test test_uu_env_single_name_value_pair { |ctx|
   let r = uu.invoke(s, "env", ["FOO=bar"])?
   uu.succeeds(r)
   # The upstream iterator's boolean is discarded, so only status is asserted.
-  let matching = [line for line in r.stdout.utf8()?.lines() if line == "FOO=bar"]
+  let _ = [line for line in r.stdout.utf8()?.lines() if line == "FOO=bar"]
 }
 
 # origin: uutils test_env::test_multiple_name_value_pairs

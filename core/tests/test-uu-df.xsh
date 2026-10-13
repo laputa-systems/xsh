@@ -273,8 +273,8 @@ test test_uu_df_type_option { |ctx|
   uu.succeeds(r)
   let kind = (lines(r)?)[1].trim()
   for args in [["-t", kind], ["-t", kind, "-t", "nonexisting"]] {
-    let r = uu.invoke(s, "df", args)?
-    uu.succeeds(r)
+    let result = uu.invoke(s, "df", args)?
+    uu.succeeds(result)
   }
   let missing = uu.invoke(s, "df", ["-t", "nonexisting"])?
   uu.fails(missing)

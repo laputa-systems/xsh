@@ -17,9 +17,9 @@ proc closed_input(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Res
 proc closed_output(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[ClosedOutput, Error] {
   uu.mkfifo(s, "stdout-pipe")
   let reader = unix.open_fd(uu.at(s, "stdout-pipe"), nonblock: true)?
-  let target_argv = uu.argv(s, "tty", [Path(word) for word in args])?
-  let command = [p"sh", p"-c", Path(r"""sleep 0.2; exec "$@"
-"""), p"tty-pipe"].extend(target_argv)
+  let target_argv = uu.argv(s, "tty", [fp"{word}" for word in args])?
+  let command = [p"sh", p"-c", r"""sleep 0.2; exec "$@"
+""" as Path, p"tty-pipe"].extend(target_argv)
   let plan = process.command_argv(p"sh", command, s.root, {}, b"", uu.at(s, "stdout-pipe"), uu.at(s, "stderr"), timeout: 5s)
   let child = spawn plan?
   unix.close_fd(reader)

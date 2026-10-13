@@ -23,8 +23,8 @@ proc fifo_copy(s: uu.Scene, args: List[Str], data: Bytes, width: Int, pause: Dur
     p"fifo-write-acked",
     uu.at(s, "fifo"),
     uu.at(s, "fifo-input"),
-    Path(f"{width}"),
-    Path(f"{pause / 1ms}"),
+    fp"{width}",
+    fp"{pause / 1ms}",
   ]
   let producer = process.command_argv(helper, helper_args, s.root, {}, b"",
     stderr: uu.at(s, ".fifo-writer-stderr"), timeout: 14s)

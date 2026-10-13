@@ -138,7 +138,7 @@ test test_uu_truncate_decrease_file_size { |ctx|
 
 # origin: uutils test_truncate::test_division_by_zero_reference_and_size
 test test_uu_truncate_division_by_zero_reference_and_size { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   {
     let fresh = uu.scene(ctx)?
     uu.touch(fresh, "truncate_test_1")
@@ -159,7 +159,7 @@ test test_uu_truncate_division_by_zero_reference_and_size { |ctx|
 
 # origin: uutils test_truncate::test_division_by_zero_size_only
 test test_uu_truncate_division_by_zero_size_only { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   {
     let fresh = uu.scene(ctx)?
     let r = uu.invoke(fresh, "truncate", ["-s", "/0", "file"])?
@@ -226,7 +226,7 @@ test test_uu_truncate_increase_file_size_kb { |ctx|
 
 # origin: uutils test_truncate::test_invalid_numbers
 test test_uu_truncate_invalid_numbers { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   {
     let fresh = uu.scene(ctx)?
     let r = uu.invoke(fresh, "truncate", ["-s", "0X", "file"])?
@@ -502,7 +502,7 @@ test test_uu_truncate_space_in_size { |ctx|
 
 # origin: uutils test_truncate::test_truncate_bytes_size
 test test_uu_truncate_truncate_bytes_size { |ctx|
-  let s = uu.scene(ctx)?
+  let _ = uu.scene(ctx)?
   {
     let fresh = uu.scene(ctx)?
     let r = uu.invoke(fresh, "truncate", ["--no-create", "--size", "K", "file"])?

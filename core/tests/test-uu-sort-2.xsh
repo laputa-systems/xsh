@@ -22,8 +22,8 @@ proc fixture_case(ctx: TestContext, base: Str, options: List[Str]) [fs, process,
 
 # Set both child limits before executing the applet; the runner keeps its own limits.
 proc limited(s: uu.Scene, args: List[Str], count: Int) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let argv = uu.argv(s, "sort", [Path(word) for word in args])?
-  let words = [p"/bin/sh", p"-c", Path(r"""ulimit -Sn "$1"; ulimit -Hn "$1"; shift; exec "$@" """), p"sort-limit", Path(f"{count}")].extend(argv)
+  let argv = uu.argv(s, "sort", [fp"{word}" for word in args])?
+  let words = [p"/bin/sh", p"-c", r"""ulimit -Sn "$1"; ulimit -Hn "$1"; shift; exec "$@" """ as Path, p"sort-limit", fp"{count}"].extend(argv)
   let out = uu.at(s, ".limited-out")
   let err = uu.at(s, ".limited-err")
   let plan = process.command_argv(p"/bin/sh", words, s.root, {}, b"", out, err)
@@ -42,7 +42,7 @@ proc locale_available(s: uu.Scene, locale: Str) [fs, process, error] -> Result[B
   let out = uu.at(s, ".locale-out")
   let err = uu.at(s, ".locale-err")
   let plan = process.command_argv(process.which("locale")?, [p"locale", p"charmap"], s.root, {LC_ALL: locale}, b"", out, err)
-  let status = process.run(plan)?
+  let _ = process.run(plan)?
   Ok(out.read_text()?.trim() == "UTF-8")
 }
 
@@ -398,7 +398,7 @@ test test_uu_sort_merge_write_error_does_not_panic { |ctx|
   let input = [padded(line, 6) for line in range(100000)].join("\n") + "\n"
   uu.write(s, "a.txt", input)
   uu.write(s, "b.txt", input)
-  for i in range(20) {
+  repeat 20 times {
     let r = uu.invoke(s, "sort", ["-m", "a.txt", "b.txt"], stdout: p"/dev/full", timeout: 30s)?
     uu.fails(r)
     uu.fails_with_code(r, 2)
