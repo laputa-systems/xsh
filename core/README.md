@@ -94,6 +94,10 @@ receiving data; no-pipe modes observe broken outputs while input is idle.
 
 ## Applet behavior
 
+`applet.mdev` preserves the caller's umask. New parent directories for device
+nodes and aliases request mode `0755`, subject to that umask; rule commands run
+with umask `000`.
+
 `core/more.xsh` concatenates bytes without file banners when stdout is redirected
 or no controlling terminal is available. Inherited terminal descriptors alone
 do not enable paging. Missing files and directory read errors produce status 1

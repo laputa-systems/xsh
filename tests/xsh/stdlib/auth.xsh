@@ -86,12 +86,28 @@ test test_applet_mdev_scans_empty_roots { |ctx|
   sys_dev.mkdir()
   conf.write("")
 
-  env XSH_MDEV_DEV_ROOT=$dev XSH_MDEV_SYSFS=$sys XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 {
-    let status = applet.mdev(["--scan"])?
-
-    if status != 0 {
-      test.skip("mdev scan is unavailable in this runner")
-      return
-    }
+  let before = fp"{root}/before"
+  before.write("")
+  let before_mode = before.metadata()?.mode.bit_and(0o777)
+  if before_mode == 0o666 {
+    test.skip("the inherited umask does not mask default file creation")
+    return
   }
+
+  let source = f"""let before = fp"{root}/before-child"
+before.write("")
+let before_mode = before.metadata()?.mode.bit_and(0o777)
+let status = applet.mdev(["--scan"])?
+let after = fp"{root}/after-child"
+after.write("")
+assert after.metadata()?.mode.bit_and(0o777) == before_mode
+assert status == 0
+"""
+  let result = test.run_xsh(ctx, source, env: {
+    XSH_MDEV_DEV_ROOT: dev,
+    XSH_MDEV_SYSFS: sys,
+    XSH_MDEV_CONF: conf,
+    XSH_MDEV_TEST_PLAIN_FILES: "1",
+  })?
+  assert result.success, result.stderr
 }

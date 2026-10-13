@@ -9,7 +9,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt, symlink};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::ExitCode;
@@ -23,6 +24,8 @@ const DEFAULT_SYSFS_ROOT: &str = "/sys";
 const DEFAULT_CONF: &str = "/etc/mdev.conf";
 const DEFAULT_FIRMWARE_ROOT: &str = "/lib/firmware";
 const DEFAULT_MODE: u32 = 0o660;
+// Device and alias parent directories request 0755; the caller's umask can narrow it.
+const DEVICE_DIRECTORY_MODE: u32 = 0o755;
 const DEFAULT_UID: libc::uid_t = 0;
 const DEFAULT_GID: libc::gid_t = 0;
 const UEVENT_BUFFER_SIZE: usize = 64 * 1024;
@@ -208,8 +211,6 @@ pub fn main_args(args: &[std::ffi::OsString]) -> i32 {
 fn run(args: &[std::ffi::OsString]) -> MdevResult {
     let options = parse_args(args)?;
     let paths = Paths::from_env();
-
-    rustix::process::umask(rustix::fs::Mode::empty());
 
     if options.daemon {
         let rules = read_rules(&paths.conf)?;
@@ -1019,7 +1020,9 @@ fn remove_node(paths: &Paths, node_name: &str) -> MdevResult {
 
 fn ensure_parent_dir(path: &Path) -> MdevResult {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true).mode(DEVICE_DIRECTORY_MODE);
+        builder.create(parent).map_err(|err| {
             vec![MdevError::from_io(
                 "creating",
                 Some(&parent.to_string_lossy()),
@@ -1076,11 +1079,22 @@ fn run_command(
     env_map: &FxHashMap<String, String>,
     node_name: &str,
 ) -> MdevResult {
-    let status = Command::new("sh")
+    let mut child = Command::new("sh");
+    child
         .arg("-c")
         .arg(&command.command)
         .envs(env_map.iter())
-        .env("MDEV", node_name)
+        .env("MDEV", node_name);
+    // Rule commands inherit mdev's empty umask without changing the caller's process state.
+    // SAFETY: `pre_exec` runs after fork, and this closure calls only `umask`, an async-signal-safe
+    // syscall.
+    unsafe {
+        child.pre_exec(|| {
+            libc::umask(0);
+            Ok(())
+        });
+    }
+    let status = child
         .status()
         .map_err(|err| vec![MdevError::from_io("running", None, err)])?;
     if status.success() {
@@ -1535,14 +1549,19 @@ fn config_error(line_number: usize, message: impl Into<String>) -> MdevError {
 #[cfg(test)]
 mod tests {
     use super::{
-        AliasRule, CommandTrigger, Paths, RELOAD_CONF, RulePattern, TERMINATE_DAEMON, build_alias,
-        daemon_loop, empty_matches, handle_daemon_message, handle_daemon_signal, parse_rule_line,
-        parse_uevent_message, read_rules, recv_uevent, reload_rules_if_requested, rule_matches,
+        AliasRule, CommandRule, CommandTrigger, Paths, RELOAD_CONF, RulePattern, TERMINATE_DAEMON,
+        build_alias, daemon_loop, empty_matches, ensure_parent_dir, handle_daemon_message,
+        handle_daemon_signal, parse_rule_line, parse_uevent_message, read_rules, recv_uevent,
+        reload_rules_if_requested, rule_matches, run, run_command,
     };
 
+    use rustc_hash::FxHashMap;
     use rustix::net::{AddressFamily, SendFlags, SocketFlags, SocketType, send, socketpair};
     use std::fs;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::process::CommandExt;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::sync::atomic::Ordering;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1586,6 +1605,117 @@ mod tests {
             seq_file: root.join("dev/mdev.seq"),
             plain_files: true,
         }
+    }
+
+    #[test]
+    fn run_preserves_caller_umask_and_alias_directory_permissions() {
+        const CHILD_MARKER: &str = "XSH_MDEV_UMASK_TEST_CHILD";
+
+        if std::env::var_os(CHILD_MARKER).is_some() {
+            let paths = Paths::from_env();
+            let root = paths.dev_root.parent().expect("dev root parent");
+            let before = root.join("before");
+            fs::write(&before, "").expect("write before file");
+            let before_mode = fs::metadata(&before).expect("stat before file").mode() & 0o777;
+            assert_eq!(before_mode, 0o644);
+
+            run(&[std::ffi::OsString::from("--scan")]).expect("scan empty roots");
+
+            let after = root.join("after");
+            fs::write(&after, "").expect("write after file");
+            assert_eq!(
+                fs::metadata(&after).expect("stat after file").mode() & 0o777,
+                before_mode
+            );
+
+            let command_file = root.join("command-file");
+            let command = CommandRule {
+                trigger: CommandTrigger::Add,
+                command: String::from(": > \"$XSH_MDEV_TEST_FILE\""),
+            };
+            let env_map = [(
+                String::from("XSH_MDEV_TEST_FILE"),
+                command_file.to_string_lossy().into_owned(),
+            )]
+            .into_iter()
+            .collect::<FxHashMap<_, _>>();
+            run_command(&command, &env_map, "node").expect("run rule command");
+            assert_eq!(
+                fs::metadata(&command_file)
+                    .expect("stat command file")
+                    .mode()
+                    & 0o777,
+                0o666
+            );
+            let after_command = root.join("after-command");
+            fs::write(&after_command, "").expect("write after-command file");
+            assert_eq!(
+                fs::metadata(&after_command)
+                    .expect("stat after-command file")
+                    .mode()
+                    & 0o777,
+                before_mode
+            );
+
+            let existing_mode = fs::metadata(&paths.dev_root)
+                .expect("stat existing dev root")
+                .mode()
+                & 0o777;
+            assert_eq!(existing_mode, 0o700);
+            ensure_parent_dir(&paths.dev_root.join("alias/sda/node"))
+                .expect("create alias parent directories");
+            for directory in [paths.dev_root.join("alias"), paths.dev_root.join("alias/sda")] {
+                assert_eq!(
+                    fs::metadata(directory)
+                        .expect("stat alias directory")
+                        .mode()
+                        & 0o777,
+                    0o755
+                );
+            }
+            assert_eq!(
+                fs::metadata(&paths.dev_root)
+                    .expect("stat existing dev root after creation")
+                    .mode()
+                    & 0o777,
+                existing_mode
+            );
+            return;
+        }
+
+        let root = temp_root("umask");
+        let paths = test_paths(&root);
+        fs::create_dir_all(&paths.dev_root).expect("create dev root");
+        fs::create_dir_all(&paths.sysfs_root.join("dev")).expect("create sysfs device root");
+        fs::write(&paths.conf, "").expect("write config");
+        fs::set_permissions(&paths.dev_root, fs::Permissions::from_mode(0o700))
+            .expect("set existing dev root mode");
+
+        let mut child = Command::new(std::env::current_exe().expect("test executable"));
+        child
+            .arg("--exact")
+            .arg("mdev::tests::run_preserves_caller_umask_and_alias_directory_permissions")
+            .env(CHILD_MARKER, "1")
+            .env("XSH_MDEV_DEV_ROOT", &paths.dev_root)
+            .env("XSH_MDEV_SYSFS", &paths.sysfs_root)
+            .env("XSH_MDEV_CONF", &paths.conf)
+            .env("XSH_MDEV_TEST_PLAIN_FILES", "1");
+        // SAFETY: this test child starts with a known umask; the closure calls only `umask` after fork.
+        unsafe {
+            child.pre_exec(|| {
+                libc::umask(0o022);
+                Ok(())
+            });
+        }
+        let output = child.output().expect("run isolated umask test");
+        let cleanup = fs::remove_dir_all(&root);
+        assert!(
+            output.status.success(),
+            "isolated test failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        cleanup.expect("remove temp root");
     }
 
     #[test]
