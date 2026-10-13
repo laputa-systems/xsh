@@ -570,8 +570,11 @@ test test_real_ioctls_on_a_regular_file_fail_with_kernel_errno { |ctx|
   assert failure_of(linux.nvme_identify_controller(fd), "linux-nvme").errno == 25
   assert failure_of(linux.nvme_admin(fd, 6, 4096, cdw10: 1), "linux-nvme").errno == 25
   unix.close_fd(fd)?
-  # A closed descriptor is EBADF.
-  assert failure_of(linux.sg_io(fd, b"\x00\x00\x00\x00\x00\x00"), "linux-sg-io").errno == 9
+  # A descriptor that is not open is EBADF. Tests run concurrently in one
+  # process and the kernel reuses the lowest free number, so the number just
+  # closed may already belong to another test; a number far above any
+  # descriptor limit cannot.
+  assert failure_of(linux.sg_io(1073741824, b"\x00\x00\x00\x00\x00\x00"), "linux-sg-io").errno == 9
 }
 
 test test_storage_primitives_report_unsupported_off_linux { |ctx|
