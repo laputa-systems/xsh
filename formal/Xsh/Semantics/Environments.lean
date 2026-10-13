@@ -137,13 +137,21 @@ theorem capture_retains_cell (environment : ActivationEnvironment) (binders : Li
     capture environment binders binder = resolveCell environment binder := by
   simp [capture, included]
 
-theorem capture_keeps_earlier_activation (environment : ActivationEnvironment)
-    (binder : BinderId) (firstCell secondCell : CellId) :
+theorem capture_keeps_cell_before_rebinding (environment : ActivationEnvironment)
+    (binder : BinderId) (firstCell secondCell : CellId)
+    (differentCells : firstCell ≠ secondCell) :
     capture (bindCell environment binder firstCell) [binder] binder = some firstCell ∧
-      resolveCell (bindCell environment binder secondCell) binder = some secondCell := by
-  cases environment with
-  | nil => simp [capture, bindCell, resolveCell, replaceAt]
-  | cons frame outer => simp [capture, bindCell, resolveCell, replaceAt]
+      resolveCell (bindCell environment binder secondCell) binder = some secondCell ∧
+      firstCell ≠ secondCell := by
+  constructor
+  · cases environment with
+    | nil => unfold capture; simp [bindCell, resolveCell, replaceAt]
+    | cons frame outer => unfold capture; simp [bindCell, resolveCell, replaceAt]
+  constructor
+  · cases environment with
+    | nil => simp [bindCell, resolveCell, replaceAt]
+    | cons frame outer => simp [bindCell, resolveCell, replaceAt]
+  · exact differentCells
 
 inductive Mutability where
   | immutable
@@ -164,15 +172,13 @@ structure StoreCell (TypeTag Value : Type) (hasType : TypeTag → Value → Prop
 private def StoreCell.replaceContents {TypeTag Value : Type}
     {hasType : TypeTag → Value → Prop}
     (cell : StoreCell TypeTag Value hasType)
-    (replacement : TypedValue TypeTag Value hasType)
-    (matchingType : cell.contents.typeTag = replacement.typeTag) :
+    (replacement : Value)
+    (member : hasType cell.contents.typeTag replacement) :
     StoreCell TypeTag Value hasType := {
       contents := {
         typeTag := cell.contents.typeTag
-        value := replacement.value
-        wellTyped := by
-          rw [matchingType]
-          exact replacement.wellTyped
+        value := replacement
+        wellTyped := member
       }
       mutability := cell.mutability
     }
@@ -193,96 +199,181 @@ def StoreWriteResult.storeAfter {Store : Type} : StoreWriteResult Store → Stor
   | .rejected store => store
   | .accepted store => store
 
-/-- Assignment changes only a present mutable cell with the same declared type. -/
+/-- Assignment changes only a present mutable cell when its declared type admits the candidate. -/
 def writeCell {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
-    [DecidableEq TypeTag]
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
     (store : TypedStore TypeTag Value hasType) (cellId : CellId)
-    (replacement : TypedValue TypeTag Value hasType) :
+    (candidate : Value) :
     StoreWriteResult (TypedStore TypeTag Value hasType) :=
   match store cellId with
   | none => .rejected store
   | some current =>
-    if current.mutability = .mutable then
-      if matchingType : current.contents.typeTag = replacement.typeTag then
+    match current.mutability with
+    | .immutable => .rejected store
+    | .mutable =>
+      match decideHasType current.contents.typeTag candidate with
+      | .isTrue member =>
         .accepted (replaceAt store cellId
-          (some (current.replaceContents replacement matchingType)))
-      else
-        .rejected store
-    else
-      .rejected store
+          (some (current.replaceContents candidate member)))
+      | .isFalse _ => .rejected store
 
 theorem write_rejects_missing_cell_atomically
     {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
-    [DecidableEq TypeTag]
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
     (store : TypedStore TypeTag Value hasType) (cellId : CellId)
-    (replacement : TypedValue TypeTag Value hasType)
+    (candidate : Value)
     (missing : store cellId = none) :
-    (writeCell store cellId replacement).storeAfter = store := by
+    (writeCell decideHasType store cellId candidate).storeAfter = store := by
   unfold writeCell
   rw [missing]
   simp [StoreWriteResult.storeAfter]
 
 theorem write_rejects_immutable_cell_atomically
     {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
-    [DecidableEq TypeTag]
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
     (store : TypedStore TypeTag Value hasType) (cellId : CellId)
-    (replacement : TypedValue TypeTag Value hasType)
+    (candidate : Value)
     (current : StoreCell TypeTag Value hasType)
     (present : store cellId = some current)
     (immutableCell : current.mutability = .immutable) :
-    (writeCell store cellId replacement).storeAfter = store := by
-  unfold writeCell
-  rw [present]
-  simp [immutableCell, StoreWriteResult.storeAfter]
+    (writeCell decideHasType store cellId candidate).storeAfter = store := by
+  simp only [writeCell, present]
+  rw [immutableCell]
+  rfl
 
-theorem write_rejects_mismatched_type_atomically
+theorem write_rejects_nonmember_atomically
     {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
-    [DecidableEq TypeTag]
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
     (store : TypedStore TypeTag Value hasType) (cellId : CellId)
-    (replacement : TypedValue TypeTag Value hasType)
+    (candidate : Value)
     (current : StoreCell TypeTag Value hasType)
     (present : store cellId = some current)
     (mutableCell : current.mutability = .mutable)
-    (differentType : current.contents.typeTag ≠ replacement.typeTag) :
-    (writeCell store cellId replacement).storeAfter = store := by
-  unfold writeCell
-  rw [present]
-  simp [mutableCell, differentType, StoreWriteResult.storeAfter]
+    (notMember : ¬ hasType current.contents.typeTag candidate) :
+    (writeCell decideHasType store cellId candidate).storeAfter = store := by
+  simp only [writeCell, present]
+  rw [mutableCell]
+  cases decision : decideHasType current.contents.typeTag candidate with
+  | isTrue member => exact False.elim (notMember member)
+  | isFalse _ => rfl
 
 theorem write_preserves_unrelated_cells
     {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
-    [DecidableEq TypeTag]
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
     (store : TypedStore TypeTag Value hasType) (cellId otherCell : CellId)
-    (replacement : TypedValue TypeTag Value hasType) (differentCells : otherCell ≠ cellId) :
-    (writeCell store cellId replacement).storeAfter otherCell = store otherCell := by
-  unfold writeCell
+    (candidate : Value) (differentCells : otherCell ≠ cellId) :
+    (writeCell decideHasType store cellId candidate).storeAfter otherCell = store otherCell := by
   cases present : store cellId with
-  | none => simp [StoreWriteResult.storeAfter]
+  | none => simp [writeCell, present, StoreWriteResult.storeAfter]
   | some current =>
-    by_cases mutableCell : current.mutability = .mutable
-    · by_cases matchingType : current.contents.typeTag = replacement.typeTag
-      · simp [mutableCell, matchingType, StoreWriteResult.storeAfter,
-          replaceAt, differentCells]
-      · simp [mutableCell, matchingType, StoreWriteResult.storeAfter]
-    · simp [mutableCell, StoreWriteResult.storeAfter]
+    cases current with
+    | mk contents mutability =>
+      cases mutability with
+      | immutable => simp [writeCell, present, StoreWriteResult.storeAfter]
+      | mutable =>
+        cases decision : decideHasType contents.typeTag candidate with
+        | isTrue member =>
+          simp [writeCell, present, decision, StoreWriteResult.storeAfter, replaceAt,
+            differentCells]
+        | isFalse notMember =>
+          simp [writeCell, present, decision, StoreWriteResult.storeAfter]
 
 theorem write_is_visible_through_capture
     {TypeTag Value : Type} {hasType : TypeTag → Value → Prop}
-    [DecidableEq TypeTag]
+    (decideHasType : (typeTag : TypeTag) → (candidate : Value) →
+      Decidable (hasType typeTag candidate))
     (captures : CapturedEnvironment) (store : TypedStore TypeTag Value hasType)
     (binder : BinderId) (cellId : CellId)
-    (replacement : TypedValue TypeTag Value hasType)
+    (candidate : Value)
     (current : StoreCell TypeTag Value hasType)
     (capturedCell : captures binder = some cellId)
     (present : store cellId = some current)
     (mutableCell : current.mutability = .mutable)
-    (matchingType : current.contents.typeTag = replacement.typeTag) :
-    readCaptured captures (writeCell store cellId replacement).storeAfter binder =
-      some (current.replaceContents replacement matchingType) := by
+    (member : hasType current.contents.typeTag candidate) :
+    readCaptured captures (writeCell decideHasType store cellId candidate).storeAfter binder =
+      some (current.replaceContents candidate member) := by
   unfold readCaptured
   rw [capturedCell]
-  unfold writeCell
-  rw [present]
-  simp [mutableCell, matchingType, StoreWriteResult.storeAfter, replaceAt]
+  simp only [writeCell, present]
+  rw [mutableCell]
+  cases decision : decideHasType current.contents.typeTag candidate with
+  | isTrue accepted =>
+    simp [StoreWriteResult.storeAfter, replaceAt]
+  | isFalse rejected => exact False.elim (rejected member)
+
+inductive ExampleType where
+  | any
+  | integerOrText
+  deriving DecidableEq
+
+inductive ExampleValue where
+  | integer (value : Nat)
+  | text (value : String)
+  | flag (value : Bool)
+  deriving DecidableEq
+
+def exampleHasType : ExampleType → ExampleValue → Prop
+  | .any, _ => True
+  | .integerOrText, .integer _ => True
+  | .integerOrText, .text _ => True
+  | .integerOrText, .flag _ => False
+
+def exampleDecideHasType (typeTag : ExampleType) (candidate : ExampleValue) :
+    Decidable (exampleHasType typeTag candidate) := by
+  cases typeTag with
+  | any =>
+    cases candidate <;> exact isTrue trivial
+  | integerOrText =>
+    cases candidate with
+    | integer _ => exact isTrue trivial
+    | text _ => exact isTrue trivial
+    | flag _ => exact isFalse (by simp [exampleHasType])
+
+private def exampleCellId : CellId := ⟨0, roleWitnessBinder⟩
+
+private def exampleCell (typeTag : ExampleType) : StoreCell ExampleType ExampleValue exampleHasType := {
+  contents := {
+    typeTag := typeTag
+    value := .integer 0
+    wellTyped := by cases typeTag <;> trivial
+  }
+  mutability := .mutable
+}
+
+private def exampleStore (typeTag : ExampleType) :
+    TypedStore ExampleType ExampleValue exampleHasType :=
+  fun _ => some (exampleCell typeTag)
+
+theorem write_accepts_any_integer_member :
+    ∃ cell,
+      (writeCell exampleDecideHasType (exampleStore .any) exampleCellId
+        (.integer 1)).storeAfter exampleCellId = some cell ∧
+        cell.contents.value = .integer 1 := by
+  refine ⟨(exampleCell .any).replaceContents (.integer 1) trivial, ?_, rfl⟩
+  simp [writeCell, exampleStore, exampleCellId, exampleCell, exampleDecideHasType,
+    exampleHasType, replaceAt, StoreWriteResult.storeAfter]
+
+theorem write_accepts_union_integer_member :
+    ∃ cell,
+      (writeCell exampleDecideHasType (exampleStore .integerOrText) exampleCellId
+        (.integer 1)).storeAfter exampleCellId = some cell ∧
+        cell.contents.value = .integer 1 := by
+  refine ⟨(exampleCell .integerOrText).replaceContents (.integer 1) trivial, ?_, rfl⟩
+  simp [writeCell, exampleStore, exampleCellId, exampleCell, exampleDecideHasType,
+    exampleHasType, replaceAt, StoreWriteResult.storeAfter]
+
+theorem write_rejects_union_flag_nonmember_atomically :
+    (writeCell exampleDecideHasType (exampleStore .integerOrText) exampleCellId
+      (.flag true)).storeAfter = exampleStore .integerOrText := by
+  apply write_rejects_nonmember_atomically exampleDecideHasType
+    (exampleStore .integerOrText) exampleCellId (.flag true) (exampleCell .integerOrText)
+  · rfl
+  · rfl
+  · simp [exampleHasType, exampleCell]
 
 end Xsh.Semantics.Environments
