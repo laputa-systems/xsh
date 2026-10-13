@@ -45,6 +45,20 @@ proc main() [time] {
     status: 2,
     stderr: ["check.effect-violation", "without time"],
   )?
+
+  test.expect(
+    ctx,
+    r"""
+proc stamp(value: Int) [time] -> Int { time.now() }
+proc main() [time] {
+  without time {
+    let values = [1] |> map(stamp)
+  }
+}
+""",
+    status: 2,
+    stderr: ["check.effect-violation", "without time"],
+  )?
 }
 
 test test_filesystem_effects_of_an_external_stream_are_charged_at_creation { |ctx|
