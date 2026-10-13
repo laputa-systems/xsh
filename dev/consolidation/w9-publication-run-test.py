@@ -60,6 +60,33 @@ class PublicationRunnerTests(unittest.TestCase):
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return corpus
 
+    def candidate_receipt_fields(self):
+        return {
+            "schema": "1",
+            "candidate_root": "/candidate",
+            "candidate_commit": "a" * 40,
+            "candidate_tree": "b" * 40,
+            "candidate_binary": "/candidate/bin",
+            "candidate_binary_sha256": "c" * 64,
+            "helper": "/candidate/helper",
+            "helper_sha256": "d" * 64,
+            "wrapper": "/wrapper",
+            "wrapper_sha256": "e" * 64,
+            "wrapper_root": "/candidate",
+            "reference_receipt": "/reference/receipt.tsv",
+            "reference_receipt_sha256": "f" * 64,
+            "reference_binary": "/reference/bin",
+            "reference_binary_sha256": "0" * 64,
+            "reference_validation": "/reference/validated",
+            "reference_validation_sha256": "1" * 64,
+            "input_root": "/corpus",
+            "input_manifest": "/manifest",
+            "input_manifest_sha256": "2" * 64,
+            "corpus_blake3": "3" * 64,
+            "runner": "/candidate/runner",
+            "runner_sha256": "4" * 64,
+        }
+
     def test_pin_validation_accepts_exact_hash_and_reports_mismatch(self):
         path = self.root / "pinned-input"
         path.write_bytes(b"approved")
@@ -106,6 +133,97 @@ class PublicationRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PublicationError, "input corpus directory is writable"):
             runner.verify_corpus_tree(corpus, {"one.xsh": digest})
         source.chmod(0o644)
+
+    def test_frozen_corpus_rejects_tampered_source_contents(self):
+        corpus = self.root / "corpus-tampered"
+        corpus.mkdir()
+        source = corpus / "one.xsh"
+        source.write_bytes(b"approved source\n")
+        expected = runner.sha256_file(source)
+        source.chmod(0o444)
+        corpus.chmod(0o555)
+
+        source.chmod(0o644)
+        source.write_bytes(b"tampered source\n")
+        source.chmod(0o444)
+        with self.assertRaisesRegex(runner.PublicationError, "input corpus source changed at one.xsh"):
+            runner.verify_corpus_tree(corpus, {"one.xsh": expected})
+
+    def test_frozen_corpus_rejects_extra_and_missing_source_paths(self):
+        corpus = self.root / "corpus-paths"
+        corpus.mkdir()
+        source = corpus / "one.xsh"
+        source.write_bytes(b"approved source\n")
+        expected = {"one.xsh": runner.sha256_file(source)}
+        source.chmod(0o444)
+        extra = corpus / "extra.xsh"
+        extra.write_bytes(b"extra source\n")
+        extra.chmod(0o444)
+        corpus.chmod(0o555)
+        with self.assertRaisesRegex(runner.PublicationError, r"file list differs from approved manifest.*extra=\['extra.xsh'\]"):
+            runner.verify_corpus_tree(corpus, expected)
+
+        corpus.chmod(0o755)
+        extra.chmod(0o644)
+        extra.unlink()
+        source.chmod(0o644)
+        source.unlink()
+        corpus.chmod(0o555)
+        with self.assertRaisesRegex(runner.PublicationError, r"file list differs from approved manifest.*missing=\['one.xsh'\]"):
+            runner.verify_corpus_tree(corpus, expected)
+
+    def test_receipt_parser_rejects_duplicate_outcomes_and_malformed_rows(self):
+        path = self.root / "duplicate-outcome.receipt"
+        self.write_receipt(path, 0, 2)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        duplicate = next(line for line in lines if line.startswith("output\t1\ttwo.xsh\texecution\t"))
+        lines.insert(-1, duplicate)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "duplicate outcome"):
+            runner.parse_receipt(path, self.paths())
+
+        lines = [line for line in lines if line != duplicate]
+        lines.insert(6, "output\t1\ttwo.xsh\texecution\tbad")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "malformed receipt row"):
+            runner.parse_receipt(path, self.paths())
+
+    def test_receipt_parser_rejects_malformed_header_and_digests(self):
+        path = self.root / "malformed-receipt.receipt"
+        self.write_receipt(path, 0, 2)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        lines[0] = "wrong=2"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "malformed receipt header"):
+            runner.parse_receipt(path, self.paths())
+
+        self.write_receipt(path, 0, 2)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        lines[4] = "input_digest=not-a-digest"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "malformed corpus digest"):
+            runner.parse_receipt(path, self.paths())
+
+    def test_candidate_receipt_parser_rejects_duplicate_fields_schema_and_bad_digest(self):
+        path = self.root / "candidate-input.receipt"
+        fields = self.candidate_receipt_fields()
+        path.write_text("".join(f"{key}\t{value}\n" for key, value in fields.items()), encoding="utf-8")
+        self.assertEqual(runner.parse_candidate_receipt(path), fields)
+
+        path.write_text(path.read_text(encoding="utf-8") + "schema\t1\n", encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "duplicate candidate receipt field schema"):
+            runner.parse_candidate_receipt(path)
+
+        fields["schema"] = "2"
+        path.write_text("".join(f"{key}\t{value}\n" for key, value in fields.items()), encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "unsupported candidate receipt schema"):
+            runner.parse_candidate_receipt(path)
+
+        fields["schema"] = "1"
+        fields["candidate_binary_sha256"] = "invalid"
+        path.write_text("".join(f"{key}\t{value}\n" for key, value in fields.items()), encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "malformed candidate_binary_sha256"):
+            runner.parse_candidate_receipt(path)
 
     def test_output_claim_rejects_existing_output_or_lock(self):
         output = self.root / "attempt"
