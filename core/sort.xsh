@@ -671,7 +671,7 @@ pure key_text_boundary(line: Str, offset: Int) -> Bool {
 }
 
 pure key_byte_field_count(line: Bytes, delimiter: Bytes) -> Int {
-  if ! delimiter.is_empty() {
+  guard delimiter.is_empty() else {
     var count = 1
     var at = 0
     while at + delimiter.len() <= line.len() {
@@ -697,7 +697,7 @@ pure key_byte_field_count(line: Bytes, delimiter: Bytes) -> Int {
 }
 
 pure key_byte_field_start(line: Bytes, delimiter: Bytes, field: Int) -> Int {
-  if ! delimiter.is_empty() {
+  guard delimiter.is_empty() else {
     var at = 0
     var current = 0
     while at + delimiter.len() <= line.len() {
