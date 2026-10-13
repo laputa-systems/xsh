@@ -2251,7 +2251,7 @@ proc sink_flush(sink: Sink) [fs, io, error, process, env] -> Sink {
 }
 
 proc sink_emit(sink: Sink, data: Bytes) [fs, io, error, process, env] -> Sink {
-  let grown: Sink = {...sink, pending: [@sink.pending, data], pending_size: sink.pending_size + data.len(), total: sink.total + data.len()}
+  let grown: Sink = Sink(file: sink.file, offset: sink.offset, pending: [@sink.pending, data], pending_size: sink.pending_size + data.len(), total: sink.total + data.len())
   return sink_flush(grown) when grown.pending_size >= 4194304
   grown
 }
