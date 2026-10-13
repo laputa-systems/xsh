@@ -485,7 +485,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
             break
           }
           break when block.is_empty()
-          let part = block.slice(0, length: remaining)
+          let part = block[..remaining]
           yield part
           remaining -= part.len()
           at += part.len()
@@ -505,7 +505,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.error("cannot skip past end of combined input")
     exit 1
   }
-  let data = all.slice(skip, length: count)
+  let available = all.len() - skip
+  let end = if count >= available { all.len() } else { skip + count }
+  let data = all[skip..end]
   if opts.strings != "" {
     let minimum = opts.strings
     let min = minimum.parse_int() ?? -1

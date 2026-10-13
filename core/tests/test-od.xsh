@@ -30,6 +30,7 @@ test test_od_machine_word_signed_unsigned_endian { |ctx|
 
 test test_od_skip_count_and_duplicate_suppression { |ctx|
   assert invoke(ctx, ["-An", "-tx1", "-j2", "-N2"], b"abcdef")?.stdout == b" 63 64\n"
+  assert invoke(ctx, ["-An", "-tx1", "-j1", "-N9223372036854775807"], b"abcdef")?.stdout == b" 62 63 64 65 66\n"
   let input = bytes.zero(48)?
   assert invoke(ctx, ["-An", "-tx1"], input)?.stdout == b" 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n*\n"
 }
