@@ -69,6 +69,18 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Proofs.BaseMachine.host_requests_are_observed_in_machine_order_fragment",
             }.issubset(base_machine_roots)
         )
+        host_trace_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Semantics.BaseHostTrace"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Semantics.BaseHostTrace.host_response_transition_preserves_wellFormed",
+                "Xsh.Semantics.BaseHostTrace.scripted_two_request_trace_is_valid",
+                "Xsh.Semantics.BaseHostTrace.mismatched_response_is_labeled_and_rejected",
+            },
+            host_trace_roots,
+        )
 
     def test_missing_fragment_module_root_fails(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")

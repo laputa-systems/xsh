@@ -3330,6 +3330,33 @@
       "boundary": "Covers only the formal timeNow host boundary. It proves no concrete clock behavior, Rust or operating-system conformance, source evaluator equivalence, or whole-language property."
     },
     {
+      "id": "fragment.Xsh.Semantics.BaseHostTrace.host_response_transition_preserves_wellFormed",
+      "module": "Xsh.Semantics.BaseHostTrace",
+      "declaration": "Xsh.Semantics.BaseHostTrace.host_response_transition_preserves_wellFormed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Typed accepted and rejected host-response transitions preserve the BaseMachine invariant.",
+      "boundary": "No generic scripted-runner soundness, concrete clock behavior, Rust or operating-system conformance, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.BaseHostTrace.scripted_two_request_trace_is_valid",
+      "module": "Xsh.Semantics.BaseHostTrace",
+      "declaration": "Xsh.Semantics.BaseHostTrace.scripted_two_request_trace_is_valid",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact finite scripted trace for two ordered timeNow requests and their integer responses.",
+      "boundary": "A concrete witness does not prove every scripted runner output valid or establish clock, Rust, operating-system, or source conformance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.BaseHostTrace.mismatched_response_is_labeled_and_rejected",
+      "module": "Xsh.Semantics.BaseHostTrace",
+      "declaration": "Xsh.Semantics.BaseHostTrace.mismatched_response_is_labeled_and_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A mismatched Boolean response is observed and rejected with an explicit host-response type fault.",
+      "boundary": "This finite rejection witness does not establish generic runner, clock, Rust, operating-system, or source conformance."
+    },
+    {
       "id": "fragment.Xsh.Proofs.BaseMachine.scalar_literal_runs_to_its_typed_payload_fragment",
       "module": "Xsh.Proofs.BaseMachine",
       "declaration": "Xsh.Proofs.BaseMachine.scalar_literal_runs_to_its_typed_payload_fragment",
