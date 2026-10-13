@@ -612,7 +612,7 @@ proc block_json_row(devices: List[block.BlockDevice], index: Int, table: mounts.
         for child in block_children(devices, index)
         if child not in ancestors and child != index
       ]
-      if ! children.is_empty() { yield "\"children\":[" + children.join(",") + "]" }
+      yield "\"children\":[" + children.join(",") + "]" unless children.is_empty()
     }
   }
   "{" + fields.join(",") + "}"
