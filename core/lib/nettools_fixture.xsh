@@ -48,7 +48,7 @@ pure mac_bytes(text: Str) -> Bytes {
 ## Creates a dummy interface with a fixed hardware address, still down.
 export proc link_add_dummy(name: Str, mac: Str) [process, error] {
   let c = linux.net_constants()
-  let kind = attr(18, attr(1, c_string("dummy")))
+  let kind = attr(1, c_string("dummy")) |> attr(18, _)
   let payload = bytes.concat([bytes.zero(16)?, attr(3, c_string(name)), attr(1, mac_bytes(mac)), kind])
   send(c.RTM_NEWLINK, c.NLM_F_CREATE.bit_or(c.NLM_F_EXCL), payload)
 }

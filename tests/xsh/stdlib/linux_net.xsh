@@ -661,7 +661,7 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
       continue when fields.len() < 8
       let destination = proc_route_address(fields[1])?
       let gateway = proc_route_address(fields[2])?
-      let prefix = mask_prefix(proc_route_address(fields[7])?)
+      let prefix = proc_route_address(fields[7])? |> mask_prefix(_)
       let dst = if prefix == 0 { "default" } else { f"{destination}/{prefix}" }
       yield f"{dst} {gateway} {fields[0]}"
     }

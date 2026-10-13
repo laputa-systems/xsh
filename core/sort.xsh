@@ -371,7 +371,7 @@ pure invert_numeric_exponent_key(key: Str) -> Str {
 pure numeric_order_key_raw(line: Bytes, opts: SortOptions) -> Str {
   let raw_prefix = numeric_prefix_raw(line, opts)
   return "1" when raw_prefix.is_empty()
-  numeric_order_key_normalized(normalized_numeric_prefix_raw(raw_prefix, opts))
+  normalized_numeric_prefix_raw(raw_prefix, opts) |> numeric_order_key_normalized(_)
 }
 
 pure numeric_order_key_normalized(prefix: Bytes) -> Str {
@@ -749,7 +749,7 @@ pure key_text_byte_boundary(line: Bytes, offset: Int, opts: SortOptions) -> Bool
 
 pure key_start_byte_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: SortOptions) -> Int {
   return line.len() when key_index(spec) >= key_byte_field_count(line, delimiter)
-  var at = key_byte_field_start(line, delimiter, key_index(spec))
+  var at = key_index(spec) |> key_byte_field_start(line, delimiter, _)
   let start_spec = spec.split(",").get(0) ?? ""
   if delimiter.is_empty() and (opts.blank or "b" in key_flags(start_spec) or is_numeric_sort(opts) or
     is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_month_sort(opts)) {
@@ -886,7 +886,7 @@ pure key_field_end_byte(line: Str, delimiter: Str, field: Int) -> Int? {
 pure key_start_byte(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Int {
   if key_index(spec) >= (if delimiter == "" { line.trim().words().len() } else { line.split(delimiter).len() }) { return line.byte_len() }
   let input = bytes.from_text(line)
-  var position = key_field_start_byte(line, delimiter, key_index(spec))
+  var position = key_index(spec) |> key_field_start_byte(line, delimiter, _)
   let start_spec = spec.split(",").get(0) ?? ""
   if opts.blank or "b" in key_flags(start_spec) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or
     is_general_numeric_sort(opts) or is_month_sort(opts) {
@@ -1286,7 +1286,7 @@ pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: 
 
 pure debug_key_text(line: Str, opts: SortOptions, spec: Str) -> Str {
   let key_opts = key_effective_options(spec, opts)
-  let selected = key_field_value(line, sort_delimiter(opts), spec, key_opts)
+  let selected = sort_delimiter(opts) |> key_field_value(line, _, spec, key_opts)
   if is_month_sort(key_opts) {
     month_prefix(selected, opts)
   } else if is_human_numeric_sort(key_opts) {
@@ -1318,9 +1318,9 @@ pure debug_annotation(value: Str, opts: SortOptions) -> Str {
 pure debug_key_annotation(line: Str, opts: SortOptions, spec: Str) -> Str {
   let key_opts = key_effective_options(spec, opts)
   if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) {
-    debug_annotation(debug_key_text(line, opts, spec), opts)
+    debug_key_text(line, opts, spec) |> debug_annotation(_, opts)
   } else {
-    let range = key_range_bytes(line, sort_delimiter(opts), spec, key_opts)
+    let range = sort_delimiter(opts) |> key_range_bytes(line, _, spec, key_opts)
     if range.is_empty() { "^ no match for key" } else { text.padding(debug_column_count(range, opts), "_") }
   }
 }
@@ -1333,8 +1333,8 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
     if has_key {
       for spec in opts.key {
         let key_opts = key_effective_options(spec, opts)
-        let start = key_start_byte(line, sort_delimiter(opts), spec, key_opts)
-        let selected = key_field_value(line, sort_delimiter(opts), spec, key_opts)
+        let start = sort_delimiter(opts) |> key_start_byte(line, _, spec, key_opts)
+        let selected = sort_delimiter(opts) |> key_field_value(line, _, spec, key_opts)
         let numeric_blanks = if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) { leading_blank_count(selected) } else { 0 }
         let indentation = text.padding(debug_column_count(bytes.from_text(line).slice(0, length: start), opts) + numeric_blanks, " ")
         output += indentation + debug_key_annotation(line, opts, spec) + "\n"
@@ -1381,7 +1381,7 @@ pure human_numeric_prefix_raw(line: Bytes, opts: SortOptions) -> Bytes {
 
 pure debug_record_primary_bytes(record: SortRecord, opts: SortOptions, has_key: Bool) -> Bytes {
   if has_key {
-    let selected = sort_record_key_bytes(record, primary_key_spec(opts), opts)
+    let selected = primary_key_spec(opts) |> sort_record_key_bytes(record, _, opts)
     let key_opts = key_effective_options(primary_key_spec(opts), opts)
     if is_month_sort(key_opts) {
       if let Ok(value) = selected.utf8() { return bytes.from_text(month_prefix(value, opts)) }
@@ -1497,7 +1497,7 @@ pure has_random_key(opts: SortOptions) -> Bool {
 pure random_sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool, salt: Bytes) -> List[SortRecord] {
   records |> sort-by(desc: opts.reverse) { |record| {
     digest: {
-      let selected = if has_key { sort_record_key_bytes(record, primary_key_spec(opts), opts) } else { record.bytes }
+      let selected = if has_key { primary_key_spec(opts) |> sort_record_key_bytes(record, _, opts) } else { record.bytes }
       let key = if let Ok(value) = selected.utf8() {
         bytes.from_text(character_order_key(value, opts.dictionary, opts.ignore_nonprinting, opts.fold_case))
       } else {
@@ -2646,7 +2646,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let has_key = ! opts.key.is_empty()
-  let key_field = if has_key { key_index(primary_key_spec(opts)) } else { 0 }
+  let key_field = if has_key { primary_key_spec(opts) |> key_index(_) } else { 0 }
   let output_path = opts.output.get(0) ?? ""
   let has_output = ! opts.output.is_empty()
   for candidate in opts.output[1..] {

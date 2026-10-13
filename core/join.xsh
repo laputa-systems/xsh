@@ -605,7 +605,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let inputs: List[Input] = collect {
     for side in [0, 1] {
       let raw_name = gnu.argument_bytes(opts.files[side], prepared.raw)
-      let texts = split_records(read_input(raw_name), eol_value)
+      let texts = read_input(raw_name) |> split_records(_, eol_value)
       let fields = [split_fields(text, layout) for text in texts]
       let keys = [
         field_value(row, layout.keys[side], b"")

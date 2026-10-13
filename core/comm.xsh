@@ -149,8 +149,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let sep = if opts.zero { 0 } else { 10 }
   let mark = bytes.from_ints([sep])?
-  let left = split_records(read_input(opts.files[0]), sep)?
-  let right = split_records(read_input(opts.files[1]), sep)?
+  let left = read_input(opts.files[0]) |> split_records(_, sep)?
+  let right = read_input(opts.files[1]) |> split_records(_, sep)?
 
   let lead1 = if opts.hide1 { "" } else { delim }
   let lead2 = if opts.hide2 { "" } else { delim }

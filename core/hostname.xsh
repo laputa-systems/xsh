@@ -108,7 +108,7 @@ proc main(...argv: List[Str]) [net, process, env, error, io] {
   } else if opts.short {
     gnu.write_text(f"{name.split(".")[0]}\n")
   } else if opts.domain {
-    let domain = domain_of(canonical_name(name))
+    let domain = canonical_name(name) |> domain_of(_)
 
     if domain != "" {
       gnu.write_text(f"{domain}\n")

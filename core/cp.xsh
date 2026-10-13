@@ -323,7 +323,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       let next = ancestors + [{dev: meta.dev, ino: meta.ino, path: source, kind: meta.kind}]
       for entry in fs.children(source)? {
         let dest = child_path(target, basename_path(entry.path)?)
-        let child_source = child_path(source, basename_path(entry.path)?)
+        let child_source = basename_path(entry.path)? |> child_path(source, _)
         match copy_node(child_source, dest, opts, false, root_dev, next, copies) {
           Ok(result) => { copies = result.copies; failed = failed or result.failed }
           Err(failure) => { report(child_source, dest, failure); failed = true }

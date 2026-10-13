@@ -137,7 +137,7 @@ pure wide_bit_length(value: List[Int]) -> Int {
 # for both narrow and full-width unsigned ranges.
 pure wide_draw(window: Bytes, at: Int, count: List[Int]) -> WideDraw {
   let one = [0, 0, 0, 0, 0, 0, 0, 1]
-  let bits = wide_bit_length(wide_subtract(count, one))
+  let bits = wide_subtract(count, one) |> wide_bit_length(_)
   let byte_count = (bits + 7) / 8
   let high_bits = bits % 8
   var pos = at

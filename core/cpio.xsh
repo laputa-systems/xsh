@@ -1110,8 +1110,8 @@ proc group_label(gid: Int, numeric: Bool) [fs] -> Str {
 # One `cpio -tv` line. Times older than half a year, or in the future, show
 # the year instead of the time of day, like ls.
 proc long_line(header: Header, link_target: Bytes?, numeric: Bool, now_seconds: Int) [fs, time, process, env] -> Bytes {
-  let who = pad_right(clip(owner_name(header.uid, numeric)), 8)
-  let whom = pad_right(clip(group_label(header.gid, numeric)), 8)
+  let who = clip(owner_name(header.uid, numeric)) |> pad_right(_, 8)
+  let whom = clip(group_label(header.gid, numeric)) |> pad_right(_, 8)
   let kind = kind_bits(header.mode)
   let size_text = if kind == TYPE_CHAR or kind == TYPE_BLOCK {
     f"{header.rdev_major:>3}, {header.rdev_minor:>3}"
@@ -1894,7 +1894,7 @@ proc extract_device(st: Run, opts: Options, header: Header, chown_enabled: Bool)
     return state when linked.linked
   }
   let file = path_of(name) ?? { |failure| return call_error(state, "mknod", name, failure) }
-  let kind = kind_of_bits(kind_bits(header.mode))
+  let kind = kind_bits(header.mode) |> kind_of_bits(_)
   let permissions = header.mode.bit_and(511)
   let numbered = kind == "char" or kind == "block"
   let major = if numbered { header.rdev_major } else { 0 }

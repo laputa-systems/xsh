@@ -17711,7 +17711,7 @@ export proc replay_dmi_identity_bundle(bundle: FsRoot) [fs, time, error] -> Resu
 
   require_capture_metadata_unchanged(bundle, capture_metadata)
   let sensitive = compare_dmi_identity(encode_replayed_report(sensitive_candidate, true)?, reference, reference)?
-  let default_redacted = dmi_identity_redacted(encode_replayed_report(default_candidate, false)?, reference)?
+  let default_redacted = encode_replayed_report(default_candidate, false)? |> dmi_identity_redacted(_, reference)?
   {sensitive: sensitive, default_redacted: default_redacted, exact: sensitive.exact and default_redacted}
 }
 

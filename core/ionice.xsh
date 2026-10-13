@@ -265,7 +265,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     }
 
     for text in rest {
-      let next = apply_priority(number_argument(text, target.what, target.low, target.high), target, class, level)
+      let next = number_argument(text, target.what, target.low, target.high) |> apply_priority(_, target, class, level)
 
       if next != "" and ! opts.ignore {
         gnu.error(f"ioprio_set failed: {next}")

@@ -175,11 +175,11 @@ pure span_len(range: Span) -> Int {
 # context fields at each side, plus the head and tail that wrap around.
 pure make_chunks(layout: Layout, before_cs: List[Bytes], keyword: Bytes, after_cs: List[Bytes]) -> Chunks {
   let half = layout.width / 2
-  let max_before = shorter(shorter(half, layout.gap), if layout.traditional { 0 } else { 2 * layout.truncation.byte_len() })
+  let max_before = shorter(half, layout.gap) |> shorter(_, if layout.traditional { 0 } else { 2 * layout.truncation.byte_len() })
   let max_after = shorter(half, 2 * layout.truncation.byte_len() + keyword.len() + (if layout.traditional { 1 } else { 0 }))
   let before = window_ending(before_cs, {s: 0, e: before_cs.len()}, max_before, layout.traditional)
   let after = window_starting(after_cs, {s: 0, e: after_cs.len()}, max_after, layout.traditional)
-  let max_tail = shorter(shorter(max_before, span_len(before)), layout.gap)
+  let max_tail = shorter(max_before, span_len(before)) |> shorter(_, layout.gap)
   let tail_start = trim_span(after_cs, {s: after.e, e: after_cs.len()}).s
   var tail = window_starting(after_cs, {s: tail_start, e: after_cs.len()}, max_tail, layout.traditional, strict: true)
 
@@ -188,7 +188,7 @@ pure make_chunks(layout: Layout, before_cs: List[Bytes], keyword: Bytes, after_c
   }
 
   let after_bytes = text_of(after_cs, after).len()
-  let max_head = shorter(shorter(max_after, after_bytes), layout.gap)
+  let max_head = shorter(max_after, after_bytes) |> shorter(_, layout.gap)
   let head = window_ending(before_cs, {s: 0, e: before.s}, max_head, layout.traditional)
   var head_text = text_of(before_cs, head)
   var before_text = text_of(before_cs, before)

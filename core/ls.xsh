@@ -1707,7 +1707,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     if let Ok(pointed) = target.readlink() {
       link = pointed.bytes()
       let target_raw = pointed.bytes()
-      let resolved = if target_raw.byte_at(0) == 47 { target_raw } else { join_raw(base_dir(full), target_raw) }
+      let resolved = if target_raw.byte_at(0) == 47 { target_raw } else { base_dir(full) |> join_raw(_, target_raw) }
 
       if ctx.link_stat {
         if let Ok(found) = follow_stat(raw_path(resolved), true) {
@@ -2552,7 +2552,7 @@ pure lexical_absolute(ctx: Ctx, full: Bytes) -> Bytes {
 }
 
 pure hyperlink_start(ctx: Ctx, full: Bytes) -> Bytes {
-  hyperlink_at(ctx, lexical_absolute(ctx, full))
+  lexical_absolute(ctx, full) |> hyperlink_at(ctx, _)
 }
 
 # The OSC 8 opener for a name that is already absolute and canonical.
@@ -2603,7 +2603,7 @@ pure name_piece(ctx: Ctx, f: File, target: Bool, pad0: Bool, used0: Bool, col: I
   # A name whose canonical form could not be found has no hyperlink.
   if ctx.hyper and (target or f.absolute != null) {
     let opener = if target {
-      hyperlink_start(ctx, join_raw(base_dir(f.path.bytes()), f.link ?? b""))
+      join_raw(base_dir(f.path.bytes()), f.link ?? b"") |> hyperlink_start(ctx, _)
     } else {
       hyperlink_at(ctx, f.absolute ?? b"")
     }
@@ -3593,7 +3593,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, time, error, io] {
 
   let parsed = parse_args(arguments.values, arguments, start, tty)
   let ctx = build_ctx(parsed.cfg, tty)
-  let status = max_of(list_all(ctx, parsed.operands), if warning_failed { 2 } else { 0 })
+  let status = list_all(ctx, parsed.operands) |> max_of(_, if warning_failed { 2 } else { 0 })
 
   if status != 0 {
     exit status

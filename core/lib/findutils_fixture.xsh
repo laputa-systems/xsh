@@ -364,7 +364,7 @@ export proc run_corpus(xsh_bin: Path, script: Path, corpus: Path, root: Path, wo
       continue when "n" in c.flags and identity.euid == 0
       let seen = invoke(xsh_bin, script, root, work, c)?
       let status = stored.status
-      let expected_out = stored_bytes(resolve_ids(stored.stdout, identity.uid, identity.gid), stored.stdout_hex)
+      let expected_out = resolve_ids(stored.stdout, identity.uid, identity.gid) |> stored_bytes(_, stored.stdout_hex)
       let expected_err = stored_bytes(stored.stderr, stored.stderr_hex)
       if seen.status != status { yield f"{c.name}: exit {seen.status}, expected {status}" }
       if ! same_output(c, expected_out, seen.stdout) {

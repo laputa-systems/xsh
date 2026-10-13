@@ -1064,7 +1064,7 @@ pure match_value(subject: Bytes, pattern: Bytes, utf8: Bool) -> Outcome {
 
 # The value of `op` applied to two computed operands.
 pure apply_operator(op: Str, left: Outcome, right: Outcome, here: Locale) -> Outcome {
-  let left_null = is_null(text_of(left.value))
+  let left_null = text_of(left.value) |> is_null(_)
 
   if op == "|" {
     return left when left.error != "" or ! left_null

@@ -410,7 +410,7 @@ Thermal Management T2 Total Time\t: 0
 
 test test_nvme_smart_log_counters_wider_than_64_bits_are_exact { |ctx|
   let log = quiet_log(ctx)?
-  let page = put(smart_page()?, 32, b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")?
+  let page = smart_page()? |> put(_, 32, b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")?
   let ran = ran_ok(nvme(ctx, [log_line(2, 512, page, nsid: 1)], ["smart-log", "-n", "1", "/dev/null"], log)?)
   assert "namespace-id:1\n" in ran.stdout
   assert "Data Units Read\t\t\t\t: 340,282,366,920,938,463,463,374,607,431,768,211,455 (" in ran.stdout, ran.stdout

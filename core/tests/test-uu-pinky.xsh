@@ -131,7 +131,7 @@ test test_uu_pinky_long_format_wo_user { |ctx|
 # origin: uutils test_pinky::test_lookup
 test test_uu_pinky_lookup { |ctx|
   let s = uu.scene(ctx)?
-  let expected = stable_fields(short_fields("")?)
+  let expected = short_fields("")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", ["--lookup"])?
   uu.succeeds(r)
   assert stable_fields(r.stdout.utf8()?.words()) == expected
@@ -140,7 +140,7 @@ test test_uu_pinky_lookup { |ctx|
 # origin: uutils test_pinky::test_no_flag
 test test_uu_pinky_no_flag { |ctx|
   let s = uu.scene(ctx)?
-  let expected = stable_fields(short_fields("")?)
+  let expected = short_fields("")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", [])?
   uu.succeeds(r)
   assert stable_fields(r.stdout.utf8()?.words()) == expected
@@ -158,7 +158,7 @@ test test_uu_pinky_short_format_i { |ctx|
 # origin: uutils test_pinky::test_short_format_q
 test test_uu_pinky_short_format_q { |ctx|
   let s = uu.scene(ctx)?
-  let expected = stable_fields(short_fields("-q")?)
+  let expected = short_fields("-q")? |> stable_fields(_)
   let r = uu.invoke(s, "pinky", ["-q"])?
   uu.succeeds(r)
   assert stable_fields(r.stdout.utf8()?.words()) == expected

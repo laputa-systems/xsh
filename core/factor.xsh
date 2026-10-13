@@ -570,7 +570,7 @@ pure gcd_big(a: List[Int], b: List[Int]) -> List[Int] {
 }
 
 pure rho_step_big(x: List[Int], c: Int, n: List[Int]) -> List[Int] {
-  let next = big_add(mulmod_big(x, x, n), [c])
+  let next = mulmod_big(x, x, n) |> big_add(_, [c])
 
   if big_cmp(next, n) >= 0 { big_sub(next, n) } else { next }
 }
@@ -672,7 +672,7 @@ pure squfof(n: List[Int]) -> Int {
     let limit = 6 * isqrt_int(2 * start) + 100
     var p = start
     var older = 1
-    var newer = big_to_int(big_sub(target, big_mul(big_from_int(start), big_from_int(start))))
+    var newer = big_sub(target, big_mul(big_from_int(start), big_from_int(start))) |> big_to_int(_)
     var root = 0
     var found = false
     var round = 2
@@ -706,8 +706,8 @@ pure squfof(n: List[Int]) -> Int {
       p = step * root + p
 
       var previous_q = root
-      let rest = big_sub(target, big_mul(big_from_int(p), big_from_int(p)))
-      var q = big_to_int(big_div_small_or_big(rest, previous_q))
+      let rest = big_mul(big_from_int(p), big_from_int(p)) |> big_sub(target, _)
+      var q = big_div_small_or_big(rest, previous_q) |> big_to_int(_)
 
       loop {
         let leap = (start + p) / q
@@ -721,8 +721,7 @@ pure squfof(n: List[Int]) -> Int {
         q = next_q
       }
 
-      let remainder = big_to_int(big_divmod(n, big_from_int(p)).remainder)
-      let g = gcd_int(p, remainder)
+      let g = big_to_int(big_divmod(n, big_from_int(p)).remainder) |> gcd_int(p, _)
 
       return g when g != 1 and big_cmp(big_from_int(g), n) != 0
     }
@@ -918,7 +917,7 @@ pure find_factor(n: List[Int]) -> List[Int] {
 }
 
 pure is_prime(n: List[Int]) -> Bool {
-  return is_prime_int(big_to_int(n)) when n.len() <= 2
+  return big_to_int(n) |> is_prime_int(_) when n.len() <= 2
 
   is_prime_big(n)
 }

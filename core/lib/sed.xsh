@@ -218,7 +218,7 @@ pure normalize(text: Bytes, kind: TextKind) -> Result[Bytes, Error] {
         var digits = 0
         var cursor = at + 2
         while digits < width {
-          let found = digit_value(at_byte(text, cursor), radix)
+          let found = at_byte(text, cursor) |> digit_value(_, radix)
           break when found < 0
           value = value * radix + found
           cursor += 1
@@ -964,8 +964,8 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       let dest_scan = match_slash(text, source_scan.next, slash, false)
       if !dest_scan.ok { return Err(complain(chunk, dest_scan.next, "unterminated 'y' command")) }
       at = dest_scan.next
-      let source = translate_operand(normalize(source_scan.text, .LiteralText)?)
-      let dest = translate_operand(normalize(dest_scan.text, .LiteralText)?)
+      let source = normalize(source_scan.text, .LiteralText)? |> translate_operand(_)
+      let dest = normalize(dest_scan.text, .LiteralText)? |> translate_operand(_)
       if source.len() != dest.len() { return Err(complain(chunk, at, "'y' command strings have different lengths")) }
       var table = [index for index in range(256)]
       for index in range(source.len()) { table[source[index]] = dest[index] }
@@ -1702,7 +1702,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
           if command.text.is_empty() {
             line = {...line, text: strip_delimiter(shell_output(line.text), delim)}
           } else {
-            let output = shell_output(strip_delimiter(command.text, NEWLINE))
+            let output = strip_delimiter(command.text, NEWLINE) |> shell_output(_)
             m = {...m, out: emit_raw(m.out, MAIN, in_place, output, ctx.delim_bytes)}
           }
         }

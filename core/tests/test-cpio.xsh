@@ -461,8 +461,7 @@ test test_cpio_reads_reversed_byte_order_binary_archives { |ctx|
   let native = cpio(ctx, root, ["-o", "-H", "bin", "--quiet"], b"ab\n")?
   # Two 26-byte headers (file and trailer) with a 4-byte name and 4 bytes of
   # data between them, as written by a machine of the other byte order.
-  let first = swap_words(native.stdout, 0, 26)
-  let reversed = swap_words(first, 34, 26)
+  let reversed = swap_words(native.stdout, 0, 26) |> swap_words(_, 34, 26)
   let listed = cpio(ctx, root, ["-it", "--quiet"], reversed)?
   assert listed.status == 0
   assert listed.stdout == b"ab\n"

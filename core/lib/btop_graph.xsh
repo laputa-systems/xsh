@@ -230,12 +230,10 @@ export pure project(
             continue
           }
           let right_sample = visible[right_index]
-          let right_pixels = sample_pixels(right_sample, minimum, scale, height)?
-          let right_mask = dots_in_cell_row(right_pixels, row, height, inverted, true)
+          let right_mask = sample_pixels(right_sample, minimum, scale, height)? |> dots_in_cell_row(_, row, height, inverted, true)
           let left_index = right_index - 1
           let left_mask = if left_index >= 0 {
-            let left_pixels = sample_pixels(visible[left_index], minimum, scale, height)?
-            dots_in_cell_row(left_pixels, row, height, inverted, false)
+            sample_pixels(visible[left_index], minimum, scale, height)? |> dots_in_cell_row(_, row, height, inverted, false)
           } else {
             0
           }

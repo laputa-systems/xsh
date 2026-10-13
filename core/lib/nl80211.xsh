@@ -1119,15 +1119,13 @@ pure erp_lines(data: Bytes) -> List[Str] {
 
 pure rsn_lines(data: Bytes) -> List[Str] {
   return ["\tRSN: <invalid>"] when data.len() < 2
-  let version = uint(data[..2])
-  let body = cipher_lines(data, 2, version, true)
+  let body = uint(data[..2]) |> cipher_lines(data, 2, _, true)
   ["\tRSN:" + body[0], @body[1..]]
 }
 
 pure vendor_lines(data: Bytes, unknown: Bool) -> List[Str] {
   if data.len() >= 8 and hex_bytes(data[..4]) == "00 50 f2 01" {
-    let version = uint(data.slice(4, 2))
-    let body = cipher_lines(data, 6, version, false)
+    let body = uint(data.slice(4, 2)) |> cipher_lines(data, 6, _, false)
     return ["\tWPA:" + body[0], @body[1..]]
   }
   if unknown {
