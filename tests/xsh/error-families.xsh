@@ -328,7 +328,7 @@ print ${StageError.Broken("detail").message}
   assert second.status.exited_with(0), second.stderr
 }
 
-test test_prefer_implicit_message_leaves_exported_declarations_to_the_author { |ctx|
+test test_prefer_implicit_message_preserves_exported_payloads { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-exported")?
   let module_source = """##! Fetch failures.
 ## Why a fetch failed.
@@ -354,20 +354,19 @@ print ${fetch.FetchError.Usage(message: "imported").message}
 
   let reported = run.capture --text "xsht" lint --only lint.prefer-implicit-message $module_file
   assert reported.status.exited_with(1), reported.stderr
-  assert "`FetchError` is exported" in reported.stderr, reported.stderr
-  assert "delete `(message: Str)` here" in reported.stderr, reported.stderr
-  assert "stops checking once the payload is gone (`check.error-constructor`)" in reported.stderr, reported.stderr
+  assert "`Usage` takes its message positionally" in reported.stderr, reported.stderr
+  assert "`FetchError` is exported" not in reported.stderr, reported.stderr
+  assert "delete `(message: Str)` here" not in reported.stderr, reported.stderr
   assert "help: declare the variant without a payload" not in reported.stderr, reported.stderr
 
-  # Each call is fixed where it is written; the exported declaration is not.
+  # Positional call sites remain safe to fix; the exported field stays.
   let fixing_module = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $module_file
-  assert ! fixing_module.status.exited_with(2), fixing_module.stderr
+  assert fixing_module.status.exited_with(0), fixing_module.stderr
   let fixed_module = module_file.read_text()?
   assert "export error FetchError = Usage(message: Str) | Rejected(url: Str, status: Int)" in fixed_module, fixed_module
   assert "Err(FetchError.Usage(reason))" in fixed_module, fixed_module
   let remaining = run.capture --text "xsht" lint --only lint.prefer-implicit-message $module_file
-  assert remaining.status.exited_with(1), remaining.stderr
-  assert "`FetchError` is exported" in remaining.stderr, remaining.stderr
+  assert remaining.status.exited_with(0), remaining.stderr
   assert "takes its message positionally" not in remaining.stderr, remaining.stderr
   let fixing_importer = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $importer
   assert ! fixing_importer.status.exited_with(2), fixing_importer.stderr
@@ -376,13 +375,13 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   let after = test.expect(ctx, fixed_importer, status: 0, args: [], env: module_env)?
   assert after.stdout == before.stdout
 
-  # With every call positional, the manual declaration edit keeps behavior.
+  # With every call positional, an explicit payload removal preserves this
+  # consumer, including its match on the message.
   module_file.write_atomic(fixed_module.replace("Usage(message: Str)", with: "Usage"))
   let migrated = test.expect(ctx, fixed_importer, status: 0, args: [], env: module_env)?
   assert migrated.stdout == before.stdout
 
-  # The named call is the one thing the edit takes away, which is why the
-  # declaration waits for the importers.
+  # A named constructor in an importer still depends on the exported field.
   let stale = test.expect(ctx, importer_source, status: 2, args: [], env: module_env)?
   assert "err[check.error-constructor]" in stale.stderr, stale.stderr
   assert count_of(stale.stderr, "err[") == 1, stale.stderr

@@ -1,15 +1,14 @@
 //! `lint.prefer-implicit-message`: a variant declared `Variant(message: Str)`
 //! restates the message every error carries. The migration is two edits that
-//! each preserve behavior on their own: a call that names the field passes it
-//! positionally (which binds the same sole field), and then the declaration
-//! drops its payload (which keeps the `message` field, every positional
-//! construction, and every pattern).
+//! each preserve behavior for a private family: a call that names the field
+//! passes it positionally, and then the declaration drops its payload while
+//! the variant keeps its implicit message.
 //!
 //! The one thing the second edit takes away is the named call: a variant
 //! without a payload takes no named argument. Calls in the linted file are
-//! counted, so a private family is fixed here. An exported family can be
-//! constructed by name in a file this lint does not see, so its declaration
-//! is reported without a fix.
+//! counted, so a private family is fixed here. An exported payload is part of
+//! the constructor and pattern API, so its declaration stays; safe call-site
+//! edits still pass the message positionally.
 //!
 //! A declaration deleted by a safe `lint.prefer-fail` fix needs no payload
 //! edit. Findings without a fix still permit message edits that retain the family.
@@ -99,12 +98,16 @@ pub(super) fn lint_implicit_messages(
         let ArenaStmtKind::ErrorDef(id) = inner.kind else {
             continue;
         };
+        // An exported payload field is part of the constructor and pattern
+        // API. Call sites can still be simplified to positional arguments.
+        if exported {
+            continue;
+        }
         let family = program.arena.error_def(id);
-        if !exported
-            && (fail_sites.contains(&outer.span)
-                || constructors.iter().any(|(call, constructor)| {
-                    constructor.family == family.name && fail_sites.contains(*call)
-                }))
+        if fail_sites.contains(&outer.span)
+            || constructors.iter().any(|(call, constructor)| {
+                constructor.family == family.name && fail_sites.contains(*call)
+            })
         {
             continue;
         }
@@ -208,5 +211,35 @@ mod tests {
         }).diagnostics;
         assert!(found.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail) && diagnostic.fix_hints.len() == 1));
         assert!(found.iter().all(|diagnostic| diagnostic.code != Some(DiagnosticCode::LintPreferImplicitMessage)));
+    }
+
+    #[test]
+    fn exported_error_payloads_remain_matchable_public_fields() {
+        let source = "export error AccountError = Database(message: Str) | Policy(message: Str)\n\nexport proc lookup() -> Result[Int, AccountError] {\n  Err(AccountError.Database(\"unknown database\"))\n}\n\nexport proc describe(result: Result[Int, AccountError]) -> Str {\n  match result {\n    Err(AccountError.Database {message}) => message\n    Err(AccountError.Policy {message}) => message\n    Ok(_) => \"ok\"\n    _ => \"other\"\n  }\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let found = Linter::lint(&parsed.arena, source, LintOptions {
+            message_payload_constructors: Some(checked.message_payload_constructors),
+            ..LintOptions::default()
+        }).diagnostics;
+        let payload_declarations = found.iter().filter(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::LintPreferImplicitMessage)
+                && diagnostic.fix_hints.is_empty()
+                    && diagnostic.labels.iter().any(|label| {
+                        label
+                            .message
+                            .as_deref()
+                            .is_some_and(|message| message.starts_with("declare `"))
+                    })
+        }).collect::<Vec<_>>();
+        assert!(payload_declarations.is_empty(), "{payload_declarations:?}");
+        assert!(
+            found
+                .iter()
+                .all(|diagnostic| diagnostic.code != Some(DiagnosticCode::LintPreferFail)),
+            "{found:?}"
+        );
     }
 }

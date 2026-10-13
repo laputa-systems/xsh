@@ -6,8 +6,8 @@
 //! must be its declaration or a constructor call this module recognizes, and
 //! the variant must never be written in its leading-dot form, which names no
 //! family. A pattern, a type annotation, a string, or a comment that mentions
-//! the family therefore leaves it alone. An exported family can be matched in
-//! a file this lint does not see, so it is reported without a fix.
+//! the family therefore leaves it alone. An exported family is a nominal API
+//! even when no importer in the linted source matches it, so it stays too.
 //!
 //! Replacing a nominal constructor with a string failure changes the family
 //! reported by an uncaught failure, even when callers only inspect its message.
@@ -190,17 +190,8 @@ impl Candidates {
             let name = family.name.as_str();
             let variant = family.variant.as_str();
             if family.exported {
-                diagnostics.push(
-                    Diagnostic::warning(format!("error family `{name}` only carries a message"))
-                        .with_code(DiagnosticCode::LintPreferFail)
-                        .with_label(Label::secondary(
-                            family.declaration,
-                            "a failure that callers only report needs no family",
-                        ))
-                        .with_note(format!(
-                            "`{name}` is exported: if no file that imports it matches on `{name}`, return its failures with `fail MESSAGE` and delete the declaration"
-                        )),
-                );
+                // An exported family is a nominal API even without a local
+                // importer that matches its sole message variant.
                 continue;
             }
             let constructors = self
@@ -639,17 +630,16 @@ mod tests {
     }
 
     #[test]
-    fn an_exported_family_is_reported_without_a_fix() {
-        let source = "export error LoadError = Failed(message: Str)\n\nexport proc load() -> Result[Int, Error] {\n  return Err(LoadError.Failed(\"no\"))\n}\n";
+    fn an_exported_family_and_callable_keep_the_nominal_boundary() {
+        let source = "export error LoadError = Failed(message: Str)\n\nexport proc load() -> Result[Int, LoadError] {\n  return Err(LoadError.Failed(\"no\"))\n}\n";
         let diagnostics = lint(source);
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert!(diagnostics[0].fix_hints.is_empty());
-        assert!(
-            diagnostics[0]
-                .notes
-                .iter()
-                .any(|note| note.contains("is exported"))
-        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn a_private_family_with_a_pattern_and_error_type_consumer_is_preserved() {
+        let source = "error LoadError = Failed(message: Str)\n\nproc load() -> Result[Int, LoadError] {\n  return Err(LoadError.Failed(\"no\"))\n}\n\nproc report(result: Result[Int, LoadError]) -> Str {\n  match result {\n    Err(LoadError.Failed {message}) => message\n    Ok(_) => \"ok\"\n    _ => \"other\"\n  }\n}\n";
+        assert!(lint(source).is_empty());
     }
 
     #[test]
