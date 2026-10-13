@@ -360,8 +360,41 @@ print f"{loud([1, 2]).len()}"
 
 print f"{loud([1, 2]).len()}"
 """
+  let checked = run.capture --text "xsht" check $built
+  assert checked.status.exited_with(0), checked.stderr
   let ran = run.capture --text "xsh" $built
   assert ran.stdout == "1\n2\n2\n", ran.stderr
+}
+
+test test_prefer_collect_keeps_a_list_mutable_after_compact_index_assignment { |ctx|
+  let source = r"""proc build(items: List[Int]) -> List[Int] {
+  var kept = []
+  for item in items {
+    kept += [item]
+  }
+  kept[0]=99
+  kept
+}
+
+let result = build([1, 2])
+print f"{result[0]},{result[1]}"
+"""
+  let built = test.temp_file(ctx, name: "mutable-collect.xsh", contents: bytes.from_text(source))?
+  let checked = run.capture --text "xsht" check $built
+  assert checked.status.exited_with(0), checked.stderr
+
+  let linted = run.capture --text "xsht" lint --only lint.prefer-collect $built
+  assert linted.status.exited_with(0), linted.stdout + linted.stderr
+  assert !("warn[lint.prefer-collect]" in linted.stdout + linted.stderr), linted.stderr
+
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-collect $built
+  assert fixed.status.exited_with(0), fixed.stdout + fixed.stderr
+  assert built.read_text()? == source
+  let checked_after = run.capture --text "xsht" check $built
+  assert checked_after.status.exited_with(0), checked_after.stderr
+
+  let ran = run.capture --text "xsh" $built
+  assert ran.stdout == "99,2\n", ran.stderr
 }
 
 test test_prefer_collect_uses_project_width_for_replacement_layout { |ctx|
