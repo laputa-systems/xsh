@@ -15,6 +15,44 @@ theorem accepted_initial_expression_is_wellFormed_fragment
     wellFormed (initialConfig names activations store expression) := by
   exact ⟨accepted, rfl⟩
 
+theorem integer_checker_implies_supported_checker_fragment
+    (names : LexicalEnvironment) (activations : ActivationEnvironment) (store : BaseStore)
+    (expression : BaseExpr)
+    (accepted : checkIntegerExpr names activations store expression = true) :
+    checkBaseExpr names activations store expression = true := by
+  cases expression with
+  | integerLiteral value =>
+    cases found : validateInt? value <;>
+      simp [checkIntegerExpr, checkBaseExpr, inferBaseType?, found] at accepted ⊢
+  | scalarLiteral value =>
+    cases found : scalarTypedValue? value with
+    | none => simp [checkIntegerExpr, inferBaseType?, found] at accepted
+    | some typed =>
+      cases typed.typeTag <;>
+        simp [checkIntegerExpr, checkBaseExpr, inferBaseType?, found] at accepted ⊢
+  | identifier name =>
+    cases found : lookupBaseValue names activations store name with
+    | error fault => simp [checkIntegerExpr, inferBaseType?, found] at accepted
+    | ok typed =>
+      change (lookupBaseValue names activations store name).isOk = true
+      rw [found]
+      rfl
+  | negate operand =>
+    cases found : inferBaseType? names activations store operand with
+    | none => simp [checkIntegerExpr, inferBaseType?, found] at accepted
+    | some type =>
+      cases type <;>
+        simp [checkIntegerExpr, checkBaseExpr, inferBaseType?, found] at accepted ⊢
+  | binary operator left right =>
+    cases leftType : inferBaseType? names activations store left with
+    | none => simp [checkIntegerExpr, inferBaseType?, leftType] at accepted
+    | some leftTag =>
+      cases rightType : inferBaseType? names activations store right with
+      | none => simp [checkIntegerExpr, inferBaseType?, leftType, rightType] at accepted
+      | some rightTag =>
+        cases leftTag <;> cases rightTag <;>
+          simp [checkIntegerExpr, checkBaseExpr, inferBaseType?, leftType, rightType] at accepted ⊢
+
 theorem machine_progress_fragment (config : MachineConfig) :
     terminalOutcome config ≠ none ∨ ∃ next, step config = some next := by
   cases config with
@@ -34,46 +72,86 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
     wellFormed next := by
   cases config with
   | mk names activations store control continuation =>
+    simp [wellFormed] at wellFormedConfig
+    rcases wellFormedConfig with ⟨controlWellFormed, continuationWellFormed⟩
     cases control with
     | evaluate expression =>
       cases expression with
       | integerLiteral value =>
         simp only [step] at takesStep
         cases takesStep
-        cases checkedInt value <;>
+        cases result : checkedInt value <;>
           simp_all [wellFormed, updateState, controlOfIntegerResult]
+      | scalarLiteral value =>
+        simp only [step] at takesStep
+        cases takesStep
+        cases result : scalarTypedValue? value <;>
+          simp_all [wellFormed, updateState]
       | identifier name =>
         simp only [step] at takesStep
         cases takesStep
-        cases lookupInteger names activations store name <;>
+        cases result : lookupBaseValue names activations store name <;>
           simp_all [wellFormed, updateState]
       | negate operand =>
+        have operandInteger : checkIntegerExpr names activations store operand = true := by
+          simpa [checkBaseExpr] using controlWellFormed
+        have operandChecked := integer_checker_implies_supported_checker_fragment
+          names activations store operand operandInteger
         simp only [step] at takesStep
         cases takesStep
-        simp_all [wellFormed, updateState, continuationChecked, checkBaseExpr]
+        simp [wellFormed, updateState, continuationChecked, operandChecked,
+          continuationWellFormed]
       | binary operator left right =>
+        have operandsInteger :
+            checkIntegerExpr names activations store left = true ∧
+              checkIntegerExpr names activations store right = true := by
+          simpa [checkBaseExpr, Bool.and_eq_true] using controlWellFormed
+        have leftChecked := integer_checker_implies_supported_checker_fragment
+          names activations store left operandsInteger.1
         simp only [step] at takesStep
         cases takesStep
-        simp_all [wellFormed, updateState, continuationChecked, checkBaseExpr]
+        simp [wellFormed, updateState, continuationChecked, leftChecked,
+          operandsInteger.2, continuationWellFormed]
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
       | cons frame rest =>
         cases frame with
         | negate =>
+          have restWellFormed : continuationChecked names activations store rest = true := by
+            simpa [continuationChecked] using continuationWellFormed
           simp only [step] at takesStep
           cases takesStep
-          cases IntegerOps.negate value <;>
-            simp_all [wellFormed, updateState, controlOfIntegerResult, continuationChecked]
+          cases payload : integerPayload? value with
+          | none =>
+            simp_all [wellFormed, updateState]
+          | some integer =>
+            cases result : IntegerOps.negate integer <;>
+              simp_all [wellFormed, updateState, controlOfIntegerResult]
         | binaryLeft operator right =>
+          have continuationParts :
+              checkIntegerExpr names activations store right = true ∧
+                continuationChecked names activations store rest = true := by
+            simpa [continuationChecked, Bool.and_eq_true] using continuationWellFormed
+          have rightInteger := continuationParts.1
+          have restWellFormed := continuationParts.2
+          have rightChecked := integer_checker_implies_supported_checker_fragment
+            names activations store right rightInteger
           simp only [step] at takesStep
           cases takesStep
-          simp_all [wellFormed, updateState, continuationChecked]
+          cases payload : integerPayload? value <;>
+            simp_all [wellFormed, updateState, continuationChecked]
         | binaryRight operator left =>
+          have restWellFormed : continuationChecked names activations store rest = true := by
+            simpa [continuationChecked] using continuationWellFormed
           simp only [step] at takesStep
           cases takesStep
-          cases applyBinary operator left value <;>
-            simp_all [wellFormed, updateState, controlOfIntegerResult, continuationChecked]
+          cases payload : integerPayload? value with
+          | none =>
+            simp_all [wellFormed, updateState]
+          | some integer =>
+            cases result : applyBinary operator left integer <;>
+              simp_all [wellFormed, updateState, controlOfIntegerResult]
     | failed fault => simp [step] at takesStep
 
 theorem machine_runner_never_stuck_fragment {fuel : Nat} {config : MachineConfig}
@@ -153,8 +231,8 @@ theorem integer_checker_rejects_unbound_name_fragment :
 
 theorem supported_arithmetic_runs_to_exact_value_fragment :
     runFuel 5 (initialConfig [] [] (fun _ => none) acceptedArithmeticExample) =
-      .completed (.value exampleFive) := by
-  decide
+      .completed (.value (typedInteger exampleFive)) := by
+  rfl
 
 def overflowExample : BaseExpr :=
   .binary .multiply (.integerLiteral intMax.val) (.integerLiteral 2)
@@ -162,7 +240,7 @@ def overflowExample : BaseExpr :=
 theorem checked_multiplication_overflow_is_explicit_fragment :
     runFuel 5 (initialConfig [] [] (fun _ => none) overflowExample) =
       .completed (.fault (.arithmetic .overflow)) := by
-  decide
+  rfl
 
 def divisionByZeroExample : BaseExpr :=
   .binary .divide (.integerLiteral 1) (.integerLiteral 0)
@@ -170,7 +248,7 @@ def divisionByZeroExample : BaseExpr :=
 theorem checked_division_by_zero_is_explicit_fragment :
     runFuel 5 (initialConfig [] [] (fun _ => none) divisionByZeroExample) =
       .completed (.fault (.arithmetic .divisionByZero)) := by
-  decide
+  rfl
 
 def arithmeticMutantMultiply (left right : IntValue) : IntegerResult :=
   applyBinary .add left right
@@ -180,6 +258,114 @@ theorem multiplication_mutant_witness_fragment :
       arithmeticMutantMultiply exampleTwo exampleThree = .value exampleFive ∧
       exampleSix ≠ exampleFive := by
   decide
+
+private def positiveZeroTypedValue : BaseTypedValue :=
+  ⟨.float, positiveZeroValue, trivial⟩
+
+private def negativeZeroTypedValue : BaseTypedValue :=
+  ⟨.float, negativeZeroValue, trivial⟩
+
+private def typedNullValue : BaseTypedValue := ⟨.null, .null, trivial⟩
+private def typedBooleanValue : BaseTypedValue := ⟨.boolean, .boolean false, trivial⟩
+private def typedIntegerValue : BaseTypedValue := typedInteger exampleFive
+private def typedDurationValue : BaseTypedValue :=
+  ⟨.duration, .duration ⟨37, by decide⟩, trivial⟩
+private def typedStringValue : BaseTypedValue := ⟨.string, .string "xsh", trivial⟩
+private def typedBytesValue : BaseTypedValue := ⟨.bytes, .bytes [], trivial⟩
+
+theorem scalar_literal_runs_to_its_typed_payload_fragment
+    (value : CompositeValue) (typed : BaseTypedValue)
+    (supported : scalarTypedValue? value = some typed) :
+    runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral value)) =
+      .completed (.value typed) := by
+  simp [runFuel, terminalOutcome, initialConfig, step, updateState, supported]
+
+theorem scalar_checker_accepts_exact_float_literal_fragment :
+    checkBaseExpr [] [] (fun _ => none) (.scalarLiteral positiveZeroValue) = true := by
+  decide
+
+theorem positive_zero_literal_runs_with_exact_float_payload_fragment :
+    runFuel 1 (initialConfig [] [] (fun _ => none)
+      (.scalarLiteral positiveZeroValue)) =
+        .completed (.value positiveZeroTypedValue) := by
+  apply scalar_literal_runs_to_its_typed_payload_fragment
+  rfl
+
+theorem every_supported_scalar_kind_runs_with_exact_typed_payload_fragment :
+    runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral .null)) =
+        .completed (.value typedNullValue) ∧
+      runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral (.boolean false))) =
+        .completed (.value typedBooleanValue) ∧
+      runFuel 1 (initialConfig [] [] (fun _ => none)
+        (.scalarLiteral (.integer exampleFive))) =
+        .completed (.value typedIntegerValue) ∧
+      runFuel 1 (initialConfig [] [] (fun _ => none)
+        (.scalarLiteral positiveZeroValue)) =
+        .completed (.value positiveZeroTypedValue) ∧
+      runFuel 1 (initialConfig [] [] (fun _ => none)
+        (.scalarLiteral (.duration ⟨37, by decide⟩))) =
+        .completed (.value typedDurationValue) ∧
+      runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral (.string "xsh"))) =
+        .completed (.value typedStringValue) ∧
+      runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral (.bytes []))) =
+        .completed (.value typedBytesValue) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  all_goals
+    apply scalar_literal_runs_to_its_typed_payload_fragment
+    rfl
+
+theorem scalar_checker_rejects_composite_literal_fragment :
+    checkBaseExpr [] [] (fun _ => none) (.scalarLiteral (.list [])) = false := by
+  decide
+
+theorem composite_literal_failure_is_explicit_fragment :
+    runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral (.list []))) =
+      .completed (.fault .unsupportedScalarLiteral) := by
+  rfl
+
+theorem float_sign_bit_mutation_changes_machine_payload_fragment :
+    runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral positiveZeroValue)) =
+        .completed (.value positiveZeroTypedValue) ∧
+      runFuel 1 (initialConfig [] [] (fun _ => none) (.scalarLiteral negativeZeroValue)) =
+        .completed (.value negativeZeroTypedValue) ∧
+      ¬ representationIdentity positiveZeroTypedValue.value negativeZeroTypedValue.value ∧
+      positiveZeroTypedValue.value.semanticEq negativeZeroTypedValue.value := by
+  constructor
+  · exact positive_zero_literal_runs_with_exact_float_payload_fragment
+  constructor
+  · apply scalar_literal_runs_to_its_typed_payload_fragment
+    rfl
+  constructor
+  · simpa [positiveZeroTypedValue, negativeZeroTypedValue] using signed_zero_representation_differs
+  · simpa [positiveZeroTypedValue, negativeZeroTypedValue] using signed_zero_semantically_equal
+
+private def scalarName : NameId := ⟨⟨31, by decide⟩⟩
+private def scalarBinder : BinderId := ⟨⟨32, by decide⟩⟩
+private def scalarCellId : CellId := ⟨1, scalarBinder⟩
+
+private def scalarStoreCell : StoreCell BaseType CompositeValue hasBaseType := {
+  contents := {
+    typeTag := .float
+    value := positiveZeroValue
+    wellTyped := trivial
+  }
+  mutability := .immutable
+}
+
+private def scalarNames : LexicalEnvironment :=
+  bind emptyLexicalEnvironment scalarName scalarBinder
+
+private def scalarActivations : ActivationEnvironment :=
+  bindCell [] scalarBinder scalarCellId
+
+private def scalarStore : BaseStore := fun cell =>
+  if cell = scalarCellId then some scalarStoreCell else none
+
+theorem typed_identifier_reads_exact_scalar_from_store_fragment :
+    checkBaseExpr scalarNames scalarActivations scalarStore (.identifier scalarName) = true ∧
+      runFuel 1 (initialConfig scalarNames scalarActivations scalarStore
+        (.identifier scalarName)) = .completed (.value positiveZeroTypedValue) := by
+  constructor <;> rfl
 
 private def redirectedName : NameId := ⟨⟨7, by decide⟩⟩
 private def declaredBinder : BinderId := ⟨⟨11, by decide⟩⟩
@@ -218,10 +404,18 @@ theorem binder_redirection_changes_identifier_result_fragment :
     checkBaseExpr mutatedNames redirectionActivations redirectionStore
       redirectionExpression = true ∧
     runFuel 1 (initialConfig declaredNames redirectionActivations redirectionStore
-      redirectionExpression) = .completed (.value exampleEleven) ∧
+      redirectionExpression) = .completed (.value (typedInteger exampleEleven)) ∧
     runFuel 1 (initialConfig mutatedNames redirectionActivations redirectionStore
-      redirectionExpression) = .completed (.value exampleTwentyTwo) ∧
+      redirectionExpression) = .completed (.value (typedInteger exampleTwentyTwo)) ∧
     exampleEleven ≠ exampleTwentyTwo := by
-  decide
+  constructor
+  · rfl
+  constructor
+  · rfl
+  constructor
+  · rfl
+  constructor
+  · rfl
+  · decide
 
 end Xsh.Proofs.BaseMachine

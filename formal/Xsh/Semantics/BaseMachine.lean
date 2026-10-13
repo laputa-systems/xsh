@@ -10,33 +10,68 @@ open Xsh.Values
 open Xsh.Values.IntegerOps
 open Xsh.Semantics.Environments
 
-inductive BaseExpr where
-  | integerLiteral (value : Int)
-  | identifier (name : Xsh.Syntax.RawName)
-  | negate (operand : BaseExpr)
-  | binary (operator : IntegerBinaryOp) (left right : BaseExpr)
-  deriving DecidableEq
-
+/-- Type tags supported by the scalar-and-integer-expression machine fragment. -/
 inductive BaseType where
+  | null
+  | boolean
   | integer
+  | float
+  | duration
+  | string
+  | bytes
   deriving DecidableEq
 
 def hasBaseType : BaseType → CompositeValue → Prop
+  | .null, .null => True
+  | .boolean, .boolean _ => True
   | .integer, .integer _ => True
-  | .integer, _ => False
+  | .float, .float _ => True
+  | .duration, .duration _ => True
+  | .string, .string _ => True
+  | .bytes, .bytes _ => True
+  | _, _ => False
 
 abbrev BaseStore := TypedStore BaseType CompositeValue hasBaseType
+abbrev BaseTypedValue := TypedValue BaseType CompositeValue hasBaseType
 
+def typedInteger (value : IntValue) : BaseTypedValue := {
+  typeTag := .integer
+  value := .integer value
+  wellTyped := trivial
+}
+
+/- A literal is accepted only when it is one of the existing exact scalar values. -/
+def scalarTypedValue? : CompositeValue → Option BaseTypedValue
+  | .null => some ⟨.null, .null, trivial⟩
+  | .boolean value => some ⟨.boolean, .boolean value, trivial⟩
+  | .integer value => some (typedInteger value)
+  | .float bits => some ⟨.float, .float bits, trivial⟩
+  | .duration value => some ⟨.duration, .duration value, trivial⟩
+  | .string value => some ⟨.string, .string value, trivial⟩
+  | .bytes value => some ⟨.bytes, .bytes value, trivial⟩
+  | .list _ | .record _ | .tagged _ _ _ => none
+
+/-- The checked expression fragment; arithmetic operands are integers only. -/
+inductive BaseExpr where
+  | integerLiteral (value : Int)
+  | scalarLiteral (value : CompositeValue)
+  | identifier (name : Xsh.Syntax.RawName)
+  | negate (operand : BaseExpr)
+  | binary (operator : IntegerBinaryOp) (left right : BaseExpr)
+
+/-- Failures are terminal outcomes of this fragment; exhaustion belongs to the runner. -/
 inductive BaseFault where
   | unboundName (name : Xsh.Syntax.RawName)
   | inactiveBinder (binder : BinderId)
   | missingCell (cell : CellId)
-  | invalidStoredValue (cell : CellId)
+  | unsupportedScalarLiteral
+  | expectedInteger
   | arithmetic (fault : IntegerFault)
   deriving DecidableEq
 
-def lookupInteger (names : LexicalEnvironment) (activations : ActivationEnvironment)
-    (store : BaseStore) (name : Xsh.Syntax.RawName) : Except BaseFault IntValue :=
+/- Resolve a source name through its declaration and active cell before reading its typed value. -/
+def lookupBaseValue (names : LexicalEnvironment) (activations : ActivationEnvironment)
+    (store : BaseStore) (name : Xsh.Syntax.RawName) : Except BaseFault BaseTypedValue :=
   match resolve names name with
   | none => .error (.unboundName name)
   | some binder =>
@@ -45,32 +80,53 @@ def lookupInteger (names : LexicalEnvironment) (activations : ActivationEnvironm
     | some cell =>
       match store cell with
       | none => .error (.missingCell cell)
-      | some stored =>
-        match stored.contents.value with
-        | .integer value => .ok value
-        | _ => .error (.invalidStoredValue cell)
+      | some stored => .ok stored.contents
 
-/-- This checker accepts only the closed integer syntax above and checks every
-literal and identifier against the supplied lexical and runtime bindings. -/
+/- Integer operators require integer operands; scalar literals and identifiers retain their tags. -/
+def inferBaseType? (names : LexicalEnvironment) (activations : ActivationEnvironment)
+    (store : BaseStore) : BaseExpr → Option BaseType
+  | .integerLiteral value =>
+    (validateInt? value).map (fun _ => BaseType.integer)
+  | .scalarLiteral value => (scalarTypedValue? value).map TypedValue.typeTag
+  | .identifier name =>
+    match lookupBaseValue names activations store name with
+    | .ok value => some value.typeTag
+    | .error _ => none
+  | .negate operand =>
+    match inferBaseType? names activations store operand with
+    | some .integer => some .integer
+    | _ => none
+  | .binary _ left right =>
+    match inferBaseType? names activations store left,
+        inferBaseType? names activations store right with
+    | some .integer, some .integer => some .integer
+    | _, _ => none
+
+def checkIntegerExpr (names : LexicalEnvironment) (activations : ActivationEnvironment)
+    (store : BaseStore) (expression : BaseExpr) : Bool :=
+  match inferBaseType? names activations store expression with
+  | some .integer => true
+  | _ => false
+
+/- The checker rejects unsupported composite payloads and ill-typed integer operations. -/
 def checkBaseExpr (names : LexicalEnvironment) (activations : ActivationEnvironment)
     (store : BaseStore) : BaseExpr → Bool
   | .integerLiteral value => (validateInt? value).isSome
-  | .identifier name => (lookupInteger names activations store name).isOk
-  | .negate operand => checkBaseExpr names activations store operand
+  | .scalarLiteral value => (scalarTypedValue? value).isSome
+  | .identifier name => (lookupBaseValue names activations store name).isOk
+  | .negate operand => checkIntegerExpr names activations store operand
   | .binary _ left right =>
-    checkBaseExpr names activations store left && checkBaseExpr names activations store right
+    checkIntegerExpr names activations store left && checkIntegerExpr names activations store right
 
 inductive BaseControl where
   | evaluate (expression : BaseExpr)
-  | returned (value : IntValue)
+  | returned (value : BaseTypedValue)
   | failed (fault : BaseFault)
-  deriving DecidableEq
 
 inductive BaseFrame where
   | negate
   | binaryLeft (operator : IntegerBinaryOp) (right : BaseExpr)
   | binaryRight (operator : IntegerBinaryOp) (left : IntValue)
-  deriving DecidableEq
 
 structure MachineConfig where
   names : LexicalEnvironment
@@ -80,9 +136,8 @@ structure MachineConfig where
   continuation : List BaseFrame
 
 inductive BaseOutcome where
-  | value (value : IntValue)
+  | value (value : BaseTypedValue)
   | fault (fault : BaseFault)
-  deriving DecidableEq
 
 def terminalOutcome (config : MachineConfig) : Option BaseOutcome :=
   match config.control with
@@ -95,8 +150,13 @@ def terminalOutcome (config : MachineConfig) : Option BaseOutcome :=
 
 def controlOfIntegerResult (result : IntegerResult) : BaseControl :=
   match result with
-  | .value value => .returned value
+  | .value value => .returned (typedInteger value)
   | .fault fault => .failed (.arithmetic fault)
+
+def integerPayload? (value : BaseTypedValue) : Option IntValue :=
+  match value.typeTag, value.value with
+  | .integer, .integer integer => some integer
+  | _, _ => none
 
 def updateState (config : MachineConfig) (control : BaseControl)
     (continuation : List BaseFrame) : MachineConfig :=
@@ -108,9 +168,15 @@ def step (config : MachineConfig) : Option MachineConfig :=
     match expression with
     | .integerLiteral value =>
       some (updateState config (controlOfIntegerResult (checkedInt value)) config.continuation)
+    | .scalarLiteral value =>
+      some (updateState config
+        (match scalarTypedValue? value with
+         | some typed => .returned typed
+         | none => .failed .unsupportedScalarLiteral)
+        config.continuation)
     | .identifier name =>
       some (updateState config
-        (match lookupInteger config.names config.activations config.store name with
+        (match lookupBaseValue config.names config.activations config.store name with
          | .ok value => .returned value
          | .error fault => .failed fault)
         config.continuation)
@@ -125,11 +191,22 @@ def step (config : MachineConfig) : Option MachineConfig :=
     | frame :: rest =>
       match frame with
       | .negate =>
-        some (updateState config (controlOfIntegerResult (IntegerOps.negate value)) rest)
+        some (updateState config
+          (match integerPayload? value with
+           | some integer => controlOfIntegerResult (IntegerOps.negate integer)
+           | none => .failed .expectedInteger)
+          rest)
       | .binaryLeft operator right =>
-        some (updateState config (.evaluate right) (.binaryRight operator value :: rest))
+        some (match integerPayload? value with
+          | some integer =>
+            updateState config (.evaluate right) (.binaryRight operator integer :: rest)
+          | none => updateState config (.failed .expectedInteger) rest)
       | .binaryRight operator left =>
-        some (updateState config (controlOfIntegerResult (applyBinary operator left value)) rest)
+        some (updateState config
+          (match integerPayload? value with
+           | some integer => controlOfIntegerResult (applyBinary operator left integer)
+           | none => .failed .expectedInteger)
+          rest)
   | .failed _ => none
 
 def initialConfig (names : LexicalEnvironment) (activations : ActivationEnvironment)
@@ -141,7 +218,7 @@ def continuationChecked (names : LexicalEnvironment) (activations : ActivationEn
   | [] => true
   | .negate :: rest => continuationChecked names activations store rest
   | .binaryLeft _ right :: rest =>
-    checkBaseExpr names activations store right && continuationChecked names activations store rest
+    checkIntegerExpr names activations store right && continuationChecked names activations store rest
   | .binaryRight _ _ :: rest => continuationChecked names activations store rest
 
 def wellFormed (config : MachineConfig) : Prop :=
@@ -161,7 +238,6 @@ inductive RunResult where
   | completed (outcome : BaseOutcome)
   | outOfFuel
   | internalStuck
-  deriving DecidableEq
 
 def runFuel : Nat → MachineConfig → RunResult
   | fuel, config =>
