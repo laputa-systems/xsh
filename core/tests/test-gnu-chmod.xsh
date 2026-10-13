@@ -13,7 +13,7 @@ test test_gnu_chmod_c_option_log { |ctx|
   uu.succeeds(unchanged)
   uu.no_stdout(unchanged)
   uu.mkdir(s, "a/b")
-  let setgid = uu.invoke(s, "chmod", ["g+s", "a/b"], umask: 0)?
+  let _ = uu.invoke(s, "chmod", ["g+s", "a/b"], umask: 0)?
   let recursive = uu.invoke(s, "chmod", ["-c", "-R", "g+w", "a"], umask: 0)?
   uu.no_stderr(recursive)
 }

@@ -72,8 +72,8 @@ pure shell_word(value: Str) -> Str {
 # Apply the address-space limit after the isolation launcher has finished. Its
 # compilation is outside the memory budget of the applet selected by uu.
 pure constrained(words: List[Path], kib: Int) -> List[Path] {
-  let script = Path(r"""ulimit -v "$1" || exit; shift; exec "$@"; """)
-  [words[0], words[1], words[2], p"/bin/sh", p"-c", script, p"fold-limit", Path(f"{kib}"), @[words[index] for index in range(3, words.len())]]
+  let script = p"ulimit -v \"$1\" || exit; shift; exec \"$@\"; "
+  [words[0], words[1], words[2], p"/bin/sh", p"-c", script, p"fold-limit", fp"{kib}", @[words[index] for index in range(3, words.len())]]
 }
 
 proc limited(s: uu.Scene, words: List[Path], kib: Int, input: Path, output: Path, diagnostic: Path, vars: Record) [process, env, error] -> Result[Bool, Error] {
@@ -123,9 +123,9 @@ test test_gnu_fold_fold_zero_width_log { |ctx|
   let allowance = previous + 4 + 6000
   let fold_words = constrained(uu.argv(s, "fold", [], vars: stream_locale)?, allowance)
   for character in ["\\n", "\\0", "\\303"] {
-    let producer_words = uu.argv(s, "tr", [p"\\0", Path(character)])?
+    let producer_words = uu.argv(s, "tr", [p"\\0", fp"{character}"])?
     let producer = [shell_word(word.display()) for word in producer_words].join(" ")
-    let script = Path(producer + " < /dev/zero | \"$@\" > /dev/full")
+    let script = fp"{producer} < /dev/zero | \"$@\" > /dev/full"
     let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"fold-stream", @fold_words],
       s.root, {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}, b"", uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
     let status = process.run(command)?

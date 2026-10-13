@@ -17,14 +17,14 @@ test test_gnu_od_big_w_log { |ctx|
   test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   for width in [46340, 46341, 3037000500, 3037000501] {
-    let command_words = uu.argv(s, "od", [Path(f"-w{width}"), p"-tcz"])?
-    let normalized = [p"/bin/sh", p"-c", Path(r""""$@" | tr -s ' ' ' '; """), p"od-wide"].extend(command_words)
+    let command_words = uu.argv(s, "od", [fp"-w{width}", p"-tcz"])?
+    let normalized = [p"/bin/sh", p"-c", p"\"$@\" | tr -s ' ' ' '; ", p"od-wide"].extend(command_words)
     let r = wrapped(s, normalized, input: b"x", timeout: 240s)
     if ! r.stderr.is_empty() {
       uu.no_stdout(r)
     } else {
       uu.stdout_is(r, "0000000 x >x<\n0000001\n")
-      let counted = [p"/bin/sh", p"-c", Path(r""""$@" | wc -c; """), p"od-wide-count"].extend(command_words)
+      let counted = [p"/bin/sh", p"-c", p"\"$@\" | wc -c; ", p"od-wide-count"].extend(command_words)
       let count = wrapped(s, counted, input: b"x", timeout: 240s)
       assert count.stdout.utf8()?.trim() as Int == width * 4 + 21
     }
@@ -39,7 +39,7 @@ test test_gnu_od_od_N_log { |ctx|
   let two = uu.argv(s, "od", [p"-An", p"-N3", p"-c"])?
   let left = ["\"" + r"$" + "{" + f"{index + 1}" + "}\"" for index in range(one.len())].join(" ")
   let right = ["\"" + r"$" + "{" + f"{index + one.len() + 1}" + "}\"" for index in range(two.len())].join(" ")
-  let words = [p"/bin/sh", p"-c", Path(f"{left}; {right}"), p"od-shared", @one, @two]
+  let words = [p"/bin/sh", p"-c", fp"{left}; {right}", p"od-shared", @one, @two]
   let shared = wrapped(s, words, stdin: uu.at(s, "in"))
   uu.stdout_is(shared, "   a   b   c\n   d   e   f\n")
   let spaces100 = [" " for _ in range(100)].join("")
@@ -100,7 +100,7 @@ test test_gnu_od_od_j_log { |ctx|
   let regular = bytes.from_ints([if n % 80 == 79 { 10 } else { 97 + n % 26 } for n in range(24756)])?
   uu.write_bytes(s, "regular", regular)
   for name in ["regular", "/proc/version", "/sys/kernel/profiling"] {
-    let file = if name == "regular" { uu.at(s, name) } else { Path(name) }
+    let file = if name == "regular" { uu.at(s, name) } else { fp"{name}" }
     if let Ok(data) = file.read_bytes() {
       uu.write_bytes(s, "copy", data)
       let expected = uu.invoke(s, "od", ["-An", name])?

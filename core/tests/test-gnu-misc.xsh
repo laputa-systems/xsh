@@ -227,19 +227,19 @@ test test_gnu_misc_nohup_log { |ctx|
   let s = uu.scene(ctx)?
   let child = r"""printf 'stdout\n'; printf 'stderr\n' >&2; """
   repeat 2 times { let r = uu.invoke(s, "nohup", ["sh", "-c", child])?; uu.succeeds(r); uu.stdout_is(r, "stdout\n"); uu.stderr_is(r, "stderr\n"); assert ! uu.exists(s, "nohup.out")? }
-  let missing = uu.invoke(s, "nohup", ["no-such-command"])?
+  let _ = uu.invoke(s, "nohup", ["no-such-command"])?
   uu.touch(s, "k"); uu.set_mode(s, "k", 0)
   uu.fails_with_code(uu.invoke(s, "nohup", ["./k"])?, 126)
   uu.fails_with_code(uu.invoke(s, "nohup", [])?, 125)
   uu.fails_with_code(uu.invoke(s, "nohup", [], vars: {POSIXLY_CORRECT: "1"})?, 127)
   for input in ["", " </dev/null"] {
-    assert terminal_run(s, "nohup", [p"sh", p"-c", Path(child)], input + " 2>err")? == 0
+    assert terminal_run(s, "nohup", [p"sh", p"-c", fp"{child}"], input + " 2>err")? == 0
     uu.file_is(s, "nohup.out", "stdout\n")
     let advisory = if input == "" { "nohup: ignoring input and appending output to 'nohup.out'\n" } else { "nohup: appending output to 'nohup.out'\n" }
     uu.file_is(s, "err", advisory + "stderr\n")
     uu.remove(s, "nohup.out")
   }
-  assert terminal_run(s, "nohup", [p"sh", p"-c", Path(child)], " >out")? == 0
+  assert terminal_run(s, "nohup", [p"sh", p"-c", fp"{child}"], " >out")? == 0
   uu.file_is(s, "out", "stdout\nstderr\n")
   assert ! uu.exists(s, "nohup.out")?
   assert terminal_run(s, "nohup", [p"echo", p"hi"], " 2>/dev/full")? == 125
@@ -324,8 +324,8 @@ test test_gnu_misc_sleep_log { |ctx|
   uu.succeeds(second)
   let decimal = second.stdout as Str
   assert decimal in ["0.001", "0,001"]
-  let sleeper = uu.argv(s, "sleep", [Path(decimal)], vars: locale)?
-  let args = [Path("1" + decimal)].extend(sleeper)
+  let sleeper = uu.argv(s, "sleep", [fp"{decimal}"], vars: locale)?
+  let args = [fp"1{decimal}"].extend(sleeper)
   let limiter = uu.argv(s, "timeout", args, vars: locale)?
   assert process.run(process.command_argv(limiter[0], limiter, s.root, locale, timeout: 5s))?.exited_with(0)
 
@@ -355,21 +355,21 @@ test test_gnu_misc_kill_log { |ctx|
 # origin: gnu misc/yes.log
 test test_gnu_misc_yes_log { |ctx|
   let s = uu.scene(ctx)?
-  let head = uu.argv(s, "head", [p"-n", p"2"])?
-  let plain = uu.argv(s, "yes", [])?
+  let head = uu.argv(s, "head", [p"-n", p"2"])?.require(NonEmpty[Path])?
+  let plain = uu.argv(s, "yes", [])?.require(NonEmpty[Path])?
   let sampled = run.text --accept=[0, 1, 141] @plain | run @head
   assert sampled == "y\ny\n"
   for size in [1, 1999, 4095, 4096, 8191, 8192, 16383, 16384] {
     let word = [" " for _ in range(size)].join("")
-    let words = uu.argv(s, "yes", [Path(word)])?
-    let sampled = run.text --accept=[0, 1, 141] @words | run @head
-    assert sampled == word + "\n" + word + "\n"
+    let words = uu.argv(s, "yes", [fp"{word}"])?.require(NonEmpty[Path])?
+    let word_sample = run.text --accept=[0, 1, 141] @words | run @head
+    assert word_sample == word + "\n" + word + "\n"
   }
   for count in [100, 4000] {
     let args = [f"{i + 1}" for i in range(count)]
-    let words = uu.argv(s, "yes", [Path(arg) for arg in args])?
-    let sampled = run.text --accept=[0, 1, 141] @words | run @head
-    assert sampled == args.join(" ") + "\n" + args.join(" ") + "\n"
+    let words = uu.argv(s, "yes", [fp"{arg}" for arg in args])?.require(NonEmpty[Path])?
+    let number_sample = run.text --accept=[0, 1, 141] @words | run @head
+    assert number_sample == args.join(" ") + "\n" + args.join(" ") + "\n"
   }
   for size in [1, 16384] {
     let word = [" " for _ in range(size)].join("")
@@ -378,7 +378,7 @@ test test_gnu_misc_yes_log { |ctx|
     uu.stderr_is(r, "yes: standard output: No space left on device\n")
   }
   assert uu.invoke(s, "yes", [], stdout: p"/dev/null", timeout: 100ms) is Err(is Timeout)
-  let fallback = [p"/usr/bin/strace", p"-f", p"-o", p"/dev/null", p"-e", p"inject=io_uring_setup,io_uring_enter,io_uring_register,memfd_create,sendfile,splice,tee,vmsplice:error=ENOSYS"].extend(plain)
+  let fallback = [p"/usr/bin/strace", p"-f", p"-o", p"/dev/null", p"-e", p"inject=io_uring_setup,io_uring_enter,io_uring_register,memfd_create,sendfile,splice,tee,vmsplice:error=ENOSYS"].extend(plain).require(NonEmpty[Path])?
   let fallback_sample = run.text --accept=[0, 1, 141] @fallback | run @head
   assert fallback_sample == "y\ny\n"
   let no_pipe = [p"/usr/bin/strace", p"-f", p"-o", p"/dev/null", p"-e", p"inject=pipe,pipe2:error=EMFILE"].extend(plain)
@@ -404,15 +404,15 @@ test test_gnu_misc_close_stdout_log { |ctx|
     {util: "true", args: []},
     {util: "printf", args: [""]},
   ] {
-    let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = [@words[..3], p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output", @words[3..]]
+    let words = uu.argv(s, entry.util, [fp"{arg}" for arg in entry.args])?
+    let wrapper = [@words[..3], p"/bin/sh", p"-c", p"exec 1>&-; exec \"$@\"; ", p"closed-output", @words[3..]]
     let status = process.run(process.command_argv(wrapper[0], wrapper, s.root, stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 5s))?
     assert status.exited_with(0), f"{entry.util}: {status.shell_code()?} {uu.read_text(s, "err")?}"
   }
   assert uu.exists(s, "b")?
   for entry in [{util: "printf", args: ["foo"]}, {util: "cp", args: ["--verbose", "a", "b"]}, {util: "mktemp", args: ["tmpfile-XXXXXX"]}, {util: "mktemp", args: ["tmpfile-XXXXXX", "-q"]}] {
-    let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = [@words[..3], p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output", @words[3..]]
+    let words = uu.argv(s, entry.util, [fp"{arg}" for arg in entry.args])?
+    let wrapper = [@words[..3], p"/bin/sh", p"-c", p"exec 1>&-; exec \"$@\"; ", p"closed-output", @words[3..]]
     let result = process.run(process.command_argv(wrapper[0], wrapper, s.root, stderr: uu.at(s, "err"), timeout: 5s))?
     assert result.exited_with(1), f"{entry.util} {entry.args.join(" ")}: {result.shell_code()?} {uu.read_text(s, "err")?}"
   }
@@ -425,8 +425,8 @@ test test_gnu_misc_no_fork_log { |ctx|
   let s = uu.scene(ctx)?
   # stdbuf needs an LD_PRELOAD library to configure child libc buffering; the standalone static musl build does not ship it.
   for entry in [{util: "chroot", args: ["--skip-chdir", "/", "true"]}, {util: "env", args: ["true"]}, {util: "nice", args: ["true"]}, {util: "nohup", args: ["true"]}] {
-    let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = [@words[..3], p"/bin/bash", p"-c", Path(r"""ulimit -u 0 || exit; exec "$@"; """), p"no-fork", @words[3..]]
+    let words = uu.argv(s, entry.util, [fp"{arg}" for arg in entry.args])?
+    let wrapper = [@words[..3], p"/bin/bash", p"-c", p"ulimit -u 0 || exit; exec \"$@\"; ", p"no-fork", @words[3..]]
     let status = process.run(process.command_argv(wrapper[0], wrapper, s.root, stderr: uu.at(s, "err"), timeout: 5s))?
     if entry.util != "chroot" { assert status.exited_with(0), uu.read_text(s, "err")? }
   }

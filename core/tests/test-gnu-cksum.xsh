@@ -658,7 +658,7 @@ test test_gnu_cksum_cksum_log { |ctx|
       tunable += "-" + feature + ","
       for algorithm in ["crc", "crc32b"] {
         let value = if algorithm == "crc" { case.crc } else { case.crc32b }
-        for invocation in range(2) {
+        repeat 2 times {
           let r = uu.invoke(s, "cksum", ["-a", algorithm, "in"], vars: {GLIBC_TUNABLES: tunable})?
           uu.succeeds(r)
           uu.stdout_only(r, f"{value} {case.input.len()} in\n")

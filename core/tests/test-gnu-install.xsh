@@ -50,7 +50,7 @@ test test_gnu_install_install_C_log { |ctx|
   installation(s, ["-Cv", "-m0644", "a", "b"], "")
   installation(s, ["-v", "--compare", "-m0644", "a", "b"], "")
   installation(s, ["-v", "-m0644", "a", "b"], replaced)
-  for round in range(2) { installation(s, ["-Cv", "-m2755", "a", "b"], replaced) }
+  repeat 2 times { installation(s, ["-Cv", "-m2755", "a", "b"], replaced) }
   installation(s, ["-v", "-m0644", "a", "b"], replaced)
   installation(s, ["-v", "-m0644", "a", "d"], "'a' -> 'd'\n")
   uu.symlink(s, "a", "c")

@@ -3,7 +3,7 @@ use support.uu
 proc shell(s: uu.Scene, code: Str, words: List[Path], stdin: Path? = null, stderr: Path? = null) [fs, process, env, error] -> uu.Ran {
   let out = uu.at(s, "wrapped-out")
   let err = stderr ?? uu.at(s, "wrapped-err")
-  let argv = [p"/bin/sh", p"-c", Path(code), p"dd-wrapper"].extend(words)
+  let argv = [p"/bin/sh", p"-c", fp"{code}", p"dd-wrapper"].extend(words)
   let plan = if let input = stdin {
     process.command_argv(p"/bin/sh", argv, s.root, {LC_ALL: "C"}, input, out, err, timeout: 20s)
   } else {
@@ -16,8 +16,8 @@ proc shell(s: uu.Scene, code: Str, words: List[Path], stdin: Path? = null, stder
 # Two applets share a single inherited input descriptor, so the second begins
 # after the first applet's reads and seeks rather than reopening the file.
 proc sequential(s: uu.Scene, first: List[Str], second: List[Str], input: Path, quiet_first = false) [fs, process, env, error] -> uu.Ran {
-  let left = uu.argv(s, "dd", [Path(word) for word in first])?
-  let right = uu.argv(s, "dd", [Path(word) for word in second])?
+  let left = uu.argv(s, "dd", [fp"{word}" for word in first])?
+  let right = uu.argv(s, "dd", [fp"{word}" for word in second])?
   let one = ["\"" + r"$" + "{" + f"{index + 1}" + "}\"" for index in range(left.len())].join(" ")
   let two = ["\"" + r"$" + "{" + f"{index + left.len() + 1}" + "}\"" for index in range(right.len())].join(" ")
   shell(s, f"{one}{if quiet_first { " 2>/dev/null" } else { "" }} && {two}", left.extend(right), stdin: input)
@@ -165,7 +165,7 @@ test test_gnu_dd_skip_seek2_log { |ctx|
 test test_gnu_dd_stderr_log { |ctx|
   let s = uu.scene(ctx)?
   let help_words = uu.argv(s, "dd", [p"--help"])?
-  let closing = [p"/bin/sh", p"-c", Path(r"""exec "$@" 2>&-; """), p"dd-stderr"]
+  let closing = [p"/bin/sh", p"-c", p"exec \"$@\" 2>&-; ", p"dd-stderr"]
   let help = shell(s, r"""exec "$@"; """, [@help_words[..3], @closing, @help_words[3..]])
   uu.succeeds(help)
   let closed_words = uu.argv(s, "dd", [])?
@@ -207,7 +207,7 @@ test test_gnu_dd_bytes_log { |ctx|
   }
   let multiplier = ["1x" for _ in range(10000)].join("") + "1"
   let bounded = shell(s, r"""ulimit -S -s 256 || exit 99; exec "$@"; """,
-    uu.argv(s, "dd", [Path(f"count={multiplier}"), p"if=/dev/null", p"of=/dev/null", p"status=none"])?)
+    uu.argv(s, "dd", [fp"count={multiplier}", p"if=/dev/null", p"of=/dev/null", p"status=none"])?)
   uu.succeeds(bounded)
   for count in ["B", "B1", "Bx1", "KBB", "BB", "KBb", "KBx", "x1", "1x", "1xx1"] {
     uu.fails_with_code(uu.invoke(s, "dd", [f"count={count}"])?, 1)
@@ -270,7 +270,7 @@ test test_gnu_dd_reblock_log { |ctx|
       let err = uu.at(s, "err")
       let plan = uu.command(s, "dd", row.args, stdout: out, stderr: err, timeout: 10s)?
       let consumer = spawn plan?
-      let writer = [p"/bin/sh", p"-c", Path(r"""exec 3> "$1"; printf '%s' ab >&3; sleep "$2"; printf '%s' cd >&3; """), p"dd-producer", uu.at(s, "dd.fifo"), Path(delay)]
+      let writer = [p"/bin/sh", p"-c", p"exec 3> \"$1\"; printf '%s' ab >&3; sleep \"$2\"; printf '%s' cd >&3; ", p"dd-producer", uu.at(s, "dd.fifo"), fp"{delay}"]
       assert process.run(process.command_argv(p"/bin/sh", writer, s.root, timeout: 10s))?.exited_with(0)
       assert (wait consumer?).exited_with(0)
       let lines = err.read_text()?.split("\n")

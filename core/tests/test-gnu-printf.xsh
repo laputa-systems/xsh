@@ -85,11 +85,11 @@ test test_gnu_printf_printf_hex_log { |ctx|
 test test_gnu_printf_printf_indexed_log { |ctx|
   let s = uu.scene(ctx)?
   for case in [
-    {args: ["%2$s%1$s\\n", "1", "2"], out: "21\n"},
-    {args: ["%1$s%1$s\\n", "1", "2"], out: "11\n22\n"},
-    {args: ["%s %3$s %s\\n", "A", "B", "C", "D"], out: "A C B\nD  \n"},
+    {args: ["%2\$s%1\$s\\n", "1", "2"], out: "21\n"},
+    {args: ["%1\$s%1\$s\\n", "1", "2"], out: "11\n22\n"},
+    {args: ["%s %3\$s %s\\n", "A", "B", "C", "D"], out: "A C B\nD  \n"},
     {args: ["%1$*d\\n", "4", "1"], out: "   4\n1\n"},
-    {args: ["%s %s %1$s\\n", "A", "B"], out: "A B A\n"},
+    {args: ["%s %s %1\$s\\n", "A", "B"], out: "A B A\n"},
     {args: ["%100$*d %s %s %s\\n", "4", "1"], out: "   0 1  \n"},
     {args: ["%1$*2$.*3$d\\n", "1", "3", "2"], out: " 01\n"},
     {args: ["%3$*.*d\\n", "3", "2", "1"], out: " 01\n"},
@@ -101,9 +101,9 @@ test test_gnu_printf_printf_indexed_log { |ctx|
     {args: ["%1$0*2$d\\n", "1", "4"], out: "0001\n"},
   ] { check(s, case.args, bytes.from_text(case.out)) }
   for case in [
-    {args: ["%-2$s %1$s\\n", "A", "B"], err: "printf: %-2$: invalid conversion specification\n"},
-    {args: ["% 2$s %1$s\\n", "A", "B"], err: "printf: % 2$: invalid conversion specification\n"},
-    {args: ["%0x2$s %2$s\\n", "A", "B"], err: "printf: 'A': expected a numeric value\n"},
+    {args: ["%-2\$s %1\$s\\n", "A", "B"], err: "printf: %-2$: invalid conversion specification\n"},
+    {args: ["% 2\$s %1\$s\\n", "A", "B"], err: "printf: % 2$: invalid conversion specification\n"},
+    {args: ["%0x2\$s %2\$s\\n", "A", "B"], err: "printf: 'A': expected a numeric value\n"},
     {args: ["%$d\\n", "1"], err: "printf: %$: invalid conversion specification\n"},
   ] {
     let r = uu.invoke(s, "printf", case.args)?
@@ -111,7 +111,7 @@ test test_gnu_printf_printf_indexed_log { |ctx|
     uu.stderr_is(r, case.err)
   }
   for index in ["999", "2147483647", "2147483648", "9223372036854775807", "9223372036854775808"] {
-    check(s, [f"empty%{index}" + "$s\\n", "foo"], b"empty\n")
+    check(s, [f"empty%{index}" + "\$s\\n", "foo"], b"empty\n")
   }
 }
 

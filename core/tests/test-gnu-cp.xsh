@@ -662,7 +662,7 @@ test test_gnu_cp_slink_2_slink_log { |ctx|
 test test_gnu_cp_sparse_2_log { |ctx|
   let s = uu.scene(ctx)?
   uu.write(s, "k", "x")
-  uu.truncate(s, "k", 128 * 1024)
+  uu.truncate(s, "k", 128KiB)
   for append in [false, true] {
     if append { uu.append(s, "k", "y") }
     for sparse in ["always", "never"] {
@@ -672,7 +672,7 @@ test test_gnu_cp_sparse_2_log { |ctx|
   }
   uu.remove(s, "k")
   uu.write(s, "k", "x")
-  let _ = bytes.write_at(uu.at(s, "k"), 1024, bytes.zero(255 * 1024)?)?
+  let _ = bytes.write_at(uu.at(s, "k"), 1024, bytes.zero(255KiB)?)?
   let detected = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=always", "k", "k2"])?
   uu.succeeds(detected)
   assert uu.read(s, "k")? == uu.read(s, "k2")?
@@ -707,8 +707,8 @@ test test_gnu_cp_sparse_extents_log { |ctx|
   let s = uu.scene(ctx)?
   for sparse in ["always", "auto", "never"] {
     for allocation in [["-l", "4194304"], ["-l", "1048576", "-o", "4194304"], ["-l", "1"]] {
-      let random = host(s, ["dd", "count=10", "if=/dev/urandom", "iflag=fullblock", "of=unwritten.withdata"])?
-      uu.truncate(s, "unwritten.withdata", 2 * 1024 * 1024)
+      let _ = host(s, ["dd", "count=10", "if=/dev/urandom", "iflag=fullblock", "of=unwritten.withdata"])?
+      uu.truncate(s, "unwritten.withdata", 2MiB)
       let _ = host(s, ["fallocate", @allocation, "-n", "unwritten.withdata"])?
       copied(s, ["--reflink=never", f"--sparse={sparse}", "unwritten.withdata", "cp.test"])
       assert uu.size(s, "unwritten.withdata")? == uu.size(s, "cp.test")?
@@ -726,7 +726,7 @@ test test_gnu_cp_sparse_perf_log { |ctx|
     let other = other_root.host_path()?
   let source = fp"{other}/k"
   source.write("x")
-  source.truncate(1024 * 1024)
+  source.truncate(1MiB)
   assert fs.stat(source)?.dev != fs.stat(s.root)?.dev
   let cross_device = uu.invoke(s, "cp", ["--debug", source.display(), "k2"])?
   uu.succeeds(cross_device)
@@ -738,7 +738,7 @@ test test_gnu_cp_sparse_perf_log { |ctx|
   assert uu.read(s, "might-look-sparse")? == uu.read(s, "might-look-sparse.cp")?
   assert !(": avoided" in compressible.stdout as Str)
   uu.touch(s, "f")
-  uu.truncate(s, "f", 1024 * 1024 * 1024 * 1024)
+  uu.truncate(s, "f", 1024GiB)
   let large = uu.invoke(s, "cp", ["--reflink=never", "f", "f2"], timeout: 10s)?
   uu.succeeds(large)
   assert uu.size(s, "f")? == uu.size(s, "f2")?
@@ -749,7 +749,7 @@ test test_gnu_cp_sparse_to_pipe_log { |ctx|
   let s = uu.scene(ctx)?
   uu.mkfifo(s, "pipe")
   uu.touch(s, "sparse")
-  uu.truncate(s, "sparse", 1024 * 1024)
+  uu.truncate(s, "sparse", 1MiB)
   let plan = uu.command(s, "cat", ["pipe"], stdout: uu.at(s, "copy"), stderr: uu.at(s, "cat.err"), timeout: 10s)?
   let reader = spawn plan?
   defer reader.cancel(signal: "KILL", kill_after: 0ms)

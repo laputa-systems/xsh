@@ -104,7 +104,7 @@ test test_gnu_basenc_base64_log { |ctx|
 test test_gnu_basenc_large_input_log { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "file.zeros")
-  uu.truncate(s, "file.zeros", 20 * 1024 * 1024)
+  uu.truncate(s, "file.zeros", 20MiB)
   let output = uu.at(s, "encoded")
   let result = uu.invoke(s, "basenc", ["--base58", "file.zeros"], stdout: output)?
   assert uu.size(s, "encoded")? == 21247462

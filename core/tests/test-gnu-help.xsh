@@ -17,7 +17,7 @@ test test_gnu_help_help_version_getopt_log { |ctx|
       let reference = if util == "nohup" {
         let out = uu.at(s, "df-out")
         let err = uu.at(s, "df-err")
-        let result = process.run(process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", Path(r"""exec df "$@"; """), p"df-reference", Path(option)], s.root,
+        let result = process.run(process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", p"exec df \"$@\"; ", p"df-reference", fp"{option}"], s.root,
           {LC_ALL: "C"}, b"", out, err, timeout: 5s))?
         {status: result.exit_code()?, stdout: out.read_bytes()?}
       } else { {status: baseline.status, stdout: baseline.stdout} }
@@ -30,7 +30,7 @@ test test_gnu_help_help_version_getopt_log { |ctx|
   }
   let out = uu.at(s, "yes-out")
   let err = uu.at(s, "yes-err")
-  let words = [p"/bin/sh", p"-c", Path(r""""$@" | head -n1; """), p"yes-pipe"]
+  let words = [p"/bin/sh", p"-c", p"\"$@\" | head -n1; ", p"yes-pipe"]
     .extend(uu.argv(s, "yes", [p"--", p"--help"])?)
   let status = process.run(process.command_argv(p"/bin/sh", words, s.root, stdout: out, stderr: err, timeout: 5s))?
   assert status.exited_with(0)

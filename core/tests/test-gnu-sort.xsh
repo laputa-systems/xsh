@@ -2,7 +2,7 @@ use support.uu
 
 pure reversed(items: List[Str]) -> List[Str] { [items[items.len() - index - 1] for index in range(items.len())] }
 
-proc shell_sort(s: uu.Scene, args: List[Str], setup: Str, stdin: Bytes = b"", vars: Record = {}, timeout: Duration = 30s) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc shell_sort(s: uu.Scene, args: List[Str], setup: Str, stdin = b"", vars: Record = {}, timeout = 30s) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
   let words = [p"/bin/sh", p"-c", fp"{setup}", p"sort-wrapper"].extend(uu.argv(s, "sort", [fp"{word}" for word in args], vars)?)
@@ -33,7 +33,7 @@ pure padded(number: Int, width: Int) -> Str {
   ["0" for _ in range(width - f"{number}".byte_len())].join("") + f"{number}"
 }
 
-pure sequence(first: Int, last: Int, width: Int = 0) -> Str {
+pure sequence(first: Int, last: Int, width = 0) -> Str {
   [if width == 0 { f"{number}\n" } else { padded(number, width) + "\n" } for number in range(first, last + 1)].join("")
 }
 

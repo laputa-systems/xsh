@@ -551,7 +551,7 @@ test test_gnu_ls_dired_log { |ctx|
   for i in range(names.len()) {
     let start = offsets[1 + i * 2] as Int
     let end = offsets[2 + i * 2] as Int
-    assert r.stdout.slice(start, end - start).utf8()?.split(" -> ")[0] == names[i]
+    assert r.stdout[start..end].utf8()?.split(" -> ")[0] == names[i]
   }
   uu.mkdir(s, "newline-dir")
   uu.touch(s, "newline-dir/n\nl")
@@ -561,7 +561,7 @@ test test_gnu_ls_dired_log { |ctx|
   assert pair.len() == 3
   let start = pair[1] as Int
   let end = pair[2] as Int
-  assert newline.stdout.slice(start, end - start) == b"n\nl"
+  assert newline.stdout[start..end] == b"n\nl"
 }
 
 # origin: gnu ls/abmon-align.log
@@ -580,7 +580,7 @@ test test_gnu_ls_abmon_align_log { |ctx|
   for format in ["%b", "[%b", "%b]", "[%b]"] {
     for locale in ["C", "gv_GB", "ga_IE", "fi_FI.utf8", "zh_CN", "ar_SY", "fr_FR.UTF-8"] {
       let r = uu.invoke(s, "ls", ["-lgG"].extend(names), vars: {LC_ALL: locale, TIME_STYLE: f"+{format}"})?
-      let months = [bytes.from_text(line).slice(15, line.byte_len() - 15 - 6).utf8()?.replace(" ", with: ".") for line in r.stdout.utf8()?.lines()]
+      let months = [bytes.from_text(line)[15..line.byte_len() - 6].utf8()?.replace(" ", with: ".") for line in r.stdout.utf8()?.lines()]
       assert months.len() == 12
       let widths = collect {
         for month in months {

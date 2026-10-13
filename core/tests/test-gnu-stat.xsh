@@ -8,7 +8,7 @@ proc stat_text(s: uu.Scene, args: List[Str], vars: Record = {}) -> Result[Str] {
 
 proc hidden_proc(s: uu.Scene, words: List[Path]) -> Result[Status] {
   let adapter = [p"/usr/bin/unshare", p"-rm", p"/bin/sh", p"-c",
-    Path(r"""mount -t tmpfs tmpfs /proc || exit; exec "$@"; """), p"without-proc"].extend(words)
+    p"mount -t tmpfs tmpfs /proc || exit; exec \"$@\"; ", p"without-proc"].extend(words)
   process.run(process.command_argv(adapter[0], adapter, s.root,
     stdout: uu.at(s, "namespace-output"), stderr: uu.at(s, "namespace-error"), timeout: 5s))
 }

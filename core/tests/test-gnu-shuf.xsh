@@ -19,7 +19,7 @@ proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input = b"", time
   Ok({util: "shuf", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 proc limited(s: uu.Scene, limit: Int, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  wrapped(s, [p"/bin/sh", p"-c", p"trap '' SEGV; ulimit -c 0; ulimit -v \"$1\" || exit 77; shift; exec \"$@\"", p"vm", Path(f"{limit}")], args)
+  wrapped(s, [p"/bin/sh", p"-c", p"trap '' SEGV; ulimit -c 0; ulimit -v \"$1\" || exit 77; shift; exec \"$@\"", p"vm", fp"{limit}"], args)
 }
 proc minimum_vm(s: uu.Scene) [fs, process, env, time, error] -> Result[Int?, Error] {
   for level in range(1, 11) {
@@ -83,7 +83,7 @@ test test_gnu_shuf_shuf_log { |ctx|
   if let vm = minimum_vm(s)? {
     # This deliberately invokes only the ulimit builtin with trailing words:
     # shells differ in whether they reject or ignore those extra operands.
-    let guard_words = [p"/bin/sh", p"-c", p"ulimit -v \"$@\"", p"vm-guard", Path(f"{vm}"), p"shuf", p"-i1-1"]
+    let guard_words = [p"/bin/sh", p"-c", p"ulimit -v \"$@\"", p"vm-guard", fp"{vm}", p"shuf", p"-i1-1"]
     let guard_out = uu.at(s, "guard-out")
     let guard_err = uu.at(s, "guard-err")
     let guard_status = process.run(process.command_argv(guard_words[0], guard_words, s.root, {}, b"", guard_out, guard_err))?
