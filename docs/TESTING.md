@@ -4,31 +4,10 @@ Choose the narrowest useful command first, then run the broader gate for the
 area touched. This file owns the gate commands; architecture and invariants are
 in `docs/ARCHITECTURE.md`.
 
-The consolidation batch measures production source and structural ratchets with
-`dev/consolidation/metrics.xsh`, which imports the versioned observer
-`dev/consolidation_metrics_current.xsh`. It writes the current report and every
-baseline rise to `.work/consolidation/current.json` and `rises.json`. The
-observer counts generated pattern rows from `pattern_schema!` and retains a
-handwritten `BuildPatternRow` fallback for the frozen start source. The current
-observer is included in final review source identities. The original
-`dev/consolidation_metrics.xsh` scanner, baselines, and their historical
-provenance stay byte-preserved; `metric-observer-successor.json` binds both
-scanner hashes and records the exact same-baseline metric and source inventory
-proof. The frozen `test-consolidation-ratchets.xsh` remains part of the source
-advisory evidence; current observer tests live in
-`dev/tests/test-consolidation-ratchets-current.xsh` and are bound by their
-canonical path and hash. The observer provenance checks the historical,
-source-advisory, and current test hashes independently. Default directory-based
-test discovery excludes the frozen historical test file: its current-driver
-fixtures predate the successor provenance contract. Explicit file invocation
-still runs it for historical inspection; all 38 current counterparts remain
-in the ordinary native suite. Source totals and
-touched-line budgets are advisory, following the owner's performance priority;
-reports retain both source totals and every rise. Structural metrics remain
-bounded by the baseline. Envelope approvals
-annotate the audit without permitting structural rises. Missing or unknown
-limits fail. Final closure rejects the envelope, requires zero blanket
-dead-code scopes, and consumes independently reviewed semantic evidence.
+`cargo dev gate --batch` also runs the source-bound consolidation ratchet.
+Structural measures remain within their baseline while source totals are
+advisory; its provenance and ownership are documented in the
+[consolidation campaign](../dev/consolidation/CAMPAIGN.md).
 
 ## Native tests first
 
@@ -142,8 +121,9 @@ is `dev/cargo_steps.xsh`.
 deduplicates them, and runs focused native modules plus the corresponding hard
 checks. With no paths it uses tracked and untracked Git changes. Unmapped paths
 fail before verification starts. `cargo dev gate --batch` runs the complete
-process, debug, tooling, fixed-seed soundness, native and docs
-sequence once. Neither command invokes source-tree formatters or autofixers.
+process, debug, tooling, fixed-seed soundness, one full native suite, repository
+checks, and docs checks. Linux also runs the privileged test plan. Neither
+command invokes source-tree formatters or autofixers.
 Public Linux gate commands enter `Dockerfile.test`; hidden internal gate
 operations run the same plan inside the container without another Docker call.
 Changed fixtures select their compiler owner rather than running as native test
@@ -189,7 +169,7 @@ repository corpus checks and the existing repository lint budget remain active.
 | `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the command repository contracts, `check-docs` (with release binaries), `git diff --check` |
 | `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no non-note findings within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the command repository contracts, then `check-docs` with release binaries |
 | `make test` (`cargo dev test`) | filtered root process targets, debug `--lib`, `xsht` integration, fixed-seed soundness, then one full native suite |
-| `cargo dev test xsh` | build verification products for the selected target, then one full native suite |
+| `cargo dev test xsh` | build products for the selected test profile (verification by default), then one full native suite |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |
 | `make docs` (`cargo dev docs`) | build release `xsh` and `xsht`, then regenerate every file rendered from `docs/templates/`, and `docs/user-tour.html` |
 | `make docs-check` (`cargo dev docs check`) | the same render into memory, failing with the list of stale files; then `xsht check` on each snippet in `docs/snippets/spec` and `docs/snippets/tour`, and `xsht test` in `docs/snippets/tour/project` |
@@ -348,9 +328,7 @@ All Linux building and testing runs in the image defined by `Dockerfile.test`
 `cargo dev test linux` (privileged, `make test-linux`) or
 `cargo dev test linux --ci`. CI (`.github/workflows/`) uses the same image.
 The internal AArch64 Linux target is retained for coverage and is not a
-supported product target; XSH's ARM64 product scope is macOS only. The
-consolidation campaign excludes ARM64 and macOS entirely: both development
-and final verification use host-native x86_64 Linux musl.
+supported product target; XSH's ARM64 product scope is macOS only.
 A build outside that image is not evidence about Linux behavior. The driver
 passes `--init` so orphaned stopped jobs are reaped. For native tests inside
 the image, use `target/$TARGET/verification/xsht`; use the release profile for
@@ -426,14 +404,7 @@ the disabled stub. Linux runs use the pinned image.
 
 The PTY scenario drivers are absent from this tree. Retained goldens in
 `tests/fixtures/interactive-parity/<os>/` are historical evidence, not a
-currently runnable gate. The historical driver replayed scenarios in an
-isolated `HOME` and compares transcripts with goldens recorded from `ish`
-(`tests/fixtures/interactive-parity/<os>/`). The gate needs no `ish` install.
-`XSHI_PARITY_ISH_BIN=/path/to/ish` also runs `ish` and requires
-ish == golden == xshi; adding `XSHI_PARITY_RECORD=1` rewrites goldens;
-`XSHI_PARITY_FULL=1` prints whole transcripts on mismatch. Scenarios pin locale,
-`XSHI_PROFILE_PATH=/dev/null`, and `XSHI_HOSTNAME=sentry`; record `ish` where
-its host name is also six characters (`docker run --hostname sentry`).
+currently runnable gate.
 
 ## What not to run
 
