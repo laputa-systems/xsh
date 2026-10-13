@@ -80,7 +80,6 @@ proc resolve(word: Str) [fs, process, error] -> Bytes {
   }
   eprint f"{word}: Unknown host"
   exit 255
-  b""
 }
 
 pure hw_number(name: Str) -> Int? {

@@ -45,8 +45,6 @@ const ARPHRD_ETHER = 1
 const ARPHRD_TUNNEL = 768
 const ARPHRD_LOOPBACK = 772
 
-type FlagName = {bit: Int, name: Str}
-type FlagLetter = {bit: Int, letter: Str}
 type HardwareType = {type: Int, name: Str, description: Str, print: Str}
 
 # The names ifconfig prints inside flags=N<...>, in its printing order.
@@ -547,14 +545,6 @@ pure scope_text(scope: Int) -> Str {
   return "0x20<link>" when scope == 253
   return "0x40<site>" when scope == 200
   "0x0<global>"
-}
-
-pure scope_id(scope: Int) -> Int {
-  if scope == 254 { 16 } else if scope == 253 { 32 } else if scope == 200 { 64 } else { 0 }
-}
-
-pure scope_label(scope: Int) -> Str {
-  if scope == 254 { "host" } else if scope == 253 { "link" } else if scope == 200 { "site" } else { "global" }
 }
 
 pure hardware_line(item: Interface) -> Str {

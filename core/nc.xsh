@@ -329,8 +329,8 @@ proc services_for(proto: Str) [fs] -> List[Service] {
   let text = SERVICES_FILE.read_text() ?? ""
   var found: List[Service] = []
   for raw in text.lines() {
-    let note = raw.find("#") ?? -1
-    let line = if note >= 0 { raw.byte_slice(0, note) } else { raw }
+    let comment_at = raw.find("#") ?? -1
+    let line = if comment_at >= 0 { raw.byte_slice(0, comment_at) } else { raw }
     let fields = line.fields()
     continue when fields.len() < 2
     let pair = fields[1].split("/")

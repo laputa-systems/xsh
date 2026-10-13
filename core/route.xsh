@@ -56,7 +56,6 @@ proc resolve_host(word: Str) [fs, process, error] -> Bytes {
   }
   eprint f"{word}: Unknown host"
   exit 6
-  b""
 }
 
 proc networks_names() [fs] -> Map[Str, Str] {
@@ -159,7 +158,6 @@ proc device_index(name: Str, label: Str) [process, net, env, error] -> Int {
     Err(failure) => {
       eprint f"{label}: {gnu.strerror(failure)}"
       exit 7
-      0
     }
   }
 }

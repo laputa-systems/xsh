@@ -214,8 +214,8 @@ pure decode_inet(payload: Bytes, protocol: Int) -> DiagSocket? {
   if let data = find_attribute(list, INET_DIAG_CONG) { congestion = cstring(data) }
   var mark = null
   if let data = find_attribute(list, INET_DIAG_MARK) { mark = u32(data, 0) }
-  var cgroup_id = null
-  if let data = find_attribute(list, INET_DIAG_CGROUP_ID) { cgroup_id = u64(data, 0) }
+  var cgroup_inode = null
+  if let data = find_attribute(list, INET_DIAG_CGROUP_ID) { cgroup_inode = u64(data, 0) }
   var shutdown = null
   if let data = find_attribute(list, INET_DIAG_SHUTDOWN) { shutdown = data.byte_at(0) }
   var v6only = null
@@ -245,7 +245,7 @@ pure decode_inet(payload: Bytes, protocol: Int) -> DiagSocket? {
     shutdown: shutdown,
     v6only: v6only,
     mark: mark,
-    cgroup_id: cgroup_id,
+    cgroup_id: cgroup_inode,
     vfs: null,
     pending: [],
     detailed: true,
