@@ -7277,12 +7277,22 @@ impl<'a> FullDecoder<'a> {
             }
             schema::ExprView::Try { value, .. } => {
                 let value = value.raw() as usize;
-                let Some(value_type) = self.expression_checked_type_id(value)? else {
-                    return Err(IrVerifyError::new(
-                        "checked try producer is missing its operand type",
-                    ));
+                // Require carries the exact Result type in its checked type test;
+                // constructor-generated propagation may have no separate fact.
+                let value_type = match self.expression_view(value)? {
+                    schema::ExprView::Require { check, .. } => Type::Result(
+                        Box::new(check.ty.materialize()?),
+                        Box::new(Type::Error),
+                    ),
+                    _ => {
+                        let Some(value_type) = self.expression_checked_type_id(value)? else {
+                            return Err(IrVerifyError::new(
+                                "checked try producer is missing its operand type",
+                            ));
+                        };
+                        self.store.semantic.to_type(value_type)?
+                    }
                 };
-                let value_type = self.store.semantic.to_type(value_type)?;
                 let result = match value_type {
                     Type::Result(ok, _) => *ok,
                     Type::Validated(validated) => match validated.base() {
@@ -18298,6 +18308,74 @@ pure apply_field(holder: Holder, other: OtherHolder, holder_again: Holder, n: In
             u32::try_from(other_receiver).unwrap();
         let error = FullVerifier::verify(&shared_receiver).unwrap_err();
         assert!(error.message.contains("multiple parents"), "{}", error.message);
+    }
+
+    #[test]
+    fn positional_callable_record_constructor_rejects_a_forged_result_type() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure double(n: Int) -> Int { n * 2 }
+test test_typed_callable_record_field_is_called_like_a_method {
+  let positional: Holder = Holder(double)
+  assert positional.callback(4) == 8
+}
+"#;
+        let program = fixture("typed-callable-positional-record.xsh", source);
+        let (try_instruction, fact_index) = program
+            .store
+            .tags
+            .iter()
+            .enumerate()
+            .find_map(|(instruction, tag)| {
+                if *tag != FullTag::ExprTry {
+                    return None;
+                }
+                let payload = program
+                    .store
+                    .payload(program.store.data[instruction].range())
+                    .ok()?;
+                let operand = *payload.first()? as usize;
+                if program.store.tags.get(operand) != Some(&FullTag::ExprRequire) {
+                    return None;
+                }
+                let fact_index = program
+                    .store
+                    .checked_expr_types
+                    .binary_search_by_key(&(instruction as u32), |fact| fact.instruction)
+                    .ok()?;
+                let fact = program.store.checked_expr_types[fact_index];
+                program
+                    .store
+                    .semantic
+                    .to_type(fact.type_id)
+                    .ok()?
+                    .contains_typed_callable()
+                    .then_some((instruction, fact_index))
+            })
+            .expect("positional constructor propagation has a callable type fact");
+        assert_eq!(program.store.tags[try_instruction], FullTag::ExprTry);
+        let alternate_type = program
+            .store
+            .checked_expr_types
+            .iter()
+            .find(|fact| fact.function_ref.is_some())
+            .expect("the constructor references a checked callable")
+            .type_id;
+        assert_ne!(
+            program.store.checked_expr_types[fact_index].type_id,
+            alternate_type
+        );
+
+        let mut forged = program.clone();
+        forged.store.checked_expr_types[fact_index].type_id = alternate_type;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checked try fact disagrees with its result operand"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]
