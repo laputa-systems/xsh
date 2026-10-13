@@ -117,11 +117,14 @@ def step (graph : Graph declarations) (state : SolverState declarations) :
     SolverState declarations :=
   fun source fact => state source fact || nodeEquation graph state source fact
 
-private theorem bool_or_mono {leftA leftB rightA rightB : Bool}
+private theorem bool_or_mono (leftA leftB rightA rightB : Bool)
     (leftBelow : leftA = true → rightA = true)
     (rightBelow : leftB = true → rightB = true)
-    (member : leftA || leftB = true) : rightA || rightB = true := by
-  cases leftA <;> cases leftB <;> simp_all
+    (member : (leftA || leftB) = true) : (rightA || rightB) = true := by
+  apply Bool.or_eq_true_iff.mpr
+  rcases Bool.or_eq_true_iff.mp member with left | right
+  · exact Or.inl (leftBelow left)
+  · exact Or.inr (rightBelow right)
 
 theorem readEdge_mono (graph : Graph declarations) (edge : Edge declarations)
     {left right : SolverState declarations} (below : stateLe left right) :
@@ -131,8 +134,9 @@ theorem readEdge_mono (graph : Graph declarations) (edge : Edge declarations)
   | false =>
       have member' : left edge.target fact = true := by
         simpa [readEdge, contract] using member
-      exact below edge.target fact member'
-  | true => simpa [readEdge, contract] using member
+      simpa [readEdge, contract] using below edge.target fact member'
+  | true =>
+      simpa [readEdge, contract] using member
 
 theorem visibleEdgeFacts_mono (edge : Edge declarations)
     {left right : FactSet} (below : factLe left right) :
@@ -142,13 +146,13 @@ theorem visibleEdgeFacts_mono (edge : Edge declarations)
   | false =>
       have member' : left fact = true := by
         simpa [visibleEdgeFacts, captures] using member
-      exact below fact member'
+      simpa [visibleEdgeFacts, captures] using below fact member'
   | true =>
       by_cases isError : fact = some Effect.error
       · simp [visibleEdgeFacts, captures, isError] at member ⊢
       · have member' : left fact = true := by
           simpa [visibleEdgeFacts, captures, isError] using member
-        exact below fact member'
+        simpa [visibleEdgeFacts, captures, isError] using below fact member'
 
 theorem edgeContribution_mono (graph : Graph declarations) (edge : Edge declarations)
     {left right : SolverState declarations} (below : stateLe left right) :
@@ -175,11 +179,14 @@ theorem nodeEquation_mono (graph : Graph declarations) (source : Fin declaration
     edgesContribution graph left (graph.node source).edges fact) = true at member
   change ((graph.node source).direct fact ||
     edgesContribution graph right (graph.node source).edges fact) = true
-  apply bool_or_mono
-  · intro direct
-    exact direct
-  · exact edgesContribution_mono graph (graph.node source).edges below fact
-  · exact member
+  exact bool_or_mono
+    ((graph.node source).direct fact)
+    (edgesContribution graph left (graph.node source).edges fact)
+    ((graph.node source).direct fact)
+    (edgesContribution graph right (graph.node source).edges fact)
+    (fun direct => direct)
+    (edgesContribution_mono graph (graph.node source).edges below fact)
+    member
 
 theorem step_mono (graph : Graph declarations)
     {left right : SolverState declarations} (below : stateLe left right) :
@@ -187,11 +194,14 @@ theorem step_mono (graph : Graph declarations)
   intro node fact member
   change (left node fact || nodeEquation graph left node fact) = true at member
   change (right node fact || nodeEquation graph right node fact) = true
-  apply bool_or_mono
-  · intro old
-    exact below node fact old
-  · exact nodeEquation_mono graph node below fact
-  · exact member
+  exact bool_or_mono
+    (left node fact)
+    (nodeEquation graph left node fact)
+    (right node fact)
+    (nodeEquation graph right node fact)
+    (below node fact)
+    (nodeEquation_mono graph node below fact)
+    member
 
 theorem step_inflationary (graph : Graph declarations) (state : SolverState declarations) :
     stateLe state (step graph state) := by
@@ -350,8 +360,8 @@ theorem stateRank_strict_of_ne {declarations : Nat}
     have required := below slot.1 slot.2 member'
     simpa using required
   · exact present
-  · simp [leftFalse]
-  · simp [rightTrue]
+  · simp [witnessSlot, leftFalse]
+  · simp [witnessSlot, rightTrue]
 
 def bottomState (declarations : Nat) : SolverState declarations := fun _ _ => false
 
@@ -393,7 +403,7 @@ theorem exists_fixed_by_iterationLimit (graph : Graph declarations) :
             have previousLower := ih (by omega)
             have adjacent := iterate_adjacent_le graph (bottomState declarations) index
             have unequal := notFixedAt index previousBound
-            have rises := stateRank_strict_of_ne adjacent unequal
+            have rises := stateRank_strict_of_ne adjacent unequal.symm
             omega
       have lower := rankLower (iterationLimit declarations + 1) (by omega)
       have upper := stateRank_bounded
@@ -470,9 +480,9 @@ theorem edgeContribution_reindex (graph : Graph declarations)
       (reindexEdge relabel edge) = edgeContribution graph state edge := by
   cases edge with
   | mk target capturesError readsContract =>
-      funext fact
-      simp [edgeContribution, visibleEdgeFacts, readEdge, reindexGraph, reindexNode,
-        reindexEdge, reindexState, relabel.backward_forward]
+      cases capturesError <;> cases readsContract <;> funext fact <;>
+        simp [edgeContribution, visibleEdgeFacts, readEdge, reindexGraph, reindexNode,
+          reindexEdge, reindexState, relabel.backward_forward]
 
 theorem nodeEquation_reindex (graph : Graph declarations)
     (state : SolverState declarations) (relabel : NodeRenaming declarations)
@@ -480,8 +490,17 @@ theorem nodeEquation_reindex (graph : Graph declarations)
     nodeEquation (reindexGraph relabel graph) (reindexState relabel state)
         (relabel.forward source) = nodeEquation graph state source := by
   funext fact
-  simp [nodeEquation, reindexGraph, reindexNode, reindexState, edgesContribution,
-    reindexEdge, edgeContribution_reindex, relabel.backward_forward]
+  change
+    ((reindexNode relabel
+      (graph.node (relabel.backward (relabel.forward source)))).direct fact ||
+      edgesContribution (reindexGraph relabel graph) (reindexState relabel state)
+        (reindexNode relabel
+          (graph.node (relabel.backward (relabel.forward source)))).edges fact) =
+    ((graph.node source).direct fact ||
+      edgesContribution graph state (graph.node source).edges fact)
+  rw [relabel.backward_forward]
+  simp only [reindexNode, edgesContribution, List.any_map]
+  simp only [edgeContribution_reindex]
 
 theorem step_reindex (graph : Graph declarations)
     (state : SolverState declarations) (relabel : NodeRenaming declarations) :
@@ -492,7 +511,7 @@ theorem step_reindex (graph : Graph declarations)
   have equation := nodeEquation_reindex graph state relabel (relabel.backward index)
   rw [relabel.forward_backward] at equation
   simpa [step, reindexState] using congrArg (fun facts =>
-    state (relabel.backward index) fact || facts fact) equation
+    state (relabel.backward index) fact || facts fact) equation.symm
 
 theorem iterate_reindex (graph : Graph declarations)
     (state : SolverState declarations) (relabel : NodeRenaming declarations)
@@ -520,7 +539,10 @@ theorem solve_reindex (graph : Graph declarations)
     solve (reindexGraph relabel graph) = reindexState relabel (solve graph) := by
   have iterated := iterate_reindex graph (bottomState declarations) relabel
     (iterationLimit declarations)
-  simpa [solve, bottomState, reindexState] using iterated.symm
+  have bottomReindexed :
+      reindexState relabel (bottomState declarations) = bottomState declarations := rfl
+  rw [bottomReindexed] at iterated
+  simpa [solve] using iterated.symm
 
 theorem unresolved_fact_is_preserved (facts : FactSet) :
     (toEffectSummary facts).unresolved = facts none := rfl
