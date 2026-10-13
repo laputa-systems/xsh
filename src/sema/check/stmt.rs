@@ -772,6 +772,7 @@ fn pipeline_control_flow(
     flow
 }
 
+/// Includes callback transfers when this expression drains a pipeline.
 fn expr_control_flow_materialized_pipeline(
     arena: &ArenaProgram,
     id: ExprId,
@@ -980,6 +981,13 @@ fn stage_input_pull(
             Some(count) if count > 0 => StageInputPull::Required,
             _ => StageInputPull::Maybe,
         },
+        // Zip stops when either source ends, so the other source bounds left
+        // pulls.
+        StreamStageKind::Zip => match zip_other_cardinality(arena, args) {
+            StreamCardinality::Empty => StageInputPull::Never,
+            StreamCardinality::NonEmpty => StageInputPull::Required,
+            StreamCardinality::Maybe => StageInputPull::Maybe,
+        },
         // A range stage generates its own sequence and does not pull from its
         // preceding input.
         StreamStageKind::Range => StageInputPull::Never,
@@ -992,6 +1000,9 @@ fn stage_materializes_input(
     kind: StreamStageKind,
     args: ArenaRange,
 ) -> bool {
+    // Unknown repeat counts may be positive, which drains input before later stages.
+    let repeat_materializes_input = kind == StreamStageKind::Repeat
+        && first_known_int_arg(arena, args).is_none_or(|count| count > 0);
     matches!(
         kind,
         StreamStageKind::Batch
@@ -1006,6 +1017,7 @@ fn stage_materializes_input(
             | StreamStageKind::SortBy
             | StreamStageKind::Shuffle
             | StreamStageKind::Zip
+            | StreamStageKind::UniqueBy
             | StreamStageKind::ParMap
             | StreamStageKind::TablePrint
             | StreamStageKind::GroupBy
@@ -1014,8 +1026,7 @@ fn stage_materializes_input(
             | StreamStageKind::ReduceBy
             | StreamStageKind::Any
             | StreamStageKind::All
-    ) || (kind == StreamStageKind::Repeat
-        && first_known_int_arg(arena, args).is_some_and(|count| count > 0))
+    ) || repeat_materializes_input
 }
 
 fn stage_output_cardinality(
@@ -1038,12 +1049,22 @@ fn stage_output_cardinality(
             _ => StreamCardinality::Maybe,
         },
         StreamStageKind::Range => range_cardinality(arena, args),
-        StreamStageKind::Where
-        | StreamStageKind::FlatMap
-        | StreamStageKind::Zip => match input {
+        StreamStageKind::Where | StreamStageKind::FlatMap => match input {
             StreamCardinality::Empty => StreamCardinality::Empty,
             StreamCardinality::NonEmpty | StreamCardinality::Maybe => StreamCardinality::Maybe,
         },
+        StreamStageKind::Zip => {
+            let other = zip_other_cardinality(arena, args);
+            match (input, other) {
+                (StreamCardinality::Empty, _) | (_, StreamCardinality::Empty) => {
+                    StreamCardinality::Empty
+                }
+                (StreamCardinality::NonEmpty, StreamCardinality::NonEmpty) => {
+                    StreamCardinality::NonEmpty
+                }
+                _ => StreamCardinality::Maybe,
+            }
+        }
         StreamStageKind::Drop => match (input, first_known_int_arg(arena, args)) {
             (StreamCardinality::Empty, _) => StreamCardinality::Empty,
             (cardinality, Some(0)) => cardinality,
@@ -1051,6 +1072,15 @@ fn stage_output_cardinality(
         },
         _ => input,
     }
+}
+
+fn zip_other_cardinality(arena: &ArenaProgram, args: ArenaRange) -> StreamCardinality {
+    arena
+        .arena
+        .call_args(args)
+        .first()
+        .map(|arg| call_arg_expr(&arg.kind))
+        .map_or(StreamCardinality::Maybe, |expr| expression_cardinality(arena, expr))
 }
 
 fn expression_cardinality(arena: &ArenaProgram, expr: ExprId) -> StreamCardinality {
@@ -1199,6 +1229,12 @@ fn expr_control_flow_inner(
     facts: &FlowFacts<'_>,
 ) -> ControlFlow {
     match arena.arena.expr(id).kind {
+        ArenaExprKind::Call { callee, .. }
+            if matches!(arena.arena.expr(callee).kind,
+                ArenaExprKind::Field { name, .. } if name.as_str() == "collect") =>
+        {
+            expr_control_flow_materialized_pipeline(arena, id, facts)
+        }
         ArenaExprKind::If {
             branches,
             else_value,
@@ -6642,6 +6678,114 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn zip_with_an_empty_right_source_skips_upstream_callbacks() {
+        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> zip([]) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zip_with_a_dynamic_right_source_may_skip_upstream_callbacks() {
+        let source = "pure choose(other: List[Int]) -> Int { let ignored = [1] |> map { |item| return item } |> zip(other) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zip_of_nonempty_sources_preserves_nonempty_cardinality() {
+        let source = "pure choose() -> Int { let ignored = [1] |> zip([2]) |> map { |pair| return 1 } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zip_with_a_dynamic_right_source_may_skip_downstream_callbacks() {
+        let source = "pure choose(other: List[Int]) -> Int { let ignored = [1] |> zip(other) |> map { |pair| return 1 } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zip_with_an_empty_right_source_has_empty_output() {
+        let source = "pure choose() -> Int { loop { let ignored = [1] |> zip([]) |> map { |pair| return 1 } } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zip_with_an_empty_left_source_has_empty_output() {
+        let source = "pure choose() -> Int { loop { let ignored = [] |> zip([2]) |> map { |pair| return 1 } } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn unique_by_materializes_upstream_callbacks_before_a_zero_take() {
+        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> unique-by { |item| item } |> take(0) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn unique_by_runs_its_callback_before_a_zero_take() {
+        let source = "pure choose() -> Int { let ignored = [1] |> unique-by { |item| return 1 } |> take(0) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_dynamic_repeat_may_run_an_upstream_loop_exit_callback_before_zero_take() {
+        let source = "pure choose(count: Int) -> Int { loop { let ignored = [1] |> map { |item| return 1 } |> repeat(count) |> take(0) } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn group_by_preserves_nonempty_pipeline_cardinality() {
         let source = "pure choose() -> Int { let ignored = [1] |> group-by . |> map { |group| return 1 } }\n";
         let diagnostics = diagnostics(source);
@@ -6680,6 +6824,42 @@ mod return_flow_tests {
     #[test]
     fn collect_materializes_a_pipeline_nested_in_a_method_call() {
         let source = "pure choose() -> Int { let ignored = ([1] |> map { |item| return item }).collect() }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn collect_materializes_a_pipeline_in_an_expression_statement() {
+        let source = "pure choose() -> Int { ([1] |> map { |item| return item }).collect(); let ignored = 0 }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn collect_materializes_a_pipeline_nested_in_a_method_call_argument() {
+        let source = "pure choose() -> Int { let ignored = ([1] |> map { |item| return item }).collect().len() }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn collect_materializes_a_pipeline_in_a_nested_if_condition() {
+        let source = "pure choose() -> Int { if ([1] |> map { |item| return item }).collect().len() > 0 { return 1 } else {} }\n";
         let diagnostics = diagnostics(source);
         assert!(
             !diagnostics
