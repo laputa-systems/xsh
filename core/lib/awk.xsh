@@ -2203,7 +2203,7 @@ pure array_order(table: Table) -> List[Str] {
   var slots: List[Str] = ["" for _ in range(table.next)]
   var present: List[Bool] = [false for _ in range(table.next)]
   for key in table.cells.keys() {
-    let seq = (table.cells.get(key) ?? Cell(Empty, 0)).seq
+    let seq = (table.cells.get(key) ?? Cell(value: Empty, seq: 0)).seq
     slots[seq] = key
     present[seq] = true
   }
@@ -2767,7 +2767,7 @@ pure link(program: Program) -> Result[Linked] {
   ops += end_ops + [OpHalt]
   var entries: Map[Int] = {}
   for name in program.functions.keys() {
-    let function = program.functions.get(name) ?? Function([], 0, "")
+    let function = program.functions.get(name) ?? Function(parameters: [], body: 0, site: "")
     entries = entries.set(name, ops.len())
     ops += compile_statement(x, s, function.parameters, function.body)? + [OpReturnEmpty]
   }
@@ -2844,7 +2844,7 @@ proc environment_prefix(arrays: Map[Table]) -> Str {
   for entry in env.list() ?? [] { current = current.set(entry.name, entry.value) }
   for name in table.cells.keys() {
     continue unless binding_name(name)
-    let wanted = plain_text((table.cells.get(name) ?? Cell(Empty, 0)).value) ?? ""
+    let wanted = plain_text((table.cells.get(name) ?? Cell(value: Empty, seq: 0)).value) ?? ""
     continue when name in current and (current.get(name) ?? "") == wanted
     prefix += f"export {name}='{wanted.replace("'", with: "'\\''")}'; "
   }
@@ -3165,7 +3165,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       state.index += 1
       let key = f"{index}"
       continue when key not in operands.cells
-      let argument = plain_text((operands.cells.get(key) ?? Cell(Empty, 0)).value)?
+      let argument = plain_text((operands.cells.get(key) ?? Cell(value: Empty, seq: 0)).value)?
       continue when argument.is_empty()
       if assignment_operand(argument) { bindings += [argument]; continue }
       state.opened = true
@@ -3599,7 +3599,7 @@ pure subscript_key(stack: List[Scalar], top: Int, count: Int, separator: Str, co
   }
   Ok(pieces.join(separator))
 }
-pure no_cell() -> Cell { Cell(Empty, -1) }
+pure no_cell() -> Cell { Cell(value: Empty, seq: -1) }
 # A failure with its source position and context, and the output the program
 # had produced but not yet written.
 pure placed(labels: List[Str], site: Int, globals: Map[Scalar], out: Str, failure: Error) -> Error {
@@ -3685,8 +3685,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   let functions = program.functions
   var globals: Map[Scalar] = {FS: String(" "), OFS: String(" "), RS: String("\n"), RT: String(""), ORS: String("\n"), SUBSEP: String("\u{1c}"), OFMT: String("%.6g"), CONVFMT: String("%.6g"), NR: Numeric(0.0), FNR: Numeric(0.0), NF: Numeric(0.0), RSTART: Numeric(0.0), RLENGTH: Numeric(0.0), FILENAME: String(""), ARGIND: Numeric(0.0), BINMODE: Numeric(0.0), LINT: Numeric(0.0), TEXTDOMAIN: String("messages"), IGNORECASE: Numeric(0.0), FPAT: String("[^[:space:]]+"), FIELDWIDTHS: String(""), ERRNO: String(""), PREC: Numeric(53.0), ROUNDMODE: String("N")}
   var arrays: Map[Table] = {}
-  var operand_cells: Map[Cell] = {"0": Cell(String("awk"), 0)}
-  for at in range(arguments.len()) { operand_cells = operand_cells.set(f"{at + 1}", Cell(input(arguments[at])?, at + 1)) }
+  var operand_cells: Map[Cell] = {"0": Cell(value: String("awk"), seq: 0)}
+  for at in range(arguments.len()) { operand_cells = operand_cells.set(f"{at + 1}", Cell(value: input(arguments[at])?, seq: at + 1)) }
   arrays = arrays.set("ARGV", grown_table(operand_cells, "0"))
   globals["ARGC"] = Numeric((arguments.len() + 1).float())
   if program.environ {
@@ -3695,7 +3695,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
     var first_name = ""
     for entry in env.list()? {
       if count == 0 { first_name = entry.name }
-      environment = environment.set(entry.name, Cell(input(entry.value)?, count))
+      environment = environment.set(entry.name, Cell(value: input(entry.value)?, seq: count))
       count += 1
     }
     arrays = arrays.set("ENVIRON", grown_table(environment, first_name))
@@ -4046,7 +4046,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpForInStart(spot) => {
           let array = array_of(spot, slots, aliases, globals)?
           if array not in arrays { arrays[array] = empty_table() }
-          iterators += [Iteration(array_order(arrays[array]), 0)]
+          iterators += [Iteration(keys: array_order(arrays[array]), at: 0)]
         }
         OpForInNext(offset, spot) => {
           let top = iterators.len() - 1
@@ -4064,7 +4064,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpForInEnd => { iterators = iterators[..iterators.len() - 1] }
         OpCall(name, kinds) => {
           if name not in entries { Err(fatal_error(f"function `{shown_name(name)}' not defined"))? }
-          let function = functions.get(name) ?? Function([], 0, "")
+          let function = functions.get(name) ?? Function(parameters: [], body: 0, site: "")
           calls += 1
           # Arguments computed as values sit on the stack in order; names are
           # passed as references so the callee may use them as arrays.
@@ -4691,16 +4691,16 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               let seps_array = array_of(spots[1], slots, aliases, globals)?
               let parts = split_with_separators(content, separator, regex_mode, ignore_case)?
               var cells: Map[Cell] = {}
-              for at in range(parts.fields.len()) { cells = cells.set(f"{at + 1}", Cell(input(parts.fields[at])?, at)) }
+              for at in range(parts.fields.len()) { cells = cells.set(f"{at + 1}", Cell(value: input(parts.fields[at])?, seq: at)) }
               arrays[array] = grown_table(cells, "1")
               var separator_cells: Map[Cell] = {}
-              for at in range(parts.separators.len()) { separator_cells = separator_cells.set(f"{at + 1}", Cell(String(parts.separators[at]), at)) }
+              for at in range(parts.separators.len()) { separator_cells = separator_cells.set(f"{at + 1}", Cell(value: String(parts.separators[at]), seq: at)) }
               arrays[seps_array] = grown_table(separator_cells, "1")
               result = Numeric(parts.fields.len().float())
             } else {
               let pieces = split_fields(content, separator, regex_mode, ignore_case)?
               var cells: Map[Cell] = {}
-              for at in range(pieces.len()) { cells = cells.set(f"{at + 1}", Cell(pieces[at], at)) }
+              for at in range(pieces.len()) { cells = cells.set(f"{at + 1}", Cell(value: pieces[at], seq: at)) }
               arrays[array] = grown_table(cells, "1")
               result = Numeric(pieces.len().float())
             }
@@ -4726,9 +4726,9 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                   let span = caps[at] ?? Match(start: 0, end: 0)
                   let text = content.byte_slice(span.start, length: span.end - span.start)
                   let from = content.byte_slice(0, length: span.start).count_chars() + 1
-                  cells = cells.set(f"{at}", Cell(input(text)?, number_of))
-                  cells = cells.set(f"{at}{separator}start", Cell(Numeric(from.float()), number_of + 1))
-                  cells = cells.set(f"{at}{separator}length", Cell(Numeric(text.count_chars().float()), number_of + 2))
+                  cells = cells.set(f"{at}", Cell(value: input(text)?, seq: number_of))
+                  cells = cells.set(f"{at}{separator}start", Cell(value: Numeric(from.float()), seq: number_of + 1))
+                  cells = cells.set(f"{at}{separator}length", Cell(value: Numeric(text.count_chars().float()), seq: number_of + 2))
                   number_of += 3
                 }
               }
@@ -4767,7 +4767,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
             let ordered = merge_sort(items, how.ends_with("_desc"))
             var cells: Map[Cell] = {}
-            for at in range(ordered.len()) { cells = cells.set(f"{at + 1}", Cell(if name == "asorti" { String(ordered[at].text) } else { ordered[at].value }, at)) }
+            for at in range(ordered.len()) { cells = cells.set(f"{at + 1}", Cell(value: if name == "asorti" { String(ordered[at].text) } else { ordered[at].value }, seq: at)) }
             arrays[destination] = grown_table(cells, "1")
             result = Numeric(ordered.len().float())
           } else if name == "patsplit" {
@@ -4791,11 +4791,11 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               continue when hit.end == hit.start and previous_end == hit.start
               previous_end = hit.end
               matched += 1
-              separator_cells = separator_cells.set(f"{matched - 1}", Cell(String(content.byte_slice(cursor, length: hit.start - cursor)), matched))
-              cells = cells.set(f"{matched}", Cell(input(content.byte_slice(hit.start, length: hit.end - hit.start))?, matched))
+              separator_cells = separator_cells.set(f"{matched - 1}", Cell(value: String(content.byte_slice(cursor, length: hit.start - cursor)), seq: matched))
+              cells = cells.set(f"{matched}", Cell(value: input(content.byte_slice(hit.start, length: hit.end - hit.start))?, seq: matched))
               cursor = hit.end
             }
-            separator_cells = separator_cells.set(f"{matched}", Cell(String(content.byte_slice(cursor)), matched + 1))
+            separator_cells = separator_cells.set(f"{matched}", Cell(value: String(content.byte_slice(cursor)), seq: matched + 1))
             arrays[array] = grown_table(cells, "1")
             if count == 4 {
               let seps_array = array_of(spots[1], slots, aliases, globals)?
@@ -4843,7 +4843,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 arrays[pending_name].growths += [arrays[pending_name].next]
               }
             }
-            arrays[pending_name].cells[pending_key] = Cell(pending_value, arrays[pending_name].next)
+            arrays[pending_name].cells[pending_key] = Cell(value: pending_value, seq: arrays[pending_name].next)
             arrays[pending_name].next += 1
           }
         } else if pending == 2 {
@@ -4895,7 +4895,7 @@ export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[S
     let equals = item.find("=") ?? 0
     let name = item.byte_slice(0, length: equals)
     if name in program.functions {
-      let function = program.functions.get(name) ?? Function([], 0, "cmd. line:1")
+      let function = program.functions.get(name) ?? Function(parameters: [], body: 0, site: "cmd. line:1")
       return Err(AwkError.Syntax(f"{function.site}: error: function name `{name}' previously defined"))
     }
   }

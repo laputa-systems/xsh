@@ -502,7 +502,7 @@ proc one_patch(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sca
     action = "copied"
     found = true
   } else if let given = named { chosen = given; found = true } else {
-    var best: Candidate = Candidate("", false)
+    var best: Candidate = Candidate(name: "", exists: false)
     var have = false
     for candidate in candidates {
       if !have or better(candidate, best) { best = candidate; have = true }
