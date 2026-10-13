@@ -3384,6 +3384,42 @@
       "boundary": "This finite mutation witness does not establish concrete host, clock, Rust, operating-system, source, or whole-language behavior."
     },
     {
+      "id": "fragment.Xsh.Proofs.BaseHostRunnerLaws.runBaseHostFuel_terminal_extension",
+      "module": "Xsh.Proofs.BaseHostRunnerLaws",
+      "declaration": "Xsh.Proofs.BaseHostRunnerLaws.runBaseHostFuel_terminal_extension",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Once the finite runner reaches a terminal outcome, extending fuel and appending scripted responses leaves the run unchanged.",
+      "boundary": "This covers only terminal behavior of the finite scripted runner; it proves no source or whole-language soundness, Rust or operating-system conformance, concrete host behavior, or clock accuracy."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseHostRunnerLaws.runBaseHostFuel_waiting_without_response",
+      "module": "Xsh.Proofs.BaseHostRunnerLaws",
+      "declaration": "Xsh.Proofs.BaseHostRunnerLaws.runBaseHostFuel_waiting_without_response",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A waiting machine remains unchanged for every fuel amount when its finite response script is empty.",
+      "boundary": "This covers only the formal machine and scripted host model; it proves no real-host, clock, Rust, operating-system, source, or whole-language behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseHostRunnerLaws.response_suffix_changes_waiting_result",
+      "module": "Xsh.Proofs.BaseHostRunnerLaws",
+      "declaration": "Xsh.Proofs.BaseHostRunnerLaws.response_suffix_changes_waiting_result",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For the selected timeNow machine, a valid scripted integer response resumes the wait while the empty script leaves it waiting.",
+      "boundary": "This is a finite witness in the formal response-script model; it proves no concrete host, clock, Rust, operating-system, source, or whole-language behavior."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseHostRunnerLaws.response_order_changes_waiting_result",
+      "module": "Xsh.Proofs.BaseHostRunnerLaws",
+      "declaration": "Xsh.Proofs.BaseHostRunnerLaws.response_order_changes_waiting_result",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For the selected timeNow machine, swapping two distinct scripted integer responses changes the returned value according to their order.",
+      "boundary": "This is a finite witness in the formal response-script model; it proves no concrete host, clock, Rust, operating-system, source, or whole-language behavior."
+    },
+    {
       "id": "fragment.Xsh.Proofs.BaseMachine.scalar_literal_runs_to_its_typed_payload_fragment",
       "module": "Xsh.Proofs.BaseMachine",
       "declaration": "Xsh.Proofs.BaseMachine.scalar_literal_runs_to_its_typed_payload_fragment",

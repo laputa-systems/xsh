@@ -21,7 +21,7 @@ bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. The inventory names 53 rooted Lean
+72 complete theorem obligations planned. The inventory names 57 rooted Lean
 fragment declarations. Its 29 Python tests check inventory shape, root
 reachability, and mutation controls; they are not semantic or Rust conformance
 tests. No full G1 closure or whole-language soundness claim is made.
@@ -36,7 +36,11 @@ invariant. A mutation witness shows that omitting a consumed mismatched
 response event cannot form a trace from the waiting state to failure. A
 concrete script issues two requests in order, returns 2 then 3, and completes
 with 5; a Boolean response is labeled and rejected with a type-mismatch
-fault. These results concern only the finite scripted formal runner. They do
+fault. `Xsh.Proofs.BaseHostRunnerLaws` proves that terminal runs ignore extra
+fuel and appended responses and that empty scripts leave waiting machines
+unchanged. Its finite witnesses show that a valid response resumes a wait and
+that changing response order changes the returned value. These results concern
+only the finite scripted formal runner. They do
 not establish source or whole-language soundness, Rust or OS conformance,
 concrete host behavior, or clock accuracy; clock correspondence remains an
 external assumption. The executable Float comparator

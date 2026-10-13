@@ -26,6 +26,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
+        self.assertEqual(57, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
@@ -92,6 +93,19 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Proofs.BaseHostTrace.omitted_response_event_is_not_a_trace",
             },
             host_trace_proof_roots,
+        )
+        runner_law_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Proofs.BaseHostRunnerLaws"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Proofs.BaseHostRunnerLaws.runBaseHostFuel_terminal_extension",
+                "Xsh.Proofs.BaseHostRunnerLaws.runBaseHostFuel_waiting_without_response",
+                "Xsh.Proofs.BaseHostRunnerLaws.response_suffix_changes_waiting_result",
+                "Xsh.Proofs.BaseHostRunnerLaws.response_order_changes_waiting_result",
+            },
+            runner_law_roots,
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:
