@@ -438,7 +438,7 @@ export pure parse_attrs(payload: Bytes, start: Int) -> List[Attr] {
       let length = uint(payload.slice(offset, 2))
       let kind = uint(payload.slice(offset + 2, 2)).bit_and(NLA_TYPE_MASK)
       break when length < 4 or offset + length > payload.len()
-      yield {kind: kind, data: payload.slice(offset + 4, length - 4)}
+      yield {kind: kind, data: payload[offset + 4..offset + length]}
       offset += (length + 3) / 4 * 4
     }
   }

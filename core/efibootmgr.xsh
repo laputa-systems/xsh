@@ -465,7 +465,7 @@ proc change_entry(store: efi.Store, family: efi.Family, request: Request, names:
     if request.no_reconnect { attributes = attributes.clear_bits(efi.LOAD_OPTION_FORCE_RECONNECT) }
     continue when attributes == option?.attributes
 
-    let payload = bytes.concat([bytes.pack_le(attributes, 4) ?? b"", value.data.slice(4)])
+    let payload = bytes.concat([bytes.pack_le(attributes, 4) ?? b"", value.data[4..]])
     if let Err(failure) = efi.write_variable(store, item.name, value.attributes, payload) {
       stop(16, f"Could not set {context} state for {item.name}: {failure_text(failure)}")
     }
