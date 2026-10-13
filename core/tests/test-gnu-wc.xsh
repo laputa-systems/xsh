@@ -1,4 +1,32 @@
 use support.uu
+use lib.gnu as gnu
+
+const WC_METADATA_SIZE = 2 * 1048576
+const WC_OVERLAY_SIZE = 2305843009213693952
+
+# Preserve wc's diagnostic prefix by running the overlay from an exact wc.xsh path.
+proc wc_overlay_in(s: uu.Scene, source: Str, args: List[Str]) [fs, process, error] -> Result[uu.Ran] {
+  let script = uu.at(s, "wc.xsh")
+  script.write(source)
+  let out = uu.at(s, "overlay-stdout")
+  let err = uu.at(s, "overlay-stderr")
+  let modules = f"{s.ctx.core_dir}:{s.ctx.core_dir.parent()}"
+  let argv = [s.ctx.xsh_bin, script, p"--"].extend([fp"{arg}" for arg in args])
+  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root,
+    {LC_ALL: "C", TZ: "UTC", XSH_MODULE_PATH: modules}, b"", out, err)
+  let status = process.run(plan)?
+  Ok({util: "wc", args, status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
+}
+
+# Keep byte-count edges covered when a filesystem rejects the giant sparse size.
+proc wc_size_overlay(ctx: TestContext, file_size: Int, reported_size: Int) [fs, error] -> Result[Str] {
+  let source = fp"{ctx.core_dir}/wc.xsh".read_text()?
+  let header = "pure byte_count(size: Int) -> ByteCount {"
+  let pieces = source.split(header)
+  assert pieces.len() == 2, "wc byte_count header must be unique"
+  let adapted = f"pure byte_count(file_size: Int) -> ByteCount {{\n  let size = if file_size == {file_size} {{ {reported_size} }} else {{ file_size }}"
+  Ok(pieces[0] + adapted + pieces[1])
+}
 
 # origin: gnu wc/wc-cpu.log
 test test_gnu_wc_wc_cpu_log { |ctx|
@@ -182,12 +210,34 @@ test test_gnu_wc_wc_total_log { |ctx|
   uu.succeeds(always)
   assert always.stdout.utf8()?.lines().len() == 2
   uu.touch(s, "big")
-  uu.truncate(s, "big", 2305843009213693952)
-  let files = ["big" for n in range(8)]
-  let overflow = uu.invoke(s, "wc", ["--total=only", "-c", @files], timeout: 10s)?
-  let hidden = uu.invoke(s, "wc", ["--total=never", "-c", @files], timeout: 10s)?
-  assert overflow.status == 1, f"total=only status {overflow.status}, stderr {overflow.stderr as Str}; total=never status {hidden.status}, stderr {hidden.stderr as Str}"
-  uu.stdout_is(overflow, "18446744073709551615\n")
-  uu.succeeds(hidden)
-  uu.stdout_is(hidden, [" 2305843009213693952 big\n" for n in range(8)].join(""))
+  let oversized = uu.at(s, "big").truncate(WC_OVERLAY_SIZE)
+  match oversized {
+    Ok(_) => {
+      let files = ["big" for n in range(8)]
+      let overflow = uu.invoke(s, "wc", ["--total=only", "-c", @files], timeout: 10s)?
+      let hidden = uu.invoke(s, "wc", ["--total=never", "-c", @files], timeout: 10s)?
+      assert overflow.status == 1, f"total=only status {overflow.status}, stderr {overflow.stderr as Str}; total=never status {hidden.status}, stderr {hidden.stderr as Str}"
+      uu.stdout_is(overflow, "18446744073709551615\n")
+      uu.stderr_is(overflow, "wc: total bytes: Value too large for defined data type\n")
+      uu.succeeds(hidden)
+      uu.no_stderr(hidden)
+      uu.stdout_is(hidden, [" 2305843009213693952 big\n" for n in range(8)].join(""))
+    }
+    Err(failure) => {
+      if gnu.errno(failure) != 27 { return Err(failure) }
+      uu.at(s, "big").truncate(WC_METADATA_SIZE)?
+      let source = wc_size_overlay(ctx, WC_METADATA_SIZE, WC_OVERLAY_SIZE)?
+      let title = uu.at(s, "big").display()
+      let file_args = [title for n in range(8)]
+      let overflow = wc_overlay_in(s, source, ["--total=only", "-c"].extend(file_args))?
+      let hidden = wc_overlay_in(s, source, ["--total=never", "-c"].extend(file_args))?
+      assert overflow.status == 1, f"total=only status {overflow.status}, stderr {overflow.stderr.utf8()?}"
+      assert overflow.stdout.utf8()? == "18446744073709551615\n", overflow.stdout.utf8()?
+      assert overflow.stderr.utf8()? == "wc: total bytes: Value too large for defined data type\n", overflow.stderr.utf8()?
+      assert hidden.status == 0, f"total=never status {hidden.status}, stderr {hidden.stderr.utf8()?}"
+      let item = f" 2305843009213693952 {title}\n"
+      assert hidden.stdout.utf8()? == [item for n in range(8)].join(""), hidden.stdout.utf8()?
+      assert hidden.stderr == b""
+    }
+  }
 }

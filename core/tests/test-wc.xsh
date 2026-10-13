@@ -1,4 +1,19 @@
+use lib.gnu as gnu
+
 type Ran = {status: Int, stdout: Str, stderr: Str}
+
+const WC_METADATA_SIZE = 2 * 1048576
+const WC_I64_MAX = 9223372036854775807
+
+# Keep byte-count edges covered when a filesystem rejects an i64-max sparse size.
+proc wc_size_overlay(ctx: TestContext, file_size: Int, reported_size: Int) [fs, error] -> Result[Str] {
+  let source = fp"{ctx.core_dir}/wc.xsh".read_text()?
+  let header = "pure byte_count(size: Int) -> ByteCount {"
+  let pieces = source.split(header)
+  assert pieces.len() == 2, "wc byte_count header must be unique"
+  let adapted = f"pure byte_count(file_size: Int) -> ByteCount {{\n  let size = if file_size == {file_size} {{ {reported_size} }} else {{ file_size }}"
+  Ok(pieces[0] + adapted + pieces[1])
+}
 
 # Runs core/wc.xsh by its real path inside `dir`, with `input` as standard
 # input, capturing both streams to files.
@@ -16,6 +31,20 @@ proc wc_in(
   let script = fp"{ctx.core_dir}/wc.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   let plan = process.command_argv(ctx.xsh_bin, argv, dir, vars, stdin, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
+}
+
+# Preserve wc's diagnostic prefix by running the overlay from an exact wc.xsh path.
+proc wc_overlay_in(ctx: TestContext, source: Str, dir: Path, args: List[Str]) [fs, process, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: "wc-overlay")?
+  let script = fp"{root}/wc.xsh"
+  script.write(source)
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let modules = f"{ctx.core_dir}:{ctx.core_dir.parent()}"
+  let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, dir, {LC_ALL: "C.UTF-8", XSH_MODULE_PATH: modules}, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
 }
@@ -305,15 +334,70 @@ test test_wc_sparse_totals_and_alignment_overflow { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-sparse")?
   let file = fp"{dir}/a"
   file.write("")
-  file.truncate(9223372036854775807)
-  let doubled = wc_in(ctx, dir, ["-c", "a", "a"])?
-  assert doubled.status == 0, doubled.stderr
-  assert doubled.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n18446744073709551614 total\n", doubled.stdout
-  let overflow = wc_in(ctx, dir, ["-c", "a", "a", "a"])?
-  assert overflow.status == 1
-  assert overflow.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n 9223372036854775807 a\n18446744073709551615 total\n", overflow.stdout
-  assert overflow.stderr == "wc: total bytes: Value too large for defined data type\n", overflow.stderr
-  let hidden = wc_in(ctx, dir, ["-c", "--total=never", "a", "a", "a"])?
-  assert hidden.status == 0, hidden.stderr
-  assert hidden.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n 9223372036854775807 a\n", hidden.stdout
+  file.truncate(WC_METADATA_SIZE)?
+  let moderate = wc_in(ctx, dir, ["-c", "a", "a"])?
+  assert moderate.status == 0, moderate.stderr
+  assert moderate.stdout == "2097152 a\n2097152 a\n4194304 total\n", moderate.stdout
+
+  let oversized = file.truncate(WC_I64_MAX)
+  match oversized {
+    Ok(_) => {
+      let doubled = wc_in(ctx, dir, ["-c", "a", "a"])?
+      assert doubled.status == 0, doubled.stderr
+      assert doubled.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n18446744073709551614 total\n", doubled.stdout
+      let overflow = wc_in(ctx, dir, ["-c", "a", "a", "a"])?
+      assert overflow.status == 1
+      assert overflow.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n 9223372036854775807 a\n18446744073709551615 total\n", overflow.stdout
+      assert overflow.stderr == "wc: total bytes: Value too large for defined data type\n", overflow.stderr
+      let hidden = wc_in(ctx, dir, ["-c", "--total=never", "a", "a", "a"])?
+      assert hidden.status == 0, hidden.stderr
+      assert hidden.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n 9223372036854775807 a\n", hidden.stdout
+    }
+    Err(failure) => {
+      if gnu.errno(failure) != 27 { return Err(failure) }
+      file.truncate(WC_METADATA_SIZE)?
+      let source = wc_size_overlay(ctx, WC_METADATA_SIZE, WC_I64_MAX)?
+      let title = file.display()
+      let item = f" 9223372036854775807 {title}\n"
+      let doubled = wc_overlay_in(ctx, source, dir, ["-c", title, title])?
+      assert doubled.status == 0, doubled.stderr
+      assert doubled.stdout == item + item + "18446744073709551614 total\n", doubled.stdout
+      let overflow = wc_overlay_in(ctx, source, dir, ["-c", title, title, title])?
+      assert overflow.status == 1
+      assert overflow.stdout == item + item + item + "18446744073709551615 total\n", overflow.stdout
+      assert overflow.stderr == "wc: total bytes: Value too large for defined data type\n", overflow.stderr
+      let hidden = wc_overlay_in(ctx, source, dir, ["--total=never", "-c", title, title, title])?
+      assert hidden.status == 0, hidden.stderr
+      assert hidden.stdout == item + item + item, hidden.stdout
+      assert hidden.stderr == "", hidden.stderr
+    }
+  }
+}
+
+test test_wc_byte_count_u64_arithmetic_and_format { |ctx|
+  let source = fp"{ctx.core_dir}/wc.xsh".read_text()?
+  let assertions = r"""
+let one_file = Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(9223372036854775807), longest: 0)
+assert byte_text(one_file.bytes) == "9223372036854775807"
+let two_files = add_counts(one_file, one_file)
+assert byte_text(two_files.bytes) == "18446744073709551614" and ! two_files.bytes.overflow
+let exact_max = add_counts(two_files, Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(1), longest: 0))
+assert byte_text(exact_max.bytes) == "18446744073709551615" and ! exact_max.bytes.overflow
+let over_max = add_counts(exact_max, Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(1), longest: 0))
+assert byte_text(over_max.bytes) == "18446744073709551615" and over_max.bytes.overflow
+let shown = Shown(lines: false, words: false, chars: false, bytes: true, longest: false)
+assert line_for(one_file, shown, 20, "a") == " 9223372036854775807 a\n"
+assert line_for(over_max, shown, 20, "total") == "18446744073709551615 total\n"
+"""
+  let result = test.run_xsh(
+    ctx,
+    source + assertions,
+    [],
+    ["--version"],
+    env: {XSH_MODULE_PATH: f"{ctx.core_dir}:{ctx.core_dir.parent()}"},
+    name: "wc.xsh",
+  )?
+  assert result.success, result.stderr
+  assert result.stdout.starts_with("wc"), result.stdout
+  assert result.stderr == ""
 }
