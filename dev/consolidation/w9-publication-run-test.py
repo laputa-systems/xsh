@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import contextlib
 import importlib.util
+import io
 import os
 import pathlib
 import signal
@@ -530,6 +532,17 @@ class PublicationRunnerTests(unittest.TestCase):
         self.assertEqual(environment["DOCKER_HOST"], runner.DOCKER_LOCAL_ENDPOINT)
         self.assertEqual(environment["PATH"], "/usr/bin:/bin")
 
+    def test_existing_container_inspection_has_a_timeout(self):
+        with patch.object(
+            runner.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired("docker ps", 10),
+        ) as inspect:
+            with self.assertRaisesRegex(runner.PublicationError, "cannot inspect Docker container"):
+                runner.existing_container("w9pub-123-A-0", {"PATH": "/usr/bin:/bin"})
+
+        self.assertEqual(inspect.call_args.kwargs["timeout"], 10)
+
     def test_docker_shim_applies_exact_worker_limits_from_pinned_wrapper(self):
         wrapper = runner.APPROVED_BUILD_RUNNER.parent / "run-native-secondary.sh"
         runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
@@ -680,7 +693,28 @@ class PublicationRunnerTests(unittest.TestCase):
         self.assertTrue(runner.global_runner_lock_path(self.root).exists())
         self.assertTrue(runner.output_lock_path(output).exists())
 
-    def test_nonzero_docker_stop_is_cleanup_failure_after_container_disappears(self):
+    def test_owned_container_inspection_failure_retains_shared_and_output_locks(self):
+        work = self.root / ".work"
+        work.mkdir()
+        output = work / "inspect-failed"
+
+        with self.assertRaisesRegex(runner.CleanupFailure, "confirm owned Docker containers"):
+            with runner.claim_run_resources(self.root, output, []):
+                with patch.object(
+                    runner,
+                    "docker_container_names",
+                    side_effect=runner.PublicationError("inspection timed out"),
+                ):
+                    runner.inspect_owned_containers("^w9pub-123-", {"PATH": "/usr/bin:/bin"})
+
+        self.assertTrue(runner.global_runner_lock_path(self.root).exists())
+        self.assertTrue(runner.output_lock_path(output).exists())
+
+    def test_nonzero_docker_stop_is_safe_after_final_inspection_confirms_absence(self):
+        work = self.root / ".work"
+        work.mkdir()
+        output = work / "container-disappeared"
+
         class FakeProcess:
             pid = 123456
 
@@ -688,7 +722,7 @@ class PublicationRunnerTests(unittest.TestCase):
                 return 0
 
         active = [{"container": "failed-stop", "process": FakeProcess(), "output": None}]
-        with self.assertRaisesRegex(runner.CleanupFailure, "failed during initial cleanup with status 1"):
+        with runner.claim_run_resources(self.root, output, []):
             with patch.object(
                 runner.subprocess,
                 "run",
@@ -699,6 +733,60 @@ class PublicationRunnerTests(unittest.TestCase):
                         runner.stop_jobs(active, {"PATH": "/usr/bin:/bin"})
 
         self.assertEqual(active, [])
+        self.assertFalse(runner.global_runner_lock_path(self.root).exists())
+        self.assertFalse(runner.output_lock_path(output).exists())
+
+    def test_signal_during_worker_cleanup_cannot_interrupt_lock_retention(self):
+        work = self.root / ".work"
+        work.mkdir()
+        output = work / "cleanup-interrupted"
+        active = []
+        inspections = 0
+        masks_seen = []
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+
+        class FakeProcess:
+            pid = 123456
+
+            def wait(self, timeout=None):
+                return 0
+
+        def container_remains(_name, _environment):
+            nonlocal inspections
+            inspections += 1
+            masks_seen.append(signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+            if inspections == 1:
+                os.kill(os.getpid(), signal.SIGTERM)
+            return True
+
+        job = {"container": "stuck-daemon", "process": FakeProcess(), "output": None}
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(runner.CleanupFailure, "remains after cleanup"):
+                with runner.claim_run_resources(self.root, output, []):
+                    active.append(job)
+                    try:
+                        raise runner.PublicationError("worker failed")
+                    except runner.PublicationError as worker_error:
+                        with patch.object(
+                            runner.subprocess,
+                            "run",
+                            return_value=SimpleNamespace(returncode=0),
+                        ):
+                            with patch.object(runner.os, "killpg", side_effect=ProcessLookupError):
+                                with patch.object(runner, "existing_container", side_effect=container_remains):
+                                    try:
+                                        runner.stop_jobs(active, {"PATH": "/usr/bin:/bin"})
+                                    except runner.CleanupFailure as cleanup_error:
+                                        raise runner.CleanupFailure(
+                                            f"run failed: {worker_error}; {cleanup_error}"
+                                        ) from worker_error
+
+        self.assertEqual(active, [])
+        self.assertEqual(inspections, 3)
+        self.assertTrue(all({signal.SIGINT, signal.SIGTERM} <= mask for mask in masks_seen))
+        self.assertTrue(runner.global_runner_lock_path(self.root).exists())
+        self.assertTrue(runner.output_lock_path(output).exists())
+        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), original_mask)
 
     def test_signal_after_output_claim_releases_locks_and_records_status(self):
         work = self.root / ".work"

@@ -45,6 +45,7 @@ HELPER_RELATIVE_PATH = pathlib.Path(".work/consolidation/w9-repository-parity.rs
 BUILD_ARTIFACT_KIND = "repository-parity-integration-test"
 RUNNER_LOCK_NAME = ".w9-publication-run.lock"
 DOCKER_LOCAL_ENDPOINT = "unix:///var/run/docker.sock"
+DOCKER_INSPECT_TIMEOUT_SECONDS = 10
 DOCKER_OVERRIDE_VARIABLES = (
     "DOCKER_HOST",
     "DOCKER_CONTEXT",
@@ -1425,11 +1426,22 @@ def claim_run_resources(
                     release_lock_claim(claim)
             except BaseException as error:
                 cleanup_errors.append(error)
-        signal.signal(signal.SIGTERM, previous_sigterm)
-        signal.signal(signal.SIGINT, previous_sigint)
         if original_mask is None:
             original_mask = set()
-        signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+        except BaseException as error:
+            if cleanup_interrupt is None:
+                cleanup_interrupt = error
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+            except BaseException as restore_error:
+                cleanup_interrupt = PublicationError(
+                    f"could not restore termination signal mask after {error}: {restore_error}"
+                )
+        finally:
+            signal.signal(signal.SIGTERM, previous_sigterm)
+            signal.signal(signal.SIGINT, previous_sigint)
         if cleanup_errors:
             detail = "; ".join(str(error) for error in cleanup_errors)
             if primary_error is None and cleanup_interrupt is None:
@@ -1599,30 +1611,45 @@ def docker_shim(job_dir: pathlib.Path, container: str, cpu: int, input_root: pat
     return shim_dir
 
 
-def existing_container(name: str, environment: dict[str, str]) -> bool:
+def docker_container_names(filter_pattern: str, environment: dict[str, str]) -> tuple[str, ...]:
     try:
         result = subprocess.run(
-            ["/usr/bin/docker", "ps", "-a", "--filter", f"name=^{name}$", "--format", "{{.Names}}"],
+            ["/usr/bin/docker", "ps", "-a", "--filter", f"name={filter_pattern}", "--format", "{{.Names}}"],
             check=True,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=environment,
+            timeout=DOCKER_INSPECT_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise PublicationError(f"cannot inspect Docker container {name}: {error}") from error
-    return bool(result.stdout.strip())
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise PublicationError(f"cannot inspect Docker containers matching {filter_pattern}: {error}") from error
+    return tuple(name for name in result.stdout.splitlines() if name)
+
+
+def existing_container(name: str, environment: dict[str, str]) -> bool:
+    return name in docker_container_names(f"^{name}$", environment)
+
+
+def inspect_owned_containers(filter_pattern: str, environment: dict[str, str]) -> tuple[str, ...]:
+    try:
+        return docker_container_names(filter_pattern, environment)
+    except PublicationError as error:
+        raise CleanupFailure(
+            f"could not confirm owned Docker containers are stopped: {error}; shared and output locks will be retained"
+        ) from error
 
 
 def stop_owned_job(job: dict[str, object], environment: dict[str, str]) -> list[str]:
     errors: list[str] = []
+    docker_errors: list[str] = []
     container = str(job["container"])
 
     def stop_if_present(stage: str, grace: int, timeout: int) -> None:
         try:
             present = existing_container(container, environment)
         except PublicationError as error:
-            errors.append(f"could not verify Docker container {container} before {stage}: {error}")
+            docker_errors.append(f"could not verify Docker container {container} before {stage}: {error}")
             present = True
         if not present:
             return
@@ -1636,11 +1663,13 @@ def stop_owned_job(job: dict[str, object], environment: dict[str, str]) -> list[
                 timeout=timeout,
             )
             if result.returncode != 0:
-                errors.append(f"Docker stop for {container} failed during {stage} with status {result.returncode}")
+                docker_errors.append(
+                    f"Docker stop for {container} failed during {stage} with status {result.returncode}"
+                )
         except subprocess.TimeoutExpired:
-            errors.append(f"timed out stopping Docker container {container} during {stage}")
+            docker_errors.append(f"timed out stopping Docker container {container} during {stage}")
         except OSError as error:
-            errors.append(f"could not stop Docker container {container} during {stage}: {error}")
+            docker_errors.append(f"could not stop Docker container {container} during {stage}: {error}")
 
     stop_if_present("initial cleanup", 5, 10)
     process = job.get("process")
@@ -1687,10 +1716,14 @@ def stop_owned_job(job: dict[str, object], environment: dict[str, str]) -> list[
             errors.append(f"could not close worker log: {error}")
     stop_if_present("final cleanup", 1, 5)
     try:
-        if existing_container(container, environment):
-            errors.append(f"owned Docker container {container} remains after cleanup")
+        remains = existing_container(container, environment)
     except PublicationError as error:
+        errors.extend(docker_errors)
         errors.append(f"could not verify Docker container {container} after cleanup: {error}")
+    else:
+        if remains:
+            errors.extend(docker_errors)
+            errors.append(f"owned Docker container {container} remains after cleanup")
     return errors
 
 
@@ -1805,14 +1838,39 @@ def launch_job(
 
 
 def stop_jobs(active: list[dict[str, object]], environment: dict[str, str]) -> None:
+    blocked_signals = {signal.SIGTERM, signal.SIGINT}
+    interrupted: KeyboardInterrupt | None = None
+    try:
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+    except KeyboardInterrupt as error:
+        interrupted = error
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
     errors: list[str] = []
     for job in list(active):
-        errors.extend(stop_owned_job(job, environment))
-        active.remove(job)
+        try:
+            errors.extend(stop_owned_job(job, environment))
+        except KeyboardInterrupt as error:
+            interrupted = interrupted or error
+            try:
+                errors.extend(stop_owned_job(job, environment))
+            except BaseException as retry_error:
+                errors.append(f"could not complete cleanup for {job['container']}: {retry_error}")
+        except BaseException as error:
+            errors.append(f"could not complete cleanup for {job['container']}: {error}")
+        try:
+            active.remove(job)
+        except ValueError as error:
+            errors.append(f"could not release worker ownership for {job['container']}: {error}")
     if errors:
-        raise CleanupFailure(
+        failure = CleanupFailure(
             "worker cleanup failed: " + "; ".join(errors) + "; shared and output locks will be retained"
         )
+        if interrupted is not None:
+            raise failure from interrupted
+        raise failure
+    if interrupted is not None:
+        raise interrupted
+    signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
 
 
 def handle_termination(signum: int, _frame: object) -> None:
@@ -1891,21 +1949,16 @@ def execute_run(args: argparse.Namespace) -> None:
                 if not changed:
                     time.sleep(1)
             validate_candidate_files(record)
-            remaining = subprocess.run(
-                ["/usr/bin/docker", "ps", "-a", "--filter", f"name=^w9pub-{os.getpid()}-", "--format", "{{.Names}}"],
-                check=True,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=docker_environment,
-            ).stdout.strip()
+            remaining = inspect_owned_containers(f"^w9pub-{os.getpid()}-", docker_environment)
             if remaining:
                 stranded_jobs = [
                     {"container": name, "process": None, "output": None}
-                    for name in remaining.splitlines()
+                    for name in remaining
                 ]
                 stop_jobs(stranded_jobs, docker_environment)
-                raise PublicationError(f"owned Docker containers remained after the parity workers exited: {remaining}")
+                raise PublicationError(
+                    "owned Docker containers remained after the parity workers exited: " + ", ".join(remaining)
+                )
             summary = verify_receipt_bundle(reference, output / "candidate", paths_by_index, record["corpus_blake3"])
             write_status(output, "complete", completed, summary)
             print(summary)
