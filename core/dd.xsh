@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.bytes_enc_dd as charset
+use lib.gnu
 use lib.textio_a1 as tio
 
 type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, input_directory: Bool, bs: Int, input_flags: List[Str], output_flags: List[Str], input_nocache: Bool, output_nocache: Bool}
