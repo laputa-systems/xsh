@@ -14,3 +14,26 @@ options passes them to the script.
 The [system-report guide](SYSTEM-REPORT.md) explains Linux inventory reports,
 and the [btop guide](BTOP.md) describes the monitor and replay bundles. See the
 [project README](../README.md) for getting and installing XSH.
+
+## Observable command behavior
+
+`iw` implements a bounded `nl80211` subset: device and PHY listing/info,
+connection and station queries, scan dump/trigger/abort, device type/channel/
+frequency/transmit-power changes, regulatory queries/updates/reload, and event
+monitoring. Association, authentication, mesh, AP, and other upstream `iw`
+commands are absent.
+
+`nsenter` forks by default only when entering a PID or time namespace;
+`--no-fork` disables that child. `unshare` forks only with `--fork`. Both relay
+a command's terminating signal so the caller observes the same signal death.
+`setpriv` applies settings in this order: capability bounding set, securebits,
+`no_new_privs`, supplementary groups, GIDs, UIDs, inheritable capabilities,
+ambient capabilities, parent-death signal, then ptracer.
+
+| Applet | Byte and error behavior |
+|---|---|
+| `tee` | Copies input bytes to each output. Write failures are governed by `warn`, `warn-nopipe`, `exit`, or `exit-nopipe`; the default exits on pipe errors and reports other output errors. With `-p`, the default is `warn-nopipe`; `nopipe` modes exit once every output is a broken pipe. |
+| `wc` | `-l` counts LF line endings (a CRLF pair counts once) and `-c` counts bytes. Character, word, and display-width counts interpret text; byte counts do not depend on UTF-8 decoding. Read failures are reported and return failure. |
+| `more` | Paging requires terminal stdin, terminal stdout, and an accessible controlling terminal. Without that, it concatenates input; with no display transformations it preserves every byte, including an unterminated final line. |
+| `tail` | Copies selected data as bytes. `--follow=name` cannot follow standard input; read and write errors are reported and contribute to a failing exit status even when other operands produce output. |
+| `sort` | Keeps record contents as bytes; plain whole-record order is bytewise, and malformed UTF-8 payloads are not rewritten. Output uses newline separators by default and NUL with `-z`. File and output errors are reported as failures. |

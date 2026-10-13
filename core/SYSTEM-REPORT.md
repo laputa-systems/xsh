@@ -23,6 +23,23 @@ renders a saved v1 JSON report without collecting host data; it reads at most
 carry section status, field observation states, and collection issues; missing
 or invalid values are not inferred.
 
+The JSON v1 observation states are `observed`, `absent`, `unsupported`,
+`permission_denied`, `not_requested`, `redacted`, `malformed`, `disappeared`,
+`raced`, `truncated`, `range_failure`, and `read_failure`. Numeric identifiers
+and relationship indexes are bounded by the exact-integer limit
+`9,007,199,254,740,991`. Relationship indexes refer to positions in arrays in
+the same report—for example, a PCI parent index addresses `pci.functions`, and
+a mount's block-device index addresses `storage.devices`. Redaction preserves
+these links; an index is not a kernel identifier.
+
+Replay accepts older schema v1 reports with selected later fields omitted. It
+fills missing namespace observations as `unsupported`, treats absent CPU idle
+and thermal trip indexes as unknown, fills omitted USB runtime and sensor
+channel fields as null, and marks a missing device-class entry name
+`unsupported`. It also maps legacy CPU frequency `requested_current_khz` to
+`scaling_current_khz` and normalizes the older power-cap zone shape. Conflicting
+old and new frequency fields are invalid.
+
 ## Privacy and limits
 
 Output is redacted by default, including when replaying a saved report.
@@ -30,8 +47,16 @@ Output is redacted by default, including when replaying a saved report.
 unknown mount options are removed during collection and replay and cannot be
 restored. The kernel command line can contain secrets and is included only with
 `--sensitive`. Process records omit per-process command lines and environment
-variables. Text output escapes terminal controls and other unsafe characters
-from collected values.
+variables. Redaction reduces exposure but does not guarantee anonymity. Text
+output escapes terminal controls and other unsafe characters from collected
+values.
+
+Mount capacity is queried only for eligible local filesystem types when the
+mount table is valid and the mount and its ancestors have unique, unshadowed
+targets. Overmounts and shadowed ancestors are skipped because resolving a
+mount path could reach a different filesystem. Automount filesystems such as
+`autofs` are ineligible, avoiding a capacity lookup that could trigger an
+automount.
 
 The report describes only data visible to the current process. Collection may
 race with system changes, and unavailable or malformed sources remain marked

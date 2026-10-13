@@ -24,6 +24,20 @@ contain one JSON model per line. Screen dumps contain one JSON record per line
 with the recorded frame time, dimensions, minimum-size state, and rendered
 lines.
 
+Interactive mode requires both stdin and stdout to be terminals. It enters raw
+input mode and the alternate screen. Normal exit, including key or EOF exit,
+and handled startup, input, replay, or write errors run cleanup that restores
+input attributes and resets
+terminal display modes. A process killed without running cleanup, or a dead
+terminal transport that cannot receive its output, cannot be restored by the
+applet.
+
+Model dumps encode wide counters as decimal strings to avoid JSON number
+precision loss. This includes process `start_ticks`, network byte counters, and
+storage byte and sector counters. The top-level network fields describe the
+deterministic default interface; the `interfaces` array carries the counters
+and rates for each observed interface.
+
 Replay bundles use schema 3 and contain a `manifest.json`, an
 `observations.jsonl`, and rooted source trees under `frames/<index>/proc/` and
 `frames/<index>/sys/`. The manifest pins the page size, clock rate, source ID,
@@ -64,3 +78,24 @@ The process list starts flat and sorted by CPU lazy. Process command lines are
 read locally for the live display and filter only; they are not stored in
 observations, replay bundles, or dumps. The applet does not read process
 environments or perform process actions.
+
+## Reader inventory
+
+| Values | Sources |
+|---|---|
+| CPU, uptime, load | `/proc/stat`, `/proc/uptime`, `/proc/loadavg` |
+| Memory and swap | `/proc/meminfo` |
+| Network | `/proc/net/dev` and interface data under `/sys/class/net` |
+| Processes | `/proc/[pid]/stat`, `status`, `statm`, and `cmdline` |
+| Sensors, frequency, and power | `/sys/class/hwmon`, `/sys/class/thermal`, `/sys/devices/system/cpu`, `/proc/cpuinfo`, `/sys/class/power_supply` |
+| Block I/O and mounted capacity | `/sys/class/block`, `/proc/self/mountinfo`, and guarded filesystem-stat observations |
+
+Replay reads these recorded observations rather than live system sources.
+
+## Campaign completion summary
+
+The monitor is a fixed, read-only Linux implementation with schema-3 replay.
+Host release gates are complete. The pinned Linux ARM64 lanes did not reach
+tests because Docker could not execute the ARM64 container on the x86_64 runner;
+Linux ARM64 is outside the supported product scope. Battery and sensor behavior
+is fixture-tested because no live battery hardware was available.
