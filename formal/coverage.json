@@ -5074,6 +5074,114 @@
       "status": "fragment",
       "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
       "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.lookup_absent",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.lookup_absent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.lookup_present_null",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.lookup_present_null",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.get_present_null",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.get_present_null",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.get_missing_error",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.get_missing_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.contains_iff_lookup_exists",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.contains_iff_lookup_exists",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.contains_set_payload_independent",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.contains_set_payload_independent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.set_updates_selected",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.set_updates_selected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.set_preserves_other",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.set_preserves_other",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.remove_clears_selected",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.remove_clears_selected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.remove_preserves_other",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.remove_preserves_other",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.remove_absent_identity",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.remove_absent_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Values.MapPresence.null_as_absence_mutation_detected",
+      "module": "Xsh.Values.MapPresence",
+      "declaration": "Xsh.Values.MapPresence.null_as_absence_mutation_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite map-presence and update laws over ordinal keys.",
+      "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
     }
   ],
   "source_identity": null

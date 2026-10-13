@@ -4,6 +4,7 @@ import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
 import Xsh.Values.OrderedSet
+import Xsh.Values.MapPresence
 import Xsh.Values.DurationOps
 import Xsh.Semantics.Argv
 import Xsh.Semantics.ListAccess

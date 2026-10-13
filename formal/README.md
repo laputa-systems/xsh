@@ -6,10 +6,11 @@ build depends on it. The current `Xsh` root imports every module under
 `formal/Xsh/`. These modules define and prove fragments for exact scalar and
 word representations; lexical environments, activations, and captured cells;
 checked integer outcomes and millisecond-duration operations over typed scalar
-values; List index and slice bounds; validated boundaries and atomic typed-store
-writes; and effect lattices, recursive summaries, lexical
-bounds, and delayed-work origins. Failed typed writes preserve the old store
-and produce an uncatchable type error; `.require(UInt)` remains recoverable.
+values; finite map-presence laws; List index and slice bounds; validated
+boundaries and atomic typed-store writes; and effect lattices, recursive
+summaries, lexical bounds, and delayed-work origins. Failed typed writes
+preserve the old store and produce an uncatchable type error; `.require(UInt)`
+remains recoverable.
 The effect fragments also prove that an abstract finite pull prefix preserves
 creation-site charge order and its corresponding remainder, that each charge
 retains its creation and body sites, and that a supplied creation-context
@@ -63,14 +64,17 @@ witnesses. It does not classify arbitrary source
 syntax, establish registry or Rust correspondence, or close G3. The ordered-set
 fragment proves eleven laws and witnesses for finite sets over ordinal keys,
 including extensional membership, increasing iteration, and an insertion-order
-mutation. It does not establish XSH checker/runtime behavior or Rust
-conformance.
+mutation. The finite map-presence fragment proves twelve laws for lookup,
+`.get`, presence, setting, removal, and a null-as-absence mutation witness over
+finite ordinal keys. It distinguishes a present `null` from an absent key. It
+does not model key validation, comparators, ordering, iteration, JSON, diagnostic
+tags, XSH runtime behavior, or Rust conformance.
 
 Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 232 fragment
+G0b source freeze remain pending. The provisional inventory has 244 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -131,7 +135,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 232 rooted Lean fragment declarations across 89 core owner
+The inventory names 244 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
