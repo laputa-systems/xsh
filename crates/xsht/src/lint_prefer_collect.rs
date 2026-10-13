@@ -180,13 +180,12 @@ fn built_list(
         body_start + text(body_start, end)?.trim_end().len()
     };
     let body = text(body_start, end)?;
-    // Both the declaration and the first statement of the block begin their
-    // lines, at one indentation.
+    // The syntax tree makes the first statement a sibling of the declaration,
+    // even when their written indentation differs. Rebase copied body lines
+    // from the first statement's indentation into the new `collect` block.
     let indent = line_indent(source, start)?;
-    if line_indent(source, body_start)? != indent
-        || body.contains("\"\"\"")
-        || mentions(body, "yield")
-    {
+    let body_indent = line_indent(source, body_start)?;
+    if body.contains("\"\"\"") || mentions(body, "yield") {
         return None;
     }
     // The list is built once: nothing assigns it afterwards, so it is a
@@ -214,12 +213,15 @@ fn built_list(
     }
     replacement.push_str(&format!("let {spelled}{annotation} = collect {{\n"));
     for (number, line) in block.lines().enumerate() {
-        if number == 0 {
-            replacement.push_str(indent);
-        }
         if !line.is_empty() {
+            replacement.push_str(indent);
             replacement.push_str("  ");
-            replacement.push_str(line);
+            replacement.push_str(if number == 0 {
+                line
+            } else {
+                line.strip_prefix(body_indent)
+                    .unwrap_or_else(|| line.trim_start())
+            });
         }
         replacement.push('\n');
     }
@@ -663,6 +665,32 @@ mod tests {
         assert_eq!(
             rewritten(source),
             "let xs = collect {\n  for n in [1, 2] {\n    print $n\n    yield n\n  }\n  print \"between\"\n  yield 3\n}\nprint \"after\"\nprint f\"{xs.len()}\"\n"
+        );
+    }
+
+    #[test]
+    fn formatted_sibling_indentation_preserves_prefer_collect() {
+        use super::super::super::format::Formatter;
+
+        let source = "proc gather(numbers: List[Int]) -> List[Int] {\n  var out = []\n    for number in numbers {\n      print $number\n      out += [number]\n    }\n\n  out\n}\n";
+        let output = Formatter::new().format_source(SourceId::new(0), source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let written = built_lists(source);
+        let formatted = built_lists(&output.formatted);
+        assert_eq!(written.len(), 1, "{source}");
+        assert_eq!(
+            formatted.len(),
+            written.len(),
+            "{source}\nformatted:\n{}",
+            output.formatted
+        );
+        let rewritten_written = rewritten(source);
+        let rewritten_formatted = rewritten(&output.formatted);
+        assert_eq!(
+            Formatter::new()
+                .format_source(SourceId::new(0), &rewritten_written)
+                .formatted,
+            rewritten_formatted
         );
     }
 
