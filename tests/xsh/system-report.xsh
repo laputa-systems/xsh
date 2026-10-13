@@ -2614,28 +2614,28 @@ test test_system_report_section_selection_marks_excluded_domains {
   assert "PCI functions:" not in cpu_only_text
 
   let usb_only = model.select_report_section(report, "usb")?.require(report_model.SystemReport)?
-  assert usb_only.pci.status.state == report_model.Complete
-  assert usb_only.usb.status.state == report_model.Complete
-  assert usb_only.storage.status.state == report_model.SectionNotRequested
-  assert usb_only.network.status.state == report_model.SectionNotRequested
+  assert usb_only.pci.status.state == .Complete
+  assert usb_only.usb.status.state == .Complete
+  assert usb_only.storage.status.state == .SectionNotRequested
+  assert usb_only.network.status.state == .SectionNotRequested
 
   let network_only = model.select_report_section(report, "network")?.require(report_model.SystemReport)?
-  assert network_only.pci.status.state == report_model.Complete
-  assert network_only.usb.status.state == report_model.Complete
-  assert network_only.network.status.state == report_model.Complete
-  assert network_only.storage.status.state == report_model.SectionNotRequested
+  assert network_only.pci.status.state == .Complete
+  assert network_only.usb.status.state == .Complete
+  assert network_only.network.status.state == .Complete
+  assert network_only.storage.status.state == .SectionNotRequested
 
   let sensors_only = model.select_report_section(report, "sensors")?.require(report_model.SystemReport)?
-  assert sensors_only.pci.status.state == report_model.Complete
-  assert sensors_only.usb.status.state == report_model.Complete
-  assert sensors_only.sensors.status.state == report_model.Complete
-  assert sensors_only.devices.status.state == report_model.SectionNotRequested
+  assert sensors_only.pci.status.state == .Complete
+  assert sensors_only.usb.status.state == .Complete
+  assert sensors_only.sensors.status.state == .Complete
+  assert sensors_only.devices.status.state == .SectionNotRequested
 
   let processes_only = model.select_report_section(report, "processes")?.require(report_model.SystemReport)?
-  assert processes_only.processes.status.state == report_model.Complete
+  assert processes_only.processes.status.state == .Complete
   assert processes_only.processes.processes[0].cgroup.value == "/user.slice/private"
   assert processes_only.processes.processes[0].cgroup_resource_index == null
-  assert processes_only.memory.status.state == report_model.SectionNotRequested
+  assert processes_only.memory.status.state == .SectionNotRequested
 
   test.error_kind(model.select_report_section(report, "hardware"), "SystemReportError.InvalidSection")
 }

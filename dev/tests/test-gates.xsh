@@ -67,8 +67,8 @@ test test_explicit_unsupported_test_profiles_fail_instead_of_using_a_default {
       }
     }
   }
-  env DIST_PROFILE=verification { assert tests.execution_profile()? == tests.Verification }
-  env DIST_PROFILE=release { assert tests.execution_profile()? == tests.Release }
+  env DIST_PROFILE=verification { assert tests.execution_profile()? == .Verification }
+  env DIST_PROFILE=release { assert tests.execution_profile()? == .Release }
 }
 
 

@@ -64,19 +64,19 @@ const NO_LIMIT = 8760h
 export pure classify(failure: Error) -> TransferFailure {
   let message = failure.message
   match failure {
-    NetError.Status {status} => TransferFailure.Status(code: status ?? 0)
-    NetError.Dns => TransferFailure.Dns(message)
-    NetError.ConnectTimeout => TransferFailure.ConnectTimeout(message)
-    NetError.Timeout => TransferFailure.Timeout(message)
-    NetError.Connect => TransferFailure.Connect(message)
-    NetError.TrustStore => TransferFailure.TrustStore(message)
-    NetError.Certificate => TransferFailure.Certificate(message)
-    NetError.Tls => TransferFailure.Handshake(message)
-    NetError.EmptyReply => TransferFailure.EmptyReply(message)
-    NetError.Redirect => TransferFailure.Redirects(message)
-    NetError.Unsupported => TransferFailure.Scheme(message)
-    NetError.Write => TransferFailure.Write(message)
-    else => TransferFailure.Other(message)
+    NetError.Status {status} => .Status(code: status ?? 0)
+    NetError.Dns => .Dns(message)
+    NetError.ConnectTimeout => .ConnectTimeout(message)
+    NetError.Timeout => .Timeout(message)
+    NetError.Connect => .Connect(message)
+    NetError.TrustStore => .TrustStore(message)
+    NetError.Certificate => .Certificate(message)
+    NetError.Tls => .Handshake(message)
+    NetError.EmptyReply => .EmptyReply(message)
+    NetError.Redirect => .Redirects(message)
+    NetError.Unsupported => .Scheme(message)
+    NetError.Write => .Write(message)
+    else => .Other(message)
   }
 }
 

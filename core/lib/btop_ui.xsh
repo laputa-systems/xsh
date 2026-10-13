@@ -105,7 +105,7 @@ pure matches(row: model.ProcessRow, filter: Str, values: LocalDisplayIndex) -> B
 }
 
 pure rate_available(value: rates.Rate) -> Bool {
-  value.state == rates.Observed and value.value != null
+  value.state == .Observed and value.value != null
 }
 
 pure cpu_sort_value(value: rates.Rate, scale: Int) -> Int {
@@ -661,7 +661,7 @@ pure browse_key(
     input.Text("-") => if state.tree_view { reconcile(collapse_selected(state, value, "collapse"), value, local_display) } else { state }
     input.Text(" ") => if state.tree_view { reconcile(collapse_selected(state, value, "toggle"), value, local_display) } else { state }
     input.Text("C") => if state.tree_view { reconcile(toggle_selected_children(state, value), value, local_display) } else { state }
-    input.Text("f") | input.Text("/") => {...state, editing_filter: true, filter_draft: state.filter}
+    input.Text("f") | .Text("/") => {...state, editing_filter: true, filter_draft: state.filter}
     input.Delete => reconcile({...state, filter: "", filter_draft: ""}, value)
     else => state
   }

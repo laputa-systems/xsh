@@ -15,7 +15,7 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
   var access_mask = false; var default_mask = false; var access_changed = false; var default_changed = false
   for action in actions {
     let updates = acl.resolve_execute(action.entries, stat.mode, stat.kind == "dir")
-    for entry in updates { if entry.default { default_changed = true } else { access_changed = true }; if entry.tag == acl.AclMask { if entry.default { default_mask = action.kind != Remove } else { access_mask = action.kind != Remove } } }
+    for entry in updates { if entry.default { default_changed = true } else { access_changed = true }; if entry.tag == .AclMask { if entry.default { default_mask = action.kind != Remove } else { access_mask = action.kind != Remove } } }
     match action.kind {
       StripExtended => {
         access_changed = true; default_changed = true; access_mask = false; default_mask = false
@@ -61,8 +61,8 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
     for entry in entries {
       continue when entry.default != default
       if entry.tag in [acl.AclUser, acl.AclGroup] { named = true }
-      if entry.tag == acl.AclMask { has_mask = true }
-      if entry.tag == acl.AclGroupOwner { group_permissions = entry.permissions }
+      if entry.tag == .AclMask { has_mask = true }
+      if entry.tag == .AclGroupOwner { group_permissions = entry.permissions }
     }
     if named and ! has_mask { entries += [{tag: acl.AclMask, id: null, permissions: group_permissions, default: default, conditional_execute: false}] }
   }
@@ -70,7 +70,7 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
     let calculated = acl.calculate_mask(entries, force: mask_policy == "force")
     let explicit: List[acl.Entry] = collect {
       for entry in entries {
-        if entry.tag == acl.AclMask and ((entry.default and default_mask) or (! entry.default and access_mask)) {
+        if entry.tag == .AclMask and ((entry.default and default_mask) or (! entry.default and access_mask)) {
           yield entry
         }
       }

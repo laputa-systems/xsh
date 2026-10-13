@@ -39,10 +39,10 @@ export pure empty() -> Histories {
 }
 
 pure rate_sample(at_ns: Int, value: rates.Rate) -> graph.Sample {
-  if value.state == rates.Observed and value.value != null {
+  if value.state == .Observed and value.value != null {
     return {at_ns: at_ns, value: value.value, state: graph.Observed}
   }
-  return {at_ns: at_ns, value: null, state: graph.Gap} when value.state == rates.Gap
+  return {at_ns: at_ns, value: null, state: graph.Gap} when value.state == .Gap
   {at_ns: at_ns, value: null, state: graph.Unavailable}
 }
 
@@ -55,7 +55,7 @@ pure memory_sample(value: model.Model) -> graph.Sample {
 }
 
 pure temperature_sample(value: model.Model) -> graph.Sample {
-  if value.telemetry.temperature.state == report.Observed and value.telemetry.temperature.package_millidegrees != null {
+  if value.telemetry.temperature.state == .Observed and value.telemetry.temperature.package_millidegrees != null {
     let celsius = (value.telemetry.temperature.package_millidegrees ?? 0).float() / 1000.0
     return {at_ns: value.at_ns, value: celsius, state: graph.Observed}
   }
@@ -75,13 +75,13 @@ pure disk_sum_rate(device: disks.Device?) -> rates.Rate {
   if let current = device {
     let read = current.read_bytes_per_second
     let write = current.write_bytes_per_second
-    if read.state == rates.Observed and write.state == rates.Observed and read.value != null and write.value != null {
+    if read.state == .Observed and write.state == .Observed and read.value != null and write.value != null {
       return {state: rates.Observed, value: (read.value ?? 0.0) + (write.value ?? 0.0)}
     }
-    if read.state == rates.Gap or write.state == rates.Gap { return {state: rates.Gap, value: null} }
-    if read.state == rates.Reset or write.state == rates.Reset { return {state: rates.Reset, value: null} }
-    if read.state == rates.Invalid or write.state == rates.Invalid { return {state: rates.Invalid, value: null} }
-    if read.state == rates.Warming or write.state == rates.Warming { return {state: rates.Warming, value: null} }
+    if read.state == .Gap or write.state == .Gap { return {state: rates.Gap, value: null} }
+    if read.state == .Reset or write.state == .Reset { return {state: rates.Reset, value: null} }
+    if read.state == .Invalid or write.state == .Invalid { return {state: rates.Invalid, value: null} }
+    if read.state == .Warming or write.state == .Warming { return {state: rates.Warming, value: null} }
   }
   {state: rates.Unavailable, value: null}
 }

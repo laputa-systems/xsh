@@ -52,11 +52,11 @@ test test_btop_cpu_source_reads_complete_aggregate_uptime_load_and_sparse_cores 
   )
 
   let sample = syscpu.collect(root)
-  assert sample.stat.state == report.Observed
+  assert sample.stat.state == .Observed
   assert sample.stat.aggregate?.fields == [160, 0, 70, 970, 0, 0, 0, 0, 0, 0]
   assert [item.id for item in sample.stat.cores] == [0, 1]
-  assert sample.uptime.state == report.Observed and sample.uptime.seconds == 25.5
-  assert sample.load.state == report.Observed and sample.load.values == [0.1, 0.2, 0.3]
+  assert sample.uptime.state == .Observed and sample.uptime.seconds == 25.5
+  assert sample.load.state == .Observed and sample.load.values == [0.1, 0.2, 0.3]
   assert sample.stat.issues == []
 }
 
@@ -67,7 +67,7 @@ test test_btop_cpu_source_withholds_a_truncated_stat_prefix {
 
   let truncated = src.read_source_text(root, p"proc/stat", max_bytes: 12)
   let parsed = syscpu.parse_stat(truncated)
-  assert parsed.state == report.Truncated
+  assert parsed.state == .Truncated
   assert parsed.aggregate == null
   assert parsed.cores == []
 }
@@ -85,8 +85,8 @@ test test_btop_cpu_source_marks_malformed_uptime_and_load_without_values {
   root.write(p"proc/loadavg", "0.10 0.20 invalid 1/100 42\n")
 
   let sample = syscpu.collect(root)
-  assert sample.uptime.state == report.Malformed and sample.uptime.seconds == null
-  assert sample.load.state == report.Malformed and sample.load.values == []
+  assert sample.uptime.state == .Malformed and sample.uptime.seconds == null
+  assert sample.load.state == .Malformed and sample.load.values == []
 }
 
 test test_btop_memory_source_distinguishes_absent_from_zero_counters {
@@ -98,16 +98,16 @@ test test_btop_memory_source_distinguishes_absent_from_zero_counters {
     "MemTotal: 1048576 kB\nMemAvailable: 262144 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n",
   )
   let with_swap = memory.collect(root)
-  assert with_swap.total.state == report.Observed and with_swap.total.bytes == 1073741824
-  assert with_swap.available.state == report.Observed and with_swap.available.bytes == 268435456
-  assert with_swap.swap_total.state == report.Observed and with_swap.swap_total.bytes == 0
-  assert with_swap.swap_free.state == report.Observed and with_swap.swap_free.bytes == 0
+  assert with_swap.total.state == .Observed and with_swap.total.bytes == 1073741824
+  assert with_swap.available.state == .Observed and with_swap.available.bytes == 268435456
+  assert with_swap.swap_total.state == .Observed and with_swap.swap_total.bytes == 0
+  assert with_swap.swap_free.state == .Observed and with_swap.swap_free.bytes == 0
 
   root.write(p"proc/meminfo", "MemTotal: 1048576 kB\n")
   let without_optional = memory.collect(root)
-  assert without_optional.available.state == report.Absent
-  assert without_optional.swap_total.state == report.Absent
-  assert without_optional.swap_free.state == report.Absent
+  assert without_optional.available.state == .Absent
+  assert without_optional.swap_total.state == .Absent
+  assert without_optional.swap_free.state == .Absent
 }
 
 test test_btop_memory_source_marks_malformed_and_truncated_values {
@@ -116,12 +116,12 @@ test test_btop_memory_source_marks_malformed_and_truncated_values {
   root.mkdir(p"proc", parents: true)
   root.write(p"proc/meminfo", "MemTotal: nope kB\nMemAvailable: 262144 kB\n")
   let malformed = memory.collect(root)
-  assert malformed.total.state == report.Malformed
+  assert malformed.total.state == .Malformed
   assert malformed.total.bytes == null
   assert malformed.available.bytes == 268435456
 
   let truncated = memory.parse(src.read_source_text(root, p"proc/meminfo", max_bytes: 4))
-  assert truncated.total.state == report.Truncated
+  assert truncated.total.state == .Truncated
   assert truncated.total.bytes == null
 }
 
@@ -157,7 +157,7 @@ test test_btop_memory_source_withholds_duplicate_fields {
   )
 
   let duplicate = memory.collect(root)
-  assert duplicate.total.state == report.Malformed
+  assert duplicate.total.state == .Malformed
   assert duplicate.total.bytes == null
   assert duplicate.total.error_kind == "duplicate_field"
   assert duplicate.available.bytes == 524288
@@ -169,12 +169,12 @@ test test_btop_memory_source_checks_large_kilobyte_conversions {
   root.mkdir(p"proc", parents: true)
   root.write(p"proc/meminfo", "MemTotal: 8796093022207 kB\nMemAvailable: 1 kB\n")
   let largest_exact = memory.collect(root)
-  assert largest_exact.total.state == report.Observed
+  assert largest_exact.total.state == .Observed
   assert largest_exact.total.bytes == 9007199254739968
 
   root.write(p"proc/meminfo", "MemTotal: 8796093022208 kB\nMemAvailable: 1 kB\n")
   let out_of_range = memory.collect(root)
-  assert out_of_range.total.state == report.RangeFailure
+  assert out_of_range.total.state == .RangeFailure
   assert out_of_range.total.bytes == null
 }
 
@@ -194,7 +194,7 @@ test test_btop_network_source_selects_name_order_and_skips_loopback {
   root.write(p"sys/class/net/lo/ifindex", "1\n")
 
   let sample = network.collect(root)
-  assert sample.state == report.Observed
+  assert sample.state == .Observed
   assert [item.name for item in sample.interfaces] == ["eth0", "eth1", "lo"]
   let selected = network.select_interface(sample.interfaces)?
   assert selected.name == "eth0"
@@ -213,11 +213,11 @@ test test_btop_network_source_distinguishes_empty_from_unavailable {
   let root = fs.tempdir()?
   defer root.close()
   let missing = network.collect(root)
-  assert missing.state == report.Absent and missing.interfaces == []
+  assert missing.state == .Absent and missing.interfaces == []
   root.mkdir(p"proc/net", parents: true)
   root.write(p"proc/net/dev", "Inter-| Receive | Transmit\n face |bytes packets|bytes packets\n")
   let empty = network.collect(root)
-  assert empty.state == report.Observed and empty.interfaces == []
+  assert empty.state == .Observed and empty.interfaces == []
 }
 
 test test_btop_network_identity_requires_a_positive_sysfs_index {
@@ -232,12 +232,12 @@ test test_btop_network_identity_requires_a_positive_sysfs_index {
   root.write(p"sys/class/net/eth0/ifindex", "0\n")
   let invalid = network.collect(root)
   assert invalid.interfaces[0].ifindex == null
-  assert invalid.issues[0].state == report.RangeFailure
+  assert invalid.issues[0].state == .RangeFailure
 
   root.remove(p"sys/class/net/eth0/ifindex")
   let absent = network.collect(root)
   assert absent.interfaces[0].ifindex == null
-  assert absent.issues[0].state == report.Absent
+  assert absent.issues[0].state == .Absent
 }
 
 test test_btop_process_source_keeps_identity_uid_cpu_ticks_and_rss {
@@ -247,7 +247,7 @@ test test_btop_process_source_keeps_identity_uid_cpu_ticks_and_rss {
   write_process(root, 42, 1000, 35, 16384)
 
   let sample = processes.collect(root, page_size_bytes: 4096)
-  assert sample.state == report.Observed
+  assert sample.state == .Observed
   assert sample.issues == []
   assert sample.processes.len() == 1
   let item = sample.processes[0]
@@ -301,7 +301,7 @@ test test_btop_process_read_tape_withholds_pid_reuse_and_disappearance {
     },
   )
   assert raced.process == null
-  assert raced.issues[0].state == report.Raced
+  assert raced.issues[0].state == .Raced
 
   let disappeared = processes.process_read_from_tape(
     42,
@@ -314,7 +314,7 @@ test test_btop_process_read_tape_withholds_pid_reuse_and_disappearance {
     },
   )
   assert disappeared.process == null
-  assert disappeared.issues[0].state == report.Disappeared
+  assert disappeared.issues[0].state == .Disappeared
 }
 
 test test_btop_local_command_line_is_identity_checked_and_never_captured {
@@ -369,14 +369,14 @@ test test_btop_process_average_cpu_uses_process_lifetime_ticks {
   let observation = btop_source.capture(frame_root, "average-fixture", 1000000000, 4096, 100)?
   let value = model.step(observation, null)
   assert value.processes[0].pid == 42
-  assert value.processes[0].cpu_average_percent.state == rates.Observed
+  assert value.processes[0].cpu_average_percent.state == .Observed
   assert (value.processes[0].cpu_average_percent.value ?? 0.0) > 0.70
   assert (value.processes[0].cpu_average_percent.value ?? 0.0) < 0.72
   assert value.processes[1].pid == 43
   assert (value.processes[1].cpu_average_percent.value ?? 0.0) > 8.17
   assert (value.processes[1].cpu_average_percent.value ?? 0.0) < 8.19
   assert value.processes[2].pid == 44
-  assert value.processes[2].cpu_average_percent.state == rates.Invalid
+  assert value.processes[2].cpu_average_percent.state == .Invalid
 }
 
 test test_btop_process_source_exposes_a_reused_pid_as_a_new_identity {
@@ -397,7 +397,7 @@ test test_btop_rates_match_the_independent_gate_one_oracle {
   let previous_cpu: syscpu.CpuCounters = {fields: [100, 0, 50, 850, 0, 0, 0, 0, 0, 0]}
   let current_cpu: syscpu.CpuCounters = {fields: [160, 0, 70, 970, 0, 0, 0, 0, 0, 0]}
   let aggregate = rates.cpu_percent(current_cpu, previous_cpu)
-  assert aggregate.state == rates.Observed and aggregate.value == 40.0
+  assert aggregate.state == .Observed and aggregate.value == 40.0
   assert rates.process_percent(35, 10, current_cpu, previous_cpu, 2, per_core: false).value == 12.5
   assert rates.process_percent(35, 10, current_cpu, previous_cpu, 2, per_core: true).value == 25.0
   assert rates.counter_rate(1010240, 1000000, elapsed_ns: 1000000000).value == 10240.0
@@ -409,12 +409,12 @@ test test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval {
   let previous: syscpu.CpuCounters = {fields: [100, 0, 50, 850, 0, 0, 0, 0, 0, 0]}
   let idle: syscpu.CpuCounters = {fields: [100, 0, 50, 950, 0, 0, 0, 0, 0, 0]}
   let reset: syscpu.CpuCounters = {fields: [90, 0, 50, 950, 0, 0, 0, 0, 0, 0]}
-  assert rates.cpu_percent(idle, null).state == rates.Warming
+  assert rates.cpu_percent(idle, null).state == .Warming
   assert rates.cpu_percent(idle, previous).value == 0.0
-  assert rates.cpu_percent(reset, previous).state == rates.Reset
-  assert rates.counter_rate(4, 5, elapsed_ns: 1000000000).state == rates.Reset
-  assert rates.counter_rate(5, 4, elapsed_ns: 0).state == rates.Invalid
-  assert rates.used_bytes(10, null).state == rates.Unavailable
+  assert rates.cpu_percent(reset, previous).state == .Reset
+  assert rates.counter_rate(4, 5, elapsed_ns: 1000000000).state == .Reset
+  assert rates.counter_rate(5, 4, elapsed_ns: 0).state == .Invalid
+  assert rates.used_bytes(10, null).state == .Unavailable
 }
 
 test test_btop_counter_precision_preserves_small_deltas_at_large_bases {
@@ -428,27 +428,27 @@ test test_btop_counter_precision_preserves_small_deltas_at_large_bases {
   let maximum = 9223372036854775807
   assert rates.counter_rate(maximum, maximum - 10, elapsed_ns: 10).value == 1000000000.0
   let at_limit = syscpu.parse_stat(observed_source(f"cpu {maximum} 0 0 0\n"))
-  assert at_limit.state == report.Observed
+  assert at_limit.state == .Observed
   assert at_limit.aggregate?.fields == [maximum, 0, 0, 0]
 
   let out_of_range = syscpu.parse_stat(observed_source("cpu 9223372036854775808 0 0 0\n"))
   assert out_of_range.aggregate == null
-  assert out_of_range.issues[0].state == report.RangeFailure
+  assert out_of_range.issues[0].state == .RangeFailure
 }
 
 test test_btop_counter_precision_withholds_aggregate_sum_overflow {
   let half = 4611686018427387903
   let previous: syscpu.CpuCounters = {fields: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}
   let current: syscpu.CpuCounters = {fields: [half, half, half, half, half, half, half, half, 0, 0]}
-  assert rates.cpu_percent(current, previous).state == rates.Invalid
-  assert rates.cpu_percent(current, current).state == rates.Invalid
+  assert rates.cpu_percent(current, previous).state == .Invalid
+  assert rates.cpu_percent(current, current).state == .Invalid
 }
 
 test test_btop_cpu_usage_excludes_guest_time_and_corrects_iowait_regression {
   let previous: syscpu.CpuCounters = {fields: [100, 20, 30, 200, 10, 10, 5, 5, 50, 10]}
   let current: syscpu.CpuCounters = {fields: [200, 30, 40, 300, 20, 15, 10, 10, 150, 15]}
   let usage = rates.cpu_percent(current, previous)
-  assert usage.state == rates.Observed
+  assert usage.state == .Observed
   assert usage.value?.format(precision: 1) == "21.4"
 
   let wait_before: syscpu.CpuCounters = {fields: [100, 0, 0, 50, 20, 0, 0, 0, 0, 0]}
@@ -456,5 +456,5 @@ test test_btop_cpu_usage_excludes_guest_time_and_corrects_iowait_regression {
   assert rates.cpu_percent(wait_after, wait_before).value == 0.0
 
   let reset: syscpu.CpuCounters = {fields: [90, 20, 30, 300, 20, 15, 10, 10, 150, 15]}
-  assert rates.cpu_percent(reset, previous).state == rates.Reset
+  assert rates.cpu_percent(reset, previous).state == .Reset
 }

@@ -83,6 +83,6 @@ test test_btop_process_tree_aggregates_descendants_once_and_withholds_incomplete
     process_row(10, 0, 10, observed_cpu(1.0), 100),
     process_row(11, 10, 11, {state: rates.Warming, value: null}, 20),
   ], aggregate_children: true)
-  assert incomplete.nodes[10].cpu_total.state == rates.Unavailable
+  assert incomplete.nodes[10].cpu_total.state == .Unavailable
   assert incomplete.nodes[10].cpu_total.value == null
 }

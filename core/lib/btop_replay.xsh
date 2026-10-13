@@ -70,7 +70,7 @@ pure captured_capacity_bytes(value: Str?) -> Result[Int?, Error] {
 
 proc read_captured_usage(root: FsRoot, frames: List[ReplayTimestamp]) [fs, error] -> Result[Map[List[mounts.CapturedUsage]], Error] {
   let file = src.read_source_text(root, p"observations.jsonl", max_bytes: 16777216)
-  if file.observation.state != report.Observed or file.observation.value == null {
+  if file.observation.state != .Observed or file.observation.value == null {
     return Err(error.failure("btop replay requires a complete observations.jsonl file"))
   }
   let observations_text = file.observation.value ?? ""
@@ -130,7 +130,7 @@ export proc load(bundle_path: Path) [fs, error] -> Result[Bundle, Error] {
   let root = fs.open_root(bundle_path)?
   defer root.close()
   let manifest_source = src.read_source_text(root, p"manifest.json", max_bytes: 65536)
-  if manifest_source.observation.state != report.Observed or manifest_source.observation.value == null {
+  if manifest_source.observation.state != .Observed or manifest_source.observation.value == null {
     return Err(error.failure("btop replay requires a complete bounded manifest.json file"))
   }
   let manifest_text = manifest_source.observation.value ?? ""

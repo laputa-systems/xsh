@@ -129,7 +129,7 @@ pure same_source_baseline(current: Observation, previous: Observation?) -> Obser
 }
 
 pure observed_interface(source: network.NetworkSource) -> network.NetworkInterface? {
-  if source.state == report.Observed { network.selected_interface(source.interfaces) } else { null }
+  if source.state == .Observed { network.selected_interface(source.interfaces) } else { null }
 }
 
 pure memory_panel(source: memory.MemorySource) -> MemoryPanel {
@@ -149,7 +149,7 @@ pure memory_panel(source: memory.MemorySource) -> MemoryPanel {
 
 pure cpu_interval(current: Observation, previous: Observation?, gap: Bool) -> rates.Rate {
   if current.cpu.stat.aggregate == null {
-    return rate(if current.cpu.stat.state == report.Observed { rates.Invalid } else { rates.Unavailable })
+    return rate(if current.cpu.stat.state == .Observed { rates.Invalid } else { rates.Unavailable })
   }
 
   return rate(rates.Warming) when previous == null
@@ -349,7 +349,7 @@ pure cached_uid(row: processes.Process, current: Observation, cache: MetadataCac
 }
 
 pure process_sort_rate_tenths(row: ProcessRow) -> Int {
-  if row.cpu_percent.state == rates.Observed and row.cpu_percent.value != null {
+  if row.cpu_percent.state == .Observed and row.cpu_percent.value != null {
     if let Ok(tenth) = ((row.cpu_percent.value ?? 0.0) * 10.0).round() { -tenth } else { 0 }
   } else {
     0
@@ -357,7 +357,7 @@ pure process_sort_rate_tenths(row: ProcessRow) -> Int {
 }
 
 pure process_sort_availability(row: ProcessRow) -> Int {
-  if row.cpu_percent.state == rates.Observed and row.cpu_percent.value != null { 0 } else { 1 }
+  if row.cpu_percent.state == .Observed and row.cpu_percent.value != null { 0 } else { 1 }
 }
 
 ## Applies one source observation and retains only current process metadata.

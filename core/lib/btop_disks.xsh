@@ -95,7 +95,7 @@ pure block_state(source: Source) -> report.ObservationState {
 pure counter(source: Source, device: block.BlockDevice?, name: Str) -> CounterValue {
   if device == null {
     let state = block_state(source)
-    return {value: null, state: if state == report.Observed { report.Absent } else { state }}
+    return {value: null, state: if state == .Observed { report.Absent } else { state }}
   }
   let current = device ?? source.blocks.devices[0]
   for value in current.io_counters {
@@ -116,7 +116,7 @@ pure counter(source: Source, device: block.BlockDevice?, name: Str) -> CounterVa
 
 pure device_identity(device: block.BlockDevice?) -> Str? {
   if let current = device {
-    if current.disk_sequence_state != report.Observed or current.disk_sequence == null or
+    if current.disk_sequence_state != .Observed or current.disk_sequence == null or
         current.major == null or current.minor == null {
       return null
     }
@@ -143,11 +143,11 @@ pure previous_device(source: Source?, current: block.BlockDevice?) -> block.Bloc
 }
 
 pure sector_rate(current: CounterValue, previous: CounterValue, elapsed_ns: Int?, gap: Bool) -> rates.Rate {
-  return {state: rates.Unavailable, value: null} when current.state != report.Observed
+  return {state: rates.Unavailable, value: null} when current.state != .Observed
   return {state: rates.Warming, value: null} when elapsed_ns == null
   let elapsed = elapsed_ns ?? 0
   return {state: rates.Invalid, value: null} when elapsed <= 0
-  if previous.state != report.Observed or previous.value == null {
+  if previous.state != .Observed or previous.value == null {
     return {state: rates.Warming, value: null}
   }
   return {state: rates.Gap, value: null} when gap
@@ -163,7 +163,7 @@ pure sector_rate(current: CounterValue, previous: CounterValue, elapsed_ns: Int?
 
 pure selected_mount(entries: List[mounts.MountEntry]) -> mounts.MountEntry {
   for entry in entries {
-    return entry when entry.usage_state == report.Observed
+    return entry when entry.usage_state == .Observed
   }
   entries[0]
 }
@@ -216,7 +216,7 @@ export pure step(
         identity: identity,
         identity_state: if let found = device {
           found.disk_sequence_state
-        } else if block_state(current) == report.Observed {
+        } else if block_state(current) == .Observed {
           report.Absent
         } else {
           block_state(current)

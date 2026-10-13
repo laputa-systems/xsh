@@ -17,9 +17,9 @@ pure repeated(byte: Int, count: Int) -> Bytes {
 
 test test_btop_g2_input_split_points_cover_utf8_csi_and_ss3 {
   let cases: List[SplitCase] = [
-    {sequence: b"\xce\xbb", expected: input.Pressed(input.Text("λ"))},
-    {sequence: b"\x1b[A", expected: input.Pressed(input.Up)},
-    {sequence: b"\x1bOQ", expected: input.Pressed(input.Function(2))},
+    {sequence: b"\xce\xbb", expected: .Pressed(.Text("λ"))},
+    {sequence: b"\x1b[A", expected: .Pressed(input.Up)},
+    {sequence: b"\x1bOQ", expected: .Pressed(.Function(2))},
     {sequence: b"\x1bO1;2A", expected: null},
   ]
   for case in cases {
@@ -37,10 +37,10 @@ test test_btop_g2_input_emits_multiple_events_from_one_read {
   let decoded = input.push(input.initial(), b"q\r\x1b[A\x1bOP\x1a\x03", 10)
 
   assert decoded.events == [
-    input.Pressed(input.Text("q")),
+    input.Pressed(.Text("q")),
     input.Pressed(input.Enter),
     input.Pressed(input.Up),
-    input.Pressed(input.Function(1)),
+    input.Pressed(.Function(1)),
     input.Pressed(input.Cancel),
   ]
   assert decoded.state.pending.is_empty()
@@ -71,25 +71,25 @@ test test_btop_g2_input_escape_timeout_has_replayable_boundary {
   let late = input.push(waiting.state, b"[", 135)
   assert late.events == [
     input.Pressed(input.Escape),
-    input.Pressed(input.Text("[")),
+    input.Pressed(.Text("[")),
   ]
 }
 
 test test_btop_g2_input_malformed_utf8_replaces_bad_bytes_and_finishes_partial {
   let malformed = input.push(input.initial(), b"\xff\x80A\xc3(", 0)
   assert malformed.events == [
-    input.Pressed(input.Text("\u{fffd}")),
-    input.Pressed(input.Text("\u{fffd}")),
-    input.Pressed(input.Text("A")),
-    input.Pressed(input.Text("\u{fffd}")),
-    input.Pressed(input.Text("(")),
+    input.Pressed(.Text("\u{fffd}")),
+    input.Pressed(.Text("\u{fffd}")),
+    input.Pressed(.Text("A")),
+    input.Pressed(.Text("\u{fffd}")),
+    input.Pressed(.Text("(")),
   ]
 
   let incomplete = input.push(input.initial(), b"\xe2\x82", 1)
   assert incomplete.events.is_empty()
   let finished = input.finish(incomplete.state)
   assert finished.events == [
-    input.Pressed(input.Text("\u{fffd}")),
+    input.Pressed(.Text("\u{fffd}")),
     input.Eof,
   ]
 }

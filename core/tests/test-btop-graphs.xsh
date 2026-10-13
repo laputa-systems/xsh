@@ -19,12 +19,12 @@ test test_btop_graphs_append_cpu_memory_network_and_temperature_at_sample_times 
   let second = graphs.observe(first, frames[1])?
 
   assert second.cpu.samples.len() == 2
-  assert second.cpu.samples[0].state == graph.Unavailable
+  assert second.cpu.samples[0].state == .Unavailable
   assert second.cpu.samples[1].value == 40.0
   assert second.memory.samples[1].value == 75.0
   assert second.network_receive.samples[1].value == 10240.0
   assert second.network_transmit.samples[1].value == 2048.0
-  assert second.temperature.samples[1].state == graph.Unavailable
+  assert second.temperature.samples[1].state == .Unavailable
   assert second.cpu.samples[1].at_ns == frames[1].at_ns
 }
 
@@ -54,11 +54,11 @@ test test_btop_graphs_preserve_gap_zero_and_missing_source_states {
   }
   let next = graphs.observe(baseline, gap_model)?
 
-  assert next.cpu.samples[1].state == graph.Gap
+  assert next.cpu.samples[1].state == .Gap
   assert next.cpu.samples[1].value == null
-  assert next.memory.samples[1].state == graph.Observed
+  assert next.memory.samples[1].state == .Observed
   assert next.memory.samples[1].value == 0.0
-  assert next.network_receive.samples[1].state == graph.Unavailable
+  assert next.network_receive.samples[1].state == .Unavailable
 }
 
 test test_btop_network_selection_resets_only_the_selected_interface_history {

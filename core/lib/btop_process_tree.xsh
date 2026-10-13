@@ -42,7 +42,7 @@ pure process_index(rows: List[model.ProcessRow]) -> Map[Int, model.ProcessRow] {
 }
 
 pure add_rate(left: rates.Rate, right: rates.Rate) -> rates.Rate {
-  if left.state != rates.Observed or right.state != rates.Observed or left.value == null or right.value == null {
+  if left.state != .Observed or right.state != .Observed or left.value == null or right.value == null {
     return {state: rates.Unavailable, value: null}
   }
   {state: rates.Observed, value: (left.value ?? 0.0) + (right.value ?? 0.0)}

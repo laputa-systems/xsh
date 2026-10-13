@@ -7,7 +7,7 @@ type Options = {fahrenheit: Bool, raw: Bool, json: Bool, no_adapter: Bool, allow
 
 proc inventory(opts: Options) -> Result[Unit] {
   let section = hardware.sensors_live()?
-  if ! section.status.enumeration_succeeded and section.status.state != report.SectionAbsent { gnu.error("cannot enumerate hardware sensors"); exit 1 }
+  if ! section.status.enumeration_succeeded and section.status.state != .SectionAbsent { gnu.error("cannot enumerate hardware sensors"); exit 1 }
   var channels = section.channels
   if ! opts.chips.is_empty() {
     channels = channels |> where { |channel| opts.chips |> any { |pattern| hardware.chip_matches(hardware.sensor_chip_name(channel), pattern)? } }

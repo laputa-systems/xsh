@@ -137,7 +137,7 @@ test test_sys_mount_applies_capacity_only_to_the_exact_raw_mount_identity {
   }
   let restored = mounts.apply_captured_usage(raw, [captured])?
   assert restored.mounts[0].target == "/mnt/data set"
-  assert restored.mounts[0].usage_state == report.Observed
+  assert restored.mounts[0].usage_state == .Observed
   assert restored.mounts[0].usage_total_bytes == 4096
 
   let wrong_target = {...captured, target: "/mnt/other"}

@@ -12,7 +12,7 @@ test test_btop_palette_maps_fixed_truecolor_roles_to_supported_depths {
   assert color.foreground(color.Cpu, terminal.NoColor) == ""
 
   let no_color = terminal.detect({term: "xterm-256color", colorterm: "", no_color: true, lc_all: "C.UTF-8", lc_ctype: "", lang: "", rows: 24, cols: 80})
-  assert no_color.color_depth == terminal.NoColor
+  assert no_color.color_depth == .NoColor
   assert color.foreground(color.Cpu, no_color.color_depth) == ""
 }
 

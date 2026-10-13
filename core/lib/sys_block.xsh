@@ -229,7 +229,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     let disk_sequence_text = src.observed_text(disk_sequence_source)
     let disk_sequence = src.parse_integer(disk_sequence_text)
     var disk_sequence_state = disk_sequence_source.observation.state
-    if disk_sequence_state == report.Observed and (disk_sequence == null or (disk_sequence ?? 0) <= 0) {
+    if disk_sequence_state == .Observed and (disk_sequence == null or (disk_sequence ?? 0) <= 0) {
       disk_sequence_state = if src.decimal_digits(disk_sequence_text ?? "") { report.RangeFailure } else { report.Malformed }
     }
     for field_number in [

@@ -60,10 +60,10 @@ pure apply_events(
 ) -> InputResult {
   var view = initial_ui
   for event in events {
-    if event == input.Eof or event == input.Pressed(input.Cancel) {
+    if event == .Eof or event == input.Pressed(input.Cancel) {
       return {quit: true, ui: view}
     }
-    if ! view.editing_filter and (event == input.Pressed(input.Text("q")) or event == input.Pressed(input.Text("Q"))) {
+    if ! view.editing_filter and (event == input.Pressed(.Text("q")) or event == input.Pressed(.Text("Q"))) {
       return {quit: true, ui: view}
     }
     view = ui.reduce(view, event, value, local_display)
@@ -278,11 +278,11 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   var gauges_due = false
   var storage_due = false
   for item in first_collection.due {
-    if item.class == collection_schedule.Counters {
+    if item.class == .Counters {
       counters_due = true
-    } else if item.class == collection_schedule.Gauges {
+    } else if item.class == .Gauges {
       gauges_due = true
-    } else if item.class == collection_schedule.Inventory or item.class == collection_schedule.Blocking {
+    } else if item.class == .Inventory or item.class == .Blocking {
       storage_due = true
     }
   }
@@ -338,11 +338,11 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       var gauges_due = false
       var storage_due = false
       for item in collection_plan.due {
-        if item.class == collection_schedule.Counters {
+        if item.class == .Counters {
           counters_due = true
-        } else if item.class == collection_schedule.Gauges {
+        } else if item.class == .Gauges {
           gauges_due = true
-        } else if item.class == collection_schedule.Inventory or item.class == collection_schedule.Blocking {
+        } else if item.class == .Inventory or item.class == .Blocking {
           storage_due = true
         }
       }

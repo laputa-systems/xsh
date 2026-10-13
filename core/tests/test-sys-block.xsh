@@ -63,8 +63,8 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   let stacked = by_name.get("dm-0")?
   assert whole.kind == "disk" and part.kind == "partition" and stacked.kind == "virtual"
   assert whole.major == 259 and whole.minor == 0 and part.minor == 2
-  assert whole.disk_sequence == 17 and whole.disk_sequence_state == report.Observed
-  assert part.disk_sequence == 17 and part.disk_sequence_state == report.Observed
+  assert whole.disk_sequence == 17 and whole.disk_sequence_state == .Observed
+  assert part.disk_sequence == 17 and part.disk_sequence_state == .Observed
   assert whole.size_bytes == 1048576 and whole.logical_sector_bytes == 512 and whole.physical_sector_bytes == 4096
   assert whole.read_only == true and whole.rotational == false and whole.removable == false
   assert whole.active_scheduler == "none" and whole.available_schedulers == ["none", "mq-deadline"]
@@ -123,7 +123,7 @@ test test_sys_block_collect_retains_i64_counters_and_reports_json_range_separate
   let inventory = block.collect(root)
   assert inventory.devices[0].disk_sequence == 41
   assert inventory.devices[0].io_counters[0].value == 9223372036854775807
-  assert inventory.issues[0].state == report.RangeFailure
+  assert inventory.issues[0].state == .RangeFailure
   assert inventory.issues[0].error_kind == "io_counter_out_of_range"
 }
 

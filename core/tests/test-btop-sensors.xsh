@@ -39,7 +39,7 @@ test test_btop_sensor_selects_signed_package_and_deduplicates_core_channels {
 
   let captured = sources(root)
   let temperature = sensors.select(captured, [0, 1]).temperature
-  assert temperature.state == report.Observed
+  assert temperature.state == .Observed
   assert temperature.package_millidegrees == -5500
   assert temperature.cores == [{id: 0, millidegrees: 42000}, {id: 1, millidegrees: 43000}]
 }
@@ -111,13 +111,13 @@ test test_btop_sensor_keeps_zero_and_withholds_malformed_or_missing_readings {
   )
 
   let zero = sensors.select(sources(root)).temperature
-  assert zero.state == report.Observed
+  assert zero.state == .Observed
   assert zero.package_millidegrees == 0
   assert zero.cores == []
 
   root.write(p"sys/class/hwmon/hwmon0/temp1_input", "broken\n")
   let malformed = sensors.select(sources(root)).temperature
-  assert malformed.state == report.Malformed
+  assert malformed.state == .Malformed
   assert malformed.package_millidegrees == null
 }
 
@@ -129,7 +129,7 @@ test test_btop_sensor_uses_thermal_zone_when_hwmon_has_no_cpu_channel {
   root.write(p"sys/class/thermal/thermal_zone2/temp", "51500\n")
 
   let temperature = sensors.select(sources(root)).temperature
-  assert temperature.state == report.Observed
+  assert temperature.state == .Observed
   assert temperature.package_millidegrees == 51500
 }
 
@@ -166,10 +166,10 @@ test test_btop_frequency_modes_reduce_policy_values_and_cpuinfo_fallback {
   root.mkdir(p"proc", parents: true)
   root.write(p"proc/cpuinfo", "processor : 0\ncpu MHz : 2400.000\n\n")
   let fallback = sensors.select(sources(root)).frequency
-  assert fallback.state == report.Observed and fallback.value_mhz == 2400.0
+  assert fallback.state == .Observed and fallback.value_mhz == 2400.0
   root.write(p"proc/cpuinfo", "processor : 0\ncpu MHz : invalid\n\n")
   let malformed = sensors.select(sources(root)).frequency
-  assert malformed.state == report.Malformed and malformed.value_mhz == null
+  assert malformed.state == .Malformed and malformed.value_mhz == null
 }
 
 test test_btop_battery_selects_present_battery_and_derives_level_power_and_time {
@@ -188,7 +188,7 @@ test test_btop_battery_selects_present_battery_and_derives_level_power_and_time 
   root.write(p"sys/class/power_supply/UPS0/capacity", "99\n")
 
   let battery = sensors.select(sources(root)).battery
-  assert battery.state == report.Observed
+  assert battery.state == .Observed
   assert battery.name == "BAT0"
   assert battery.status == "discharging"
   assert battery.capacity_percent == 45
@@ -200,7 +200,7 @@ test test_btop_battery_absent_and_unreadable_states_do_not_invent_a_level {
   let root = fs.tempdir()?
   defer root.close()
   let absent = sensors.select(sources(root)).battery
-  assert absent.state == report.Absent and absent.capacity_percent == null
+  assert absent.state == .Absent and absent.capacity_percent == null
 
   root.mkdir(p"sys/class/power_supply/BAT0", parents: true)
   root.write(p"sys/class/power_supply/BAT0/type", "Battery\n")
@@ -209,7 +209,7 @@ test test_btop_battery_absent_and_unreadable_states_do_not_invent_a_level {
   root.write(p"sys/class/power_supply/BAT0/energy_now", "invalid\n")
   root.write(p"sys/class/power_supply/BAT0/energy_full", "0\n")
   let invalid = sensors.select(sources(root)).battery
-  assert invalid.state == report.Malformed and invalid.capacity_percent == null
+  assert invalid.state == .Malformed and invalid.capacity_percent == null
 }
 
 test test_btop_battery_uses_ac_online_and_charge_current_fallbacks {

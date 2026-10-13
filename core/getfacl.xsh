@@ -10,7 +10,7 @@ proc table(entries: List[acl.Entry], uid: Int, gid: Int, numeric: Bool) [fs, io,
   var keys: List[EntryKey] = []
   var width = 8
   for entry in entries {
-    let name = if entry.tag == acl.AclOwner { acl.identity(uid, false, numeric) } else if entry.tag == acl.AclGroupOwner { acl.identity(gid, true, numeric) } else if let id = entry.id { acl.identity(id, entry.tag == acl.AclGroup, numeric) } else { "" }
+    let name = if entry.tag == .AclOwner { acl.identity(uid, false, numeric) } else if entry.tag == .AclGroupOwner { acl.identity(gid, true, numeric) } else if let id = entry.id { acl.identity(id, entry.tag == .AclGroup, numeric) } else { "" }
     if name.byte_len() > width { width = name.byte_len() }
   }
   for entry in entries {
@@ -18,7 +18,7 @@ proc table(entries: List[acl.Entry], uid: Int, gid: Int, numeric: Bool) [fs, io,
     continue when key in keys
     keys += [key]
     let label = match entry.tag { acl.AclOwner => "USER", acl.AclUser => "user", acl.AclGroupOwner => "GROUP", acl.AclGroup => "group", acl.AclMask => "mask", acl.AclOther => "other" }
-    let name = if entry.tag == acl.AclOwner { acl.identity(uid, false, numeric) } else if entry.tag == acl.AclGroupOwner { acl.identity(gid, true, numeric) } else if let id = entry.id { acl.identity(id, entry.tag == acl.AclGroup, numeric) } else { "" }
+    let name = if entry.tag == .AclOwner { acl.identity(uid, false, numeric) } else if entry.tag == .AclGroupOwner { acl.identity(gid, true, numeric) } else if let id = entry.id { acl.identity(id, entry.tag == .AclGroup, numeric) } else { "" }
     let columns = collect {
       for default in [false, true] {
         var value = "   "

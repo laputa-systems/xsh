@@ -54,7 +54,7 @@ proc prepare_frames(root: FsRoot) [fs, error] -> Result[List[model.Model], Error
 }
 
 pure press(state: ui.State, value: model.Model, key: input.Key) -> ui.State {
-  ui.reduce(state, input.Pressed(key), value)
+  ui.reduce(state, .Pressed(key), value)
 }
 
 test test_btop_ui_keeps_selection_by_process_lifetime_across_sort_and_pid_reuse {
@@ -64,7 +64,7 @@ test test_btop_ui_keeps_selection_by_process_lifetime_across_sort_and_pid_reuse 
   let first = frames[1]
   let second = frames[2]
   let initial = ui.initial(first, 1)
-  assert initial.sort == ui.CpuLazy
+  assert initial.sort == .CpuLazy
   assert [row.pid for row in ui.visible_processes(first, initial)] == [43, 42, 44]
   let direct = {...initial, sort: ui.CpuDirect}
 
@@ -77,13 +77,13 @@ test test_btop_ui_keeps_selection_by_process_lifetime_across_sort_and_pid_reuse 
   assert selected.selected == {pid: 44, start_ticks: 3000}
   assert selected.scroll == 1
 
-  let reversed = press(selected, first, input.Text("r"))
+  let reversed = press(selected, first, .Text("r"))
   assert reversed.reverse
   assert [row.pid for row in ui.visible_processes(first, reversed)] == [42, 44, 43]
   assert reversed.selected == selected.selected
 
   let by_pid = press(press(reversed, first, input.Right), first, input.Right)
-  assert by_pid.sort == ui.Pid
+  assert by_pid.sort == .Pid
   assert [row.pid for row in ui.visible_processes(first, by_pid)] == [42, 43, 44]
   assert by_pid.selected == selected.selected
 
@@ -99,13 +99,13 @@ test test_btop_ui_filter_edit_accept_cancel_clear_and_paste_are_explicit {
   let value = frames[1]
   let initial = ui.initial(value, 2)
 
-  let editing = press(initial, value, input.Text("f"))
+  let editing = press(initial, value, .Text("f"))
   assert editing.editing_filter
   let typed = ui.reduce_events(editing, [
-    input.Pressed(input.Text("4")),
-    input.Pressed(input.Text("2")),
-    input.Pressed(input.Text("q")),
-    input.Pressed(input.Backspace),
+    .Pressed(.Text("4")),
+    .Pressed(.Text("2")),
+    .Pressed(.Text("q")),
+    .Pressed(input.Backspace),
   ], value)
   assert typed.filter_draft == "42"
   assert typed.filter == ""
@@ -114,8 +114,8 @@ test test_btop_ui_filter_edit_accept_cancel_clear_and_paste_are_explicit {
   assert accepted.filter == "42"
   assert [row.pid for row in ui.visible_processes(value, accepted)] == [42]
 
-  let edit_again = press(accepted, value, input.Text("/"))
-  let canceled = press(press(edit_again, value, input.Text("x")), value, input.Escape)
+  let edit_again = press(accepted, value, .Text("/"))
+  let canceled = press(press(edit_again, value, .Text("x")), value, input.Escape)
   assert ! canceled.editing_filter
   assert canceled.filter == "42"
   assert canceled.filter_draft == ""
@@ -124,8 +124,8 @@ test test_btop_ui_filter_edit_accept_cancel_clear_and_paste_are_explicit {
   assert clear.filter == ""
   assert ui.visible_processes(value, clear).len() == 3
 
-  let editing_again = press(clear, value, input.Text("f"))
-  let pasted = ui.reduce(editing_again, input.Paste("q\r\n", false), value)
+  let editing_again = press(clear, value, .Text("f"))
+  let pasted = ui.reduce(editing_again, .Paste("q\r\n", false), value)
   assert pasted == editing_again
 }
 
@@ -144,7 +144,7 @@ test test_btop_ui_resize_preserves_identity_and_clamps_scroll {
   assert larger.scroll == 0
   assert larger.visible_rows == 3
 
-  let filtered = press(press(larger, value, input.Text("f")), value, input.Text("missing"))
+  let filtered = press(press(larger, value, .Text("f")), value, .Text("missing"))
   let accepted = press(filtered, value, input.Enter)
   assert accepted.selected == null
   assert accepted.scroll == 0
@@ -173,7 +173,7 @@ test test_btop_ui_process_tree_toggle_collapse_children_and_aggregate {
   assert initial.process_memory_bytes and initial.network_auto and initial.network_sync
   assert [row.pid for row in ui.visible_processes(value, initial)] == [42, 43, 44]
 
-  let tree_mode = press(initial, value, input.Text("e"))
+  let tree_mode = press(initial, value, .Text("e"))
   assert tree_mode.tree_view
   let visible = ui.visible_tree_rows(value, tree_mode)
   assert [entry.row.pid for entry in visible] == [42, 43, 44]
@@ -188,19 +188,19 @@ test test_btop_ui_process_tree_toggle_collapse_children_and_aggregate {
   assert [entry.row.pid for entry in pid_descending] == [42, 44, 43]
   assert [entry.depth for entry in pid_descending] == [0, 1, 1]
 
-  let collapsed = press(tree_mode, value, input.Text("-"))
+  let collapsed = press(tree_mode, value, .Text("-"))
   assert [entry.row.pid for entry in ui.visible_tree_rows(value, collapsed)] == [42]
-  let expanded = press(collapsed, value, input.Text("+"))
+  let expanded = press(collapsed, value, .Text("+"))
   assert [entry.row.pid for entry in ui.visible_tree_rows(value, expanded)] == [42, 43, 44]
-  let child_toggle = press(expanded, value, input.Text("C"))
+  let child_toggle = press(expanded, value, .Text("C"))
   assert [entry.row.pid for entry in ui.visible_tree_rows(value, child_toggle)] == [42, 43]
-  let child_expanded = press(child_toggle, value, input.Text("C"))
+  let child_expanded = press(child_toggle, value, .Text("C"))
   assert [entry.row.pid for entry in ui.visible_tree_rows(value, child_expanded)] == [42, 43, 44]
-  let all_collapsed = press(child_expanded, value, input.Text("E"))
+  let all_collapsed = press(child_expanded, value, .Text("E"))
   assert [entry.row.pid for entry in ui.visible_tree_rows(value, all_collapsed)] == [42, 43]
-  let all_expanded = press(all_collapsed, value, input.Text("E"))
+  let all_expanded = press(all_collapsed, value, .Text("E"))
   assert [entry.row.pid for entry in ui.visible_tree_rows(value, all_expanded)] == [42, 43, 44]
-  let space_collapsed = press(all_expanded, value, input.Text(" "))
+  let space_collapsed = press(all_expanded, value, .Text(" "))
   assert [entry.row.pid for entry in ui.visible_tree_rows(value, space_collapsed)] == [42]
 
   let aggregate = ui.visible_tree_rows(value, {...all_expanded, aggregate_children: true})
@@ -209,7 +209,7 @@ test test_btop_ui_process_tree_toggle_collapse_children_and_aggregate {
   assert aggregate[1].cpu_total.value == 5.0
   assert aggregate[1].rss_total_bytes == 30
 
-  let flat_again = press(all_expanded, value, input.Text("e"))
+  let flat_again = press(all_expanded, value, .Text("e"))
   assert ! flat_again.tree_view
   assert [row.pid for row in ui.visible_processes(value, flat_again)] == [42, 43, 44]
 }
@@ -225,7 +225,7 @@ test test_btop_ui_out_of_scope_bindings_do_not_mutate_the_view {
     "j", "k", "l", "g", "G", "K", "u", "t", "s", "N",
     "w", "W", "v", "V", "x", "X",
   ] {
-    assert press(initial, value, input.Text(key)) == initial
+    assert press(initial, value, .Text(key)) == initial
   }
   for key in [
     input.Escape, input.Enter, input.Tab, input.Backspace, input.Delete, input.Cancel,
@@ -234,13 +234,13 @@ test test_btop_ui_out_of_scope_bindings_do_not_mutate_the_view {
     assert press(initial, value, key) == initial
   }
   for number in range(3, 13) {
-    assert press(initial, value, input.Function(number)) == initial
+    assert press(initial, value, .Function(number)) == initial
   }
-  assert ui.reduce(initial, input.Paste("n", false), value) == initial
-  assert press(initial, value, input.Text("C")) == initial
-  assert press(initial, value, input.Text("E")) == initial
-  assert press(initial, value, input.Text("+")) == initial
-  assert press(initial, value, input.Text("-")) == initial
+  assert ui.reduce(initial, .Paste("n", false), value) == initial
+  assert press(initial, value, .Text("C")) == initial
+  assert press(initial, value, .Text("E")) == initial
+  assert press(initial, value, .Text("+")) == initial
+  assert press(initial, value, .Text("-")) == initial
 }
 
 test test_btop_ui_pinned_network_and_process_memory_bindings_toggle_only_their_views {
@@ -255,39 +255,39 @@ test test_btop_ui_pinned_network_and_process_memory_bindings_toggle_only_their_v
   assert initial.show_disks and ! initial.disk_io_mode
   assert ! initial.process_cpu_per_core
 
-  let manual_network = press(initial, value, input.Text("a"))
+  let manual_network = press(initial, value, .Text("a"))
   assert ! manual_network.network_auto
   assert manual_network.network_sync
-  let separate_network = press(initial, value, input.Text("y"))
+  let separate_network = press(initial, value, .Text("y"))
   assert separate_network.network_auto
   assert ! separate_network.network_sync
-  let percent_memory = press(initial, value, input.Text("%"))
+  let percent_memory = press(initial, value, .Text("%"))
   assert ! percent_memory.process_memory_bytes
   assert percent_memory.sort == initial.sort
   assert percent_memory.selected == initial.selected
 
-  let per_core = press(initial, value, input.Text("c"))
+  let per_core = press(initial, value, .Text("c"))
   assert per_core.process_cpu_per_core
   assert per_core.process_memory_bytes == initial.process_memory_bytes
   assert per_core.selected == initial.selected
 
-  let disks_hidden = press(initial, value, input.Text("d"))
+  let disks_hidden = press(initial, value, .Text("d"))
   assert ! disks_hidden.show_disks
   assert disks_hidden.disk_io_mode == initial.disk_io_mode
-  let disk_io = press(initial, value, input.Text("i"))
+  let disk_io = press(initial, value, .Text("i"))
   assert disk_io.disk_io_mode
   assert disk_io.show_disks == initial.show_disks
 
-  let next_network = press(initial, value, input.Text("n"))
+  let next_network = press(initial, value, .Text("n"))
   assert next_network.network_interface == "lo"
-  let previous_network = press(next_network, value, input.Text("b"))
+  let previous_network = press(next_network, value, .Text("b"))
   assert previous_network.network_interface == "eth0"
 
-  let totals_reset = press(initial, value, input.Text("z"))
+  let totals_reset = press(initial, value, .Text("z"))
   let selected_network = ui.selected_network_interface(totals_reset, value)
   assert ui.network_total_bytes(totals_reset, selected_network, true) == 0
   assert ui.network_total_bytes(totals_reset, selected_network, false) == 0
-  let totals_restored = press(totals_reset, value, input.Text("z"))
+  let totals_restored = press(totals_reset, value, .Text("z"))
   assert ui.network_total_bytes(totals_restored, ui.selected_network_interface(totals_restored, value), true) == 1010240
   assert ui.network_total_bytes(totals_restored, ui.selected_network_interface(totals_restored, value), false) == 502048
 }

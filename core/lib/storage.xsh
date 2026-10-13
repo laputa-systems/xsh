@@ -436,7 +436,7 @@ proc mount_table() -> mounts.MountTable {
   let root = fs.open_root(/)?
   defer root.close()
   let table = mounts.collect(root)
-  if table.source_state != report.Observed { gnu.error("cannot read mount table"); exit 1 }
+  if table.source_state != .Observed { gnu.error("cannot read mount table"); exit 1 }
   table
 }
 
@@ -516,7 +516,7 @@ export proc findmnt_from_root(root: FsRoot, argv: List[Str]) {
   require_operands(args, 0, 1)
   let cols = columns(args.values.get("-o") ?? "TARGET,SOURCE,FSTYPE,OPTIONS", ["TARGET", "SOURCE", "FSTYPE", "OPTIONS", "VFS-OPTIONS", "FS-OPTIONS", "MAJ:MIN", "FSROOT", "ID", "PARENT"])
   let table = mounts.collect(root)
-  if table.source_state != report.Observed { gnu.error("cannot read mount table"); exit 1 }
+  if table.source_state != .Observed { gnu.error("cannot read mount table"); exit 1 }
   var entries = table.mounts
   let source: Str? = if "-S" in args.values { args.values.get("-S")? } else { null }
   if source != null { entries = [entry for entry in entries if entry.source == source] }

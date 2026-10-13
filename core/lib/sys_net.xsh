@@ -70,13 +70,13 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
 ## Reads a complete network-interface table from the caller-owned root.
 export proc collect(root: FsRoot) [fs, error] -> NetworkSource {
   let parsed = parse(src.read_source_text(root, p"proc/net/dev", max_bytes: 1048576))
-  return parsed when parsed.state != report.Observed
+  return parsed when parsed.state != .Observed
 
   var interfaces: List[NetworkInterface] = []
   var issues = parsed.issues
   for item in parsed.interfaces {
     let source = src.read_source_text(root, fp"sys/class/net/{item.name}/ifindex", max_bytes: 128)
-    if source.observation.state != report.Observed or source.observation.value == null {
+    if source.observation.state != .Observed or source.observation.value == null {
       issues += [src.issue(f"network.{item.name}.ifindex", source.observation.state, source.error_kind, source.errno)]
       interfaces += [{...item, ifindex: null}]
       continue

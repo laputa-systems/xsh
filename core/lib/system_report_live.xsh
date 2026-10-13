@@ -1236,9 +1236,9 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     let time_to_empty_number = collectors.bounded_number(time_to_empty, true)
     let cycles_number = collectors.bounded_number(cycles, true)
     let present_number = collectors.bounded_number(present, true)
-    let online = if online_ac0.observation.state == report.Observed {
+    let online = if online_ac0.observation.state == .Observed {
       online_ac0
-    } else if online_ac.observation.state == report.Observed {
+    } else if online_ac.observation.state == .Observed {
       online_ac
     } else {
       online_direct

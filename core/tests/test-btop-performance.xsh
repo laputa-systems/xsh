@@ -243,8 +243,8 @@ test test_btop_process_and_device_identity_churn_stays_bounded_and_warms_new_epo
       first_pid = current_processes[0].pid
     } else {
       assert first_pid not in updated.metadata.by_pid
-      assert updated.value.processes[0].cpu_percent.state == rates.Warming
-      assert updated.value.storage.devices[0].read_bytes_per_second.state == rates.Warming
+      assert updated.value.processes[0].cpu_percent.state == .Warming
+      assert updated.value.storage.devices[0].read_bytes_per_second.state == .Warming
     }
     previous = current
     cache = updated.metadata
@@ -269,11 +269,11 @@ test test_btop_optional_source_loss_keeps_process_view_and_labels_unavailable_fi
   let screen = renderer.render(value, 80, 24)?
   let visible = screen.lines.join("\n")
 
-  assert value.process_state == report.Observed
+  assert value.process_state == .Observed
   assert value.processes.len() == 1 and value.processes[0].pid == 42
-  assert value.memory.total_state == report.Absent and value.memory.total_bytes == null
-  assert value.network.source_state == report.Absent and value.network.interface_name == null
-  assert value.storage.block_state == report.Absent and value.storage.mount_state == report.Absent
+  assert value.memory.total_state == .Absent and value.memory.total_bytes == null
+  assert value.network.source_state == .Absent and value.network.interface_name == null
+  assert value.storage.block_state == .Absent and value.storage.mount_state == .Absent
   assert "Total absent" in visible
   assert "Interface absent" in visible
   assert "Temperature absent" in visible

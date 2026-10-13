@@ -97,7 +97,7 @@ pure state_text(state: report.ObservationState) -> Str {
 }
 
 pure rate_text(value: rates.Rate) -> Str {
-  if value.state == rates.Observed and value.value != null {
+  if value.state == .Observed and value.value != null {
     return f"{(value.value ?? 0.0).format(precision: 1)}%"
   }
 
@@ -111,7 +111,7 @@ pure rate_text(value: rates.Rate) -> Str {
 }
 
 pure byte_rate_text(value: rates.Rate) -> Str {
-  if value.state == rates.Observed and value.value != null {
+  if value.state == .Observed and value.value != null {
     let amount = value.value ?? 0.0
     return f"{(amount / 1048576.0).format(precision: 2)} MiB/s" when amount >= 1048576.0
     return f"{(amount / 1024.0).format(precision: 2)} KiB/s" when amount >= 1024.0
@@ -160,7 +160,7 @@ pure uptime_text(value: syscpu.Uptime) -> Str {
 }
 
 pure load_text(value: syscpu.LoadAverage) -> Str {
-  if value.state != report.Observed or value.values.len() < 3 {
+  if value.state != .Observed or value.values.len() < 3 {
     return state_text(value.state)
   }
   f"{value.values[0].format(precision: 2)} {value.values[1].format(precision: 2)} {value.values[2].format(precision: 2)}"
@@ -190,7 +190,7 @@ pure core_temperature_text(value: sensors.CpuTemperature) -> Str {
 }
 
 pure frequency_text(value: sensors.CpuFrequency) -> Str {
-  return f"Frequency {state_text(value.state)}" when value.state != report.Observed
+  return f"Frequency {state_text(value.state)}" when value.state != .Observed
   if value.minimum_mhz != null and value.maximum_mhz != null {
     return f"Frequency {sensors.format_frequency_mhz(value.minimum_mhz ?? 0.0)} - {sensors.format_frequency_mhz(value.maximum_mhz ?? 0.0)}"
   }
@@ -201,7 +201,7 @@ pure frequency_text(value: sensors.CpuFrequency) -> Str {
 }
 
 pure battery_text(value: sensors.Battery) -> Str {
-  return f"Battery {state_text(value.state)}" when value.state != report.Observed
+  return f"Battery {state_text(value.state)}" when value.state != .Observed
   let percent = if value.capacity_percent == null { "?" } else { f"{value.capacity_percent ?? 0}%" }
   let power = if value.power_watts == null { "" } else { f" {(value.power_watts ?? 0.0).format(precision: 2)} W" }
   f"Battery {value.name ?? "?"} {percent} {value.status ?? "unknown"}{power}"
@@ -221,7 +221,7 @@ pure process_text(
   } else {
     f"{row.uid ?? 0}"
   }
-  let user_label = if row.uid_state == model.Stale { f"~{account}" } else { account }
+  let user_label = if row.uid_state == .Stale { f"~{account}" } else { account }
   let command = if let display = ui.local_display(row, local_display) {
     display.command_line ?? row.command
   } else {
@@ -301,8 +301,8 @@ pure process_content(
     ui.CpuLazy => "CPU lazy"
   }
   let direction = match state.sort {
-    ui.Pid | ui.ThreadCount | ui.Memory | ui.CpuDirect | ui.CpuLazy => if state.reverse { "ascending" } else { "descending" }
-    ui.Name | ui.Cmd | ui.UserName => if state.reverse { "descending" } else { "ascending" }
+    ui.Pid | .ThreadCount | .Memory | .CpuDirect | .CpuLazy => if state.reverse { "ascending" } else { "descending" }
+    ui.Name | .Cmd | .UserName => if state.reverse { "descending" } else { "ascending" }
   }
   let sort_line = f"Sort {sort_name} {direction} | r reverse"
   let filter_line = if state.editing_filter {
@@ -314,7 +314,7 @@ pure process_content(
   }
   let cpu_column = if state.process_cpu_per_core { "CPU/core%" } else { "CPU%" }
   var lines = [f"PID USER {cpu_column} RSS COMMAND", filter_line]
-  if value.process_state != report.Observed {
+  if value.process_state != .Observed {
     lines += [f"Processes {state_text(value.process_state)}"]
   } else if value.processes.is_empty() {
     lines += ["No visible processes"]
@@ -401,7 +401,7 @@ pure memory_panel_content(
 ) -> Result[List[Str], Error] {
   let graph_width = if width > 0 { width } else { 1 }
   let used_graph = history_rows(history, capabilities, graph_width, 2, false, 100.0)?
-  let swap = if value.memory.swap_total_state == report.Absent and value.memory.swap_free_state == report.Absent {
+  let swap = if value.memory.swap_total_state == .Absent and value.memory.swap_free_state == .Absent {
     "Swap absent"
   } else {
     f"Swap {counter_text(value.memory.swap_used_bytes)}"
@@ -463,7 +463,7 @@ pure network_panel_content(
 pure network_graph_maximum(history: graph.History) -> Float {
   var maximum = 0.0
   for sample in history.samples {
-    if sample.state == graph.Observed {
+    if sample.state == .Observed {
       if let value = sample.value {
         if value > maximum { maximum = value }
       }
@@ -482,7 +482,7 @@ pure compact_bytes(value: Int?) -> Str {
 }
 
 pure compact_rate(value: rates.Rate) -> Str {
-  if value.state == rates.Observed and value.value != null {
+  if value.state == .Observed and value.value != null {
     let amount = value.value ?? 0.0
     return f"{(amount / 1073741824.0).format(precision: 0)}G/s" when amount >= 1073741824.0
     return f"{(amount / 1048576.0).format(precision: 0)}M/s" when amount >= 1048576.0
@@ -505,7 +505,7 @@ pure device_line(device: disks.Device) -> Str {
 }
 
 pure device_usage_line(device: disks.Device) -> Str {
-  let capacity = if device.capacity_state == report.Observed and device.total_bytes != null and device.used_bytes != null {
+  let capacity = if device.capacity_state == .Observed and device.total_bytes != null and device.used_bytes != null {
     f"{compact_bytes(device.used_bytes)}/{compact_bytes(device.total_bytes)}"
   } else {
     state_text(device.capacity_state)
@@ -523,10 +523,10 @@ pure disk_panel_content(
 ) -> Result[List[Str], Error] {
   return Ok(["Disks hidden"]) unless state.show_disks
   if value.storage.devices.is_empty() {
-    if value.storage.mount_state == report.Observed and value.storage.block_state == report.Observed {
+    if value.storage.mount_state == .Observed and value.storage.block_state == .Observed {
       return Ok(["No mounted block devices"])
     }
-    let source_state = if value.storage.mount_state != report.Observed { value.storage.mount_state } else { value.storage.block_state }
+    let source_state = if value.storage.mount_state != .Observed { value.storage.mount_state } else { value.storage.block_state }
     return Ok([f"Storage {state_text(source_state)}"])
   }
 

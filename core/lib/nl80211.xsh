@@ -559,7 +559,7 @@ export pure errno_text(code: Int) -> Str {
 
 ## The failure for errno `code`, with the standard wording.
 export pure errno_failure(code: Int) -> IwError {
-  IwError.Errno(code: code, text: errno_text(code))
+  .Errno(code: code, text: errno_text(code))
 }
 
 # --- transport ---------------------------------------------------------

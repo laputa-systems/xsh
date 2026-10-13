@@ -206,7 +206,7 @@ pure cpu_temperature(sources: live.MonitorSources, logical_cpu_ids: List[Int]) -
     let has_zones = ! sources.thermal_zones.is_empty()
     let state = if has_temperature_channels or has_zones {
       report.Malformed
-    } else if sources.sensor_state == report.Partial {
+    } else if sources.sensor_state == .Partial {
       report.ReadFailure
     } else {
       report.Absent
@@ -282,7 +282,7 @@ export pure frequency(sources: live.MonitorSources, mode: FrequencyMode) -> CpuF
     let has_policy = ! sources.frequency_policies.is_empty()
     let has_cpuinfo = ! sources.cpuinfo_frequencies_mhz.is_empty()
     return {
-      state: if has_policy or has_cpuinfo { report.Malformed } else if sources.cpuinfo_state != report.Observed {
+      state: if has_policy or has_cpuinfo { report.Malformed } else if sources.cpuinfo_state != .Observed {
         sources.cpuinfo_state
       } else {
         report.Malformed
@@ -391,7 +391,7 @@ pure battery(sources: live.MonitorSources) -> Battery {
   if candidates.is_empty() {
     let has_unconfirmed = sources.batteries |> any .present == null
     return {
-      state: if has_unconfirmed or sources.power_state == report.Partial {
+      state: if has_unconfirmed or sources.power_state == .Partial {
         report.ReadFailure
       } else {
         report.Absent

@@ -85,7 +85,7 @@ pure display_bytes(data: Bytes) -> Str {
 }
 
 pure stat_matches_process(source: src.SourceRead, process_row: Process) -> Bool {
-  if source.observation.state != report.Observed or source.observation.value == null {
+  if source.observation.state != .Observed or source.observation.value == null {
     return false
   }
   if let Ok(stat) = live.parse_proc_stat_for_monitor(source.observation.value ?? "") {
