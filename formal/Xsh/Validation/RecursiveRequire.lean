@@ -8,9 +8,10 @@ field has the wrong shape. The checked result carries a proof that the entire
 modeled schema passed, while erasure returns the original composite value.
 
 The check descends through required fields and list items, treats `null` as a
-valid optional value, and leaves extra record fields untouched. Insufficient
-fuel rejects the modeled check. Validation failures are ordinary result values
-and preserve their candidate and the modeled store.
+valid optional value, preserves extra uniquely named record fields, and rejects
+duplicate record keys. Insufficient fuel rejects the modeled check. Validation
+failures are ordinary result values and preserve their candidate and the
+modeled store.
 This fragment omits maps, sets, unions, wire-enum conversion, defaults,
 module contracts, source checking, Rust correspondence, and all full-language
 G2 claims.
@@ -36,6 +37,13 @@ def findField? (name : String) : List (String × CompositeValue) → Option Comp
   | (field, value) :: rest =>
       if field == name then some value else findField? name rest
 
+/-- A record is valid only when each key has exactly one stored value. -/
+def recordKeysUnique : List (String × CompositeValue) → Bool
+  | [] => true
+  | (name, _) :: rest =>
+      if rest.any (fun (other, _) => other == name) then false
+      else recordKeysUnique rest
+
 /-- Each declared field must exist and pass its complete nested target. -/
 def requiredFieldsPass (check : Target → CompositeValue → Bool) :
     List Target → List (String × CompositeValue) → Bool
@@ -57,15 +65,15 @@ def checkFuel : Nat → Target → CompositeValue → Bool
       | .optional inner, value => checkFuel fuel inner value
       | .list element, .list values => values.all (checkFuel fuel element)
       | .record required, .record actual =>
-          requiredFieldsPass (checkFuel fuel) required actual
+          recordKeysUnique actual && requiredFieldsPass (checkFuel fuel) required actual
       | _, _ => false
 
 def check (fuel : Nat) (target : Target) (value : CompositeValue) : Bool :=
   checkFuel fuel target value
 
-/-- A nested call always uses a strictly smaller natural-number measure. -/
-theorem recursive_check_fuel_decreases (fuel : Nat) :
-    fuel < Nat.succ fuel := by
+/-- Each recursive checker call receives its caller's fuel minus one. -/
+theorem recursive_check_uses_predecessor_fuel (fuel : Nat) :
+    Nat.succ fuel - 1 = fuel := by
   omega
 
 /-- The source value and its input provenance at the validation boundary. -/
@@ -186,6 +194,16 @@ def missingOptionalSettings : Candidate := ⟨
   settingsInputOrigin
 ⟩
 
+def duplicateNameSettings : Candidate := ⟨
+  .record [
+    ("name", .string "api"),
+    ("name", .integer intOne),
+    ("ports", .list [.integer intOne]),
+    ("retry", .null)
+  ],
+  settingsInputOrigin
+⟩
+
 def emptyStore : Store := ⟨[]⟩
 def settingsFuel : Nat := 8
 
@@ -208,6 +226,14 @@ theorem optional_null_is_accepted :
 
 theorem missing_optional_field_is_rejected :
     check settingsFuel settingsTarget missingOptionalSettings.value = false := by
+  decide
+
+theorem unique_record_keys_with_extra_field_are_accepted :
+    check settingsFuel settingsTarget acceptedSettings.value = true := by
+  decide
+
+theorem duplicate_record_key_with_valid_first_value_is_rejected :
+    check settingsFuel settingsTarget duplicateNameSettings.value = false := by
   decide
 
 theorem require_rejects (fuel : Nat) (target : NominalId) (shape : Target)
@@ -235,6 +261,22 @@ def shallowOnlyMutation (target : Target) (value : CompositeValue) : Bool :=
   | .list _, .list _ => true
   | .record required, .record actual => shallowRecordCheck required actual
   | _, _ => false
+
+/-- A faulty checker that skips the duplicate-key guard for its outer record. -/
+def omitDuplicateKeyGuard (fuel : Nat) (target : Target) (value : CompositeValue) : Bool :=
+  match target, value with
+  | .record required, .record actual =>
+      requiredFieldsPass (checkFuel fuel) required actual
+  | _, _ => check fuel target value
+
+theorem duplicate_key_guard_detects_first_match_mutation :
+    omitDuplicateKeyGuard settingsFuel settingsTarget duplicateNameSettings.value = true ∧
+      check settingsFuel settingsTarget duplicateNameSettings.value = false ∧
+      require settingsFuel settingsId settingsTarget duplicateNameSettings =
+        .rejected ⟨settingsFuel, settingsId, settingsTarget, duplicateNameSettings⟩ := by
+  refine ⟨by decide, duplicate_record_key_with_valid_first_value_is_rejected, ?_⟩
+  exact require_rejects settingsFuel settingsId settingsTarget duplicateNameSettings
+    duplicate_record_key_with_valid_first_value_is_rejected
 
 theorem shallow_only_mutation_misses_nested_bad_item :
     shallowOnlyMutation settingsTarget rejectedNestedSettings.value = true ∧
