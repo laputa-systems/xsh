@@ -5758,6 +5758,285 @@
       "status": "fragment",
       "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
       "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.empty_path_has_no_components",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.empty_path_has_no_components",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The empty native-byte path produces no components.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.absolute_root_is_one_component",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.absolute_root_is_one_component",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An absolute root path is represented by exactly the distinct root component.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.repeated_and_trailing_separators_disappear",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.repeated_and_trailing_separators_disappear",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Repeated separators and a trailing separator do not add path components.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.leading_dot_component_is_preserved",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.leading_dot_component_is_preserved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A leading relative dot component is retained in the component sequence.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.interior_dot_component_is_omitted",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.interior_dot_component_is_omitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An interior dot component is omitted while neighboring names remain ordered.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.parent_component_is_preserved",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.parent_component_is_preserved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A parent component remains as its original two dot bytes.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.non_utf8_name_bytes_are_preserved",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.non_utf8_name_bytes_are_preserved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A non-UTF-8 native name byte is retained unchanged as a component.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.component_prefix_is_reflexive",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.component_prefix_is_reflexive",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every modeled path starts with its own complete component sequence.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.complete_components_match_as_prefix",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.complete_components_match_as_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A path with complete leading components matches that component prefix.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.component_suffix_is_reflexive",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.component_suffix_is_reflexive",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every modeled path ends with its own component sequence, including absolute paths.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.complete_component_matches_as_suffix",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.complete_component_matches_as_suffix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A complete final name component matches as a relative suffix.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.absolute_suffix_matches_exactly_equal_components",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.absolute_suffix_matches_exactly_equal_components",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An absolute suffix matches exactly when the full component sequences are equal.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.root_prefix_matches_exactly_absolute_paths",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.root_prefix_matches_exactly_absolute_paths",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The distinct root component is a prefix exactly for absolute paths.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Components.raw_byte_prefix_mutation_is_detected",
+      "module": "Xsh.Paths.Components",
+      "declaration": "Xsh.Paths.Components.raw_byte_prefix_mutation_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A byte-prefix mutation accepts a partial name prefix that component-prefix matching rejects.",
+      "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.wire_mapping_retains_unique_spellings",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.wire_mapping_retains_unique_spellings",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The prepared example mapping retains its ordered wire spellings, nonempty condition, and unique declaration and wire spellings.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.exact_wire_string_converts_to_its_variant",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.exact_wire_string_converts_to_its_variant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An exact wire spelling converts to its declared nominal enum variant.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.unknown_wire_string_reports_root_path",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.unknown_wire_string_reports_root_path",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An unknown wire spelling reports a conversion failure at the root path.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.optional_null_is_preserved",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.optional_null_is_preserved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Null passes through an optional enum schema unchanged.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.optional_wire_string_converts",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.optional_wire_string_converts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A present optional wire string converts through the nested enum schema.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.matching_enum_value_is_preserved",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.matching_enum_value_is_preserved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A preconverted enum value with the matching NominalId and declared variant is preserved.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.same_display_name_from_another_module_is_rejected",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.same_display_name_from_another_module_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An enum value with the same declaration spelling but a different module identity is rejected.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.wire_string_matching_is_case_sensitive",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.wire_string_matching_is_case_sensitive",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Changing wire spelling case causes lookup rejection.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.list_values_convert_in_order",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.list_values_convert_in_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List elements convert in their original order.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.record_conversion_preserves_extras_and_field_order",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.record_conversion_preserves_extras_and_field_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Known record fields convert while extra fields and source field order remain unchanged.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.map_values_convert_and_keys_remain_ordered",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.map_values_convert_and_keys_remain_ordered",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every map value converts while its string keys and entry order remain unchanged.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.nested_failure_blames_field_then_index",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.nested_failure_blames_field_then_index",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A nested list enum failure records its containing field followed by the element index.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.unknown_map_value_blames_its_key",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.unknown_map_value_blames_its_key",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An unknown enum value in a map records the failing string key.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.require_wire_publishes_only_converted_nested_value",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.require_wire_publishes_only_converted_nested_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Successful shared structural validation and full nested conversion publish the converted value with .require provenance.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.skipping_map_value_validation_is_detected",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.skipping_map_value_validation_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A mutation that returns map entries without visiting values disagrees on an unknown enum value.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.rejected_wire_conversion_retains_candidate_and_map_blame",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.rejected_wire_conversion_retains_candidate_and_map_blame",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Conversion rejection retains the original candidate, target, structural shape, and map-key blame path.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.rejected_conversion_exposes_no_converted_value",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.rejected_conversion_exposes_no_converted_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A rejected conversion exposes no converted value through the wrapper result.",
+      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
     }
   ],
   "source_identity": null

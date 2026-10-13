@@ -7,6 +7,7 @@ import Xsh.Values.OrderedSet
 import Xsh.Values.MapPresence
 import Xsh.Results.Fallback
 import Xsh.Json.Path
+import Xsh.Paths.Components
 import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
 import Xsh.Calls.ArgumentOrder
@@ -23,6 +24,7 @@ import Xsh.Validation.Store
 import Xsh.Validation.Nominal
 import Xsh.Validation.RelPath
 import Xsh.Validation.RecursiveRequire
+import Xsh.Enums.WireConversion
 import Xsh.Validation.BoundedRefinements
 import Xsh.Validation.NonEmptyFiltering
 import Xsh.Effects.Lattice

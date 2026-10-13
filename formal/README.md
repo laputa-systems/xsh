@@ -7,7 +7,8 @@ build depends on it. The current `Xsh` root imports every module under
 word representations; lexical environments, activations, and captured cells;
 checked integer outcomes and millisecond-duration operations over typed scalar
 values; finite map-presence and primitive key-order laws; checked call argument
-ordering; List index and slice bounds; Unicode scalar text-slice laws; validated
+ordering; byte-lexical path components; Str-backed enum wire conversion; List
+index and slice bounds; Unicode scalar text-slice laws; validated
 boundaries and atomic typed-store writes; and effect lattices, recursive
 summaries, lexical bounds, and delayed-work origins. Failed typed writes
 preserve the old store and produce an uncatchable type error; `.require(UInt)`
@@ -75,7 +76,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 308 fragment
+G0b source freeze remain pending. The provisional inventory has 339 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -152,6 +153,28 @@ acceptance, and rejection laws. This independent byte-list model does not
 establish Rust checker/runtime correspondence, symlink-aware filesystem
 confinement, or full G2 validation closure.
 
+`Xsh.Paths.Components` has fourteen roots for lexical path-component scanning
+and component-sequence prefix/suffix queries. It reuses `PathBytes`, slash and
+dot bytes, and byte constructors from `Xsh.Validation.RelPath`; its
+`splitOn`/`collectNames` scan is an independent Lean model rather than a proof
+about a shared Rust scanner. The roots cover absolute-root identity, repeated
+and trailing separators, leading and interior dot components, parent and
+non-UTF-8 name bytes, complete-component prefix/suffix behavior, and a raw-byte
+prefix mutation witness. They do not model filesystem access, normalization,
+name or parent queries, RelPath validation, or Rust correspondence.
+
+`Xsh.Enums.WireConversion` has seventeen roots for prepared Str-backed enum
+mappings layered over the shared recursive `.require` boundary. The model
+assumes each mapping is nonempty and has unique declaration names and wire
+spellings; it does not validate source declarations. Enum identity uses
+`NominalId`. The shared structural projection represents maps as open records
+and reports structural rejection through pathless `ValidationFailure`; the
+separate conversion pass visits every Str-keyed map value and reports
+`BlamePath` for conversion failures. The wrapper exposes a converted value only
+after both stages succeed. A mutation witness skips map-value validation. The
+fragment excludes implicit coercions, JSON encoding, diagnostic spans, and
+Rust correspondence.
+
 `Xsh.Validation.RecursiveRequire` models `.require` over a finite target
 grammar for integers, strings, optional values, lists, and required record
 fields, using explicit predecessor fuel for each recursive check. It rejects
@@ -177,7 +200,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 308 rooted Lean fragment declarations across 89 core owner
+The inventory names 339 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
