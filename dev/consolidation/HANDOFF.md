@@ -2,7 +2,7 @@
 
 Status: active 2026-10-13.
 
-## Current checkpoint — 2026-10-13 (`f894695cf`)
+## Current checkpoint — 2026-10-13 (`c19798a80`)
 
 This is the current acceptance snapshot; the dated sections below preserve
 earlier evidence and plans. Nothing has been pushed. Consolidation remains
@@ -34,15 +34,22 @@ Shared-module diagnostic ordering is deterministic (`60f127126`).
 The owner-selected restoration of the four nominal Asterinas error families is
 present in Laputa at `ca658ce`, with a red-to-green diagnostic-type regression.
 
-The Lean inventory names 50 fragment roots, its 29 mutation tests pass, and all
-72 complete theorem obligations remain planned. At exact commit
-`71103196374480822599499e8add51a6d0abfeae`, `lake build Xsh`, the 4,728-
-declaration transitive axiom audit, its three negative controls, and the guarded
-fresh checker passed; all 23 production Lean modules were reachable, with 47
-fragment roots at that revision. The later labeled host-trace root build passed
-at `cea6b2e7f`; the fresh checker and axiom audit have not yet been rerun on
-that later root. The host trace is a finite scripted witness, not generic
-runner soundness or clock/Rust conformance.
+The current Lean inventory names 53 fragment roots; its 29 inventory tests
+pass, and all 72 complete theorem obligations remain planned. At exact commit
+`125a9394cd38befe68b1a499b7f8e25a234f290c` (tree
+`ee352f02c776072bff9d62bf301bfa0c91bfc751`), the full formal gate passed:
+`lake build Xsh` with 27 jobs, the transitive axiom audit over 4,893
+declarations, rejection of custom-axiom/`native_decide`/`sorry` negative
+controls, and the guarded fresh checker in about 40 seconds. All 25 production
+Lean modules were reachable from `Xsh`, with 17 direct imports. The
+`BaseHostTrace` fragment proves that the generic finite-fuel runner yields a
+valid prefix trace and that valid traces preserve the machine's well-formedness
+invariant. Its mutation witness rejects omission of a consumed mismatched
+response event; the concrete two-request script returns 2 then 3 and completes
+with 5, while a Boolean response is labeled and rejected with a type-mismatch
+fault. These results concern only the finite scripted formal runner; they do
+not establish source or whole-language soundness, Rust or OS conformance,
+concrete host behavior, or clock accuracy. No `BASE-*` obligation is complete.
 
 The control-flow checker/lowerer lane remains unmerged and in follow-up after
 reviews found unresolved flow cases. The dead-tail AWK/sort cleanup is blocked
