@@ -22,6 +22,11 @@ operand remains open. Applets read kernel interfaces through their owning
 module under `core/lib/`; `dev/checks/check_kernel_reads.py` rejects direct
 `/proc` and `/sys` paths in applet scripts.
 
+`dev/release.xsh::package_core` installs applets as executable commands without
+the `.xsh` suffix, while keeping that suffix on `core/lib/` modules so adjacent
+`use lib.auth` imports resolve after extraction. Library modules install with
+mode `0644`.
+
 `taskset`, `chrt`, `ionice`, and `prlimit` reproduce the util-linux utilities
 over the typed `process.affinity`, `scheduler`, `io_priority`, and `rlimit`
 families. They keep util-linux's own diagnostics (`failed to set pid N's
