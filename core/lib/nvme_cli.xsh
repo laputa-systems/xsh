@@ -731,14 +731,14 @@ pure bit_lines(value: Int, table: List[Str], prefix: Str, between: Str) -> List[
       let high = range[0].parse_int() ?? 0
       let low = range[1].parse_int() ?? 0
       var shifted = value
-      for _ in range(low) { shifted = shifted / 2 }
+      repeat low times { shifted = shifted / 2 }
       var span = 1
-      for _ in range(high - low + 1) { span = span * 2 }
+      repeat high - low + 1 times { span = span * 2 }
       let field = shifted % span
       var text = if field == 0 { parts[1] } else if parts.len() > 2 and high == low { parts[2] } else { parts[1] }
       continue when text == ""
       var power = 1
-      for _ in range(field) { power = power * 2 }
+      repeat field times { power = power * 2 }
       text = text.replace("%P", with: f"{power}")
       yield f"{prefix}[{high}:{low}]{between}: {hex(field)}\t{text}"
     }
@@ -1363,7 +1363,7 @@ pure feature_data_length(feature_id: Int, cdw11: Int) -> Int {
 
 pure power_of_two(exponent: Int) -> Int {
   var out = 1
-  for _ in range(exponent) { out = out * 2 }
+  repeat exponent times { out = out * 2 }
   out
 }
 
@@ -1548,7 +1548,7 @@ proc identify_listed(node: Path, nsid: Int) [fs, process, error] -> List[Int]? {
           let index = dec.lba_format_index(dec.field_value(fields, "flbas"))
           return null when index >= formats.len() or formats[index].data_size_shift > 30
           var size = 1
-          for _ in range(formats[index].data_size_shift) { size = size * 2 }
+          repeat formats[index].data_size_shift times { size = size * 2 }
           [size, dec.field_value(fields, "nsze"), dec.field_value(fields, "nuse"), formats[index].metadata_size]
         }
       }

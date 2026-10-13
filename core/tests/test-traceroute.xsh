@@ -48,7 +48,7 @@ proc drain(fd: Int) [process, net, error] -> Result[List[Bytes]] {
 proc assert_hop(line: Str, index: Int, address: Str, probes: Int) [error] {
   var pattern = f"^{if index < 10 { " " } else { "" }}{index}  {address}"
 
-  for _ in range(probes) {
+  repeat probes times {
     pattern = f"{pattern}  [0-9]+\\.[0-9]{{3}} ms"
   }
 

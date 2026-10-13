@@ -323,7 +323,7 @@ test test_nc_scans_ascending_ranges_even_when_given_backwards { |ctx|
   # Three consecutive ports of which only the middle one listens.
   var base = 0
   var middle = -1
-  for _ in range(20) {
+  repeat 20 times {
     let seed = closed_port()?
     let c = linux.net_constants()
     var usable = true
@@ -408,7 +408,7 @@ test test_nc_connect_timeout_is_reported_by_name { |ctx|
   let port = linux.getsockname(held)?.port
   var full = false
   let fillers = collect {
-    for _ in range(16) {
+    repeat 16 times {
       let filler = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?
       yield filler
       match linux.connect(filler, {family: "inet", address: "127.0.0.1", port: port}) {
@@ -643,7 +643,7 @@ test test_nc_udp_scan_sends_four_probes_and_detects_closed_ports { |ctx|
   let ran = run_nc(ctx, ["-vzu", "-n", "127.0.0.1", f"{open.port}"])?
   assert ran.status == 0
   assert ran.stderr == f"Connection to 127.0.0.1 {open.port} port [udp/*] succeeded!\n", ran.stderr
-  for _ in range(4) {
+  repeat 4 times {
     wait_readable(open.fd)
     assert linux.recvfrom(open.fd, 16)?.data == b"X"
   }

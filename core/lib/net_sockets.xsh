@@ -666,7 +666,7 @@ pure format_g(microseconds: Int) -> Str {
   var shown = whole
   if keep < 3 {
     var divisor = 1
-    for _ in range(3 - keep) { divisor *= 10 }
+    repeat 3 - keep times { divisor *= 10 }
     scaled = (fraction + divisor / 2) / divisor
     if scaled * divisor >= 1000 {
       shown += 1

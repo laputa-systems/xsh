@@ -41,7 +41,7 @@ export pure parse_size(text: Str) -> Int? {
   if suffix != "" {
     let power = ("KMGTPEZYRQ".find(suffix) ?? -1) + 1
     return null when power <= 0
-    for _ in range(power) {
+    repeat power times {
       return null when value > 9223372036854775807 / base
       value *= base
     }

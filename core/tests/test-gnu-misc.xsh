@@ -226,7 +226,7 @@ test test_gnu_misc_tsort_log { |ctx|
 test test_gnu_misc_nohup_log { |ctx|
   let s = uu.scene(ctx)?
   let child = r"""printf 'stdout\n'; printf 'stderr\n' >&2; """
-  for _ in range(2) { let r = uu.invoke(s, "nohup", ["sh", "-c", child])?; uu.succeeds(r); uu.stdout_is(r, "stdout\n"); uu.stderr_is(r, "stderr\n"); assert ! uu.exists(s, "nohup.out")? }
+  repeat 2 times { let r = uu.invoke(s, "nohup", ["sh", "-c", child])?; uu.succeeds(r); uu.stdout_is(r, "stdout\n"); uu.stderr_is(r, "stderr\n"); assert ! uu.exists(s, "nohup.out")? }
   let missing = uu.invoke(s, "nohup", ["no-such-command"])?
   uu.touch(s, "k"); uu.set_mode(s, "k", 0)
   uu.fails_with_code(uu.invoke(s, "nohup", ["./k"])?, 126)

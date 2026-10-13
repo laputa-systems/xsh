@@ -61,7 +61,7 @@ pure size_problem(mode: Str) -> Str? {
     low = 1
   }
   return "invalid suffix in" unless valid
-  for _ in range(steps) {
+  repeat steps times {
     let next = low * base
     let upper = high * base + next / 4294967296
     low = next % 4294967296

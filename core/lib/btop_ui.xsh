@@ -243,7 +243,7 @@ pure process_tree_rows(
   } else {
     for pid in hierarchy.preorder {
       var cursor: Int? = pid
-      for _ in range(hierarchy.preorder.len()) {
+      repeat hierarchy.preorder.len() times {
         break when cursor == null
         let current = cursor ?? pid
         if current in matching {
@@ -259,7 +259,7 @@ pure process_tree_rows(
       if pid in matching {
         if let Ok(node) = hierarchy.nodes.get(pid) {
           var parent = node.parent_pid
-          for _ in range(hierarchy.preorder.len()) {
+          repeat hierarchy.preorder.len() times {
             break when parent == null
             let parent_pid = parent ?? pid
             included = included.add(parent_pid)

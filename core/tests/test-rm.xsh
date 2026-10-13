@@ -282,7 +282,7 @@ test test_rm_recursive_removes_hierarchy_deeper_than_path_max { |ctx|
   var top = fs.open_root(base)?
   top.mkdir(p"deep")
   var floor = top.open_root(p"deep")?
-  for _ in range(5) {
+  repeat 5 times {
     floor.mkdir(chain, parents: true)
     floor = floor.open_root(chain)?
   }

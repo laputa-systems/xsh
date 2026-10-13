@@ -44,12 +44,12 @@ test test_fmt_avoids_false_sentence_breaks_and_sentence_widows { |ctx|
 test test_fmt_split_only_handles_a_paragraph_longer_than_one_buffer { |ctx|
   # 1015 words is past GNU's 998-word buffer, so the paragraph is laid out in two flushes.
   var text = " y"
-  for _ in range(1014) { text += " y" }
+  repeat 1014 times { text += " y" }
   let input = test.temp_file(ctx, name: "long", contents: bytes.from_text(text + "\n"))?
   var line = " y"
-  for _ in range(34) { line += " y" }
+  repeat 34 times { line += " y" }
   var expected = ""
-  for _ in range(29) { expected += line + "\n" }
+  repeat 29 times { expected += line + "\n" }
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fmt.xsh" -- -s $input
   assert output == expected
 }
@@ -78,7 +78,7 @@ test test_fmt_width_and_goal_diagnostics { |ctx|
 
 test test_fmt_goal_only_sets_width_ten_above_goal { |ctx|
   var paragraph = ""
-  for _ in range(35) { paragraph += "aaaa " }
+  repeat 35 times { paragraph += "aaaa " }
   let input = test.temp_file(ctx, name: "goal-width", contents: bytes.from_text(paragraph + "\n"))?
   for goal in [65, 75] {
     let implicit = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fmt.xsh" -- -q -g $goal $input

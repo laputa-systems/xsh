@@ -220,7 +220,7 @@ test test_du_walks_long_nested_paths { |ctx|
   tree.mkdir()
   var deepest = tree
   var component = ""
-  for _ in range(10) { component = f"{component}0123456789" }
+  repeat 10 times { component = f"{component}0123456789" }
 
   for index in range(15) {
     let child = fp"{deepest}/{component}{index}"
@@ -298,7 +298,7 @@ test test_du_walks_long_paths_from_unreadable_cwd { |ctx|
   let inaccessible = fp"{root}/inaccessible"
   inaccessible.mkdir()
   var component = ""
-  for _ in range(20) { component = f"{component}0123456789" }
+  repeat 20 times { component = f"{component}0123456789" }
   let first = fp"{tree}/{component}20"
   var deep_root = fs.open_root(tree)?
   for remaining in range(20) {

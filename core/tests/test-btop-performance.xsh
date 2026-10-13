@@ -157,7 +157,7 @@ test test_btop_process_join_scales_from_one_thousand_to_two_thousand {
   let _ = measured_process_join(current_2000.processes.processes, previous_2000.processes.processes)
   var samples_1000 = []
   var samples_2000 = []
-  for _ in range(5) {
+  repeat 5 times {
     samples_1000 += [measured_process_join(current_1000.processes.processes, previous_1000.processes.processes)]
     samples_2000 += [measured_process_join(current_2000.processes.processes, previous_2000.processes.processes)]
   }
@@ -194,7 +194,7 @@ test test_btop_preloaded_model_render_and_diff_profile_at_one_thousand_processes
   let initial_update = surface.prepare(surface.initial(), initial_surface)
   var committed = surface.complete(initial_update, initial_update.bytes.byte_len())
   var samples = []
-  for _ in range(20) {
+  repeat 20 times {
     let started_ns = time.monotonic()?
     let updated = model.step_cached(current, previous, model.empty_metadata_cache("profile"))
     let screen = renderer.render(updated.value, 120, 40)?

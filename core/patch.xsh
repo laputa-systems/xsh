@@ -860,7 +860,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
 pure without_bits(mode: Int, mask: Int) -> Int {
   var result = mode
   var bit = 1
-  for _ in range(12) {
+  repeat 12 times {
     if mask / bit % 2 == 1 and result / bit % 2 == 1 { result -= bit }
     bit *= 2
   }

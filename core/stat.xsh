@@ -62,7 +62,7 @@ pure hex(value: Int) -> Str {
   var out = ""
 
   if value < 0 {
-    for _ in range(16) {
+    repeat 16 times {
       let index = 15 - rest % 16
       out = f"{digits[index..index + 1]}{out}"
       rest /= 16
@@ -221,7 +221,7 @@ pure stat_time(value: Int, precision: Int?, width: Int, left: Bool, zero: Bool) 
         rendered = f"{rendered}.{fractional.byte_slice(0, length: digits)}"
       } else {
         var extra = ""
-        for _ in range(digits - 9) { extra = f"{extra}0" }
+        repeat digits - 9 times { extra = f"{extra}0" }
         rendered = f"{rendered}.{fractional}{extra}"
       }
     }

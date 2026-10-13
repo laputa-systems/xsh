@@ -76,7 +76,7 @@ test test_uu_stdbuf_stdbuf_line_buffering_stdin_fails { |ctx|
 test test_uu_stdbuf_stdbuf_no_tmpdir_leak { |ctx|
   let s = uu.scene(ctx)?
   let dedicated = test.temp_dir(ctx, name: "stdbuf-tmpdir")?
-  for _ in range(5) {
+  repeat 5 times {
     let result = uu.invoke(s, "stdbuf", ["-oL", "true"], vars: {TMPDIR: dedicated}, timeout: 5s)?
   }
   let leaked = fs.children(dedicated)? |> where { |entry| entry.path.is_dir()? } |> count()

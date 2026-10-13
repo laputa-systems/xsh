@@ -153,7 +153,7 @@ pure wide_draw(window: Bytes, at: Int, count: List[Int]) -> WideDraw {
     if high_bits != 0 and byte_count > 0 {
       var limit = 1
 
-      for _ in range(high_bits) { limit *= 2 }
+      repeat high_bits times { limit *= 2 }
       candidate[start] = candidate[start] % limit
     }
 

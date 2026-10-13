@@ -27,7 +27,7 @@ pure quote(text: Str) -> Str {
 
 pure indent(depth: Int) -> Str {
   var out = ""
-  for _ in range(depth) { out += "  " }
+  repeat depth times { out += "  " }
   out
 }
 

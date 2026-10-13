@@ -693,7 +693,7 @@ pure generate(nodes: List[Node], idx: Int, icase: Bool, utf8: Bool, marks: Bool,
   let copies = if node.b == -1 { node.a + 1 } else { node.b }
   return [{op: OP_TOO_BIG, x: 0, y: 0}] when width * copies > PROGRAM_LIMIT
   let out: List[Inst] = collect {
-    for _ in range(node.a) { yield @body }
+    repeat node.a times { yield @body }
     if node.b == -1 {
       if marks and nullable(nodes, kid) {
         yield @[{op: OP_SPLIT, x: 1, y: width + 4}, {op: OP_MARK, x: slot_base + idx, y: 0}] + body + [

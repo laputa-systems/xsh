@@ -107,7 +107,7 @@ pure line_key(line: Bytes, rules: Rules) -> Bytes {
       if text.byte_at(index) == 9 {
         chunks += [text[start..index]]
         let pad = rules.tabsize - column % rules.tabsize
-        for _ in range(pad) { chunks += [b" "] }
+        repeat pad times { chunks += [b" "] }
         column += pad
         start = index + 1
         index += 1

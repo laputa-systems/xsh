@@ -78,7 +78,7 @@ pure optional_decimal(text: Str) -> Result[Int] {
 pure fraction(text: Str) -> Result[Int] {
   return Err(invalid(text)) when text.byte_len() > 9 or ! rx"^[0-9]*$".matches(text)
   var value = optional_decimal(text)?
-  for _ in range(9 - text.byte_len()) { value *= 10 }
+  repeat 9 - text.byte_len() times { value *= 10 }
   Ok(value)
 }
 

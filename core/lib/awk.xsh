@@ -2164,7 +2164,7 @@ pure leaf_blocks(keys: List[Str]) -> List[Bool] {
       var estimate = if m > 10 { m } else { 10 }
       while estimate >= 10 { estimate = (estimate + 1) / 2 }
       var allocated = 1
-      for _ in range(estimate) { allocated *= 2 }
+      repeat estimate times { allocated *= 2 }
       if capacity + allocated - count > 2048 {
         yield false
         continue
@@ -2173,12 +2173,12 @@ pure leaf_blocks(keys: List[Str]) -> List[Bool] {
       yield true
       var level = if m < 10 { 10 } else { m }
       var base = 0
-      if m >= 10 { base = 1; for _ in range(m) { base *= 2 } }
+      if m >= 10 { base = 1; repeat m times { base *= 2 } }
       var trail = f"{h1}"
       loop {
         let n = (level + 1) / 2
         var size = 1
-        for _ in range(n) { size *= 2 }
+        repeat n times { size *= 2 }
         let index = (k - base) / size
         if n > 10 {
           trail += f"/{index}"
@@ -2941,7 +2941,7 @@ pure seed_generator(seed: Int) -> Generator {
   }
   var front = 1
   var rear = 0
-  for _ in range(630) {
+  repeat 630 times {
     words[front] = (words[front] + words[rear]) % 4294967296
     front += 1
     if front >= 63 { front = 0; rear += 1 } else { rear += 1; if rear >= 63 { rear = 0 } }

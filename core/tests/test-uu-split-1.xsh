@@ -305,7 +305,7 @@ test test_uu_split_filter_with_kth_chunk { |ctx|
 # origin: uutils test_split::test_guard_input
 test test_uu_split_guard_input { |ctx|
   let s = split_scene(ctx)?
-  for _ in range(2) {
+  repeat 2 times {
     let r = uu.invoke(s, "split", ["-C", "6"], stdin: b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")?
     uu.succeeds(r)
     uu.no_output(r)

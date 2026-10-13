@@ -50,7 +50,7 @@ pure stat_hex(value: Int) -> Str {
   var output = ""
 
   if value < 0 {
-    for _ in range(16) {
+    repeat 16 times {
       let index = 15 - rest % 16
       output = f"{digits[index..index + 1]}{output}"
       rest /= 16

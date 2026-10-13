@@ -467,7 +467,7 @@ proc show_coalesce(fd: Int, device: Str, rest: List[Str]) {
 
 pure range_zero(count: Int) -> List[Int] {
   let zeros = collect {
-    for _ in range(count) { yield 0 }
+    repeat count times { yield 0 }
   }
   zeros
 }

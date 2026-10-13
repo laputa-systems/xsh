@@ -525,7 +525,7 @@ test test_sort_sigint_removes_external_runs { |ctx|
     stderr.display(), ctx.xsh_bin.display(), "--", script.display(), "-S1", "-T", root.display(),
     "-o", stdout.display(), input.display()]) ?
   var saw_run = false
-  for _ in range(500) {
+  repeat 500 times {
     if fs.files(root, hidden: true)? |> any .name.starts_with("run-") {
       saw_run = true
       break
@@ -1872,13 +1872,13 @@ test test_sort_invalid_utf8_spill_and_merge_roundtrip { |ctx|
   let first = bytes.concat([b"a", high, tail])
   let second = bytes.concat([b"z", high, tail])
   let input = collect {
-    for _ in range(260) {
+    repeat 260 times {
       yield @[second, b"\n", first, b"\n"]
     }
   }
   let expected = collect {
-    for _ in range(260) { yield @[first, b"\n"] }
-    for _ in range(260) { yield @[second, b"\n"] }
+    repeat 260 times { yield @[first, b"\n"] }
+    repeat 260 times { yield @[second, b"\n"] }
   }
   let source = fp"{root}/source"
   source.write(bytes.concat(input))

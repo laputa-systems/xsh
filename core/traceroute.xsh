@@ -912,7 +912,7 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
     var shown = ""
     var started = false
 
-    for _ in range(s.queries) {
+    repeat s.queries times {
       if s.send_wait_ms > 0 and last_send != 0 {
         let idle = time.now() - last_send
 

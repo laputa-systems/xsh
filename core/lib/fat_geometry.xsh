@@ -65,7 +65,7 @@ export pure geometry(size: Int, bits: Int, sector: Int, cluster: Int, reserved: 
       let roots = if kind == 32 { 0 } else { 512 }
       let root_count = (roots * 32 + sector - 1) / sector
       var fat_sectors = 1
-      for _ in range(64) {
+      repeat 64 times {
         let overhead = reserved_count + fats * fat_sectors + root_count
         break when overhead >= total
         let count = (total - overhead) / spc

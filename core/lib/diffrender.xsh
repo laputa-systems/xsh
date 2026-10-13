@@ -109,7 +109,7 @@ pure expand(line: Bytes, tabsize: Int, repeat_flag: Bytes?, utf8: Bool) -> Bytes
       if value == 9 {
         yield line[start..index]
         let pad = tabsize - column % tabsize
-        for _ in range(pad) { yield b" " }
+        repeat pad times { yield b" " }
         column += pad
         start = index + 1
         index += 1
@@ -299,11 +299,11 @@ pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[
           j += 1
         } else {
           let item = chain[cursor]
-          for _ in range(item.deleted) {
+          repeat item.deleted times {
             out += [render_line("-", first.lines[i], !terminated(first, i), fmt, 3)]
             i += 1
           }
-          for _ in range(item.inserted) {
+          repeat item.inserted times {
             out += [render_line("+", second.lines[j], !terminated(second, j), fmt, 2)]
             j += 1
           }
@@ -681,7 +681,7 @@ pure pad_to(text: Str, width: Int, left: Bool, zero: Bool) -> Str {
   return out when out.byte_len() >= width
   let fill = width - out.byte_len()
   var padding = ""
-  for _ in range(fill) { padding += if zero and !left { "0" } else { " " } }
+  repeat fill times { padding += if zero and !left { "0" } else { " " } }
   if left { out + padding } else if zero and out.starts_with("-") { "-" + padding + out.byte_slice(1) } else { padding + out }
 }
 

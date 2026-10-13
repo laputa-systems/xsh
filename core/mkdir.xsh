@@ -116,7 +116,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # kernels it must fail.
   let enabled = labelled and selinux.enabled()?
   if valued_contexts > 0 and !enabled {
-    for _ in range(valued_contexts) {
+    repeat valued_contexts times {
       gnu.error("warning: ignoring --context; it requires an SELinux/SMACK-enabled kernel")
     }
   }

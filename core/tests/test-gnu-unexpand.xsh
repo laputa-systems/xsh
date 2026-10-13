@@ -100,7 +100,7 @@ test test_gnu_unexpand_mb_log { |ctx|
   let width_expected = ["12345678", "e\t|ascii(1)", "é\t|composed(1)", "é\t|decomposed(1)",
     "\t|ideo-space(2)", "\t|ideo-space(2) * 4", "－\t|full-hypen(2)"].join("\n") + "\n"
   uu.write(s, "in", width_input)
-  for _ in range(2) {
+  repeat 2 times {
     let width = uu.invoke_from_path(s, "unexpand", ["-a"], uu.at(s, "in"), vars:)?
     uu.succeeds(width)
     uu.stdout_is(width, width_expected)

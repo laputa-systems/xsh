@@ -347,7 +347,7 @@ proc parse_args(argv: List[Str]) [process, io, error] -> Config {
 
 pure state_bit(state: Int) -> Int {
   var power = 1
-  for _ in range(state) { power *= 2 }
+  repeat state times { power *= 2 }
   power
 }
 
@@ -485,7 +485,7 @@ pure parse_ipv6(text: Str) -> Bytes? {
     return null when missing < 1
 
     all = groups
-    for _ in range(missing) { all += [0] }
+    repeat missing times { all += [0] }
     all = all.extend(after)
   } else {
     all = groups
@@ -799,7 +799,7 @@ pure prefix_match(prefix: Bytes, bits: Int, data: Bytes) -> Bool {
       remaining -= 8
     } else {
       var keep = 1
-      for _ in range(8 - remaining) { keep *= 2 }
+      repeat 8 - remaining times { keep *= 2 }
       return false when have / keep != want / keep
       remaining = 0
     }

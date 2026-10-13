@@ -10,7 +10,7 @@ pure split_events(sequence: Bytes, split: Int) -> List[input.Event] {
 
 pure repeated(byte: Int, count: Int) -> Bytes {
   let chunks = collect {
-    for _ in range(count) { yield bytes.from_ints([byte]) ?? b"" }
+    repeat count times { yield bytes.from_ints([byte]) ?? b"" }
   }
   bytes.concat(chunks)
 }

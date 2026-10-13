@@ -197,8 +197,8 @@ pure plain_lines() -> Bytes {
 }
 
 pure plain_big() -> Bytes {
-  let chunk = bytes.concat(collect { for _ in range(400) { yield b"0123456789abcdefghijklmn\n" } })
-  bytes.concat(collect { for _ in range(25) { yield chunk } })
+  let chunk = bytes.concat(collect { repeat 400 times { yield b"0123456789abcdefghijklmn\n" } })
+  bytes.concat(collect { repeat 25 times { yield chunk } })
 }
 
 # The fixtures below were written by gzip 1.15, bzip2 1.0.8, xz 5.8.4 (also for

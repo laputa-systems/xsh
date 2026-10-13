@@ -383,7 +383,7 @@ export pure highest_bit(value: Int, low: Int, high: Int) -> Int {
 ## 2 raised to a small non-negative power.
 export pure pow2(power: Int) -> Int {
   var result = 1
-  for _ in range(power) { result *= 2 }
+  repeat power times { result *= 2 }
   result
 }
 

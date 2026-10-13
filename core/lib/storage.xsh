@@ -1227,7 +1227,7 @@ pure gpt_attribute_names(raw: Bytes) -> Str {
   let names = collect {
     for bit in range(64) {
       var mask = 1
-      for _ in range(bit % 8) { mask *= 2 }
+      repeat bit % 8 times { mask *= 2 }
       continue when (raw.byte_at(bit / 8) ?? 0) / mask % 2 == 0
       if bit == 0 {
         yield "RequiredPartition"

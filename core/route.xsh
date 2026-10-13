@@ -303,7 +303,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
 pure hex8(value: Int) -> Str {
   var out = ""
   var rest = value
-  for _ in range(8) {
+  repeat 8 times {
     out = "0123456789abcdef".byte_slice(rest % 16, length: 1) + out
     rest = rest / 16
   }

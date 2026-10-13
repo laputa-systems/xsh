@@ -87,7 +87,7 @@ const RESOURCES = ["as", "core", "cpu", "data", "fsize", "locks", "memlock", "ms
 # child is still executing the program, and a limit set then would fail the
 # exec, so the name the kernel reports tells when `sleep` is really running.
 proc wait_for_sleep(pid: Int) [fs, time, error] {
-  for _ in range(500) {
+  repeat 500 times {
     if let Ok(name) = fp"/proc/{pid}/comm".read_text() {
       return when name.trim() == "sleep"
     }
