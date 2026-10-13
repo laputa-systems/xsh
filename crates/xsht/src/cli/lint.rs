@@ -2744,6 +2744,84 @@ mod tests {
     }
 
     #[test]
+    fn lint_workspace_falls_back_after_earlier_root_source_diagnostic() {
+        let fixture = TempDir::new().unwrap();
+        let module = fixture.path().join("helper.xsh");
+        let module_source =
+            "##! Helper.\n## Returns one.\nexport pure value() -> Int { return 1 }\n";
+        fs::write(&module, module_source).unwrap();
+
+        let first = fixture.path().join("a_entry.xsh");
+        let first_source = "use helper\nlet value = (\n";
+        fs::write(&first, first_source).unwrap();
+        let second = fixture.path().join("b_entry.xsh");
+        let second_source =
+            "use helper\npure second() -> Int { return 2 }\nprint second()\nprint helper.value()\n";
+        fs::write(&second, second_source).unwrap();
+
+        let paths = [
+            first.to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+        ];
+        let discovery = discover_lint_files(
+            &paths,
+            &crate::xsht::cli::XshConfig::default(),
+        )
+        .unwrap();
+        let run = |available| {
+            super::lint_workspace_with_parallelism(
+                &discovery,
+                false,
+                false,
+                &ConfigCache::default(),
+                available,
+                &StageTimings::start(),
+            )
+            .into_iter()
+            .flat_map(|result| match result.kind {
+                LintResultKind::Clean => Vec::new(),
+                LintResultKind::Diagnostics { status, diagnostics } => diagnostics
+                    .into_iter()
+                    .map(|diagnostic| (status, diagnostic.key, diagnostic.text))
+                    .collect(),
+                _ => panic!("read-only valid workspace must only return lint diagnostics"),
+            })
+            .collect::<Vec<_>>()
+        };
+
+        let serial = run(1);
+        let parallel = run(4);
+        assert_eq!(serial, parallel);
+        let source_keys = serial
+            .iter()
+            .map(|(_, key, _)| key.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(source_keys.len(), 3, "{serial:?}");
+        assert!(source_keys[0].contains("a_entry.xsh"), "{source_keys:?}");
+        assert!(source_keys[1].contains("b_entry.xsh"), "{source_keys:?}");
+        assert!(source_keys[2].contains("helper.xsh"), "{source_keys:?}");
+        assert!(serial.iter().any(|(status, key, _)| {
+            *status == 2 && key.contains("a_entry.xsh") && key.contains("parse")
+        }), "{serial:?}");
+        let helper_findings = serial
+            .iter()
+            .filter(|(_, key, text)| {
+                key.contains("helper.xsh") && text.contains("lint.redundant-tail-return")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(helper_findings.len(), 1, "{serial:?}");
+        assert_eq!(helper_findings[0].0, 1, "{serial:?}");
+        assert!(serial.iter().any(|(status, key, text)| {
+            *status == 1
+                && key.contains("b_entry.xsh")
+                && text.contains("lint.redundant-tail-return")
+        }), "{serial:?}");
+        assert_eq!(fs::read_to_string(&module).unwrap(), module_source);
+        assert_eq!(fs::read_to_string(first).unwrap(), first_source);
+        assert_eq!(fs::read_to_string(second).unwrap(), second_source);
+    }
+
+    #[test]
     fn lint_selected_root_reuses_imported_source_facts_without_waiting_for_its_root_walk() {
         let fixture = TempDir::new().unwrap();
         let entry = fixture.path().join("entry.xsh");
