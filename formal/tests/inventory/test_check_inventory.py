@@ -25,6 +25,33 @@ class InventoryCheckerTests(unittest.TestCase):
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
+    def test_root_import_reaches_every_project_module(self) -> None:
+        formal_root = ROOT / "formal"
+        module_sources = {
+            ".".join(path.relative_to(formal_root).with_suffix("").parts): path
+            for path in formal_root.rglob("*.lean")
+            if "scripts" not in path.relative_to(formal_root).parts
+        }
+        imports_by_module: dict[str, set[str]] = {}
+        for module, path in module_sources.items():
+            imports: set[str] = set()
+            for line in path.read_text().splitlines():
+                declaration = line.split("--", 1)[0].strip()
+                if declaration.startswith("import "):
+                    imports.update(declaration.removeprefix("import ").split())
+            imports_by_module[module] = imports
+
+        reachable = {"Xsh"}
+        pending = ["Xsh"]
+        while pending:
+            module = pending.pop()
+            for imported in imports_by_module[module] & module_sources.keys():
+                if imported not in reachable:
+                    reachable.add(imported)
+                    pending.append(imported)
+
+        self.assertEqual(set(module_sources), reachable)
+
     def test_constructor_add_remove_and_rename_drift(self) -> None:
         fixture = (ROOT / "formal/tests/inventory/fixtures/arena.rs").read_text()
         inventoried = CHECKER.extract_enum(fixture, "ArenaExprTag")
