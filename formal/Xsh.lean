@@ -14,6 +14,7 @@ import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
 import Xsh.Effects.ExpressionBridge
+import Xsh.Effects.Capture
 import Xsh.IR.Raw.Witnesses
 import Xsh.Conformance.Transport.Codecs
 import Xsh.Conformance.Transport.Laws

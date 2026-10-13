@@ -31,8 +31,17 @@ reject creation inside that region, reject a missing alias, an unknown source
 form, and a blocked conditional arm, and show that a restricted consumer does
 not move the charge site. These are checker facts for the represented finite
 source forms only; they do not establish Rust source classification, full
-stream semantics, or conformance. Together, the effect fragments close
-neither `EFF-LATENT` nor `EFF-SEMANTIC`. The raw IR layer models typed pool IDs,
+stream semantics, or conformance. `Xsh.Effects.Capture` models removal of the
+outward `error` fact while preserving other named effects and unresolved work.
+It proves idempotence and commutation with the represented effect closure,
+permutation and duplicate invariance for finite effect clauses, and concrete
+witnesses that dropping named effects or unresolved work changes restricted-call
+acceptance. A captured missing-contract edge retains its explicit unresolved
+fact in the finite solver graph. These laws and witnesses concern represented
+summaries and graph edges only; they do not establish Rust checker
+classification or propagation, complete solver behavior, full `EFF-CAPTURE`,
+`EFF-LATENT`, or `EFF-SEMANTIC` semantics, or conformance. Together, the effect
+fragments close neither `EFF-LATENT` nor `EFF-SEMANTIC`. The raw IR layer models typed pool IDs,
 optional IDs, ranges, tables, and row decoding. Its decoder fragments prove
 successful sequential read length, successful payload length and table bounds,
 and rejection of one concrete out-of-bounds payload range. These independent
@@ -47,7 +56,7 @@ bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. The inventory names 82 rooted Lean
+72 complete theorem obligations planned. The inventory names 95 rooted Lean
 fragment declarations. Its 50 Python tests check inventory shape, root
 reachability, mutation controls, and finite-case evidence boundaries; they are
 not semantic or Rust conformance tests. No full G1 closure or whole-language

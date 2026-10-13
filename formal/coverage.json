@@ -3724,6 +3724,123 @@
       "status": "fragment",
       "scope": "A classified obligation listed on a checked consumer is permitted at the lexical context stored on that consumer.",
       "boundary": "Uses a caller-supplied checked consumer and an obligation already in its classified list. Structural Expr labels cannot distinguish identical source occurrences. No producer execution, Rust conformance, or full EFF-LATENT/EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.capture_effect_set_removes_error",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.capture_effect_set_removes_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Capture removes the error member from a represented finite effect set.",
+      "boundary": "Formal finite-effect-set model only; no Rust checker propagation or full EFF-CAPTURE semantics."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.capture_effect_set_preserves_other_effect",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.capture_effect_set_preserves_other_effect",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Capture preserves every non-error effect member in a represented finite effect set.",
+      "boundary": "Formal finite-effect-set model only; no Rust checker classification or full EFF-CAPTURE semantics."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.capture_effect_set_idempotent",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.capture_effect_set_idempotent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Repeated error capture has no further effect on a represented finite effect set.",
+      "boundary": "Formal finite-effect-set model only; no Rust checker propagation or full EFF-CAPTURE semantics."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.capture_commutes_with_effect_closure",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.capture_commutes_with_effect_closure",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Error capture commutes with the represented effect-closure operation.",
+      "boundary": "The modeled io closure does not derive error; no Rust checker behavior or full EFF-CAPTURE semantics is proved."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ofList_permutation_invariant",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.ofList_permutation_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Interpreting an effect-clause list as a finite set is invariant under permutation.",
+      "boundary": "Finite list-to-effect-set interpretation only; no parser or Rust declaration behavior is proved."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.ofList_duplicate_invariant",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.ofList_duplicate_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Repeating an effect-clause member preserves its finite-set interpretation.",
+      "boundary": "Finite list-to-effect-set interpretation only; no parser or Rust declaration behavior is proved."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.captured_ofList_permutation_invariant",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.captured_ofList_permutation_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Captured effect-clause interpretation is invariant under member ordering.",
+      "boundary": "Formal finite-effect-set and capture model only; no parser or Rust declaration behavior is proved."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.captured_ofList_duplicate_invariant",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.captured_ofList_duplicate_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Repeating a captured effect-clause member preserves its finite-set interpretation.",
+      "boundary": "Formal finite-effect-set and capture model only; no parser or Rust declaration behavior is proved."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.capture_rejects_network_under_empty_bound",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.capture_rejects_network_under_empty_bound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Capture retains the named network effect so an empty bound rejects the represented call.",
+      "boundary": "Concrete represented-summary witness only; no Rust classification or full EFF-CAPTURE semantics is proved."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.mutation_dropping_named_effects_is_observable",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.mutation_dropping_named_effects_is_observable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Dropping named effects changes restricted-call acceptance for the represented network summary.",
+      "boundary": "Concrete mutation over the represented summary and contract model only; no Rust conformance or full effect-bounds proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.capture_rejects_unresolved_under_empty_bound",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.capture_rejects_unresolved_under_empty_bound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Retaining unresolved work prevents an empty bound from accepting the represented captured call.",
+      "boundary": "Concrete represented-summary witness only; no complete solver or Rust checker behavior is proved."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.mutation_dropping_unresolved_is_observable",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.mutation_dropping_unresolved_is_observable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Erasing unresolved work changes restricted-call acceptance for the represented unknown summary.",
+      "boundary": "Concrete mutation over the represented summary and contract model only; no Rust conformance or complete solver claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.capture_keeps_unknown_contract_unresolved",
+      "module": "Xsh.Effects.Capture",
+      "declaration": "Xsh.Semantics.Effects.capture_keeps_unknown_contract_unresolved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A captured edge with no contract retains the explicit unresolved fact in the finite solver graph.",
+      "boundary": "Concrete graph witness only; no Rust contract propagation, solver completeness, or full EFF-CAPTURE semantics is proved."
     }
   ],
   "source_identity": null

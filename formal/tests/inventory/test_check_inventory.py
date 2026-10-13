@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(82, len(result["fragment_roots"]))
+        self.assertEqual(95, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -226,6 +226,7 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Effects.Solver",
                 "Xsh.Effects.Lexical",
                 "Xsh.Effects.ExpressionBridge",
+                "Xsh.Effects.Capture",
             }
         }
         self.assertEqual(
@@ -255,6 +256,19 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Semantics.Effects.conditional_blocked_arm_mutation_is_rejected_fragment",
                 "Xsh.Semantics.Effects.missing_alias_binding_mutation_is_rejected_fragment",
                 "Xsh.Semantics.Effects.unknown_source_fails_closed_fragment",
+                "Xsh.Semantics.Effects.capture_effect_set_removes_error",
+                "Xsh.Semantics.Effects.capture_effect_set_preserves_other_effect",
+                "Xsh.Semantics.Effects.capture_effect_set_idempotent",
+                "Xsh.Semantics.Effects.capture_commutes_with_effect_closure",
+                "Xsh.Semantics.Effects.ofList_permutation_invariant",
+                "Xsh.Semantics.Effects.ofList_duplicate_invariant",
+                "Xsh.Semantics.Effects.captured_ofList_permutation_invariant",
+                "Xsh.Semantics.Effects.captured_ofList_duplicate_invariant",
+                "Xsh.Semantics.Effects.capture_rejects_network_under_empty_bound",
+                "Xsh.Semantics.Effects.mutation_dropping_named_effects_is_observable",
+                "Xsh.Semantics.Effects.capture_rejects_unresolved_under_empty_bound",
+                "Xsh.Semantics.Effects.mutation_dropping_unresolved_is_observable",
+                "Xsh.Semantics.Effects.capture_keeps_unknown_contract_unresolved",
             },
             effect_roots,
         )
