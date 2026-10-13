@@ -56,14 +56,14 @@ proc charset() -> Charset {
 }
 
 pure char_width(line: Bytes, at: Int, encoding: Charset) -> Int {
-  if encoding == SingleByte { return 1 }
+  return 1 when encoding == SingleByte
   let first = line.byte_at(at) ?? 0
   if encoding == Gb18030 {
     let second = line.byte_at(at + 1) ?? 0
     let third = line.byte_at(at + 2) ?? 0
     let fourth = line.byte_at(at + 3) ?? 0
     if first >= 129 and first <= 254 {
-      if second >= 64 and second <= 254 and second != 127 { return 2 }
+      return 2 when second >= 64 and second <= 254 and second != 127
       if second >= 48 and second <= 57 and third >= 129 and third <= 254 and fourth >= 48 and fourth <= 57 {
         let pointer = ((first - 129) * 10 + second - 48) * 1260 + (third - 129) * 10 + fourth - 48
         return 4 when pointer < 39420 or (pointer >= 189000 and pointer <= 1237575)

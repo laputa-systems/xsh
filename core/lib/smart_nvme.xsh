@@ -215,7 +215,7 @@ export pure version_text(version: Int) -> Str {
   let major = version / 65536
   let minor = version / 256 % 256
   let tertiary = version % 256
-  if tertiary != 0 { return f"{major}.{minor}.{tertiary}" }
+  return f"{major}.{minor}.{tertiary}" when tertiary != 0
   f"{major}.{minor}"
 }
 
@@ -290,9 +290,7 @@ pure flag_names(value: Int, names: List[Str]) -> Str {
 pure power_text(units: Int, scale: Int) -> Str {
   # `scale` is 0.0001 W per unit (1) or 0.01 W per unit (2); other values do
   # not describe a power figure.
-  if scale == 1 {
-    return f"{units / 10000}.{smart.zero_pad(units % 10000, 4)}W"
-  }
+  return f"{units / 10000}.{smart.zero_pad(units % 10000, 4)}W" when scale == 1
   f"{units / 100}.{smart.zero_pad(units % 100, 2)}W"
 }
 
@@ -445,7 +443,7 @@ export pure status_message(status: Int) -> Str {
 ## The `Error Information` block. `read` entries of `capacity` were fetched.
 export pure error_log_text(records: List[ErrorRecord], read: Int, capacity: Int, entries: Int) -> Str {
   var out = f"Error Information (NVMe Log 0x01, {read} of {capacity} entries)\n"
-  if entries == 0 and records.is_empty() { return out + "No Errors Logged\n\n" }
+  return out + "No Errors Logged\n\n" when entries == 0 and records.is_empty()
   out += "Num   ErrCount  SQId   CmdId  Status  PELoc          LBA  NSID    VS  Message\n"
   for index in range(records.len()) {
     let record = records[index]
@@ -492,7 +490,7 @@ export pure self_test_log_text(log: SelfTestLog, nsid: Int) -> Str {
   } else {
     out += f"Self-test status: {self_test_progress(log.operation)} ({log.completion}% completed)\n"
   }
-  if log.entries.is_empty() { return out + "No Self-tests Logged\n\n" }
+  return out + "No Self-tests Logged\n\n" when log.entries.is_empty()
   out += "Num  Test_Description  Status                       Power_on_Hours  Failing_LBA  NSID Seg SCT Code\n"
   for index in range(log.entries.len()) {
     let entry = log.entries[index]

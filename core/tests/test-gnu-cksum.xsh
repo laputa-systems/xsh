@@ -415,7 +415,7 @@ test test_gnu_cksum_cksum_base64_log { |ctx|
   for line in help.stdout.utf8()?.lines() {
     if line.starts_with("DIGEST determines") { in_digest = true; continue }
     if in_digest {
-      if line.trim() == "" { break }
+      break when line.trim() == ""
       let clean = line.trim().replace("- ", with: "")
       algorithms += [clean.fields()[0].split(":")[0]]
     }

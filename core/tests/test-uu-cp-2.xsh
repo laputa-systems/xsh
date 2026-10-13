@@ -16,7 +16,7 @@ proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
 # Upstream file_exists treats missing paths as false.
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
   let file = uu.at(s, name)
-  if !file.exists() { return Ok(false) }
+  return Ok(false) unless file.exists()
   Ok(file.is_file()?)
 }
 

@@ -788,7 +788,7 @@ test test_uu_df_df_masked_proc_fallback { |ctx|
   let s = uu.scene(ctx)?
   match process.which("unshare") { Err(_) => return, Ok(_) => {} }
   let probe = process.run(process.command_argv("unshare", ["unshare", "-rm", "true"], s.root, {}, b"", p"/dev/null", p"/dev/null", timeout: 10s))?
-  if ! probe.exited_with(0) { return }
+  return unless probe.exited_with(0)
   let measured = masked_proc(s, ["."])?
   uu.succeeds(measured)
   uu.stderr_contains(measured, "cannot read table of mounted file systems")

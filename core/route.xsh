@@ -133,7 +133,7 @@ proc ipv6_listing(numeric: Bool, cache: Bool) [fs, process, env, io, error] {
 # Splits `ADDR[/PREFIX]`; a malformed prefix is a usage error.
 proc split_prefix(word: Str, limit: Int, family: Str) [process, error] -> Split {
   let slash = word.find("/")
-  if slash == null { return {text: word, prefix: null} }
+  return {text: word, prefix: null} when slash == null
   let parsed = nettools.decimal(word.byte_slice((slash ?? 0) + 1))
   if parsed == null or (parsed ?? 0) > limit { modify_usage(family) }
   {text: word.byte_slice(0, length: slash ?? 0), prefix: parsed}

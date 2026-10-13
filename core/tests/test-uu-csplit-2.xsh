@@ -20,7 +20,7 @@ proc split_count(s: uu.Scene) [fs, error] -> Result[Int, Error] {
 # Missing paths are not regular files, matching the upstream scene helper.
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
   let file = uu.at(s, name)
-  if !file.exists() { return Ok(false) }
+  return Ok(false) unless file.exists()
   Ok(file.is_file()?)
 }
 

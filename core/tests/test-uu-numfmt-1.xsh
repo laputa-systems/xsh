@@ -28,8 +28,8 @@ proc tty_stderr(s: uu.Scene, args: List[Str], stdin: Bytes = b"") [fs, process, 
   var captured = b""
   loop {
     match unix.read_fd(pty.master, 1024) {
-      Ok(data) => { if data.is_empty() { break }; captured = bytes.concat([captured, data]) },
-      Err(failure) => { if failure.errno == 5 { break }; return Err(failure) },
+      Ok(data) => { break when data.is_empty(); captured = bytes.concat([captured, data]) },
+      Err(failure) => { break when failure.errno == 5; return Err(failure) },
     }
   }
   Ok({util: r.util, args: r.args, status: r.status, stdout: r.stdout, stderr: captured})

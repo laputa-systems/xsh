@@ -145,9 +145,7 @@ pure hex_group(value: Int) -> Str {
     text = f"{HEX_DIGITS.byte_slice(digit, 1)}{text}"
     rest = rest / 16
 
-    if rest == 0 {
-      break
-    }
+    break when rest == 0
   }
 
   text
@@ -297,9 +295,7 @@ pure classify(v6: Bool, kind: Int, code: Int, info: Int) -> Verdict {
 pure bounded(text: Str, low: Int, high: Int) -> Int? {
   let value = text.parse_int_decimal() ?? low - 1
 
-  if value < low or value > high {
-    return null
-  }
+  return null when value < low or value > high
 
   value
 }
@@ -308,15 +304,11 @@ pure bounded(text: Str, low: Int, high: Int) -> Int? {
 pure seconds_ms(text: Str) -> Int? {
   let value = text.parse_float() ?? -1.0
 
-  if value < 0.0 or value > 86400.0 {
-    return null
-  }
+  return null when value < 0.0 or value > 86400.0
 
   let milliseconds = (value * 1000.0).round() ?? -1
 
-  if milliseconds < 0 {
-    return null
-  }
+  return null when milliseconds < 0
 
   milliseconds
 }
@@ -347,9 +339,7 @@ pure span_ms(start_ns: Int, end_ns: Int) -> Float {
 pure control_stamp(control: List[Control], level: Int, kind: Int) -> Int {
   let found = [entry for entry in control if entry.level == level and entry.type == kind]
 
-  if found.is_empty() {
-    return 0
-  }
+  return 0 when found.is_empty()
 
   let seconds = bytes.unpack_le(found[0].data, 8, 0) ?? 0
   let nanos = bytes.unpack_le(found[0].data, 8, 8) ?? 0
@@ -368,9 +358,7 @@ proc open_clock() [process, net, error] -> Clock {
   let bound = linux.bind(fd, {family: "inet", address: "127.0.0.1", port: 0})
   let stamped = linux.setsockopt_int(fd, c.SOL_SOCKET, c.SO_TIMESTAMPNS, 1)
 
-  if bound is Err(_) or stamped is Err(_) {
-    return unusable
-  }
+  return unusable when bound is Err(_) or stamped is Err(_)
 
   guard let address = linux.getsockname(fd) else { |failure|
     return unusable
@@ -386,9 +374,7 @@ proc stamp_ns(clock: Clock) [process, net, time, error] -> Int {
 
   return coarse when clock.fd < 0
 
-  if linux.sendto(clock.fd, b"t", clock.address) is Err(_) {
-    return coarse
-  }
+  return coarse when linux.sendto(clock.fd, b"t", clock.address) is Err(_)
 
   guard let message = linux.recvfrom(clock.fd, 1, c.MSG_DONTWAIT) else { |failure|
     return coarse
@@ -410,9 +396,7 @@ proc receive_ns(clock: Clock, control: List[Control]) [process, net, time, error
 proc resolve_one(name: Str, family: Str) [net, error] -> Result[Str] {
   let records = dns.resolve_host(name, family)?
 
-  if records.is_empty() {
-    return Err(error.failure(f"{name}: Name or service not known"))
-  }
+  return Err(error.failure(f"{name}: Name or service not known")) when records.is_empty()
 
   Ok(records[0].addr)
 }
@@ -562,9 +546,7 @@ proc read_queue(s: Settings, fd: Int) [process, net, error] -> Result[Queued?] {
 
   match linux.recvfrom(fd, 2048, c.MSG_ERRQUEUE.bit_or(c.MSG_DONTWAIT)) {
     Err(failure) => {
-      if (failure.errno ?? 0) != 11 {
-        return Err(describe("recvmsg", failure))
-      }
+      return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
 
       let _ = linux.getsockopt_int(fd, c.SOL_SOCKET, c.SO_ERROR)
 
@@ -575,9 +557,7 @@ proc read_queue(s: Settings, fd: Int) [process, net, error] -> Result[Queued?] {
       let kind = if s.v6 { c.IPV6_RECVERR } else { c.IP_RECVERR }
       let entries = [entry for entry in message.control if entry.level == level and entry.type == kind]
 
-      if entries.is_empty() {
-        return Ok(null)
-      }
+      return Ok(null) when entries.is_empty()
 
       let raw = entries[0].data
       let origin = raw.byte_at(4) ?? 0
@@ -625,9 +605,7 @@ proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms:
       }
     }
 
-    if remaining_ms(deadline) == 0 {
-      return Ok(null)
-    }
+    return Ok(null) when remaining_ms(deadline) == 0
   }
 
   Ok(null)
@@ -640,9 +618,7 @@ pure echo_request(v6: Bool, seq: Int, ident: Int, checksum: Bool, payload: Bytes
   let head = bytes.concat([bytes.from_ints([kind, 0, 0, 0]) ?? b"", bytes.pack_be(ident, 2) ?? b"", bytes.pack_be(seq, 2) ?? b""])
   let message = bytes.concat([head, payload])
 
-  if ! checksum {
-    return message
-  }
+  return message unless checksum
 
   let sum = icmp_checksum(message)
 
@@ -694,11 +670,7 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
 
     if "readable" in events {
       match linux.recvfrom(fd, 65535) {
-        Err(failure) => {
-          if (failure.errno ?? 0) != 11 {
-            return Err(describe("recvmsg", failure))
-          }
-        }
+        Err(failure) => return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
         Ok(message) => {
           if (message.data.byte_at(0) ?? -1) == reply_type and (bytes.unpack_be(message.data, 2, 6) ?? -1) == seq {
             let end = receive_ns(clock, message.control)
@@ -709,9 +681,7 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
       }
     }
 
-    if remaining_ms(deadline) == 0 {
-      return Ok(null)
-    }
+    return Ok(null) when remaining_ms(deadline) == 0
   }
 
   Ok(null)
@@ -723,15 +693,11 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
 pure quoted_start(v6: Bool, data: Bytes, at: Int) -> Int {
   let inner = at + 8
 
-  if v6 {
-    return inner + 40
-  }
+  return inner + 40 when v6
 
   let header = (data.byte_at(inner) ?? 0).bit_and(15) * 4
 
-  if header < 20 {
-    return -1
-  }
+  return -1 when header < 20
 
   inner + header
 }
@@ -760,11 +726,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
 
     if "readable" in events {
       match linux.recvfrom(fd, 65535, c.MSG_DONTWAIT) {
-        Err(failure) => {
-          if (failure.errno ?? 0) != 11 {
-            return Err(describe("recvmsg", failure))
-          }
-        }
+        Err(failure) => return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
         Ok(message) => {
           let data = message.data
           let at = if s.v6 { 0 } else { (data.byte_at(0) ?? 0).bit_and(15) * 4 }
@@ -792,9 +754,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
       }
     }
 
-    if remaining_ms(deadline) == 0 {
-      return Ok(null)
-    }
+    return Ok(null) when remaining_ms(deadline) == 0
   }
 
   Ok(null)
@@ -822,9 +782,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
       return Ok({from: s.target, rtt_ms: span_ms(start, stamp_ns(clock)), mark: "", last: true})
     }
 
-    if errno != 115 {
-      return Err(describe("connect", failure))
-    }
+    return Err(describe("connect", failure)) when errno != 115
   }
 
   let local = linux.getsockname(fd)?.port
@@ -849,11 +807,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
 
     if "readable" in ready {
       match linux.recvfrom(raw_fd, 65535, c.MSG_DONTWAIT) {
-        Err(failure) => {
-          if (failure.errno ?? 0) != 11 {
-            return Err(describe("recvmsg", failure))
-          }
-        }
+        Err(failure) => return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
         Ok(message) => {
           let data = message.data
           let at = if s.v6 { 0 } else { (data.byte_at(0) ?? 0).bit_and(15) * 4 }
@@ -873,9 +827,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
       }
     }
 
-    if remaining_ms(deadline) == 0 {
-      return Ok(null)
-    }
+    return Ok(null) when remaining_ms(deadline) == 0
   }
 
   Ok(null)
@@ -914,9 +866,7 @@ proc address_text(s: Settings, addr: Str) [net] -> Str {
 
   let names = dns.reverse(addr) ?? []
 
-  if names.is_empty() {
-    return f" {addr} ({addr})"
-  }
+  return f" {addr} ({addr})" when names.is_empty()
 
   f" {names[0]} ({addr})"
 }

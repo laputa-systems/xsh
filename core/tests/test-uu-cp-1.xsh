@@ -17,7 +17,7 @@ proc resolve_link(s: uu.Scene, name: Str) [fs, error] -> Result[Str, Error] {
 }
 
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
-  if !uu.exists(s, name) { return Ok(false) }
+  return Ok(false) unless uu.exists(s, name)
   uu.file_exists(s, name)
 }
 

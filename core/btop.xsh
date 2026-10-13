@@ -151,23 +151,17 @@ proc wait_until(
 }
 
 pure limited_observations(observations: List[model.Observation], count: Int?) -> List[model.Observation] {
-  if count == null or (count ?? 0) >= observations.len() {
-    return observations
-  }
+  return observations when count == null or (count ?? 0) >= observations.len()
   observations |> take(count ?? 0)
 }
 
 pure limited_models(frames: List[model.Model], count: Int?) -> List[model.Model] {
-  if count == null or (count ?? 0) >= frames.len() {
-    return frames
-  }
+  return frames when count == null or (count ?? 0) >= frames.len()
   frames |> take(count ?? 0)
 }
 
 proc parse_frame_limit(value: Str?) -> Result[Int?, Error] {
-  if value == null {
-    return Ok(null)
-  }
+  return Ok(null) when value == null
   let parsed = src.parse_integer(value)
   if parsed == null or (parsed ?? 0) <= 0 {
     return Err(error.failure("--frames requires a positive integer"))
@@ -222,9 +216,7 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
   let frames = replay.models(selected_observations)
   let session = terminal.begin_with(bundle.display)?
   defer { terminal.finish(session) }
-  if frames.is_empty() {
-    return
-  }
+  return when frames.is_empty()
 
   let started_at = time.monotonic()?
   let first_at = selected_observations[0].at_ns
@@ -252,9 +244,7 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
     decoder = waited.input
     view = waited.ui
     committed = waited.committed
-    if waited.quit {
-      return
-    }
+    return when waited.quit
     let size = unix.window_size(1)?
     rows = size.rows
     cols = size.cols
@@ -321,9 +311,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   while true {
     committed = draw(current, view, rows, cols, committed, histories, session.capabilities, local_display)?
     sampled += 1
-    if count != null and sampled >= (count ?? 0) {
-      break
-    }
+    break when count != null and sampled >= (count ?? 0)
     let waited = wait_until(
       schedule.next_due_ns,
       current,
@@ -339,9 +327,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
     decoder = waited.input
     view = waited.ui
     committed = waited.committed
-    if waited.quit {
-      break
-    }
+    break when waited.quit
     let due = scheduler.take_due(schedule, time.monotonic()?)?
     schedule = due.state
     if let ticket = due.ticket {

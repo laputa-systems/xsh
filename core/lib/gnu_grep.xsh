@@ -175,7 +175,7 @@ pure long_options() -> List[LongOption] {
 
 # Short options and whether they take an argument.
 pure short_takes_argument(ch: Str) -> Int {
-  if ch in ["A", "B", "C", "D", "X", "d", "e", "f", "m"] { return 1 }
+  return 1 when ch in ["A", "B", "C", "D", "X", "d", "e", "f", "m"]
   if ch in ["E", "F", "G", "H", "I", "P", "T", "U", "V", "a", "b", "c", "h", "i", "L", "l", "n", "o", "q", "R", "r", "s", "u", "v", "w", "x", "y", "Z", "z"] { return 0 }
   -1
 }
@@ -234,12 +234,12 @@ pure parse_intmax(raw: Bytes) -> Int? {
   while at < n and (raw.byte_at(at) ?? 0) in [32, 9, 10, 11, 12, 13] { at += 1 }
   var negative = false
   if at < n and raw.byte_at(at) == 45 { negative = true; at += 1 } else if at < n and raw.byte_at(at) == 43 { at += 1 }
-  if at >= n { return null }
+  return null when at >= n
   var value = 0
   var saturated = false
   while at < n {
     let digit = (raw.byte_at(at) ?? 0) - 48
-    if digit < 0 or digit > 9 { return null }
+    return null when digit < 0 or digit > 9
     if value > (INTMAX - digit) / 10 { saturated = true } else if ! saturated { value = value * 10 + digit }
     at += 1
   }
@@ -447,7 +447,7 @@ pure parse_colors(spec: Str, base: Colors) -> Colors {
       name = ""
       value = null
     } else if ch == "=" {
-      if name == "" or value != null { return c }
+      return c when name == "" or value != null
       value = ""
     } else if value == null {
       name += ch
@@ -459,17 +459,17 @@ pure parse_colors(spec: Str, base: Colors) -> Colors {
 }
 
 pure sgr_start(c: Colors, color: Str) -> Bytes {
-  if color == "" { return b"" }
+  return b"" when color == ""
   bytes.from_text(if c.erase { f"\u{1b}[{color}m\u{1b}[K" } else { f"\u{1b}[{color}m" })
 }
 
 pure sgr_end(c: Colors, color: Str) -> Bytes {
-  if color == "" { return b"" }
+  return b"" when color == ""
   bytes.from_text(if c.erase { "\u{1b}[m\u{1b}[K" } else { "\u{1b}[m" })
 }
 
 pure paint(ctx: Context, color: Str, data: Bytes) -> Bytes {
-  if ! ctx.c.on or color == "" { return data }
+  return data when ! ctx.c.on or color == ""
   bytes.concat([sgr_start(ctx.c, color), data, sgr_end(ctx.c, color)])
 }
 
@@ -497,7 +497,7 @@ pure line_head(ctx: Context, show_name: Bool, label: Bytes, lineno: Int, offset:
 
 # A record that is not valid UTF-8 cannot be printed in a UTF-8 locale.
 pure invalid_text(ctx: Context, data: Bytes) -> Bool {
-  if ! ctx.utf8 { return false }
+  return false unless ctx.utf8
   match data.utf8() {
     Ok(_) => false
     Err(_) => true
@@ -514,7 +514,7 @@ pure render_line(ctx: Context, line: Bytes, dec: Decoded, sep: Int, show_name: B
   let matching = selected != o.invert
   let text_mode = o.binary_files == "text"
   let eol = bytes.from_ints([ctx.eol]) ?? b"\n"
-  if ! o.only and ! text_mode and invalid_text(ctx, line) { return {data: b"", ok: false} }
+  return {data: b"", ok: false} when ! o.only and ! text_mode and invalid_text(ctx, line)
   var line_color = ""
   var match_color = ""
   if ctx.c.on {
@@ -530,7 +530,7 @@ pure render_line(ctx: Context, line: Bytes, dec: Decoded, sep: Int, show_name: B
       var from = 0
       while from <= total {
         let found = gnu_regex.find_bytes(ctx.m, line, dec, from, true)
-        if found.is_empty() { break }
+        break when found.is_empty()
         let b = found[0]
         let e = found[1]
         if e == b {
@@ -631,7 +631,7 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
       let read = bytes.read_at(target ?? p"", probe, want)
       match read {
         Ok(data) => {
-          if data.is_empty() { break }
+          break when data.is_empty()
           if has_nul(data) { zap = true; first_null = 0 }
           probe += data.len()
         }
@@ -663,11 +663,11 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
         Err(failure) => { if ! o.suppress { complain(f"{text_of(label)}: {gnu.strerror(failure)}") }; failed = true; stopped = true }
       }
     }
-    if stopped { break }
+    break when stopped
     consumed += chunk.len()
     let eof = chunk.is_empty()
     if detect_nuls and ! zap and has_nul(chunk) {
-      if o.binary_files == "without-match" { return {count: 0, used: used, ok: true} }
+      return {count: 0, used: used, ok: true} when o.binary_files == "without-match"
       if ! o.count { done = true; quiet = true }
       first_null = count
       zap = true
@@ -763,13 +763,13 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
           ring_offsets = ring_offsets[1..]
         }
       }
-      if stopped { break }
+      break when stopped
       if offset - flushed_at > 65536 {
         flush_stdout()
         flushed_at = offset
       }
     }
-    if eof { break }
+    break when eof
   }
   if o.binary_files == "binary" and ctx.report_binary and (encoding_hit or (first_null >= 0 and first_null < count)) {
     complain(f"{text_of(label)}: binary file matches")
@@ -782,34 +782,34 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
 # everything else). Command-line names may match any trailing path
 # component run; names found by recursion are matched whole.
 pure glob_matches(pattern: Str, name: Bytes, anchored: Bool) -> Bool {
-  if search.glob(pattern, name) { return true }
-  if anchored { return false }
+  return true when search.glob(pattern, name)
+  return false when anchored
   for at in range(name.len() - 1) {
     if name.byte_at(at) == 47 and name.byte_at(at + 1) != 47 {
-      if search.glob(pattern, name[at + 1..]) { return true }
+      return true when search.glob(pattern, name[at + 1..])
     }
   }
   false
 }
 
 pure excluded_file(rules: List[Exclusion], name: Bytes, anchored: Bool) -> Bool {
-  if rules.is_empty() { return false }
+  return false when rules.is_empty()
   var index = rules.len() - 1
   while index >= 0 {
-    if glob_matches(rules[index].pattern, name, anchored) { return ! rules[index].include }
+    return ! rules[index].include when glob_matches(rules[index].pattern, name, anchored)
     index -= 1
   }
   rules[0].include
 }
 
 pure excluded_dir(patterns: List[Str], name: Bytes, anchored: Bool) -> Bool {
-  for pattern in patterns { if glob_matches(pattern, name, anchored) { return true } }
+  for pattern in patterns { return true when glob_matches(pattern, name, anchored) }
   false
 }
 
 pure join_path(display: Bytes, name: Bytes) -> Bytes {
-  if display.is_empty() { return name }
-  if display.byte_at(display.len() - 1) == 47 { return bytes.concat([display, name]) }
+  return name when display.is_empty()
+  return bytes.concat([display, name]) when display.byte_at(display.len() - 1) == 47
   bytes.concat([display, b"/", name])
 }
 
@@ -910,16 +910,16 @@ proc visit(ctx: Context, progress: Run, display: Bytes, walk_name: Bytes, real: 
     Err(failure) => {
       # File filters run on an entry before it is opened, so a filtered-out
       # dangling link is skipped without a diagnostic.
-      if ! command_line and excluded_file(o.excludes, name, true) { return progress }
+      return progress when ! command_line and excluded_file(o.excludes, name, true)
       open_error(ctx, display, gnu.strerror(failure))
       var out = progress
       out.failed = true
       return out
     }
   }
-  if stat_kind == "symlink" { return progress }
+  return progress when stat_kind == "symlink"
   if stat_kind == "dir" {
-    if o.directories == "skip" { return progress }
+    return progress when o.directories == "skip"
     if ! (command_line and implicit_root) and excluded_dir(o.exclude_dirs, name, ! command_line) { return progress }
     let show_names = if show < 0 { true } else { show == 1 }
     if o.directories == "recurse" {
@@ -959,14 +959,14 @@ proc visit(ctx: Context, progress: Run, display: Bytes, walk_name: Bytes, real: 
     return finish_input(ctx, progress, {count: 0, used: progress.used, ok: false}, display, show_names)
   }
   if stat_kind != "file" and (o.devices == "skip" or (! command_line and o.devices != "read")) { return progress }
-  if excluded_file(o.excludes, name, ! command_line) { return progress }
+  return progress when excluded_file(o.excludes, name, ! command_line)
   let show_names = show == 1
   search_input(ctx, progress, real, show_names, display)
 }
 
 proc color_enabled(mode: Int) [env, io, process, error] -> Bool {
-  if mode == 1 { return true }
-  if mode == 0 { return false }
+  return true when mode == 1
+  return false when mode == 0
   let term = env.get_or("TERM", "") ?? ""
   term != "" and term != "dumb" and unix.isatty(1)
 }

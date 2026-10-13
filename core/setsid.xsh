@@ -15,7 +15,7 @@ proc main(...argv: List[Str]) -> Result[Unit] {
   if ! opts.fork {
     match process.new_session() {
       Ok(_) => { unix.exec(direct_command); return }
-      Err(failure) => { if gnu.errno(failure) != 1 { return Err(failure) } }
+      Err(failure) => return Err(failure) when gnu.errno(failure) != 1
     }
   }
   let command = control.command(opts.operands, new_session: true, detach: ! opts.wait)?

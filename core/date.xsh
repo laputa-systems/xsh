@@ -213,7 +213,7 @@ pure date_style(locale: Str) -> DateStyle {
 proc locale_name() [env] -> Str {
   for name in ["LC_ALL", "LC_TIME", "LANG"] {
     let found = env.get_or(name, "") ?? ""
-    if found != "" { return found }
+    return found when found != ""
   }
   ""
 }
@@ -276,7 +276,7 @@ pure needs_pieces(style: DateStyle, shift: Int) -> Bool {
 # applied to the native instant, which shares the true weekday, month and day.
 proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Str] {
   let native = time.format(date_parse.native_ns(instant)?, spec, utc:)?
-  if (spec.byte_at(0) ?? 0) != 37 { return Ok(native) }
+  return Ok(native) when (spec.byte_at(0) ?? 0) != 37
   let conversion = spec.byte_slice(spec.byte_len() - 1)
   let shift = date_parse.shift_years(instant)?
   let year_directive = conversion in ["Y", "C", "y", "F", "D", "x", "c", "G", "g", "s", "+"]
@@ -301,7 +301,7 @@ proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: 
     }
     return Ok(text)
   }
-  if shift == 0 and style.calendar == "gregorian" { return Ok(native) }
+  return Ok(native) when shift == 0 and style.calendar == "gregorian"
   let fields = date_parse.calendar(instant, utc)?
   let date = calendar_date(style.calendar, fields.year, fields.month, fields.day)
   # ISO week-based years repeat with the same 400-year cycle, so the shifted

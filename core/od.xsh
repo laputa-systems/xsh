@@ -114,9 +114,7 @@ pure float_text(value: Float, format: Str) -> Result[Str] {
   let display = f"{value}"
   return Ok("inf") when display == "Infinity"
   return Ok("-inf") when display == "-Infinity"
-  if format in ["binary16", "bfloat16"] {
-    return value.format_number("g", 8)
-  }
+  return value.format_number("g", 8) when format in ["binary16", "bfloat16"]
   let narrow = format == "binary32"
   let maximum = if narrow { 9 } else { 17 }
   var best = display
@@ -241,13 +239,13 @@ pure legacy_offset_overflow(text: Str) -> Bool {
     return true when value > (9223372036854775807 - digit) / base
     value = value * base + digit
   }
-  if blocks { return value > 9223372036854775807 / 512 }
+  return value > 9223372036854775807 / 512 when blocks
   false
 }
 
 pure byte_count_overflow(text: Str) -> Bool {
   let parts = rx"^([0-9]*)(.*)$".captures(text)
-  if parts[1] == "" { return false }
+  return false when parts[1] == ""
   let number = parts[1].parse_int() ?? -1
   return true when number < 0
   parts[2] != "" and byte_count(text) == 9223372036854775807

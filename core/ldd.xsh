@@ -13,11 +13,11 @@ proc resolve_library(name: Str, origin: Path, search: Str) [fs, env, error, proc
   let environment = env.get_or("LD_LIBRARY_PATH", "") ?? ""
   let paths = (environment + ":" + search).split(":").extend(["/lib", "/usr/local/lib", "/usr/lib", "/lib64", "/usr/lib64", "/lib/aarch64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/lib/x86_64-linux-gnu", "/usr/lib/x86_64-linux-gnu"])
   for directory in paths {
-    if directory == "" { continue }
+    continue when directory == ""
     let expanded = directory.replace(r"${ORIGIN}", with: origin.display()).replace(r"$ORIGIN", with: origin.display())
     if expanded.find("$") != null { gnu.error(f"unsupported loader path expansion {gnu.quote(expanded)}"); return Ok(null) }
     let candidate = fp"{expanded}/{name}"
-    if candidate.exists() { return Ok(candidate) }
+    return Ok(candidate) when candidate.exists()
   }
   Ok(null)
 }
@@ -58,7 +58,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
       let info = elf.inspect(object)?
       let search = if info.runpath != "" { info.runpath } else { info.rpath }
       for dependency in info.needed {
-        if dependency in visited { continue }
+        continue when dependency in visited
         visited += [dependency]
         let resolved = resolve_library(dependency, object.resolve()?.parent(), search)?
         if let resolved_path = resolved {

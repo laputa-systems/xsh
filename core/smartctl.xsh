@@ -155,31 +155,31 @@ pure apply(options: Options, key: Str, value: Str) -> Applied {
       rejected(options, invalid("-q", value, "errorsonly, silent, noserial"))
     }
     "T" => {
-      if value == "normal" { return accepted(options) }
+      return accepted(options) when value == "normal"
       if value in ["conservative", "permissive", "verypermissive"] {
         return rejected(options, unsupported(f"-T {value}", "only the normal tolerance level exists, because a failed mandatory command always ends the run"))
       }
       rejected(options, invalid("-T", value, "normal, conservative, permissive, verypermissive"))
     }
     "b" => {
-      if value in ["warn", "exit", "ignore"] { return accepted({...options, badsum: value}) }
+      return accepted({...options, badsum: value}) when value in ["warn", "exit", "ignore"]
       rejected(options, invalid("-b", value, "warn, exit, ignore"))
     }
     "f" => {
-      if value == "old" { return accepted({...options, brief: false}) }
-      if value == "brief" { return accepted({...options, brief: true}) }
+      return accepted({...options, brief: false}) when value == "old"
+      return accepted({...options, brief: true}) when value == "brief"
       if head_word(value) == "hex" { return rejected(options, unsupported(f"-f {value}", "hexadecimal attribute display is not implemented")) }
       rejected(options, invalid("-f", value, "old, brief, hex[,id|val]"))
     }
     "P" => {
       # Without a drive database no preset is ever applied, so `use` and
       # `ignore` behave alike.
-      if value in ["use", "ignore"] { return accepted(options) }
+      return accepted(options) when value in ["use", "ignore"]
       if value in ["show", "showall"] { return rejected(options, unsupported(f"-P {value}", "there is no drive database to show")) }
       rejected(options, invalid("-P", value, "use, ignore, show, showall"))
     }
     "F" => {
-      if value == "none" { return accepted(options) }
+      return accepted(options) when value == "none"
       if value in ["nologdir", "samsung", "samsung2", "samsung3", "xerrorlba", "swapid"] {
         return rejected(options, unsupported(f"-F {value}", "firmware bug workarounds are not implemented"))
       }
@@ -199,7 +199,7 @@ pure apply(options: Options, key: Str, value: Str) -> Applied {
 }
 
 pure apply_json(options: Options, value: Str) -> Applied {
-  if value == "" { return accepted({...options, json: true}) }
+  return accepted({...options, json: true}) when value == ""
   var compact = false
   for letter in value.split("") {
     if letter == "c" {
@@ -246,7 +246,7 @@ pure apply_test(options: Options, value: Str) -> Applied {
 }
 
 pure apply_switch(options: Options, value: Str) -> Applied {
-  if value in ["on", "off"] { return accepted({...options, smart_switch: value}) }
+  return accepted({...options, smart_switch: value}) when value in ["on", "off"]
   let name = head_word(value)
   if name in ["aam", "apm", "dsn", "lookahead", "security-freeze", "standby", "wcache", "rcache", "wcreorder", "wcache-sct"] {
     return rejected(options, unsupported(f"-s {value}", "device settings are changed with commands the transport does not expose"))
@@ -255,7 +255,7 @@ pure apply_switch(options: Options, value: Str) -> Applied {
 }
 
 pure apply_nocheck(options: Options, value: Str) -> Applied {
-  if value == "never" { return accepted(options) }
+  return accepted(options) when value == "never"
   let name = head_word(value)
   if name in ["sleep", "standby", "idle"] {
     return rejected(options, unsupported(f"-n {value}", "the power mode is read with CHECK POWER MODE, which the transport does not expose"))
@@ -269,10 +269,10 @@ pure resolve_long(name: Str) -> Str? {
   var matches: List[Str] = []
   for entry in LONG_OPTIONS {
     let parts = entry.split(":")
-    if parts[0] == name { return f"{parts[1]}:{parts[2]}" }
+    return f"{parts[1]}:{parts[2]}" when parts[0] == name
     if parts[0].starts_with(name) and f"{parts[1]}:{parts[2]}" not in matches { matches += [f"{parts[1]}:{parts[2]}"] }
   }
-  if matches.len() == 1 { return matches[0] }
+  return matches[0] when matches.len() == 1
   null
 }
 
@@ -1051,8 +1051,8 @@ proc scsi_session(options: Options, fd: Int, now: Clock) [process, error] -> Ses
 
 # Candidate lines for --scan and --scan-open, in smartctl's scan format.
 pure scan_line(node: Str, kind: Str, ata_behind: Bool) -> Str {
-  if kind == "nvme" { return f"{node} -d nvme # {node}, NVMe device" }
-  if ata_behind { return f"{node} -d sat # {node} [SAT], ATA device" }
+  return f"{node} -d nvme # {node}, NVMe device" when kind == "nvme"
+  return f"{node} -d sat # {node} [SAT], ATA device" when ata_behind
   f"{node} -d scsi # {node}, SCSI device"
 }
 

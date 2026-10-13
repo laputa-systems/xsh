@@ -97,10 +97,10 @@ test test_structural_rises_stay_hard_under_envelopes_and_reports_are_validated {
 
   let malformed_reports = [
     {...baseline, schema: 2},
-    {...baseline, metrics: collect { for row in baseline.metrics { if row.name != "wide_arena_wildcards" { yield row } } }},
+    {...baseline, metrics: collect { for row in baseline.metrics { yield row when row.name != "wide_arena_wildcards" } }},
     {...baseline, metrics: collect { for row in baseline.metrics { yield if row.name == "source_lines_src" { {...row, value: -1} } else { row } } }},
     {...baseline, metrics: baseline.metrics + [baseline.metrics[0]]},
-    {...baseline, metrics: collect { for row in baseline.metrics { if row.name != "source_lines_xsht" { yield row } } }},
+    {...baseline, metrics: collect { for row in baseline.metrics { yield row when row.name != "source_lines_xsht" } }},
   ]
   for malformed in malformed_reports {
     json.write(current_path, malformed)

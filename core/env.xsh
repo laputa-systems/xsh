@@ -152,7 +152,7 @@ proc split_string(text: Str) [process, env, error] -> List[Str] {
 
 pure assignment_separator(arg: Bytes) -> Int? {
   for at in range(arg.len()) {
-    if arg.byte_at(at) == 61 { return at }
+    return at when arg.byte_at(at) == 61
   }
   null
 }
@@ -237,7 +237,7 @@ proc apply_signal_actions(options: List[SignalActionOption]) [process, env, erro
     } else {
       # The all-signals form skips dispositions the host does not allow changing.
       for signal in process.signals() {
-        if signal.number == 0 { continue }
+        continue when signal.number == 0
         if let Err(_) = process.set_signal_action(signal.name, option.action) { continue }
       }
     }
@@ -246,10 +246,10 @@ proc apply_signal_actions(options: List[SignalActionOption]) [process, env, erro
 
 proc list_signal_actions(blocked: List[Str]) [process, error, io] {
   for signal in process.signals() {
-    if signal.number == 0 { continue }
+    continue when signal.number == 0
     let is_blocked = signal.name in blocked
     let is_ignored = process.signal_action(signal.name)? == "ignore"
-    if ! is_blocked and ! is_ignored { continue }
+    continue when ! is_blocked and ! is_ignored
 
     var name_field = signal.name
     while name_field.byte_len() < 10 { name_field += " " }
@@ -533,7 +533,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         gnu.error(f"invalid option -- '{option}'")
         exit 125
       }
-      if split_seen { continue }
+      continue when split_seen
       option_index += if consume_word { 2 } else { 1 }
       continue
     }

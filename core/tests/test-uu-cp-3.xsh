@@ -81,7 +81,7 @@ test test_uu_cp_cp_debug_default_less_than_512_bytes { |ctx|
 # origin: uutils test_cp::test_cp_debug_default_sparse_virtual_file
 test test_uu_cp_cp_debug_default_sparse_virtual_file { |ctx|
   let s = uu.scene(ctx)?
-  if !p"/sys/kernel/profiling".is_file() { return }
+  return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["--debug", "/sys/kernel/profiling", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: Invalid cross-device link, reflink: Invalid cross-device link, sparse detection: no")
@@ -283,7 +283,7 @@ test test_uu_cp_cp_debug_sparse_always_reflink_auto { |ctx|
 # origin: uutils test_cp::test_cp_debug_sparse_always_sparse_virtual_file
 test test_uu_cp_cp_debug_sparse_always_sparse_virtual_file { |ctx|
   let s = uu.scene(ctx)?
-  if !p"/sys/kernel/profiling".is_file() { return }
+  return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["--debug", "--sparse=always", "/sys/kernel/profiling", "b"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "copy offload: avoided, reflink: Invalid cross-device link, sparse detection: zeros")
@@ -376,7 +376,7 @@ test test_uu_cp_cp_debug_sparse_reflink { |ctx|
 # origin: uutils test_cp::test_cp_default_virtual_file
 test test_uu_cp_cp_default_virtual_file { |ctx|
   let s = uu.scene(ctx)?
-  if !p"/sys/kernel/profiling".is_file() { return }
+  return unless p"/sys/kernel/profiling".is_file()
   let r = uu.invoke(s, "cp", ["/sys/kernel/profiling", "b"])?
   uu.succeeds(r)
   assert uu.size(s, "b")? > 0

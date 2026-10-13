@@ -55,7 +55,7 @@ proc source_stat(source: Path, follow: Bool) {
 # Archive preservation treats unavailable extended attributes and security
 # labels as optional; an explicitly requested attribute reports its failure.
 proc preserve_xattrs(source: Path, target: Path, opts: Options, follow: Bool, target_link: Bool) {
-  if ! opts.mode and opts.xattr == "none" and opts.context == "none" { return }
+  return when ! opts.mode and opts.xattr == "none" and opts.context == "none"
   let listed = fs.xattr_list(source, follow_symlinks: follow)
   if let Err(failure) = listed {
     if opts.xattr == "required" or opts.context == "required" or (opts.mode and failure.errno != 95) {
@@ -456,7 +456,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         let made = fs.mknod(target, "file", if opts.mode or opts.owner { 0o600 } else if opts.no_mode { 0o666 } else { meta.mode.bit_and(0o777) })
         if let Err(failure) = made {
           created = false
-          if failure.errno != 17 { return Err(failure) }
+          return Err(failure) when failure.errno != 17
           if opts.overwrite == "never" or opts.update == "none" { return Ok({copies: copies, failed: false}) }
           if opts.update == "none-fail" { invalid(f"not replacing {gnu.quote_bytes(target.bytes())}") }
         }

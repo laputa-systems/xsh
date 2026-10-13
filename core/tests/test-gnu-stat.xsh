@@ -30,7 +30,7 @@ test test_gnu_stat_stat_birthtime_log { |ctx|
     let current_modification = stat_text(s, ["--format", "%Y", "a"])?
     let current_change = stat_text(s, ["--format", "%Z", "a"])?
     updated = birth == current_birth and (accessed != current_access or accessed == "0\n") and modified != current_modification and changed != current_change
-    if updated { break }
+    break when updated
   }
   assert updated, "birth time must stay fixed while access, modification and change times advance"
 }

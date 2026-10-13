@@ -49,7 +49,7 @@ pure add_rate(left: rates.Rate, right: rates.Rate) -> rates.Rate {
 }
 
 pure add_bytes(left: Int?, right: Int?) -> Int? {
-  if left == null or right == null { return null }
+  return null when left == null or right == null
   let a = left ?? 0
   let b = right ?? 0
   return null when a < 0 or b < 0 or a > 9223372036854775807 - b
@@ -74,7 +74,7 @@ export pure build(
       continue
     }
     seen_rows = seen_rows.add(row.pid)
-    if row.parent_pid == 0 { continue }
+    continue when row.parent_pid == 0
     if row.parent_pid == row.pid {
       issues += [{pid: row.pid, kind: "self_parent"}]
       continue
@@ -101,7 +101,7 @@ export pure build(
     var walked: List[Int] = []
     var path_index: Map[Int, Int] = {}
     for _ in range(ordered.len() + 1) {
-      if cursor in finished { break }
+      break when cursor in finished
       if let Ok(_) = path_index.get(cursor) {
         let broken = predecessor ?? cursor
         parent_by_pid = parent_by_pid.remove(broken)

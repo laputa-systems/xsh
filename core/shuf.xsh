@@ -159,9 +159,7 @@ pure wide_draw(window: Bytes, at: Int, count: List[Int]) -> WideDraw {
 
     pos += byte_count
 
-    if wide_less(candidate, count) {
-      return {value: candidate, pos: pos, ok: true}
-    }
+    return {value: candidate, pos: pos, ok: true} when wide_less(candidate, count)
   }
 
   {value: [0, 0, 0, 0, 0, 0, 0, 0], pos: pos, ok: false}

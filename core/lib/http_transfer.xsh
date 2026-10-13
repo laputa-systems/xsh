@@ -170,7 +170,7 @@ export proc fetch_to(request: Request, dest: Path) [net, error] -> Result[Reply,
 export pure header_value(headers: List[Header], name: Str) -> Str? {
   let wanted = name.lower()
   for header in headers {
-    if header.name.lower() == wanted { return header.value }
+    return header.value when header.name.lower() == wanted
   }
   null
 }
@@ -189,7 +189,7 @@ export pure without_header(headers: List[Header], name: Str) -> List[Header] {
 ## The scheme of a URL, lowercased, or null when it has none.
 export pure url_scheme(url: Str) -> Str? {
   let at = url.find("://")
-  if at == null { return null }
+  return null when at == null
   let scheme = url.byte_slice(0, at ?? 0)
   return null unless rx"^[A-Za-z][A-Za-z0-9+.-]*$".matches(scheme)
 
@@ -200,7 +200,7 @@ export pure url_scheme(url: Str) -> Str? {
 # fragment delimiter: userinfo, host and port.
 pure authority(url: Str) -> Str {
   let at = url.find("://")
-  if at == null { return "" }
+  return "" when at == null
   let rest = url.byte_slice((at ?? 0) + 3)
   var end = rest.byte_len()
   for mark in ["/", "?", "#"] {
@@ -244,7 +244,7 @@ export pure url_port(url: Str) -> Int {
   let colon = tail.find(":")
   if colon != null {
     let parsed = tail.byte_slice((colon ?? 0) + 1).parse_int() ?? -1
-    if parsed >= 0 { return parsed }
+    return parsed when parsed >= 0
   }
   if url_scheme(url) == "https" { 443 } else { 80 }
 }
@@ -252,7 +252,7 @@ export pure url_port(url: Str) -> Int {
 ## The path component of a URL, always beginning with `/`.
 export pure url_path(url: Str) -> Str {
   let at = url.find("://")
-  if at == null { return "/" }
+  return "/" when at == null
   let rest = url.byte_slice((at ?? 0) + 3)
   let slash = rest.find("/")
   var full = if slash == null { "/" } else { rest.byte_slice(slash ?? 0) }
@@ -307,11 +307,11 @@ export pure seconds_text(millis: Int) -> Str {
 
 ## The absolute URL a `Location` value names relative to the URL it answered.
 export pure resolve_location(base: Str, location: Str) -> Str {
-  if url_scheme(location) != null { return location }
+  return location when url_scheme(location) != null
 
   let scheme = url_scheme(base) ?? "http"
-  if location.starts_with("//") { return f"{scheme}:{location}" }
-  if location.starts_with("/") { return f"{scheme}://{authority(base)}{location}" }
+  return f"{scheme}:{location}" when location.starts_with("//")
+  return f"{scheme}://{authority(base)}{location}" when location.starts_with("/")
 
   let route = url_path(base)
   let directory = route.byte_slice(0, route.byte_len() - url_file_name(base).byte_len())

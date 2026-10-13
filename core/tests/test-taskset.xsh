@@ -84,9 +84,7 @@ pure hex_mask(cpus: List[Int]) -> Str {
 
 pure has_all(allowed: List[Int], wanted: List[Int]) -> Bool {
   for id in wanted {
-    if ! (id in allowed) {
-      return false
-    }
+    return false unless id in allowed
   }
 
   true
@@ -190,9 +188,7 @@ test test_taskset_list_output_uses_ranges_and_strides_as_util_linux_does { |ctx|
   var ran = 0
 
   for case in LIST_CASES {
-    if ! has_all(allowed, case.cpus) {
-      continue
-    }
+    continue unless has_all(allowed, case.cpus)
 
     let result = taskset_run(ctx, ["-c", case.input].extend(self_query(ctx, "-pc")))?
     assert result.status == 0, result.stderr
@@ -218,9 +214,7 @@ test test_taskset_mask_parsing_accepts_prefixes_commas_and_case { |ctx|
   ]
 
   for case in cases {
-    if ! has_all(allowed, case.cpus) {
-      continue
-    }
+    continue unless has_all(allowed, case.cpus)
 
     let result = taskset_run(ctx, [case.mask].extend(self_query(ctx, "-p")))?
     assert result.status == 0, f"{case.mask}: {result.stderr}"

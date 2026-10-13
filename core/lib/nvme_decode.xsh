@@ -172,7 +172,7 @@ pure decimal_of(digits: List[Int]) -> Str {
     }
     current = quotient[start..]
   }
-  if chunks.is_empty() { return "0" }
+  return "0" when chunks.is_empty()
   var out = f"{chunks[chunks.len() - 1]}"
   var index = chunks.len() - 2
   while index >= 0 {
@@ -258,7 +258,7 @@ export pure decode(data: Bytes, layout: List[Str]) -> List[Field] {
 ## The field called `name`, or a zero field when the layout has none.
 export pure field(fields: List[Field], name: Str) -> Field {
   for item in fields {
-    if item.name == name { return item }
+    return item when item.name == name
   }
   {name: name, value: 0, decimal: "0", hex: "0", text: "", style: "d"}
 }
@@ -338,7 +338,7 @@ export pure self_test_results(log: Bytes, limit: Int) -> List[SelfTestResult] {
   for index in range(limit) {
     let base = SELF_TEST_HEADER_BYTES + index * SELF_TEST_ENTRY_BYTES
     let status = u8(log, base)
-    if status % 16 == 15 { continue }
+    continue when status % 16 == 15
     out += [{
       code: status / 16,
       result: status % 16,

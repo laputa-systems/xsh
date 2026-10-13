@@ -22,7 +22,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
     print f"KiB Mem: {current.memory.total / 1024} total, {current.memory.free / 1024} free, {(current.memory.total - current.memory.available) / 1024} used, {(current.memory.buffers + current.memory.cached + current.memory.sreclaimable) / 1024} buff/cache"
     print "PID USER PR NI VIRT RES S %CPU %MEM TIME+ COMMAND"
     let elapsed_ms = if previous == null { current.uptime_ms } else { current.sampled_at_ms - previous.sampled_at_ms }
-    if elapsed_ms <= 0 { return Err(error.failure("sampling clock did not advance")) }
+    return Err(error.failure("sampling clock did not advance")) when elapsed_ms <= 0
     var ranked: List[RatedProcess] = []
     for row in current.processes {
       continue when ! pids.is_empty() and row.pid not in pids

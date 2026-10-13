@@ -26,17 +26,17 @@ proc minimum_vm(s: uu.Scene) [fs, process, env, time, error] -> Result[Int?, Err
     let upper = level * 5000
     let started = time.now() / 1000
     let probe = limited(s, upper, ["-i1-1"])?
-    if time.now() / 1000 - started >= 10 { return Ok(null) }
-    if probe.status == 77 { return Ok(null) }
+    return Ok(null) when time.now() / 1000 - started >= 10
+    return Ok(null) when probe.status == 77
     if probe.status == 0 {
       var previous = upper
       for step in range(upper / 1000 - 1) {
         let lower = upper - 1000 * (step + 1)
         let descending_started = time.now() / 1000
         let descending = limited(s, lower, ["-i1-1"])?
-        if time.now() / 1000 - descending_started >= 10 { return Ok(null) }
-        if descending.status == 77 { return Ok(null) }
-        if descending.status != 0 { return Ok(previous + 4) }
+        return Ok(null) when time.now() / 1000 - descending_started >= 10
+        return Ok(null) when descending.status == 77
+        return Ok(previous + 4) when descending.status != 0
         previous = lower
       }
     }

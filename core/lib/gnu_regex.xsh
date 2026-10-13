@@ -91,10 +91,10 @@ type Number = {value: Int, stop: Int, next: Int}
 export pure decode(data: Bytes, utf8: Bool) -> Decoded {
   let n = data.len()
   let raw = [data.byte_at(index) ?? 0 for index in range(n)]
-  if ! utf8 { return {chars: raw, offs: [], native: false} }
+  return {chars: raw, offs: [], native: false} unless utf8
   var ascii = true
   for byte in raw { if byte >= 128 { ascii = false; break } }
-  if ascii { return {chars: raw, offs: [], native: false} }
+  return {chars: raw, offs: [], native: false} when ascii
   var chars: List[Int] = []
   var offs: List[Int] = []
   var at = 0
@@ -141,9 +141,9 @@ pure bytes_text(data: Bytes) -> Str? {
 }
 
 pure utf8_bytes(cp: Int) -> List[Int] {
-  if cp < 128 { return [cp] }
-  if cp < 2048 { return [192 + cp / 64, 128 + cp % 64] }
-  if cp < 65536 { return [224 + cp / 4096, 128 + cp / 64 % 64, 128 + cp % 64] }
+  return [cp] when cp < 128
+  return [192 + cp / 64, 128 + cp % 64] when cp < 2048
+  return [224 + cp / 4096, 128 + cp / 64 % 64, 128 + cp % 64] when cp < 65536
   [240 + cp / 262144, 128 + cp / 4096 % 64, 128 + cp / 64 % 64, 128 + cp % 64]
 }
 
@@ -160,15 +160,15 @@ pure text_cp(text: Str) -> Int {
 }
 
 pure lower_cp(cp: Int, utf8: Bool) -> Int {
-  if cp < 128 { return if cp >= 65 and cp <= 90 { cp + 32 } else { cp } }
-  if ! utf8 or cp >= RAW { return cp }
+  return if cp >= 65 and cp <= 90 { cp + 32 } else { cp } when cp < 128
+  return cp when ! utf8 or cp >= RAW
   let folded = text_cp(cp_text(cp).lower())
   if folded < 0 { cp } else { folded }
 }
 
 pure upper_cp(cp: Int, utf8: Bool) -> Int {
-  if cp < 128 { return if cp >= 97 and cp <= 122 { cp - 32 } else { cp } }
-  if ! utf8 or cp >= RAW { return cp }
+  return if cp >= 97 and cp <= 122 { cp - 32 } else { cp } when cp < 128
+  return cp when ! utf8 or cp >= RAW
   let folded = text_cp(cp_text(cp).upper())
   if folded < 0 { cp } else { folded }
 }
@@ -176,37 +176,37 @@ pure upper_cp(cp: Int, utf8: Bool) -> Int {
 # Approximate Unicode letters: Latin, Greek, Cyrillic, other alphabetic
 # scripts and CJK ideographs. ASCII is exact.
 pure letter(cp: Int) -> Bool {
-  if cp < 128 { return (cp >= 65 and cp <= 90) or (cp >= 97 and cp <= 122) }
-  if cp == 170 or cp == 181 or cp == 186 { return true }
-  if cp >= 192 and cp <= 767 { return cp != 215 and cp != 247 }
+  return (cp >= 65 and cp <= 90) or (cp >= 97 and cp <= 122) when cp < 128
+  return true when cp == 170 or cp == 181 or cp == 186
+  return cp != 215 and cp != 247 when cp >= 192 and cp <= 767
   if cp >= 880 and cp <= 1327 { return cp != 894 and cp != 903 and (cp < 1154 or cp > 1161) }
-  if cp >= 1329 and cp <= 1423 { return cp <= 1366 or (cp >= 1377 and cp <= 1415) }
-  if cp >= 1488 and cp <= 1514 { return true }
-  if cp >= 1568 and cp <= 1610 { return true }
-  if cp >= 2309 and cp <= 2361 { return true }
-  if cp >= 3585 and cp <= 3630 { return true }
-  if cp >= 7680 and cp <= 8191 { return true }
-  if cp >= 12354 and cp <= 12438 { return true }
-  if cp >= 12449 and cp <= 12538 { return true }
-  if cp >= 13312 and cp <= 19903 { return true }
-  if cp >= 19968 and cp <= 40959 { return true }
-  if cp >= 44032 and cp <= 55203 { return true }
-  if cp >= 63744 and cp <= 64255 { return true }
-  if cp >= 65313 and cp <= 65338 { return true }
-  if cp >= 65345 and cp <= 65370 { return true }
-  if cp >= 131072 and cp <= 195103 { return true }
+  return cp <= 1366 or (cp >= 1377 and cp <= 1415) when cp >= 1329 and cp <= 1423
+  return true when cp >= 1488 and cp <= 1514
+  return true when cp >= 1568 and cp <= 1610
+  return true when cp >= 2309 and cp <= 2361
+  return true when cp >= 3585 and cp <= 3630
+  return true when cp >= 7680 and cp <= 8191
+  return true when cp >= 12354 and cp <= 12438
+  return true when cp >= 12449 and cp <= 12538
+  return true when cp >= 13312 and cp <= 19903
+  return true when cp >= 19968 and cp <= 40959
+  return true when cp >= 44032 and cp <= 55203
+  return true when cp >= 63744 and cp <= 64255
+  return true when cp >= 65313 and cp <= 65338
+  return true when cp >= 65345 and cp <= 65370
+  return true when cp >= 131072 and cp <= 195103
   false
 }
 
 pure space_cp(cp: Int) -> Bool {
-  if cp < 128 { return cp == 32 or (cp >= 9 and cp <= 13) }
+  return cp == 32 or (cp >= 9 and cp <= 13) when cp < 128
   cp == 5760 or (cp >= 8192 and cp <= 8198) or (cp >= 8200 and cp <= 8202) or cp == 8232 or cp == 8233 or cp == 8287 or cp == 12288
 }
 
 # Whether `cp` belongs to the POSIX character class `name`.
 pure class_has(name: Str, cp: Int, utf8: Bool) -> Bool {
-  if cp >= RAW { return false }
-  if cp >= 128 and ! utf8 { return false }
+  return false when cp >= RAW
+  return false when cp >= 128 and ! utf8
   let wide = cp >= 128
   match name {
     "alpha" => letter(cp)
@@ -230,19 +230,19 @@ pure valid_class(name: Str) -> Bool {
 }
 
 pure raw_member(cs: CharSet, cp: Int, utf8: Bool) -> Bool {
-  if cp in cs.singles { return true }
+  return true when cp in cs.singles
   var at = 0
   while at + 1 < cs.ranges.len() {
-    if cp >= cs.ranges[at] and cp <= cs.ranges[at + 1] { return true }
+    return true when cp >= cs.ranges[at] and cp <= cs.ranges[at + 1]
     at += 2
   }
-  for name in cs.classes { if class_has(name, cp, utf8) { return true } }
+  for name in cs.classes { return true when class_has(name, cp, utf8) }
   false
 }
 
 pure member(cs: CharSet, cp: Int, icase: Bool, utf8: Bool) -> Bool {
-  if raw_member(cs, cp, utf8) { return true }
-  if ! icase { return false }
+  return true when raw_member(cs, cp, utf8)
+  return false unless icase
   let low = lower_cp(cp, utf8)
   let up = upper_cp(cp, utf8)
   (low != cp and raw_member(cs, low, utf8)) or (up != cp and raw_member(cs, up, utf8))
@@ -257,8 +257,8 @@ pure make_set(negated: Bool, singles: List[Int], ranges: List[Int], names: List[
 }
 
 pure set_matches(cs: CharSet, cp: Int, icase: Bool, utf8: Bool) -> Bool {
-  if cp >= RAW { return false }
-  if cp < 256 { return cs.low[cp] }
+  return false when cp >= RAW
+  return cs.low[cp] when cp < 256
   member(cs, cp, icase, utf8) != cs.negated
 }
 
@@ -275,14 +275,14 @@ pure bracket_element(pc: List[Int], pos: Int, first: Bool) -> Element {
   if c == 91 and pos + 1 < n and (pc[pos + 1] == 58 or pc[pos + 1] == 46 or pc[pos + 1] == 61) {
     let delim = pc[pos + 1]
     var at = pos + 2
-    if at >= n { return {kind: 0, cp: 0, name: "", next: at, error: MSG_EBRACK} }
+    return {kind: 0, cp: 0, name: "", next: at, error: MSG_EBRACK} when at >= n
     var name: List[Int] = []
     while true {
-      if name.len() >= 32 { return {kind: 0, cp: 0, name: "", next: at, error: MSG_EBRACK} }
+      return {kind: 0, cp: 0, name: "", next: at, error: MSG_EBRACK} when name.len() >= 32
       let ch = pc[at]
       at += 1
-      if at >= n { return {kind: 0, cp: 0, name: "", next: at, error: MSG_EBRACK} }
-      if ch == delim and pc[at] == 93 { break }
+      return {kind: 0, cp: 0, name: "", next: at, error: MSG_EBRACK} when at >= n
+      break when ch == delim and pc[at] == 93
       name += [ch]
     }
     at += 1
@@ -310,11 +310,11 @@ pure parse_bracket(pc: List[Int], start: Int, icase: Bool, utf8: Bool) -> Bracke
   let n = pc.len()
   var at = start
   var negated = false
-  if at >= n { return {set: null, next: at, error: "Invalid regular expression", late: ""} }
+  return {set: null, next: at, error: "Invalid regular expression", late: ""} when at >= n
   if pc[at] == 94 {
     negated = true
     at += 1
-    if at >= n { return {set: null, next: at, error: "Invalid regular expression", late: ""} }
+    return {set: null, next: at, error: "Invalid regular expression", late: ""} when at >= n
   }
   var singles: List[Int] = []
   var ranges: List[Int] = []
@@ -323,9 +323,9 @@ pure parse_bracket(pc: List[Int], start: Int, icase: Bool, utf8: Bool) -> Bracke
   var fancy = false
   var first = true
   while true {
-    if at >= n { return {set: null, next: at, error: MSG_EBRACK, late: ""} }
+    return {set: null, next: at, error: MSG_EBRACK, late: ""} when at >= n
     let elem = bracket_element(pc, at, first)
-    if elem.error != "" { return {set: null, next: elem.next, error: elem.error, late: ""} }
+    return {set: null, next: elem.next, error: elem.error, late: ""} when elem.error != ""
     first = false
     at = elem.next
     if elem.kind == 1 {
@@ -335,9 +335,9 @@ pure parse_bracket(pc: List[Int], start: Int, icase: Bool, utf8: Bool) -> Bracke
       singles += [elem.cp]
       fancy = true
     } else {
-      if at >= n { return {set: null, next: at, error: MSG_EBRACK, late: ""} }
+      return {set: null, next: at, error: MSG_EBRACK, late: ""} when at >= n
       if pc[at] == 45 {
-        if at + 1 >= n { return {set: null, next: at, error: MSG_EBRACK, late: ""} }
+        return {set: null, next: at, error: MSG_EBRACK, late: ""} when at + 1 >= n
         if pc[at + 1] != 93 {
           let upper = bracket_element(pc, at + 1, true)
           if upper.error != "" { return {set: null, next: upper.next, error: upper.error, late: ""} }
@@ -356,7 +356,7 @@ pure parse_bracket(pc: List[Int], start: Int, icase: Bool, utf8: Bool) -> Bracke
         if elem.kind == 3 { fancy = true }
       }
     }
-    if at >= n { return {set: null, next: at, error: MSG_EBRACK, late: ""} }
+    return {set: null, next: at, error: MSG_EBRACK, late: ""} when at >= n
     if pc[at] == 93 { at += 1; break }
   }
   var late = ""
@@ -377,11 +377,11 @@ pure interval_number(pc: List[Int], start: Int, ere: Bool) -> Number {
   var value = -1
   var bad = false
   while true {
-    if at >= n { return {value: -2, stop: 0, next: at} }
+    return {value: -2, stop: 0, next: at} when at >= n
     let c = pc[at]
     if ere and c == 125 { return {value: if bad { -2 } else { value }, stop: 2, next: at + 1} }
     if ! ere and c == 92 and at + 1 < n and pc[at + 1] == 125 { return {value: if bad { -2 } else { value }, stop: 2, next: at + 2} }
-    if c == 44 { return {value: if bad { -2 } else { value }, stop: 1, next: at + 1} }
+    return {value: if bad { -2 } else { value }, stop: 1, next: at + 1} when c == 44
     if c >= 48 and c <= 57 and ! bad {
       let digit = c - 48
       value = if value < 0 { digit } else if value * 10 + digit > DUP_MAX + 1 { DUP_MAX + 1 } else { value * 10 + digit }
@@ -401,7 +401,7 @@ pure parse_interval(pc: List[Int], start: Int, ere: Bool) -> Interval {
   var next = first.next
   if low != -2 {
     if low == -1 {
-      if stop != 1 { return {kind: 2, min: 0, max: 0, next: next, error: MSG_BADBR} }
+      return {kind: 2, min: 0, max: 0, next: next, error: MSG_BADBR} when stop != 1
       low = 0
     }
     if stop == 2 { high = low } else if stop == 1 {
@@ -412,7 +412,7 @@ pure parse_interval(pc: List[Int], start: Int, ere: Bool) -> Interval {
     }
   }
   if low == -2 or high == -2 {
-    if ere { return {kind: 1, min: 0, max: 0, next: start, error: ""} }
+    return {kind: 1, min: 0, max: 0, next: start, error: ""} when ere
     return {kind: 2, min: 0, max: 0, next: next, error: if stop == 0 { MSG_EBRACE } else { MSG_BADBR }}
   }
   if (high != -1 and low > high) or stop != 2 { return {kind: 2, min: 0, max: 0, next: next, error: MSG_BADBR} }
@@ -429,7 +429,7 @@ pure union(left: List[Int], right: List[Int]) -> List[Int] {
 # Characters after a backslash that GNU grep accepts as plain escapes
 # without a stray-backslash warning.
 pure plain_escape(cp: Int, ere: Bool) -> Bool {
-  if cp in [36, 42, 46, 91, 92, 93, 94, 125] { return true }
+  return true when cp in [36, 42, 46, 91, 92, 93, 94, 125]
   ere and cp in [40, 41, 123, 124, 43, 63]
 }
 
@@ -623,15 +623,15 @@ pure parse(pattern: Bytes, ere: Bool, icase: Bool, utf8: Bool) -> Parsed {
 
 pure nullable(nodes: List[Node], idx: Int) -> Bool {
   let node = nodes[idx]
-  if node.kind == N_CHAR or node.kind == N_ANY or node.kind == N_SET { return false }
-  if node.kind == N_EMPTY or node.kind == N_ASSERT or node.kind == N_BACKREF { return true }
-  if node.kind == N_REPEAT { return node.a == 0 or nullable(nodes, node.kids[0]) }
+  return false when node.kind == N_CHAR or node.kind == N_ANY or node.kind == N_SET
+  return true when node.kind == N_EMPTY or node.kind == N_ASSERT or node.kind == N_BACKREF
+  return node.a == 0 or nullable(nodes, node.kids[0]) when node.kind == N_REPEAT
   if node.kind == N_CAT {
-    for kid in node.kids { if ! nullable(nodes, kid) { return false } }
+    for kid in node.kids { return false unless nullable(nodes, kid) }
     return true
   }
   if node.kind == N_ALT {
-    for kid in node.kids { if nullable(nodes, kid) { return true } }
+    for kid in node.kids { return true when nullable(nodes, kid) }
     return false
   }
   nullable(nodes, node.kids[0])
@@ -642,12 +642,12 @@ pure nullable(nodes: List[Node], idx: Int) -> Bool {
 # back-reference programs need because the others memoize states.
 pure generate(nodes: List[Node], idx: Int, icase: Bool, utf8: Bool, marks: Bool, slot_base: Int) -> List[Inst] {
   let node = nodes[idx]
-  if node.kind == N_EMPTY { return [] }
+  return [] when node.kind == N_EMPTY
   if node.kind == N_CHAR { return [{op: OP_CHAR, x: if icase { lower_cp(node.a, utf8) } else { node.a }, y: 0}] }
-  if node.kind == N_ANY { return [{op: OP_ANY, x: 0, y: 0}] }
-  if node.kind == N_SET { return [{op: OP_SET, x: node.a, y: 0}] }
-  if node.kind == N_ASSERT { return [{op: node.a, x: 0, y: 0}] }
-  if node.kind == N_BACKREF { return [{op: OP_BACKREF, x: node.a, y: 0}] }
+  return [{op: OP_ANY, x: 0, y: 0}] when node.kind == N_ANY
+  return [{op: OP_SET, x: node.a, y: 0}] when node.kind == N_SET
+  return [{op: node.a, x: 0, y: 0}] when node.kind == N_ASSERT
+  return [{op: OP_BACKREF, x: node.a, y: 0}] when node.kind == N_BACKREF
   if node.kind == N_CAT {
     var out: List[Inst] = []
     for kid in node.kids {
@@ -688,7 +688,7 @@ pure generate(nodes: List[Node], idx: Int, icase: Bool, utf8: Bool, marks: Bool,
   let body = generate(nodes, kid, icase, utf8, marks, slot_base)
   let width = body.len()
   let copies = if node.b == -1 { node.a + 1 } else { node.b }
-  if width * copies > PROGRAM_LIMIT { return [{op: OP_TOO_BIG, x: 0, y: 0}] }
+  return [{op: OP_TOO_BIG, x: 0, y: 0}] when width * copies > PROGRAM_LIMIT
   var out: List[Inst] = []
   for _ in range(node.a) { out += body }
   if node.b == -1 {
@@ -716,19 +716,19 @@ pure first_set(ops: List[Int], xs: List[Int], ys: List[Int], sets: List[CharSet]
   while ! stack.is_empty() {
     let pc = stack[stack.len() - 1]
     stack = stack[0..stack.len() - 1]
-    if pc >= ops.len() or seen[pc] { continue }
+    continue when pc >= ops.len() or seen[pc]
     seen[pc] = true
     let op = ops[pc]
-    if op == OP_MATCH or op == OP_BACKREF or op == OP_ANY { return [] }
+    return [] when op == OP_MATCH or op == OP_BACKREF or op == OP_ANY
     if op == OP_CHAR {
       let x = xs[pc]
       if x >= 256 {
-        if icase { return [] }
+        return [] when icase
         table[256] = true
       } else {
         table[x] = true
         if icase {
-          if x >= 128 and utf8 { return [] }
+          return [] when x >= 128 and utf8
           table[upper_cp(x, false)] = true
           table[lower_cp(x, false)] = true
         }
@@ -766,13 +766,13 @@ pure native_pattern(parsed: Parsed, icase: Bool) -> Bool {
     let node = parsed.nodes[alt]
     var items: List[Int] = []
     if node.kind == N_CAT { items = node.kids } else { items = [alt] }
-    if items.is_empty() { return false }
+    return false when items.is_empty()
     var begin = 0
     var end = items.len()
     if parsed.nodes[items[0]].kind == N_ASSERT and parsed.nodes[items[0]].a == OP_BOL { begin = 1 }
     if end > begin and parsed.nodes[items[end - 1]].kind == N_ASSERT and parsed.nodes[items[end - 1]].a == OP_EOL { end -= 1 }
     for position in range(begin, end) {
-      if ! native_atom(parsed, items[position], icase) { return false }
+      return false unless native_atom(parsed, items[position], icase)
     }
   }
   true
@@ -780,26 +780,26 @@ pure native_pattern(parsed: Parsed, icase: Bool) -> Bool {
 
 pure native_atom(parsed: Parsed, idx: Int, icase: Bool) -> Bool {
   let node = parsed.nodes[idx]
-  if node.kind == N_CHAR { return node.a < 128 }
-  if node.kind == N_ANY { return true }
+  return node.a < 128 when node.kind == N_CHAR
+  return true when node.kind == N_ANY
   if node.kind == N_SET {
     let cs = parsed.sets[node.a]
-    for cp in cs.singles { if cp >= 128 { return false } }
-    for cp in cs.ranges { if cp >= 128 { return false } }
-    for name in cs.classes { if icase and name == "alpha" { return false } }
+    for cp in cs.singles { return false when cp >= 128 }
+    for cp in cs.ranges { return false when cp >= 128 }
+    for name in cs.classes { return false when icase and name == "alpha" }
     return true
   }
-  if node.kind == N_GROUP { return native_atom(parsed, node.kids[0], icase) }
+  return native_atom(parsed, node.kids[0], icase) when node.kind == N_GROUP
   if node.kind == N_CAT or node.kind == N_ALT {
-    if node.kids.is_empty() { return false }
-    for kid in node.kids { if ! native_atom(parsed, kid, icase) { return false } }
+    return false when node.kids.is_empty()
+    for kid in node.kids { return false unless native_atom(parsed, kid, icase) }
     return true
   }
   if node.kind == N_REPEAT {
     let kid = parsed.nodes[node.kids[0]]
-    if kid.kind == N_REPEAT or kid.kind == N_EMPTY or kid.kind == N_ASSERT { return false }
-    if nullable(parsed.nodes, node.kids[0]) { return false }
-    if node.a > 255 or node.b > 255 { return false }
+    return false when kid.kind == N_REPEAT or kid.kind == N_EMPTY or kid.kind == N_ASSERT
+    return false when nullable(parsed.nodes, node.kids[0])
+    return false when node.a > 255 or node.b > 255
     return native_atom(parsed, node.kids[0], icase)
   }
   false
@@ -894,14 +894,14 @@ pure explore(program: Program, chars: List[Int], from: Int, single: Bool) -> Lis
   let utf8 = program.utf8
   var start = from
   while start <= n {
-    if ! single and program.anchored and start > 0 { break }
+    break when ! single and program.anchored and start > 0
     if ! single and program.filter {
       while start < n {
         let c = chars[start]
-        if program.first[if c < 256 { c } else { 256 }] { break }
+        break when program.first[if c < 256 { c } else { 256 }]
         start += 1
       }
-      if start >= n { break }
+      break when start >= n
     }
     var stack_pc: List[Int] = [0]
     var stack_at: List[Int] = [start]
@@ -916,7 +916,7 @@ pure explore(program: Program, chars: List[Int], from: Int, single: Bool) -> Lis
       while true {
         if memo {
           let key = pc * width + at
-          if seen[key] { break }
+          break when seen[key]
           seen[key] = true
         }
         let op = program.ops[pc]
@@ -952,25 +952,25 @@ pure explore(program: Program, chars: List[Int], from: Int, single: Bool) -> Lis
           # captures, as an empty group match does in glibc.
           if tracked and caps[program.xs[pc]] == at { pc += 2 } else { pc += 1 }
         } else if op == OP_BOL {
-          if at != 0 { break }
+          break when at != 0
           pc += 1
         } else if op == OP_EOL {
-          if at != n { break }
+          break when at != n
           pc += 1
         } else if op == OP_BACKREF {
           let gid = program.xs[pc]
           let lo = caps[2 * gid]
           let hi = caps[2 * gid + 1]
-          if lo < 0 or hi < lo { break }
+          break when lo < 0 or hi < lo
           let length = hi - lo
-          if at + length > n { break }
+          break when at + length > n
           var same = true
           for step in range(length) {
             if ! char_ok(chars[at + step], chars[lo + step], false, utf8) {
               if ! (icase and lower_cp(chars[at + step], utf8) == lower_cp(chars[lo + step], utf8)) { same = false; break }
             }
           }
-          if ! same { break }
+          break unless same
           at += length
           pc += 1
         } else {
@@ -978,18 +978,18 @@ pure explore(program: Program, chars: List[Int], from: Int, single: Bool) -> Lis
           let after = at < n and word_char(chars[at], utf8)
           var ok = false
           if op == OP_WORD_START { ok = after and ! before } else if op == OP_WORD_END { ok = before and ! after } else if op == OP_WORD_BOUND { ok = before != after } else { ok = before == after }
-          if ! ok { break }
+          break unless ok
           pc += 1
         }
       }
     }
     if ! ends.is_empty() {
-      if single { return ends }
+      return ends when single
       var best = ends[0]
       for end in ends { if end > best { best = end } }
       return [start, best]
     }
-    if single { return [] }
+    return [] when single
     start += 1
   }
   []
@@ -1017,8 +1017,8 @@ export pure matcher(programs: List[Program], utf8: Bool, word: Bool, whole: Bool
 }
 
 pure boundary_ok(chars: List[Int], start: Int, end: Int, utf8: Bool, unchecked_prev: Bool) -> Bool {
-  if start > 0 and ! unchecked_prev and word_char(chars[start - 1], utf8) { return false }
-  if end < chars.len() and word_char(chars[end], utf8) { return false }
+  return false when start > 0 and ! unchecked_prev and word_char(chars[start - 1], utf8)
+  return false when end < chars.len() and word_char(chars[end], utf8)
   true
 }
 
@@ -1031,7 +1031,7 @@ pure group_leftmost(pack: List[Program], chars: List[Int], from: Int) -> List[In
   var best: List[Int] = []
   for program in pack {
     let found = explore(program, chars, from, false)
-    if found.is_empty() { continue }
+    continue when found.is_empty()
     if best.is_empty() or found[0] < best[0] or (found[0] == best[0] and found[1] > best[1]) { best = found }
   }
   best
@@ -1067,12 +1067,12 @@ pure find_word(pack: List[Program], chars: List[Int], offs: List[Int], from: Int
   var at = from
   while at <= chars.len() {
     let found = group_leftmost(pack, chars, at)
-    if found.is_empty() { return [] }
+    return [] when found.is_empty()
     let start = found[0]
     let ends = group_ends(pack, chars, start)
     var stop = found[1]
     while true {
-      if boundary_ok(chars, start, stop, utf8, fixed and start == from) { return [start, stop] }
+      return [start, stop] when boundary_ok(chars, start, stop, utf8, fixed and start == from)
       var next = -1
       if retry_loop {
         let begin = offset_of(offs, start)
@@ -1087,7 +1087,7 @@ pure find_word(pack: List[Program], chars: List[Int], offs: List[Int], from: Int
       } else {
         for end in ends { if end < stop and end >= start and end > next { next = end } }
       }
-      if next < 0 { break }
+      break when next < 0
       stop = next
     }
     at = start + 1
@@ -1097,11 +1097,11 @@ pure find_word(pack: List[Program], chars: List[Int], offs: List[Int], from: Int
 
 pure find_group(m: Matcher, pack: List[Program], chars: List[Int], offs: List[Int], from: Int, iterating: Bool) -> List[Int] {
   if m.whole {
-    if from != 0 { return [] }
-    if chars.len() in group_ends(pack, chars, 0) { return [0, chars.len()] }
+    return [] when from != 0
+    return [0, chars.len()] when chars.len() in group_ends(pack, chars, 0)
     return []
   }
-  if m.word { return find_word(pack, chars, offs, from, iterating) }
+  return find_word(pack, chars, offs, from, iterating) when m.word
   group_leftmost(pack, chars, from)
 }
 
@@ -1118,7 +1118,7 @@ export pure find(m: Matcher, chars: List[Int], offs: List[Int], from: Int, itera
   if ! plain.is_empty() { candidates += [find_group(m, plain, chars, offs, from, iterating)] }
   var best: List[Int] = []
   for found in candidates {
-    if found.is_empty() { continue }
+    continue when found.is_empty()
     if best.is_empty() or found[0] < best[0] or (found[0] == best[0] and found[1] > best[1]) { best = found }
   }
   best
@@ -1131,7 +1131,7 @@ export pure byte_offset(dec: Decoded, index: Int) -> Int {
 
 ## The character index at or after a byte offset.
 export pure char_index(dec: Decoded, byte: Int) -> Int {
-  if dec.offs.is_empty() { return byte }
+  return byte when dec.offs.is_empty()
   var low = 0
   var high = dec.offs.len() - 1
   while low < high {
@@ -1159,7 +1159,7 @@ export pure subject(m: Matcher, line: Bytes) -> Decoded {
 
 pure find_decoded(m: Matcher, dec: Decoded, from_byte: Int, iterating: Bool) -> List[Int] {
   let found = find(m, dec.chars, dec.offs, char_index(dec, from_byte), iterating)
-  if found.is_empty() { return [] }
+  return [] when found.is_empty()
   [byte_offset(dec, found[0]), byte_offset(dec, found[1])]
 }
 
@@ -1167,8 +1167,8 @@ pure find_decoded(m: Matcher, dec: Decoded, from_byte: Int, iterating: Bool) -> 
 ## offsets. `iterating` is set when listing the matches of an already
 ## selected line (`-o`, colors) rather than deciding whether it matches.
 export pure find_bytes(m: Matcher, line: Bytes, dec: Decoded, from_byte: Int, iterating: Bool) -> List[Int] {
-  if iterating and m.empty_only { return [] }
-  if ! dec.native { return find_decoded(m, dec, from_byte, iterating) }
+  return [] when iterating and m.empty_only
+  return find_decoded(m, dec, from_byte, iterating) unless dec.native
   var best: List[Int] = []
   for program in m.programs {
     let text = program.native ?? ""
@@ -1176,7 +1176,7 @@ export pure find_bytes(m: Matcher, line: Bytes, dec: Decoded, from_byte: Int, it
     while at <= line.len() {
       match regex.captures_bytes(text, line, at, program.native_ere, program.icase) {
         Ok(caps) => {
-          if caps.is_empty() { break }
+          break when caps.is_empty()
           let span = caps[0] ?? {start: 0, end: 0}
           if m.word {
             # Whole-word check on ASCII neighbors; a multibyte neighbor
@@ -1211,11 +1211,11 @@ pure ascii_word(byte: Int) -> Bool {
 ## strings, or null when some program is not one. A buffer-wide search with
 ## it finds the records that can match at all.
 export pure alternation(programs: List[Program]) -> Str? {
-  if programs.is_empty() or programs.len() > 2000 { return null }
+  return null when programs.is_empty() or programs.len() > 2000
   var parts: List[Str] = []
   for program in programs {
     let literal = program.literal
-    if literal == null or program.backrefs { return null }
+    return null when literal == null or program.backrefs
     var quoted: List[Int] = []
     for byte in literal ?? b"" {
       if byte in [92, 94, 36, 46, 91, 93, 124, 40, 41, 42, 43, 63, 123, 125] { quoted += [92] }

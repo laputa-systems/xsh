@@ -105,7 +105,7 @@ pure host_column(name: Str, address: Str, both: Bool) -> Str {
 proc host_name(address: Str) [net] -> Str {
   let found = dns.reverse(address)
   if let Ok(list) = found {
-    if ! list.is_empty() { return list[0] }
+    return list[0] unless list.is_empty()
   }
   address
 }
@@ -114,7 +114,7 @@ proc host_name(address: Str) [net] -> Str {
 # router quoting the datagram back returns to us.
 pure probe_payload(size: Int, hops: Int, stamp_ms: Int) -> Result[Bytes, Error] {
   let header = bytes.concat([bytes.pack_le(hops, 4)?, bytes.zero(4)?, bytes.pack_le(stamp_ms / 1000, 8)?, bytes.pack_le(stamp_ms % 1000 * 1000, 8)?])
-  if size <= PROBE_HEADER { return Ok(header.slice(0, size)) }
+  return Ok(header.slice(0, size)) when size <= PROBE_HEADER
   Ok(bytes.concat([header, bytes.zero(size - PROBE_HEADER)?]))
 }
 
@@ -249,7 +249,7 @@ proc probe(fd: Int, ttl: Int, start: Walk, setup: Setup, clock: icmp.Clock) [net
     }
     let reading = read_answers(fd, ttl, walk, setup, clock)?
     walk = {...reading.walk, history: reading.walk.history.remove(walk.slot)}
-    if reading.progress == 0 { return Ok({walk: walk, progress: 0}) }
+    return Ok({walk: walk, progress: 0}) when reading.progress == 0
     if reading.progress > 0 and restarts < 10 {
       restarts += 1
       failures = 0
@@ -366,7 +366,7 @@ export proc execute(argv: List[Str]) {
       let reading = probe(fd, ttl, walk, setup, clock)?
       walk = reading.walk
       progress = reading.progress
-      if walk.mtu == before { break }
+      break when walk.mtu == before
     }
     if progress == 0 {
       finished = true

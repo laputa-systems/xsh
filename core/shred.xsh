@@ -154,7 +154,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if let Err(failure) = result { gnu.error(f"{gnu.quote_bytes(name)}: error writing: {gnu.strerror(failure)}"); failed = true; complete = false; break }
       if opts.source != null and pattern.is_empty() { source_offset = result? }
     }
-    if ! complete or remove == "" { continue }
+    continue when ! complete or remove == ""
     if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: removing") }
     if let Err(failure) = target.truncate(0) { name_error(name, failure); failed = true; continue }
     var last = target

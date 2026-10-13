@@ -425,9 +425,7 @@ export proc find_by_name(root: FsRoot, name: Str) [fs, error] -> Result[Str?, Er
         }
       }
 
-      if matched {
-        return canonical_devpath(root, f"/dev/{kind}/{entry.name()}")
-      }
+      return canonical_devpath(root, f"/dev/{kind}/{entry.name()}") when matched
     }
   }
 

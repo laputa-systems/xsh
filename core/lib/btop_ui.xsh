@@ -70,14 +70,14 @@ pure same_identity(left: Identity?, right: Identity) -> Bool {
 ## Finds display-only metadata for the same process lifetime.
 export pure local_display(row: model.ProcessRow, values: List[processes.LocalProcessDisplay]) -> processes.LocalProcessDisplay? {
   for value in values {
-    if value.pid == row.pid and value.start_ticks == row.start_ticks { return value }
+    return value when value.pid == row.pid and value.start_ticks == row.start_ticks
   }
   null
 }
 
 pure indexed_local_display(row: model.ProcessRow, values: LocalDisplayIndex) -> processes.LocalProcessDisplay? {
   if let Ok(value) = values.get(row.pid) {
-    if value.start_ticks == row.start_ticks { return value }
+    return value when value.start_ticks == row.start_ticks
   }
   null
 }
@@ -95,7 +95,7 @@ pure user_text(row: model.ProcessRow, values: LocalDisplayIndex) -> Str {
 }
 
 pure matches(row: model.ProcessRow, filter: Str, values: LocalDisplayIndex) -> Bool {
-  if filter == "" { return true }
+  return true when filter == ""
   let needle = filter.lower()
   f"{row.pid}".find(needle) != null or
     (if row.uid == null { "?" } else { f"{row.uid ?? 0}" }).lower().find(needle) != null or
@@ -109,7 +109,7 @@ pure rate_available(value: rates.Rate) -> Bool {
 }
 
 pure cpu_sort_value(value: rates.Rate, scale: Int) -> Int {
-  if !rate_available(value) { return 0 }
+  return 0 unless rate_available(value)
   let scaled = (value.value ?? 0.0) * scale.float()
   if let Ok(units) = scaled.round() {
     units
@@ -129,7 +129,7 @@ pure displayed_cpu(row: model.ProcessRow, state: State) -> rates.Rate {
 }
 
 pure promote_cpu_spikes(rows: List[model.ProcessRow], state: State) -> List[model.ProcessRow] {
-  if rows.is_empty() { return rows }
+  return rows when rows.is_empty()
   var maximum = 10.0
   var target = 30.0
   var offset = 0
@@ -152,7 +152,7 @@ pure promote_cpu_spikes(rows: List[model.ProcessRow], state: State) -> List[mode
           .extend(ordered[offset..index])
           .extend(ordered[index + 1..])
         moved += 1
-        if moved > 10 { break }
+        break when moved > 10
       }
     }
   }
@@ -243,7 +243,7 @@ pure process_tree_rows(
     for pid in hierarchy.preorder {
       var cursor: Int? = pid
       for _ in range(hierarchy.preorder.len()) {
-        if cursor == null { break }
+        break when cursor == null
         let current = cursor ?? pid
         if current in matching {
           included = included.add(pid)
@@ -259,7 +259,7 @@ pure process_tree_rows(
         if let Ok(node) = hierarchy.nodes.get(pid) {
           var parent = node.parent_pid
           for _ in range(hierarchy.preorder.len()) {
-            if parent == null { break }
+            break when parent == null
             let parent_pid = parent ?? pid
             included = included.add(parent_pid)
             if let Ok(parent_node) = hierarchy.nodes.get(parent_pid) {
@@ -278,10 +278,10 @@ pure process_tree_rows(
   for pid in hierarchy.preorder {
     let node = hierarchy.nodes[pid]
     if hidden_depth != null {
-      if node.depth > (hidden_depth ?? node.depth) { continue }
+      continue when node.depth > (hidden_depth ?? node.depth)
       hidden_depth = null
     }
-    if pid not in included { continue }
+    continue when pid not in included
     let key = identity_key(identity(node.row))
     let has_children = ! node.children.is_empty()
     let collapsed = has_children and key in state.collapsed
@@ -330,7 +330,7 @@ pure active_collapses(state: State, value: model.Model) -> Set[Str] {
 pure active_network_interface(state: State, value: model.Model) -> Str? {
   if state.network_interface != null {
     for interface in value.network.interfaces {
-      if interface.name == (state.network_interface ?? "") { return state.network_interface }
+      return state.network_interface when interface.name == (state.network_interface ?? "")
     }
   }
   value.network.interface_name
@@ -347,8 +347,8 @@ export pure network_total_bytes(state: State, interface: model.NetworkMetric?, r
     let current = if receive { selected.rx_bytes } else { selected.tx_bytes }
     if state.network_offset_interface != selected.name or state.network_offset_ifindex != selected.ifindex { return current }
     let offset = if receive { state.network_rx_offset } else { state.network_tx_offset }
-    if offset == null { return current }
-    if current < (offset ?? 0) { return null }
+    return current when offset == null
+    return null when current < (offset ?? 0)
     return current - (offset ?? 0)
   }
   null
@@ -379,7 +379,7 @@ pure toggle_network_offset(state: State, value: model.Model) -> State {
 
 pure select_network_interface(state: State, value: model.Model, direction: Int) -> State {
   let interfaces = value.network.interfaces
-  if interfaces.is_empty() { return state }
+  return state when interfaces.is_empty()
   let selected_name = active_network_interface(state, value)
   var selected_index: Int? = null
   for index in range(interfaces.len()) {
@@ -404,7 +404,7 @@ pure select_network_interface(state: State, value: model.Model, direction: Int) 
 }
 
 pure collapse_selected(state: State, value: model.Model, action: Str) -> State {
-  if state.selected == null { return state }
+  return state when state.selected == null
   let tree = process_tree.build(value.processes)
   let selected = state.selected ?? {pid: 0, start_ticks: 0}
   if let Ok(node) = tree.nodes.get(selected.pid) {
@@ -426,11 +426,11 @@ pure collapse_selected(state: State, value: model.Model, action: Str) -> State {
 }
 
 pure toggle_selected_children(state: State, value: model.Model) -> State {
-  if state.selected == null { return state }
+  return state when state.selected == null
   let tree = process_tree.build(value.processes)
   let selected = state.selected ?? {pid: 0, start_ticks: 0}
   if let Ok(node) = tree.nodes.get(selected.pid) {
-    if node.row.start_ticks != selected.start_ticks { return state }
+    return state when node.row.start_ticks != selected.start_ticks
     var collapsed = state.collapsed
     for child_pid in node.children {
       if let Ok(child) = tree.nodes.get(child_pid) {
@@ -466,21 +466,21 @@ pure toggle_all_children(state: State, value: model.Model) -> State {
 }
 
 pure selected_index(rows: List[model.ProcessRow], selected: Identity?) -> Int? {
-  if selected == null { return null }
+  return null when selected == null
   for index in range(rows.len()) {
-    if same_identity(selected, identity(rows[index])) { return index }
+    return index when same_identity(selected, identity(rows[index]))
   }
   null
 }
 
 pure bounded_scroll(state: State, rows: List[model.ProcessRow], selected: Identity?) -> Int {
-  if rows.is_empty() { return 0 }
+  return 0 when rows.is_empty()
   let visible = if state.visible_rows < 1 { 1 } else { state.visible_rows }
   let maximum = if rows.len() > visible { rows.len() - visible } else { 0 }
   let current = if state.scroll < 0 { 0 } else if state.scroll > maximum { maximum } else { state.scroll }
   if let index = selected_index(rows, selected) {
-    if index < current { return index }
-    if index >= current + visible { return index - visible + 1 }
+    return index when index < current
+    return index - visible + 1 when index >= current + visible
   }
   current
 }
@@ -496,7 +496,7 @@ pure reconcile(
     network_interface: active_network_interface(state, value),
   }
   let rows = visible_processes(value, current, local_display)
-  if rows.is_empty() { return {...current, selected: null, scroll: 0} }
+  return {...current, selected: null, scroll: 0} when rows.is_empty()
   let selected = if selected_index(rows, current.selected) != null {
     current.selected
   } else {
@@ -585,7 +585,7 @@ pure previous_sort(sort: Sort) -> Sort {
 
 pure drop_last(text: Str) -> Str {
   let characters = text.split("")
-  if characters.is_empty() { return "" }
+  return "" when characters.is_empty()
   characters |> take(characters.len() - 1) |> join("")
 }
 
@@ -596,7 +596,7 @@ pure move(
   local_display: List[processes.LocalProcessDisplay],
 ) -> State {
   let rows = visible_processes(value, state, local_display)
-  if rows.is_empty() { return {...state, selected: null, scroll: 0} }
+  return {...state, selected: null, scroll: 0} when rows.is_empty()
   let start = selected_index(rows, state.selected) ?? 0
   let target = if start + amount < 0 {
     0

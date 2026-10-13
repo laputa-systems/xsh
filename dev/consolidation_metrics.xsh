@@ -159,7 +159,7 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
           }
           if value == "\\" and ! raw {
             cursor += 1
-            if cursor >= chars.len() { break }
+            break when cursor >= chars.len()
             let escape = chars.get(cursor) ?? ""
             if ! (escape in ["\\", "\"", "'", "n", "r", "t", "0", "x", "u", "\n", "\r"]) { invalid(source_path, line, "unsupported Rust escape") }
             if escape == "\n" { line += 1 }
@@ -341,7 +341,7 @@ proc attributes(source_path: Str, lexed: Lexed) [error] -> Result[List[Attribute
           var child = opening + 3
           while child < end {
             if (lexed.tokens.get(child) ?? end_token).text in ["(", "[", "{"] { child = lexed.mates[f"{child}"] + 1; continue }
-            if (lexed.tokens.get(child) ?? end_token).text == "," { break }
+            break when (lexed.tokens.get(child) ?? end_token).text == ","
             child += 1
           }
           if (lexed.tokens.get(child) ?? end_token).text != "," { invalid(source_path, lexed.tokens[cursor].line, "cfg_attr requires metadata") }
@@ -379,8 +379,8 @@ proc item_end(source_path: Str, lexed: Lexed, start: Int) [error] -> Result[Int]
     }
     if name == "<" and ! semicolon { angles += 1 }
     if name == ">" and angles > 0 and (lexed.tokens.get(cursor - 1) ?? end_token).text != "-" { angles -= 1 }
-    if name == ";" { return cursor }
-    if name == "," and angles == 0 and ! declaration { return cursor }
+    return cursor when name == ";"
+    return cursor when name == "," and angles == 0 and ! declaration
     if name == "{" {
       let end = lexed.mates[f"{cursor}"]
       # A use tree is followed by its semicolon; its braces do not end the item.
@@ -404,7 +404,7 @@ proc scope_start(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result
   var item = false
   while cursor >= 0 {
     let name = (lexed.tokens.get(cursor) ?? end_token).text
-    if name in [";", "{", "}"] { break }
+    break when name in [";", "{", "}"]
     if name in ["fn", "mod", "impl", "trait", "extern"] { item = true }
     if name in [")", "]"] { cursor = lexed.mates[f"{cursor}"] }
     start = cursor
@@ -418,8 +418,8 @@ pure struct_body_name(lexed: Lexed, opening: Int) -> Str {
   var cursor = opening - 1
   while cursor >= 0 {
     let value = lexed.tokens[cursor].text
-    if value == "struct" { return lexed.tokens[cursor + 1].text }
-    if value in [";", "{", "}"] { return "" }
+    return lexed.tokens[cursor + 1].text when value == "struct"
+    return "" when value in [";", "{", "}"]
     cursor -= 1
   }
   ""
@@ -451,7 +451,7 @@ proc attributed_item_target(source_path: Str, lexed: Lexed, attr: Attribute) [er
     }
     let kind = if value == "mod" { "module" } else if value == "impl" { "impl" } else if value == "trait" { "trait" } else if value in ["fn", "struct", "enum", "union", "type", "const", "static", "use", "extern"] { value } else if value in ["macro_rules", "macro"] and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" { "macro_definition" } else if ident_start(first(value)) {
       var after = cursor + 1
-      while (lexed.tokens.get(after) ?? end_token).text == ":" and (lexed.tokens.get(after + 1) ?? end_token).text == ":" { after += 2; if ! ident_start(first((lexed.tokens.get(after) ?? end_token).text)) { break }; after += 1 }
+      while (lexed.tokens.get(after) ?? end_token).text == ":" and (lexed.tokens.get(after + 1) ?? end_token).text == ":" { after += 2; break unless ident_start(first((lexed.tokens.get(after) ?? end_token).text)); after += 1 }
       if (lexed.tokens.get(after) ?? end_token).text == "!" { "macro_invocation" } else { "" }
     } else { "" }
     if kind == "" { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, "unsupported dead_code allowance target") }
@@ -469,7 +469,7 @@ pure attribute_allows_dead_code(lexed: Lexed, attr: Attribute) -> Bool {
     if lexed.tokens[cursor].text == "allow" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "(" {
       let end = lexed.mates[f"{cursor + 1}"]
       var argument = cursor + 2
-      while argument < end { if lexed.tokens[argument].text == "dead_code" { return true }; argument += 1 }
+      while argument < end { return true when lexed.tokens[argument].text == "dead_code"; argument += 1 }
       cursor = end + 1
     } else { cursor += 1 }
   }
@@ -597,7 +597,7 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
           while index >= 0 { yield attrs[index]; index -= 1 }
         }
         for attr in backwards {
-          if attr.end != previous { continue }
+          continue when attr.end != previous
           let kind = attr.start + (if attr.inner { 3 } else { 2 })
           if (lexed.tokens.get(kind) ?? end_token).text == "path" {
             let value = (lexed.tokens.get(kind + 2) ?? end_token).text
@@ -848,7 +848,7 @@ pure contains_token(lexed: Lexed, start: Int, end: Int, value: Str) -> Bool {
   var cursor = start
   while cursor < end {
     let token = lexed.tokens[cursor]
-    if ! token.literal and token.text == value { return true }
+    return true when ! token.literal and token.text == value
     cursor += 1
   }
   false
@@ -867,7 +867,7 @@ proc function_region_for_parameters(source_path: Str, lexed: Lexed, keyword: Int
       params_start += 1
       continue
     }
-    if value == "(" and generic_depth == 0 { break }
+    break when value == "(" and generic_depth == 0
     if value in ["{", ";"] and generic_depth == 0 { return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1} }
     if value in ["(", "[", "{"] { params_start = lexed.mates[f"{params_start}"] + 1 } else { params_start += 1 }
   }
@@ -899,7 +899,7 @@ proc function_region_for_parameters(source_path: Str, lexed: Lexed, keyword: Int
       return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
     }
     if value == "{" {
-      if angle_depth == 0 { break }
+      break when angle_depth == 0
       body_start = lexed.mates[f"{body_start}"] + 1
       continue
     }
@@ -959,7 +959,7 @@ pure qualified_variant_count(lexed: Lexed, region: FunctionRegion, type_name: St
 }
 
 proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
-  if ! source_path.starts_with("src/runtime/eval/") { return [] }
+  return [] unless source_path.starts_with("src/runtime/eval/")
   if ! contains_token(lexed, 0, lexed.tokens.len(), "Type") or ! contains_token(lexed, 0, lexed.tokens.len(), "LoweredType") or ! contains_token(lexed, 0, lexed.tokens.len(), "match") { return [] }
   var found: List[Evidence] = []
   var cursor = 0
@@ -1346,8 +1346,8 @@ export proc verify_blanket_baseline(root: Path, baseline_path: Str, provenance_p
 }
 
 pure valid_object_id(value: Str) -> Bool {
-  if value.byte_len() not in [40, 64] { return false }
-  for digit in value.split("") { if !(digit.lower() in "0123456789abcdef") { return false } }
+  return false when value.byte_len() not in [40, 64]
+  for digit in value.split("") { return false unless digit.lower() in "0123456789abcdef" }
   true
 }
 

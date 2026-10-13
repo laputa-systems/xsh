@@ -56,9 +56,9 @@ test test_patch_multi_file_failure_keeps_prior_applied_file { |ctx|
 }
 
 pure hex_digit(byte: Int) -> Int {
-  if byte >= 48 and byte <= 57 { return byte - 48 }
-  if byte >= 65 and byte <= 70 { return byte - 55 }
-  if byte >= 97 and byte <= 102 { return byte - 87 }
+  return byte - 48 when byte >= 48 and byte <= 57
+  return byte - 55 when byte >= 65 and byte <= 70
+  return byte - 87 when byte >= 97 and byte <= 102
   -1
 }
 
@@ -196,9 +196,9 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     return Ok(problems)
   }
   for row in expected_manifest {
-    if !row.starts_with("f ") { continue }
+    continue unless row.starts_with("f ")
     # An unreadable file's content cannot be compared.
-    if (row.byte_slice(2, length: 1).parse_int() ?? 0) < 4 { continue }
+    continue when (row.byte_slice(2, length: 1).parse_int() ?? 0) < 4
     var relative = row.byte_slice(4)
     let stamp = relative.find(" mtime=") ?? -1
     if stamp >= 0 { relative = relative.byte_slice(0, stamp) }
@@ -234,9 +234,9 @@ proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, err
   var problems: List[Str] = []
   var count = 0
   for index in range(ordered.len()) {
-    if index % shards != shard { continue }
+    continue when index % shards != shard
     let name = ordered[index]
-    if !fp"{corpus}/{name}/out/status".exists() { continue }
+    continue unless fp"{corpus}/{name}/out/status".exists()
     count += 1
     problems += check_case(ctx, fp"{corpus}/{name}")?
   }

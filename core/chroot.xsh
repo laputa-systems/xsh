@@ -112,10 +112,10 @@ proc identity(spec: Str) [fs, error] -> Result[Identity] {
 }
 
 proc additional_groups(spec: Str) [fs, error, env] -> Result[List[Int]] {
-  if spec == "" { return [] }
+  return [] when spec == ""
   var groups: List[Int] = []
   for name in spec.split(",") {
-    if name == "" { continue }
+    continue when name == ""
     let group_name = name.trim()
     match perm.gid(group_name) {
       Ok(id) => groups += [id]

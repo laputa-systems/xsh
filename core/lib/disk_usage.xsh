@@ -79,10 +79,10 @@ export proc environment_units(applet_name: Str, portable = false) [env] -> Units
   if ! portable {
     for key in [f"{applet_name.upper()}_BLOCK_SIZE", "BLOCK_SIZE", "BLOCKSIZE"] {
       if let Ok(text) = env.get(key) {
-        if text == "human-readable" { return {block: 1, human: 1024, label: "Size"} }
-        if text == "si" { return {block: 1, human: 1000, label: "Size"} }
+        return {block: 1, human: 1024, label: "Size"} when text == "human-readable"
+        return {block: 1, human: 1000, label: "Size"} when text == "si"
         let size = parse_size(text)
-        if size != null and size > 0 { return {block: size, human: 0, label: block_label(size)} }
+        return {block: size, human: 0, label: block_label(size)} when size != null and size > 0
         return {block: standard, human: 0, label: if standard == 1024 { "1K-blocks" } else { "512B-blocks" }}
       }
     }

@@ -9,7 +9,7 @@ export type Assignment = {key: Str, value: Str, ignore_failure: Bool}
 ## Parse a sysctl assignment without performing any writes.
 export pure assignment(text: Str, config: Bool = false) -> Result[Assignment, Error] {
   let fields = text.split("=", maxsplit: 1)
-  if fields.len() != 2 { return Err(ControlError.Invalid(f"expected key=value: {text}")) }
+  return Err(ControlError.Invalid(f"expected key=value: {text}")) when fields.len() != 2
   var key = fields[0].trim()
   let ignore_failure = config and key.starts_with("-")
   if ignore_failure { key = key.byte_slice(1) }
@@ -38,13 +38,13 @@ export proc load_assignments(files: List[Path]) -> Result[List[Assignment], Erro
 
 ## Preserve child exit codes and map signal deaths to shell status codes.
 export proc status_code(status: Status) -> Result[Int, Error] {
-  if status.exited() { return status.exit_code() }
+  return status.exit_code() when status.exited()
   Ok(128 + status.signal_number()?)
 }
 
 ## Resolve an executable before any locking or session transition.
 export proc command(argv: List[Str], new_session: Bool = false, detach: Bool = false) -> Result[Command, Error] {
-  if argv.is_empty() { return Err(ControlError.Invalid("missing command")) }
+  return Err(ControlError.Invalid("missing command")) when argv.is_empty()
   let executable = process.which(argv[0])?
   Ok(process.command_argv(executable, argv, new_session: new_session, detach: detach))
 }

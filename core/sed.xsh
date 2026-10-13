@@ -77,7 +77,7 @@ proc read_script_file(name: Str) [fs, io, error, process, env] -> Bytes {
   match fp"{name}".read_bytes() {
     Ok(data) => data
     Err(failure) => {
-      if gnu.errno(failure) == 21 { return b"" }
+      return b"" when gnu.errno(failure) == 21
       gnu.error(f"couldn't open file {name}: {gnu.strerror(failure)}")
       exit 4
     }
@@ -90,7 +90,7 @@ pure leading_integer(text: Str) -> Int {
   var at = 0
   while at < text.byte_len() {
     let digit = text.byte_slice(at, 1)
-    if digit < "0" or digit > "9" { break }
+    break when digit < "0" or digit > "9"
     value = value * 10 + (digit.parse_int() ?? 0)
     at += 1
   }

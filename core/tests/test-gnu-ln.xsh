@@ -2,7 +2,7 @@ use support.uu
 
 proc regular_file(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
   let candidate = uu.at(s, name)
-  if ! candidate.exists() { return Ok(false) }
+  return Ok(false) unless candidate.exists()
   Ok(fs.stat(candidate, follow_symlinks: true)?.kind == "file")
 }
 

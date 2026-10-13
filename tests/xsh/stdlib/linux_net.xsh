@@ -26,9 +26,7 @@ proc attributes(payload: Bytes, start: Int) [error] -> Result[List[Attribute]] {
   while offset + 4 <= payload.len() {
     let length = bytes.unpack_le(payload, 2, offset)?
     let kind = bytes.unpack_le(payload, 2, offset + 2)?
-    if length < 4 or offset + length > payload.len() {
-      break
-    }
+    break when length < 4 or offset + length > payload.len()
     found += [{kind: kind, data: payload.slice(offset + 4, length - 4)}]
     offset += (length + 3) / 4 * 4
   }
@@ -42,9 +40,7 @@ proc settled_dump() [process, error] -> Result[LinuxNetworkDump] {
   var attempt = 0
   while attempt < 20 {
     let dump = linux.network_dump()?
-    if dump.state == "complete" {
-      return Ok(dump)
-    }
+    return Ok(dump) when dump.state == "complete"
     attempt += 1
   }
   test.skip("linux.network_dump never completed on this host")

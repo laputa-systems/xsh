@@ -142,10 +142,10 @@ test test_gnu_split_b_chunk_log { |ctx|
   uu.write(s, "input", "1\n2\n3\n4\n5\n")
   for file in ["input", "/proc/version", "/sys/kernel/profiling"] {
     let pathname = if file.starts_with("/") { Path(file) } else { uu.at(s, file) }
-    if ! pathname.exists() { continue }
-    if fs.stat(pathname, follow_symlinks: true)?.kind != "file" { continue }
+    continue unless pathname.exists()
+    continue when fs.stat(pathname, follow_symlinks: true)?.kind != "file"
     for block in [1, 2, 4096] {
-      if file != "input" and block != 4096 { continue }
+      continue when file != "input" and block != 4096
       uu.succeeds(uu.invoke(s, "split", ["-n", "3", f"---io-blksize={block}", file])?)
       if file == "input" { assert_parts(s, [b"1\n2\n", b"3\n4", b"\n5\n"]) }
       var all = b""
@@ -253,7 +253,7 @@ proc vm_status(s: uu.Scene, args: List[Str], kilobytes: Int, marker: Str? = null
   let plan = process.command_argv(s.ctx.xsh_bin, words, s.root, {}, b"", uu.at(s, "vm-out"), uu.at(s, "vm-err"), timeout: 11s)
   let began = time.now() / 1000
   let result = process.run(plan)
-  if discovery and time.now() / 1000 - began >= 10 { return Ok(77) }
+  return Ok(77) when discovery and time.now() / 1000 - began >= 10
   let status = result?
   Ok(status.shell_code()?)
 }
@@ -269,14 +269,14 @@ proc minimum_vm(s: uu.Scene, args: List[Str]) [fs, process, env, time, error] ->
   let candidates = [multiplier * 5000 for multiplier in range(1, 11)].extend([100000, 200000, 400000, 800000])
   for candidate in candidates {
     let code = vm_status(s, args, candidate, discovery: true)?
-    if code == 77 { return Ok(null) }
-    if code != 0 { continue }
+    return Ok(null) when code == 77
+    continue when code != 0
     var previous = candidate
     for step in range(1, candidate / 1000) {
       let limit = candidate - step * 1000
       let reduced = vm_status(s, args, limit, discovery: true)?
-      if reduced == 77 { return Ok(null) }
-      if reduced != 0 { return Ok(previous + page_kib) }
+      return Ok(null) when reduced == 77
+      return Ok(previous + page_kib) when reduced != 0
       previous = limit
     }
   }

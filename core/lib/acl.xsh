@@ -32,7 +32,7 @@ export pure canonical(entries: List[Entry]) -> List[Entry] {
 
 ## Require complete, unique entries and a mask whenever a named identity occurs.
 export pure validate(entries: List[Entry], allow_empty = false) -> Result[Unit, Error] {
-  if entries.is_empty() and allow_empty { return Ok() }
+  return Ok() when entries.is_empty() and allow_empty
   var keys: List[Str] = []
   for entry in entries {
     return Err(AclError.Invalid("permissions outside ACL range")) when entry.permissions < 0 or entry.permissions > 7
@@ -82,7 +82,7 @@ export pure encode(entries: List[Entry]) -> Result[Bytes, Error] {
 
 ## Parse rwx positional permissions, symbolic subsets, or a single octal digit.
 export pure parse_permissions(text: Str) -> Result[Int, Error] {
-  if rx"^[0-7]$".matches(text) { return text.parse_int()? }
+  return text.parse_int()? when rx"^[0-7]$".matches(text)
   return Err(AclError.Invalid("invalid ACL permissions")) when text == "" or ! rx"^[rwxX-]+$".matches(text)
   var value = 0
   for ch in text { value = value.bit_or(if ch == "r" { 4 } else if ch == "w" { 2 } else if ch in ["x", "X"] { 1 } else { 0 }) }
@@ -205,7 +205,7 @@ export proc text(entry: Entry, numeric = false) [fs] -> Str {
 
 ## Group-class permissions are limited by the mask in the same ACL scope.
 export pure effective(entry: Entry, entries: List[Entry]) -> Int {
-  if entry.tag not in [AclGroupOwner, AclGroup, AclUser] { return entry.permissions }
+  return entry.permissions when entry.tag not in [AclGroupOwner, AclGroup, AclUser]
   for mask in entries { return entry.permissions.bit_and(mask.permissions) when mask.tag == AclMask and mask.default == entry.default }
   entry.permissions
 }

@@ -169,12 +169,12 @@ export pure ipv4_text(raw: Bytes, offset: Int) -> Str {
 ## Four bytes of a dotted-quad address, or null when the text is not one.
 export pure ipv4_parse(text: Str) -> Bytes? {
   let parts = text.split(".")
-  if parts.len() != 4 { return null }
+  return null when parts.len() != 4
   var octets: List[Int] = []
   for part in parts {
-    if part.is_empty() or part.byte_len() > 3 { return null }
+    return null when part.is_empty() or part.byte_len() > 3
     let value = part.parse_int_decimal() ?? -1
-    if value < 0 or value > 255 { return null }
+    return null when value < 0 or value > 255
     octets += [value]
   }
   match bytes.from_ints(octets) {
@@ -189,14 +189,14 @@ export pure ipv4_parse(text: Str) -> Bytes? {
 ## silently set an address the caller did not write.
 export pure ether_parse(text: Str) -> Bytes? {
   let parts = text.split(":")
-  if parts.len() != 6 { return null }
+  return null when parts.len() != 6
   var octets: List[Int] = []
   for part in parts {
-    if part.byte_len() < 1 or part.byte_len() > 2 { return null }
+    return null when part.byte_len() < 1 or part.byte_len() > 2
     var value = 0
     for digit in part.lower() {
       let at = HEX.find(digit)
-      if at == null { return null }
+      return null when at == null
       value = value * 16 + (at ?? 0)
     }
     octets += [value]
@@ -211,7 +211,7 @@ export pure ether_parse(text: Str) -> Bytes? {
 export pure netmask_parse(text: Str) -> Bytes? {
   if text.starts_with("0x") or text.starts_with("0X") {
     let value = text.parse_int() ?? -1
-    if value < 0 or value > 4294967295 { return null }
+    return null when value < 0 or value > 4294967295
     return match bytes.pack_be(value, 4) {
       Ok(raw) => raw
       Err(_) => null
@@ -240,14 +240,14 @@ export pure prefix_mask(prefix: Int) -> Bytes {
 ## The prefix length of a contiguous netmask, or null for a mask with holes.
 export pure mask_prefix(mask: Bytes) -> Int? {
   for prefix in range(33) {
-    if prefix_mask(prefix) == mask { return prefix }
+    return prefix when prefix_mask(prefix) == mask
   }
   null
 }
 
 ## Sixteen bytes of an IPv6 address in text form, or null when it is not one.
 export pure ipv6_parse(text: Str) -> Bytes? {
-  if text.is_empty() or text.find(":") == null { return null }
+  return null when text.is_empty() or text.find(":") == null
   var body = text
   var tail: List[Int] = []
   # An embedded IPv4 tail takes the place of the last two groups.
@@ -260,7 +260,7 @@ export pure ipv6_parse(text: Str) -> Bytes? {
     body = body.byte_slice(0, length: body.byte_len() - final.byte_len()) + "0:0"
   }
   let halves = body.split("::")
-  if halves.len() > 2 { return null }
+  return null when halves.len() > 2
   var groups: List[Int] = []
   var lead: List[Int] = []
   var rest: List[Int] = []
@@ -268,11 +268,11 @@ export pure ipv6_parse(text: Str) -> Bytes? {
     var parsed: List[Int] = []
     if !half.is_empty() {
       for piece in half.split(":") {
-        if piece.is_empty() or piece.byte_len() > 4 { return null }
+        return null when piece.is_empty() or piece.byte_len() > 4
         var value = 0
         for digit in piece.lower() {
           let at = HEX.find(digit)
-          if at == null { return null }
+          return null when at == null
           value = value * 16 + at
         }
         parsed += [value]
@@ -282,10 +282,10 @@ export pure ipv6_parse(text: Str) -> Bytes? {
   }
   if halves.len() == 1 {
     groups = lead
-    if groups.len() != 8 { return null }
+    return null when groups.len() != 8
   } else {
     let missing = 8 - lead.len() - rest.len()
-    if missing < 1 { return null }
+    return null when missing < 1
     groups = lead + [0 for _ in range(missing)] + rest
   }
   if tail.len() == 2 {
@@ -303,9 +303,9 @@ export pure ipv6_parse(text: Str) -> Bytes? {
 
 ## Parses a decimal number, returning null for anything else.
 export pure decimal(text: Str) -> Int? {
-  if text.is_empty() { return null }
+  return null when text.is_empty()
   for digit in text {
-    if HEX.find(digit) == null or (HEX.find(digit) ?? 0) > 9 { return null }
+    return null when HEX.find(digit) == null or (HEX.find(digit) ?? 0) > 9
   }
   match text.parse_int_decimal() {
     Ok(value) => value
@@ -344,10 +344,10 @@ export pure human_bytes(count: Int) -> Str {
 }
 
 pure all_digits(raw: Bytes, from: Int) -> Bool {
-  if from >= raw.len() { return false }
+  return false when from >= raw.len()
   for index in range(from, raw.len()) {
     let byte = raw.byte_at(index) ?? 0
-    if byte < 48 or byte > 57 { return false }
+    return false when byte < 48 or byte > 57
   }
   true
 }
@@ -371,11 +371,11 @@ export pure name_order(left: Str, right: Str) -> Int {
   while at < a.len() and at < b.len() and a.byte_at(at) == b.byte_at(at) {
     at += 1
   }
-  if at == a.len() and at == b.len() { return 0 }
+  return 0 when at == a.len() and at == b.len()
   if all_digits(a, at) and all_digits(b, at) {
     let x = number_from(a, at)
     let y = number_from(b, at)
-    if x != y { return if x < y { -1 } else { 1 } }
+    return if x < y { -1 } else { 1 } when x != y
   }
   let ca = if at < a.len() { a.byte_at(at) ?? 0 } else { -1 }
   let cb = if at < b.len() { b.byte_at(at) ?? 0 } else { -1 }
@@ -400,7 +400,7 @@ export pure sort_interfaces(items: List[Interface]) -> List[Interface] {
 
 pure attribute_data(attributes: List[Attribute], kind: Int) -> Bytes? {
   for attribute in attributes {
-    if attribute.kind.bit_and(16383) == kind { return attribute.data }
+    return attribute.data when attribute.kind.bit_and(16383) == kind
   }
   null
 }
@@ -412,7 +412,7 @@ export pure attributes_of(payload: Bytes, start: Int) -> List[Attribute] {
   while offset + 4 <= payload.len() {
     let length = bytes.unpack_le(payload, 2, offset) ?? 0
     let kind = bytes.unpack_le(payload, 2, offset + 2) ?? 0
-    if length < 4 or offset + length > payload.len() { break }
+    break when length < 4 or offset + length > payload.len()
     found += [{kind: kind.bit_and(16383), data: payload.slice(offset + 4, length - 4)}]
     offset += (length + 3) / 4 * 4
   }
@@ -521,7 +521,7 @@ export pure flag_letters(flags: Int) -> Str {
 
 pure hardware_of(hwtype: Int) -> HardwareType? {
   for entry in HARDWARE_TYPES {
-    if entry.type == hwtype { return entry }
+    return entry when entry.type == hwtype
   }
   null
 }
@@ -532,10 +532,10 @@ export pure hardware_name(hwtype: Int) -> Str {
 }
 
 pure scope_text(scope: Int) -> Str {
-  if scope == 0 { return "0x0<global>" }
-  if scope == 254 { return "0x10<host>" }
-  if scope == 253 { return "0x20<link>" }
-  if scope == 200 { return "0x40<site>" }
+  return "0x0<global>" when scope == 0
+  return "0x10<host>" when scope == 254
+  return "0x20<link>" when scope == 253
+  return "0x40<site>" when scope == 200
   "0x0<global>"
 }
 
@@ -745,7 +745,7 @@ export pure compress_ipv6(text: Str) -> Str {
 }
 
 pure hex_group(value: Int) -> Str {
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var text = ""
   var rest = value
   while rest > 0 {
@@ -803,9 +803,7 @@ export pure route4_row(row: RouteRow, destination: Str, gateway: Str, extend: In
     return f"{destination:<15} {gate:<15} {row.mask:<15} {row.flags:<5} {mss:>5} {window:<6} {irtt:>5} {iface}"
   }
   let base = f"{destination:<15} {gate:<15} {row.mask:<15} {row.flags:<5} {row.metric:<6} {ref:<2} {row.use:>7}"
-  if extend >= 2 {
-    return f"{base} {iface:<8} {mss:<5} {window:<6} {irtt}"
-  }
+  return f"{base} {iface:<8} {mss:<5} {window:<6} {irtt}" when extend >= 2
   f"{base} {iface}"
 }
 
@@ -929,7 +927,7 @@ export proc hosts_address(name: Str) [fs] -> Str? {
   for line in text.lines() {
     let words = line.split("#")[0].words()
     continue when words.len() < 2
-    if name in words[1..] and ipv4_parse(words[0]) != null { return words[0] }
+    return words[0] when name in words[1..] and ipv4_parse(words[0]) != null
   }
   null
 }

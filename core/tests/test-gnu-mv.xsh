@@ -404,7 +404,7 @@ test test_gnu_mv_mv_special_1_log { |ctx|
   assert fs.stat(fp"{remote}/mv-dir2/mv-null")?.kind == "fifo"
   var actual: List[Str] = []
   for line in r.stdout.utf8()?.lines() {
-    if line.starts_with("removed ") { continue }
+    continue when line.starts_with("removed ")
     let normalized = line.replace("renamed ", with: "").replace("copied ", with: "").replace(remote.display(), with: "XXX")
     if normalized.starts_with("created directory 'XXX/") {
       let name = normalized[23..normalized.byte_len() - 1]

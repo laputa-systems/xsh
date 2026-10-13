@@ -295,14 +295,14 @@ proc matrix_cases(ctx: TestContext, family: Str) [fs, error] -> Result[List[Matr
 
 # The value paired with a key in a list of [key, value] pairs.
 pure pair_value(pairs: List[List[Str]], key: Str) -> Str? {
-  for pair in pairs { if pair[0] == key { return pair[1] } }
+  for pair in pairs { return pair[1] when pair[0] == key }
   null
 }
 pure expected_bytes(case: MatrixCase, channel: Str) -> Result[Bytes] {
   let override = pair_value(case.xsh, channel)
-  if override != null { return Ok(bytes.from_text(override ?? "")) }
+  return Ok(bytes.from_text(override ?? "")) when override != null
   let packed = if channel == "stdout" { case.stdout_b64 } else { case.stderr_b64 }
-  if ! packed.is_empty() { return Ok(packed.base64_decode()?) }
+  return Ok(packed.base64_decode()?) unless packed.is_empty()
   Ok(bytes.from_text(if channel == "stdout" { case.stdout } else { case.stderr }))
 }
 

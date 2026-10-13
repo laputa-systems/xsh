@@ -410,7 +410,7 @@ pure last_index(text: Str, needle: Str) -> Int {
   var from = 0
   while from <= text.byte_len() {
     let at = text.find(needle, from)
-    if at == null { break }
+    break when at == null
     found = at ?? -1
     from = at + 1
   }
@@ -429,12 +429,12 @@ pure parse_ipv4(text: Str) -> Bytes? {
 
   var values: List[Int] = []
   for part in parts {
-    if part == "" or part.byte_len() > 3 { return null }
+    return null when part == "" or part.byte_len() > 3
     for letter in part {
-      if digit_value(letter) < 0 { return null }
+      return null when digit_value(letter) < 0
     }
     let number = part.parse_int() ?? -1
-    if number < 0 or number > 255 { return null }
+    return null when number < 0 or number > 255
     values += [number]
   }
   if let Ok(data) = bytes.from_ints(values) { return data }
@@ -507,13 +507,13 @@ pure parse_ipv6(text: Str) -> Bytes? {
 pure glob_match(pattern: Str, text: Str) -> Bool {
   # `*` matches any run and `?` one character, as fnmatch does without
   # bracket expressions.
-  if pattern == "" { return text == "" }
+  return text == "" when pattern == ""
 
   let first = pattern.byte_slice(0, length: 1)
   let rest = pattern.byte_slice(1)
   if first == "*" {
     for cut in range(text.byte_len() + 1) {
-      if glob_match(rest, text.byte_slice(cut)) { return true }
+      return true when glob_match(rest, text.byte_slice(cut))
     }
     return false
   }
@@ -532,7 +532,7 @@ proc service_port(word: Str, tables: List[Str], names: Names) [fs, env, error] -
   var found = -1
   for entry in names.services.keys() {
     let parts = entry.split("/")
-    if parts.len() != 2 { continue }
+    continue when parts.len() != 2
     if (names.services.get(entry) ?? "") == word {
       if (parts[1] == "udp" and wanted_udp) or (parts[1] == "tcp" and wanted_tcp) {
         found = parts[0].parse_int() ?? -1
@@ -554,13 +554,13 @@ proc syntax_error() [process, io, error] {
 
 proc parse_port(word: Str, tables: List[Str], names: Names) [fs, env, process, io, error] -> Int {
   let text = if word.starts_with(":") { word.byte_slice(1) } else { word }
-  if text == "" or text == "*" { return -1 }
+  return -1 when text == "" or text == "*"
 
   var numeric = true
   for letter in text {
     if digit_value(letter) < 0 { numeric = false }
   }
-  if numeric { return text.parse_int() ?? -1 }
+  return text.parse_int() ?? -1 when numeric
 
   let found = service_port(text, tables, names)
   if found < 0 {
@@ -759,7 +759,7 @@ proc parse_and(words: List[Str], start: Int, family: Int, tables: List[Str], nam
     if next in ["and", "&", "&&"] {
       skip = 1
     } else if !condition_start(next) {
-      if next in [")", "or", "|", "||"] { break }
+      break when next in [")", "or", "|", "||"]
       var after_port = false
       for item in current.output {
         after_port = item.kind in ["sport", "dport"]
@@ -793,12 +793,12 @@ pure prefix_match(prefix: Bytes, bits: Int, data: Bytes) -> Bool {
     let have = data.byte_at(index) ?? 0
     let want = prefix.byte_at(index) ?? 0
     if remaining >= 8 {
-      if have != want { return false }
+      return false when have != want
       remaining -= 8
     } else {
       var keep = 1
       for _ in range(8 - remaining) { keep *= 2 }
-      if have / keep != want / keep { return false }
+      return false when have / keep != want / keep
       remaining = 0
     }
     index += 1
@@ -812,13 +812,13 @@ pure endpoint_match(cond: Cond, item: sockets.DiagSocket, port: Int, address: By
 
     return glob_match(cond.text, item.name ?? "*")
   }
-  if cond.restrict != 0 and item.family != cond.restrict { return false }
-  if cond.port >= 0 and cond.port != port { return false }
-  if cond.bits < 0 { return true }
+  return false when cond.restrict != 0 and item.family != cond.restrict
+  return false when cond.port >= 0 and cond.port != port
+  return true when cond.bits < 0
   return false when item.family == sockets.AF_UNIX
 
   if cond.family == sockets.AF_INET {
-    if item.family == sockets.AF_INET { return prefix_match(cond.prefix, cond.bits, address) }
+    return prefix_match(cond.prefix, cond.bits, address) when item.family == sockets.AF_INET
     # An IPv6 socket matches an IPv4 prefix through its v4-mapped form.
     var mapped = address.len() == 16
     for index in range(10) {
@@ -843,7 +843,7 @@ pure autobound(item: sockets.DiagSocket, context: Context) -> Bool {
 }
 
 pure compare_port(op: Str, have: Int, want: Int) -> Bool {
-  if want < 0 { return true }
+  return true when want < 0
   match op {
     "=" => have == want
     "!=" => have != want
@@ -892,7 +892,7 @@ pure evaluate(program: List[Cond], item: sockets.DiagSocket, context: Context) -
       else => stack += [true]
     }
   }
-  if stack.is_empty() { return true }
+  return true when stack.is_empty()
   stack[-1]
 }
 
@@ -908,7 +908,7 @@ proc load_database(database: Str, key_field: Int) [fs, env, error] -> Result[Map
       let comment = raw.find("#")
       if comment != null { line = raw.byte_slice(0, length: comment) }
       let fields = line.fields()
-      if fields.len() < 2 { continue }
+      continue when fields.len() < 2
       if found.get(fields[key_field]) is Err(_) {
         found[fields[key_field]] = fields[if key_field == 0 { 1 } else { 0 }]
       }
@@ -935,18 +935,16 @@ proc host_text(address: Str, names: Names) [env, net, error] -> Str {
   # the default database is in use.
   if e"XSH_HOSTS_FILE" is Err(_) {
     if let Ok(found) = dns.reverse(address) {
-      if !found.is_empty() { return found[0] }
+      return found[0] unless found.is_empty()
     }
   }
   address
 }
 
 pure port_text(port: Int, table: Str, config: Config, names: Names) -> Str {
-  if port == 0 { return "*" }
-  if config.numeric { return f"{port}" }
-  if table == "raw" {
-    return names.protocols.get(f"{port}") ?? f"ipproto-{port}"
-  }
+  return "*" when port == 0
+  return f"{port}" when config.numeric
+  return names.protocols.get(f"{port}") ?? f"ipproto-{port}" when table == "raw"
   names.services.get(f"{port}/{table}") ?? f"{port}"
 }
 
@@ -1079,7 +1077,7 @@ proc render(rows: List[List[Str]], visible: List[Bool], config: Config) [process
     var first = true
     var text = ""
     for column in range(10) {
-      if !visible[column] { continue }
+      continue unless visible[column]
       if !first { text += DELIMS[column] }
       first = false
       let cell = row[column]
@@ -1203,7 +1201,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   # -s with no table, family or filter selection prints only the summary.
   if config.summary {
     print_summary()
-    if config.tables.is_empty() and config.family == 0 and words.is_empty() { return }
+    return when config.tables.is_empty() and config.family == 0 and words.is_empty()
   }
 
   var devices: List[Device] = []
@@ -1266,9 +1264,9 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
     }
   }
   for table in inet_tables {
-    if table not in tables { continue }
+    continue when table not in tables
     for family in [sockets.AF_INET, sockets.AF_INET6] {
-      if family_is_inet and config.family != family { continue }
+      continue when family_is_inet and config.family != family
       let listed = sockets.collect_inet(channel, family, sockets.protocol_number(table), states, config.memory, want_info)
       if let Ok(list) = listed {
         for item in list {
@@ -1300,7 +1298,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   }
   var rows: List[List[Str]] = []
   for item in found {
-    if !program.is_empty() and !evaluate(program, item, context) { continue }
+    continue when ! program.is_empty() and ! evaluate(program, item, context)
     rows += [socket_row(item, config, names, owners, interfaces, cgroup_map)]
   }
 

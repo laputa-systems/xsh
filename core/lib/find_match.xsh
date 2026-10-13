@@ -35,7 +35,7 @@ pure bracket_end(pattern: Bytes, open: Int) -> Int {
   if at < pattern.len() and pattern.byte_at(at) == 93 { at += 1 }
   while at < pattern.len() {
     let byte = pattern.byte_at(at) ?? 0
-    if byte == 93 { return at + 1 }
+    return at + 1 when byte == 93
     if byte == 91 and at + 1 < pattern.len() and pattern.byte_at(at + 1) == 58 {
       var close = at + 2
       while close + 1 < pattern.len() and ! (pattern.byte_at(close) == 58 and pattern.byte_at(close + 1) == 93) { close += 1 }
@@ -94,7 +94,7 @@ pure glob_at(pattern: Bytes, text: Bytes, p: Int, t: Int, insensitive: Bool) -> 
   }
   return false when t >= text.len()
   let value = text.byte_at(t) ?? -1
-  if char == 63 { return glob_at(pattern, text, p + 1, t + 1, insensitive) }
+  return glob_at(pattern, text, p + 1, t + 1, insensitive) when char == 63
   if char == 91 {
     let end = bracket_end(pattern, p)
     if end > 0 {
@@ -117,7 +117,7 @@ export pure glob_bytes(pattern: Bytes, text: Bytes, insensitive = false) -> Bool
 export pure basename(raw: Bytes) -> Bytes {
   var end = raw.len()
   while end > 1 and raw.byte_at(end - 1) == 47 { end -= 1 }
-  if end == 1 and raw.byte_at(0) == 47 { return b"/" }
+  return b"/" when end == 1 and raw.byte_at(0) == 47
   var at = end
   while at > 0 and raw.byte_at(at - 1) != 47 { at -= 1 }
   raw[at..end]

@@ -26,7 +26,7 @@ pure hex_value(pair: Str) -> Int {
 
 # Decode the escapes of a stored line: `\\` and `\xHH`.
 pure decode(text: Str) -> Bytes {
-  if text.find("\\") == null { return bytes.from_text(text) }
+  return bytes.from_text(text) when text.find("\\") == null
   let raw = bytes.from_text(text)
   var values: List[Int] = []
   var at = 0
@@ -61,7 +61,7 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
   var cases: List[Recorded] = []
   var current: Recorded? = null
   for line in table.lines()? {
-    if line.starts_with("#") or line == "" { continue }
+    continue when line.starts_with("#") or line == ""
     if line.starts_with("@") {
       if let done = current { cases += [done] }
       let fields = line.byte_slice(1).split("\t")

@@ -14,7 +14,7 @@ proc changed(name: Str, changes: Changes, descendant: Bool) [fs, process, env, e
     return false
   }
   let kind = metadata?.kind
-  if kind == "symlink" and descendant { return true }
+  return true when kind == "symlink" and descendant
   if kind not in ["file", "dir"] {
     if ! changes.quiet { gnu.error(f"Operation not supported while reading flags on {name}") }
     return false

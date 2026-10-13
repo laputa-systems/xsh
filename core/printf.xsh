@@ -199,7 +199,7 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
 
   while at < body.byte_len() {
     let digit = digit_value(body.byte_slice(at, length: 1))
-    if digit == null or (digit ?? 99) >= base { break }
+    break when digit == null or (digit ?? 99) >= base
     found = true
     let next_digit = digit ?? 0
     if ! overflow {
@@ -222,12 +222,12 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
 pure codepoint_value(text: Str) -> Int {
   let raw = bytes.from_text(text)
   let first = raw.byte_at(0) ?? 0
-  if first < 128 { return first }
+  return first when first < 128
   let width = utf8_width(first)
   let second = (raw.byte_at(1) ?? 128) - 128
-  if width == 2 { return (first - 192) * 64 + second }
+  return (first - 192) * 64 + second when width == 2
   let third = (raw.byte_at(2) ?? 128) - 128
-  if width == 3 { return (first - 224) * 4096 + second * 64 + third }
+  return (first - 224) * 4096 + second * 64 + third when width == 3
   let fourth = (raw.byte_at(3) ?? 128) - 128
   (first - 240) * 262144 + second * 4096 + third * 64 + fourth
 }
@@ -266,7 +266,7 @@ pure decimal_subtract(left: Str, right: Str) -> Str {
 
 pure unsigned_negative(value: Int, base: Int, uppercase: Bool) -> Str {
   let magnitude = if value == -9223372036854775807 - 1 { "9223372036854775808" } else { f"{-value}" }
-  if base == 10 { return decimal_subtract("18446744073709551616", magnitude) }
+  return decimal_subtract("18446744073709551616", magnitude) when base == 10
   if base == 16 {
     let prior = if value == -9223372036854775807 - 1 { 9223372036854775807 } else { -value - 1 }
     let digits = pad_text(radix_text(prior, 16, false), 16, false, "0")
@@ -361,10 +361,8 @@ pure printf_argument(data: Bytes) -> Result[PrintfArgument] {
 }
 
 pure codepoint_text(value: Int) -> Result[Str] {
-  if value < 128 { return bytes.from_ints([value])?.utf8() }
-  if value < 2048 {
-    return bytes.from_ints([192 + value / 64, 128 + value % 64])?.utf8()
-  }
+  return bytes.from_ints([value])?.utf8() when value < 128
+  return bytes.from_ints([192 + value / 64, 128 + value % 64])?.utf8() when value < 2048
   if value < 65536 {
     return bytes.from_ints([224 + value / 4096, 128 + value / 64 % 64, 128 + value % 64])?.utf8()
   }
@@ -418,7 +416,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
       var count = 0
       while at < text.len() and count < 2 {
         let digit = digit_value(text[at..at + 1].utf8() ?? "")
-        if digit == null { break }
+        break when digit == null
         value = value * 16 + (digit ?? 0)
         at += 1
         count += 1

@@ -3290,9 +3290,7 @@ proc time_formats(cfg: Cfg) [process, env] -> List[Str] {
   var style = cfg.time_style ?? env_text("TIME_STYLE") ?? "locale"
 
   while style.starts_with("posix-") {
-    if ! hard_time_locale() {
-      return ["%b %e  %Y", "%b %e %H:%M"]
-    }
+    return ["%b %e  %Y", "%b %e %H:%M"] unless hard_time_locale()
 
     style = style[6..]
   }

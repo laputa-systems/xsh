@@ -17,7 +17,7 @@ pure issue(state: State, message: Str, safe: Bool) -> State {
 }
 
 pure value(state: State, cluster: Int) -> Result[Int] {
-  if cluster in state.changes { return Ok(state.changes[cluster]) }
+  return Ok(state.changes[cluster]) when cluster in state.changes
   geom.table_get(state.table, state.layout, cluster)
 }
 
@@ -73,12 +73,12 @@ pure valid_lfn(parts: List[geom.Patch], short_name: Bytes) -> Result[Bool] {
     index -= 1
     for offset in [1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30] {
       let unit = geom.number(parts[index].data, offset, 2)?
-      if terminated { if unit != 65535 { return Ok(false) }; continue }
-      if unit == 0 { if high_surrogate { return Ok(false) }; terminated = true; continue }
+      if terminated { return Ok(false) when unit != 65535; continue }
+      if unit == 0 { return Ok(false) when high_surrogate; terminated = true; continue }
       if unit == 65535 or unit < 32 or unit in [34, 42, 47, 58, 60, 62, 63, 92, 124] { return Ok(false) }
       length += 1
       if high_surrogate {
-        if unit < 56320 or unit > 57343 { return Ok(false) }
+        return Ok(false) when unit < 56320 or unit > 57343
         high_surrogate = false
       } else if unit >= 55296 and unit <= 56319 { high_surrogate = true } else if unit >= 56320 and unit <= 57343 { return Ok(false) }
     }

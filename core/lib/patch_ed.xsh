@@ -11,8 +11,8 @@ const ED_ADDRESS_RE = rx"^(\.|\$|\d+)?(?:,(\.|\$|\d+))?\s*([a-zA-Z=]?)(.*)$"
 export type EdResult = {output: List[Bytes], failed: Str, next: Int}
 
 pure ed_address(text: Str, current: Int, last: Int) -> Int {
-  if text == "." { return current }
-  if text == "$" { return last }
+  return current when text == "."
+  return last when text == "$"
   text.parse_int() ?? -1
 }
 
@@ -36,7 +36,7 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
       continue
     }
     let c = ED_ADDRESS_RE.captures(text)
-    if c.is_empty() { return {output: buffer, failed: text, next: i} }
+    return {output: buffer, failed: text, next: i} when c.is_empty()
     let command = c[3]
     let size = buffer.len()
     var first = if c[1] == "" { current } else { ed_address(c[1], current, size) }
@@ -52,14 +52,14 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
         if body == "." { closed = true; break }
         added += [with_newline(lines[i - 1])]
       }
-      if !closed { return {output: buffer, failed: text, next: i} }
+      return {output: buffer, failed: text, next: i} unless closed
       if command == "a" {
-        if first < 0 or first > size { return {output: buffer, failed: text, next: i} }
+        return {output: buffer, failed: text, next: i} when first < 0 or first > size
         buffer = bytes_list_splice(buffer, first, first, added)
         current = first + added.len()
       } else if command == "i" {
         let at_line = if first < 1 { 1 } else { first }
-        if at_line > size + 1 { return {output: buffer, failed: text, next: i} }
+        return {output: buffer, failed: text, next: i} when at_line > size + 1
         buffer = bytes_list_splice(buffer, at_line - 1, at_line - 1, added)
         current = at_line - 1 + added.len()
       } else {

@@ -46,9 +46,7 @@ pure counter_delta(current: List[Int], previous: List[Int], index: Int, correct_
   let now = counter_at(current, index)
   let before = counter_at(previous, index)
   if now < before {
-    if index == 4 and correct_iowait {
-      return {state: .Observed, delta: 0}
-    }
+    return {state: .Observed, delta: 0} when index == 4 and correct_iowait
     return {state: .Reset, delta: 0}
   }
   {state: .Observed, delta: now - before}
@@ -92,13 +90,9 @@ pure aggregate_delta(current: syscpu.CpuCounters, previous: syscpu.CpuCounters, 
 
 ## Computes aggregate busy time; the first observation is deliberately warming.
 export pure cpu_percent(current: syscpu.CpuCounters, previous: syscpu.CpuCounters?) -> Rate {
-  if previous == null {
-    return {state: .Warming, value: null}
-  }
+  return {state: .Warming, value: null} when previous == null
   let delta = aggregate_delta(current, previous ?? current, true)
-  if delta.state != .Observed {
-    return {state: delta.state, value: null}
-  }
+  return {state: delta.state, value: null} when delta.state != .Observed
   let busy = delta.busy_ticks ?? 0
   let total = delta.total_ticks ?? 0
   {state: .Observed, value: busy.float() * 100.0 / total.float()}
@@ -119,17 +113,11 @@ export pure process_percent(
   if current_ticks < 0 or (previous_ticks ?? -1) < 0 or current_ticks < (previous_ticks ?? 0) {
     return {state: .Reset, value: null}
   }
-  if core_count <= 0 {
-    return {state: .Invalid, value: null}
-  }
+  return {state: .Invalid, value: null} when core_count <= 0
   let delta = aggregate_delta(current_cpu, previous_cpu ?? current_cpu, false)
-  if delta.state != .Observed {
-    return {state: delta.state, value: null}
-  }
+  return {state: delta.state, value: null} when delta.state != .Observed
   let total = delta.total_ticks ?? 0
-  if total <= 0 {
-    return {state: .Invalid, value: null}
-  }
+  return {state: .Invalid, value: null} when total <= 0
   let ticks = current_ticks - (previous_ticks ?? 0)
   let scale = if per_core { core_count.float() } else { 1.0 }
   let raw = ticks.float() * scale * 100.0 / total.float()
@@ -148,18 +136,14 @@ export pure counter_rate(current: Int, previous: Int, elapsed_ns: Int) -> Rate {
   if current < 0 or previous < 0 or elapsed_ns <= 0 {
     return {state: .Invalid, value: null}
   }
-  if current < previous {
-    return {state: .Reset, value: null}
-  }
+  return {state: .Reset, value: null} when current < previous
   let rate = (current - previous).float() * 1000000000.0 / elapsed_ns.float()
   {state: .Observed, value: rate}
 }
 
 ## Computes used memory only when both independent counters are observed.
 export pure used_bytes(total: Int?, available: Int?) -> ByteValue {
-  if total == null or available == null {
-    return {state: .Unavailable, value: null}
-  }
+  return {state: .Unavailable, value: null} when total == null or available == null
   let total_value = total ?? -1
   let available_value = available ?? -1
   if total_value < 0 or available_value < 0 or available_value > total_value {

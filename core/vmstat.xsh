@@ -12,7 +12,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
     let current = linux.sample()?
     let cpu_usage = procps.cpu_percent(current.cpu, if previous == null { null } else { previous.cpu })?
     let milliseconds = if previous == null { current.uptime_ms } else { current.sampled_at_ms - previous.sampled_at_ms }
-    if milliseconds <= 0 { return Err(error.failure("sampling clock did not advance")) }
+    return Err(error.failure("sampling clock did not advance")) when milliseconds <= 0
     let scale = 1000.0 / milliseconds.float()
     let si = procps.delta(current.swap_in_pages, if previous == null { 0 } else { previous.swap_in_pages })?.float() * current.page_size.float() / 1024.0 * scale
     let so = procps.delta(current.swap_out_pages, if previous == null { 0 } else { previous.swap_out_pages })?.float() * current.page_size.float() / 1024.0 * scale

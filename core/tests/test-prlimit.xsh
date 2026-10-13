@@ -89,9 +89,7 @@ const RESOURCES = ["as", "core", "cpu", "data", "fsize", "locks", "memlock", "ms
 proc wait_for_sleep(pid: Int) [fs, time, error] {
   for _ in range(500) {
     if let Ok(name) = fp"/proc/{pid}/comm".read_text() {
-      if name.trim() == "sleep" {
-        return
-      }
+      return when name.trim() == "sleep"
     }
 
     time.sleep(10ms)

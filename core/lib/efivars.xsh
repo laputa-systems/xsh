@@ -422,7 +422,7 @@ pure format_node(item: Node) -> Str {
   if item.kind == 3 and item.subtype == 18 and data.len() == 6 {
     return f"Sata({bytes.unpack_le(data, 2, 0) ?? 0},{bytes.unpack_le(data, 2, 2) ?? 0},{bytes.unpack_le(data, 2, 4) ?? 0})"
   }
-  if item.kind == 127 { return if item.subtype == 1 { "," } else { "" } }
+  return if item.subtype == 1 { "," } else { "" } when item.kind == 127
 
   let family = if item.kind == 1 { "HardwarePath" } else if item.kind == 2 { "AcpiPath" } else if item.kind == 3 { "Msg" } else if item.kind == 4 { "MediaPath" } else if item.kind == 5 { "BbsPath" } else { f"Path({item.kind})" }
   f"{family}({item.subtype},{hex_bytes(data).replace(" ", with: "")})"

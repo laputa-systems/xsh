@@ -117,7 +117,7 @@ pure base_name(entry: capability.CapabilityName) -> Str { entry.name.byte_slice(
 # knows; later ones print as cap_N, which the parser also accepts.
 pure cap_name(number: Int) -> Str {
   for entry in capability.CAPABILITIES {
-    if entry.bit == number { return base_name(entry) }
+    return base_name(entry) when entry.bit == number
   }
   f"cap_{number}"
 }
@@ -130,7 +130,7 @@ pure cap_list(numbers: List[Int]) -> Str {
 pure cap_number(name: Str, last: Int) -> Int? {
   let lower = name.lower()
   for entry in capability.CAPABILITIES {
-    if base_name(entry) == lower { return entry.bit }
+    return entry.bit when base_name(entry) == lower
   }
   if rx"^cap_[0-9]+$".matches(lower) {
     let number = lower.byte_slice(4).parse_int() ?? -1
@@ -185,7 +185,7 @@ proc parse_securebits(text: Str) [process, env, error] -> List[FlagEdit] {
 proc parse_user(kind: Str, text: Str) [process, env, fs, error] -> Int {
   if rx"^[0-9]+$".matches(text) {
     let number = text.parse_int() ?? -1
-    if number >= 0 and number < 4294967295 { return number }
+    return number when number >= 0 and number < 4294967295
   } else if text != "" {
     if let Ok(account) = user.lookup(text) { return account.uid }
   }
@@ -196,7 +196,7 @@ proc parse_user(kind: Str, text: Str) [process, env, fs, error] -> Int {
 proc parse_group(kind: Str, text: Str) [process, env, fs, error] -> Int {
   if rx"^[0-9]+$".matches(text) {
     let number = text.parse_int() ?? -1
-    if number >= 0 and number < 4294967295 { return number }
+    return number when number >= 0 and number < 4294967295
   } else if text != "" {
     if let Ok(entry) = group.lookup(text) { return entry.gid }
   }
@@ -237,11 +237,11 @@ proc signal_number(name: Str) [process, env, error] -> Int {
   }
   if rx"^RTMIN\+[0-9]+$".matches(text) {
     let offset = text.byte_slice(6).parse_int() ?? 1000
-    if low + offset <= high { return low + offset }
+    return low + offset when low + offset <= high
   }
   if rx"^RTMAX-[0-9]+$".matches(text) {
     let offset = text.byte_slice(6).parse_int() ?? 1000
-    if high - offset >= low { return high - offset }
+    return high - offset when high - offset >= low
   }
   usage_fail(f"unknown signal: {name}")
   exit 1
@@ -251,7 +251,7 @@ pure signal_label(number: Int, table: List[SignalEntry]) -> Str {
   return "[none]" when number == 0
   return "UNUSED" when number == 31
   for entry in table {
-    if entry.number == number and number < 32 and number > 0 { return entry.name }
+    return entry.name when entry.number == number and number < 32 and number > 0
   }
   f"{number}"
 }
@@ -265,10 +265,10 @@ pure canonical(option: Str) -> Str {
 # aliases of one option never make a prefix ambiguous.
 proc resolve_option(name: Str) [process, env, error] -> Str {
   let known = OPTIONS
-  if name in known { return canonical(name) }
+  return canonical(name) when name in known
   let matches = collect { for option in known { yield option when option.starts_with(name) } }
   let distinct = collect { for option in matches { yield canonical(option) } }.to_set().to_list()
-  if distinct.len() == 1 { return distinct[0] }
+  return distinct[0] when distinct.len() == 1
   if matches.len() > 1 {
     let listed = collect { for option in matches { yield f"'--{option}'" } }.join(" ")
     gnu.usage_error(f"option '--{name}' is ambiguous; possibilities: {listed}")
@@ -303,7 +303,7 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
       index += 1
       break
     }
-    if ! word.starts_with("-") or word == "-" { break }
+    break when ! word.starts_with("-") or word == "-"
     index += 1
     var names: List[Str] = []
     var attached: Str? = null
@@ -548,13 +548,13 @@ proc apply_groups(request: Request, init_ids: List[Int]) [process, env, error] {
 # The saved ID follows the effective ID when one is given and is otherwise
 # left alone, so a lone --ruid keeps the old effective and saved IDs.
 proc apply_uids(request: Request) [process, env, error] {
-  if request.ruid == null and request.euid == null { return }
+  return when request.ruid == null and request.euid == null
   let applied = unix.set_resuid(real: request.ruid, effective: request.euid, saved: request.euid)
   if let Err(failure) = applied { die_with("setresuid failed", failure) }
 }
 
 proc apply_gids(request: Request) [process, env, error] {
-  if request.rgid == null and request.egid == null { return }
+  return when request.rgid == null and request.egid == null
   let applied = unix.set_resgid(real: request.rgid, effective: request.egid, saved: request.egid)
   if let Err(failure) = applied { die_with("setresgid failed", failure) }
 }

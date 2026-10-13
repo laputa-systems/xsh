@@ -16,7 +16,7 @@ pure encoded_letters(util: Str, count: Int) -> Str {
 }
 
 pure lines_at(text: Str, width: Int) -> Str {
-  if text == "" or width == 0 { return text }
+  return text when text == "" or width == 0
   [text.byte_slice(index * width, length: width) for index in range((text.byte_len() + width - 1) / width)].join("\n") + "\n"
 }
 

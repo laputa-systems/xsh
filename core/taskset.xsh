@@ -379,9 +379,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let listed = task_ids(if pid == 0 { process.current_pid()? } else { pid })
 
     # A process without a task directory has nothing to report or change.
-    if listed == null {
-      return
-    }
+    return when listed == null
 
     targets = listed ?? []
   }

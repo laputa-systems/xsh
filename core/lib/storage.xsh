@@ -369,7 +369,7 @@ proc arguments(argv: List[Str], booleans: List[Str], valued: List[Str]) -> Argum
         break
       }
     }
-    if found { continue }
+    continue when found
     for forms in valued {
       let aliases = forms.split(" ")
       var attached: Str? = null
@@ -391,7 +391,7 @@ proc arguments(argv: List[Str], booleans: List[Str], valued: List[Str]) -> Argum
         break
       }
     }
-    if found { continue }
+    continue when found
     if ! word.starts_with("--") and word.byte_len() > 2 {
       var bundled: List[Str] = []
       for char in word.byte_slice(1) {
@@ -425,11 +425,9 @@ proc require_operands(args: Arguments, minimum: Int, maximum: Int) {
 
 ## Match util-linux filesystem lists; a leading no excludes the entire list.
 export pure type_matches(filesystem: Str, filter: Str) -> Bool {
-  if filter == "" { return true }
+  return true when filter == ""
   let types = filter.split(",")
-  if types[0].starts_with("no") {
-    return ! (filesystem in filter.byte_slice(2).split(","))
-  }
+  return ! (filesystem in filter.byte_slice(2).split(",")) when types[0].starts_with("no")
   filesystem in types
 }
 
@@ -496,7 +494,7 @@ proc mount_json_row(entries: List[mounts.MountEntry], index: Int, cols: List[Str
   let row = json_fields(cols, [mount_value(entries[index], column) for column in cols])
   var children: List[Str] = []
   for child in mount_children(entries, index) { if child not in ancestors { children += [mount_json_row(entries, child, cols, ancestors + [index])] } }
-  if children.is_empty() { return row }
+  return row when children.is_empty()
   row.byte_slice(0, row.byte_len() - 1) + ",\"children\":[" + children.join(",") + "]}"
 }
 
@@ -627,7 +625,7 @@ export proc lsblk_from_root(root: FsRoot, argv: List[Str]) {
   var selected: List[Int] = []
   for index in range(devices.len()) {
     let device = devices[index]
-    if "-a" not in args.flags and device.size_bytes == 0 { continue }
+    continue when "-a" not in args.flags and device.size_bytes == 0
     if ! args.operands.is_empty() {
       if f"/dev/{device.name}" in args.operands { selected += [index] }
     } else if "-d" in args.flags {
@@ -806,12 +804,12 @@ proc wipefs(argv: List[Str]) {
       }
     }
   }
-  if erase { return }
+  return when erase
   if "-J" in args.flags {
     gnu.write_text("{\n   \"signatures\": [\n" + (if json_rows.is_empty() { "\n" } else { "      " + json_rows.join(",") + "\n" }) + "   ]\n}\n")
     return
   }
-  if rows.is_empty() { return }
+  return when rows.is_empty()
   for line in table_lines(cols, [false for _ in cols], [0 for _ in cols], rows, "--noheadings" not in args.flags) { gnu.write_text(line + "\n") }
 }
 
@@ -870,7 +868,7 @@ proc blkid(argv: List[Str]) {
       observed = true
       if format == "value" { fields += [values[index]] } else if format == "export" { fields += [f"{tags[index]}={values[index]}"] } else { fields += [tags[index] + "=" + json.encode(values[index])?] }
     }
-    if fields.is_empty() { continue }
+    continue when fields.is_empty()
     if format == "device" { gnu.write_text(name + "\n") } else if format == "value" { gnu.write_text(fields.join("\n") + "\n") } else if format == "export" { gnu.write_text(f"DEVNAME={name}\n" + fields.join("\n") + "\n\n") } else { gnu.write_text(name + ": " + fields.join(" ") + "\n") }
   }
   if ! observed { exit 2 }
@@ -970,7 +968,7 @@ proc blockdev(argv: List[Str]) {
 }
 
 proc byte_count(value: Str) -> UInt {
-  if rx"^[0-9]+$".matches(value) { return value.parse_uint()? }
+  return value.parse_uint()? when rx"^[0-9]+$".matches(value)
   if rx"^[0-9]+[KMGT]$".matches(value) {
     let number = value.byte_slice(0, value.byte_len() - 1).parse_uint()?
     let suffix = value.byte_slice(value.byte_len() - 1)
@@ -1045,7 +1043,7 @@ type PartitionInput = {index: Int, start: Int, end: Int, size: Int, type: Str, u
 
 proc sector_count(value: Str, sector_size: Int) -> Int {
   let text = value.trim()
-  if rx"^[0-9]+$".matches(text) { return text.parse_int()? }
+  return text.parse_int()? when rx"^[0-9]+$".matches(text)
   if rx"^[0-9]+[KMGT]$".matches(text) {
     let number = text.byte_slice(0, text.byte_len() - 1).parse_int()?
     let suffix = text.byte_slice(text.byte_len() - 1)
@@ -1069,7 +1067,7 @@ proc write_sfdisk(name: Str, args: Arguments) {
   var partitions: List[PartitionInput] = []
   for input in text.lines() {
     let line = input.trim()
-    if line == "" or line.starts_with("#") { continue }
+    continue when line == "" or line.starts_with("#")
     if rx"^(label|label-id|unit|sector-size|device|first-lba|last-lba|table-length|grain):".matches(line) and ! partitions.is_empty() { gnu.usage_error("partition table headers must precede partition rows") }
     if line.starts_with("label:") {
       let supplied = line.byte_slice(6).trim()
@@ -1095,7 +1093,7 @@ proc write_sfdisk(name: Str, args: Arguments) {
       if line.byte_slice(13).trim() != "128" { unsupported("custom GPT table length") }
       continue
     }
-    if line.starts_with("grain:") { continue }
+    continue when line.starts_with("grain:")
     if label not in ["gpt", "dos"] { gnu.usage_error("partition label must be gpt or dos") }
     if sector_size <= 0 { gnu.usage_error("sector size must be positive") }
     var body = line
@@ -1171,14 +1169,14 @@ pure human_size(count: Int, spaced: Bool) -> Str {
   }
   let letter = "BKMGTPE".byte_slice(exponent, length: 1)
   let number = if tenths > 0 { f"{whole}.{tenths}" } else { f"{whole}" }
-  if ! spaced { return number + letter }
+  return number + letter unless spaced
   number + " " + letter + (if exponent == 0 { "" } else { "iB" })
 }
 
 pure type_name(table: Str, key: Str) -> Str {
   for line in table.lines() {
     let pieces = line.trim().split(" ", maxsplit: 1)
-    if pieces.len() == 2 and pieces[0] == key { return pieces[1] }
+    return pieces[1] when pieces.len() == 2 and pieces[0] == key
   }
   "Unknown"
 }
@@ -1197,7 +1195,7 @@ pure gpt_attribute_names(raw: Bytes) -> Str {
   for bit in range(64) {
     var mask = 1
     for _ in range(bit % 8) { mask *= 2 }
-    if (raw.byte_at(bit / 8) ?? 0) / mask % 2 == 0 { continue }
+    continue when (raw.byte_at(bit / 8) ?? 0) / mask % 2 == 0
     if bit == 0 { names += ["RequiredPartition"] } else if bit == 1 { names += ["NoBlockIOProtocol"] } else if bit == 2 { names += ["LegacyBIOSBootable"] } else { names += [f"GUID:{bit}"] }
   }
   names.join(" ")
@@ -1310,13 +1308,13 @@ proc list_layout(name: Str, layout: DiskLayout, request: Str) {
   text += f"I/O size (minimum/optimal): {layout.physical_sector} bytes / {layout.physical_sector} bytes\n"
   if layout.label != "none" { text += f"Disklabel type: {layout.label}\nDisk identifier: {layout.id}\n" }
   gnu.write_text(text)
-  if layout.label == "none" or layout.partitions.is_empty() { return }
+  return when layout.label == "none" or layout.partitions.is_empty()
   var cols: List[Str] = []
   var requested = request
   if requested.starts_with("+") or requested == "" { cols = fdisk_default_columns(layout.label) }
   if requested.starts_with("+") { requested = requested.byte_slice(1) }
   for word in requested.split(",") {
-    if word == "" { continue }
+    continue when word == ""
     var canonical: Str? = null
     for known in FDISK_COLUMNS { if known.lower() == word.lower() { canonical = known } }
     let column = canonical ?? word
@@ -1413,7 +1411,7 @@ pure usage(command: Str) -> Str {
 ## Dispatch storage applets, keeping unsupported kernel operations explicit.
 export proc dispatch(command: Str, argv: List[Str]) {
   for argument in argv {
-    if argument == "--" { break }
+    break when argument == "--"
     if argument == "--help" or argument == "-h" { gnu.help(usage(command)); return }
     if argument == "--version" or argument == "-V" { gnu.version(command); return }
   }

@@ -4,9 +4,9 @@ type Options = {human: Bool, mebi: Bool, gibi: Bool, bytes: Bool, seconds: Str?,
 
 pure size(value: Int, divisor: Int, human: Bool) -> Str {
   if human {
-    if value >= 1073741824 { return f"{(value.float() / 1073741824.0).format(1)}Gi" }
-    if value >= 1048576 { return f"{(value.float() / 1048576.0).format(1)}Mi" }
-    if value >= 1024 { return f"{(value.float() / 1024.0).format(1)}Ki" }
+    return f"{(value.float() / 1073741824.0).format(1)}Gi" when value >= 1073741824
+    return f"{(value.float() / 1048576.0).format(1)}Mi" when value >= 1048576
+    return f"{(value.float() / 1024.0).format(1)}Ki" when value >= 1024
     return f"{value}B"
   }
   f"{value / divisor}"

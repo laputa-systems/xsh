@@ -65,7 +65,7 @@ pure directory_option(argv: List[Bytes], initial: Bytes) -> Bytes {
 }
 
 pure contains_separator(value: Bytes) -> Bool {
-  for index in range(value.len()) { if value.byte_at(index) == 47 { return true } }
+  for index in range(value.len()) { return true when value.byte_at(index) == 47 }
   false
 }
 

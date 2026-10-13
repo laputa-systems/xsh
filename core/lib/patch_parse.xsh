@@ -133,8 +133,8 @@ export pure split_lines(data: Bytes) -> List[Bytes] {
 ## The line without its terminator, as text; undecodable lines read as empty.
 export pure body_text(line: Bytes) -> Str {
   let text = line.utf8() ?? ""
-  if text.ends_with("\r\n") { return text.byte_slice(0, text.byte_len() - 2) }
-  if text.ends_with("\n") { return text.byte_slice(0, text.byte_len() - 1) }
+  return text.byte_slice(0, text.byte_len() - 2) when text.ends_with("\r\n")
+  return text.byte_slice(0, text.byte_len() - 1) when text.ends_with("\n")
   text
 }
 
@@ -190,7 +190,7 @@ pure unquote(text: Str) -> HeaderName {
 ## at the first white space character.
 export pure fetch_name(rest: Str) -> HeaderName {
   let text = rest.trim()
-  if text.starts_with("\"") { return unquote(text) }
+  return unquote(text) when text.starts_with("\"")
   # A tab ends the name, so a name may hold spaces; without one the first
   # space ends it.
   let tab = text.find("\t")
@@ -215,7 +215,7 @@ export pure strip_name(name: Str, count: Int) -> Str {
     }
     index += 1
   }
-  if count >= 0 and remaining > 0 { return "" }
+  return "" when count >= 0 and remaining > 0
   raw[start..].utf8() ?? ""
 }
 
@@ -239,7 +239,7 @@ export type StampTime = {valid: Bool, seconds: Int, nanos: Int}
 ## timestamp without a zone is read as UTC.
 export pure parse_stamp(stamp: Str) -> StampTime {
   let c = STAMP_RE.captures(stamp)
-  if c.is_empty() { return {valid: false, seconds: 0, nanos: 0} }
+  return {valid: false, seconds: 0, nanos: 0} when c.is_empty()
   let days = days_from_civil(number(c[1]), number(c[2]), number(c[3]))
   var seconds = days * 86400 + number(c[4]) * 3600 + number(c[5]) * 60 + number(c[6])
   if c[8] != "" {
@@ -266,7 +266,7 @@ type GitNames = {old: Str, new: Str}
 
 pure git_names(text: Str) -> GitNames {
   let words = text.split(" ")
-  if words.len() == 2 { return {old: words[0], new: words[1]} }
+  return {old: words[0], new: words[1]} when words.len() == 2
   let raw = bytes.from_text(text)
   let half = (raw.len() - 1) / 2
   if raw.len() % 2 == 1 and raw.byte_at(half) == 32 {
@@ -390,7 +390,7 @@ export pure scan(lines: List[Bytes], from: Int, allowed: Str) -> Scan {
     i += 1
   }
   # An ed script has no header of its own; it is whatever command line came first.
-  if ed_candidate >= 0 { return found("ed", from, ed_candidate, header, false) }
+  return found("ed", from, ed_candidate, header, false) when ed_candidate >= 0
   found("none", from, total, {old_name: NO_NAME, new_name: NO_NAME, index_name: "", git: NO_GIT, prereq: ""}, false)
 }
 
@@ -439,7 +439,7 @@ pure finish(hunk: Hunk) -> Hunk {
 # carriage return before it is part of the line and stays.
 pure without_terminator(text: Bytes) -> Bytes {
   let size = text.len()
-  if size >= 1 and text.byte_at(size - 1) == 10 { return text[0..size - 1] }
+  return text[0..size - 1] when size >= 1 and text.byte_at(size - 1) == 10
   text
 }
 
@@ -457,7 +457,7 @@ pure partial_read(line: Int) -> HunkRead {
 ## carriage return before the line feed is removed from each body line.
 export pure read_unified(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   let header = HUNK_RE.captures(body_text(lines[at]))
-  if header.is_empty() { return failed_read(at + 1, lines[at]) }
+  return failed_read(at + 1, lines[at]) when header.is_empty()
   let old_first = number(header[1])
   let old_count = if header[2] == "" { 1 } else { number(header[2]) }
   let new_first = number(header[3])
@@ -516,7 +516,7 @@ export pure read_unified(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
 type HalfLine = {mark: Int, text: Bytes}
 
 pure range_count(low: Str, high: Str) -> Int {
-  if high == "" { return 1 }
+  return 1 when high == ""
   let span = number(high) - number(low) + 1
   if span < 0 { 0 } else { span }
 }
@@ -525,9 +525,9 @@ pure range_count(low: Str, high: Str) -> Int {
 export pure read_context(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   let total = lines.len()
   let function = body_text(lines[at]).byte_slice(15)
-  if at + 1 >= total { return failed_read(-1, b"") }
+  return failed_read(-1, b"") when at + 1 >= total
   let old_header = CONTEXT_RANGE_RE.captures(body_text(lines[at + 1]))
-  if old_header.is_empty() { return failed_read(at + 2, lines[at + 1]) }
+  return failed_read(at + 2, lines[at + 1]) when old_header.is_empty()
   var old_lines: List[HalfLine] = []
   var new_lines: List[HalfLine] = []
   var i = at + 2
@@ -553,7 +553,7 @@ export pure read_context(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
     } else { return failed_read(i + 1, lines[i]) }
     i += 1
   }
-  if new_header.is_empty() { return failed_read(-1, b"") }
+  return failed_read(-1, b"") when new_header.is_empty()
   i += 1
   let expected_new = range_count(new_header[1], new_header[2])
   var new_seen = 0
@@ -639,7 +639,7 @@ export pure read_context(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
 export pure read_normal(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   let total = lines.len()
   let command = NORMAL_RE.captures(body_text(lines[at]))
-  if command.is_empty() { return failed_read(at + 1, lines[at]) }
+  return failed_read(at + 1, lines[at]) when command.is_empty()
   let action = command[3]
   let old_start = number(command[1])
   let old_count = if action == "a" { 0 } else { range_count(command[1], command[2]) }
@@ -650,7 +650,7 @@ export pure read_normal(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   var i = at + 1
   var removed = 0
   while removed < old_count {
-    if i >= total { return failed_read(total, b" \n") }
+    return failed_read(total, b" \n") when i >= total
     var line = lines[i]
     if strip { line = strip_cr(line) }
     if line.starts_with(b"< ") { kinds += [1]; texts += [line[2..]]; removed += 1 } else if line.starts_with(b"<\n") { kinds += [1]; texts += [line[1..]]; removed += 1 } else if first_byte(line) == 92 {
@@ -668,7 +668,7 @@ export pure read_normal(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   }
   var added = 0
   while added < new_count {
-    if i >= total { return failed_read(total, b" \n") }
+    return failed_read(total, b" \n") when i >= total
     var line = lines[i]
     if strip { line = strip_cr(line) }
     if line.starts_with(b"> ") { kinds += [2]; texts += [line[2..]]; added += 1 } else if line.starts_with(b">\n") { kinds += [2]; texts += [line[1..]]; added += 1 } else if first_byte(line) == 92 {

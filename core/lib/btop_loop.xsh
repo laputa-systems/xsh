@@ -37,9 +37,7 @@ export pure take_due(state: State, now_ns: Int) -> Result[Due, Error] {
   if state.interval_ns <= 0 or state.next_due_ns < 0 or now_ns < 0 {
     return Err(error.failure("sample schedule contains an invalid monotonic time"))
   }
-  if now_ns < state.next_due_ns {
-    return Ok({state: state, ticket: null})
-  }
+  return Ok({state: state, ticket: null}) when now_ns < state.next_due_ns
   if now_ns > MAX_TIME_NS - state.interval_ns {
     return Err(error.failure("sample schedule reached the monotonic time limit"))
   }

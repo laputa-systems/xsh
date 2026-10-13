@@ -14,7 +14,7 @@ proc following(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result
 proc seen(s: uu.Scene, file: Str, needle: Str, attempts: Int = 7) [fs, process, time, error] {
   var delay = 100ms
   for _ in range(attempts) {
-    if needle in uu.read_text(s, file)? { return }
+    return when needle in uu.read_text(s, file)?
     time.sleep(delay)
     delay = delay * 2
   }
@@ -234,13 +234,13 @@ test test_gnu_tail_quote_headers_log { |ctx|
 }
 # origin: gnu tail/proc-ksyms.log
 test test_gnu_tail_proc_ksyms_log { |ctx|
-  if !p"/proc/ksyms".exists() { return }
+  return unless p"/proc/ksyms".exists()
   let s = uu.scene(ctx)?
   uu.succeeds(uu.invoke(s, "tail", ["/proc/ksyms"] )?)
 }
 # origin: gnu tail/tail-sysfs.log
 test test_gnu_tail_tail_sysfs_log { |ctx|
-  if !p"/sys/kernel/profiling".exists() { return }
+  return unless p"/sys/kernel/profiling".exists()
   let s = uu.scene(ctx)?
   let expected = p"/sys/kernel/profiling".read_bytes()?
   for arg in ["-n1", "-c2"] {
@@ -620,7 +620,7 @@ test test_gnu_tail_tail_log { |ctx|
     uu.write(s, "input", case.input)
     let vars: Record = if case.name.starts_with("minus-") { {_POSIX2_VERSION: "199209"} } else if case.name == "err-6" or case.name == "c-2" { {_POSIX2_VERSION: "200112"} } else if case.name.starts_with("obs-plus-") { {_POSIX2_VERSION: "200809"} } else if case.name.starts_with("f-pipe-") { {POSIXLY_CORRECT: "1"} } else { {} }
     for transport in ["file", "redirect", "pipe"] {
-      if case.name.starts_with("f-") and transport != "pipe" { continue }
+      continue when case.name.starts_with("f-") and transport != "pipe"
       if transport == "file" and (case.name.starts_with("minus-") or case.name == "err-1" or case.name == "err-3") { continue }
       let r = if transport == "file" { uu.invoke(s, "tail", case.args.extend(["input"]), vars: vars)? } else if transport == "redirect" { uu.invoke_from_path(s, "tail", case.args, uu.at(s, "input"), vars: vars)? } else { uu.invoke(s, "tail", case.args, bytes.from_text(case.input), vars: vars)? }
       assert r.status == case.status, f"{case.name}/{transport}: status {r.status}"

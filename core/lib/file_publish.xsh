@@ -125,7 +125,7 @@ export proc canonical(entry: Path) -> Result[Path, Error] {
   match entry.resolve() {
     Ok(found) => found
     Err(failure) => {
-      if gnu.errno(failure) != 2 or entry.parent() == entry { return Err(failure) }
+      return Err(failure) when gnu.errno(failure) != 2 or entry.parent() == entry
       match fs.stat(entry) {
         Ok(meta) => {
           if meta.kind == "symlink" {
@@ -134,7 +134,7 @@ export proc canonical(entry: Path) -> Result[Path, Error] {
             return canonical(resolved)
           }
         }
-        Err(missing) => { if gnu.errno(missing) != 2 { return Err(missing) } }
+        Err(missing) => return Err(missing) when gnu.errno(missing) != 2
       }
       fp"{canonical(entry.parent())?}/{entry.name()}".normalize()
     }
@@ -185,7 +185,7 @@ export proc directory(entry: Path, follow: Bool) -> Result[Bool, Error] {
   match fs.stat(entry, follow_symlinks: follow) {
     Ok(meta) => meta.kind == "dir"
     Err(failure) => {
-      if gnu.errno(failure) in [2, 20] { return false }
+      return false when gnu.errno(failure) in [2, 20]
       Err(failure)
     }
   }

@@ -38,9 +38,7 @@ proc run_nc(ctx: TestContext, args: List[Str], stdin: Bytes = b"") [fs, process,
 proc await_text(file: Path, needle: Str) [fs, time, error] -> Result[Unit] {
   let started = time.now()
   while time.now() - started < 10000 {
-    if (file.read_text() ?? "").find(needle) != null {
-      return Ok()
-    }
+    return Ok() when (file.read_text() ?? "").find(needle) != null
     time.sleep(20ms)
   }
   Err(error.failure(f"{file} never showed {needle}"))
@@ -64,9 +62,7 @@ proc closed_port() [net, process, error] -> Result[Int] {
 
 proc wait_readable(fd: Int) [net, process, error] -> Result[Unit] {
   let events = unix.poll_fd(fd, ["readable"], 10000)?
-  if events.is_empty() {
-    return Err(error.failure("nothing arrived within 10 seconds"))
-  }
+  return Err(error.failure("nothing arrived within 10 seconds")) when events.is_empty()
   Ok()
 }
 
@@ -75,9 +71,7 @@ proc read_to_eof(fd: Int) [net, process, error] -> Result[Bytes] {
   while true {
     wait_readable(fd)
     let data = unix.read_fd(fd, 65536)?
-    if data.is_empty() {
-      break
-    }
+    break when data.is_empty()
     chunks += [data]
   }
   Ok(bytes.concat(chunks))

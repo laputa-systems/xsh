@@ -56,7 +56,7 @@ pure threshold_location(argv: List[Str]) -> ValueLocation? {
   var index = 0
   while index < argv.len() {
     let raw = argv[index]
-    if raw == "--" { return found }
+    return found when raw == "--"
     if raw == "-t" or raw == "--threshold" {
       found = if index + 1 < argv.len() { {index: index + 1, offset: 0} } else { null }
       index += 2
@@ -94,7 +94,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
   while index < argv.len() {
     let raw = argv[index]
-    if raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-"))) { break }
+    break when raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-")))
     var location: ValueLocation? = null
     var value = ""
     let option = if raw.starts_with("--") { "--block-size" } else { "-B" }

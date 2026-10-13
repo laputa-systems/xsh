@@ -345,9 +345,7 @@ export pure parse_attrs(payload: Bytes, start: Int) -> List[Attr] {
   while offset + 4 <= payload.len() {
     let length = uint(payload.slice(offset, 2))
     let kind = uint(payload.slice(offset + 2, 2)).bit_and(NLA_TYPE_MASK)
-    if length < 4 or offset + length > payload.len() {
-      break
-    }
+    break when length < 4 or offset + length > payload.len()
     found += [{kind: kind, data: payload.slice(offset + 4, length - 4)}]
     offset += (length + 3) / 4 * 4
   }
@@ -368,9 +366,7 @@ export pure uint(data: Bytes) -> Int {
 ## The first attribute of `kind`, or null.
 export pure pick(attrs: List[Attr], kind: Int) -> Bytes? {
   for item in attrs {
-    if item.kind == kind {
-      return item.data
-    }
+    return item.data when item.kind == kind
   }
   null
 }
@@ -378,9 +374,7 @@ export pure pick(attrs: List[Attr], kind: Int) -> Bytes? {
 ## The unsigned integer attribute `kind`, or null.
 export pure pick_uint(attrs: List[Attr], kind: Int) -> Int? {
   let data = pick(attrs, kind)
-  if data == null {
-    return null
-  }
+  return null when data == null
   uint(data)
 }
 
@@ -445,18 +439,12 @@ export pure mac_text(data: Bytes) -> Str {
 ## Parses `aa:bb:cc:dd:ee:ff` into six bytes, or null.
 export pure parse_mac(text: Str) -> Bytes? {
   let parts = text.split(":")
-  if parts.len() != 6 {
-    return null
-  }
+  return null when parts.len() != 6
   var values: List[Int] = []
   for part in parts {
-    if part.byte_len() != 2 or ! rx"^[0-9A-Fa-f]{2}$".matches(part) {
-      return null
-    }
+    return null when part.byte_len() != 2 or ! rx"^[0-9A-Fa-f]{2}$".matches(part)
     let value = ("0x" + part).parse_int() ?? -1
-    if value < 0 {
-      return null
-    }
+    return null when value < 0
     values += [value]
   }
   if let Ok(packed) = bytes.from_ints(values) {
@@ -496,45 +484,23 @@ export pure hex_bytes(data: Bytes) -> Str {
 
 ## The IEEE channel number of a frequency in MHz, 0 when out of range.
 export pure frequency_channel(freq: Int) -> Int {
-  if freq == 2484 {
-    return 14
-  }
-  if freq == 5935 {
-    return 2
-  }
-  if freq < 2484 {
-    return (freq - 2407) / 5
-  }
-  if freq >= 4910 and freq <= 4980 {
-    return (freq - 4000) / 5
-  }
-  if freq < 5950 {
-    return (freq - 5000) / 5
-  }
-  if freq <= 45000 {
-    return (freq - 5950) / 5
-  }
-  if freq >= 58320 and freq <= 70200 {
-    return (freq - 56160) / 2160
-  }
+  return 14 when freq == 2484
+  return 2 when freq == 5935
+  return (freq - 2407) / 5 when freq < 2484
+  return (freq - 4000) / 5 when freq >= 4910 and freq <= 4980
+  return (freq - 5000) / 5 when freq < 5950
+  return (freq - 5950) / 5 when freq <= 45000
+  return (freq - 56160) / 2160 when freq >= 58320 and freq <= 70200
   0
 }
 
 ## The frequency in MHz of a channel on the band `iw set channel` assumes:
 ## channels 1 to 14 on 2.4 GHz, every other channel on 5 GHz.
 export pure channel_frequency(channel: Int) -> Int? {
-  if channel < 1 {
-    return null
-  }
-  if channel == 14 {
-    return 2484
-  }
-  if channel < 14 {
-    return 2407 + channel * 5
-  }
-  if channel > 196 {
-    return null
-  }
+  return null when channel < 1
+  return 2484 when channel == 14
+  return 2407 + channel * 5 when channel < 14
+  return null when channel > 196
   5000 + channel * 5
 }
 
@@ -615,9 +581,7 @@ export proc disconnect(client: Client) [process] {
 # failure (such as a fixture lookup miss) is reported as it is.
 proc failure_to_iw(failure: Error) -> Error {
   let code = gnu.errno(failure)
-  if code == 0 {
-    return failure
-  }
+  return failure when code == 0
   IwError.Errno(code: code, text: gnu.strerror(failure))
 }
 
@@ -685,9 +649,7 @@ export proc receive_event(client: Client) [process, net, error] -> Result[Messag
   match linux.recvfrom(client.fd, 65536) {
     Ok(received) => {
       let data = received.data
-      if data.len() < 20 {
-        return Ok(null)
-      }
+      return Ok(null) when data.len() < 20
       Ok({cmd: data.byte_at(16) ?? 0, attrs: parse_attrs(data, 20)})
     }
     Err(failure) => Err(failure_to_iw(failure))
@@ -717,9 +679,7 @@ export proc interfaces(client: Client) [process, error] -> Result[List[Interface
 ## The interface called `name`, or null.
 export proc find_interface(client: Client, name: Str) [process, error] -> Result[Interface?, Error] {
   for entry in interfaces(client)? {
-    if entry.name == name {
-      return Ok(entry)
-    }
+    return Ok(entry) when entry.name == name
   }
   Ok(null)
 }
@@ -740,9 +700,7 @@ export proc find_phy(client: Client, name: Str) [process, error] -> Result[Int?,
 
 pure channel_text(attrs: List[Attr]) -> List[Str] {
   let freq = pick_uint(attrs, ATTR_WIPHY_FREQ)
-  if freq == null {
-    return []
-  }
+  return [] when freq == null
   var text = f"channel {frequency_channel(freq)} ({freq} MHz)"
   let width = pick_uint(attrs, ATTR_CHANNEL_WIDTH)
   let channel_type = pick_uint(attrs, ATTR_WIPHY_CHANNEL_TYPE)
@@ -911,9 +869,7 @@ pure split_elements(data: Bytes) -> List[InformationElement] {
   while offset + 2 <= data.len() {
     let id = data.byte_at(offset) ?? 0
     let length = data.byte_at(offset + 1) ?? 0
-    if offset + 2 + length > data.len() {
-      break
-    }
+    break when offset + 2 + length > data.len()
     found += [{id: id, data: data.slice(offset + 2, length)}]
     offset += 2 + length
   }
@@ -945,16 +901,12 @@ pure suite_text(data: Bytes, akm: Bool) -> Str {
   let kind = data.byte_at(3) ?? 0
   if oui == "00 0f ac" {
     for item in if akm { AKM_NAMES } else { CIPHER_SUITE_NAMES } {
-      if item.kind == kind {
-        return item.name
-      }
+      return item.name when item.kind == kind
     }
   }
   if oui == "00 50 f2" {
     for item in if akm { MS_AKM_NAMES } else { MS_CIPHER_NAMES } {
-      if item.kind == kind {
-        return item.name
-      }
+      return item.name when item.kind == kind
     }
   }
   suite_dashed(data)
@@ -990,9 +942,7 @@ const AKM_NAMES = [
 
 pure suites(data: Bytes, offset: Int, akm: Bool) -> List[Str] {
   var names: List[Str] = []
-  if offset + 2 > data.len() {
-    return names
-  }
+  return names when offset + 2 > data.len()
   let count = uint(data.slice(offset, 2))
   var at = offset + 2
   var remaining = count
@@ -1011,26 +961,18 @@ pure suites(data: Bytes, offset: Int, akm: Bool) -> List[Str] {
 # first.
 pure cipher_lines(data: Bytes, offset: Int, version: Int, rsn: Bool) -> List[Str] {
   var lines: List[Str] = [f"\t * Version: {version}"]
-  if offset + 4 > data.len() {
-    return lines
-  }
+  return lines when offset + 4 > data.len()
   lines += [f"\t\t * Group cipher: {suite_text(data.slice(offset, 4), false)}"]
   let pairwise_at = offset + 4
-  if pairwise_at + 2 > data.len() {
-    return lines
-  }
+  return lines when pairwise_at + 2 > data.len()
   let pairwise = suites(data, pairwise_at, false)
   lines += ["\t\t * Pairwise ciphers: " + pairwise.join(" ")]
   let akm_at = pairwise_at + 2 + 4 * pairwise.len()
-  if akm_at + 2 > data.len() {
-    return lines
-  }
+  return lines when akm_at + 2 > data.len()
   let key_management = suites(data, akm_at, true)
   lines += ["\t\t * Authentication suites: " + key_management.join(" ")]
   var at = akm_at + 2 + 4 * key_management.len()
-  if ! rsn or at + 2 > data.len() {
-    return lines
-  }
+  return lines when ! rsn or at + 2 > data.len()
   let value = uint(data.slice(at, 2))
   at += 2
   var text = "\t\t * Capabilities:"
@@ -1101,9 +1043,7 @@ pure unknown_lines(element: InformationElement, unknown: Bool) -> List[Str] {
 }
 
 pure tim_lines(data: Bytes) -> List[Str] {
-  if data.len() < 4 {
-    return ["\tTIM: <invalid: " + f"{data.len()}" + " bytes>"]
-  }
+  return ["\tTIM: <invalid: " + f"{data.len()}" + " bytes>"] when data.len() < 4
   let count = data.byte_at(0) ?? 0
   let period = data.byte_at(1) ?? 0
   let control = data.byte_at(2) ?? 0
@@ -1116,9 +1056,7 @@ pure tim_lines(data: Bytes) -> List[Str] {
 }
 
 pure country_lines(data: Bytes) -> List[Str] {
-  if data.len() < 3 {
-    return ["\tCountry: <invalid>"]
-  }
+  return ["\tCountry: <invalid>"] when data.len() < 3
   let code = data.slice(0, 2).utf8() ?? "??"
   let environment = data.byte_at(2) ?? 32
   let place = match environment {
@@ -1145,9 +1083,7 @@ pure country_lines(data: Bytes) -> List[Str] {
 }
 
 pure load_lines(data: Bytes) -> List[Str] {
-  if data.len() < 5 {
-    return ["\tBSS Load: <invalid>"]
-  }
+  return ["\tBSS Load: <invalid>"] when data.len() < 5
   [
     "\tBSS Load:",
     f"\t\t * station count: {uint(data.slice(0, 2))}",
@@ -1175,9 +1111,7 @@ pure erp_lines(data: Bytes) -> List[Str] {
 }
 
 pure rsn_lines(data: Bytes) -> List[Str] {
-  if data.len() < 2 {
-    return ["\tRSN: <invalid>"]
-  }
+  return ["\tRSN: <invalid>"] when data.len() < 2
   let version = uint(data.slice(0, 2))
   let body = cipher_lines(data, 2, version, true)
   ["\tRSN:" + body[0]] + body[1..]
@@ -1218,14 +1152,10 @@ pure tsf_text(tsf: Int) -> Str {
 ## the device the scan belongs to; `unknown` is `-u`.
 export pure bss_lines(message: Message, interface: Str, unknown: Bool) -> List[Str] {
   let container = pick(message.attrs, ATTR_BSS)
-  if container == null {
-    return []
-  }
+  return [] when container == null
   let bss = parse_attrs(container, 0)
   let bssid = pick(bss, BSS_BSSID)
-  if bssid == null {
-    return []
-  }
+  return [] when bssid == null
   var head = f"BSS {mac_text(bssid)}(on {interface})"
   let status = pick_uint(bss, BSS_STATUS)
   if status != null {
@@ -1365,9 +1295,7 @@ pure yes_no(value: Bool) -> Str {
 # The `[a, b] ` list of per-chain signals that follows a signal value, or an
 # empty string when the kernel sent no chain data.
 pure chain_signals(chains: Bytes?) -> Str {
-  if chains == null {
-    return ""
-  }
+  return "" when chains == null
   var values: List[Str] = []
   for chain in parse_attrs(chains, 0) {
     values += [f"{signed8(uint(chain.data))}"]
@@ -1382,9 +1310,7 @@ pure chain_signals(chains: Bytes?) -> Str {
 export pure station_lines(message: Message, interface: Str, boot_ms: Int, wall_ms: Int) -> List[Str] {
   let mac = pick(message.attrs, ATTR_MAC)
   let container = pick(message.attrs, ATTR_STA_INFO)
-  if mac == null or container == null {
-    return []
-  }
+  return [] when mac == null or container == null
   let info = parse_attrs(container, 0)
   var lines: List[Str] = [f"Station {mac_text(mac)} (on {interface})"]
   let inactive = pick_uint(info, STA_INACTIVE_TIME)
@@ -1548,15 +1474,11 @@ export type Connection = {bssid: Bytes, lines: List[Str]}
 export pure connection_of(messages: List[Message], interface: Str) -> Connection? {
   for message in messages {
     let container = pick(message.attrs, ATTR_BSS)
-    if container == null {
-      continue
-    }
+    continue when container == null
     let bss = parse_attrs(container, 0)
     let bssid = pick(bss, BSS_BSSID)
     let status = pick_uint(bss, BSS_STATUS)
-    if bssid == null or status == null {
-      continue
-    }
+    continue when bssid == null or status == null
     if status == BSS_STATUS_AUTHENTICATED {
       return {bssid: bssid, lines: [f"Authenticated with {mac_text(bssid)} (on {interface})"]}
     }
@@ -1590,9 +1512,7 @@ export pure connection_of(messages: List[Message], interface: Str) -> Connection
 ## The statistics of `iw dev DEV link` for the connected station message.
 export pure link_lines(message: Message) -> List[Str] {
   let container = pick(message.attrs, ATTR_STA_INFO)
-  if container == null {
-    return []
-  }
+  return [] when container == null
   let info = parse_attrs(container, 0)
   var lines: List[Str] = []
   let rx_bytes = pick_uint(info, STA_RX_BYTES)
@@ -1657,14 +1577,10 @@ pure cipher_name(selector: Bytes) -> Str {
   let kind = selector.byte_at(3) ?? 0
   if hex_bytes(selector.slice(0, 3)) == "00 0f ac" {
     for item in CIPHER_NAMES {
-      if item.kind == kind {
-        return f"{item.name} ({suite_dashed(selector)})"
-      }
+      return f"{item.name} ({suite_dashed(selector)})" when item.kind == kind
     }
   }
-  if hex_bytes(selector) == "00 14 72 01" {
-    return f"WPI-SMS4 ({suite_dashed(selector)})"
-  }
+  return f"WPI-SMS4 ({suite_dashed(selector)})" when hex_bytes(selector) == "00 14 72 01"
   suite_dashed(selector)
 }
 
@@ -1679,9 +1595,7 @@ pure frequency_lines(freqs: Bytes) -> List[Str] {
   for item in parse_attrs(freqs, 0) {
     let fields = parse_attrs(item.data, 0)
     let freq = pick_uint(fields, FREQ_FREQ)
-    if freq == null {
-      continue
-    }
+    continue when freq == null
     let offset = pick_uint(fields, FREQ_OFFSET)
     var text = if offset != null { f"\t\t\t* {freq}.{offset} MHz" } else { f"\t\t\t* {freq} MHz" }
     text += f" [{frequency_channel(freq)}]"
@@ -1714,9 +1628,7 @@ pure bitrate_lines(rates: Bytes) -> List[Str] {
   for item in parse_attrs(rates, 0) {
     let fields = parse_attrs(item.data, 0)
     let rate = pick_uint(fields, 1)
-    if rate == null {
-      continue
-    }
+    continue when rate == null
     var text = f"\t\t\t* {rate / 10}.{rate % 10} Mbps"
     if pick(fields, 2) != null {
       text += " (short preamble supported)"
@@ -1987,9 +1899,7 @@ export pure phy_lines(messages: List[Message]) -> List[Str] {
 # The frequencies of a scan event, each after a space.
 pure frequency_list(attrs: List[Attr]) -> Str {
   let freqs = pick(attrs, ATTR_SCAN_FREQUENCIES)
-  if freqs == null {
-    return ""
-  }
+  return "" when freqs == null
   var text = ""
   for item in parse_attrs(freqs, 0) {
     text += f" {uint(item.data)}"
@@ -2000,9 +1910,7 @@ pure frequency_list(attrs: List[Attr]) -> Str {
 # The SSIDs of a scan event, each quoted after a space.
 pure ssid_list(attrs: List[Attr]) -> Str {
   let ssids = pick(attrs, ATTR_SCAN_SSIDS)
-  if ssids == null {
-    return ""
-  }
+  return "" when ssids == null
   var text = ""
   for item in parse_attrs(ssids, 0) {
     text += " \"" + ssid_text(item.data) + "\""
@@ -2075,9 +1983,7 @@ const STATUS_TEXTS = [
 # The `iw` wording of an association status code, or `<unknown>`.
 pure status_text(code: Int) -> Str {
   for item in STATUS_TEXTS {
-    if item.code == code {
-      return item.text
-    }
+    return item.text when item.code == code
   }
   "<unknown>"
 }

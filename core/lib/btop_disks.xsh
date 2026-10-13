@@ -83,9 +83,7 @@ export proc collect(
 }
 
 pure block_state(source: Source) -> report.ObservationState {
-  if source.blocks.enumeration_succeeded {
-    return report.Observed
-  }
+  return report.Observed when source.blocks.enumeration_succeeded
   match source.blocks.listing_state {
     "absent" => report.Absent
     "permission_denied" => report.PermissionDenied
@@ -101,16 +99,12 @@ pure counter(source: Source, device: block.BlockDevice?, name: Str) -> CounterVa
   }
   let current = device ?? source.blocks.devices[0]
   for value in current.io_counters {
-    if value.name == name {
-      return {value: value.value, state: report.Observed}
-    }
+    return {value: value.value, state: report.Observed} when value.name == name
   }
 
   let field = f"devices.{current.name}.stat.{name}"
   for issue in source.blocks.issues {
-    if issue.field == field {
-      return {value: null, state: issue.state}
-    }
+    return {value: null, state: issue.state} when issue.field == field
   }
   for issue in source.blocks.issues {
     if issue.field == f"devices.{current.name}.stat" {
@@ -140,56 +134,36 @@ pure find_device(source: Source, major: Int, minor: Int) -> block.BlockDevice? {
 pure previous_device(source: Source?, current: block.BlockDevice?) -> block.BlockDevice? {
   if let before = source {
     if let current_device = current {
-      if current_device.major == null or current_device.minor == null {
-        return null
-      }
+      return null when current_device.major == null or current_device.minor == null
       let candidate = find_device(before, current_device.major ?? -1, current_device.minor ?? -1)
-      if device_identity(candidate) == device_identity(current_device) {
-        return candidate
-      }
+      return candidate when device_identity(candidate) == device_identity(current_device)
     }
   }
   null
 }
 
 pure sector_rate(current: CounterValue, previous: CounterValue, elapsed_ns: Int?, gap: Bool) -> rates.Rate {
-  if current.state != report.Observed {
-    return {state: rates.Unavailable, value: null}
-  }
-  if elapsed_ns == null {
-    return {state: rates.Warming, value: null}
-  }
+  return {state: rates.Unavailable, value: null} when current.state != report.Observed
+  return {state: rates.Warming, value: null} when elapsed_ns == null
   let elapsed = elapsed_ns ?? 0
-  if elapsed <= 0 {
-    return {state: rates.Invalid, value: null}
-  }
+  return {state: rates.Invalid, value: null} when elapsed <= 0
   if previous.state != report.Observed or previous.value == null {
     return {state: rates.Warming, value: null}
   }
-  if gap {
-    return {state: rates.Gap, value: null}
-  }
+  return {state: rates.Gap, value: null} when gap
 
   let now = current.value ?? -1
   let before = previous.value ?? -1
-  if now < 0 or before < 0 {
-    return {state: rates.Invalid, value: null}
-  }
-  if now < before {
-    return {state: rates.Reset, value: null}
-  }
+  return {state: rates.Invalid, value: null} when now < 0 or before < 0
+  return {state: rates.Reset, value: null} when now < before
   let delta = now - before
-  if delta > max_counter / 512 {
-    return {state: rates.Invalid, value: null}
-  }
+  return {state: rates.Invalid, value: null} when delta > max_counter / 512
   rates.counter_rate(delta * 512, 0, elapsed)
 }
 
 pure selected_mount(entries: List[mounts.MountEntry]) -> mounts.MountEntry {
   for entry in entries {
-    if entry.usage_state == report.Observed {
-      return entry
-    }
+    return entry when entry.usage_state == report.Observed
   }
   entries[0]
 }
@@ -217,9 +191,7 @@ export pure step(
   var devices: List[Device] = []
   for mount in current.mounts.mounts {
     let key = f"{mount.major}:{mount.minor}"
-    if key in seen {
-      continue
-    }
+    continue when key in seen
     seen = seen.add(key)
     let entries = current.mounts.mounts |> where .major == mount.major and .minor == mount.minor
     let capacity = selected_mount(entries)

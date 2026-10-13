@@ -26,8 +26,8 @@ export pure unified_reject(hunk: patch_parse.Hunk) -> Bytes {
 }
 
 pure context_range(first: Int, count: Int) -> Str {
-  if count == 0 { return f"{first - 1}" }
-  if count == 1 { return f"{first}" }
+  return f"{first - 1}" when count == 0
+  return f"{first}" when count == 1
   f"{first},{first + count - 1}"
 }
 

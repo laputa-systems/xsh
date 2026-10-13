@@ -13,7 +13,7 @@ export type Options = {
 }
 
 pure find_byte(data: Bytes, wanted: Int) -> Int? {
-  for at in range(data.len()) { if data.byte_at(at) == wanted { return at } }
+  for at in range(data.len()) { return at when data.byte_at(at) == wanted }
   null
 }
 
@@ -159,7 +159,7 @@ export proc gid(raw: Str) [fs, error] -> Result[Int, Error] {
 ## Parse owner and optional group; a trailing colon selects the login group.
 export proc owner(raw: Str, group_only = false) [fs, error, process] -> Result[Owner, Error] {
   if group_only {
-    if raw == "" { return {uid: null, gid: null} }
+    return {uid: null, gid: null} when raw == ""
     return {uid: null, gid: gid(raw)?}
   }
   let spec = raw
@@ -283,7 +283,7 @@ proc owner_tree(target: Path, ids: Owner, filter: Owner?, opts: Options, names: 
   if let Ok(meta) = fs.stat(target, follow_symlinks: follow) {
     if opts.recursive and meta.kind == "dir" {
       let key = f"{meta.dev}:{meta.ino}"
-      if key in ancestors { return change_owner(target, ids, filter, opts, names) }
+      return change_owner(target, ids, filter, opts, names) when key in ancestors
       if opts.preserve_root {
         let root = fs.stat(p"/", follow_symlinks: true)?
         if root.dev == meta.dev and root.ino == meta.ino { refuse_root(target); return false }

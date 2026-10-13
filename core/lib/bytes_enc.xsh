@@ -40,8 +40,8 @@ pure radix(kind: Str) -> Int {
 # The accumulator retains only bits that have not yet been emitted, so it
 # stays bounded even for inputs larger than the machine integer range.
 pure encode(data: Bytes, kind: Str) -> Result[Str] {
-  if kind == "base64" { return Ok(data.base64()) }
-  if kind == "base32" { return Ok(data.base32()) }
+  return Ok(data.base64()) when kind == "base64"
+  return Ok(data.base32()) when kind == "base32"
   if kind == "z85" {
     if data.len() % 4 != 0 { fail "invalid input (length must be multiple of 4 characters)" }
     var out = ""
@@ -127,7 +127,7 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
   var pads = 0
   for position in range(data.len()) {
     let byte = data.byte_at(position) ?? 0
-    if byte == 10 or byte == 13 { continue }
+    continue when byte == 10 or byte == 13
     if byte == 61 and kind in ["base64", "base64url", "base32", "base32hex"] {
       padded = true
       pads += 1
@@ -137,13 +137,13 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
     let symbol = if kind == "base16" { char.upper() } else { char }
     let value: Int? = if symbol == "" { null } else { chars.find(symbol) }
     if value == null {
-      if ignore { continue }
+      continue when ignore
       valid = false
       break
     }
     if padded {
       let prefix = decode(data[0..position], kind, ignore)?
-      if ! prefix.valid { return Ok(prefix) }
+      return Ok(prefix) unless prefix.valid
       let suffix = decode(data[position..], kind, ignore)?
       return Ok({data: bytes.concat([prefix.data, suffix.data]), valid: suffix.valid})
     }

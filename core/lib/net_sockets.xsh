@@ -115,7 +115,7 @@ export type Owner = {inode: Int, name: Str, pid: Int, fd: Int}
 
 ## Lowercase hexadecimal text of a non-negative integer.
 export pure hex(value: Int) -> Str {
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var rest = value
   var out = ""
   while rest > 0 {
@@ -127,12 +127,12 @@ export pure hex(value: Int) -> Str {
 }
 
 pure u32(data: Bytes, offset: Int) -> Int {
-  if offset + 4 > data.len() { return 0 }
+  return 0 when offset + 4 > data.len()
   bytes.unpack_le(data, 4, offset) ?? 0
 }
 
 pure u64(data: Bytes, offset: Int) -> Int {
-  if offset + 8 > data.len() { return 0 }
+  return 0 when offset + 8 > data.len()
   bytes.unpack_le(data, 8, offset) ?? 0
 }
 
@@ -150,7 +150,7 @@ pure attributes(payload: Bytes, start: Int) -> List[Attribute] {
   while offset + 4 <= payload.len() {
     let length = bytes.unpack_le(payload, 2, offset) ?? 0
     let kind = (bytes.unpack_le(payload, 2, offset + 2) ?? 0).bit_and(16383)
-    if length < 4 or offset + length > payload.len() { break }
+    break when length < 4 or offset + length > payload.len()
     found += [{kind: kind, data: payload.slice(offset + 4, length - 4)}]
     offset += (length + 3) / 4 * 4
   }
@@ -159,7 +159,7 @@ pure attributes(payload: Bytes, start: Int) -> List[Attribute] {
 
 pure find_attribute(list: List[Attribute], kind: Int) -> Bytes? {
   for item in list {
-    if item.kind == kind { return item.data }
+    return item.data when item.kind == kind
   }
   null
 }
@@ -176,14 +176,14 @@ pure cstring(data: Bytes) -> Str {
 }
 
 pure cookie_text(low: Int, high: Int) -> Str {
-  if high == 0 { return hex(low) }
+  return hex(low) when high == 0
   let tail = hex(low)
   hex(high) + "00000000".byte_slice(0, length: 8 - tail.byte_len()) + tail
 }
 
 ## The column text the reference tool prints for a kernel state number.
 export pure state_name(state: Int) -> Str {
-  if state < 0 or state >= STATE_NAMES.len() { return "UNKNOWN" }
+  return "UNKNOWN" when state < 0 or state >= STATE_NAMES.len()
   STATE_NAMES[state]
 }
 
@@ -405,14 +405,14 @@ proc collect_raw_proc(family: Int, states: Int) [fs, error] -> Result[List[DiagS
       continue
     }
     let fields = line.fields()
-    if fields.len() < 10 { continue }
+    continue when fields.len() < 10
     let local = fields[1].split(":")
     let remote = fields[2].split(":")
     let queues = fields[4].split(":")
-    if local.len() != 2 or remote.len() != 2 or queues.len() != 2 { continue }
+    continue when local.len() != 2 or remote.len() != 2 or queues.len() != 2
     let state = f"0x{fields[3]}".parse_int() ?? 0
     let bit = if state >= 0 and state < 12 { [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048][state] } else { 0 }
-    if states / bit % 2 != 1 { continue }
+    continue when states / bit % 2 != 1
     found += [{
       netid: "raw", family: family, protocol: 0, state: state, timer: 0, retrans: 0, expires: 0,
       recv_queue: f"0x{queues[1]}".parse_int() ?? 0, send_queue: f"0x{queues[0]}".parse_int() ?? 0,
@@ -436,7 +436,7 @@ export type Summary = {
 # The number after KEY in the line that starts with SECTION and a colon.
 pure sockstat_number(text: Str, section: Str, key: Str) -> Int {
   for line in text.lines() {
-    if !line.starts_with(section + ":") { continue }
+    continue unless line.starts_with(section + ":")
     let fields = line.fields()
     for index in range(fields.len()) {
       if fields[index] == key and index + 1 < fields.len() {
@@ -459,7 +459,7 @@ export proc summary() [fs, error] -> Result[Summary, Error] {
   var established = 0
   var header: List[Str] = []
   for line in (fp"/proc/net/snmp".read_text() ?? "").lines() {
-    if !line.starts_with("Tcp:") { continue }
+    continue unless line.starts_with("Tcp:")
     let fields = line.fields()
     if header.is_empty() {
       header = fields
@@ -524,7 +524,7 @@ export proc cgroup_names() [fs, error] -> Map[Str, Str] {
     found[f"{top.ino}"] = "/"
     if let Ok(entries) = fs.walk(root, stat: true) {
       for entry in entries {
-        if entry.kind != "dir" { continue }
+        continue when entry.kind != "dir"
         if let Ok(info) = fs.stat(entry.path) {
           let shown = entry.path.display()
           let relative = shown.byte_slice(root.display().byte_len())
@@ -571,7 +571,7 @@ export proc owners() [process, error] -> Result[List[Owner], Error] {
 
 ## `users:(("name",pid=N,fd=N),...)` text for one inode, or null.
 export pure owners_text(list: List[Owner], inode: Int) -> Str? {
-  if inode == 0 { return null }
+  return null when inode == 0
   var parts: List[Str] = []
   for item in list {
     if item.inode == inode { parts = [f"(\"{item.name}\",pid={item.pid},fd={item.fd})"].extend(parts) }
@@ -636,13 +636,13 @@ export pure ipv6_text(data: Bytes) -> Str {
 ## The address text of an inet socket endpoint: `*` for the unspecified IPv6
 ## address of a dual-stack socket, otherwise the numeric text.
 export pure endpoint_address(data: Bytes, family: Int, v6only: Bool) -> Str {
-  if family == AF_INET { return ipv4_text(data) }
+  return ipv4_text(data) when family == AF_INET
 
   var zero = true
   for index in range(16) {
     if data.byte_at(index) != 0 { zero = false }
   }
-  if zero and !v6only { return "*" }
+  return "*" when zero and ! v6only
 
   ipv6_text(data)
 }
@@ -670,7 +670,7 @@ pure format_g(microseconds: Int) -> Str {
     }
     fraction = scaled * divisor
   }
-  if fraction == 0 { return f"{shown}" }
+  return f"{shown}" when fraction == 0
 
   var text = f"{fraction}"
   while text.byte_len() < 3 { text = "0" + text }
@@ -683,8 +683,8 @@ pure round_div(numerator: Int, denominator: Int) -> Int {
   let quotient = numerator / denominator
   let remainder = numerator % denominator
   let twice = remainder * 2
-  if twice > denominator { return quotient + 1 }
-  if twice == denominator and quotient % 2 == 1 { return quotient + 1 }
+  return quotient + 1 when twice > denominator
+  return quotient + 1 when twice == denominator and quotient % 2 == 1
   quotient
 }
 
@@ -693,7 +693,7 @@ export pure skmem_text(data: Bytes) -> Str {
   let names = ["r", "rb", "t", "tb", "f", "w", "o", "bl", "d"]
   var parts: List[Str] = []
   for index in range(names.len()) {
-    if index * 4 + 4 > data.len() { break }
+    break when index * 4 + 4 > data.len()
     parts += [f"{names[index]}{u32(data, index * 4)}"]
   }
   f"skmem:({parts.join(",")})"

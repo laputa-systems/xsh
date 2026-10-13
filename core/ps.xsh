@@ -67,7 +67,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   if ! pids.is_empty() or ! parents.is_empty() { rows = rows |> where .pid in pids or .parent_pid in parents } else if ! opts.all and ! bsd {
     let own_pid = process.current_pid()?
     let own = snapshot.processes |> where .pid == own_pid
-    if own.is_empty() { return Err(error.failure("ps: selecting process disappeared")) }
+    return Err(error.failure("ps: selecting process disappeared")) when own.is_empty()
     rows = rows |> where .uid == applet.current_euid() and .tty_number == own[0].tty_number and .tty_number != 0
   }
   let specs = if opts.output.is_empty() { if bsd { ["user,pid,pcpu,pmem,vsz,rss,tty,stat,start,time,args"] } else if opts.full { ["user,pid,ppid,c,start,tty,time,args"] } else { ["pid,tty,time,comm"] } } else { opts.output }

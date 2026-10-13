@@ -92,7 +92,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
   while index < argv.len() {
     let raw = argv[index]
-    if raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-"))) { break }
+    break when raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-")))
     var location: ValueLocation? = null
     var value = ""
     let option = if raw.starts_with("--") { "--block-size" } else { "-B" }
@@ -166,7 +166,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
   var invalid_types = false
   var selected_types: List[Str] = []
   for kind in opts.include {
-    if kind in selected_types { continue }
+    continue when kind in selected_types
     var at = 0
     while at < selected_types.len() and selected_types[at] < kind { at += 1 }
     selected_types = selected_types[..at].push(kind).extend(selected_types[at..])

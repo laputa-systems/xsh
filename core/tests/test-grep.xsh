@@ -159,7 +159,7 @@ pure escape(data: Bytes) -> Str {
 # Directory listing order is the file system's, so recursive cases compare
 # their records as a set (NUL-separated names count as records too).
 pure ordered(text: Str, enabled: Bool) -> Str {
-  if ! enabled { return text }
+  return text unless enabled
   let records = text.replace("\\0", with: "\\n").split("\\n")
   let sorted = records |> sort() |> collect()
   sorted.join("\\n")
@@ -170,7 +170,7 @@ proc load_cases(ctx: TestContext, family: Str) [fs, error] -> Result[List[Case]]
   var cases: List[Case] = []
   for line in source.read_lines()? {
     let doc = json.decode(line)?
-    if json.get(doc, ["group"])?.require(Str)? != family { continue }
+    continue when json.get(doc, ["group"])?.require(Str)? != family
     cases += [{
       id: json.get(doc, ["id"])?.require(Str)?,
       cmd: json.get(doc, ["cmd"])?.require(Str)?,
@@ -276,7 +276,7 @@ test test_grep_unreadable_file_is_reported_and_the_search_goes_on { |ctx|
   closed.write("needle\n")
   open.write("needle\n")
   closed.chmod(0o000)
-  if closed.read_bytes() is Ok(_) { return }
+  return when closed.read_bytes() is Ok(_)
   let ran = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/grep.xsh" -- needle $closed $open
   assert ran.status.exited_with(2)
   assert ran.stdout == f"{open}:needle\n"

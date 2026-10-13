@@ -9,7 +9,7 @@ type ExpectedGroups = {status: Int, stdout: Str, stderr: Str}
 proc account_groups(name: Str) -> ExpectedGroups {
   for line in p"/etc/passwd".read_text()?.lines() {
     let fields = line.split(":")
-    if fields[0] != name { continue }
+    continue when fields[0] != name
     let primary = fields[3].parse_int()?
     var gids = [primary]
     for row in p"/etc/group".read_text()?.lines() {

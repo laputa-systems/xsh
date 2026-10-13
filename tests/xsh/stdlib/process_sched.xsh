@@ -28,14 +28,10 @@ pure expand_cpu_list(text: Str) -> List[Int] {
 # can make that exec fail, so the limit tests wait for the name the kernel
 # reports.
 proc wait_for_sleep(pid: Int) [fs, time, error] {
-  if ! fp"/proc/{pid}/comm".exists() {
-    return
-  }
+  return unless fp"/proc/{pid}/comm".exists()
 
   for _ in range(500) {
-    if fp"/proc/{pid}/comm".read_text()?.trim() == "sleep" {
-      return
-    }
+    return when fp"/proc/{pid}/comm".read_text()?.trim() == "sleep"
 
     time.sleep(10ms)
   }

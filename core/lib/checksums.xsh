@@ -17,7 +17,7 @@ type Separator = {close: Int, digest: Int}
 pure binary_mode(argv: List[Str]) -> Bool {
   var binary = false
   for arg in argv {
-    if arg == "--" { break }
+    break when arg == "--"
     if arg == "--binary" { binary = true } else if arg == "--text" { binary = false } else if arg.starts_with("-") and !arg.starts_with("--") {
       for index in range(1, arg.byte_len()) {
         let flag = arg.byte_slice(index, length: 1)
@@ -32,7 +32,7 @@ pure binary_mode(argv: List[Str]) -> Bool {
 pure tagged_mode(argv: List[Str], cksum: Bool) -> Bool {
   var tag = cksum
   for arg in argv {
-    if arg == "--" { break }
+    break when arg == "--"
     if arg == "--tag" { tag = true }
     if arg == "--untagged" { tag = false }
   }
@@ -42,7 +42,7 @@ pure tagged_mode(argv: List[Str], cksum: Bool) -> Bool {
 pure warning_mode(argv: List[Str]) -> Bool {
   var enabled = false
   for arg in argv {
-    if arg == "--" { break }
+    break when arg == "--"
     if arg == "--status" { enabled = false } else if arg == "--warn" { enabled = true } else if arg.starts_with("-") and !arg.starts_with("--") {
       for index in range(1, arg.byte_len()) {
         if arg.byte_slice(index, length: 1) == "w" { enabled = true }
@@ -79,7 +79,7 @@ pure feature_disabled(feature: Str, tunables: Str) -> Bool {
   let aliases = feature_aliases(feature)
   for token in disabled.split(",") {
     let name = trim_leading_space(token)
-    if name.starts_with("-") and name.byte_slice(1) in aliases { return true }
+    return true when name.starts_with("-") and name.byte_slice(1) in aliases
   }
   false
 }
@@ -99,7 +99,7 @@ proc cpu_feature_debug() [env, process, error] {
     }
     let message = if enabled { f"using {name} hardware support" } else { f"{name} support not detected" }
     gnu.error(message)
-    if enabled { break }
+    break when enabled
   }
 }
 
@@ -107,7 +107,7 @@ proc cpu_feature_debug() [env, process, error] {
 # from an explicit zero for SHA2 and SHA3.
 pure has_length_option(argv: List[Str]) -> Bool {
   for arg in argv {
-    if arg == "--" { break }
+    break when arg == "--"
     if arg == "--length" or arg.starts_with("--length=") or arg == "-l" or arg.starts_with("-l=") or arg.starts_with("-l") { return true }
   }
   false
@@ -157,10 +157,10 @@ pure is_hex(value: Str) -> Bool {
 }
 
 pure valid_base64(value: Str, digest_bytes: Int) -> Bool {
-  if digest_bytes < 1 or value.byte_len() != (digest_bytes + 2) / 3 * 4 { return false }
+  return false when digest_bytes < 1 or value.byte_len() != (digest_bytes + 2) / 3 * 4
   let padding = if value.ends_with("==") { 2 } else if value.ends_with("=") { 1 } else { 0 }
   let expected_padding = if digest_bytes % 3 == 1 { 2 } else if digest_bytes % 3 == 2 { 1 } else { 0 }
-  if padding != expected_padding { return false }
+  return false when padding != expected_padding
   let body_length = value.byte_len() - padding
   let body = value.byte_slice(0, length: body_length)
   body.translate("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", "") == ""
@@ -180,11 +180,11 @@ pure unescape(name: Str) -> Str? {
   while at < name.byte_len() {
     let tail = name.byte_slice(at)
     let slash = tail.find("\\")
-    if slash == null { return result + tail }
+    return result + tail when slash == null
     let distance = slash ?? 0
     result += tail.byte_slice(0, length: distance)
     at += distance + 1
-    if at >= name.byte_len() { return null }
+    return null when at >= name.byte_len()
     let escaped_tail = name.byte_slice(at)
     if escaped_tail.starts_with("n") { result += "\n" } else if escaped_tail.starts_with("r") { result += "\r" } else if escaped_tail.starts_with("\\") { result += "\\" } else { return null }
     at += 1
@@ -197,7 +197,7 @@ pure last_separator(line: Str) -> Separator? {
   var found: Separator? = null
   while offset < line.byte_len() {
     let next = line.byte_slice(offset).find(")")
-    if next == null { break }
+    break when next == null
     let close = offset + (next ?? 0)
     var after = close + 1
     while after < line.byte_len() and line.byte_slice(after, length: 1) == " " { after += 1 }
@@ -216,7 +216,7 @@ pure last_separator(line: Str) -> Separator? {
 pure byte_index(data: Bytes, byte: Int, start: Int) -> Int? {
   var at = start
   while at < data.len() {
-    if data.byte_at(at) == byte { return at }
+    return at when data.byte_at(at) == byte
     at += 1
   }
   null
@@ -227,7 +227,7 @@ pure last_byte_separator(line: Bytes) -> Separator? {
   var found: Separator? = null
   while offset < line.len() {
     let next = byte_index(line, 41, offset)
-    if next == null { break }
+    break when next == null
     let close = next ?? 0
     var after = close + 1
     while after < line.len() and line.byte_at(after) == 32 { after += 1 }
@@ -263,7 +263,7 @@ pure bsd_alternate_format(line: Bytes) -> Bool {
 }
 
 pure decoded_digest_bytes(value: Str) -> Int {
-  if is_hex(value) { return value.byte_len() / 2 }
+  return value.byte_len() / 2 when is_hex(value)
   value.byte_len() / 4 * 3 - (if value.ends_with("==") { 2 } else if value.ends_with("=") { 1 } else { 0 })
 }
 
@@ -275,7 +275,7 @@ pure malformed_label(line: Bytes, previous: Str) -> Str {
     while end > 0 and value.byte_at(end - 1) == 32 { end -= 1 }
     if end > 0 {
       if let Ok(tag) = value[..end].utf8() {
-        if tag.starts_with("SHA3-") { return "SHA3" }
+        return "SHA3" when tag.starts_with("SHA3-")
         return tag
       }
     }
@@ -336,7 +336,7 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alterna
         bits = 512
       }
       if algorithm == "sha2" and selected != "sha224" and selected != "sha256" and selected != "sha384" and selected != "sha512" { return null }
-      if algorithm == "sha3" and selected != "sha3" { return null }
+      return null when algorithm == "sha3" and selected != "sha3"
     } else if selected == "blake2b" and tag == "BLAKE2b" {
       bits = 512
     } else if selected == "blake2b" and tag.starts_with("BLAKE2b-") {
@@ -357,8 +357,8 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alterna
       bits = tag.byte_slice(5).parse_int() ?? 0
     }
     if selected == "sha3" and bits != 224 and bits != 256 and bits != 384 and bits != 512 { return null }
-    if selected == "blake2b" and (bits < 8 or bits > 512 or bits % 8 != 0) { return null }
-    if selected == "blake3" and (bits < 8 or bits % 8 != 0) { return null }
+    return null when selected == "blake2b" and (bits < 8 or bits > 512 or bits % 8 != 0)
+    return null when selected == "blake3" and (bits < 8 or bits % 8 != 0)
     let sha2_variant = selected == "sha224" or selected == "sha256" or selected == "sha384" or selected == "sha512"
     let shake_default_tag = (selected == "shake128" and bits == 256 and tag == "SHAKE128") or (selected == "shake256" and bits == 512 and tag == "SHAKE256")
     let blake2b_512_alias = selected == "blake2b" and bits == 512 and tag == "BLAKE2b-512"
@@ -368,7 +368,7 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alterna
     expected = line.byte_slice(separator.digest)
   } else {
     let separator = line.find(" ") ?? -1
-    if separator <= 0 { return null }
+    return null when separator <= 0
     expected = line.byte_slice(0, length: separator)
     let remainder = line.byte_slice(separator + 1)
     if alternate_format {
@@ -396,12 +396,12 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alterna
     if selected == "blake2b" or selected == "blake3" or selected == "shake128" or selected == "shake256" {
       let digest_bytes = decoded_digest_bytes(expected)
       bits = digest_bytes * 8
-      if selected == "blake2b" and (bits < 8 or bits > 512) { return null }
+      return null when selected == "blake2b" and (bits < 8 or bits > 512)
     }
   }
   let width = digest_width(selected, bits)
   let encoded = if width >= 2 and expected.byte_len() == width and is_hex(expected) { false } else if width >= 2 and valid_base64(expected, width / 2) { true } else { return null }
-  if name == "" { return null }
+  return null when name == ""
   if escape {
     if let decoded = unescape(name) { name = decoded } else { return null }
   }
@@ -423,7 +423,7 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
   let close = last_byte_separator(content)
   if open > 0 and close != null {
     let separator = close ?? {close: -1, digest: -1}
-    if separator.close <= open { return null }
+    return null when separator.close <= open
     let placeholder = b"__XSH_RAW_CHECK_PATH__"
     var normalized = bytes.concat([content[..open + 1], placeholder, content[separator.close..]])
     if escape { normalized = bytes.concat([b"\\", normalized]) }
@@ -431,13 +431,13 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
       Ok(value) => parse_line(value, algorithm, length, infer, alternate_format)
       Err(_) => null
     }
-    if parsed == null { return null }
+    return null when parsed == null
     let item = parsed ?? {digest: "", base64: false, path: b"", alternate_path: null, algorithm: "", length: 0}
     return {...item, path: content[open + 1..separator.close], alternate_path: null}
   }
 
   let separator = byte_index(content, 32, 0) ?? -1
-  if separator <= 0 { return null }
+  return null when separator <= 0
   var name_start = separator + 1
   let marker = content.byte_at(name_start)
   if !alternate_format and (marker == 32 or marker == 42) { name_start += 1 }
@@ -447,7 +447,7 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
     Ok(value) => parse_line(value, algorithm, length, infer, alternate_format)
     Err(_) => null
   }
-  if parsed == null { return null }
+  return null when parsed == null
   let item = parsed ?? {digest: "", base64: false, path: b"", alternate_path: null, algorithm: "", length: 0}
   let alternate: Bytes? = if !alternate_format and marker == 32 and content.byte_at(name_start) != 42 { content[separator + 1..] } else if !alternate_format and marker == 42 { content[separator + 2..] } else { null }
   {...item, path: content[name_start..], alternate_path: alternate}
@@ -497,8 +497,8 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
   var alternate_format = false
   for line in byte_lines(data) {
     line_number += 1
-    if line.len() == 0 or (line.len() == 1 and line.byte_at(0) == 13) { continue }
-    if line.byte_at(0) == 35 { continue }
+    continue when line.len() == 0 or (line.len() == 1 and line.byte_at(0) == 13)
+    continue when line.byte_at(0) == 35
     if !format_decided {
       let valid_record = match line.utf8() {
         Ok(value) => parse_line(value, algorithm, length, infer, false) != null
@@ -549,7 +549,7 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
         }
       }
       Err(failure) => {
-        if opts.ignore_missing and gnu.errno(failure) == 2 { continue }
+        continue when opts.ignore_missing and gnu.errno(failure) == 2
         unreadable += 1
         name_error_bytes(checked_path, failure)
         if !opts.status { gnu.write_text(f"{shown}: FAILED open or read\n") }

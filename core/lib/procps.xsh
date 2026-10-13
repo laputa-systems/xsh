@@ -48,8 +48,8 @@ export proc select(rows: List[ProcessEntry], options: Selector, self_pid: Int) [
     matches = matches and (options.pattern == null or pattern.matches(if options.full { row.argv } else { row.command }))
     if matches != options.inverse { out = out.push(row) }
   }
-  if options.newest { return out |> sort-by(desc: true) age_key(.) |> take(1) }
-  if options.oldest { return out |> sort-by age_key(.) |> take(1) }
+  return out |> sort-by(desc: true) age_key(.) |> take(1) when options.newest
+  return out |> sort-by age_key(.) |> take(1) when options.oldest
   out |> sort-by .pid
 }
 

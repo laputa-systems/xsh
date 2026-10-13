@@ -29,8 +29,8 @@ pure spaces(count: Int) -> Bytes {
 # Apply the width, precision and left-justify flag of a `%s` conversion.
 pure pad_text(data: Bytes, flags: Str, width: Int, precision: Int) -> Bytes {
   let clipped = if precision >= 0 and precision < data.len() { data[0..precision] } else { data }
-  if width <= clipped.len() { return clipped }
-  if "-" in flags { return bytes.concat([clipped, spaces(width - clipped.len())]) }
+  return clipped when width <= clipped.len()
+  return bytes.concat([clipped, spaces(width - clipped.len())]) when "-" in flags
   bytes.concat([spaces(width - clipped.len()), clipped])
 }
 
@@ -50,14 +50,14 @@ pure pad_number(digits: Str, negative: Bool, flags: Str, width: Int, precision: 
   let sign = if negative { "-" } else if "+" in flags { "+" } else if " " in flags { " " } else { "" }
   let head = f"{sign}{prefix}"
   let used = head.byte_len() + body.byte_len()
-  if width <= used { return bytes.from_text(f"{head}{body}") }
+  return bytes.from_text(f"{head}{body}") when width <= used
   if "-" in flags { return bytes.concat([bytes.from_text(f"{head}{body}"), spaces(width - used)]) }
   if "0" in flags and precision < 0 { return bytes.from_text(f"{head}{zeros(width - used)}{body}") }
   bytes.concat([spaces(width - used), bytes.from_text(f"{head}{body}")])
 }
 
 pure octal_digits(value: Int) -> Str {
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var out = ""
   var rest = value
   while rest > 0 { out = f"{rest % 8}{out}"; rest = rest / 8 }
@@ -148,7 +148,7 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
 pure basename_of(raw: Bytes) -> Bytes {
   var end = raw.len()
   while end > 1 and raw.byte_at(end - 1) == 47 { end -= 1 }
-  if end == 1 and raw.byte_at(0) == 47 { return b"/" }
+  return b"/" when end == 1 and raw.byte_at(0) == 47
   var at = end
   while at > 0 and raw.byte_at(at - 1) != 47 { at -= 1 }
   # Trailing slashes belong to the name: `dir/` has base `dir/`.
@@ -162,8 +162,8 @@ pure dirname_of(raw: Bytes) -> Bytes {
   while end > 1 and raw.byte_at(end - 1) == 47 { end -= 1 }
   var at = end
   while at > 0 and raw.byte_at(at - 1) != 47 { at -= 1 }
-  if end == 1 and raw.byte_at(0) == 47 { return b"" }
-  if at == 0 { return b"." }
+  return b"" when end == 1 and raw.byte_at(0) == 47
+  return b"." when at == 0
   var stop = at
   while stop > 1 and raw.byte_at(stop - 1) == 47 { stop -= 1 }
   raw[0..stop]
@@ -171,7 +171,7 @@ pure dirname_of(raw: Bytes) -> Bytes {
 
 # The path below the starting point, without the separating slash.
 pure relative_part(whole: Bytes, start: Bytes) -> Bytes {
-  if whole.len() <= start.len() { return b"" }
+  return b"" when whole.len() <= start.len()
   var at = start.len()
   while at < whole.len() and whole.byte_at(at) == 47 { at += 1 }
   whole[at..]
@@ -236,13 +236,13 @@ proc ctime_field(ns: Int) [time, error] -> Result[Str, Error] {
 
 # Link text of a symlink entry, empty for anything else.
 proc link_text(entry: Entry) [fs] -> Bytes {
-  if entry.meta.kind != "symlink" { return b"" }
+  return b"" when entry.meta.kind != "symlink"
   match entry.path.readlink() { Ok(target) => target.bytes(); Err(_) => b"" }
 }
 
 # Type letter of what a symlink points at: N dangling, L loop, ? other error.
 proc followed_type(entry: Entry) [fs] -> Str {
-  if entry.meta.kind != "symlink" { return type_letter(entry.meta.kind) }
+  return type_letter(entry.meta.kind) when entry.meta.kind != "symlink"
   match fs.stat(entry.path, follow_symlinks: true) {
     Ok(found) => type_letter(found.kind)
     Err(failure) => if gnu.errno(failure) == 2 { "N" } else if gnu.errno(failure) == 40 { "L" } else { "?" }
@@ -263,11 +263,11 @@ proc fstype_name(entry: Entry) [fs] -> Str {
 
 # Floating `%S`: allocated bytes over size, in the shortest `%g` form.
 pure sparseness(entry: Entry) -> Str {
-  if entry.meta.size == 0 { return "1" }
+  return "1" when entry.meta.size == 0
   let ratio = entry.meta.blocks_512 * 512 * 1000000 / entry.meta.size
   let whole = ratio / 1000000
   var fractional = ratio % 1000000
-  if fractional == 0 { return f"{whole}" }
+  return f"{whole}" when fractional == 0
   var digits = f"{fractional}"
   digits = f"{zeros(6 - digits.byte_len())}{digits}"
   while digits.ends_with("0") { digits = digits.byte_slice(0, digits.byte_len() - 1) }
@@ -327,7 +327,7 @@ export pure needs_stat(segments: List[Segment]) -> Bool {
 export proc render(segments: List[Segment], entry: Entry) [fs, time, error] -> Result[Bytes, Error] {
   var parts: List[Bytes] = []
   for segment in segments {
-    if segment.kind == "stop" { break }
+    break when segment.kind == "stop"
     if segment.kind == "text" { parts += [segment.text]; continue }
     parts += [directive_text(entry, segment)?]
   }

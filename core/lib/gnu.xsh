@@ -40,7 +40,7 @@ export pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 ## Restore an undecodable argument or encode an ordinary text token as bytes.
 export pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }

@@ -94,7 +94,7 @@ pure octal_field(block: Bytes, start: Int, length: Int) -> Result[Int] {
   var value = 0
   while position < end {
     let digit = block.byte_at(position) ?? 0
-    if digit == 0 or digit == 32 { break }
+    break when digit == 0 or digit == 32
     if digit < 48 or digit > 55 { return Err(TarError.Invalid(message: "corrupted octal value in tar header")) }
     value = value * 8 + digit - 48
     position += 1
@@ -104,7 +104,7 @@ pure octal_field(block: Bytes, start: Int, length: Int) -> Result[Int] {
 
 pure is_zero_block(block: Bytes) -> Bool {
   for position in range(BLOCK) {
-    if (block.byte_at(position) ?? 0) != 0 { return false }
+    return false when (block.byte_at(position) ?? 0) != 0
   }
   true
 }
@@ -131,13 +131,13 @@ pure pax_overrides(body: Bytes) -> Result[PaxOverrides] {
   var position = 0
   while position < text.byte_len() {
     let space = text.find(" ", position) ?? -1
-    if space < 0 { return Err(TarError.Invalid(message: "malformed extended header")) }
+    return Err(TarError.Invalid(message: "malformed extended header")) when space < 0
     let length = text.byte_slice(position, length: space - position).parse_int_decimal()?
     if length <= 0 or position + length > text.byte_len() { return Err(TarError.Invalid(message: "malformed extended header")) }
     let record = text.byte_slice(position, length: length)
     let assignment = record.byte_slice(space + 1 - position, length: length - (space + 1 - position) - 1)
     let equals = assignment.find("=") ?? -1
-    if equals < 0 { return Err(TarError.Invalid(message: "malformed extended header")) }
+    return Err(TarError.Invalid(message: "malformed extended header")) when equals < 0
     let key = assignment.byte_slice(0, length: equals)
     let value = assignment.byte_slice(equals + 1)
     if key == "path" {
@@ -159,7 +159,7 @@ pure join_prefix(prefix: Str, base: Str) -> Str {
 }
 
 pure body_bytes(data: Bytes, start: Int, size: Int) -> Result[Bytes] {
-  if size > data.len() - start { return Err(TarError.Invalid(message: "short read")) }
+  return Err(TarError.Invalid(message: "short read")) when size > data.len() - start
   Ok(data.slice(start, size))
 }
 
@@ -180,16 +180,16 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
   var overrides: PaxOverrides = {path: null, linkpath: null}
   while true {
     let remaining = data.len() - position
-    if remaining < 0 { break }
+    break when remaining < 0
     if remaining == 0 {
-      if position == 0 { return Err(TarError.Invalid(message: "short read")) }
+      return Err(TarError.Invalid(message: "short read")) when position == 0
       break
     }
-    if remaining < BLOCK { return Err(TarError.Invalid(message: "short read")) }
+    return Err(TarError.Invalid(message: "short read")) when remaining < BLOCK
     let block = data.slice(position, BLOCK)
     position += BLOCK
     if is_zero_block(block) {
-      if after_zero { break }
+      break when after_zero
       after_zero = true
       continue
     }
@@ -275,7 +275,7 @@ pure covers(name: Str, pattern: Str) -> Bool {
 
 pure excluded(name: Str, excludes: List[Str]) -> Bool {
   for pattern in excludes {
-    if covers(name, pattern) { return true }
+    return true when covers(name, pattern)
   }
   false
 }
@@ -286,7 +286,7 @@ pure selected(name: Str, members: List[Str], excludes: List[Str]) -> Bool {
     for pattern in members {
       if covers(name, pattern) { listed = true }
     }
-    if ! listed { return false }
+    return false unless listed
   }
   ! excluded(name, excludes)
 }
@@ -301,7 +301,7 @@ pure first_missing(members: List[Member], operands: List[Str]) -> Str? {
         break
       }
     }
-    if ! seen { return operand }
+    return operand unless seen
   }
   null
 }
@@ -311,7 +311,7 @@ pure strip_components(name: Str, count: Int) -> Str {
   var left = count
   while left > 0 {
     let slash = text.find("/") ?? -1
-    if slash < 0 { return "" }
+    return "" when slash < 0
     text = text.byte_slice(slash + 1)
     left -= 1
   }
@@ -372,7 +372,7 @@ proc list_line(member: Member) [time, error] -> Result[Str] {
 proc archive_data(opts: Options) [fs, io, error, process, env] -> Result[Bytes] {
   if opts.archive_path == null {
     let raw = io.stdin_bytes()?
-    if opts.compression == "" { return Ok(raw) }
+    return Ok(raw) when opts.compression == ""
     tempdir scratch {
       let source = fp"{scratch}/archive"
       source.write(raw)
@@ -386,7 +386,7 @@ proc archive_data(opts: Options) [fs, io, error, process, env] -> Result[Bytes] 
     Err(failure) => { return Err(TarError.Invalid(message: f"{name}: Cannot open: {gnu.strerror(failure)}")) }
   }
   let format = if opts.compression != "" { opts.compression } else { detected_format(raw) }
-  if format == "" { return Ok(raw) }
+  return Ok(raw) when format == ""
   Ok(archive.decompress_bytes(source, format)?)
 }
 
@@ -397,7 +397,7 @@ pure detected_format(raw: Bytes) -> Str {
 proc list_members(opts: Options) [fs, io, error, process, env, time] -> Result[Unit] {
   let members = read_members(archive_data(opts)?)?
   for member in members {
-    if ! selected(canonical(member.name), opts.members, opts.excludes) { continue }
+    continue unless selected(canonical(member.name), opts.members, opts.excludes)
     if opts.verbose {
       print list_line(member)?
     } else {
@@ -412,7 +412,7 @@ proc list_members(opts: Options) [fs, io, error, process, env, time] -> Result[U
 
 # Path.is_dir fails for a missing path, so existence is checked first.
 proc is_directory(target: Path) [fs, error] -> Result[Bool] {
-  if ! target.exists() { return Ok(false) }
+  return Ok(false) unless target.exists()
   target.is_dir()
 }
 
@@ -431,11 +431,11 @@ proc prepare_destination(target: Path, opts: Options) [fs, error] -> Result[Bool
   match fs.stat(target, follow_symlinks: false) {
     Ok(_) => {}
     Err(failure) => {
-      if gnu.errno(failure) == 2 { return Ok(true) }
+      return Ok(true) when gnu.errno(failure) == 2
       return Err(TarError.Invalid(message: f"{target.display()}: Cannot stat: {gnu.strerror(failure)}"))
     }
   }
-  if opts.keep { return Ok(false) }
+  return Ok(false) when opts.keep
   if opts.overwrite {
     target.remove()
     return Ok(true)
@@ -457,7 +457,7 @@ proc extract_one(member: Member, target: Path, root: Path, data: Bytes, opts: Op
     return Ok(null)
   }
   ensure_parent(target)
-  if ! prepare_destination(target, opts) { return Ok(null) }
+  return Ok(null) unless prepare_destination(target, opts)
   match member.kind {
     "file" => {
       target.write(data.slice(member.data, member.size))
@@ -478,9 +478,9 @@ proc extract_members(opts: Options) [fs, io, error, process, env] -> Result[Unit
   var fixups: List[Fixup] = []
   for member in members {
     let name = canonical(member.name)
-    if ! selected(name, opts.members, opts.excludes) { continue }
+    continue unless selected(name, opts.members, opts.excludes)
     let stripped = strip_components(name, opts.strip)
-    if stripped == "" { continue }
+    continue when stripped == ""
     if opts.to_stdout {
       if member.kind == "file" { gnu.write_bytes(data.slice(member.data, member.size)) }
       continue
@@ -505,7 +505,7 @@ proc extract_members(opts: Options) [fs, io, error, process, env] -> Result[Unit
 # The ustar name field holds 100 bytes; a longer name is split at a '/' so the
 # prefix holds the leading part, up to 155 bytes, and the name holds the rest.
 pure split_name(name: Str) -> Result[SplitName] {
-  if name.byte_len() <= NAME_FIELD { return Ok({name: name, prefix: ""}) }
+  return Ok({name: name, prefix: ""}) when name.byte_len() <= NAME_FIELD
   var position = if name.byte_len() - 1 < PREFIX_FIELD { name.byte_len() - 1 } else { PREFIX_FIELD }
   while position >= 0 and position >= name.byte_len() - NAME_FIELD - 1 {
     if name.byte_slice(position, length: 1) == "/" {
@@ -523,7 +523,7 @@ pure octal_text(value: Int, width: Int) -> Result[Str] {
   while true {
     digits = f"{"01234567".byte_slice(left % 8, length: 1)}{digits}"
     left = left / 8
-    if left == 0 { break }
+    break when left == 0
   }
   if digits.byte_len() > width - 1 { return Err(TarError.Invalid(message: "value too large for tar header")) }
   var padded_digits = digits
@@ -554,7 +554,7 @@ pure ustar_header(name: Str, flag: Str, mode: Int, uid: Int, gid: Int, size: Int
 # A member is its header and data; directories recurse in the order the
 # filesystem lists them, and excluded names are left out with their subtrees.
 proc member_chunks(name: Str, source: Path, opts: Options) [fs, error] -> Result[List[Bytes]] {
-  if excluded(canonical(name), opts.excludes) { return Ok([]) }
+  return Ok([]) when excluded(canonical(name), opts.excludes)
   let info = match fs.stat(source, follow_symlinks: false) {
     Ok(value) => value
     Err(failure) => { return Err(TarError.Invalid(message: f"{name}: Cannot stat: {gnu.strerror(failure)}")) }

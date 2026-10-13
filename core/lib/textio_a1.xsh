@@ -87,7 +87,7 @@ export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, i
     # file is then read to its end and sliced, as a read(2) loop would see it.
     match bytes.read_at(source.path, offset, if left < count { left } else { count }) {
       Ok(data) => return Ok(data)
-      Err(failure) => if failure.message.find("failed to fill") == null { return Err(failure) }
+      Err(failure) => return Err(failure) when failure.message.find("failed to fill") == null
     }
 
     let whole = source.path.read_bytes()?

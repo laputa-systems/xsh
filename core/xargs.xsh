@@ -36,22 +36,22 @@ pure delimiter_error(spec: Str) -> Str {
 }
 
 pure octal_value(text: Str) -> Int? {
-  if text == "" { return null }
+  return null when text == ""
   var value = 0
   for digit in text {
     let number = digit.parse_int() ?? -1
-    if number < 0 or number > 7 { return null }
+    return null when number < 0 or number > 7
     value = value * 8 + number
   }
   value
 }
 
 pure hex_value(text: Str) -> Int? {
-  if text == "" { return null }
+  return null when text == ""
   var value = 0
   for digit in text.lower() {
     let number = "0123456789abcdef".find(digit)
-    if number == null { return null }
+    return null when number == null
     value = value * 16 + (number ?? 0)
   }
   value
@@ -59,8 +59,8 @@ pure hex_value(text: Str) -> Int? {
 
 # The byte named by a -d argument: a single character, or a backslash escape.
 pure parse_delimiter(spec: Str) -> Int? {
-  if spec.byte_len() == 1 { return bytes.from_text(spec).byte_at(0) }
-  if ! spec.starts_with("\\") or spec.byte_len() < 2 { return null }
+  return bytes.from_text(spec).byte_at(0) when spec.byte_len() == 1
+  return null when ! spec.starts_with("\\") or spec.byte_len() < 2
   let rest = spec.byte_slice(1)
   if rest.byte_len() == 1 {
     return match rest { "a" => 7; "b" => 8; "f" => 12; "n" => 10; "r" => 13; "t" => 9; "v" => 11; "\\" => 92; "0" => 0; _ => null }
@@ -112,7 +112,7 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
         var end = at + 1
         while end < data.len() {
           let next = data.byte_at(end) ?? 0
-          if next == current.quote or next == 10 or next == 0 { break }
+          break when next == current.quote or next == 10 or next == 0
           end += 1
         }
         current.word = bytes.concat([current.word, data[at..end]]); skip_until = end
@@ -148,7 +148,7 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
       var end = at + 1
       while end < data.len() {
         let next = data.byte_at(end) ?? 0
-        if next in [0, 10, 34, 39, 92] or (! replace and (next == 32 or next == 9)) { break }
+        break when next in [0, 10, 34, 39, 92] or (! replace and (next == 32 or next == 9))
         end += 1
       }
       current.word = bytes.concat([current.word, data[at..end]]); current.started = true; skip_until = end
@@ -168,7 +168,7 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
 }
 
 pure substitute(text: Bytes, marker: Bytes, value: Bytes) -> Bytes {
-  if marker.is_empty() { return text }
+  return text when marker.is_empty()
   var out: List[Bytes] = []
   var at = 0
   while at < text.len() {
@@ -184,7 +184,7 @@ pure substitute(text: Bytes, marker: Bytes, value: Bytes) -> Bytes {
 # An argument is a C string: it ends at the first NUL, so a NUL in the input
 # hides the rest of that item from the command.
 pure c_string(data: Bytes) -> Bytes {
-  for at in range(data.len()) { if data.byte_at(at) == 0 { return data[0..at] } }
+  for at in range(data.len()) { return data[0..at] when data.byte_at(at) == 0 }
   data
 }
 
@@ -381,9 +381,9 @@ proc shell_quote(raw: Bytes) [env] -> Str {
     if byte < 32 or byte > 126 { printable = false }
     if byte in [33, 34, 35, 36, 38, 40, 41, 42, 59, 60, 61, 62, 91, 92, 94, 96, 123, 124, 125, 126] { special = true }
   }
-  if ! apostrophe or ! printable { return gnu.quote_bytes(raw, always: false) }
+  return gnu.quote_bytes(raw, always: false) when ! apostrophe or ! printable
   let text = raw.utf8() ?? ""
-  if ! special { return f"\"{text}\"" }
+  return f"\"{text}\"" unless special
   f"'{text.replace("'", with: "'\\''")}'"
 }
 
@@ -392,7 +392,7 @@ proc shell_quote(raw: Bytes) [env] -> Str {
 proc announce(argv: List[Path], interactive: Bool) [io, process, env, error] -> Result[Bool, Error] {
   var texts: List[Str] = []
   for word in argv { texts += [shell_quote(word.bytes())] }
-  if interactive { return ask(texts.join(" ")) }
+  return ask(texts.join(" ")) when interactive
   eprint texts.join(" ")
   Ok(true)
 }
@@ -410,9 +410,9 @@ proc ask(command_line: Str) [io, process, env, error] -> Result[Bool, Error] {
   var answer = ""
   while true {
     let chunk = unix.read_fd(descriptor, 1)?
-    if chunk.is_empty() { break }
+    break when chunk.is_empty()
     let letter = chunk.utf8() ?? ""
-    if letter == "\n" { break }
+    break when letter == "\n"
     answer = f"{answer}{letter}"
   }
   unix.close_fd(descriptor)
@@ -535,7 +535,7 @@ proc main(...operands: List[Bytes]) {
         batch += [item]; size += length + 1
       }
       if failure == "" and decoded.failure != "" { failure = decoded.failure }
-      if failure != "" or eof { break }
+      break when failure != "" or eof
     }
     if (! stopped or marker_seen) and (! batch.is_empty() or (! any_input and ! cfg.no_run_if_empty and ! replace and failure == "")) {
       let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?

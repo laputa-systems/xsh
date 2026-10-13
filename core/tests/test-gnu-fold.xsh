@@ -117,7 +117,7 @@ test test_gnu_fold_fold_zero_width_log { |ctx|
     let decrement = n * 1000
     let candidate = minimum - decrement
     let code = limited(s, empty_words, candidate, p"/dev/null", p"/dev/null", uu.at(s, "probe.err"), stream_locale)?
-    if !code { break }
+    break unless code
     previous = candidate
   }
   let allowance = previous + 4 + 6000

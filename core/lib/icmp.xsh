@@ -57,7 +57,7 @@ export pure request_type(family: Str) -> Int {
 export pure echo_request(family: Str, identifier: Int, sequence: Int, payload: Bytes, checksummed: Bool) -> Result[Bytes, Error] {
   let head = bytes.concat([bytes.from_ints([request_type(family), 0, 0, 0])?, bytes.pack_be(identifier, 2)?, bytes.pack_be(sequence, 2)?])
   let message = bytes.concat([head, payload])
-  if ! checksummed or family == "inet6" { return Ok(message) }
+  return Ok(message) when ! checksummed or family == "inet6"
   Ok(bytes.concat([message.slice(0, 2), bytes.pack_be(checksum(message), 2)?, message.slice(4)]))
 }
 
@@ -72,7 +72,7 @@ export pure echo_fill(size: Int, pattern: Bytes) -> Result[Bytes, Error] {
 ## Overwrite the front of a fill with `stamp` when the payload is large
 ## enough to carry it, as ping carries its send time.
 export pure echo_stamped(fill: Bytes, stamp: Bytes) -> Bytes {
-  if fill.len() < stamp.len() { return fill }
+  return fill when fill.len() < stamp.len()
   bytes.concat([stamp, fill.slice(stamp.len())])
 }
 
@@ -85,11 +85,11 @@ export pure pattern_bytes(text: Str) -> Bytes? {
   let size = text.byte_len()
   while index < size and values.len() < 16 {
     let first = "0123456789abcdef".find(text.byte_slice(index, length: 1).lower())
-    if first == null { return null }
+    return null when first == null
     var value = first
     if index + 1 < size {
       let second = "0123456789abcdef".find(text.byte_slice(index + 1, length: 1).lower())
-      if second == null { return null }
+      return null when second == null
       value = first * 16 + second
     }
     values += [value]
@@ -110,7 +110,7 @@ export pure ip_header_length(data: Bytes) -> Int {
 ## Decode an ICMP or ICMPv6 message into its echo fields. Returns null when
 ## the message is too short to carry a header.
 export pure parse_echo(message: Bytes) -> Echo? {
-  if message.len() < 8 { return null }
+  return null when message.len() < 8
   let identifier = bytes.unpack_be(message, 2, 4) ?? 0
   let sequence = bytes.unpack_be(message, 2, 6) ?? 0
   {kind: message.byte_at(0) ?? 0, code: message.byte_at(1) ?? 0, identifier: identifier, sequence: sequence, payload: message.slice(8)}
@@ -127,7 +127,7 @@ export pure checksum_ok(message: Bytes) -> Bool {
 }
 
 pure hex_short(value: Int) -> Str {
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var text = ""
   var rest = value
   while rest > 0 {
@@ -276,15 +276,15 @@ export pure icmp6_text(kind: Int, code: Int, info: Int) -> Str {
 ## this module does not read.
 export pure sockaddr_text(raw: Bytes) -> Str {
   let family = bytes.unpack_le(raw, 2, 0) ?? 0
-  if family == 2 and raw.len() >= 8 { return ipv4_text(raw.slice(4, 4)) }
-  if family == 10 and raw.len() >= 24 { return ipv6_text(raw.slice(8, 16)) }
+  return ipv4_text(raw.slice(4, 4)) when family == 2 and raw.len() >= 8
+  return ipv6_text(raw.slice(8, 16)) when family == 10 and raw.len() >= 24
   ""
 }
 
 ## Decode the `sock_extended_err` of an error-queue control message and the
 ## offender address that follows it.
 export pure parse_queued_error(data: Bytes, payload: Bytes) -> QueuedError? {
-  if data.len() < 16 { return null }
+  return null when data.len() < 16
   let errno = bytes.unpack_le(data, 4, 0) ?? 0
   let info = bytes.unpack_le(data, 4, 8) ?? 0
   {errno: errno, origin: data.byte_at(4) ?? 0, kind: data.byte_at(5) ?? 0, code: data.byte_at(6) ?? 0, info: info, offender: sockaddr_text(data.slice(16)), payload: payload, port: 0, ttl: null, stamp_ns: null}
@@ -316,7 +316,7 @@ export proc read_error(fd: Int) [process, net, error] -> Result[QueuedError?, Er
   let got = match linux.recvfrom(fd, 65600, c.MSG_ERRQUEUE.bit_or(c.MSG_DONTWAIT)) {
     Ok(value) => value
     Err(failure) => {
-      if failure.errno == 11 { return Ok(null) }
+      return Ok(null) when failure.errno == 11
       return Err(failure)
     }
   }
@@ -410,14 +410,14 @@ export proc open_clock() [process, net, error] -> Result[Clock, Error] {
 ## script can come to the instant the probe leaves; `clock_collect` returns the
 ## stamp. A clock without a socket answers with the millisecond wall clock.
 export proc clock_mark(clock: Clock) [process, net, time, error] -> Result[Int, Error] {
-  if clock.fd < 0 { return Ok(time.now() * 1000000) }
+  return Ok(time.now() * 1000000) when clock.fd < 0
   let _ = linux.sendto(clock.fd, b"x", clock.target)?
   Ok(-1)
 }
 
 ## The nanosecond wall-clock reading that `clock_mark` started.
 export proc clock_collect(clock: Clock, marked: Int) [process, net, time, error] -> Result[Int, Error] {
-  if clock.fd < 0 { return Ok(marked) }
+  return Ok(marked) when clock.fd < 0
   let got = receive(clock.fd, 0, 16)?
   Ok(got.stamp_ns ?? time.now() * 1000000)
 }

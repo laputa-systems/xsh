@@ -120,7 +120,7 @@ pure combined_status(current: Int, incoming: Int, format: Str) -> Int {
 # Percentage columns round to tenths of a percent; an empty payload has no
 # ratio and gzip prints it as negative infinity.
 pure gzip_ratio(uncompressed: Int, stored: Int) -> Str {
-  if uncompressed == 0 { return " -Inf%" }
+  return " -Inf%" when uncompressed == 0
   let saved = uncompressed - stored
   let tenths = ((if saved < 0 { -saved } else { saved }) * 1000 + uncompressed / 2) / uncompressed
   let sign = if saved < 0 { "-" } else { "" }
@@ -137,7 +137,7 @@ pure gzip_header_length(head: Bytes) -> Int? {
   let flags = head.byte_at(3) ?? 0
   var at = 10
   if has_bit(flags, 4) {
-    if head.len() < at + 2 { return null }
+    return null when head.len() < at + 2
     at += 2 + (head.byte_at(at) ?? 0) + 256 * (head.byte_at(at + 1) ?? 0)
   }
   for bit in [8, 16] {
@@ -224,7 +224,7 @@ pure xz_varint(data: Bytes, at: Int) -> VarInt {
     value += byte % 128 * scale
     scale *= 128
     cursor += 1
-    if byte < 128 { return {value: value, next: cursor} }
+    return {value: value, next: cursor} when byte < 128
   }
   {value: 0, next: -1}
 }
@@ -242,7 +242,7 @@ pure xz_check_name(id: Int) -> Str {
 # Sizes print as bytes below 10000 and otherwise in the largest binary unit
 # that keeps the value under 10000, with one decimal, as xz --list does.
 pure xz_nice_size(value: Int) -> Str {
-  if value < 10000 { return f"{value} B" }
+  return f"{value} B" when value < 10000
   var divisor = 1024
   var unit = 0
   let units = ["KiB", "MiB", "GiB", "TiB"]
@@ -257,9 +257,9 @@ pure xz_nice_size(value: Int) -> Str {
 # The ratio column is compressed over uncompressed to three places; xz prints
 # dashes for an empty payload and for ratios that no longer fit the column.
 pure xz_ratio(compressed: Int, uncompressed: Int) -> Str {
-  if uncompressed == 0 { return "---" }
+  return "---" when uncompressed == 0
   let thousandths = (compressed * 1000 + uncompressed / 2) / uncompressed
-  if thousandths > 9999 { return "---" }
+  return "---" when thousandths > 9999
   f"{thousandths / 1000}.{f"{thousandths % 1000:03}"}"
 }
 
@@ -277,29 +277,29 @@ proc xz_scan(file: Path, size: Int) [fs, error] -> Result[XzScan] {
   var end = size
   while end > 0 {
     while end >= 4 and bytes.read_at(file, end - 4, 4, regular: true)? == b"\0\0\0\0" { end -= 4 }
-    if end < 24 { return Ok(corrupt) }
+    return Ok(corrupt) when end < 24
     let footer = bytes.read_at(file, end - 12, 12, regular: true)?
-    if footer[10..12] != b"YZ" { return Ok(corrupt) }
+    return Ok(corrupt) when footer[10..12] != b"YZ"
     let index_size = (bytes.unpack_le(footer, 4, 4)? + 1) * 4
-    if index_size + 24 > end { return Ok(corrupt) }
+    return Ok(corrupt) when index_size + 24 > end
     let index = bytes.read_at(file, end - 12 - index_size, index_size, regular: true)?
-    if index.byte_at(0) != 0 { return Ok(corrupt) }
+    return Ok(corrupt) when index.byte_at(0) != 0
     let counted = xz_varint(index, 1)
-    if counted.next < 0 { return Ok(corrupt) }
+    return Ok(corrupt) when counted.next < 0
     var cursor = counted.next
     var payload = 0
     var uncompressed = 0
     for _ in range(counted.value) {
       let unpadded = xz_varint(index, cursor)
-      if unpadded.next < 0 { return Ok(corrupt) }
+      return Ok(corrupt) when unpadded.next < 0
       let plain = xz_varint(index, unpadded.next)
-      if plain.next < 0 { return Ok(corrupt) }
+      return Ok(corrupt) when plain.next < 0
       cursor = plain.next
       payload += (unpadded.value + 3) / 4 * 4
       uncompressed += plain.value
     }
     let start = end - (12 + payload + index_size + 12)
-    if start < 0 { return Ok(corrupt) }
+    return Ok(corrupt) when start < 0
     let flags = bytes.read_at(file, start + 6, 2, regular: true)?
     let check = (flags.byte_at(1) ?? 0) % 16
     var checks = scan.checks
@@ -311,7 +311,7 @@ proc xz_scan(file: Path, size: Int) [fs, error] -> Result[XzScan] {
 }
 
 pure xz_check_label(checks: List[Int]) -> Str {
-  collect { for id in range(0, 16) { if id in checks { yield xz_check_name(id) } } }.join(",")
+  collect { for id in range(0, 16) { yield xz_check_name(id) when id in checks } }.join(",")
 }
 
 # xz -l: a table with one row per archive and, for several, a totals row.
@@ -363,7 +363,7 @@ type ZstdScan = {problem: Str, frames: Int, skips: Int, uncompressed: Int, known
 # that keeps the value at least 1, with two decimals below 10, one below 100
 # and none above (chosen before rounding), which is how zstd --list shows them.
 pure zstd_nice_size(value: Int) -> Str {
-  if value < 1024 { return f"{value:>6}   B" }
+  return f"{value:>6}   B" when value < 1024
   var divisor = 1024
   var unit = 0
   let units = ["KiB", "MiB", "GiB", "TiB"]
@@ -395,22 +395,22 @@ proc zstd_scan(file: Path, size: Int) [fs, error] -> Result[ZstdScan] {
   var at = 0
   let bad = {problem: "not a zstd frame sequence", frames: 0, skips: 0, uncompressed: 0, known: true, checksummed: false}
   while at < size {
-    if size - at < 4 { return Ok(bad) }
+    return Ok(bad) when size - at < 4
     let magic = bytes.unpack_le(bytes.read_at(file, at, 4, regular: true)?, 4)?
     # Skippable frames use magics 0x184D2A50 through 0x184D2A5F; zstd frames
     # use 0xFD2FB528.
     if magic / 16 == 25481893 {
-      if size - at < 8 { return Ok(bad) }
+      return Ok(bad) when size - at < 8
       let length = bytes.unpack_le(bytes.read_at(file, at + 4, 4, regular: true)?, 4)?
       at += 8 + length
-      if at > size { return Ok(bad) }
+      return Ok(bad) when at > size
       frames += 1
       skips += 1
       continue
     }
-    if magic != 4247762216 { return Ok(bad) }
+    return Ok(bad) when magic != 4247762216
     let head = bytes.read_at(file, at + 4, if size - at - 4 < 14 { size - at - 4 } else { 14 }, regular: true)?
-    if head.len() < 1 { return Ok(bad) }
+    return Ok(bad) when head.len() < 1
     let descriptor = head.byte_at(0) ?? 0
     let size_flag = descriptor / 64
     let single = descriptor / 32 % 2 == 1
@@ -419,7 +419,7 @@ proc zstd_scan(file: Path, size: Int) [fs, error] -> Result[ZstdScan] {
     let dict_bytes = match dict_flag { 0 => 0, 1 => 1, 2 => 2, _ => 4 }
     var cursor = 1 + (if single { 0 } else { 1 }) + dict_bytes
     let content_bytes = match size_flag { 0 => if single { 1 } else { 0 }, 1 => 2, 2 => 4, _ => 8 }
-    if head.len() < cursor + content_bytes { return Ok(bad) }
+    return Ok(bad) when head.len() < cursor + content_bytes
     if content_bytes == 0 {
       known = false
     } else {
@@ -428,18 +428,18 @@ proc zstd_scan(file: Path, size: Int) [fs, error] -> Result[ZstdScan] {
     at += 4 + cursor + content_bytes
     var last = false
     while ! last {
-      if size - at < 3 { return Ok(bad) }
+      return Ok(bad) when size - at < 3
       let block = bytes.read_at(file, at, 3, regular: true)?
       let header = (block.byte_at(0) ?? 0) + 256 * (block.byte_at(1) ?? 0) + 65536 * (block.byte_at(2) ?? 0)
       last = header % 2 == 1
       let kind = header / 2 % 4
-      if kind == 3 { return Ok(bad) }
+      return Ok(bad) when kind == 3
       at += 3 + (if kind == 1 { 1 } else { header / 8 })
-      if at > size { return Ok(bad) }
+      return Ok(bad) when at > size
     }
     if has_checksum {
       at += 4
-      if at > size { return Ok(bad) }
+      return Ok(bad) when at > size
       checksummed = true
     }
     frames += 1
@@ -592,7 +592,7 @@ proc expand_directories(names: List[Str], format: Str, decode: Bool, custom: Str
       # Entries come back absolute and sorted, so the directory itself is first
       # and every other path extends it.
       if top == "" { top = text }
-      if entry.kind == "dir" { continue }
+      continue when entry.kind == "dir"
       let found = f"{prefix}{text.byte_slice(top.byte_len() + 1)}"
       if format == "gz" and ! force {
         if decode and decoded_name(found, format, custom, auto) == null {
@@ -662,7 +662,7 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
       }
     }
   }
-  if joined.is_empty() { return status }
+  return status when joined.is_empty()
   fp"{output}".write_atomic(bytes.concat(joined))
   if ! keep {
     for name in consumed {

@@ -124,14 +124,14 @@ proc usage_failure(message: Str, status: Int) [io, error] {
 }
 
 proc log(options: Options, text: Str) [io, error] {
-  if options.quiet { return }
+  return when options.quiet
   let _ = io.write_stderr(text)
   let _ = io.flush_stderr()
 }
 
 # Error lines survive --no-verbose but not --quiet.
 proc log_verbose(options: Options, text: Str) [io, error] {
-  if options.terse { return }
+  return when options.terse
   log(options, text)
 }
 
@@ -157,9 +157,7 @@ proc number(option: Str, text: Str) [io, error] -> Int {
 proc seconds(option: Str, text: Str) [io, error] -> Duration {
   let parsed = text.parse_float()
   match parsed {
-    Ok(value) => {
-      if value >= 0.0 { return time.millis((value * 1000.0).round() ?? 0) }
-    }
+    Ok(value) => return time.millis((value * 1000.0).round() ?? 0) when value >= 0.0
     Err(_) => {}
   }
   io.write_stderr(f"wget: {option}: Invalid time period '{text}'\n")
@@ -214,12 +212,12 @@ proc apply(options: Options, spec: Spec, value: Str) [io, error] -> Options {
 
 proc lookup_long(name: Str) -> Spec? {
   for spec in SPECS {
-    if spec.long == name { return spec }
+    return spec when spec.long == name
   }
   var found: Spec? = null
   for spec in SPECS {
     if spec.long.starts_with(name) {
-      if found != null { return null }
+      return null when found != null
       found = spec
     }
   }
@@ -228,7 +226,7 @@ proc lookup_long(name: Str) -> Spec? {
 
 proc lookup_short(letter: Str) -> Spec? {
   for spec in SPECS {
-    if spec.short == letter { return spec }
+    return spec when spec.short == letter
   }
   null
 }
@@ -350,7 +348,7 @@ pure dot_rate(rate: Float) -> Str {
 
 # `Length:` sizes: 1500 -> 1.5K, 20000 -> 20K, 2500000 -> 2.4M.
 pure human_size(size: Int) -> Str {
-  if size < 1024 { return f"{size}" }
+  return f"{size}" when size < 1024
   var value = size.float()
   var unit = ""
   for next in ["K", "M", "G", "T"] {
@@ -430,11 +428,11 @@ type Target = {path: Path?, label: Str, stdout: Bool}
 # when it would otherwise overwrite; `reuse` keeps NAME itself.
 proc unique_name(directory: Path?, base: Str, reuse: Bool) [fs] -> Path {
   let first = if let dir = directory { fp"{dir}/{base}" } else { fp"{base}" }
-  if reuse or !(first.exists() ?? false) { return first }
+  return first when reuse or ! (first.exists() ?? false)
   var suffix = 1
   while true {
     let candidate = if let dir = directory { fp"{dir}/{base}.{suffix}" } else { fp"{base}.{suffix}" }
-    if !(candidate.exists() ?? false) { return candidate }
+    return candidate unless candidate.exists() ?? false
     suffix += 1
   }
   first
@@ -695,7 +693,7 @@ pure content_length(headers: List[Header]) -> Int? {
   let text = http_transfer.header_value(headers, "content-length")
   if let value = text {
     let parsed = value.trim().parse_int() ?? -1
-    if parsed >= 0 { return parsed }
+    return parsed when parsed >= 0
   }
   null
 }
@@ -707,7 +705,7 @@ pure range_total(headers: List[Header]) -> Int? {
     let slash = value.find("/")
     if slash != null {
       let parsed = value.byte_slice((slash ?? 0) + 1).trim().parse_int() ?? -1
-      if parsed >= 0 { return parsed }
+      return parsed when parsed >= 0
     }
   }
   null

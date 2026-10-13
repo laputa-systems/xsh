@@ -109,9 +109,7 @@ pure parse_number(text: Str, low: Int, high: Int) -> Number {
 
 pure label_of(name: Str) -> Str {
   for policy in POLICIES {
-    if policy.name == name {
-      return policy.label
-    }
+    return policy.label when policy.name == name
   }
 
   "unknown"
@@ -302,9 +300,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       if opts.all_tasks {
         let listed = task_ids(shown_pid(queried))
 
-        if listed == null {
-          return
-        }
+        return when listed == null
 
         targets = listed ?? []
       }
@@ -399,9 +395,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  if opts.pid {
-    return
-  }
+  return when opts.pid
 
   let command = operands[command_at]
   let status = proc_launch.launch_status(command)

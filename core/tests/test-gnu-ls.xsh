@@ -1,7 +1,7 @@
 use support.uu
 
 pure has_bytes(data: Bytes, needle: Bytes) -> Bool {
-  for i in range(data.len()) { if data.slice(i, needle.len()) == needle { return true } }
+  for i in range(data.len()) { return true when data.slice(i, needle.len()) == needle }
   false
 }
 
@@ -448,7 +448,7 @@ test test_gnu_ls_quote_align_log { |ctx|
     uu.succeeds(r)
     var lines: List[Str] = []
     for line in r.stdout.utf8()?.lines() {
-      if line.starts_with("total") { continue }
+      continue when line.starts_with("total")
       let parts = line.split("T ")
       lines = lines.extend([parts[parts.len() - 1]])
     }
@@ -627,7 +627,7 @@ test test_gnu_ls_block_size_log { |ctx|
     let probe = uu.invoke(sub, "ls", ["-s1", "--block-size='k", "file1M"], vars: {LC_ALL: locale})?
     let prefix = probe.stdout.utf8()?.split("K")[0]
     let width = uu.invoke(sub, "wc", ["-L"], stdin: bytes.from_text(prefix), vars: {LC_ALL: locale})?
-    if width.stdout.utf8()?.trim() != "5" { continue }
+    continue when width.stdout.utf8()?.trim() != "5"
     let all = uu.invoke(sub, "ls", ["-s1", "--block-size='k"], vars: {LC_ALL: locale})?
     var widths: List[Str] = []
     for line in [all.stdout.utf8()?.lines()[i] for i in range(1, all.stdout.utf8()?.lines().len())] {
@@ -737,7 +737,7 @@ test test_gnu_ls_stat_vs_dirent_log { |ctx|
     }
     entry_path = entry_path.parent()
     let current = uu.invoke(s, "stat", ["--format=%d-%i", entry_path.display()])?
-    if current.stdout == root.stdout { break }
+    break when current.stdout == root.stdout
   }
 }
 
@@ -751,7 +751,7 @@ test test_gnu_ls_readdir_mountpoint_inode_log { |ctx|
   for index in range(if points.len() < 64 { points.len() } else { 64 }) {
     let entry_path = Path(points[index])
     let name = entry_path.basename()
-    if name.starts_with(".") or "*" in name or "?" in name { continue }
+    continue when name.starts_with(".") or "*" in name or "?" in name
     var options = ["-i", "-I", ".?*", "-I", f"{name}?*"]
     let chars = [name.byte_slice(i, 1) for i in range(name.byte_len())]
     for length in range(1, chars.len() + 1) {
@@ -760,9 +760,9 @@ test test_gnu_ls_readdir_mountpoint_inode_log { |ctx|
       if length > 1 { options += ["-I", ["?" for _ in range(length - 1)].join("")] }
     }
     let listing = uu.invoke(s, "ls", options.extend([entry_path.parent().display()]))?
-    if listing.status != 0 { continue }
+    continue when listing.status != 0
     let inode = mount_inode(s, entry_path.display())?
-    if inode == b"0\n" or inode == b"" { continue }
+    continue when inode == b"0\n" or inode == b""
     assert listing.stdout.utf8()?.words()[0] == inode.utf8()?.trim()
   }
 }

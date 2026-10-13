@@ -83,9 +83,7 @@ export pure empty_history() -> History {
 ## Adds one ordered observation and evicts only samples beyond the fixed horizon.
 ## Replay timestamps may start at zero because they use a virtual time origin.
 export pure append(history: History, sample: Sample) -> Result[History, Error] {
-  if sample.at_ns < 0 {
-    return Err(error.failure("graph sample time cannot be negative"))
-  }
+  return Err(error.failure("graph sample time cannot be negative")) when sample.at_ns < 0
   if history.samples.len() > 0 and sample.at_ns <= history.samples[history.samples.len() - 1].at_ns {
     return Err(error.failure("graph sample times must increase"))
   }
@@ -96,9 +94,7 @@ export pure append(history: History, sample: Sample) -> Result[History, Error] {
     return Err(error.failure("missing graph samples cannot carry a value"))
   }
   if let value = sample.value {
-    if value != value {
-      return Err(error.failure("graph sample value must be finite"))
-    }
+    return Err(error.failure("graph sample value must be finite")) when value != value
   }
 
   let samples = history.samples + [sample]
@@ -133,15 +129,13 @@ pure retained_scale(history: History, minimum: Float) -> Float {
 }
 
 pure bounded_ratio(value: Float, minimum: Float, maximum: Float) -> Float {
-  if value <= minimum { return 0.0 }
-  if value >= maximum { return 1.0 }
+  return 0.0 when value <= minimum
+  return 1.0 when value >= maximum
   (value - minimum) / (maximum - minimum)
 }
 
 pure sample_pixels(sample: Sample, minimum: Float, maximum: Float, rows: Int) -> Result[Int, Error] {
-  if sample.state != .Observed or sample.value == null {
-    return Ok(0)
-  }
+  return Ok(0) when sample.state != .Observed or sample.value == null
   let ratio = bounded_ratio(sample.value ?? minimum, minimum, maximum)
   Ok((ratio * (rows * 4).float()).round()?)
 }
@@ -162,13 +156,11 @@ pure dots_in_cell_row(pixels: Int, row: Int, rows: Int, inverted: Bool, right: B
 }
 
 pure tty_glyph(sample: Sample, minimum: Float, maximum: Float, row: Int, height: Int, inverted: Bool) -> Result[Str, Error] {
-  if sample.state != .Observed or sample.value == null {
-    return Ok(" ")
-  }
+  return Ok(" ") when sample.state != .Observed or sample.value == null
   let pixels = sample_pixels(sample, minimum, maximum, height)?
   let filled_rows = (pixels + 3) / 4
   let filled = if inverted { row < filled_rows } else { row >= height - filled_rows }
-  if ! filled { return Ok(" ") }
+  return Ok(" ") unless filled
   Ok(if filled_rows <= 1 { "." } else if filled_rows < height { ":" } else { "#" })
 }
 
@@ -188,9 +180,7 @@ pure check_history(history: History) -> Result[Unit, Error] {
       return Err(error.failure("missing graph samples cannot carry a value"))
     }
     if let value = sample.value {
-      if value != value {
-        return Err(error.failure("graph sample value must be finite"))
-      }
+      return Err(error.failure("graph sample value must be finite")) when value != value
     }
     previous_at = sample.at_ns
   }
@@ -212,9 +202,7 @@ export pure project(
   }
   let _ = check_history(history)?
   let scale = if let requested = maximum { requested } else { retained_scale(history, minimum) }
-  if scale <= minimum {
-    return Err(error.failure("graph maximum must exceed its minimum"))
-  }
+  return Err(error.failure("graph maximum must exceed its minimum")) when scale <= minimum
 
   let symbols = symbol_set(capabilities)
   let samples_per_cell = if symbols == .Braille { 2 } else { 1 }

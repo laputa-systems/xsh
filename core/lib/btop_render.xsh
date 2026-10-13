@@ -39,9 +39,7 @@ pure safe_line(value: Str) -> Str {
 }
 
 pure fit(value: Str, width: Int) -> Str {
-  if width <= 0 {
-    return ""
-  }
+  return "" when width <= 0
   tui.cell_right_pad(tui.cell_clip(safe_line(value), width), width)
 }
 
@@ -115,12 +113,8 @@ pure rate_text(value: rates.Rate) -> Str {
 pure byte_rate_text(value: rates.Rate) -> Str {
   if value.state == rates.Observed and value.value != null {
     let amount = value.value ?? 0.0
-    if amount >= 1048576.0 {
-      return f"{(amount / 1048576.0).format(precision: 2)} MiB/s"
-    }
-    if amount >= 1024.0 {
-      return f"{(amount / 1024.0).format(precision: 2)} KiB/s"
-    }
+    return f"{(amount / 1048576.0).format(precision: 2)} MiB/s" when amount >= 1048576.0
+    return f"{(amount / 1024.0).format(precision: 2)} KiB/s" when amount >= 1024.0
     return f"{amount.format(precision: 2)} B/s"
   }
 
@@ -134,26 +128,18 @@ pure byte_rate_text(value: rates.Rate) -> Str {
 }
 
 pure bytes_text(value: Int?) -> Str {
-  if value == null {
-    return "unavailable"
-  }
+  return "unavailable" when value == null
   let amount = value ?? 0
   if amount >= 1073741824 {
     return f"{(amount.float() / 1073741824.0).format(precision: 2)} GiB"
   }
-  if amount >= 1048576 {
-    return f"{(amount.float() / 1048576.0).format(precision: 2)} MiB"
-  }
-  if amount >= 1024 {
-    return f"{(amount.float() / 1024.0).format(precision: 2)} KiB"
-  }
+  return f"{(amount.float() / 1048576.0).format(precision: 2)} MiB" when amount >= 1048576
+  return f"{(amount.float() / 1024.0).format(precision: 2)} KiB" when amount >= 1024
   f"{amount} B"
 }
 
 pure field_text(value: Int?, state: report.ObservationState) -> Str {
-  if value == null {
-    return state_text(state)
-  }
+  return state_text(state) when value == null
   bytes_text(value)
 }
 
@@ -169,9 +155,7 @@ pure counter_text(value: rates.ByteValue) -> Str {
 }
 
 pure uptime_text(value: syscpu.Uptime) -> Str {
-  if value.seconds == null {
-    return state_text(value.state)
-  }
+  return state_text(value.state) when value.seconds == null
   f"{(value.seconds ?? 0.0).format(precision: 1)} s"
 }
 
@@ -183,9 +167,7 @@ pure load_text(value: syscpu.LoadAverage) -> Str {
 }
 
 pure temperature_text(value: sensors.CpuTemperature) -> Str {
-  if value.package_millidegrees == null {
-    return f"Temperature {state_text(value.state)}"
-  }
+  return f"Temperature {state_text(value.state)}" when value.package_millidegrees == null
   let display = sensors.temperature_display(value.package_millidegrees ?? 0, "celsius")
   if let temperature = display {
     f"Temperature {temperature.value}{temperature.unit}"
@@ -195,9 +177,7 @@ pure temperature_text(value: sensors.CpuTemperature) -> Str {
 }
 
 pure core_temperature_text(value: sensors.CpuTemperature) -> Str {
-  if value.cores.is_empty() {
-    return "Core temperatures unavailable"
-  }
+  return "Core temperatures unavailable" when value.cores.is_empty()
   let readings: List[Str] = collect {
     for core in value.cores {
       let display = sensors.temperature_display(core.millidegrees, "celsius")
@@ -210,9 +190,7 @@ pure core_temperature_text(value: sensors.CpuTemperature) -> Str {
 }
 
 pure frequency_text(value: sensors.CpuFrequency) -> Str {
-  if value.state != report.Observed {
-    return f"Frequency {state_text(value.state)}"
-  }
+  return f"Frequency {state_text(value.state)}" when value.state != report.Observed
   if value.minimum_mhz != null and value.maximum_mhz != null {
     return f"Frequency {sensors.format_frequency_mhz(value.minimum_mhz ?? 0.0)} - {sensors.format_frequency_mhz(value.maximum_mhz ?? 0.0)}"
   }
@@ -223,9 +201,7 @@ pure frequency_text(value: sensors.CpuFrequency) -> Str {
 }
 
 pure battery_text(value: sensors.Battery) -> Str {
-  if value.state != report.Observed {
-    return f"Battery {state_text(value.state)}"
-  }
+  return f"Battery {state_text(value.state)}" when value.state != report.Observed
   let percent = if value.capacity_percent == null { "?" } else { f"{value.capacity_percent ?? 0}%" }
   let power = if value.power_watts == null { "" } else { f" {(value.power_watts ?? 0.0).format(precision: 2)} W" }
   f"Battery {value.name ?? "?"} {percent} {value.status ?? "unknown"}{power}"
@@ -363,7 +339,7 @@ pure process_content(
 
 ## Returns the process rows that fit below the pinned default CPU panel.
 export pure process_capacity(height: Int) -> Int {
-  if height < 24 { return 0 }
+  return 0 when height < 24
   let cpu_height = if (height * 32 + 99) / 100 < 8 { 8 } else { (height * 32 + 99) / 100 }
   let process_height = height - cpu_height
   if process_height <= 4 { 0 } else { process_height - 4 }
@@ -497,20 +473,20 @@ pure network_graph_maximum(history: graph.History) -> Float {
 }
 
 pure compact_bytes(value: Int?) -> Str {
-  if value == null { return "?" }
+  return "?" when value == null
   let amount = (value ?? 0).float()
-  if amount >= 1073741824.0 { return f"{(amount / 1073741824.0).format(precision: 0)}G" }
-  if amount >= 1048576.0 { return f"{(amount / 1048576.0).format(precision: 0)}M" }
-  if amount >= 1024.0 { return f"{(amount / 1024.0).format(precision: 0)}K" }
+  return f"{(amount / 1073741824.0).format(precision: 0)}G" when amount >= 1073741824.0
+  return f"{(amount / 1048576.0).format(precision: 0)}M" when amount >= 1048576.0
+  return f"{(amount / 1024.0).format(precision: 0)}K" when amount >= 1024.0
   f"{value ?? 0}B"
 }
 
 pure compact_rate(value: rates.Rate) -> Str {
   if value.state == rates.Observed and value.value != null {
     let amount = value.value ?? 0.0
-    if amount >= 1073741824.0 { return f"{(amount / 1073741824.0).format(precision: 0)}G/s" }
-    if amount >= 1048576.0 { return f"{(amount / 1048576.0).format(precision: 0)}M/s" }
-    if amount >= 1024.0 { return f"{(amount / 1024.0).format(precision: 0)}K/s" }
+    return f"{(amount / 1073741824.0).format(precision: 0)}G/s" when amount >= 1073741824.0
+    return f"{(amount / 1048576.0).format(precision: 0)}M/s" when amount >= 1048576.0
+    return f"{(amount / 1024.0).format(precision: 0)}K/s" when amount >= 1024.0
     return f"{amount.format(precision: 0)}B/s"
   }
   match value.state {
@@ -545,7 +521,7 @@ pure disk_panel_content(
   width: Int,
   height: Int,
 ) -> Result[List[Str], Error] {
-  if ! state.show_disks { return Ok(["Disks hidden"]) }
+  return Ok(["Disks hidden"]) unless state.show_disks
   if value.storage.devices.is_empty() {
     if value.storage.mount_state == report.Observed and value.storage.block_state == report.Observed {
       return Ok(["No mounted block devices"])

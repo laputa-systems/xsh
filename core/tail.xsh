@@ -534,9 +534,7 @@ proc follow_name_once(file: NameFile, retrying: Bool, headers: Bool, last: Str) 
     return gone_step(file, failure, retrying, last)
   }
 
-  if entry.kind != "file" {
-    return untailable_step(file, "file", retrying, last)
-  }
+  return untailable_step(file, "file", retrying, last) when entry.kind != "file"
 
   var current = file
   var position = last

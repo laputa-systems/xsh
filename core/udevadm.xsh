@@ -749,9 +749,7 @@ pure monitor_selected(event: LinuxUevent, filters: List[Str]) -> Bool {
 
   for filter in filters {
     let pair = filter.split("/", maxsplit: 1)
-    if pair[0] == event.subsystem and (pair.len() == 1 or pair[1] == devtype) {
-      return true
-    }
+    return true when pair[0] == event.subsystem and (pair.len() == 1 or pair[1] == devtype)
   }
 
   false

@@ -112,7 +112,7 @@ proc find_program(name: Str) [fs, env] -> Str? {
   }
   for candidate in candidates {
     match fs.stat(fp"{candidate}", follow_symlinks: true) {
-      Ok(info) => { if info.kind == "file" { return candidate } }
+      Ok(info) => return candidate when info.kind == "file"
       Err(_) => {}
     }
   }
@@ -142,7 +142,7 @@ proc read_program(name: Str, kind: Str) [fs, io, env, error] -> Loaded {
       var tail = reason
       loop {
         let at = tail.find(": ")
-        if at == null { break }
+        break when at == null
         tail = tail.byte_slice((at ?? 0) + 2)
       }
       eprint f"awk: fatal: cannot open {kind} `{name}' for reading: {tail}"
@@ -154,13 +154,13 @@ proc read_program(name: Str, kind: Str) [fs, io, env, error] -> Loaded {
 # The operand of a `@directive "name"` line, or null when the line is not one.
 pure directive_operand(line: Str, directive: Str) -> Str? {
   let trimmed = line.trim()
-  if ! trimmed.starts_with(directive) { return null }
+  return null unless trimmed.starts_with(directive)
   let rest = trimmed.byte_slice(directive.byte_len())
-  if rest.is_empty() or ! (rest.starts_with(" ") or rest.starts_with("\t")) { return null }
+  return null when rest.is_empty() or ! (rest.starts_with(" ") or rest.starts_with("\t"))
   let quoted = rest.trim()
   if quoted.byte_len() < 2 or ! quoted.starts_with("\"") or ! quoted.ends_with("\"") { return null }
   let name = quoted.byte_slice(1, length: quoted.byte_len() - 2)
-  if "\"" in name { return null }
+  return null when "\"" in name
   name
 }
 
@@ -184,7 +184,7 @@ proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Ex
       exit 1
     }
     let wanted = directive_operand(lines[index], "@include")
-    if wanted == null { continue }
+    continue when wanted == null
     let name = wanted ?? ""
     let found = find_program(name)
     if found == null {
@@ -197,14 +197,14 @@ proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Ex
     # Once a command-line program has included a file, GNU awk names the
     # whole program text, not "cmd. line", in the messages for what follows.
     if source.label == "cmd. line" { label_here = source.text }
-    if (found ?? name) in included { continue }
+    continue when (found ?? name) in included
     included += [found ?? name]
     let loaded = read_program(name, "source file")
     let inner = expand_includes(loaded.source, included)
     sources += inner.sources
     included = inner.included
   }
-  if chunk_start == 0 { return {sources: [source], included: included} }
+  return {sources: [source], included: included} when chunk_start == 0
   let rest = lines[chunk_start..].join("\n")
   if ! rest.trim().is_empty() { sources += [{label: label_here, text: newlines(chunk_start) + rest}] }
   {sources: sources, included: included}
@@ -224,7 +224,7 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
   while index < args.len() {
     let argument = args[index]
     if argument == "--" { index += 1; break }
-    if ! argument.starts_with("-") or argument == "-" { break }
+    break when ! argument.starts_with("-") or argument == "-"
     index += 1
     if argument.starts_with("--") {
       var body = argument.byte_slice(2)

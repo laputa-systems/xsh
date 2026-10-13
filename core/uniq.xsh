@@ -280,9 +280,7 @@ proc print_counted_group(line: Bytes, count: Int, select: Selection, mark: Bytes
 proc count_record(state: CountState, line: Bytes, key: Key, select: Selection, mark: Bytes) [error, process, env, io] -> CountState {
   let compare = key_of(line, key)
 
-  if state.active and compare == state.compare {
-    return {...state, count: state.count + 1}
-  }
+  return {...state, count: state.count + 1} when state.active and compare == state.compare
 
   let printed = if state.active {
     print_counted_group(state.line, state.count, select, mark, state.printed)

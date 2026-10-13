@@ -42,7 +42,7 @@ proc memory_limit(s: uu.Scene) [fs, process, env, error] -> Result[Int, Error] {
   for reduction in range(1, working / 1000) {
     let candidate = working - reduction * 1000
     let r = wrapped(s, ["-c-1", "/dev/null"], f"ulimit -c 0; ulimit -v {candidate} || exit; exec \"$@\"")?
-    if r.status != 0 { return Ok(previous + 4) }
+    return Ok(previous + 4) when r.status != 0
     previous = candidate
   }
   Ok(previous + 4)
@@ -66,7 +66,7 @@ test test_gnu_head_head_c_log { |ctx|
     uu.no_output(r)
   }
   for source in [p"/proc/version", p"/sys/kernel/profiling"] {
-    if !source.exists() { continue }
+    continue unless source.exists()
     let content = source.read_bytes()?
     uu.write_bytes(s, "copy", content)
     let regular = uu.invoke(s, "head", ["-c", "-1", "copy"])?

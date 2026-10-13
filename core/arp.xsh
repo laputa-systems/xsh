@@ -42,23 +42,23 @@ proc usage_error() [process, error] {
 # the remaining bytes.
 pure parse_address(word: Str) -> Bytes? {
   let parts = word.split(".")
-  if parts.len() < 1 or parts.len() > 4 { return null }
+  return null when parts.len() < 1 or parts.len() > 4
   var values: List[Int] = []
   for part in parts {
     let value = nettools.decimal(part)
-    if value == null { return null }
+    return null when value == null
     values += [value ?? 0]
   }
   var octets: List[Int] = []
   for index in range(parts.len() - 1) {
-    if values[index] > 255 { return null }
+    return null when values[index] > 255
     octets += [values[index]]
   }
   var tail = values[parts.len() - 1]
   let room = 4 - octets.len()
   var limit = 1
   for _ in range(room) { limit = limit * 256 }
-  if tail >= limit { return null }
+  return null when tail >= limit
   var last: List[Int] = []
   for _ in range(room) {
     last = [tail % 256] + last
@@ -82,7 +82,7 @@ proc resolve(word: Str) [fs, process, error] -> Bytes {
 
 pure hw_number(name: Str) -> Int? {
   for entry in HW_TYPES {
-    if entry.name == name { return entry.number }
+    return entry.number when entry.name == name
   }
   null
 }

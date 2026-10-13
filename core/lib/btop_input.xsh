@@ -60,9 +60,9 @@ pure replacement() -> Event {
 }
 
 pure utf8_length(lead: Int) -> Int {
-  if lead >= 194 and lead <= 223 { return 2 }
-  if lead >= 224 and lead <= 239 { return 3 }
-  if lead >= 240 and lead <= 244 { return 4 }
+  return 2 when lead >= 194 and lead <= 223
+  return 3 when lead >= 224 and lead <= 239
+  return 4 when lead >= 240 and lead <= 244
   0
 }
 
@@ -71,11 +71,11 @@ pure valid_utf8_prefix(data: Bytes, expected: Int) -> Bool {
   let lead = data.byte_at(0) ?? 0
   for offset in range(1, data.len()) {
     let byte = data.byte_at(offset) ?? 0
-    if byte < 128 or byte > 191 { return false }
-    if offset == 1 and lead == 224 and byte < 160 { return false }
-    if offset == 1 and lead == 237 and byte > 159 { return false }
-    if offset == 1 and lead == 240 and byte < 144 { return false }
-    if offset == 1 and lead == 244 and byte > 143 { return false }
+    return false when byte < 128 or byte > 191
+    return false when offset == 1 and lead == 224 and byte < 160
+    return false when offset == 1 and lead == 237 and byte > 159
+    return false when offset == 1 and lead == 240 and byte < 144
+    return false when offset == 1 and lead == 244 and byte > 143
   }
   data.len() <= expected
 }
@@ -123,19 +123,19 @@ pure key_from_ss3(sequence: Bytes) -> Key? {
 }
 
 pure control_key(byte: Int) -> Key? {
-  if byte == 10 or byte == 13 { return Enter }
-  if byte == 8 or byte == 127 { return Backspace }
-  if byte == 9 { return Tab }
-  if byte == 3 { return Cancel }
-  if byte == 26 { return null }
+  return Enter when byte == 10 or byte == 13
+  return Backspace when byte == 8 or byte == 127
+  return Tab when byte == 9
+  return Cancel when byte == 3
+  return null when byte == 26
   Control(byte)
 }
 
 pure csi_final_at(data: Bytes) -> Int? {
   for at in range(2, data.len()) {
     let byte = data.byte_at(at) ?? 0
-    if byte >= 64 and byte <= 126 { return at }
-    if byte < 32 or byte > 63 { return -1 }
+    return at when byte >= 64 and byte <= 126
+    return -1 when byte < 32 or byte > 63
   }
   null
 }
@@ -218,9 +218,7 @@ pure drain(state: State) -> Step {
 }
 
 pure store_paste_byte(state: State, byte: Int) -> State {
-  if state.paste_text.len() >= MAX_PASTE_BYTES {
-    return {...state, paste_truncated: true}
-  }
+  return {...state, paste_truncated: true} when state.paste_text.len() >= MAX_PASTE_BYTES
   {...state, paste_text: bytes.concat([state.paste_text, one_byte(byte)])}
 }
 

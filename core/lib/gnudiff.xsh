@@ -33,10 +33,10 @@ export pure is_space(value: Int) -> Bool {
 ## of a file without a newline is always kept.
 export pure split(data: Bytes, strip_cr: Bool) -> Source {
   let size = data.len()
-  if size == 0 { return {lines: [], open: false} }
+  return {lines: [], open: false} when size == 0
   let open = data.byte_at(size - 1) != 10
   let parts = data.lines()
-  if !open and !(b"\r" in data) { return {lines: parts, open: false} }
+  return {lines: parts, open: false} when ! open and ! (b"\r" in data)
   var lines: List[Bytes] = []
   var at = 0
   let count = parts.len()
@@ -70,7 +70,7 @@ const WIDE = [[4352, 4447], [11904, 12350], [12353, 13311], [13312, 19903], [199
 
 pure in_ranges(value: Int, ranges: List[List[Int]]) -> Bool {
   for span in ranges {
-    if value >= span[0] and value <= span[1] { return true }
+    return true when value >= span[0] and value <= span[1]
   }
   false
 }
@@ -79,17 +79,17 @@ pure in_ranges(value: Int, ranges: List[List[Int]]) -> Bool {
 ## are not valid UTF-8, every byte is one character of one column.
 export pure unit_at(raw: Bytes, at: Int, utf8: Bool) -> Glyph {
   let lead = raw.byte_at(at) ?? 0
-  if !utf8 or lead < 194 or lead > 244 { return {bytes: 1, columns: 1} }
+  return {bytes: 1, columns: 1} when ! utf8 or lead < 194 or lead > 244
   let need = if lead >= 240 { 4 } else if lead >= 224 { 3 } else { 2 }
-  if at + need > raw.len() { return {bytes: 1, columns: 1} }
+  return {bytes: 1, columns: 1} when at + need > raw.len()
   var value = if need == 2 { lead - 192 } else if need == 3 { lead - 224 } else { lead - 240 }
   for step in range(1, need) {
     let next = raw.byte_at(at + step) ?? 0
-    if next < 128 or next > 191 { return {bytes: 1, columns: 1} }
+    return {bytes: 1, columns: 1} when next < 128 or next > 191
     value = value * 64 + (next - 128)
   }
-  if in_ranges(value, NARROW) { return {bytes: need, columns: 0} }
-  if in_ranges(value, WIDE) { return {bytes: need, columns: 2} }
+  return {bytes: need, columns: 0} when in_ranges(value, NARROW)
+  return {bytes: need, columns: 2} when in_ranges(value, WIDE)
   {bytes: need, columns: 1}
 }
 
@@ -196,7 +196,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
   var tem = end / 64
   while true {
     tem = tem / 4
-    if tem <= 0 { break }
+    break when tem <= 0
     many *= 2
   }
   var marks: List[Int] = []
@@ -212,7 +212,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
       var j = i
       var provisional = 0
       while j < end {
-        if marks[j] == 0 { break }
+        break when marks[j] == 0
         if marks[j] == 2 { provisional += 1 }
         j += 1
       }
@@ -232,7 +232,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
         var quarter = length / 4
         while true {
           quarter = quarter / 4
-          if quarter <= 0 { break }
+          break when quarter <= 0
           minimum *= 2
         }
         minimum += 1
@@ -254,7 +254,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
         k = 0
         consec = 0
         while k < length {
-          if k >= 8 and marks[i + k] == 1 { break }
+          break when k >= 8 and marks[i + k] == 1
           if marks[i + k] == 2 {
             consec = 0
             marks[i + k] = 0
@@ -263,14 +263,14 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
           } else {
             consec += 1
           }
-          if consec == 3 { break }
+          break when consec == 3
           k += 1
         }
         i += length - 1
         k = 0
         consec = 0
         while k < length {
-          if k >= 8 and marks[i - k] == 1 { break }
+          break when k >= 8 and marks[i - k] == 1
           if marks[i - k] == 2 {
             consec = 0
             marks[i - k] = 0
@@ -279,7 +279,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
           } else {
             consec += 1
           }
-          if consec == 3 { break }
+          break when consec == 3
           k += 1
         }
       }
@@ -398,7 +398,7 @@ pure search(x: List[Int], y: List[Int], minimal: Bool, speed: Bool) -> Flags {
         }
         d -= 2
       }
-      if found { break }
+      break when found
       if bmin > dmin {
         bmin -= 1
         bd[bmin - 1 + shift] = OFFSET_MAX
@@ -434,7 +434,7 @@ pure search(x: List[Int], y: List[Int], minimal: Bool, speed: Bool) -> Flags {
         }
         d -= 2
       }
-      if found { break }
+      break when found
       if item.minimal {
         cost += 1
         continue
@@ -575,7 +575,7 @@ pure shift_boundaries(classes: List[Int], changed: List[Int], other: List[Int]) 
       }
       i += 1
     }
-    if i == end { break }
+    break when i == end
     var start = i
     i += 1
     while flags[i + 1] != 0 { i += 1 }
@@ -606,7 +606,7 @@ pure shift_boundaries(classes: List[Int], changed: List[Int], other: List[Int]) 
           corresponding = i
         }
       }
-      if runlength == i - start { break }
+      break when runlength == i - start
     }
     while corresponding < i {
       start -= 1
@@ -632,7 +632,7 @@ export pure script(first: Source, second: Source, rules: Rules) -> List[Change] 
   let n1 = second.lines.len()
   var prefix = 0
   while prefix < n0 and prefix < n1 and same_line(first, prefix, second, prefix) { prefix += 1 }
-  if prefix == n0 and prefix == n1 { return [] }
+  return [] when prefix == n0 and prefix == n1
   let start = prefix - (if prefix < rules.horizon { prefix } else { rules.horizon })
   var suffix = 0
   while n0 - 1 - suffix >= start and n1 - 1 - suffix >= start and same_line(first, n0 - 1 - suffix, second, n1 - 1 - suffix) { suffix += 1 }

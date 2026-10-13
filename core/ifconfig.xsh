@@ -58,8 +58,8 @@ pure sockaddr_in(raw: Bytes) -> Bytes {
 
 # Folds request statuses the way net-tools ORs them: any -1 stays -1.
 pure combine(left: Int, right: Int) -> Int {
-  if left < 0 or right < 0 { return -1 }
-  if left != 0 or right != 0 { return 1 }
+  return -1 when left < 0 or right < 0
+  return 1 when left != 0 or right != 0
   0
 }
 

@@ -150,14 +150,10 @@ pure parse_value(name: Str, values: List[Str]) -> FieldParse {
 
 pure missing_field(name: Str, fields: List[MemInfoField]) -> MemoryField {
   let matches = fields |> where .name == name
-  if matches.is_empty() {
-    return empty_field(report.Absent)
-  }
+  return empty_field(report.Absent) when matches.is_empty()
 
   let item = matches[0]
-  if item.state != report.Observed {
-    return empty_field(item.state, item.error_kind)
-  }
+  return empty_field(item.state, item.error_kind) when item.state != report.Observed
 
   if item.unit != "bytes" {
     return empty_field(report.Malformed, "invalid_byte_counter_unit")

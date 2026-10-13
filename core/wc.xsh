@@ -404,7 +404,7 @@ proc count_input(
     loop {
       match io.stdin_read(65536) {
         Ok(chunk) => {
-          if chunk.is_empty() { break }
+          break when chunk.is_empty()
           stdin_size = add_bytes(stdin_size, byte_count(chunk.len()))
         }
         Err(failure) => {
@@ -468,7 +468,7 @@ proc count_input(
 }
 
 proc write_streamed_line(output: Str) [process, env, io, error] {
-  if output == "" { return }
+  return when output == ""
 
   if let Err(failure) = io.write_stdout(output) {
     gnu.error(f"write error: {gnu.strerror(failure)}")
@@ -660,7 +660,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var locale = ""
   for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
     locale = env.get_or(name, "") ?? ""
-    if locale != "" { break }
+    break when locale != ""
   }
   let utf8 = locale.lower().find("utf-8") != null or locale.lower().find("utf8") != null
   let posix = posix_mode()
@@ -689,9 +689,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       var start = 0
 
       for at in range(data.len()) {
-        if data.byte_at(at) != 0 {
-          continue
-        }
+        continue when data.byte_at(at) != 0
 
         index += 1
         guard let name = data[start..at].utf8() else {

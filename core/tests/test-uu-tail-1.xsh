@@ -51,7 +51,7 @@ proc alive(child: ProcessHandle) [process, error] {
 proc wait_output(s: uu.Scene, out: Bytes, err: Bytes) [fs, process, time, error] {
   for i in range(500) {
     let current = streams(s)?
-    if current.stdout == out and current.stderr == err { return }
+    return when current.stdout == out and current.stderr == err
     time.sleep(10ms)
   }
   let current = streams(s)?
@@ -323,7 +323,7 @@ test test_uu_tail_bytes_big { |ctx|
 test test_uu_tail_bytes_for_funny_unix_files { |ctx|
   let s = uu.scene(ctx)?
   for file in [p"/proc/version", p"/sys/kernel/profiling"] {
-    if !file.is_file() { continue }
+    continue unless file.is_file()
     let data = file.read_bytes()?
     let expected = if data.is_empty() { b"" } else { data[data.len() - 1..] }
     let r = uu.invoke(s, "tail", ["--bytes", "1", file.display()])?
@@ -729,7 +729,7 @@ test test_uu_tail_follow_name_truncate1 { |ctx|
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   alive(child)
   for i in range(500) {
-    if streams(s)?.stdout == bytes.from_text(prefix) { break }
+    break when streams(s)?.stdout == bytes.from_text(prefix)
     time.sleep(10ms)
   }
   uu.at(s, "follow_name.txt").copy(to: uu.at(s, "backup"))
@@ -1008,7 +1008,7 @@ test test_uu_tail_following_with_pid { |ctx|
   let dummy = spawn dummy_plan ?
   defer dummy.cancel(signal: "KILL", kill_after: 0ms)
   for i in range(500) {
-    if uu.at(s, ".dummy-pid").exists() { break }
+    break when uu.at(s, ".dummy-pid").exists()
     time.sleep(10ms)
   }
   for i in range(500) {

@@ -378,13 +378,9 @@ pure parse_c_integer(text: Str) -> Integer {
     at += 1
   }
 
-  if total == 1 and text.byte_at(0) == 98 {
-    return {status: "ok", value: 512}
-  }
+  return {status: "ok", value: 512} when total == 1 and text.byte_at(0) == 98
 
-  if total == 1 and text.byte_at(0) == 66 {
-    return {status: "ok", value: 1024}
-  }
+  return {status: "ok", value: 1024} when total == 1 and text.byte_at(0) == 66
 
   var base = 10
 

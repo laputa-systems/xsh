@@ -43,15 +43,11 @@ proc applet_file(dir: Path, program: Str) [fs, error] -> Result[Path?] {
 
   let installed = fp"{dir}/{program}"
 
-  if installed.is_file() ?? false {
-    return Ok(installed)
-  }
+  return Ok(installed) when installed.is_file() ?? false
 
   let source = fp"{dir}/{program}.xsh"
 
-  if source.is_file() ?? false {
-    return Ok(source)
-  }
+  return Ok(source) when source.is_file() ?? false
 
   Ok(null)
 }

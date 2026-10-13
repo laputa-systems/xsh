@@ -44,8 +44,8 @@ export type Capabilities = {
 export type Session = {attrs: UnixTtyAttrs, inputs: Inputs, capabilities: Capabilities}
 
 pure locale(inputs: Inputs) -> Str {
-  if inputs.lc_all != "" { return inputs.lc_all }
-  if inputs.lc_ctype != "" { return inputs.lc_ctype }
+  return inputs.lc_all when inputs.lc_all != ""
+  return inputs.lc_ctype when inputs.lc_ctype != ""
   inputs.lang
 }
 

@@ -26,7 +26,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
@@ -54,7 +54,7 @@ proc main(...argv: List[Bytes]) [fs, io, error, process, env] {
   if opts.version { gnu.version("sum"); return }
   var sysv = false
   for arg in argv {
-    if arg == b"--" { break }
+    break when arg == b"--"
     if arg == b"--sysv" { sysv = true }
     if arg.starts_with(b"-") and !arg.starts_with(b"--") {
       for index in range(1, arg.len()) {

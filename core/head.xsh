@@ -62,7 +62,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
 
   bytes.from_text(value)
@@ -146,7 +146,7 @@ proc output_failed(failure: Error, closing = false) [process, env] {
 # closing standard output retain their distinct GNU diagnostics.
 proc write_output(pending: Bytes, data: Bytes) [process, env, error, io] -> Bytes {
   let output = bytes.concat([pending, data])
-  if output.len() < 4096 { return output }
+  return output when output.len() < 4096
 
   if let Err(failure) = io.write_stdout_bytes(output) {
     output_failed(failure)

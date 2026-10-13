@@ -8,7 +8,7 @@ const FILESYSTEM = "%b %c %i %l %n %s %S %t %T"
 
 # The metadata API transports native unsigned fields through signed Int bits.
 proc unsigned(value: Int) [error] -> Result[Str, Error] {
-  if value >= 0 { return Ok(f"{value}") }
+  return Ok(f"{value}") when value >= 0
   let inverse = f"{-(value + 1)}"
   var carry = 0
   var digits: List[Str] = []

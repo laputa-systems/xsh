@@ -46,17 +46,17 @@ pure permission_mode(spec: Str, directory: Bool) -> Int? {
     if number < 0 or number > 7 { octal = false; break }
     numeric_mode = numeric_mode * 8 + number
   }
-  if octal { return if numeric_mode > 0o7777 { null } else { numeric_mode } }
+  return if numeric_mode > 0o7777 { null } else { numeric_mode } when octal
   var mode = 0
   for clause in spec.split(",") {
     var at = 0
     var who = ""
     while at < clause.byte_len() and clause.byte_slice(at,1) in "ugoa" { who = f"{who}{clause.byte_slice(at,1)}"; at += 1 }
     if who == "" or "a" in who { who = "ugo" }
-    if at >= clause.byte_len() { return null }
+    return null when at >= clause.byte_len()
     while at < clause.byte_len() {
       let operation = clause.byte_slice(at,1); at += 1
-      if operation not in ["+","-","="] { return null }
+      return null when operation not in ["+", "-", "="]
       let start = at
       while at < clause.byte_len() and clause.byte_slice(at,1) not in ["+","-","="] { at += 1 }
       let permissions = clause.byte_slice(start,at - start)
@@ -97,23 +97,23 @@ pure signed_number(text: Str) -> Count? {
   var compare = 0
   var digits = text
   if text.starts_with("+") { compare = 1; digits = text.byte_slice(1) } else if text.starts_with("-") { compare = -1; digits = text.byte_slice(1) }
-  if digits == "" { return null }
-  for digit in digits { if (digit.parse_int() ?? -1) < 0 { return null } }
+  return null when digits == ""
+  for digit in digits { return null when (digit.parse_int() ?? -1) < 0 }
   let number = digits.parse_int() ?? -1
-  if number < 0 { return null }
+  return null when number < 0
   {compare: compare, number: number}
 }
 
 pure all_digits(text: Str) -> Bool {
-  if text == "" { return false }
-  for digit in text { if (digit.parse_int() ?? -1) < 0 { return false } }
+  return false when text == ""
+  for digit in text { return false when (digit.parse_int() ?? -1) < 0 }
   true
 }
 
 # A bare non-negative decimal, as -maxdepth and -mindepth require.
 pure plain_number(text: Str) -> Int? {
-  if text == "" { return null }
-  for digit in text { if (digit.parse_int() ?? -1) < 0 { return null } }
+  return null when text == ""
+  for digit in text { return null when (digit.parse_int() ?? -1) < 0 }
   let number = text.parse_int() ?? -1
   if number < 0 { null } else { number }
 }
@@ -160,8 +160,8 @@ proc time_reference(text: Str, start_ns: Int) [process, env, error, time] -> Res
   let base = dates.instant_from_ns(start_ns)
   match dates.parse_instant(text, base: base) {
     Ok(instant) => {
-      if instant.seconds > 9223372035 { return Ok(9223372036854775807) }
-      if instant.seconds < -9223372035 { return Ok(-9223372036854775807) }
+      return Ok(9223372036854775807) when instant.seconds > 9223372035
+      return Ok(-9223372036854775807) when instant.seconds < -9223372035
       Ok(instant.seconds * 1000000000 + instant.nanoseconds)
     }
     Err(_) => { search.reject(f"I cannot figure out how to interpret {gnu.quote_value(text)} as a date or time"); Ok(0) }
@@ -180,7 +180,7 @@ proc stat_reference(name: Str, follow: Bool, raw: List[gnu.RawArgument]) [fs, pr
 # Create or truncate an output file when the expression is parsed, as GNU
 # find does, so a run that matches nothing still leaves an empty file.
 proc prepare_output(name: Str, raw: List[gnu.RawArgument]) [fs, process, env, error] -> Result[Unit, Error] {
-  if name in ["/dev/stdout","/dev/stderr"] { return Ok() }
+  return Ok() when name in ["/dev/stdout", "/dev/stderr"]
   if let Err(failure) = Path.parse_bytes(gnu.argument_bytes(name, raw))?.write(b"") { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}") }
   Ok()
 }
@@ -514,12 +514,12 @@ pure time_test(node: Node, meta: fmt.Meta) -> Bool {
   let stamp = if node.text == "a" { meta.atime_ns } else if node.text == "c" { meta.ctime_ns } else { meta.mtime_ns }
   let age = node.bound - stamp
   if node.flag {
-    if node.compare > 0 { return age > node.number * MINUTE_NS }
-    if node.compare < 0 { return age < node.number * MINUTE_NS }
+    return age > node.number * MINUTE_NS when node.compare > 0
+    return age < node.number * MINUTE_NS when node.compare < 0
     return age > (node.number - 1) * MINUTE_NS and age <= node.number * MINUTE_NS
   }
-  if node.compare > 0 { return age > (node.number + 1) * DAY_NS }
-  if node.compare < 0 { return age < node.number * DAY_NS }
+  return age > (node.number + 1) * DAY_NS when node.compare > 0
+  return age < node.number * DAY_NS when node.compare < 0
   age > node.number * DAY_NS and age <= (node.number + 1) * DAY_NS
 }
 
@@ -707,7 +707,7 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
 # link is still listed; other errors (a link loop) are reported.
 proc stat_entry(target: Path, depth: Int, follow: Int) [fs, error] -> Result[fmt.Meta, Error] {
   let following = follow == 2 or (follow == 1 and depth == 0)
-  if ! following { return Ok(snapshot(fs.stat(target, follow_symlinks: false)?)) }
+  return Ok(snapshot(fs.stat(target, follow_symlinks: false)?)) unless following
   match fs.stat(target, follow_symlinks: true) {
     Ok(found) => Ok(snapshot(found))
     Err(failure) => {
@@ -742,7 +742,7 @@ proc visit(target: Path, depth: Int, hint: Str, ancestors: List[Ancestor], devic
     decision = evaluate(target, meta, depth, start, plan, plan.root)?
     deferred += decision.deferred
     failed = failed or decision.failed
-    if decision.quit { return Ok({quit: true, failed: failed, deferred: deferred}) }
+    return Ok({quit: true, failed: failed, deferred: deferred}) when decision.quit
   }
   var descend = meta.kind == "dir" and ! decision.prune and (opts.maximum < 0 or depth < opts.maximum)
   if descend and opts.device and device != null and meta.dev != device { descend = false }
@@ -753,7 +753,7 @@ proc visit(target: Path, depth: Int, hint: Str, ancestors: List[Ancestor], devic
           let leaf = search.child(target, search.basename_bytes(entry.path.bytes()))?
           let below = visit(leaf, depth + 1, entry.kind, ancestors + [{identity: identity, path: target}], device ?? meta.dev, start, plan)
           match below {
-            Ok(result) => { failed = failed or result.failed; deferred += result.deferred; if result.quit { return Ok({quit: true, failed: failed, deferred: deferred}) } }
+            Ok(result) => { failed = failed or result.failed; deferred += result.deferred; return Ok({quit: true, failed: failed, deferred: deferred}) when result.quit }
             Err(failure) => { gnu.error(f"{gnu.quote_bytes(leaf.bytes())}: {gnu.strerror(failure)}"); failed = true }
           }
         }
@@ -775,7 +775,7 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
   var failed = false
   for index in range(plan.nodes.len()) {
     let node = plan.nodes[index]
-    if node.kind not in kinds { continue }
+    continue when node.kind not in kinds
     var initial: List[Path] = []
     var initial_size = 0
     for word in node.argv[..node.argv.len() - 1] {
@@ -787,7 +787,7 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
     var directory: Path? = null
     var size = 0
     for item in deferred {
-      if item.node != index { continue }
+      continue when item.node != index
       let cwd: Path? = if node.kind == "execdir+" { item.directory } else { null }
       let name = Path.parse_bytes(item.name)?
       let needed = item.name.len() + 1
@@ -921,7 +921,7 @@ proc main(...operands: List[Bytes]) {
     var kept: List[Deferred] = []
     for item in deferred { if plan.nodes[item.node].kind != "execdir+" { kept += [item] } }
     deferred = kept
-    if quit { break }
+    break when quit
   }
   match run_batches(plan, deferred, ["exec+"]) {
     Ok(any_failed) => { failed = failed or any_failed }

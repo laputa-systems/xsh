@@ -169,7 +169,7 @@ pure has_any(word: Str, chars: Str) -> Bool {
   let raw = bytes.from_text(word)
   let members = bytes.from_text(chars)
   for index in range(raw.len()) {
-    if raw[index..index + 1] in members { return true }
+    return true when raw[index..index + 1] in members
   }
   false
 }
@@ -179,17 +179,17 @@ pure has_any(word: Str, chars: Str) -> Bool {
 # quoting, otherwise single-quoted with embedded quotes spliced in.
 pure shell_quote(word: Str) -> Str {
   let special = word == "" or word == "{" or word == "}" or word.starts_with("#") or word.starts_with("~") or has_any(word, SHELL_SPECIAL)
-  if !special { return word }
-  if word.find("'") != null and !has_any(word, "$`\"\\") { return "\"" + word + "\"" }
+  return word unless special
+  return "\"" + word + "\"" when word.find("'") != null and ! has_any(word, "$`\"\\")
   "'" + word.replace("'", with: "'\\''") + "'"
 }
 
 # Whether a possibly abbreviated long option takes a value in the next word.
 pure long_takes_value(word: Str) -> Bool {
   let name = word.byte_slice(2)
-  if name in VALUE_LONGS { return true }
+  return true when name in VALUE_LONGS
   for candidate in VALUE_LONGS {
-    if candidate.starts_with(name) { return true }
+    return true when candidate.starts_with(name)
   }
   false
 }
@@ -233,7 +233,7 @@ pure switch_text(argv: List[Str]) -> Str {
 # space and sign, then decimal digits that saturate beyond the range. The empty
 # string reads as zero; anything else left over is invalid (null).
 pure parse_count(text: Str) -> Int? {
-  if text == "" { return 0 }
+  return 0 when text == ""
   var digits = text
   while digits.starts_with(" ") or digits.starts_with("\t") { digits = digits.byte_slice(1) }
   var negative = false
@@ -243,11 +243,11 @@ pure parse_count(text: Str) -> Int? {
     negative = true
     digits = digits.byte_slice(1)
   }
-  if digits == "" { return null }
+  return null when digits == ""
   let raw = bytes.from_text(digits)
   for index in range(raw.len()) {
     let value = raw.byte_at(index) ?? 0
-    if value < 48 or value > 57 { return null }
+    return null when value < 48 or value > 57
   }
   var magnitude = 4611686018427387904
   if digits.byte_len() <= 18 {
@@ -259,14 +259,14 @@ pure parse_count(text: Str) -> Int? {
 
 pure excluded(patterns: List[Str], name: Str) -> Bool {
   let raw = bytes.from_text(name)
-  for pattern in patterns { if search.glob(pattern, raw) { return true } }
+  for pattern in patterns { return true when search.glob(pattern, raw) }
   false
 }
 
 # The name used in a report about the compared files: a `--label` replaces it
 # (printed as given), otherwise the name is quoted when it needs it.
 proc shown(cfg: Settings, side: Int, name: Str) [env] -> Str {
-  if cfg.labels.len() > side { return cfg.labels[side] }
+  return cfg.labels[side] when cfg.labels.len() > side
   gnu.quote_maybe(name)
 }
 
@@ -464,7 +464,7 @@ proc read_device(name: Str) [fs, io, error] -> Result[Bytes, Error] {
   var total = 0
   while true {
     let chunk = tio.read_chunk(source, total, 65536)?
-    if chunk.is_empty() { break }
+    break when chunk.is_empty()
     parts += [chunk]
     total += chunk.len()
     if total >= DEVICE_LIMIT { return Err(DeviceError.TooLarge(message: "input is unbounded or too large to compare")) }
@@ -473,8 +473,8 @@ proc read_device(name: Str) [fs, io, error] -> Result[Bytes, Error] {
 }
 
 proc read_side(item: Probe) [fs, io, error] -> Result[Bytes, Error] {
-  if item.kind == "absent" { return Ok(b"") }
-  if item.kind == "char" or item.kind == "block" { return read_device(item.name) }
+  return Ok(b"") when item.kind == "absent"
+  return read_device(item.name) when item.kind == "char" or item.kind == "block"
   gnu.read_operand(item.name)
 }
 
@@ -483,7 +483,7 @@ proc read_side(item: Probe) [fs, io, error] -> Result[Bytes, Error] {
 # an empty directory.
 proc entry_names(cfg: Settings, side: Probe) [fs, error] -> Result[List[Str], Error] {
   var names: List[Str] = []
-  if side.kind == "absent" { return Ok(names) }
+  return Ok(names) when side.kind == "absent"
   for child in fs.children(fp"{side.name}", stat: false, ordered: true)? {
     if !excluded(cfg.patterns, child.name) { names += [child.name] }
   }
@@ -546,7 +546,7 @@ proc diff_dirs(cfg: Settings, left: Probe, right: Probe, trail: List[Str], top: 
     if in_left { left_at += 1 }
     if in_right { right_at += 1 }
     let name = if in_left { left_name } else { right_name }
-    if top and start != "" and name < start { continue }
+    continue when top and start != "" and name < start
     if in_left and in_right {
       status = worse(status, compare_entry(cfg, join(left.name, left_name), join(right.name, right_name), trail, false))
     } else if in_left {
@@ -679,7 +679,7 @@ proc compare_operands(cfg: Settings, left_name: Str, right_name: Str) [fs, io, p
     if !(failed and left_name == right_name) { gnu.name_error(right_name, failure) }
     failed = true
   }
-  if failed { return 2 }
+  return 2 when failed
   let blank: Probe = {name: "", kind: "absent", size: 0, identity: "", target: "", mtime_ns: 0, rdev: 0}
   let first = match left { Ok(item) => item, Err(_) => blank }
   let second = match right { Ok(item) => item, Err(_) => blank }
@@ -699,7 +699,7 @@ proc compare_operands(cfg: Settings, left_name: Str, right_name: Str) [fs, io, p
       gnu.error("-D option not supported with directories")
       return 2
     }
-    if cfg.style != "sdiff" or cfg.opts.suppress_common or cfg.opts.brief { return 0 }
+    return 0 when cfg.style != "sdiff" or cfg.opts.suppress_common or cfg.opts.brief
     if left_name == right_name {
       # Side-by-side output names every entry of a directory compared with
       # itself as present in only one of them.
@@ -714,11 +714,11 @@ proc compare_operands(cfg: Settings, left_name: Str, right_name: Str) [fs, io, p
     gnu.error(f"{gnu.quote_maybe(right_name)}: Is a directory")
     return 2
   }
-  if first_dir == second_dir { return compare_known(cfg, first, second, false, []) }
+  return compare_known(cfg, first, second, false, []) when first_dir == second_dir
   let directory = if first_dir { first } else { second }
   let other = if first_dir { second } else { first }
   if other.kind == "stdin" { gnu.error("cannot compare '-' to a directory"); return 2 }
-  if other.kind == "absent" { return compare_known(cfg, first, second, false, []) }
+  return compare_known(cfg, first, second, false, []) when other.kind == "absent"
   let inside = join(directory.name, fp"{other.name}".name())
   match probe(cfg, inside, cfg.opts.new_file) {
     Ok(moved) => if first_dir { compare_known(cfg, moved, second, false, []) } else { compare_known(cfg, first, moved, false, []) }
@@ -739,12 +739,12 @@ pure regex_problem(pattern: Str) -> Str? {
   while at < size {
     let value = raw.byte_at(at) ?? 0
     if value == 92 {
-      if at + 1 >= size { return "Trailing backslash" }
+      return "Trailing backslash" when at + 1 >= size
       let next = raw.byte_at(at + 1) ?? 0
       if next == 40 {
         depth += 1
       } else if next == 41 {
-        if depth == 0 { return "Unmatched ) or \\)" }
+        return "Unmatched ) or \\)" when depth == 0
         depth -= 1
       } else if next == 123 {
         var close = at + 2
@@ -756,10 +756,10 @@ pure regex_problem(pattern: Str) -> Str? {
           }
           close += 1
         }
-        if !found { return "Unmatched \\{" }
+        return "Unmatched \\{" unless found
         let text = raw[at + 2..close].utf8() ?? ""
         let parts = text.split(",")
-        if parts.len() > 2 { return "Invalid content of \\{\\}" }
+        return "Invalid content of \\{\\}" when parts.len() > 2
         var low = 0
         var high = -1
         if parts[0] != "" {
@@ -774,8 +774,8 @@ pure regex_problem(pattern: Str) -> Str? {
         } else if parts.len() == 1 {
           high = low
         }
-        if low > 32767 or high > 32767 { return "Regular expression too big" }
-        if high >= 0 and low > high { return "Invalid content of \\{\\}" }
+        return "Regular expression too big" when low > 32767 or high > 32767
+        return "Invalid content of \\{\\}" when high >= 0 and low > high
         at = close + 2
         continue
       }
@@ -805,15 +805,15 @@ pure regex_problem(pattern: Str) -> Str? {
             }
             end += 1
           }
-          if !shut { return "Unmatched [, [^, [:, [., or [=" }
+          return "Unmatched [, [^, [:, [., or [=" unless shut
           let word = raw[cursor + 2..end].utf8() ?? ""
-          if kind == 58 and !(word in classes) { return "Invalid character class name" }
+          return "Invalid character class name" when kind == 58 and ! (word in classes)
           cursor = end + 2
           continue
         }
         if raw.byte_at(cursor + 1) == 45 and cursor + 2 < size and raw.byte_at(cursor + 2) != 93 {
           let high = raw.byte_at(cursor + 2) ?? 0
-          if inner > high { return "Invalid range end" }
+          return "Invalid range end" when inner > high
           cursor += 3
           continue
         }
@@ -828,7 +828,7 @@ pure regex_problem(pattern: Str) -> Str? {
     }
     at += 1
   }
-  if depth > 0 { return "Unmatched ( or \\(" }
+  return "Unmatched ( or \\(" when depth > 0
   null
 }
 
@@ -843,7 +843,7 @@ pure format_events(argv: List[Str]) -> List[FormatEvent] {
   var index = 0
   while index < argv.len() {
     let arg = argv[index]
-    if arg == "--" { break }
+    break when arg == "--"
     if arg.starts_with("--") {
       let body = arg.byte_slice(2)
       let equals = body.find("=")
@@ -943,7 +943,7 @@ proc merged_templates(events: List[FormatEvent]) [process, env] -> diffrender.Te
 # locale the curly quotes need no escape for an apostrophe inside the value.
 proc locale_quote(text: Str) [env] -> Str {
   let quoted = gnu.quote_value(text)
-  if quoted.starts_with("\u{2018}") { return quoted.replace("\\'", with: "'") }
+  return quoted.replace("\\'", with: "'") when quoted.starts_with("‘")
   quoted
 }
 
@@ -1084,7 +1084,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
     let names = ["rs", "hd", "ad", "de", "ln"]
     var broken = false
     for item in text.split(":") {
-      if item == "" { continue }
+      continue when item == ""
       let equals = item.find("=")
       if equals == null {
         broken = true
@@ -1143,7 +1143,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
 
   var fold_names = false
   for word in argv {
-    if word == "--" { break }
+    break when word == "--"
     if word == "--ignore-file-name-case" { fold_names = true }
     if word == "--no-ignore-file-name-case" { fold_names = false }
   }

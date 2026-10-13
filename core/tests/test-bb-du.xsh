@@ -6,7 +6,7 @@ type DiskUsage = {blocks: Int, rows: Str, seen: List[Str]}
 proc disk_usage(entry_path: Path, seen: List[Str]) [fs, error] -> Result[DiskUsage] {
   let metadata = fs.stat(entry_path)?
   let identity = f"{metadata.dev}:{metadata.ino}"
-  if identity in seen { return Ok({blocks: 0, rows: "", seen: seen}) }
+  return Ok({blocks: 0, rows: "", seen: seen}) when identity in seen
   var identities = seen.push(identity)
   var blocks = metadata.blocks_512
   var rows = ""

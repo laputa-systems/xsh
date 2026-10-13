@@ -400,7 +400,7 @@ proc ascii_number(data: Bytes, at: Int, digits: Int, bits: Int) [process, env] -
   var position = at
   let end = at + digits
   while position < end and data.byte_at(position) == 32 { position += 1 }
-  if position == end or (data.byte_at(position) ?? 0) == 0 { return 0 }
+  return 0 when position == end or (data.byte_at(position) ?? 0) == 0
   var value = 0
   while true {
     let digit = hex_digit(data.byte_at(position) ?? 0)
@@ -411,7 +411,7 @@ proc ascii_number(data: Bytes, at: Int, digits: Int, bits: Int) [process, env] -
     }
     value += digit
     position += 1
-    if position == end or (data.byte_at(position) ?? 0) == 0 { break }
+    break when position == end or (data.byte_at(position) ?? 0) == 0
     value = value * (if bits == 4 { 16 } else { 8 })
   }
   value
@@ -547,7 +547,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
     }
     if format == "" {
       format = detect_format(data, position)
-      if format != "" { break }
+      break when format != ""
     } else if magic_matches(data, position, format) {
       break
     }
@@ -814,8 +814,8 @@ pure safer_name(name: Bytes, absolute: Bool, strip_dots: Bool) -> Safer {
       while true {
         let byte = name.byte_at(scan) ?? 0
         scan += 1
-        if byte == 47 { break }
-        if scan >= total { break }
+        break when byte == 47
+        break when scan >= total
       }
     }
     start = cut
@@ -872,7 +872,7 @@ pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
       var names: List[Bytes] = []
       let parts = text.split(if terminator == 0 { "\0" } else { "\n" })
       for index in range(parts.len()) {
-        if index == parts.len() - 1 and parts[index] == "" { break }
+        break when index == parts.len() - 1 and parts[index] == ""
         let cstring = parts[index].find("\0") ?? -1
         names += [bytes.from_text(if cstring < 0 { parts[index] } else { parts[index].byte_slice(0, length: cstring) })]
       }
@@ -895,7 +895,7 @@ pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
 
 pure cut_at_nul(name: Bytes) -> Bytes {
   for index in range(name.len()) {
-    if name.byte_at(index) == 0 { return name.slice(0, index) }
+    return name.slice(0, index) when name.byte_at(index) == 0
   }
   name
 }
@@ -1021,8 +1021,8 @@ pure fnmatch(pattern: Bytes, name: Bytes) -> Bool {
         advanced = true
       }
     }
-    if advanced { continue }
-    if star < 0 { return false }
+    continue when advanced
+    return false when star < 0
     p = star + 1
     star_s += 1
     s = star_s
@@ -1088,7 +1088,7 @@ pure pad_right(text: Str, width: Int) -> Str {
 }
 
 proc owner_name(uid: Int, numeric: Bool) [fs] -> Str {
-  if numeric { return f"{uid}" }
+  return f"{uid}" when numeric
   match user.by_uid(uid) {
     Ok(account) => account.name
     Err(_) => f"{uid}"
@@ -1096,7 +1096,7 @@ proc owner_name(uid: Int, numeric: Bool) [fs] -> Str {
 }
 
 proc group_label(gid: Int, numeric: Bool) [fs] -> Str {
-  if numeric { return f"{gid}" }
+  return f"{gid}" when numeric
   match group.by_gid(gid) {
     Ok(entry) => entry.name
     Err(_) => f"{gid}"
@@ -1155,7 +1155,7 @@ pure path_of(name: Bytes) -> Result[Path, Error] {
 }
 
 pure hex_plain(value: Int) -> Str {
-  if value == 0 { return "0" }
+  return "0" when value == 0
   var left = value
   var text = ""
   while left > 0 {
@@ -1218,7 +1218,7 @@ proc create_parents(st: Run, opts: Options, file: Path) [fs, process, env] -> Cr
   var current = file.parent()
   while true {
     let text = current.display()
-    if text == "" or text == "." or text == "/" { break }
+    break when text == "" or text == "." or text == "/"
     match fs.stat(current) {
       Ok(_) => { break }
       Err(_) => {
@@ -1291,13 +1291,13 @@ proc link_to_inode(st: Run, opts: Options, name: Bytes, header: Header) [fs, pro
 # Gives `file` the archive's owner (or the -R owner). Only a privileged run, or
 # one with -R, tries; EPERM is ignored silently, as GNU cpio does.
 proc apply_owner(st: Run, opts: Options, file: Path, name: Bytes, uid: Int, gid: Int, follow: Bool, chown_enabled: Bool) [fs, process, env] -> Run {
-  if ! chown_enabled { return st }
+  return st unless chown_enabled
   let want_uid = opts.owner ?? uid
   let want_gid = opts.group ?? gid
   match fs.set_owner(file, uid: want_uid, gid: want_gid, follow_symlinks: follow) {
     Ok(_) => st
     Err(failure) => {
-      if gnu.errno(failure) == 1 { return st }
+      return st when gnu.errno(failure) == 1
       gnu.error(f"{shown(name)}: Cannot change ownership to uid {want_uid}, gid {want_gid}: {gnu.strerror(failure)}")
       {...st, failed: true}
     }
@@ -1342,7 +1342,7 @@ proc apply_fixups(st: Run, opts: Options, chown_enabled: Bool) [fs, process, env
 # -s and -S: swaps bytes of halfwords and halfwords of words. With both, each
 # word is reversed. The caller checked that the length fits the swap.
 pure swap_data(data: Bytes, halfwords: Bool, swap_bytes: Bool) -> Bytes {
-  if ! halfwords and ! swap_bytes { return data }
+  return data when ! halfwords and ! swap_bytes
   var out: List[Int] = []
   let total = data.len()
   if halfwords {
@@ -1369,9 +1369,7 @@ pure swap_data(data: Bytes, halfwords: Bool, swap_bytes: Bool) -> Bytes {
 # Creates the file with owner-only permissions, as GNU cpio does before the
 # final mode is applied. Under --sparse, zero blocks become holes.
 proc write_file(file: Path, data: Bytes, sparse: Bool) [fs, error] -> Result[Unit, Error] {
-  if ! sparse or data.len() < 512 {
-    return file.write(data, 384)
-  }
+  return file.write(data, 384) when ! sparse or data.len() < 512
   file.write(b"", 384)
   let zeros = bytes.zero(512)?
   var offset = 0
@@ -1461,7 +1459,7 @@ pure parse_block_count(value: Str) -> Int {
   var number = 0
   while position < value.byte_len() {
     let digit = hex_digit(value.byte_at(position) ?? 0)
-    if digit < 0 or digit > 9 { break }
+    break when digit < 0 or digit > 9
     number = number * 10 + digit
     position += 1
   }
@@ -1479,7 +1477,7 @@ proc choose_format(opts: Options, format: Str) [process, env] -> Options {
 }
 
 proc apply_warning(opts: Options, flag: Str) [process, env] -> Options {
-  if flag == "none" { return {...opts, warn_truncate: false, warn_interdir: false} }
+  return {...opts, warn_truncate: false, warn_interdir: false} when flag == "none"
   var negate = false
   var name = flag
   if flag.byte_len() > 2 and flag.starts_with("no-") {
@@ -1784,9 +1782,9 @@ proc validate_options(opts: Options) [process, env] -> Options {
 # GNU cpio_create_dir. A directory the archive makes unwritable, or one whose
 # time must survive its contents being created, is finished at the end.
 proc create_directory(st: Run, opts: Options, header: Header, existing: Bool, chown_enabled: Bool) [fs, process, env] -> Named {
-  if opts.to_stdout { return {name: header.name, st: st} }
+  return {name: header.name, st: st} when opts.to_stdout
   let name = strip_trailing_slashes(header.name)
-  if name == b"." { return {name: name, st: st} }
+  return {name: name, st: st} when name == b"."
   let file = match path_of(name) {
     Ok(value) => value
     Err(failure) => { return {name: name, st: call_error(st, "mkdir", name, failure)} }
@@ -1849,7 +1847,7 @@ proc create_deferred_links(st: Run, opts: Options, header: Header) [fs, process,
 }
 
 proc verify_checksum(format: Str, header: Header, content: Bytes) [process, env] -> Unit {
-  if format != "crc" { return }
+  return when format != "crc"
   let sum = byte_sum(content)
   if sum != header.checksum {
     gnu.error(f"{shown(header.name)}: checksum error (0x{hex_plain(sum)}, should be 0x{hex_plain(header.checksum)})")
@@ -1865,7 +1863,7 @@ proc extract_regular(st: Run, opts: Options, format: Str, header: Header, conten
     }
     let linked = link_to_inode(state, opts, name, header)
     state = linked.st
-    if linked.linked { return state }
+    return state when linked.linked
   }
   var swap_words = false
   var swap_pairs = false
@@ -1912,13 +1910,13 @@ proc extract_regular(st: Run, opts: Options, format: Str, header: Header, conten
 }
 
 proc extract_device(st: Run, opts: Options, header: Header, chown_enabled: Bool) [fs, process, env] -> Run {
-  if opts.to_stdout { return st }
+  return st when opts.to_stdout
   var state = st
   let name = header.name
   if header.nlink > 1 {
     let linked = link_to_inode(state, opts, name, header)
     state = linked.st
-    if linked.linked { return state }
+    return state when linked.linked
   }
   let file = match path_of(name) {
     Ok(value) => value
@@ -1943,7 +1941,7 @@ proc extract_device(st: Run, opts: Options, header: Header, chown_enabled: Bool)
 }
 
 proc extract_link(st: Run, opts: Options, header: Header, target: Bytes, chown_enabled: Bool) [fs, process, env] -> Run {
-  if opts.to_stdout { return st }
+  return st when opts.to_stdout
   var state = st
   let name = header.name
   let file = match path_of(name) {
@@ -2001,9 +1999,7 @@ proc replace_placeholders(st: Run, opts: Options, chown_enabled: Bool) [fs, proc
   var state = st
   for holder in st.placeholders {
     match fs.stat(holder.path, follow_symlinks: false) {
-      Ok(info) => {
-        if info.dev != holder.dev or info.ino != holder.ino { continue }
-      }
+      Ok(info) => continue when info.dev != holder.dev or info.ino != holder.ino
       Err(_) => { continue }
     }
     match holder.path.unlink() {
@@ -2052,7 +2048,7 @@ proc create_final_deferred(st: Run, opts: Options, chown_enabled: Bool) [fs, pro
   for waiting in st.deferred {
     let linked = link_to_inode(state, opts, waiting.name, waiting)
     state = linked.st
-    if linked.linked { continue }
+    continue when linked.linked
     let file = match path_of(waiting.name) {
       Ok(value) => value
       Err(failure) => {
@@ -2131,10 +2127,10 @@ proc read_tty_line(descriptor: Int) [process, net] -> Str? {
     match unix.read_fd(descriptor, 1) {
       Ok(chunk) => {
         if chunk.is_empty() {
-          if line.is_empty() { return null }
+          return null when line.is_empty()
           break
         }
-        if chunk == b"\n" { break }
+        break when chunk == b"\n"
         line += [chunk]
       }
       Err(_) => { return null }
@@ -2180,7 +2176,7 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
       break
     }
     position = after
-    if ! parsed.usable { continue }
+    continue unless parsed.usable
     let safe = safe_name(st, header.name, ! opts.no_abs, false)
     st = safe.st
     header = {...header, name: safe.name}
@@ -2189,7 +2185,7 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
     if ! patterns.is_empty() {
       skip = copy_matching
       for pattern in patterns {
-        if skip != copy_matching { break }
+        break when skip != copy_matching
         if fnmatch(pattern, header.name) { skip = ! copy_matching }
       }
     }
@@ -2284,7 +2280,7 @@ type Sink = {file: Path?, offset: Int, pending: List[Bytes], pending_size: Int, 
 type Emitted = {sink: Sink, st: Run, written: Bool}
 
 proc sink_flush(sink: Sink) [fs, io, error, process, env] -> Sink {
-  if sink.pending.is_empty() { return sink }
+  return sink when sink.pending.is_empty()
   let data = bytes.concat(sink.pending)
   if let target = sink.file {
     match bytes.write_at(target, sink.offset, data, true) {
@@ -2302,7 +2298,7 @@ proc sink_flush(sink: Sink) [fs, io, error, process, env] -> Sink {
 
 proc sink_emit(sink: Sink, data: Bytes) [fs, io, error, process, env] -> Sink {
   let grown: Sink = {...sink, pending: sink.pending + [data], pending_size: sink.pending_size + data.len(), total: sink.total + data.len()}
-  if grown.pending_size >= 4194304 { return sink_flush(grown) }
+  return sink_flush(grown) when grown.pending_size >= 4194304
   grown
 }
 
@@ -2450,7 +2446,7 @@ proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_sta
         let emitted = emit_regular(opts, format, sink, st, header, raw, info.atime_ns, info.mtime_ns)
         sink = emitted.sink
         st = emitted.st
-        if ! emitted.written { continue }
+        continue unless emitted.written
       }
     } else if type_bits == TYPE_DIR {
       let directory = {...header, size: 0, nlink: if opts.ignore_dirnlink { 2 } else { header.nlink }}
@@ -2522,7 +2518,7 @@ proc copy_pass(opts: Options, destination: Bytes, chown_enabled: Bool) [fs, io, 
       gnu.error("blank line ignored")
       continue
     }
-    if raw == b"." or raw == b"./" { continue }
+    continue when raw == b"." or raw == b"./"
     let source = match path_of(raw) {
       Ok(value) => value
       Err(failure) => {
@@ -2757,7 +2753,7 @@ type Plan = {
 
 # Where -D puts relative archive names: they keep meaning what they meant before.
 proc anchored(name: Str, directory: Str?) [fs, error] -> Path {
-  if directory == null or name.starts_with("/") { return fp"{name}" }
+  return fp"{name}" when directory == null or name.starts_with("/")
   match fs.cwd() {
     Ok(here) => fp"{here}/{name}"
     Err(_) => fp"{name}"

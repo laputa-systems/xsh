@@ -208,7 +208,7 @@ export proc modprobe(argv: List[Str]) {
         Ok(plan) => {
           if show or verbose {
             for item in plan {
-              if verbose and ! show and item.loaded and ! remove { continue }
+              continue when verbose and ! show and item.loaded and ! remove
               if remove { gnu.write_text(f"rmmod {item.name}\n") } else { let suffix = if item.params == "" { "" } else { f" {item.params}" }; gnu.write_text(f"insmod {item.filename}{suffix}\n") }
             }
           }
@@ -228,7 +228,7 @@ export proc depmod(argv: List[Str]) {
   var version = ""
   for arg in argv {
     if common(arg, "Usage: depmod [-a|--all] [VERSION]\nGenerate kernel module dependency indices.") { return }
-    if arg == "-a" or arg == "--all" { continue }
+    continue when arg == "-a" or arg == "--all"
     if arg.starts_with("-") { unsupported(arg) }
     if version != "" { gnu.extra_operand(arg) }
     if ! rx"^[0-9]+\.[0-9]+".matches(arg) { gnu.usage_error(f"invalid kernel version {gnu.quote(arg)}") }

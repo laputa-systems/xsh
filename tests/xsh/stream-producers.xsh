@@ -51,7 +51,7 @@ test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
   {
     let owned = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $pidfile
     for _ in range(100) {
-      if pidfile.exists() { break }
+      break when pidfile.exists()
       time.sleep(10ms)
     }
     assert pidfile.exists()?, "the process stream must start its child before the owning scope exits"
@@ -79,7 +79,7 @@ test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
     var current: Stream[Str]? = null
     current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $first_pidfile
     for _ in range(100) {
-      if first_pidfile.exists() { break }
+      break when first_pidfile.exists()
       time.sleep(10ms)
     }
     assert first_pidfile.exists()?, "the first stream process must start"
@@ -90,7 +90,7 @@ test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
 
     current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $second_pidfile
     for _ in range(100) {
-      if second_pidfile.exists() { break }
+      break when second_pidfile.exists()
       time.sleep(10ms)
     }
     assert second_pidfile.exists()?, "the replacement stream process must start"

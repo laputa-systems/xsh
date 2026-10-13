@@ -318,9 +318,7 @@ pure parse_cpu_frequency_mhz(value: Str) -> Float? {
       dot_seen = true
       continue
     }
-    if character < "0" or character > "9" {
-      return null
-    }
+    return null when character < "0" or character > "9"
     digits += 1
   }
   return null when digits == 0
@@ -655,9 +653,7 @@ pure proc_counter(raw: Str) -> ProcCounter {
     return {value: null, issue_state: if decimal_identifier(raw) { report.RangeFailure } else { report.Malformed }}
   }
   let number = parsed ?? -1
-  if number < 0 {
-    return {value: null, issue_state: report.Malformed}
-  }
+  return {value: null, issue_state: report.Malformed} when number < 0
   {value: number, issue_state: null}
 }
 

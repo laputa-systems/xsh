@@ -267,9 +267,7 @@ pure selected_frequency_mhz(sources: live.MonitorSources) -> List[Float] {
       }
     }
   }
-  if ! policy_values.is_empty() {
-    return policy_values
-  }
+  return policy_values unless policy_values.is_empty()
 
   let cpuinfo_values = sources.cpuinfo_frequencies_mhz |> where . > 1.0 and . < 999999999.0
   cpuinfo_values |> take(1)
@@ -336,9 +334,7 @@ pure battery_percent(battery: live.MonitorBattery) -> Int? {
   } else {
     return null
   }
-  if ratio < 0.0 or ratio > 1.0 {
-    return null
-  }
+  return null when ratio < 0.0 or ratio > 1.0
   (ratio * 100.0).round() ?? 0
 }
 
@@ -375,9 +371,7 @@ pure battery_minutes(battery: live.MonitorBattery) -> Int? {
   } else if status != "full" {
     let now = battery.energy_now_uwh ?? -1
     let power = battery.power_now_uw ?? -1
-    if now >= 0 and power > 0 {
-      return (now.float() / power.float() * 60.0).round() ?? 0
-    }
+    return (now.float() / power.float() * 60.0).round() ?? 0 when now >= 0 and power > 0
     let charge = battery.charge_now_uah ?? -1
     let current = battery.current_now_ua ?? 0
     if charge >= 0 and current != 0 {

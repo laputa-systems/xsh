@@ -26,7 +26,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
@@ -57,7 +57,7 @@ pure relative_path(target: Bytes, base: Bytes) -> Bytes {
   var parts: List[Bytes] = []
   for unused in range(base_parts.len() - common) { parts += [b".."] }
   for index in range(common, target_parts.len()) { parts += [target_parts[index]] }
-  if parts.is_empty() { return b"." }
+  return b"." when parts.is_empty()
   var output = parts[0]
   for index in range(1, parts.len()) { output = bytes.concat([output, b"/", parts[index]]) }
   output

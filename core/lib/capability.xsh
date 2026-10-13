@@ -76,7 +76,7 @@ export pure bit(name: Str) -> Result[Int, Error] {
 
 ## Parse a comma-separated set without losing the upper half of a file bitmap.
 export pure parse_mask(text: Str) -> Result[Mask, Error] {
-  if text.lower() == "all" { return {low: 4294967295, high: 511} }
+  return {low: 4294967295, high: 511} when text.lower() == "all"
   var mask = empty()
   return mask when text == ""
   for name in text.split(",") { mask = union(mask, singleton(bit(name)?)) }

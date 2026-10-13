@@ -132,7 +132,7 @@ test test_route_adds_routes_and_lists_them_in_the_reference_layout { |ctx|
       ["-nee"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   for index in range(1, 10) {
     assert blocks[index].ends_with("rc=0\n"), blocks[index]
@@ -176,7 +176,7 @@ test test_route_deletes_by_destination_and_wildcard_metric { |ctx|
       ["-n"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   assert blocks[3] == "del -net 10.40.0.0 netmask 255.255.255.0\nrc=0\n"
   assert blocks[4] == "del -net 10.40.0.0 netmask 255.255.255.0\n2> SIOCDELRT: No such process\nrc=7\n"
@@ -193,7 +193,7 @@ test test_route_lists_reject_blackhole_and_throw_routes { |ctx|
     "fixture.route_add_type4(\"100.102.0.0\", 16, 9)",
   ]
   let transcript = session(ctx, extra, [["-n"]])?
-  if transcript == "" { return }
+  return when transcript == ""
   assert transcript.find("100.64.0.0      0.0.0.0         255.192.0.0     U     0      0        0 *\n") != null
   assert transcript.find("100.100.0.0     -               255.255.0.0     !     0      -        0 -\n") != null
   assert transcript.find("100.101.0.0     -               255.255.0.0     !     0      -        0 -\n") != null
@@ -217,7 +217,7 @@ test test_route_adds_and_deletes_ipv6_routes { |ctx|
       ["-6", "-n"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   assert blocks[1] == "-A inet6 add 2001:db8:9::/48 dev d0 metric 7\nrc=0\n"
   assert blocks[2] == "-A inet6 add 2001:db8:9::/48 dev d0 metric 7\n2> SIOCADDRT: File exists\nrc=7\n"
@@ -257,7 +257,7 @@ test test_route_errors_and_refused_forms { |ctx|
       ["-V"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   assert blocks[2] == "add -net 10.20.0.0 netmask 255.255.0.0 dev d1\n2> SIOCADDRT: File exists\nrc=7\n"
   assert blocks[3].starts_with("add 10.60.0.0 netmask 255.255.0.0 dev d1\n2> route: netmask 0000ffff doesn't make sense with host route\n2> Usage: inet_route")

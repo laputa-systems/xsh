@@ -8,7 +8,7 @@ pure identified(description: Str, media_type: Str, encoding = "binary") -> Ident
 
 ## Classify a bounded content sample by signatures and text encoding.
 export pure classify(data: Bytes) -> Identification {
-  if data.len() == 0 { return identified("empty", "inode/x-empty") }
+  return identified("empty", "inode/x-empty") when data.len() == 0
   for magic in [
     {prefix: b"\x89PNG\r\n\x1a\n", description: "PNG image data", mime: "image/png"},
     {prefix: b"\xff\xd8\xff", description: "JPEG image data", mime: "image/jpeg"},
@@ -32,13 +32,13 @@ export pure classify(data: Bytes) -> Identification {
     {prefix: b"OggS", description: "Ogg data", mime: "application/ogg"},
     {prefix: b"fLaC", description: "FLAC audio bitstream data", mime: "audio/flac"},
   ] {
-    if data.starts_with(magic.prefix) { return identified(magic.description, magic.mime) }
+    return identified(magic.description, magic.mime) when data.starts_with(magic.prefix)
   }
   if data.len() >= 262 and data[257..262] == b"ustar" { return identified("POSIX tar archive", "application/x-tar") }
   if data.starts_with(b"RIFF") and data.len() >= 12 {
-    if data[8..12] == b"WAVE" { return identified("RIFF WAVE audio", "audio/x-wav") }
-    if data[8..12] == b"WEBP" { return identified("Web/P image", "image/webp") }
-    if data[8..12] == b"AVI " { return identified("RIFF AVI video", "video/x-msvideo") }
+    return identified("RIFF WAVE audio", "audio/x-wav") when data[8..12] == b"WAVE"
+    return identified("Web/P image", "image/webp") when data[8..12] == b"WEBP"
+    return identified("RIFF AVI video", "video/x-msvideo") when data[8..12] == b"AVI "
   }
   if data.len() >= 12 and data[4..8] == b"ftyp" { return identified("ISO Media container", "video/mp4") }
   if data.starts_with(b"\xff\xfe") { return identified("Unicode text, UTF-16, little-endian", "text/plain", "utf-16le") }
@@ -50,9 +50,9 @@ export pure classify(data: Bytes) -> Identification {
     if byte >= 128 { ascii = false }
     if byte == 0 or (byte < 32 and byte != 8 and byte != 9 and byte != 10 and byte != 12 and byte != 13 and byte != 27) { control = true }
   }
-  if control { return identified("data", "application/octet-stream") }
+  return identified("data", "application/octet-stream") when control
   let text = data.utf8()
-  if text is Err(_) { return identified("data", "application/octet-stream") }
+  return identified("data", "application/octet-stream") when text is Err(_)
   let contents = text ?? ""
   let encoding = if ascii { "us-ascii" } else { "utf-8" }
   let description = if ascii { "ASCII text" } else { "Unicode text, UTF-8 text" }

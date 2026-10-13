@@ -17,7 +17,7 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   json.write(o.output, current)
   if o.item_inventory != "" { json.write(fp"{o.item_inventory}", measured.item_allowances) }
   metrics.assert_structural_not_risen(current, current)
-  if o.action == "measure" { return }
+  return when o.action == "measure"
   if o.baseline == "" or o.audit == "" { fail "checks require --baseline and --audit" }
   let baseline = json.read(fp"{o.baseline}")?.require(metrics.Report)?
   if o.baseline_provenance != "" {

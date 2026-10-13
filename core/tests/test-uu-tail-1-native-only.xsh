@@ -22,7 +22,7 @@ proc alive(child: ProcessHandle) [process, error] {
 proc wait_output(s: uu.Scene, out: Bytes, err: Bytes) [fs, process, time, error] {
   for i in range(500) {
     let current = streams(s)?
-    if current.stdout == out and current.stderr == err { return }
+    return when current.stdout == out and current.stderr == err
     time.sleep(10ms)
   }
   let current = streams(s)?

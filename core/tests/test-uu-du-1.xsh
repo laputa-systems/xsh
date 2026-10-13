@@ -27,7 +27,7 @@ proc expected(s: uu.Scene, name: Str = ".", inodes: Bool = false, separate: Bool
   let target = uu.at(s, name)
   let meta = fs.stat(target, follow_symlinks: follow)?
   let key = f"{meta.dev}:{meta.ino}"
-  if key in seen { return Ok({size: 0, seen: seen, lines: []}) }
+  return Ok({size: 0, seen: seen, lines: []}) when key in seen
   var visited = seen
   visited[key] = true
   var size = if inodes { 1 } else { meta.blocks_512 * 512 }

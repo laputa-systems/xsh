@@ -70,7 +70,7 @@ export pure encode(value: Bytes, encoding: Str) -> Result[Bytes, Error] {
     }
     format = if value.len() >= nonprint * 8 { "text" } else { "base64" }
   }
-  if format == "base64" { return bytes.from_text("0s" + value.base64()) }
+  return bytes.from_text("0s" + value.base64()) when format == "base64"
   if format == "hex" {
     let digits = "0123456789abcdef"
     var text = "0x"

@@ -362,13 +362,13 @@ pure json_string(text: Str) -> Json {
 # A JSON object in json-c's pretty layout: one `"key":value` member per line
 # and containers nested two spaces deeper. `members` holds [key, rendered].
 pure json_object(members: List[List[Str]]) -> Json {
-  if members.is_empty() { return "{}" }
+  return "{}" when members.is_empty()
   let lines = ["  " + json_string(member[0]) + ":" + member[1].replace("\n", with: "\n  ") for member in members]
   "{\n" + lines.join(",\n") + "\n}"
 }
 
 pure json_array(items: List[Str]) -> Json {
-  if items.is_empty() { return "[]" }
+  return "[]" when items.is_empty()
   let lines = ["  " + item.replace("\n", with: "\n  ") for item in items]
   "[\n" + lines.join(",\n") + "\n]"
 }
@@ -399,7 +399,7 @@ pure c_number(text: Str) -> Int? {
   var digits = 0
   while index < length {
     let digit = digit_value(text.byte_at(index) ?? 0)
-    if digit < 0 or digit >= base { break }
+    break when digit < 0 or digit >= base
     if value <= 72057594037927935 { value = value * base + digit } else { value = 1152921504606846975 }
     digits += 1
     index += 1
@@ -410,9 +410,9 @@ pure c_number(text: Str) -> Int? {
 }
 
 pure digit_value(byte: Int) -> Int {
-  if byte >= 48 and byte <= 57 { return byte - 48 }
-  if byte >= 97 and byte <= 102 { return byte - 87 }
-  if byte >= 65 and byte <= 70 { return byte - 55 }
+  return byte - 48 when byte >= 48 and byte <= 57
+  return byte - 87 when byte >= 97 and byte <= 102
+  return byte - 55 when byte >= 65 and byte <= 70
   -1
 }
 
@@ -525,7 +525,7 @@ pure value_kind(spec: Str) -> Str {
 # Validates one option value as nvme-cli's argument parser does and returns
 # it as decimal text for numbers.
 proc checked(long: Str, kind: Str, text: Str) [process, env, io] -> Str {
-  if kind == "string" { return text }
+  return text when kind == "string"
   let parsed = c_number(text)
   let name = if kind == "byte" { "byte" } else if kind == "word" { "word" } else { "integer" }
   if parsed == null {
@@ -691,8 +691,8 @@ proc get_log(dev: Session, what: Str, log_id: Int, nsid: Int, length: Int) [proc
 # The namespace for commands that need one: `-n`, otherwise the namespace id
 # of the opened block device.
 proc namespace_of(dev: Session, parsed: Parsed) [process, env, io, error] -> Int {
-  if has(parsed, "namespace-id") { return number(parsed, "namespace-id", 0) }
-  if dev.dry_run { return 0 }
+  return number(parsed, "namespace-id", 0) when has(parsed, "namespace-id")
+  return 0 when dev.dry_run
   match linux.nvme_namespace_id(dev.fd) {
     Ok(nsid) => nsid
     Err(failure) => {
@@ -724,7 +724,7 @@ pure bit_lines(value: Int, table: List[Str], prefix: Str, between: Str) -> List[
     for _ in range(high - low + 1) { span = span * 2 }
     let field = shifted % span
     var text = if field == 0 { parts[1] } else if parts.len() > 2 and high == low { parts[2] } else { parts[1] }
-    if text == "" { continue }
+    continue when text == ""
     var power = 1
     for _ in range(field) { power = power * 2 }
     text = text.replace("%P", with: f"{power}")
@@ -1068,7 +1068,7 @@ proc list_ns(argv: List[Str]) [fs, process, env, io, error] {
   var ids: List[Int] = []
   for index in range(1024) {
     let nsid = dec.le(data, index * 4, 4)
-    if nsid == 0 { break }
+    break when nsid == 0
     ids += [nsid]
   }
   if begun.format == "json" {
@@ -1084,8 +1084,8 @@ proc list_ns(argv: List[Str]) [fs, process, env, io, error] {
 }
 
 pure smart_json_key(name: Str) -> Str {
-  if name == "endu_grp_crit_warn_sumry" { return "endurance_grp_critical_warning_summary" }
-  if name.starts_with("temp_sensor") { return "temperature_sensor_" + name.byte_slice(11) }
+  return "endurance_grp_critical_warning_summary" when name == "endu_grp_crit_warn_sumry"
+  return "temperature_sensor_" + name.byte_slice(11) when name.starts_with("temp_sensor")
   name
 }
 
@@ -1103,7 +1103,7 @@ proc smart_log(argv: List[Str]) [fs, process, env, io, error] {
   if begun.format == "json" {
     var members: List[List[Str]] = []
     for item in fields {
-      if item.name.starts_with("temp_sensor") and item.value == 0 { continue }
+      continue when item.name.starts_with("temp_sensor") and item.value == 0
       members += [[smart_json_key(item.name), item.decimal]]
     }
     gnu.write_text(json_object(members) + "\n")
@@ -1523,11 +1523,11 @@ proc identify_listed(node: Path, nsid: Int) [fs, process, error] -> List[Int]? {
       match outcome {
         Err(_) => null
         Ok(reply) => {
-          if reply.status != 0 or reply.data.len() != 4096 { return null }
+          return null when reply.status != 0 or reply.data.len() != 4096
           let fields = dec.decode(reply.data, dec.NAMESPACE_LAYOUT)
           let formats = dec.lba_formats(reply.data, dec.field_value(fields, "nlbaf") + 1)
           let index = dec.lba_format_index(dec.field_value(fields, "flbas"))
-          if index >= formats.len() or formats[index].data_size_shift > 30 { return null }
+          return null when index >= formats.len() or formats[index].data_size_shift > 30
           var size = 1
           for _ in range(formats[index].data_size_shift) { size = size * 2 }
           [size, dec.field_value(fields, "nsze"), dec.field_value(fields, "nuse"), formats[index].metadata_size]
@@ -1547,7 +1547,7 @@ proc listed_namespaces(sys_root: Path, dev_root: Path) [fs, process, env, io, er
   }
   var rows: List[ListedNamespace] = []
   for item in found {
-    if item.kind != "nvme_namespace" { continue }
+    continue when item.kind != "nvme_namespace"
     let base = fp"{sys_root}/block/{item.name}"
     let pieces = item.name.split("n")
     let nsid = sysfs_number(fp"{base}/nsid") ?? pieces[pieces.len() - 1].parse_int() ?? 0

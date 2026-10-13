@@ -65,7 +65,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
       let loaded = acl.read(target)
       if let Err(failure) = loaded { fileattrs.report(name, failure); success = false; continue }
       let entries = loaded?
-      if opts.skip and entries.len() == 3 { continue }
+      continue when opts.skip and entries.len() == 3
       let stat = fs.stat(target, follow_symlinks: true)?
       var shown = name
       if ! opts.absolute and shown.starts_with("/") {

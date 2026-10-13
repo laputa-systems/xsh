@@ -206,12 +206,12 @@ proc parse_header(settings: Settings, line: Str) [io, error] -> Settings {
 # `-d @file` strips carriage returns and newlines from the file; `@-` reads
 # standard input; `--data-binary` keeps the bytes exactly.
 proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error] -> Bytes {
-  if !files or !value.starts_with("@") { return bytes.from_text(value) }
+  return bytes.from_text(value) when ! files or ! value.starts_with("@")
   let name = value.byte_slice(1)
   let raw = if name == "-" { io.stdin_bytes() } else { fp"{name}".read_bytes() }
   match raw {
     Ok(content) => {
-      if !strip { return content }
+      return content unless strip
       var kept: List[Int] = []
       for index in range(content.len()) {
         let byte = content.byte_at(index) ?? 0
@@ -314,13 +314,13 @@ proc apply(settings: Settings, spec: Spec, option: Str, value: Str) [io, fs, err
 
 proc find_long(name: Str) [io, error] -> Spec? {
   for spec in OPTIONS {
-    if spec.long == name { return spec }
+    return spec when spec.long == name
   }
   var matches: List[Spec] = []
   for spec in OPTIONS {
     if spec.long.starts_with(name) and spec.long != "" { matches += [spec] }
   }
-  if matches.is_empty() { return null }
+  return null when matches.is_empty()
   let first = matches[0]
   for spec in matches {
     if spec.key != first.key { fail_usage(f"option --{name}: is ambiguous") }
@@ -330,7 +330,7 @@ proc find_long(name: Str) [io, error] -> Spec? {
 
 proc find_short(letter: Str) -> Spec? {
   for spec in OPTIONS {
-    if spec.short == letter { return spec }
+    return spec when spec.short == letter
   }
   null
 }
@@ -518,7 +518,7 @@ proc load_jar(name: Str) [fs] -> List[Cookie] {
     var row = line
     if row.starts_with("#HttpOnly_") { row = row.byte_slice(10) } else if row.starts_with("#") or row.trim() == "" { continue }
     let parts = row.split("\t")
-    if parts.len() < 7 { continue }
+    continue when parts.len() < 7
     jar += [{
       domain: parts[0], subdomains: parts[1] == "TRUE", path: parts[2], secure: parts[3] == "TRUE",
       expires: parts[4].parse_int() ?? 0, name: parts[5], value: parts[6],
@@ -531,13 +531,13 @@ proc load_jar(name: Str) [fs] -> List[Cookie] {
 # does !follow the RFC 1123 shape.
 proc parse_expires(text: Str) [time] -> Int {
   let words = text.replace(",", with: "").words()
-  if words.len() < 5 { return 0 }
+  return 0 when words.len() < 5
   var month = 0
   for number in range(12) {
     if MONTHS[number] == words[2].lower().byte_slice(0, 3) { month = number + 1 }
   }
   let clock = words[4].split(":")
-  if month == 0 or clock.len() != 3 { return 0 }
+  return 0 when month == 0 or clock.len() != 3
   let stamp = time.from_calendar(words[3].parse_int() ?? 1970, month, words[1].parse_int() ?? 1, clock[0].parse_int() ?? 0, clock[1].parse_int() ?? 0, clock[2].parse_int() ?? 0, true) ?? 0
   stamp / 1000000000
 }
@@ -545,7 +545,7 @@ proc parse_expires(text: Str) [time] -> Int {
 proc cookie_from(header: Str, host: Str, route: Str) [time] -> Cookie? {
   let parts = header.split(";")
   let pair = parts[0].split("=", 1)
-  if pair.len() < 2 { return null }
+  return null when pair.len() < 2
   var domain = host
   var subdomains = false
   var scope = route
@@ -578,9 +578,9 @@ proc cookie_from(header: Str, host: Str, route: Str) [time] -> Cookie? {
 }
 
 pure cookie_applies(cookie: Cookie, host: Str, route: Str, https: Bool, now: Int) -> Bool {
-  if cookie.secure and !https { return false }
-  if cookie.expires != 0 and cookie.expires < now { return false }
-  if !route.starts_with(cookie.path) { return false }
+  return false when cookie.secure and ! https
+  return false when cookie.expires != 0 and cookie.expires < now
+  return false unless route.starts_with(cookie.path)
   let bare = if cookie.domain.starts_with(".") { cookie.domain.byte_slice(1) } else { cookie.domain }
   host == bare or (cookie.subdomains and host.ends_with(f".{bare}"))
 }
@@ -674,7 +674,7 @@ proc write_out_value(name: Str, outcome: Outcome, method: Str) [io, error] -> St
 
 # The URL a redirect answer points at, which is empty for any other status.
 pure redirect_url(outcome: Outcome) -> Str {
-  if outcome.status not in [301, 302, 303, 307, 308] { return "" }
+  return "" when outcome.status not in [301, 302, 303, 307, 308]
 
   if let target = http_transfer.header_value(outcome.headers, "location") {
     return http_transfer.resolve_location(outcome.url, target)
@@ -695,12 +695,12 @@ const TRANSIENT_STATUS: List[Int] = [408, 429, 500, 502, 503, 504]
 type Attempt = {code: Int, again: Str?}
 
 proc show_error(settings: Settings, code: Int, message: Str) [io, error] {
-  if settings.silent and !settings.show_error { return }
+  return when settings.silent and ! settings.show_error
   emit(f"curl: ({code}) {message}\n", settings.stderr_to_stdout)
 }
 
 proc warn(settings: Settings, message: Str) [io, error] {
-  if settings.silent { return }
+  return when settings.silent
   emit(f"Warning: {message}\n", settings.stderr_to_stdout)
 }
 
@@ -783,7 +783,7 @@ proc request_headers_for(settings: Settings, url: Str, body: Bytes, resume_from:
 # The remote name `-O` saves under; curl falls back to "curl_response".
 proc remote_name(settings: Settings, url: Str) [io, error] -> Str {
   let name = http_transfer.url_file_name(url)
-  if name != "" { return name }
+  return name when name != ""
   warn(settings, "No remote filename, uses \"curl_response\"")
   "curl_response"
 }
@@ -892,10 +892,10 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
       fail_status: settings.fail and !settings.fail_with_body and dest != null and !reply_needs_buffer,
     }
     let result = attempt(settings, request, dest, resume_from, method, jar, reply_needs_buffer)
-    if result.again == null or left == 0 { return result.code }
+    return result.code when result.again == null or left == 0
     let reason = result.again ?? ""
     let eligible = reason in ["HTTP error", "timeout"] or (reason == "connection refused" and settings.retry_connrefused) or settings.retry_all_errors
-    if !eligible { return result.code }
+    return result.code unless eligible
     warn(settings, f"Problem : {reason}. Retrying in {plural(wait_ms / 1000, "second", "seconds")}. {plural(left, "retry", "retries")} left.")
     time.sleep(time.millis(wait_ms))
     left -= 1
@@ -1070,7 +1070,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
 # cookie path.
 pure cookie_dir(route: Str) -> Str {
   let parts = route.split("/")
-  if parts.len() <= 2 { return "/" }
+  return "/" when parts.len() <= 2
   var out = ""
   for index in range(parts.len() - 1) {
     if parts[index] != "" { out = f"{out}/{parts[index]}" }

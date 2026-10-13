@@ -8,7 +8,7 @@ pure term_matches(pattern: Str, value: Str) -> Bool {
   for char in pattern {
     if char == "*" and ! bracket { regex_text = f"{regex_text}.*" } else if char == "?" and ! bracket { regex_text = f"{regex_text}." } else if char == "[" { bracket = true; regex_text = f"{regex_text}[" } else if char == "]" { bracket = false; regex_text = f"{regex_text}]" } else if char == "!" and bracket { regex_text = f"{regex_text}^" } else if ! bracket and ".+(){}^$|\\".find(char) != null { regex_text = f"{regex_text}\\{char}" } else { regex_text = f"{regex_text}{char}" }
   }
-  if bracket { return false }
+  return false when bracket
   match regex.compile(f"{regex_text}$") {
     Ok(found) => found.matches(value)
     Err(failure) => false
@@ -87,7 +87,7 @@ const LONG_OPTIONS = ["--bourne-shell", "--c-shell", "--csh", "--help", "--print
 # The long options an argument names: an exact name, or every name it prefixes
 # (getopt_long accepts any unambiguous abbreviation).
 pure long_candidates(arg: Str) -> List[Str] {
-  if arg in LONG_OPTIONS { return [arg] }
+  return [arg] when arg in LONG_OPTIONS
   [name for name in LONG_OPTIONS if name.starts_with(arg)]
 }
 
@@ -195,7 +195,7 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
   for original in input.lines() {
     line_number += 1
     var line = original.trim()
-    if line == "" or line.starts_with("#") { continue }
+    continue when line == "" or line.starts_with("#")
     let words = line.replace("\t", with: " ").split(" ") |> where . != ""
     if words.len() < 2 { gnu.error(f"{file_name}:{line_number}: invalid line;  missing second token"); exit 1 }
     let key = words[0]
@@ -210,7 +210,7 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
       continue
     }
     entries = true
-    if ! selected { continue }
+    continue unless selected
     if key.lower() == "options" or key.lower() == "color" or key.lower() == "eightbit" { continue }
     let named = color_key(key)
     let code = if key.starts_with(".") { f"*{key}" } else if key.starts_with("*") { key } else { named }

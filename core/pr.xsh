@@ -5,11 +5,11 @@ use lib.text_a2 as text
 type Options = {columns: Str, across: Bool, merge: Bool, double: Bool, omit_header: Bool, omit_pages: Bool, formfeed: Bool, header: Str?, date_format: Str?, length: Str, width: Str, page_width: Str, offset: Str, numbers: Str?, first_number: Str, separator: Str?, separator_string: Str?, expand_tabs: Str?, output_tabs: Str?, page_range: Str, join: Bool, control: Bool, nonprinting: Bool, quiet: Bool, back_compat: Bool, help: Bool, version: Bool, paths: List[Str]}
 
 proc size(value: Str, message: Str, minimum = 1) -> Int {
-  if value == "-2147483648" and minimum == -2147483648 { return -2147483648 }
+  return -2147483648 when value == "-2147483648" and minimum == -2147483648
   let numeric = rx"^[+-]?[0-9]+$".matches(value)
   match value.parse_int() {
     Ok(number) => {
-      if number >= minimum and number <= 2147483647 { return number }
+      return number when number >= minimum and number <= 2147483647
       let overflow = number < -2147483648 or number > 2147483647 or (minimum == 0 and number < 0)
       let reason = if overflow { ": Value too large for defined data type" } else if number == 0 and minimum == 1 { ": Result not representable" } else { "" }
       gnu.error(f"{message}: {gnu.quote_value(value)}{reason}")
@@ -31,11 +31,11 @@ pure page_decimal(value: Str) -> Str {
 }
 
 pure decimal_greater(left: Str, right: Str) -> Bool {
-  if left.byte_len() != right.byte_len() { return left.byte_len() > right.byte_len() }
+  return left.byte_len() > right.byte_len() when left.byte_len() != right.byte_len()
   let a = bytes.from_text(left)
   let b = bytes.from_text(right)
   for at in range(a.len()) {
-    if a.byte_at(at) != b.byte_at(at) { return (a.byte_at(at) ?? 0) > (b.byte_at(at) ?? 0) }
+    return (a.byte_at(at) ?? 0) > (b.byte_at(at) ?? 0) when a.byte_at(at) != b.byte_at(at)
   }
   false
 }
@@ -116,7 +116,7 @@ pure print_records(data: Bytes, omit_pages: Bool) -> List[Bytes] {
     for at in range(data.len()) {
       let byte = data.byte_at(at) ?? 0
       if byte == 10 {
-        if at > start or data.byte_at(at - 1) != 12 { yield data[start..at] }
+        yield data[start..at] when at > start or data.byte_at(at - 1) != 12
         start = at + 1
       } else if byte == 12 {
         yield data[start..at] when at > start
@@ -148,10 +148,10 @@ pure expansion_overflows(data: Bytes, tab_width: Int, tab_byte: Int) -> Bool {
     let byte = data.byte_at(at) ?? 0
     if byte == tab_byte or byte == 9 {
       let width = if byte == 9 and tab_byte != 9 { 8 - column % 8 } else { tab_width - column % tab_width }
-      if column > 2147483647 - width { return true }
+      return true when column > 2147483647 - width
       column += width
     } else if byte == 10 { column = 0 } else if byte == 8 { if column > 0 { column -= 1 } } else {
-      if column > 2147483647 - unit.width { return true }
+      return true when column > 2147483647 - unit.width
       column += unit.width
     }
     at += unit.size
@@ -357,7 +357,7 @@ proc main(...argv: List[Str]) {
         var preserved = 0
         for column in range(count) {
           let index = if opts.merge { at + row } else if opts.across { at + row * count + column } else { at + column * row_count + row }
-          if column > last_column { break }
+          break when column > last_column
           let present = if opts.merge { index < inputs[column].len() } else { index < at + take }
           let line = if ! present { b"" } else if opts.merge { inputs[column][index] } else { lines[index] }
           if column > 0 {

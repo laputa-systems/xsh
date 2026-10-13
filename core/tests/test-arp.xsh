@@ -94,7 +94,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, error] {{
 
 test test_arp_lists_resolved_pending_and_permanent_entries { |ctx|
   let transcript = session(ctx, [["-n"], ["-an"], ["-i", "d1"], ["-ai", "d0", "-n"], ["-v", "-n"], ["-n", "192.0.2.61"], ["-an", "192.0.2.61"]])?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   # NOARP entries are not listed; the table order is the kernel's, so rows are sorted.
   let table = sorted_lines(blocks[1])
@@ -124,7 +124,7 @@ test test_arp_lists_resolved_pending_and_permanent_entries { |ctx|
 
 test test_arp_reports_hosts_and_filters_with_no_match { |ctx|
   let transcript = session(ctx, [["-n", "192.0.2.99"], ["-an", "192.0.2.99"], ["-i", "nosuch0"], ["-H", "ax25", "-n"], ["-H", "netrom", "-n"], ["-A", "inet6"], ["-v", "-i", "d1", "-n"]])?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   assert blocks[1] == "-n 192.0.2.99\n192.0.2.99 (192.0.2.99) -- no entry\nrc=0\n"
   assert blocks[2] == "-an 192.0.2.99\narp: in 4 entries no match found.\nrc=0\n"
@@ -153,7 +153,7 @@ test test_arp_sets_and_deletes_entries { |ctx|
       ["-n"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   for index in range(1, 7) {
     assert blocks[index].ends_with("rc=0\n"), blocks[index]
@@ -190,7 +190,7 @@ test test_arp_rejects_bad_set_and_delete_forms { |ctx|
       ["-V"],
     ],
   )?
-  if transcript == "" { return }
+  return when transcript == ""
   let blocks = transcript.split("$ ")
   assert blocks[1] == "-s 192.0.2.70\n2> arp: need hardware address\nrc=255\n"
   assert blocks[2] == "-s 192.0.2.70 zz:zz\n2> arp: invalid hardware address\nrc=255\n"

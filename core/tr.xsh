@@ -27,7 +27,7 @@ proc warnings(data: Bytes) {
 
 pure atom(data: Bytes, at: Int) -> Atom {
   let byte = data.byte_at(at) ?? 0
-  if byte != 92 or at + 1 >= data.len() { return {value: byte, next: at + 1} }
+  return {value: byte, next: at + 1} when byte != 92 or at + 1 >= data.len()
   let escaped = data.byte_at(at + 1) ?? 0
   if escaped >= 48 and escaped <= 55 {
     var value = 0
@@ -46,9 +46,9 @@ pure atom(data: Bytes, at: Int) -> Atom {
 
 pure find_sequence(data: Bytes, sequence: Bytes, start: Int) -> Int? {
   let last = data.len() - sequence.len()
-  if start > last { return null }
+  return null when start > last
   for at in range(start, last + 1) {
-    if data[at..at + sequence.len()] == sequence { return at }
+    return at when data[at..at + sequence.len()] == sequence
   }
   null
 }
@@ -198,7 +198,7 @@ pure value_at(runs: List[Run], position: Count) -> Int {
   var start = ZERO
   for item in runs {
     let end = add(start, item.count)
-    if compare(position, end) < 0 { return item.byte }
+    return item.byte when compare(position, end) < 0
     start = end
   }
   runs[-1].byte
@@ -278,9 +278,9 @@ proc main(...argv: List[Bytes]) {
     let output: List[Int] = collect {
       for at in range(source.len()) {
         let original = source.byte_at(at) ?? 0
-        if deletes[original] { continue }
+        continue when deletes[original]
         let value = translation[original]
-        if previous != value or ! squeezes[value] { yield value }
+        yield value when previous != value or ! squeezes[value]
         previous = value
       }
     }

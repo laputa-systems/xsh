@@ -171,8 +171,8 @@ proc note(opts: Options, text: Str) [process, env, io, error] {
 # or QUOTING_STYLE chooses another.
 proc q(opts: Options, name: Str) [env, error] -> Str {
   let style = opts.quoting_style ?? env.get_or("QUOTING_STYLE", "shell") ?? "shell"
-  if style == "literal" { return name }
-  if style == "shell-always" { return gnu.quote(name) }
+  return name when style == "literal"
+  return gnu.quote(name) when style == "shell-always"
   if style == "c" or style == "escape" {
     var out = ""
     for char in name {
@@ -213,13 +213,13 @@ pure component_count(name: Str) -> Int {
 # beats a missing one, then fewer path components, then a shorter base name,
 # then a shorter whole name; the first listed wins a full tie.
 pure better(candidate: Candidate, other: Candidate) -> Bool {
-  if candidate.exists != other.exists { return candidate.exists }
+  return candidate.exists when candidate.exists != other.exists
   let a = component_count(candidate.name)
   let b = component_count(other.name)
-  if a != b { return a < b }
+  return a < b when a != b
   let c = basename_of(candidate.name).byte_len()
   let d = basename_of(other.name).byte_len()
-  if c != d { return c < d }
+  return c < d when c != d
   candidate.name.byte_len() < other.name.byte_len()
 }
 
@@ -232,7 +232,7 @@ proc file_exists(name: Str) [fs] -> Bool {
 
 # The patched file's content as bytes, or empty when it does not exist.
 proc read_input(name: Str) [fs, error] -> Result[Bytes, Error] {
-  if !file_exists(name) { return Ok(b"") }
+  return Ok(b"") unless file_exists(name)
   fp"{name}".read_bytes()
 }
 
@@ -360,7 +360,7 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
     }
   }
   let lines = patch_parse.split_lines(patch_bytes)
-  if lines.is_empty() { return }
+  return when lines.is_empty()
   let allowed = patch_options.chosen_format(opts_argv)
   var named: Str? = null
   if opts.files.len() > 0 { named = opts.files[0] }
@@ -388,7 +388,7 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
     let outcome = one_patch(opts, strip, max_fuzz, working, scan, named)
     if outcome.status > status { status = outcome.status }
     position = outcome.next
-    if position >= lines.len() { break }
+    break when position >= lines.len()
   }
   if opts.verbose { say("done\n") }
   exit status
@@ -405,9 +405,9 @@ pure shown_line(line: Bytes) -> Str {
 # once while looking for another patch, and once more when the line came
 # directly after the last hunk, where it is looked at first as hunk text.
 proc report_partial_last_line(lines: List[Bytes], position: Int, after_hunk: Bool) [process, env, io, error] {
-  if lines.is_empty() { return }
+  return when lines.is_empty()
   let last = lines[lines.len() - 1]
-  if last.ends_with(b"\n") or last.starts_with(b"\\") { return }
+  return when last.ends_with(b"\n") or last.starts_with(b"\\")
   say("patch unexpectedly ends in middle of line\n")
   if after_hunk and position == lines.len() - 1 { say("patch unexpectedly ends in middle of line\n") }
 }
@@ -429,7 +429,7 @@ proc announce(lines: List[Bytes], scan: patch_parse.Scan, first: Bool, strips_cr
 # climb out with `..` are refused, as GNU patch refuses them.
 proc usable_name(raw: Str, strip: Int) [io, process, env, error] -> Str {
   let stripped = patch_parse.strip_name(raw, strip)
-  if stripped == "" { return "" }
+  return "" when stripped == ""
   var dangerous = stripped.starts_with("/")
   for part in stripped.split("/") { if part == ".." { dangerous = true } }
   if dangerous {
@@ -445,15 +445,15 @@ proc crosses_symlink(name: Str) [fs, error] -> Bool {
   let parts = name.split("/")
   for index in range(parts.len() - 1) {
     prefix = if prefix == "" { parts[index] } else { prefix + "/" + parts[index] }
-    if prefix == "" { continue }
+    continue when prefix == ""
     match fs.stat(fp"{prefix}", follow_symlinks: false) {
       Ok(info) => {
         if info.kind == "symlink" {
           # A link that stays inside the tree is followed; one that points
           # elsewhere makes the name invalid.
           let destination = fp"{prefix}".readlink()?.display()
-          if destination.starts_with("/") { return true }
-          for part in destination.split("/") { if part == ".." { return true } }
+          return true when destination.starts_with("/")
+          for part in destination.split("/") { return true when part == ".." }
         }
       }
       Err(_) => {}
@@ -571,7 +571,7 @@ pure git_mode(git: patch_parse.GitHeader, reverse: Bool) -> Int {
   } else {
     if git.new_file_mode != "" { text = git.new_file_mode } else if git.new_mode != "" { text = git.new_mode }
   }
-  if text == "" { return -1 }
+  return -1 when text == ""
   var value = 0
   for digit in text { value = value * 8 + (digit.parse_int() ?? 0) }
   value
@@ -581,9 +581,9 @@ proc skip_hunks(lines: List[Bytes], scan: patch_parse.Scan) -> Skipped {
   var position = scan.body
   var total = 0
   loop {
-    if position >= lines.len() { break }
+    break when position >= lines.len()
     let read = read_one(lines, position, scan.kind, false)
-    if read.hunk == null or read.bad_line > 0 { break }
+    break when read.hunk == null or read.bad_line > 0
     total += 1
     position = read.next
   }
@@ -592,18 +592,18 @@ proc skip_hunks(lines: List[Bytes], scan: patch_parse.Scan) -> Skipped {
 
 pure read_one(lines: List[Bytes], position: Int, kind: Str, strip_cr: Bool) -> patch_parse.HunkRead {
   let none: patch_parse.HunkRead = {hunk: null, next: position, bad_line: 0, bad_text: b"", truncated: false, partial: false}
-  if position >= lines.len() { return none }
+  return none when position >= lines.len()
   let text = patch_parse.body_text(lines[position])
   if kind == "unified" or kind == "git" {
-    if !text.starts_with("@@ ") { return none }
+    return none unless text.starts_with("@@ ")
     return patch_parse.read_unified(lines, position, strip_cr)
   }
   if kind == "context" {
-    if !text.starts_with("***************") { return none }
+    return none unless text.starts_with("***************")
     return patch_parse.read_context(lines, position, strip_cr)
   }
   if kind == "normal" {
-    if !rx"^\d+(,\d+)?[acd]\d+(,\d+)?$".matches(text) { return none }
+    return none unless rx"^\d+(,\d+)?[acd]\d+(,\d+)?$".matches(text)
     return patch_parse.read_normal(lines, position, strip_cr)
   }
   none
@@ -617,12 +617,12 @@ pure contains_word(content: Bytes, word: Str) -> Bool {
   var from = 0
   loop {
     let at = text.find(word, from) ?? -1
-    if at < 0 { return false }
+    return false when at < 0
     let raw = bytes.from_text(text)
     let end = at + wanted.len()
     let before = if at == 0 { 32 } else { raw.byte_at(at - 1) ?? 32 }
     let after = if end >= raw.len() { 32 } else { raw.byte_at(end) ?? 32 }
-    if !is_word_byte(before) and !is_word_byte(after) { return true }
+    return true when ! is_word_byte(before) and ! is_word_byte(after)
     from = at + 1
   }
   false
@@ -878,8 +878,8 @@ proc remove_file(name: Str) [fs, error] -> Result[Unit, Error] {
   var parent = dirname_of(name)
   while parent != "" {
     let trimmed = if parent.ends_with("/") { parent.byte_slice(0, parent.byte_len() - 1) } else { parent }
-    if trimmed == "" { break }
-    if fp"{trimmed}".remove_dir() is Err(_) { break }
+    break when trimmed == ""
+    break when fp"{trimmed}".remove_dir() is Err(_)
     parent = dirname_of(trimmed)
   }
   Ok()
@@ -892,7 +892,7 @@ proc highest_numbered(target: Str) [fs, error] -> Int {
   let directory = if parent == "" { "." } else { parent }
   let stem = basename_of(target)
   var highest = 0
-  if !file_exists(directory) { return 0 }
+  return 0 unless file_exists(directory)
   for entry in fs.children(fp"{directory}")? {
     if entry.name.starts_with(stem + ".~") and entry.name.ends_with("~") {
       let middle = entry.name.byte_slice(stem.byte_len() + 2, entry.name.byte_len() - stem.byte_len() - 3)
@@ -916,7 +916,7 @@ proc backup_name(opts: Options, name: Str) [fs, env, error] -> Str {
   let highest = highest_numbered(stem)
   var numbered = style == "numbered"
   if style == "existing" or style == "" or style == "none" { numbered = highest > 0 }
-  if numbered { return f"{stem}.~{highest + 1}~" }
+  return f"{stem}.~{highest + 1}~" when numbered
   stem + suffix
 }
 
@@ -967,16 +967,16 @@ pure shifted(hunk: patch_parse.Hunk, by: Int) -> patch_parse.Hunk {
 # Whether the first hunk of the patch has a group that both removes and adds
 # lines, which a context diff shows with `!` marks.
 pure first_changes(lines: List[Bytes], scan: patch_parse.Scan) -> Bool {
-  if scan.kind != "context" { return false }
+  return false when scan.kind != "context"
   let read = read_one(lines, scan.body, scan.kind, true)
   let hunk = read.hunk
-  if hunk == null { return false }
+  return false when hunk == null
   let kinds = (hunk ?? patch_parse.EMPTY_HUNK).kinds
   var removed = false
   var added = false
   for kind in kinds {
     if kind == 0 {
-      if removed and added { return true }
+      return true when removed and added
       removed = false
       added = false
     } else if kind == 1 { removed = true } else { added = true }
@@ -987,7 +987,7 @@ pure first_changes(lines: List[Bytes], scan: patch_parse.Scan) -> Bool {
 # The name a reject header shows for a patch header name: `/dev/null` stays,
 # anything else appears after `-p` stripping.
 pure reject_name_of(header: patch_parse.HeaderName, strip: Int) -> Str {
-  if header.name == "/dev/null" or !header.present { return header.name }
+  return header.name when header.name == "/dev/null" or ! header.present
   let stripped = patch_parse.strip_name(header.name, strip)
   if stripped == "" { header.name } else { stripped }
 }
@@ -1010,13 +1010,13 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
   let inkeys = patch_apply.keys(input_lines, loose)
   var detected = assumed
   loop {
-    if position >= lines.len() { break }
+    break when position >= lines.len()
     let read = read_one(lines, position, scan.kind, strip_cr)
     if read.bad_line != 0 {
       return {output: output, rejected: rejected, total: total, mismatch: mismatch, skipped: skip, next: position, fatal_line: read.bad_line, fatal_text: read.bad_text, partial: read.partial, reversed: reverse}
     }
     let parsed = read.hunk
-    if parsed == null { break }
+    break when parsed == null
     position = read.next
     total += 1
     var hunk: patch_parse.Hunk = parsed ?? patch_parse.EMPTY_HUNK
@@ -1033,7 +1033,7 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
     var where = 0
     while fuzz <= limit {
       where = patch_apply.locate(inkeys, pattern, hunk, fuzz, in_offset, last_frozen)
-      if where > 0 { break }
+      break when where > 0
       if total == 1 and !opts.force and !detected {
         let other = patch_apply.reversed(hunk)
         let other_pattern = patch_apply.keys(patch_apply.pattern(other), loose)

@@ -108,9 +108,7 @@ pure resource_of_letter(letter: Str) -> Int {
   var at = 0
 
   for resource in RESOURCES {
-    if resource.letter == letter {
-      return at
-    }
+    return at when resource.letter == letter
 
     at += 1
   }
@@ -122,9 +120,7 @@ pure resource_of_name(name: Str) -> Int {
   var at = 0
 
   for resource in RESOURCES {
-    if resource.rlimit == name {
-      return at
-    }
+    return at when resource.rlimit == name
 
     at += 1
   }
@@ -376,9 +372,7 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
       break
     }
 
-    if ! word.starts_with("-") or word == "-" {
-      break
-    }
+    break when ! word.starts_with("-") or word == "-"
 
     at += 1
 
@@ -646,9 +640,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.write_text(render(rows, columns, ! invocation.noheadings, invocation.raw))
   }
 
-  if invocation.rest.is_empty() {
-    return
-  }
+  return when invocation.rest.is_empty()
 
   let command = invocation.rest[0]
   let status = proc_launch.launch_status(command)

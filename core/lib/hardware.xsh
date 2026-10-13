@@ -28,7 +28,7 @@ export type SummaryField = {field: Str, data: Str}
 
 ## Formats an observed decimal number without turning missing identity into zero.
 export pure decimal(value: Int?, width: Int) -> Str {
-  if value == null { return ["?"] |> repeat(width).join("") }
+  return ["?"] |> repeat(width).join("") when value == null
   var text = f"{value}"
   while text.byte_len() < width { text = "0" + text }
   text
@@ -36,7 +36,7 @@ export pure decimal(value: Int?, width: Int) -> Str {
 
 ## Formats an observed hexadecimal identifier; question marks retain unknown values.
 export pure hex(value: Int?, width: Int) -> Str {
-  if value == null { return ["?"] |> repeat(width).join("") }
+  return ["?"] |> repeat(width).join("") when value == null
   var number = value
   var text = ""
   while number > 0 { text = "0123456789abcdef".byte_slice(number % 16, 1) + text; number /= 16 }
@@ -50,8 +50,8 @@ export pure parse_ids(text: Str) -> Result[Map[Str], Error] {
   var vendor = ""
   var base_class = ""
   for raw in text.lines() {
-    if raw.trim() == "" or raw.trim().starts_with("#") { continue }
-    if raw.starts_with("\t\t") { continue }
+    continue when raw.trim() == "" or raw.trim().starts_with("#")
+    continue when raw.starts_with("\t\t")
     if raw.starts_with("C ") {
       let parts = raw.fields()
       if parts.len() < 3 { return Err(HardwareError.InvalidDatabase("class label has no name")) }
@@ -80,7 +80,7 @@ export proc load_labels(paths: List[Path]) -> Result[Map[Str], Error] {
   for file in paths {
     match file.read_text() {
       Ok(text) => return parse_ids(text)
-      Err(failure) => { if gnu.errno(failure) != 2 { return Err(failure) } }
+      Err(failure) => return Err(failure) when gnu.errno(failure) != 2
     }
   }
   let empty: Map[Str] = {}
@@ -88,7 +88,7 @@ export proc load_labels(paths: List[Path]) -> Result[Map[Str], Error] {
 }
 
 pure component(text: Str, maximum: Int, hexadecimal: Bool) -> Result[Int?] {
-  if text == "" or text == "*" { return null }
+  return null when text == "" or text == "*"
   let parsed = if hexadecimal { pci.parse_hex_value(text)? } else { text.parse_int()? }
   if parsed < 0 or parsed > maximum { return Err(HardwareError.InvalidSelector(f"selector component '{text}' is out of range")) }
   parsed
@@ -251,7 +251,7 @@ export pure usb_lines(devices: List[usb.UsbDevice], names: Map[Str], view: UsbVi
       continue
     }
     lines += [usb_title(device, names)]
-    if ! view.verbose { continue }
+    continue unless view.verbose
     lines += ["Device Descriptor:", f"  bDeviceClass        {decimal(device.class_code, 1)}", f"  bDeviceSubClass     {decimal(device.subclass, 1)}",
       f"  bDeviceProtocol     {decimal(device.protocol, 1)}", f"  idVendor           0x{hex(device.vendor_id, 4)}", f"  idProduct          0x{hex(device.product_id, 4)}"]
     if device.device_version != null { lines += [f"  bcdDevice          {device.device_version}"] }
@@ -331,15 +331,15 @@ pure cpu_cell(section: report.CpuSection, processor: report.Cpu, column: Str, id
     "NODE" => if processor.numa_node == null { "-" } else if physical { f"{processor.numa_node}" } else { f"{ids.nodes.get(f"{processor.numa_node}")?}" }
     "SOCKET" => if processor.package_id == null { "-" } else if physical { f"{processor.package_id}" } else { f"{ids.sockets.get(f"{processor.package_id}")?}" }
     "CORE" => {
-      if processor.core_id == null { return "-" }
-      if physical { return f"{processor.core_id}" }
-      if processor.package_id == null { return "-" }
+      return "-" when processor.core_id == null
+      return f"{processor.core_id}" when physical
+      return "-" when processor.package_id == null
       f"{ids.cores.get(f"{processor.package_id}:{processor.die_id ?? -1}:{processor.core_id}")?}"
     }
     "DIE" => {
-      if processor.die_id == null { return "-" }
-      if physical { return f"{processor.die_id}" }
-      if processor.package_id == null { return "-" }
+      return "-" when processor.die_id == null
+      return f"{processor.die_id}" when physical
+      return "-" when processor.package_id == null
       f"{ids.dies.get(f"{processor.package_id}:{processor.die_id}")?}"
     }
     "ONLINE" => if processor.online == null { "-" } else if processor.online { "Y" } else { "N" }
@@ -355,7 +355,7 @@ pure cpu_cell(section: report.CpuSection, processor: report.Cpu, column: Str, id
     }
     "MHZ" | "MAXMHZ" | "MINMHZ" => {
       let policies = report.frequency_policies_for_cpu(section.frequency_policies, processor.id)
-      if policies.is_empty() { return "-" }
+      return "-" when policies.is_empty()
       let policy = policies[0]
       let khz: Int? = if column == "MHZ" { if policy.scaling_current_khz != null { policy.scaling_current_khz } else { policy.hardware_current_khz } } else if column == "MAXMHZ" { policy.hardware_max_khz } else { policy.hardware_min_khz }
       if khz == null { "-" } else { f"{khz / 1000}.{khz % 1000:03}" }
@@ -377,8 +377,8 @@ export pure cpu_rows(section: report.CpuSection, columns: List[Str], selection: 
   let ids = cpu_identifiers(section)
   var rows: List[List[Str]] = []
   for processor in section.cpus |> sort-by .id {
-    if selection == "online" and processor.online != true { continue }
-    if selection == "offline" and processor.online != false { continue }
+    continue when selection == "online" and processor.online != true
+    continue when selection == "offline" and processor.online != false
     var cells: List[Str] = []
     for column in checked {
       let value = cpu_cell(section, processor, column, ids, physical)?
@@ -386,7 +386,7 @@ export pure cpu_rows(section: report.CpuSection, columns: List[Str], selection: 
     }
     rows += [cells]
   }
-  if parse { return ["# " + checked.join(",")] + [row.join(",") for row in rows] }
+  return ["# " + checked.join(",")] + [row.join(",") for row in rows] when parse
   aligned_lines(checked, rows, true)
 }
 
@@ -395,7 +395,7 @@ pure cache_size(value: Int) -> Str {
   var index = 0
   var divisor = 1
   while value / divisor >= 1024 and index < units.len() - 1 { index += 1; divisor *= 1024 }
-  if value % divisor == 0 { return f"{value / divisor} {units[index]}" }
+  return f"{value / divisor} {units[index]}" when value % divisor == 0
   var text = quantity(value, divisor, false, 2)
   while text.ends_with("0") { text = text.byte_slice(0, text.byte_len() - 1) }
   if text.ends_with(".") { text = text.byte_slice(0, text.byte_len() - 1) }
@@ -457,7 +457,7 @@ export pure cpu_summary(section: report.CpuSection, architecture: Str, bytes_mod
 
 ## Selects radio devices by numeric ID or conventional radio type aliases.
 export pure rfkill_select(devices: List[LinuxRfkill], selectors: List[Str]) -> Result[List[LinuxRfkill], Error] {
-  if selectors.is_empty() { return devices }
+  return devices when selectors.is_empty()
   var selected: List[LinuxRfkill] = []
   for selector in selectors {
     let radio = if selector == "wifi" { "wlan" } else { selector }

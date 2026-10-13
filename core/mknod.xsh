@@ -13,9 +13,9 @@ const BARE_CONTEXT = "\0"
 pure mode_source(argv: List[Str]) -> ModeSource {
   for index in range(argv.len()) {
     let arg = argv[index]
-    if arg in ["-m", "--mode"] { return {index: index + 1, start: 0} }
-    if arg.starts_with("--mode=") { return {index: index, start: 7} }
-    if arg.starts_with("-m") and arg.byte_len() > 2 { return {index: index, start: 2} }
+    return {index: index + 1, start: 0} when arg in ["-m", "--mode"]
+    return {index: index, start: 7} when arg.starts_with("--mode=")
+    return {index: index, start: 2} when arg.starts_with("-m") and arg.byte_len() > 2
   }
   {index: 0, start: 0}
 }
@@ -23,7 +23,7 @@ pure mode_source(argv: List[Str]) -> ModeSource {
 pure bad_mode_offset(mode: Str) -> Int {
   for index in range(mode.byte_len()) {
     let char = mode.byte_slice(index, length: 1)
-    if char not in "ugoa+-=rwxXst01234567,0123456789" { return index }
+    return index when char not in "ugoa+-=rwxXst01234567,0123456789"
   }
   mode.byte_len() - 1
 }
@@ -33,7 +33,7 @@ proc mode_error(argv: List[Str], mode: Str) [env, process, error] {
   gnu.error(message)
   let requested = env.get_or("UUTILS_DIAG", "") ?? ""
   return when requested == "never"
-  if requested != "always" and ! unix.isatty(2) { return }
+  return when requested != "always" and ! unix.isatty(2)
   let source = mode_source(argv)
   let program = gnu.prog()
   let command = argv.join(" ")

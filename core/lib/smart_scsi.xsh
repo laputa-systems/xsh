@@ -44,7 +44,7 @@ export pure serial_number(page: Bytes) -> Str? {
   let length = smart.at(page, 3)
   guard smart.at(page, 1) == 128 and length > 0 else { return null }
   let text = field(page, 4, length)
-  if text == "" { return null }
+  return null when text == ""
   text
 }
 
@@ -139,7 +139,7 @@ export const READ_HEADER = "=== START OF READ SMART DATA SECTION ===\n"
 
 ## The `SMART Health Status` line.
 export pure health_text(report: Exceptions) -> Str {
-  if report.asc == 0 { return "SMART Health Status: OK\n" }
+  return "SMART Health Status: OK\n" when report.asc == 0
   f"SMART Health Status: FAILURE PREDICTION THRESHOLD EXCEEDED: ascq=0x{smart.hex(report.ascq, 2)}\n"
 }
 

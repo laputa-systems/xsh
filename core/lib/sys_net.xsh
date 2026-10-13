@@ -69,9 +69,7 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
 ## Reads a complete network-interface table from the caller-owned root.
 export proc collect(root: FsRoot) [fs, error] -> NetworkSource {
   let parsed = parse(src.read_source_text(root, p"proc/net/dev", max_bytes: 1048576))
-  if parsed.state != report.Observed {
-    return parsed
-  }
+  return parsed when parsed.state != report.Observed
 
   var interfaces: List[NetworkInterface] = []
   var issues = parsed.issues
@@ -101,9 +99,7 @@ export pure selected_interface(interfaces: List[NetworkInterface]) -> NetworkInt
   if candidates.is_empty() {
     candidates = interfaces
   }
-  if candidates.is_empty() {
-    return null
-  }
+  return null when candidates.is_empty()
 
   (candidates |> sort-by .name)[0]
 }

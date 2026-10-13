@@ -324,7 +324,7 @@ pure escape_bytes(data: Bytes) -> Str {
 }
 
 pure octal_mode(mode: Int) -> Str {
-  if mode < 8 { return f"{mode}" }
+  return f"{mode}" when mode < 8
   f"{octal_mode(mode / 8)}{mode % 8}"
 }
 
@@ -336,7 +336,7 @@ proc describe_file(work: Path, name: Str) [fs, error] -> Result[Str] {
     Ok(value) => value
     Err(_) => { return Ok(f"file {name} absent") }
   }
-  if info.kind == "dir" { return Ok(f"file {name} directory") }
+  return Ok(f"file {name} directory") when info.kind == "dir"
   if info.kind == "symlink" { return Ok(f"file {name} symlink '{escape_bytes(bytes.from_text(target.readlink()?.display()))}'") }
   let contents = target.read_bytes() ?? b""
   Ok(f"file {name} mode {octal_mode(info.mode % 4096)} '{escape_bytes(contents)}'")
@@ -419,9 +419,9 @@ proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process
   var failures: List[Str] = []
   var ran = 0
   for line in fp"{ctx.core_dir}/tests/data/sed/cases.jsonl".read_text()?.split("\n") {
-    if !line.starts_with(f"{{\"name\": \"{prefix}") { continue }
+    continue unless line.starts_with(f"{{\"name\": \"{prefix}")
     let row = json.decode(line)?.require(CaseRow)?
-    if row.skip != "" { continue }
+    continue when row.skip != ""
     reset_work(work)
     let actual = transcript(ctx, row, work, scratch)?
     ran += 1

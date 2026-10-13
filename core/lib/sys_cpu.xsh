@@ -30,9 +30,7 @@ pure empty_stat(state: report.ObservationState, issues: List[src.Issue] = []) ->
 }
 
 pure parse_counter_fields(words: List[Str]) -> CounterParse {
-  if words.len() < 4 {
-    return {state: report.Malformed, fields: []}
-  }
+  return {state: report.Malformed, fields: []} when words.len() < 4
 
   var fields: List[Int] = []
   for word in words {
@@ -135,9 +133,7 @@ pure decimal_seconds(value: Str) -> Float? {
       dot_seen = true
       continue
     }
-    if character < "0" or character > "9" {
-      return null
-    }
+    return null when character < "0" or character > "9"
     digits += 1
   }
   return null when digits == 0
@@ -155,13 +151,9 @@ export pure parse_uptime(source: src.SourceRead) -> Uptime {
     return {state: source.observation.state, seconds: null}
   }
   let words = src.parse_words(source.observation.value)
-  if words.is_empty() {
-    return {state: report.Malformed, seconds: null}
-  }
+  return {state: report.Malformed, seconds: null} when words.is_empty()
   let seconds = decimal_seconds(words[0])
-  if seconds == null {
-    return {state: report.Malformed, seconds: null}
-  }
+  return {state: report.Malformed, seconds: null} when seconds == null
   {state: report.Observed, seconds: seconds}
 }
 
@@ -171,15 +163,11 @@ export pure parse_loadavg(source: src.SourceRead) -> LoadAverage {
     return {state: source.observation.state, values: []}
   }
   let words = src.parse_words(source.observation.value)
-  if words.len() < 3 {
-    return {state: report.Malformed, values: []}
-  }
+  return {state: report.Malformed, values: []} when words.len() < 3
   var values: List[Float] = []
   for word in words |> take(3) {
     let value = decimal_seconds(word)
-    if value == null {
-      return {state: report.Malformed, values: []}
-    }
+    return {state: report.Malformed, values: []} when value == null
     values += [value ?? 0.0]
   }
   {state: report.Observed, values: values}

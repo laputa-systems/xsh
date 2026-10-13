@@ -12,7 +12,7 @@ proc size(value: Str, limit: Int, width: Bool) -> Int {
     exit 1
   }
   if let Ok(number) = value.trim().parse_int() {
-    if number <= limit { return number }
+    return number when number <= limit
   }
   let reason = if width { "Numerical result out of range" } else { "Value too large for defined data type" }
   gnu.error(f"invalid width: {gnu.quote_value(value)}: {reason}")
@@ -158,7 +158,7 @@ proc emit_buffer(words: List[Word], begin: Int, end: Int, flushing: Bool, first:
 # false sentence breaks after initials, and balance neighboring filled lines.
 proc paragraph(lines: List[Bytes], width: Int, goal: Int, quick: Bool, first: Str, later: Str, uniform: Bool) {
   let words = lines |> flat-map { |line| word_parts(line) }
-  if words.is_empty() { return }
+  return when words.is_empty()
   if quick {
     var breaks: List[Int] = []
     var begin = 0
@@ -206,7 +206,7 @@ proc modernize(argv: List[Str]) -> List[Str] {
   for item in argv |> enumerate() {
     if item.value == "--" { enabled = false }
     if enabled and ! value and rx"^-[0-9]".matches(item.value) {
-      if item.index == 0 { return ["-w", item.value.byte_slice(1), @argv[1..]] }
+      return ["-w", item.value.byte_slice(1), @argv[1..]] when item.index == 0
       gnu.error(f"invalid option -- {item.value.byte_slice(1, length: 1)}; -WIDTH is recognized only when it is the first\noption; use -w N instead")
       exit 1
     }

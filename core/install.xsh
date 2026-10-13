@@ -28,7 +28,7 @@ pure install_mode(spec: Str, directory: Bool) -> Int? {
   var mode = 0
   for clause in spec.split(",") {
     let pieces = rx"^([ugoa]*)([=+-])([rwxXstugo]*)$".captures(clause)
-    if pieces.is_empty() { return null }
+    return null when pieces.is_empty()
     let who = pieces[1]
     let op = pieces[2]
     let perms = pieces[3]
@@ -210,10 +210,10 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
 # Intermediate directories keep the default mode the kernel gives new directories
 # (modified by the umask), not the installed mode, so -m never reaches them.
 proc make_ancestors(dest: Path, verbose = false) -> Result[Unit] {
-  if files.present(dest) { return }
+  return when files.present(dest)
   make_ancestors(dest.parent(), verbose)
   if let Err(failure) = dest.mkdir() {
-    if ! files.directory(dest, true) { return Err(failure) }
+    return Err(failure) unless files.directory(dest, true)
   }
   if verbose { print f"install: creating directory {gnu.quote_bytes(dest.bytes())}" }
 }

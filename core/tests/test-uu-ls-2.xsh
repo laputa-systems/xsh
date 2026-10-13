@@ -86,7 +86,7 @@ proc locale_available(s: uu.Scene, name: Str) [fs, process, error] -> Result[Boo
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
   let status = process.run(process.command_argv(executable?, ["locale", "-a"], s.root, stdout: out, stderr: err, timeout: 2s))?
-  if !status.exited_with(0) { return Ok(false) }
+  return Ok(false) unless status.exited_with(0)
   let wanted = name.replace("-", with: "").lower()
   Ok(wanted in [line.replace("-", with: "").lower() for line in out.read_text()?.lines()])
 }

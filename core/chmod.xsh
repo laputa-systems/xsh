@@ -40,8 +40,8 @@ pure mode_for(spec: Str, current: Int, directory: Bool, umask: Int) -> Result[In
     let op = spec.byte_slice(0, length: 1)
     if op in "+-=" {
       let value = octal(spec.byte_slice(1))?
-      if op == "+" { return current.bit_and(0o7777).bit_or(value) }
-      if op == "-" { return current.bit_and(0o7777).clear_bits(value) }
+      return current.bit_and(0o7777).bit_or(value) when op == "+"
+      return current.bit_and(0o7777).clear_bits(value) when op == "-"
       return value
     }
     let numeric = octal(spec)?

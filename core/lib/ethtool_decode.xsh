@@ -187,7 +187,7 @@ pure flag_of(name: Str) -> Int {
 ## feature itself, or every feature of an offload flag named by its short or
 ## long name. A flag the kernel has no feature for expands to nothing.
 export pure feature_names(word: Str, known: List[Str]) -> List[Str] {
-  if word in known { return [word] }
+  return [word] when word in known
 
   for index in range(FLAGS.len()) {
     if FLAGS[index].short == word or FLAGS[index].long == word {
@@ -753,9 +753,7 @@ export pure msglvl_lines(level: Int) -> List[Str] {
 export pure eee_lines(device: Str, reply: Bytes) -> Result[List[Str], Error] {
   let v = unwords(reply, 7)?
   var lines: List[Str] = [f"EEE settings for {device}:"]
-  if v[0] == 0 {
-    return Ok(lines + ["\tEEE status: not supported"])
-  }
+  return Ok(lines + ["\tEEE status: not supported"]) when v[0] == 0
   let status = if v[4] == 0 { "disabled" } else if v[3] != 0 { "enabled - active" } else { "enabled - inactive" }
   lines += [f"\tEEE status: {status}"]
   lines += [if v[5] != 0 { f"\tTx LPI: {v[6]} (us)" } else { "\tTx LPI: disabled" }]

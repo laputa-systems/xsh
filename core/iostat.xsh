@@ -17,7 +17,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
         let header = if opts.mebi { "Device tps MB_read/s MB_wrtn/s MB_read MB_wrtn" } else { "Device tps kB_read/s kB_wrtn/s kB_read kB_wrtn" }
         print $header
         let elapsed_ms = if previous == null { current.uptime_ms } else { current.sampled_at_ms - previous.sampled_at_ms }
-        if elapsed_ms <= 0 { return Err(error.failure("sampling clock did not advance")) }
+        return Err(error.failure("sampling clock did not advance")) when elapsed_ms <= 0
         let rate = 1000.0 / elapsed_ms.float()
         let divisor = if opts.mebi { 2048.0 } else { 2.0 }
         for disk in current.disks {

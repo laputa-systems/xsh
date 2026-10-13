@@ -76,7 +76,7 @@ test test_cksum_debug_reports_cpu_features_and_honors_tunables { |ctx|
   for name in names {
     let enabled = if name == "avx512" or name == "avx2" { name in features and "vpclmulqdq" in features } else if name == "pclmul" { name in features and "avx" in features } else { name in features }
     expected += if enabled { f"cksum: using {name} hardware support\n" } else { f"cksum: {name} support not detected\n" }
-    if enabled { break }
+    break when enabled
   }
   assert debug.stderr == expected
 

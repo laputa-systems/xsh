@@ -170,8 +170,8 @@ pure flag_letters(flags: Int) -> Str {
 }
 
 pure when_failed(state: Str) -> Str {
-  if state == "failed_now" { return "FAILING_NOW" }
-  if state == "failed_past" { return "In_the_past" }
+  return "FAILING_NOW" when state == "failed_now"
+  return "In_the_past" when state == "failed_past"
   "-"
 }
 
@@ -215,7 +215,7 @@ export pure attributes_text(values: smart.SmartValues, brief: Bool) -> Str {
 ## The summary SMART error log block.
 export pure error_log_text(log: smart.ErrorLog) -> Str {
   var out = f"SMART Error Log Version: {log.revision}\n"
-  if log.pointer == 0 { return out + "No Errors Logged\n\n" }
+  return out + "No Errors Logged\n\n" when log.pointer == 0
   if log.pointer > 5 {
     return out + f"Invalid Error Log index = 0x{smart.hex(log.pointer, 2)} (valid range is from 1 to 5)\n\n"
   }
@@ -288,7 +288,7 @@ pure span_status(log: smart.SelectiveLog, exec_status: Int, index: Int) -> Str {
     if nibble == 15 {
       return f"Self_test_in_progress [{exec_status % 16}0% left] ({span.start}-{span.end})"
     }
-    if nibble >= 1 and nibble <= 8 { return names[nibble] }
+    return names[nibble] when nibble >= 1 and nibble <= 8
   }
   "Not_testing"
 }

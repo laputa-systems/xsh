@@ -115,7 +115,7 @@ test test_uu_kill_kill_table_lists_all_vertically { |ctx|
   let r = uu.invoke(s, "kill", ["-t"])?
   uu.succeeds(r)
   
-  let signals = collect { for line in r.stdout.utf8()?.split("\n") { let fields = line.trim().split(" "); if fields.len() > 1 { yield fields[1] } } }
+  let signals = collect { for line in r.stdout.utf8()?.split("\n") { let fields = line.trim().split(" "); yield fields[1] when fields.len() > 1 } }
   assert "KILL" in signals
   assert "TERM" in signals
   assert "HUP" in signals

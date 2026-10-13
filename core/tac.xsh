@@ -32,7 +32,7 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 # Keep the option prefix visible when a separator is attached to its option.
 # Short options before `s` must be flags because `s` consumes the rest.
 pure separator_offset(argument: Bytes) -> Int {
-  if argument.len() < 2 or argument.byte_at(0) != 45 { return 0 }
+  return 0 when argument.len() < 2 or argument.byte_at(0) != 45
 
   if argument.byte_at(1) == 45 {
     for at in range(2, argument.len()) {
@@ -46,7 +46,7 @@ pure separator_offset(argument: Bytes) -> Int {
 
   for at in range(1, argument.len()) {
     let option = argument.byte_at(at) ?? -1
-    if option == 115 { return at + 1 }
+    return at + 1 when option == 115
     return 0 when option not in [98, 114]
   }
 
@@ -95,7 +95,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
 
   bytes.from_text(value)

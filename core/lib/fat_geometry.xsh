@@ -114,7 +114,7 @@ export pure parse(boot: Bytes, size: Int) -> Result[Layout, Error] {
 ## Decode one FAT entry, including FAT12's shared nibble and FAT32's reserved bits.
 export pure table_get(table: Bytes, layout: Layout, cluster: Int) -> Result[Int, Error] {
   if layout.bits == 12 { let value = number(table, cluster + cluster / 2, 2)?; return Ok(if cluster % 2 == 0 { value % 4096 } else { value / 16 }) }
-  if layout.bits == 16 { return number(table, cluster * 2, 2) }
+  return number(table, cluster * 2, 2) when layout.bits == 16
   Ok(number(table, cluster * 4, 4)? % 268435456)
 }
 
@@ -129,7 +129,7 @@ export pure table_patch(table: Bytes, layout: Layout, cluster: Int, value: Int) 
     let encoded = if cluster % 2 == 0 { old / 4096 * 4096 + value % 4096 } else { old % 16 + value % 4096 * 16 }
     return Ok({offset, data: bytes.pack_le(encoded, 2)?})
   }
-  if layout.bits == 16 { return Ok({offset: cluster * 2, data: bytes.pack_le(value, 2)?}) }
+  return Ok({offset: cluster * 2, data: bytes.pack_le(value, 2)?}) when layout.bits == 16
   let offset = cluster * 4
   Ok({offset, data: bytes.pack_le(number(table, offset, 4)? / 268435456 * 268435456 + value % 268435456, 4)?})
 }

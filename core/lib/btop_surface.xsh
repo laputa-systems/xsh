@@ -25,7 +25,7 @@ pure valid_dimensions(width: Int, height: Int) -> Bool {
   if width < 0 or height < 0 or width > MAX_DIMENSION or height > MAX_DIMENSION {
     return false
   }
-  if width == 0 { return true }
+  return true when width == 0
   height <= MAX_CELLS / width
 }
 
@@ -112,12 +112,12 @@ pure valid_rect(rect: Rect) -> Bool {
 
 ## Returns the cell intersection or null for invalid or disjoint rectangles.
 export pure intersect(left: Rect, right: Rect) -> Rect? {
-  if ! valid_rect(left) or ! valid_rect(right) { return null }
+  return null when ! valid_rect(left) or ! valid_rect(right)
   let x = if left.x > right.x { left.x } else { right.x }
   let y = if left.y > right.y { left.y } else { right.y }
   let right_edge = if left.x + left.width < right.x + right.width { left.x + left.width } else { right.x + right.width }
   let bottom_edge = if left.y + left.height < right.y + right.height { left.y + left.height } else { right.y + right.height }
-  if x >= right_edge or y >= bottom_edge { return null }
+  return null when x >= right_edge or y >= bottom_edge
   {x: x, y: y, width: right_edge - x, height: bottom_edge - y}
 }
 
@@ -130,7 +130,7 @@ export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Erro
     {x: 0, y: 0, width: surface.width, height: surface.height},
     rectangle,
   )
-  if clipped == null { return blank(0, 0) }
+  return blank(0, 0) when clipped == null
   let area = clipped ?? {x: 0, y: 0, width: 0, height: 0}
   var lines: List[Str] = []
   for y in range(area.y, area.y + area.height) {
@@ -145,10 +145,10 @@ export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Erro
 
 ## Draws a bounded ASCII meter; missing or non-finite values use question marks.
 export pure meter(value: Float?, width: Int) -> Str {
-  if width <= 0 or width > MAX_DIMENSION { return "" }
-  if value == null { return "?" + repeated(" ", width - 1) }
+  return "" when width <= 0 or width > MAX_DIMENSION
+  return "?" + repeated(" ", width - 1) when value == null
   let amount = value ?? 0.0
-  if amount != amount { return "?" + repeated(" ", width - 1) }
+  return "?" + repeated(" ", width - 1) when amount != amount
   let bounded = if amount < 0.0 { 0.0 } else if amount > 100.0 { 100.0 } else { amount }
   let filled = (bounded * width.float() / 100.0).floor() ?? 0
   repeated("#", filled) + repeated("-", width - filled)
@@ -173,15 +173,15 @@ export pure table_row(columns: List[Str], widths: List[Int], separator: Str = " 
 
 ## Adds a selection marker and clips the value to one terminal row.
 export pure selected_row(value: Str, selected: Bool, width: Int) -> Str {
-  if width <= 0 { return "" }
+  return "" when width <= 0
   let marker = if selected { "> " } else { "  " }
-  if width == 1 { return if selected { ">" } else { " " } }
+  return if selected { ">" } else { " " } when width == 1
   tui.cell_right_pad(marker + tui.cell_clip(tui.safe_single_line(value), width - 2), width)
 }
 
 ## Returns a bounded viewport with blank rows after the visible input ends.
 export pure viewport(rows: List[Str], offset: Int, height: Int) -> List[Str] {
-  if height <= 0 or height > MAX_DIMENSION { return [] }
+  return [] when height <= 0 or height > MAX_DIMENSION
   let start = if offset < 0 { 0 } else { offset }
   var visible: List[Str] = []
   for row in range(height) {
@@ -193,7 +193,7 @@ export pure viewport(rows: List[Str], offset: Int, height: Int) -> List[Str] {
 
 ## Shows a cell-positioned cursor while scrolling long input through a fixed field.
 export pure input_field(value: Str, cursor_cell: Int, width: Int) -> Str {
-  if width <= 0 or width > MAX_DIMENSION { return "" }
+  return "" when width <= 0 or width > MAX_DIMENSION
   let safe = tui.safe_single_line(value)
   let cursor = if cursor_cell < 0 { 0 } else { cursor_cell }
   let start = if cursor >= width { cursor - width + 1 } else { 0 }

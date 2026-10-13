@@ -663,9 +663,7 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
 
     let piece = bytes.concat(parts)
 
-    if piece.is_empty() {
-      return
-    }
+    return when piece.is_empty()
 
     let tail = checked_suffix(made, naming)?
 
@@ -725,9 +723,7 @@ proc write_filter_pipe(pipe: FilterPipe, data: Bytes) [process, net, error] -> R
   while offset < data.len() {
     match unix.write_fd(current.fd, data[offset..]) {
       Ok(written) => {
-        if written == 0 {
-          return Err(error.failure("filter input made no write progress"))
-        }
+        return Err(error.failure("filter input made no write progress")) when written == 0
 
         offset += written
       }
@@ -861,9 +857,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
         record_index += 1
         stopped = filter_pipes_finished(pipes)
 
-        if stopped {
-          break
-        }
+        break when stopped
       }
     }
 

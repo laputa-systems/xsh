@@ -42,7 +42,7 @@ pure glob_at(pattern: Bytes, text: Bytes, p: Int, t: Int, insensitive: Bool) -> 
   }
   return false when t >= text.len()
   let value = fold(text.byte_at(t) ?? -1, insensitive)
-  if char == 63 { return glob_at(pattern, text, p + 1, t + 1, insensitive) }
+  return glob_at(pattern, text, p + 1, t + 1, insensitive) when char == 63
   if char == 91 {
     var at = p + 1
     let negate = pattern.byte_at(at) == 33 or pattern.byte_at(at) == 94

@@ -26,7 +26,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
@@ -88,7 +88,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let target = Path.parse_bytes(name)?
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Err(failure) = metadata {
-      if opts.no_create and failure.errno == 2 { continue }
+      continue when opts.no_create and failure.errno == 2
     }
     var current = if opts.reference != null { reference } else { if let Ok(info) = metadata { info.size } else { 0 } }
     var amount = quantity

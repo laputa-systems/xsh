@@ -114,7 +114,7 @@ pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
 
 pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
   for argument in raw {
-    if argument.marker == value { return argument.value }
+    return argument.value when argument.marker == value
   }
   bytes.from_text(value)
 }
@@ -139,7 +139,7 @@ pure format_location(argv: List[Str], printf: Bool) -> ValueLocation? {
   var index = 0
   while index < argv.len() {
     let raw = argv[index]
-    if raw == "--" { return found }
+    return found when raw == "--"
     if raw == short {
       found = if index + 1 < argv.len() { {index: index + 1, offset: 0} } else { null }
       index += 2
@@ -416,7 +416,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
         var value = 0
         while at < length and digits < 2 {
           let nibble = "0123456789abcdef".find(stat_format_byte(data, at).lower())
-          if nibble == null { break }
+          break when nibble == null
           value = value * 16 + (nibble ?? 0)
           at += 1
           digits += 1
@@ -430,7 +430,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
         var digits = 1
         while at < length and digits < (if escape == "0" { 4 } else { 3 }) {
           let digit = stat_format_byte(data, at)
-          if "01234567".find(digit) == null { break }
+          break when "01234567".find(digit) == null
           value = value * 8 + (digit.parse_int() ?? 0)
           at += 1
           digits += 1

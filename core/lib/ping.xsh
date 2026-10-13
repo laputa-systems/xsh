@@ -231,9 +231,7 @@ pure hex_byte(value: Int) -> Str {
 # Microseconds as a reply's "time=" value: three decimals under 1 ms, two
 # under 10 ms, one under 100 ms, whole milliseconds above.
 pure reply_time_text(us: Int) -> Str {
-  if us >= 100000 - 50 {
-    return f"{(us + 500) / 1000}"
-  }
+  return f"{(us + 500) / 1000}" when us >= 100000 - 50
   if us >= 10000 - 5 {
     let tenths = (us + 50) / 100
     return f"{tenths / 10}.{tenths % 10}"
@@ -251,7 +249,7 @@ pure millis_text(us: Int) -> Str {
 }
 
 pure isqrt(value: Int) -> Int {
-  if value <= 0 { return 0 }
+  return 0 when value <= 0
   var root = value.float().sqrt().floor() ?? 0
   while root * root > value { root -= 1 }
   while (root + 1) * (root + 1) <= value { root += 1 }
@@ -266,7 +264,7 @@ type Stats = {
 }
 
 pure percent_loss(stats: Stats) -> Int {
-  if stats.sent == 0 { return 0 }
+  return 0 when stats.sent == 0
   (stats.sent - stats.received) * 100 / stats.sent
 }
 
@@ -304,8 +302,8 @@ pure summary_text(given: Str, stats: Stats, adaptive: Bool, interval_ms: Int) ->
 
 # The status a finished (or interrupted) run reports.
 pure exit_status(stats: Stats, plan: Plan) -> Int {
-  if stats.received == 0 { return 1 }
-  if plan.count > 0 and plan.deadline_s > 0 and stats.received < plan.count { return 1 }
+  return 1 when stats.received == 0
+  return 1 when plan.count > 0 and plan.deadline_s > 0 and stats.received < plan.count
   0
 }
 
@@ -331,16 +329,16 @@ proc resolve(name: Str, family: Str) [net, process, env] -> Target {
 
 # The address of a reply with the name its reverse lookup found, if any.
 pure label(address: Str, names: Map[Str], show: Bool) -> Str {
-  if ! show { return address }
+  return address unless show
   let known = names.get(address) ?? ""
-  if known == "" { return address }
+  return address when known == ""
   f"{known} ({address})"
 }
 
 proc reverse_name(address: Str) [net] -> Str {
   let found = dns.reverse(address)
   if let Ok(list) = found {
-    if ! list.is_empty() { return list[0] }
+    return list[0] unless list.is_empty()
   }
   ""
 }
@@ -390,7 +388,7 @@ proc probe_route(target: Target, interface: Str?, requested: Str?) [process, net
     linux.setsockopt_bytes(fd, c.SOL_SOCKET, c.SO_BINDTODEVICE, bytes.from_text(device))
   }
   if let Err(failure) = linux.connect(fd, {family: target.family, address: target.address, port: 1025}) {
-    if gnu.errno(failure) == 13 { return Ok({source: requested ?? "", broadcast: true}) }
+    return Ok({source: requested ?? "", broadcast: true}) when gnu.errno(failure) == 13
     return Err(failure)
   }
   Ok({source: requested ?? linux.getsockname(fd)?.address, broadcast: false})
@@ -646,7 +644,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
           continue
         }
         stats = {...stats, errors: stats.errors + 1, last_ns: icmp.clock_ns(clock)?}
-        if opts.quiet { continue }
+        continue when opts.quiet
         report_error(failure, target, names, show_names, v6)
       }
     }
@@ -657,8 +655,8 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
         let offset = if sock.raw and ! v6 { icmp.ip_header_length(got.data) } else { 0 }
         let message = got.data.slice(offset)
         guard let echo = icmp.parse_echo(message) else { continue }
-        if echo.kind != icmp.reply_type(target.family) { continue }
-        if sock.raw and echo.identifier != identifier { continue }
+        continue when echo.kind != icmp.reply_type(target.family)
+        continue when sock.raw and echo.identifier != identifier
         guard sent_at.get(echo.sequence) is Ok(_) else { continue }
         if checksummed and ! icmp.checksum_ok(message) {
           stats = {...stats, corrupted: stats.corrupted + 1}
@@ -686,7 +684,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
         let ewma = if stats.ewma8 == 0 { rtt * 8 } else { stats.ewma8 + rtt - stats.ewma8 / 8 }
         let outstanding = stats.sent - echo.sequence + 1
         stats = {...stats, rtt_min: tmin, rtt_max: tmax, rtt_sum: stats.rtt_sum + rtt, rtt_sum2: stats.rtt_sum2 + rtt * rtt, ewma8: ewma, pipe: max_int(stats.pipe, outstanding)}
-        if opts.quiet { continue }
+        continue when opts.quiet
         if got.address not in names and show_names {
           names = names.set(got.address, reverse_name(got.address))
         }

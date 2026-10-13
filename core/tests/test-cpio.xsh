@@ -108,7 +108,7 @@ test test_cpio_creates_archives_byte_identical_to_gnu { |ctx|
 
 pure is_zero_tail(data: Bytes, from: Int) -> Bool {
   for index in range(from, data.len()) {
-    if data.byte_at(index) != 0 { return false }
+    return false when data.byte_at(index) != 0
   }
   true
 }

@@ -175,8 +175,8 @@ export pure unhex(text: Str) -> Bytes {
 
 ## Whether the bytes are valid UTF-8 without NUL, so a JSON string holds them.
 export pure textual(data: Bytes) -> Bool {
-  if data.utf8() is Err(_) { return false }
-  for at in range(data.len()) { if data.byte_at(at) == 0 { return false } }
+  return false when data.utf8() is Err(_)
+  for at in range(data.len()) { return false when data.byte_at(at) == 0 }
   true
 }
 
@@ -217,7 +217,7 @@ pure sorted_records(data: Bytes, separator: Int) -> List[Str] {
 
 ## Blank inode, block count, owner and group, which differ between hosts.
 export pure normalize_ls(data: Bytes) -> Bytes {
-  if data.utf8() is Err(_) { return data }
+  return data when data.utf8() is Err(_)
   let text = data.utf8() ?? ""
   var lines: List[Str] = []
   for line in text.split("\n") {
@@ -227,7 +227,7 @@ export pure normalize_ls(data: Bytes) -> Bytes {
       while at < line.byte_len() and line.byte_slice(at, 1) == " " { at += 1 }
       let start = at
       while at < line.byte_len() and line.byte_slice(at, 1) != " " { at += 1 }
-      if at == start { break }
+      break when at == start
       fields += [line.byte_slice(start, at - start)]
     }
     if fields.len() < 10 { lines += [line]; continue }
@@ -319,8 +319,8 @@ export pure resolve_ids(text: Str, uid: Int, gid: Int) -> Str {
 ## True when the observation equals the stored one, comparing sorted records
 ## when the case asks for it.
 export pure same_output(c: Case, expected: Bytes, actual: Bytes) -> Bool {
-  if "s" in c.flags { return sorted_records(expected, 10) == sorted_records(actual, 10) }
-  if "z" in c.flags { return sorted_records(expected, 0) == sorted_records(actual, 0) }
+  return sorted_records(expected, 10) == sorted_records(actual, 10) when "s" in c.flags
+  return sorted_records(expected, 0) == sorted_records(actual, 0) when "z" in c.flags
   expected == actual
 }
 
@@ -349,12 +349,12 @@ export proc run_corpus(xsh_bin: Path, script: Path, corpus: Path, root: Path, wo
   var failures: List[Str] = []
   var position = -1
   for line in corpus.read_text()?.split("\n") {
-    if line == "" { continue }
+    continue when line == ""
     position += 1
-    if position % parts != part { continue }
+    continue when position % parts != part
     let stored = json.decode(line)?.require(Stored)?
     let c: Case = {name: stored.name, flags: stored.flags, input: stored_bytes(stored.input, stored.input_hex), args: stored.args}
-    if "n" in c.flags and identity.euid == 0 { continue }
+    continue when "n" in c.flags and identity.euid == 0
     let seen = invoke(xsh_bin, script, root, work, c)?
     let status = stored.status
     let expected_out = stored_bytes(resolve_ids(stored.stdout, identity.uid, identity.gid), stored.stdout_hex)

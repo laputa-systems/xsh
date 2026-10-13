@@ -473,9 +473,9 @@ test test_gnu_cp_perm_log { |ctx|
               let expected = if command != "cp" { 0o450 } else if existing { 0o600 + group_bits * 8 + other } else if mask == 0o031 { 0o440 } else if mask == 0o037 { 0o440 } else { 0o450 }
               assert fs.stat(uu.at(s, "dest"))?.kind == "file"
               assert uu.mode(s, "dest")? == expected, f"{command} force={force} existing={existing} mask={mask} group={group_bits} other={other}"
-              if !existing { break }
+              break unless existing
             }
-            if !existing { break }
+            break unless existing
           }
         }
       }
@@ -845,7 +845,7 @@ test test_gnu_cp_same_file_log { |ctx|
   ]
   for matrix in matrices {
     for index in range(0, options.len()) {
-      if matrix.statuses[index] == -1 { continue }
+      continue when matrix.statuses[index] == -1
       let s = uu.scene(ctx)?
       uu.write(s, "foo", "XYZ\n")
       var initial = ["foo"]
@@ -873,7 +873,7 @@ test test_gnu_cp_same_file_log { |ctx|
         assert uu.read_link(s, matrix.destination)? == target
       }
       for name in initial {
-        if name == matrix.destination { continue }
+        continue when name == matrix.destination
         let source_link = name in ["symlink", "sl1", "sl2", "hlsl"]
         assert uu.is_symlink(s, name)? == source_link
         if source_link { assert uu.read_link(s, name)? == "foo" }

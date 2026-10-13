@@ -314,7 +314,7 @@ test test_uu_date_date_error_echoes_input_verbatim { |ctx|
 # origin: uutils test_date::test_date_ethiopian_locale_calendar
 test test_uu_date_date_ethiopian_locale_calendar { |ctx|
   let s = uu.scene(ctx)?
-  if ! locale_available("am_ET.UTF-8") { return }
+  return unless locale_available("am_ET.UTF-8")
   let r = uu.invoke(s, "date", ["+%Y"], vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   let current_year = r.stdout.utf8()?.trim().parse_int()?
@@ -446,14 +446,14 @@ test test_uu_date_date_format_a_french_locale { |ctx|
   let r = uu.invoke(s, "date", ["-d", "2025-01-15", "+%A %a"], vars: {LC_TIME: "fr_FR.UTF-8", TZ: "UTC"})?
   uu.succeeds(r)
   let output = r.stdout.utf8()?
-  if output.trim() != "mercredi mer." { return }
+  return when output.trim() != "mercredi mer."
   assert output.trim() == "mercredi mer."
   }
   {
   let r = uu.invoke(s, "date", ["-d", "2025-02-15", "+%A %a"], vars: {LC_TIME: "fr_FR.UTF-8", TZ: "UTC"})?
   uu.succeeds(r)
   let output = r.stdout.utf8()?
-  if output.trim() != "samedi sam." { return }
+  return when output.trim() != "samedi sam."
   assert output.trim() == "samedi sam."
   }
 }
@@ -465,14 +465,14 @@ test test_uu_date_date_format_b_french_locale { |ctx|
   let r = uu.invoke(s, "date", ["-d", "2025-01-15", "+%B %b"], vars: {LC_TIME: "fr_FR.UTF-8", TZ: "UTC"})?
   uu.succeeds(r)
   let output = r.stdout.utf8()?
-  if output.trim() != "janvier janv." { return }
+  return when output.trim() != "janvier janv."
   assert output.trim() == "janvier janv."
   }
   {
   let r = uu.invoke(s, "date", ["-d", "2025-02-15", "+%B %b"], vars: {LC_TIME: "fr_FR.UTF-8", TZ: "UTC"})?
   uu.succeeds(r)
   let output = r.stdout.utf8()?
-  if output.trim() != "février févr." { return }
+  return when output.trim() != "février févr."
   assert output.trim() == "février févr."
   }
 }
@@ -860,7 +860,7 @@ test test_uu_date_date_invalid_utf8_byte_rejected { |ctx|
 # origin: uutils test_date::test_date_iranian_locale_solar_hijri_calendar
 test test_uu_date_date_iranian_locale_solar_hijri_calendar { |ctx|
   let s = uu.scene(ctx)?
-  if ! locale_available("fa_IR.UTF-8") { return }
+  return unless locale_available("fa_IR.UTF-8")
   let r = uu.invoke(s, "date", ["+%Y"], vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   let current_year = r.stdout.utf8()?.trim().parse_int()?
@@ -996,7 +996,7 @@ test test_uu_date_date_locale_hour_en_us { |ctx|
 # origin: uutils test_date::test_date_locale_hu_hungarian
 test test_uu_date_date_locale_hu_hungarian { |ctx|
   let s = uu.scene(ctx)?
-  if ! locale_available("hu_HU.UTF-8") { return }
+  return unless locale_available("hu_HU.UTF-8")
   let r = uu.invoke(s, "date", ["-d", "2025-12-14T13:00:00", "+%Y. %b %-e., %A, %H:%M:%S %Z"], vars: {LC_ALL: "hu_HU.UTF-8", TZ: "UTC"})?
   uu.succeeds(r)
   uu.stdout_is(r, "2025. dec 14., vasárnap, 13:00:00 UTC\n")

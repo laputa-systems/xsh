@@ -39,12 +39,12 @@ proc main(...argv: List[Str]) {
     }
     match outcome {
       Ok(value) => {
-        if opts.quiet and item.value != null { continue }
+        continue when opts.quiet and item.value != null
         let text = if opts.names { item.key } else if opts.values or opts.binary { value } else { f"{item.key} = {value}" }
         gnu.write_text(text + (if opts.binary { "" } else { "\n" }))
       }
       Err(failure) => {
-        if item.ignore_failure or (opts.ignore and gnu.errno(failure) == 2) { continue }
+        continue when item.ignore_failure or (opts.ignore and gnu.errno(failure) == 2)
         gnu.error(failure.message)
         failed = true
       }

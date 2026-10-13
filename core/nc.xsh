@@ -167,8 +167,8 @@ pure number_in(raw: Str, low: Int, high: Int) -> Number {
     return {value: 0, problem: if text.starts_with("-") { "too small" } else { "too large" }}
   }
   let value = parsed ?? 0
-  if value < low { return {value: 0, problem: "too small"} }
-  if value > high { return {value: 0, problem: "too large"} }
+  return {value: 0, problem: "too small"} when value < low
+  return {value: 0, problem: "too large"} when value > high
   {value: value, problem: ""}
 }
 
@@ -248,7 +248,7 @@ proc parse_options(argv: List[Str]) [process, io] -> Parsed {
       index += 1
       break
     }
-    if ! word.starts_with("-") or word == "-" { break }
+    break when ! word.starts_with("-") or word == "-"
     var at = 1
     while at < word.byte_len() {
       let letter = word.byte_slice(at, 1)
@@ -340,11 +340,11 @@ proc services_for(proto: Str) [fs] -> List[Service] {
     let note = raw.find("#") ?? -1
     let line = if note >= 0 { raw.byte_slice(0, note) } else { raw }
     let fields = line.fields()
-    if fields.len() < 2 { continue }
+    continue when fields.len() < 2
     let pair = fields[1].split("/")
-    if pair.len() != 2 or pair[1] != proto { continue }
+    continue when pair.len() != 2 or pair[1] != proto
     let number = pair[0].parse_int() ?? -1
-    if number < 0 { continue }
+    continue when number < 0
     found += [{name: fields[0], port: number, aliases: fields[2..]}]
   }
   found
@@ -352,14 +352,14 @@ proc services_for(proto: Str) [fs] -> List[Service] {
 
 proc service_port(name: Str, proto: Str) [fs] -> Int? {
   for entry in services_for(proto) {
-    if entry.name == name or name in entry.aliases { return entry.port }
+    return entry.port when entry.name == name or name in entry.aliases
   }
   null
 }
 
 proc service_name(port: Int, proto: Str) [fs] -> Str? {
   for entry in services_for(proto) {
-    if entry.port == port { return entry.name }
+    return entry.name when entry.port == port
   }
   null
 }
@@ -404,7 +404,7 @@ proc build_ports(spec: Str, opts: Options) [fs, process, io] -> List[Int] {
 # The numeric port of a -p value, which getaddrinfo(3) also resolves by name.
 proc source_port(spec: Str, opts: Options) [fs, process, io] -> Int {
   let parsed = number_in(spec, 0, 65535)
-  if parsed.problem == "" { return parsed.value }
+  return parsed.value when parsed.problem == ""
   if ! rx"^[0-9]".matches(spec) {
     if let named = service_port(spec, proto_name(opts)) {
       return named
@@ -429,7 +429,7 @@ proc shuffled(ports: List[Int]) [fs, process, io] -> List[Int] {
 }
 
 pure numeric_host(host: Str) -> Bool {
-  if host.find(":") != null { return true }
+  return true when host.find(":") != null
   rx"^(0[xX][0-9a-fA-F]+|[0-9]+)(\.(0[xX][0-9a-fA-F]+|[0-9]+)){0,3}$".matches(host)
 }
 
@@ -449,13 +449,11 @@ proc lookup(host: Str, opts: Options) [net] -> Lookup {
     Ok(rows) => {
       var usable: List[Address] = []
       for row in rows {
-        if opts.family == "inet" and row.family != "ipv4" { continue }
-        if opts.family == "inet6" and row.family != "ipv6" { continue }
+        continue when opts.family == "inet" and row.family != "ipv4"
+        continue when opts.family == "inet6" and row.family != "ipv6"
         usable += [{addr: row.addr, family: row.family, name: row.name}]
       }
-      if usable.is_empty() {
-        return {rows: [], problem: "Name has no usable address"}
-      }
+      return {rows: [], problem: "Name has no usable address"} when usable.is_empty()
       return {rows: usable, problem: ""}
     }
   }
@@ -464,7 +462,7 @@ proc lookup(host: Str, opts: Options) [net] -> Lookup {
 # Names an address for the verbose messages: numeric under -n, else the
 # reverse name when the resolver has one.
 proc address_name(addr: Str, opts: Options) [net] -> Str {
-  if opts.numeric { return addr }
+  return addr when opts.numeric
   match dns.reverse(addr) {
     Ok(names) => return if names.is_empty() { addr } else { names[0] }
     Err(_) => return addr
@@ -539,7 +537,7 @@ proc tune_socket(fd: Int, family: Str, opts: Options) [net, process, io, error] 
 
 # Binds the -s address and -p port of an outgoing socket.
 proc bind_source(fd: Int, family: Str, opts: Options) [net, fs, process, io, error] -> Unit {
-  if opts.srcaddr == null and opts.srcport == null { return }
+  return when opts.srcaddr == null and opts.srcport == null
   var address = if family == "inet6" { "::" } else { "0.0.0.0" }
   if let given = opts.srcaddr {
     # The source address is resolved even under -n, which only guards the peer.
@@ -567,16 +565,12 @@ proc bind_source(fd: Int, family: Str, opts: Options) [net, fs, process, io, err
 # ETIMEDOUT.
 proc connect_bounded(fd: Int, target: Record, opts: Options) [net, process, error] -> Result[Unit] {
   let c = linux.net_constants()
-  if opts.timeout < 0 {
-    return linux.connect(fd, target)
-  }
+  return linux.connect(fd, target) when opts.timeout < 0
   linux.set_socket_timeout(fd, c.SO_SNDTIMEO, if opts.timeout == 0 { 1 } else { opts.timeout })
   let outcome = linux.connect(fd, target)
   linux.set_socket_timeout(fd, c.SO_SNDTIMEO, 0)
   if let Err(failure) = outcome {
-    if failure.errno == 115 {
-      return Err(error.failure("Operation timed out"))
-    }
+    return Err(error.failure("Operation timed out")) when failure.errno == 115
   }
   outcome
 }
@@ -637,7 +631,7 @@ proc write_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
 
 # -C: every bare LF becomes CR LF. `after_cr` carries a chunk's final byte.
 pure add_carriage_returns(data: Bytes, after_cr: Bool) -> Bytes {
-  if data.count_lines() == 0 { return data }
+  return data when data.count_lines() == 0
   var pieces: List[Bytes] = []
   var start = 0
   var previous_cr = after_cr
@@ -689,9 +683,9 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
     timeout_ms = opts.quit * 1000
   }
   while true {
-    if ! stdin_open and pending.is_empty() and ! net_in { break }
-    if ! net_out and ! stdout_open { break }
-    if listening and ! net_in and pending.is_empty() { break }
+    break when ! stdin_open and pending.is_empty() and ! net_in
+    break when ! net_out and ! stdout_open
+    break when listening and ! net_in and pending.is_empty()
     var progressed = false
 
     if stdin_open and pending.is_empty() and net_out {
@@ -839,7 +833,7 @@ proc run_client(host: Str, port_specs: List[Str], opts: Options) [net, fs, proce
     if opts.interval > 0 and ! first { time.sleep(time.seconds(opts.interval)) }
     first = false
     let fd = connect_tcp_udp(host, port, opts)
-    if fd < 0 { continue }
+    continue when fd < 0
     status = 0
     if opts.verbose or opts.scan {
       if opts.udp {

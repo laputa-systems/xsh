@@ -311,6 +311,6 @@ pure remaining_component(parts: List[Str]) -> Bool {
 export pure size_overflow(raw: Str) -> Bool {
   let text = raw.trim()
   if ! rx"^(0x[0-9A-Fa-f]+|0b[01]+|[0-9]+)?([kKmMgGtTpPeEzZyYrRqQ](iB|B|D)?)?$".matches(text) or text == "" { return false }
-  if rx"^0[0-9]+$".matches(text) and rx"[89]".matches(text) { return false }
+  return false when rx"^0[0-9]+$".matches(text) and rx"[89]".matches(text)
   size_value(text) == null
 }

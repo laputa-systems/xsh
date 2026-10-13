@@ -166,7 +166,7 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
   let published = if policy == "skip" { fs.rename_noreplace(staged, target) } else { staged.rename(to: target, overwrite: true) }
   if let Err(failure) = published {
     remove_move_tree(staged_dir)
-    if policy == "skip" and gnu.errno(failure) == 17 { return {outcome: Skipped, copies} }
+    return {outcome: Skipped, copies} when policy == "skip" and gnu.errno(failure) == 17
     return Err(failure)
   }
   var published_copies: List[FileIdentity] = []
@@ -308,7 +308,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     }
     if saved != null { saved.rename(to: target, overwrite: true) }
     if moving_source != source { moving_source.rename(to: source) }
-    if policy == "skip" and gnu.errno(failure) == 17 { return {outcome: Skipped, copies} }
+    return {outcome: Skipped, copies} when policy == "skip" and gnu.errno(failure) == 17
     return Err(failure)
   }
   if opts.verbose or opts.debug or (opts.progress and unix.tty_attrs(2) is Ok(_)) {

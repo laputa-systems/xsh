@@ -194,7 +194,7 @@ export proc inspect(image: Path) -> Result[Info, Error] {
 
 ## Read or change the root entry and primary/backup boot label together.
 export proc label(image: Path, label: Str? = null) -> Result[Str, Error] {
-  if label == null { return Ok(inspect(image)?.label) }
+  return Ok(inspect(image)?.label) when label == null
   let name = geom.label_bytes(label)?
   let loaded = image_io.load(image)?
   let layout = loaded.layout

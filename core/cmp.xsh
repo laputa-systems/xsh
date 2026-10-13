@@ -60,7 +60,7 @@ proc trouble(message: Str) [process, env] -> Unit {
 # locale the curly quotes need no escape for an apostrophe inside the name.
 proc locale_quote(name: Str) [env] -> Str {
   let quoted = gnu.quote_value(name)
-  if quoted.starts_with("\u{2018}") { return quoted.replace("\\'", with: "'") }
+  return quoted.replace("\\'", with: "'") when quoted.starts_with("‘")
   quoted
 }
 
@@ -70,7 +70,7 @@ pure option_events(argv: List[Str]) -> List[Event] {
   var index = 0
   while index < argv.len() {
     let arg = argv[index]
-    if arg == "--" { break }
+    break when arg == "--"
     if arg.starts_with("--") {
       let body = arg.byte_slice(2)
       let equals = body.find("=")
@@ -126,24 +126,24 @@ type Initial = {first: Int, second: Int, bad: Str?}
 # The error text is the part GNU cmp quotes, or null when well formed.
 pure parse_initial(text: Str) -> Initial {
   let head = diffutils.parse_size(text)
-  if head == null { return {first: 0, second: 0, bad: text} }
+  return {first: 0, second: 0, bad: text} when head == null
   let found = head ?? {value: 0, rest: ""}
-  if found.rest == "" { return {first: found.value, second: found.value, bad: null} }
-  if !found.rest.starts_with(":") { return {first: 0, second: 0, bad: text} }
+  return {first: found.value, second: found.value, bad: null} when found.rest == ""
+  return {first: 0, second: 0, bad: text} unless found.rest.starts_with(":")
   let tail = found.rest.byte_slice(1)
   let second = diffutils.parse_size(tail)
-  if second == null { return {first: 0, second: 0, bad: tail} }
+  return {first: 0, second: 0, bad: tail} when second == null
   let other = second ?? {value: 0, rest: ""}
-  if other.rest != "" { return {first: 0, second: 0, bad: tail} }
+  return {first: 0, second: 0, bad: tail} when other.rest != ""
   {first: found.value, second: other.value, bad: null}
 }
 
 # The byte count of `text` as a skip operand, or null when it is not one.
 pure parse_skip(text: Str) -> Int? {
   let parsed = diffutils.parse_size(text)
-  if parsed == null { return null }
+  return null when parsed == null
   let found = parsed ?? {value: 0, rest: "x"}
-  if found.rest != "" { return null }
+  return null when found.rest != ""
   found.value
 }
 
@@ -159,7 +159,7 @@ pure digits_of(value: Int) -> Int {
 
 # The device and inode identity of an operand that exists, "" for stdin.
 proc identity_of(name: Str) [fs] -> Str {
-  if name == "-" { return "" }
+  return "" when name == "-"
   let info = fs.stat(fp"{name}", follow_symlinks: true)
   if let Ok(found) = info { return f"{found.dev}:{found.ino}" }
   ""
@@ -255,7 +255,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
   }
   let first = sources[0]
   let second = sources[1]
-  if first.mode == "stdin" and second.mode == "stdin" { return }
+  return when first.mode == "stdin" and second.mode == "stdin"
   if first.mode != "stdin" and identity_of(left) == identity_of(right) and skip_first == skip_second { return }
 
   # The width of byte numbers in `-l` output: wide enough for the largest
@@ -306,7 +306,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
         for index in range(shared) {
           let av = head_a.byte_at(index) ?? 0
           let bv = head_b.byte_at(index) ?? 0
-          if av == bv { continue }
+          continue when av == bv
           let number = diffutils.pad(f"{offset + index + 1}", width)
           if opts.print_bytes {
             rows += [f"{number} {diffutils.octal(av)} {diffutils.pad_right(diffutils.display_byte(av), 4)} {diffutils.octal(bv)} {diffutils.display_byte(bv)}"]
@@ -347,7 +347,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
       }
       exit 1
     }
-    if shared == 0 { break }
+    break when shared == 0
     lines += diffutils.newline_count(head_a)
     if shared > 0 { ended_line = head_a.ends_with(b"\n") }
     offset += shared

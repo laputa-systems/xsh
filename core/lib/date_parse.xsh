@@ -62,7 +62,7 @@ pure multiply(value: Int, positive: Int) -> Result[Int] {
 # Date fields are decimal even when padded with zeros. Normalize once to
 # the canonical integer spelling required by the standard text conversion.
 pure decimal(text: Str) -> Result[Int] {
-  if ! rx"^[+-]?[0-9]+$".matches(text) { return Err(invalid(text)) }
+  return Err(invalid(text)) unless rx"^[+-]?[0-9]+$".matches(text)
   let negative = text.starts_with("-")
   var start = if text.starts_with("+") or negative { 1 } else { 0 }
   while start < text.byte_len() - 1 and text.byte_at(start) == 48 { start += 1 }
@@ -76,7 +76,7 @@ pure optional_decimal(text: Str) -> Result[Int] {
 }
 
 pure fraction(text: Str) -> Result[Int] {
-  if text.byte_len() > 9 or ! rx"^[0-9]*$".matches(text) { return Err(invalid(text)) }
+  return Err(invalid(text)) when text.byte_len() > 9 or ! rx"^[0-9]*$".matches(text)
   var value = optional_decimal(text)?
   for _ in range(9 - text.byte_len()) { value *= 10 }
   Ok(value)
@@ -114,7 +114,7 @@ export pure instant_ns(instant: Instant) -> Result[Int, Error] {
 
 pure epoch(text: Str) -> Result[Instant] {
   let fields = rx"^([+-]?)([0-9]+)(?:\.([0-9]*))?$".captures(text)
-  if fields.is_empty() { return Err(invalid(text)) }
+  return Err(invalid(text)) when fields.is_empty()
   let whole = decimal(fields[2])?
   let nanos = fraction(fields[3])?
   let negative = fields[1] == "-"
@@ -184,13 +184,13 @@ pure timezone(text: Str) -> Int? {
     "PDT" => return -25200
     else => {}
   }
-  if name.byte_len() != 1 { return null }
+  return null when name.byte_len() != 1
   let east = "ABCDEFGHI".find(name) ?? -1
-  if east >= 0 { return (east + 1) * 3600 }
+  return (east + 1) * 3600 when east >= 0
   let far_east = "KLM".find(name) ?? -1
-  if far_east >= 0 { return (far_east + 10) * 3600 }
+  return (far_east + 10) * 3600 when far_east >= 0
   let west = "NOPQRSTUVWXY".find(name) ?? -1
-  if west >= 0 { return -(west + 1) * 3600 }
+  return -(west + 1) * 3600 when west >= 0
   null
 }
 
@@ -209,7 +209,7 @@ pure zone_suffix(text: Str) -> Result[Zoned] {
     let hours = decimal(fields[3])?
     let minutes = optional_decimal(fields[4])?
     let seconds = optional_decimal(fields[5])?
-    if hours > 23 or minutes > 59 or seconds > 59 { return Err(invalid(text)) }
+    return Err(invalid(text)) when hours > 23 or minutes > 59 or seconds > 59
     let sign = if fields[2] == "-" { -1 } else { 1 }
     return Ok({text: fields[1].trim(), offset: sign * (hours * 3600 + minutes * 60 + seconds)})
   }
@@ -282,7 +282,7 @@ proc civil_instant(year: Int, month: Int, day: Int, hour: Int, minute: Int, seco
 
 proc relative(base: Instant, unit: Str, count: Int, utc: Bool) -> Result[Instant] {
   let duration = match unit { "sec" | "second" => 1; "min" | "minute" => 60; "hour" => 3600; else => 0 }
-  if duration != 0 { return instant_add(base, multiply(count, duration)?, 0) }
+  return instant_add(base, multiply(count, duration)?, 0) when duration != 0
   if count < -1000000 or count > 1000000 { return Err(invalid("relative date out of range")) }
   let fields = calendar(base, utc)?
   let months = fields.month - 1 + (if unit == "month" { count } else { 0 })
@@ -301,18 +301,18 @@ pure unit_name(text: Str) -> Str {
 }
 
 pure clock(text: Str) -> Result[Clock] {
-  if text == "" { return Ok({hour: 0, minute: 0, second: 0, nanosecond: 0}) }
+  return Ok({hour: 0, minute: 0, second: 0, nanosecond: 0}) when text == ""
   let normalized = text.lower().replace("a.m.", with: "am").replace("p.m.", with: "pm")
   let fields = rx"^([0-9]{1,2})(?::([0-9]{1,2}))?(?::([0-9]{1,2})(?:[.,]([0-9]{1,9}))?)?\s*([ap]m)?$".captures(normalized)
-  if fields.is_empty() { return Err(invalid(text)) }
+  return Err(invalid(text)) when fields.is_empty()
   var hour = decimal(fields[1])?
   let minute = optional_decimal(fields[2])?
   let second = optional_decimal(fields[3])?
   if fields[5] != "" {
-    if hour < 1 or hour > 12 { return Err(invalid(text)) }
+    return Err(invalid(text)) when hour < 1 or hour > 12
     hour = hour % 12 + (if fields[5] == "pm" { 12 } else { 0 })
   }
-  if hour > 23 or minute > 59 or second > 59 { return Err(invalid(text)) }
+  return Err(invalid(text)) when hour > 23 or minute > 59 or second > 59
   Ok({hour: hour, minute: minute, second: second, nanosecond: fraction(fields[4])?})
 }
 
@@ -397,16 +397,16 @@ proc absolute(text: Str, utc: Bool, base: Instant) -> Result[Instant] {
 ## (the current time when null). Explicit offsets describe the input calendar; utc controls local calendars.
 export proc parse_instant(text: Str, utc = false, base: Instant? = null) -> Result[Instant, Error] {
   let input = uncomment(text)
-  if input.find("\0") != null { return Err(invalid(input)) }
-  if input.starts_with("@") { return epoch(input.byte_slice(1)) }
+  return Err(invalid(input)) when input.find("\0") != null
+  return epoch(input.byte_slice(1)) when input.starts_with("@")
   let origin_base = base ?? instant_from_ns(time.now() * 1000000)
   let lower = input.lower()
-  if lower == "now" { return Ok(origin_base) }
+  return Ok(origin_base) when lower == "now"
   if lower == "" or lower == "today" or lower == "yesterday" or lower == "tomorrow" {
     let today = calendar(origin_base, utc)?
     let midnight = civil_instant(today.year, today.month, today.day, 0, 0, 0, utc)?
-    if lower == "yesterday" { return relative(midnight, "day", -1, utc) }
-    if lower == "tomorrow" { return relative(midnight, "day", 1, utc) }
+    return relative(midnight, "day", -1, utc) when lower == "yesterday"
+    return relative(midnight, "day", 1, utc) when lower == "tomorrow"
     return Ok(midnight)
   }
   let words = input.replace("\t", with: " ").split(" ") |> where . != ""
@@ -431,7 +431,7 @@ export proc parse_instant(text: Str, utc = false, base: Instant? = null) -> Resu
   let military = rx"^([A-Za-z])([0-9]{1,2})$".captures(input)
   if ! military.is_empty() and timezone(military[1]) != null {
     let hours = decimal(military[2])?
-    if hours > 23 { return Err(invalid(input)) }
+    return Err(invalid(input)) when hours > 23
     return instant_add(parse_instant(military[1], utc:, base: origin_base)?, hours * 3600, 0)
   }
   let ago = words[-1].lower() == "ago"
@@ -454,10 +454,10 @@ export proc parse_instant(text: Str, utc = false, base: Instant? = null) -> Resu
       }
     }
     if prefix_end > 0 and words[prefix_end - 1] in ["+", "-"] {
-      if words[prefix_end - 1] == "-" { if count == MIN_INT { return Err(invalid(input)) }; count = -count }
+      if words[prefix_end - 1] == "-" { return Err(invalid(input)) when count == MIN_INT; count = -count }
       prefix_end -= 1
     }
-    if ago { if count == MIN_INT { return Err(invalid(input)) }; count = -count }
+    if ago { return Err(invalid(input)) when count == MIN_INT; count = -count }
     let prefix_words = words[0..prefix_end]
     let prefix = prefix_words.join(" ")
     var origin = origin_base

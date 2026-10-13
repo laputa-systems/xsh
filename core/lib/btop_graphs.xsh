@@ -42,9 +42,7 @@ pure rate_sample(at_ns: Int, value: rates.Rate) -> graph.Sample {
   if value.state == rates.Observed and value.value != null {
     return {at_ns: at_ns, value: value.value, state: graph.Observed}
   }
-  if value.state == rates.Gap {
-    return {at_ns: at_ns, value: null, state: graph.Gap}
-  }
+  return {at_ns: at_ns, value: null, state: graph.Gap} when value.state == rates.Gap
   {at_ns: at_ns, value: null, state: graph.Unavailable}
 }
 
@@ -67,7 +65,7 @@ pure temperature_sample(value: model.Model) -> graph.Sample {
 # Pins the one device whose identity owns the monitor's bounded disk graph.
 pure first_disk(devices: List[disks.Device]) -> disks.Device? {
   for device in devices {
-    if device.identity != null { return device }
+    return device when device.identity != null
   }
   null
 }

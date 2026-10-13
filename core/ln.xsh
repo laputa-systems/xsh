@@ -82,7 +82,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     Err(failure) => {
       # Only a replacing link examines the destination first, so only it reports
       # an examination failure as an access error; otherwise link(2) reports it.
-      if ! replacing { return Err(failure) }
+      return Err(failure) unless replacing
       gnu.error(f"failed to access {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
       return false
     }

@@ -5,8 +5,8 @@ use lib.accounts
 type Options = {preauthenticated: Bool, preserve: Bool, remote: Str, help: Bool, version: Bool, users: List[Str]}
 
 pure equal_groups(requested: List[Int], actual: List[Int]) -> Bool {
-  for value in requested { if value not in actual { return false } }
-  for value in actual { if value not in requested { return false } }
+  for value in requested { return false when value not in actual }
+  for value in actual { return false when value not in requested }
   true
 }
 
