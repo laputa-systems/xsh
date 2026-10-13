@@ -13204,6 +13204,21 @@ run true
     }
 
     #[test]
+    fn compact_lowering_accepts_a_tag_binding_catch_all_return() {
+        run_with_large_stack(|| {
+            let program = fixture(
+                "tag-binding-catch-all.xsh",
+                "enum Choice { Selected(Int), Empty }\n\
+                 pure choose(condition: Bool, value: Choice) -> Int {\n\
+                 if condition { match value { result => { return 1 } } } else { return 2 }\n\
+                   let unreachable = 0\n\
+                 }\n",
+            );
+            FullVerifier::verify(&program).unwrap();
+        });
+    }
+
+    #[test]
     fn typed_callable_driver_with_binding_matches_its_result_payload() {
         let program = fixture(
             "typed-callable-driver-with-binding.xsh",

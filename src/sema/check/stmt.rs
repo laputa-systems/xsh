@@ -48,9 +48,11 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
     block_id: BlockId,
     tail_is_value: bool,
     expression_types: &FxHashMap<ExprId, Type>,
+    tag_variants: &FxHashMap<Name, TagVariantInfo>,
 ) -> bool {
     let facts = FlowFacts {
         expression_types_by_id: Some(expression_types),
+        tag_variants: Some(tag_variants),
         ..FlowFacts::AST_ONLY
     };
     tail_is_value || !block_control_flow(arena, block_id, &facts).completes
@@ -114,6 +116,13 @@ impl ControlFlow {
             completes: self.completes || other.completes,
         }
     }
+}
+
+fn handle_propagation(mut flow: ControlFlow) -> ControlFlow {
+    // An enclosing handler consumes errors and can continue along its own path.
+    flow.completes |= flow.propagates;
+    flow.propagates = false;
+    flow
 }
 
 /// Summarizes reachable loop breaks, explicit exits, error propagation, and
@@ -274,10 +283,12 @@ fn stmt_control_flow_inner(
                 if !inputs.completes {
                     break;
                 }
-                let mut initializer = expr_control_flow(arena, binding.initializer, facts);
-                // A failed binding enters the handler; only failures raised by
-                // the initializer are captured by this `with`.
-                initializer.propagates = false;
+                // Propagated initializer errors choose the `else` branch below.
+                let initializer = handle_propagation(expr_control_flow(
+                    arena,
+                    binding.initializer,
+                    facts,
+                ));
                 inputs = inputs.then(initializer);
             }
             inputs.then(
@@ -337,12 +348,19 @@ fn stmt_control_flow_inner(
             }
         }
         ArenaStmtKind::For { iter, block, .. } => {
+            let cardinality = expression_cardinality(arena, iter);
             let iter = expr_control_flow_materialized_pipeline(arena, iter, facts);
             let body = block_control_flow(arena, block, facts);
             ControlFlow {
                 breaks_target: iter.breaks_target,
-                exits: iter.exits || (iter.completes && body.exits),
-                propagates: iter.propagates || (iter.completes && body.propagates),
+                exits: iter.exits
+                    || (iter.completes
+                        && cardinality != StreamCardinality::Empty
+                        && body.exits),
+                propagates: iter.propagates
+                    || (iter.completes
+                        && cardinality != StreamCardinality::Empty
+                        && body.propagates),
                 completes: iter.completes,
             }
         }
@@ -676,7 +694,10 @@ fn comprehension_control_flow(
         flow = flow.then(expr_control_flow(arena, expr, facts));
         match qualifier {
             crate::syntax::arena::ArenaCompQualifier::For { iter, .. }
-                if definitely_empty_iterable(arena, *iter) => return flow,
+                if expression_cardinality(arena, *iter) == StreamCardinality::Empty =>
+            {
+                return flow;
+            }
             crate::syntax::arena::ArenaCompQualifier::If { .. }
                 if bool_literal(arena, expr) == Some(false) => return flow,
             _ => {}
@@ -688,7 +709,8 @@ fn comprehension_control_flow(
     let crate::syntax::arena::ArenaCompQualifier::For { iter, .. } = qualifiers[first_for] else {
         unreachable!();
     };
-    let mut iteration_may_be_skipped = !definitely_nonempty_iterable(arena, iter);
+    let mut iteration_may_be_skipped =
+        expression_cardinality(arena, iter) != StreamCardinality::NonEmpty;
     for qualifier in &qualifiers[..first_for] {
         if let crate::syntax::arena::ArenaCompQualifier::If { .. } = qualifier
             && bool_literal(arena, qualifier.expr()) != Some(true)
@@ -709,11 +731,12 @@ fn comprehension_control_flow(
             break;
         }
         if let crate::syntax::arena::ArenaCompQualifier::For { iter, .. } = qualifier {
-            if definitely_empty_iterable(arena, *iter) {
+            let cardinality = expression_cardinality(arena, *iter);
+            if cardinality == StreamCardinality::Empty {
                 iteration_may_be_skipped = true;
                 break;
             }
-            if !definitely_nonempty_iterable(arena, *iter) {
+            if cardinality != StreamCardinality::NonEmpty {
                 iteration_may_be_skipped = true;
             }
         }
@@ -844,6 +867,12 @@ fn materialized_pipeline_control_flow(
                 flow = flow.then(stream_stage_args_control_flow(arena, args, facts));
                 if !flow.completes {
                     break;
+                }
+                if kind == StreamStageKind::Zip {
+                    flow = flow.then(zip_right_callback_flow(arena, args, cardinality, facts));
+                    if !flow.completes {
+                        break;
+                    }
                 }
                 if let Some(block) = block {
                     let demand = callback_demand(
@@ -1074,6 +1103,30 @@ fn stage_output_cardinality(
     }
 }
 
+/// A consumed zip pulls its right pipeline only when both sides can yield an item.
+fn zip_right_callback_flow(
+    arena: &ArenaProgram,
+    args: ArenaRange,
+    left: StreamCardinality,
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
+    let Some(arg) = arena.arena.call_args(args).first() else {
+        return ControlFlow::NORMAL;
+    };
+    let right = call_arg_expr(&arg.kind);
+    let demand = match (left, expression_cardinality(arena, right)) {
+        (StreamCardinality::Empty, _) | (_, StreamCardinality::Empty) => CallbackDemand::Never,
+        (StreamCardinality::NonEmpty, StreamCardinality::NonEmpty) => CallbackDemand::Required,
+        _ => CallbackDemand::Maybe,
+    };
+    let callbacks = expr_control_flow_materialized_pipeline(arena, right, facts);
+    match demand {
+        CallbackDemand::Never => ControlFlow::NORMAL,
+        CallbackDemand::Maybe => ControlFlow::NORMAL.either(callbacks),
+        CallbackDemand::Required => callbacks,
+    }
+}
+
 fn zip_other_cardinality(arena: &ArenaProgram, args: ArenaRange) -> StreamCardinality {
     arena
         .arena
@@ -1090,10 +1143,40 @@ fn expression_cardinality(arena: &ArenaProgram, expr: ExprId) -> StreamCardinali
         {
             range_cardinality(arena, args)
         }
+        ArenaExprKind::Pipeline { input, stages } => {
+            pipeline_output_cardinality(arena, input, stages, false)
+        }
+        ArenaExprKind::StructuredPipeline { input, stages } => {
+            pipeline_output_cardinality(arena, input, stages, true)
+        }
+        ArenaExprKind::Call { callee, .. }
+            if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
+                && name.as_str() == "collect" =>
+        {
+            expression_cardinality(arena, base)
+        }
         _ if definitely_empty_iterable(arena, expr) => StreamCardinality::Empty,
         _ if definitely_nonempty_iterable(arena, expr) => StreamCardinality::NonEmpty,
         _ => StreamCardinality::Maybe,
     }
+}
+
+fn pipeline_output_cardinality(
+    arena: &ArenaProgram,
+    input: ExprId,
+    stages: ArenaRange,
+    structured: bool,
+) -> StreamCardinality {
+    let mut cardinality = expression_cardinality(arena, input);
+    for stage in pipeline_flow_stages(arena, stages, structured) {
+        cardinality = match stage {
+            PipelineFlowStage::Expression(_) => StreamCardinality::Maybe,
+            PipelineFlowStage::Stream { kind, args, .. } => {
+                stage_output_cardinality(arena, cardinality, kind, args)
+            }
+        };
+    }
+    cardinality
 }
 
 fn range_cardinality(arena: &ArenaProgram, args: ArenaRange) -> StreamCardinality {
@@ -1304,11 +1387,7 @@ fn expr_control_flow_inner(
             flow
         }
         ArenaExprKind::Capture(block) => {
-            let mut flow = block_control_flow(arena, block, facts);
-            // A try block turns propagated errors into its Result value while
-            // returns and loop transfers still target their enclosing scopes.
-            flow.propagates = false;
-            flow
+            handle_propagation(block_control_flow(arena, block, facts))
         }
         ArenaExprKind::Retry { .. } => {
             let mut flow = ControlFlow::NORMAL;
@@ -1351,12 +1430,13 @@ fn expr_control_flow_inner(
                 && matches!(expression_type(arena, base, facts), Some(Type::Result(_, _)));
             let base = expr_control_flow(arena, base, facts);
             let index = expr_control_flow(arena, index, facts);
+            let propagates_on_receiver_error = propagating && base.completes;
             let mut flow = base.then(if guarded && !propagating {
                 ControlFlow::NORMAL.either(index)
             } else {
                 index
             });
-            if propagating && flow.completes {
+            if propagates_on_receiver_error {
                 flow.propagates = true;
             }
             flow
@@ -1370,6 +1450,7 @@ fn expr_control_flow_inner(
             let propagating = guarded
                 && matches!(expression_type(arena, base, facts), Some(Type::Result(_, _)));
             let base = expr_control_flow(arena, base, facts);
+            let propagates_on_receiver_error = propagating && base.completes;
             let mut bounds = ControlFlow::NORMAL;
             for bound in start.into_iter().chain(end) {
                 if bounds.completes {
@@ -1381,7 +1462,7 @@ fn expr_control_flow_inner(
             } else {
                 bounds
             });
-            if propagating && flow.completes {
+            if propagates_on_receiver_error {
                 flow.propagates = true;
             }
             flow
@@ -6456,6 +6537,30 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn a_result_guarded_index_error_is_captured_when_its_operand_returns() {
+        let source = "pure choose(values: Result[List[Int], Error]) -> Int {\n  let ignored: Result[Int?, Error] = try { values?[if true { return 1 } else { 0 }] }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_result_guarded_slice_error_is_captured_when_its_bound_returns() {
+        let source = "pure choose(values: Result[List[Int], Error]) -> Int {\n  let ignored: Result[List[Int]?, Error] = try { values?[if true { return 1 } else { 0 }..] }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn an_empty_comprehension_does_not_count_a_return_in_its_projection() {
         let source = "pure choose() -> Int {\n  while true {\n    let ignored = [if true { return 1 } else { 0 } for item in []]\n    break\n  }\n}\n";
         let diagnostics = diagnostics(source);
@@ -6464,6 +6569,42 @@ mod return_flow_tests {
                 .iter()
                 .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
             "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_range_comprehension_does_not_count_a_loop_break_in_its_projection() {
+        let source = "proc spin() [] { loop { let ignored = [if true { break } else { 0 } for item in range(0, 0)] } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_for_body_over_an_empty_source_does_not_exit_its_enclosing_loop() {
+        let sources = [
+            "proc spin() [] { loop { for item in [] { return } } }\n",
+            "proc spin() [] { loop { for item in range(0, 0) { return } } }\n",
+            "pure spin(result: Result[Int, Error]) -> Result[Int, Error] { loop { for item in [] { let value = result? } } }\n",
+            "pure spin(result: Result[Int, Error]) -> Result[Int, Error] { loop { for item in range(0, 0) { let value = result? } } }\n",
+        ];
+        let missing_loop_diagnostics: Vec<_> = sources
+            .into_iter()
+            .filter_map(|source| {
+                let diagnostics = diagnostics(source);
+                (!diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)))
+                .then_some((source, diagnostics))
+            })
+            .collect();
+        assert!(
+            missing_loop_diagnostics.is_empty(),
+            "{missing_loop_diagnostics:?}"
         );
     }
 
@@ -6577,6 +6718,7 @@ mod return_flow_tests {
             &parsed.arena,
             body,
             false,
+            &rustc_hash::FxHashMap::default(),
             &rustc_hash::FxHashMap::default(),
         ));
     }
@@ -6707,6 +6849,30 @@ mod return_flow_tests {
         let diagnostics = diagnostics(source);
         assert!(
             !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_consumed_zip_includes_callbacks_in_its_right_pipeline() {
+        let source = "pure choose() -> Int { let ignored = [1] |> zip([2] |> map { |item| return item }).collect() }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_consumed_zip_source_skips_callbacks_in_its_right_pipeline() {
+        let source = "pure choose() -> Int { let ignored = [1] |> zip([] |> map { |item| return item }).collect() }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
             "{diagnostics:?}"

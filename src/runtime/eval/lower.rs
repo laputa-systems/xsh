@@ -2618,6 +2618,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 def.body,
                 tail_is_value,
                 &self.bodies.expr_types,
+                &self.declarations.tag_variants_by_name,
             );
         if !body_cannot_fall_through {
             if matches!(return_kind, LoweredReturnKind::Plain(LoweredType::Stream)) {
