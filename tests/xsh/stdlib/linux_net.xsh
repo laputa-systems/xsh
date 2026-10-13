@@ -52,7 +52,7 @@ proc interface_names(replies: List[LinuxNetlinkMessage]) [error] -> Result[List[
   let names = collect {
     for reply in replies {
       for attribute in attributes(reply.payload, 16)? {
-        yield attribute.data[0..attribute.data.len() - 1] as Str when attribute.kind == 3
+        yield attribute.data.slice(0, attribute.data.len() - 1) as Str when attribute.kind == 3
       }
     }
   }
