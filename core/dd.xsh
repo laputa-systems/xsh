@@ -89,7 +89,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
     if let at = separator {
       if byte_key in ["if", "of"] {
         let value = raw_arg[at + 1..]
-        let operand_path: Path? = if value == b"-" { null } else { Path.parse_bytes(value)? }
+        let operand_path: Path? = if value == b"-" { null } else { value as Path }
         opts = if byte_key == "if" { {...opts, input: operand_path} } else { {...opts, output: operand_path} }
         continue
       }
