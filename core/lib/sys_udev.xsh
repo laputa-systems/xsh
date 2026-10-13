@@ -362,7 +362,7 @@ export proc enumerate(root: FsRoot) [fs, error] -> Result[List[Str], Error] {
           let link = root.readlink_result(entry)?
           var real = entry.display()
           if link.state == "observed" {
-            real = fp"{directory}/{(link.target ?? p"").display()}".normalize().display()
+            real = fp"{directory}/{link.target ?? p""}".normalize().display()
           }
 
           continue when ! real.starts_with("sys/")

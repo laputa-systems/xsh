@@ -1231,11 +1231,11 @@ proc create_parents(st: Run, opts: Options, file: Path) [fs, process, env] -> Cr
   for directory in missing {
     match directory.mkdir(parents: false) {
       Ok(_) => {
-        if opts.warn_interdir { gnu.error(f"Creating intermediate directory `{directory.display()}'") }
+        if opts.warn_interdir { gnu.error(f"Creating intermediate directory `{directory}'") }
       }
       Err(failure) => {
         guard gnu.errno(failure) == 17 else {
-          gnu.error(f"cannot make directory `{directory.display()}': {gnu.strerror(failure)}")
+          gnu.error(f"cannot make directory `{directory}': {gnu.strerror(failure)}")
           return {ok: false, st: st}
         }
       }
@@ -1256,12 +1256,12 @@ proc link_to_name(st: Run, opts: Options, name: Bytes, target: Path) [fs, proces
   }
   match result {
     Ok(_) => {
-      if opts.verbose { gnu.error(f"{target.display()} linked to {shown(name)}") }
+      if opts.verbose { gnu.error(f"{target} linked to {shown(name)}") }
       {linked: true, reason: "", st: state}
     }
     Err(failure) => {
       let reason = gnu.strerror(failure)
-      if opts.link { gnu.error(f"cannot link {target.display()} to {shown(name)}: {reason}") }
+      if opts.link { gnu.error(f"cannot link {target} to {shown(name)}: {reason}") }
       {linked: false, reason: reason, st: state}
     }
   }
@@ -2585,7 +2585,7 @@ proc read_archive(opts: Options) [fs, io, error, process, env] -> Bytes {
     match source.read_bytes() {
       Ok(value) => { data = value }
       Err(failure) => {
-        gnu.error(f"Cannot open {source.display()}: {gnu.strerror(failure)}")
+        gnu.error(f"Cannot open {source}: {gnu.strerror(failure)}")
         exit 2
       }
     }

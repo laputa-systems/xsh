@@ -719,7 +719,7 @@ test test_children_are_waited_for_when_sigchld_is_inherited_ignored { |ctx|
 print ${status.exited_with(7)}
 """)
   outer.write(f"""process.set_signal_action("CHLD", "ignore")?
-unix.exec(process.command_argv("{xsh}", ["{xsh}", "{inner.display()}"]))?
+unix.exec(process.command_argv("{xsh}", ["{xsh}", "{inner}"]))?
 """)
   let command = process.command_argv(ctx.xsh_bin, [xsh, outer], stdout: out)
   assert process.run(command)?.exited_with(0)

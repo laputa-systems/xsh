@@ -164,7 +164,7 @@ test test_ss_unix_sockets_print_inodes_as_ports { |ctx|
   linux.connect(client, {family: "unix", address: socket_path.display()})
   let accepted = linux.accept(server)?
   defer unix.close_fd(accepted.fd)
-  let ran = ss(ctx, ["-xan", f"src {socket_path.display()}"])?
+  let ran = ss(ctx, ["-xan", f"src {socket_path}"])?
   assert ran.status == 0, ran.stderr
   let lines = ran.stdout.lines()
   assert lines.len() == 3, ran.stdout
@@ -192,7 +192,7 @@ test test_ss_unix_sockets_print_inodes_as_ports { |ctx|
   assert listening == 1 and connected == 1
   # Without -a the listener is hidden, and the State column goes with a
   # single-state selection.
-  let only_listener = ss(ctx, ["-xlnH", f"src {socket_path.display()}"])?
+  let only_listener = ss(ctx, ["-xlnH", f"src {socket_path}"])?
   assert only_listener.stdout.lines().len() == 1
   assert only_listener.stdout.starts_with("u_str LISTEN 0      5      ")
 }

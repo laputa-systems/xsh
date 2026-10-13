@@ -1170,7 +1170,7 @@ test test_uu_ls_ls_long_dangling_symlink_color { |ctx|
   let name = rx"(?:\x1b\[[0-9;]*m)*\x1b\[([0-9;]*)mdir1/dangling_symlink\x1b\[0m".captures(r.stdout as Str)
   assert !name.is_empty()
   assert name[1] == "40"
-  uu.stdout_contains(r, f"\x1b[34m{uu.at(s, "foo").display()}\x1b[0m")
+  uu.stdout_contains(r, f"\x1b[34m{uu.at(s, "foo")}\x1b[0m")
 }
 
 # origin: uutils test_ls::test_ls_long_format

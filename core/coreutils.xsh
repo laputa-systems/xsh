@@ -131,7 +131,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io, fs] {
   let plan = process.command_argv(file, forwarded)
 
   if let Err(failure) = unix.exec(plan) {
-    eprint f"coreutils: cannot run '{file.display()}': {failure.message}"
+    eprint f"coreutils: cannot run '{file}': {failure.message}"
     exit 126
   }
 }

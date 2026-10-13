@@ -364,7 +364,7 @@ test test_sort_merge_temp_directory_failure_names_the_directory { |ctx|
   let error = test.temp_path(ctx, name: "temp-error")
   let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -m --batch-size=2 -T $missing $first $second $third 2> $error
   assert status.exited_with(2)
-  assert error.read_text()?.starts_with(f"sort: cannot create temporary file in '{missing.display()}': ")
+  assert error.read_text()?.starts_with(f"sort: cannot create temporary file in '{missing}': ")
 }
 
 test test_sort_files0_from_extra_operand_has_usage_hint { |ctx|
@@ -1373,7 +1373,7 @@ test test_sort_compress_program_wraps_every_spilled_run { |ctx|
   let calls = fp"{root}/calls"
   let temp = test.temp_dir(ctx, name: "sort-compress-spill-tmp")?
   let compressor = fp"{root}/compress"
-  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls.display()}\ncat\n", mode: 0o755)
+  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls}\ncat\n", mode: 0o755)
   let numbers = collect { for n in range(1, 20001) { yield f"{20001 - n}" } }
   let input = test.temp_file(ctx, name: "input", contents: bytes.from_text(numbers.join("\n") + "\n"))?
   let expected = collect { for n in range(1, 20001) { yield f"{n}" } }
@@ -1398,7 +1398,7 @@ test test_sort_compress_program_wraps_batched_merge_runs { |ctx|
   let calls = fp"{root}/calls"
   let temp = test.temp_dir(ctx, name: "sort-compress-merge-tmp")?
   let compressor = fp"{root}/compress"
-  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls.display()}\ncat\n", mode: 0o755)
+  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls}\ncat\n", mode: 0o755)
   let first = fp"{root}/first"
   let second = fp"{root}/second"
   let third = fp"{root}/third"
@@ -1841,7 +1841,7 @@ test test_sort_check_reports_invalid_record_bytes_verbatim { |ctx|
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 1
   assert stderr.read_bytes()? == bytes.concat([
-    bytes.from_text(f"sort: {source.display()}:2: disorder: "),
+    bytes.from_text(f"sort: {source}:2: disorder: "),
     bytes.from_ints([128])?,
     b"\n",
   ])

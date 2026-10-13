@@ -303,7 +303,7 @@ test test_setpriv_reset_env_rebuilds_the_environment_from_the_account { |ctx|
   let lines = result.stdout.lines()
   assert ! ("FOO=bar" in lines)
   assert "TERM=xsh-term" in lines
-  assert f"HOME={entry.home.display()}" in lines
+  assert f"HOME={entry.home}" in lines
   assert f"USER={entry.name}" in lines
   assert f"LOGNAME={entry.name}" in lines
   assert f"SHELL={if entry.shell == "" { "/bin/sh" } else { entry.shell }}" in lines

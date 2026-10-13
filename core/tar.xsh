@@ -437,7 +437,7 @@ proc prepare_destination(target: Path, opts: Options) [fs, error] -> Result[Bool
     Ok(_) => {}
     Err(failure) => {
       return Ok(true) when gnu.errno(failure) == 2
-      return Err(TarError.Invalid(f"{target.display()}: Cannot stat: {gnu.strerror(failure)}"))
+      return Err(TarError.Invalid(f"{target}: Cannot stat: {gnu.strerror(failure)}"))
     }
   }
   return Ok(false) when opts.keep
@@ -445,7 +445,7 @@ proc prepare_destination(target: Path, opts: Options) [fs, error] -> Result[Bool
     target.remove()
     return Ok(true)
   }
-  Err(TarError.Invalid(f"{target.display()}: destination exists"))
+  Err(TarError.Invalid(f"{target}: destination exists"))
 }
 
 # Creates one member below the destination. A directory returns a fixup so its

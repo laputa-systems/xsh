@@ -1926,7 +1926,7 @@ proc commit_in_place(target: Str, output: Bytes, mode: Int, suffix: Str) [fs, io
   }
   if let Err(failure) = temporary.rename(to: destination, overwrite: true) {
     let _ = temporary.remove()
-    gnu.error(f"cannot rename {temporary.display()} to {target}: {gnu.strerror(failure)}")
+    gnu.error(f"cannot rename {temporary} to {target}: {gnu.strerror(failure)}")
     exit 4
   }
 }

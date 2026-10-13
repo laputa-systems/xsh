@@ -10,7 +10,7 @@ proc front_end_dir(ctx: TestContext, applets: List[Str]) [fs, process, error] ->
 
   for name in ["coreutils", @applets] {
     let source = if name == "coreutils" { fp"{ctx.core_dir}/coreutils.xsh" } else { fp"{ctx.core_dir}/{name}.xsh" }
-    let body = source.read_text()?.replace("#!/bin/xsh", with: f"#!{ctx.xsh_bin.display()}")
+    let body = source.read_text()?.replace("#!/bin/xsh", with: f"#!{ctx.xsh_bin}")
     let target = fp"{root}/{name}"
     target.write(body)
     target.chmod(0o755)

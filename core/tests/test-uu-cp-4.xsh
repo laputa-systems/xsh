@@ -194,7 +194,7 @@ test test_uu_cp_cp_parents_absolute_path { |ctx|
   uu.mkdir(s, "dest")
   let r = uu.invoke(s, "cp", ["--parents", uu.at(s, "a/b/f").display(), "dest"])?
   uu.succeeds(r)
-  assert uu.file_exists(s, f"dest{s.root.display()}/a/b/f")?
+  assert uu.file_exists(s, f"dest{s.root}/a/b/f")?
 }
 
 # origin: uutils test_cp::test_cp_parents_dest_not_directory

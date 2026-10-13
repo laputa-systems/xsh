@@ -847,7 +847,7 @@ test test_auto_detection_uses_inquiry_to_find_sat { |ctx|
   )?
   let parsed = json.decode(out.stdout)?
   assert json.get(parsed, ["device", "type"])? == "sat"
-  assert json.get(parsed, ["device", "info_name"])? == f"{device.display()} [SAT]"
+  assert json.get(parsed, ["device", "info_name"])? == f"{device} [SAT]"
   assert json.get(parsed, ["model_name"])? == "WDC WD10EZEX-00BN5A0"
 }
 
