@@ -2,7 +2,8 @@
 
 Run an example from the repository root with `xsh examples/NAME.xsh`.
 Examples are complete, small programs that show several XSH modules working
-together.
+together. For larger systems programs, see
+[Showcase](../docs/SHOWCASE.md).
 
 | Program | What it demonstrates |
 |---|---|
