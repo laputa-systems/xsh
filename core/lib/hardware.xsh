@@ -325,7 +325,7 @@ type CpuIdentifiers = {sockets: Map[Int], cores: Map[Int], dies: Map[Int], nodes
 # Logical topology IDs are assigned from zero; physical IDs stay as the kernel
 # reported them. Core and die identities include their enclosing package.
 pure cpu_identifiers(section: report.CpuSection) -> CpuIdentifiers {
-  var ids: CpuIdentifiers = {sockets: {}, cores: {}, dies: {}, nodes: {}, caches: {}}
+  var ids: CpuIdentifiers = CpuIdentifiers(sockets: {}, cores: {}, dies: {}, nodes: {}, caches: {})
   for processor in section.cpus |> sort-by .id {
     if processor.package_id != null {
       let key = f"{processor.package_id}"
