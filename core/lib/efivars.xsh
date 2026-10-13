@@ -268,7 +268,7 @@ pure code_points(text: Str) -> List[Int] {
 export pure utf16_units(text: Str) -> List[Int] {
   var units = []
   for point in code_points(text) {
-    if point < 65536 { units += [point]; continue }
+    guard point >= 65536 else { units += [point]; continue }
     let offset = point - 65536
     units += [55296 + offset / 1024, 56320 + offset % 1024]
   }

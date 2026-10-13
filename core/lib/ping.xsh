@@ -617,7 +617,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
     if ! sending {
       # Nothing is left to wait for when every probe that left was answered
       # or none could be sent.
-      if delivered <= stats.received {
+      guard delivered > stats.received else {
         finished = true
         continue
       }

@@ -323,7 +323,7 @@ proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, 
   var output = b""
   var at = 0
   while at < length {
-    if data.byte_at(at) != 37 {
+    guard data.byte_at(at) == 37 else {
       let start = at
       at += 1
       while at < length and data.byte_at(at) != 37 { at += 1 }

@@ -548,7 +548,7 @@ proc one_patch(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sca
   if action == "copied" and opts.reverse {
     # Undoing a copy leaves the original in place: the file it was copied
     # from is patched where it stands.
-    if !file_exists(git.copy_from) {
+    guard file_exists(git.copy_from) else {
       say("Cannot copy file without two valid file names\n")
       return {status: 1, next: skip_hunks(lines, scan).next}
     }

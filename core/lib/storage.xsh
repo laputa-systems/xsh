@@ -971,7 +971,7 @@ proc umount(argv: List[Str]) {
   for name in args.operands {
     # An unprivileged umount(2) reports EPERM before it looks the path up; a
     # path that does not exist is named as missing, as for a privileged caller.
-    if !fp"{name}".exists() {
+    guard fp"{name}".exists() else {
       gnu.error(f"{name}: No such file or directory")
       failed = true
       continue
@@ -1014,7 +1014,7 @@ proc byte_count(value: Str) -> UInt {
 # fstrim names the option whose value it could not parse and, like the
 # util-linux tool, does not follow that with a usage hint.
 proc fstrim_bytes(value: Str, what: Str) -> UInt {
-  if ! rx"^[0-9]+[KMGT]?$".matches(value) {
+  guard rx"^[0-9]+[KMGT]?$".matches(value) else {
     gnu.error(f"failed to parse {what}: {gnu.quote(value)}: Invalid argument")
     exit 1
   }

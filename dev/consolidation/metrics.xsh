@@ -12,7 +12,7 @@ type Audit = {schema: Int, mode: Str, envelope: Str, rises: List[Rise]}
 proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   if o.action not in ["measure", "check", "final-close"] { fail "expected measure, check, or final-close" }
   if ([o.source, o.xsht_source] |> sort) != ["crates/xsht/src", "src"] { fail "explicit source roots must be src and crates/xsht/src" }
-  let measured = if o.input == "" { metrics.measure_with_allowances(o.root, [o.source, o.xsht_source])? } else { if o.item_inventory != "" { fail "--item-inventory requires a source measurement" }; {report: json.read(fp"{o.input}")?.require(metrics.Report)?, item_allowances: {schema: 1, entries: []}} }
+  let measured = if o.input == "" { metrics.measure_with_allowances(o.root, [o.source, o.xsht_source])? } else { guard o.item_inventory == "" else { fail "--item-inventory requires a source measurement" }; {report: json.read(fp"{o.input}")?.require(metrics.Report)?, item_allowances: {schema: 1, entries: []}} }
   let current = measured.report
   json.write(o.output, current)
   if o.item_inventory != "" { json.write(fp"{o.item_inventory}", measured.item_allowances) }

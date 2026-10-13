@@ -256,7 +256,7 @@ test test_nc_talks_to_itself_and_half_closes { |ctx|
 test test_nc_listen_without_n_names_the_address { |ctx|
   match dns.reverse("127.0.0.1") {
     Ok(names) => {
-      if names != ["localhost"] {
+      guard names == ["localhost"] else {
         test.skip("127.0.0.1 does not reverse-resolve to localhost here")
         return
       }

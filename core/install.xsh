@@ -164,7 +164,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
     let strip_path = if target.name().starts_with("-") { "./" + target.name() } else { target.name() }
     match process.run(process.command_argv(executable, [program, strip_path], cwd: staged_dir)) {
       Ok(status) => {
-        if ! status.exited() {
+        guard status.exited() else {
           gnu.error("strip process terminated abnormally")
           return Failed
         }

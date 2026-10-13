@@ -6,7 +6,7 @@ type Options = {help: Bool, version: Bool, files: List[Str]}
 # Dependency paths are inspected as files; target code and interpreters are
 # never run, so this report has paths rather than runtime load addresses.
 proc resolve_library(name: Str, origin: Path, search: Str) [fs, env, error, process] -> Result[Path?] {
-  if name.find("/") != null {
+  guard name.find("/") == null else {
     let target = fp"{name}"
     return Ok(if target.exists() { target } else { null })
   }

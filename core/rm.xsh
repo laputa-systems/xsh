@@ -300,7 +300,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if opts.preserve_root == "all" {
       if let Ok(meta) = fs.stat(target) {
         if let Ok(parent) = fs.stat(target.parent(), follow_symlinks: true) {
-          if meta.dev != parent.dev {
+          guard meta.dev == parent.dev else {
             gnu.error(f"skipping {gnu.quote_bytes(name)}, since it's on a different device")
             success = false
             continue

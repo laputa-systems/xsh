@@ -35,7 +35,7 @@ test test_basenc_decode_error_preserves_prefix { |ctx|
 }
 
 test test_basenc_base16_reports_write_error { |ctx|
-  if ! p"/dev/full".exists() { test.skip("/dev/full is not available"); return }
+  guard p"/dev/full".exists() else { test.skip("/dev/full is not available"); return }
   let result = invoke(ctx, ["--base16"], b"Hello, World!", sink: /dev/full)?
   assert result.status == 1
   assert result.stderr == "basenc: write error: No space left on device\n"

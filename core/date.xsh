@@ -342,7 +342,7 @@ proc format_text(instant: date_parse.Instant, format: Str, utc: Bool, style: Dat
   var index = 0
   let length = format.byte_len()
   while index < length {
-    if (format.byte_at(index) ?? 0) != 37 {
+    guard (format.byte_at(index) ?? 0) == 37 else {
       let start = index
       while index < length and (format.byte_at(index) ?? 0) != 37 { index += 1 }
       output = f"{output}{format_directive(instant, format.byte_slice(start, length: index - start), utc, style)?}"

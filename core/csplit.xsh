@@ -90,7 +90,7 @@ proc parse_patterns(operands: List[Str]) [process, env] -> List[Pattern] {
           index += 1
         } else {
           if next.starts_with("{") {
-            if ! next.ends_with("}") {
+            guard next.ends_with("}") else {
               gnu.error(gnu.quote_value(next) + ": '}' is required in repeat count")
               exit 1
             }

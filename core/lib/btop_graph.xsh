@@ -218,7 +218,7 @@ export pure project(
     for row in range(height) {
       var line = ""
       for column in range(width) {
-        if column < left_padding {
+        guard column >= left_padding else {
           line += " "
           continue
         }

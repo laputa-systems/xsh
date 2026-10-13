@@ -974,7 +974,7 @@ pure explore(program: Program, chars: List[Int], from: Int, single: Bool) -> Lis
           var same = true
           for step in range(length) {
             if ! char_ok(chars[at + step], chars[lo + step], false, utf8) {
-              if ! (icase and lower_cp(chars[at + step], utf8) == lower_cp(chars[lo + step], utf8)) { same = false; break }
+              guard icase and lower_cp(chars[at + step], utf8) == lower_cp(chars[lo + step], utf8) else { same = false; break }
             }
           }
           break unless same

@@ -115,7 +115,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let fields = columns(specs)?
   var groups: List[List[LinuxProcessSample]] = [rows]
   for sorting in (opts.sort ?? "pid").split(",") {
-    if ! rx"^[+-]?(pid|ppid|uid|user|comm|start|rss|vsz|pcpu|%cpu)$".matches(sorting) { eprint f"ps: unsupported sort key '{sorting}'"; exit 2 }
+    guard rx"^[+-]?(pid|ppid|uid|user|comm|start|rss|vsz|pcpu|%cpu)$".matches(sorting) else { eprint f"ps: unsupported sort key '{sorting}'"; exit 2 }
     let reverse = sorting.starts_with("-")
     let key = sorting.replace("-", with: "").replace("+", with: "")
     var next_groups = []

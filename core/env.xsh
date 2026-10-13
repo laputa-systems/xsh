@@ -296,7 +296,7 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
   if let directory = cwd {
     match fs.stat(directory) {
       Ok(metadata) => {
-        if metadata.kind != "dir" {
+        guard metadata.kind == "dir" else {
           gnu.error(f"cannot change directory to {gnu.quote(directory.display())}: Not a directory")
           exit 125
         }
@@ -555,7 +555,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
   let environment = environment_map(ignore_inherited, unset_names, assignments)?
   argv = argv[assignment_index..]
   if argv.is_empty() {
-    if cwd != null { gnu.error("must specify command with --chdir (-C)"); exit 125 }
+    guard cwd == null else { gnu.error("must specify command with --chdir (-C)"); exit 125 }
     if argv0 != null { gnu.error("must specify command with --argv0 (-a)"); exit 125 }
     print_environment(environment, null_delimited)
     return

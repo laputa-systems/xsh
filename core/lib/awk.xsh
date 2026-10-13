@@ -1276,7 +1276,7 @@ pure printf(format: Str, values: List[Scalar], conversion: Str) -> Result[Str] {
   var argument = 0
   var out = ""
   while at < format.byte_len() {
-    if format.byte_at(at) != 37 {
+    guard format.byte_at(at) == 37 else {
       let next = format.find("%", at) ?? format.byte_len()
       out += format.byte_slice(at, length: next - at)
       at = next
@@ -3479,7 +3479,7 @@ proc gensub(globals: Map[Scalar], pattern: Str, replacement: Str, how: Scalar, t
   Ok(out + target.byte_slice(copied))
 }
 pure to_bit_operand(name: Str, position: Int, value: Float) -> Result[Float] {
-  if value < 0.0 { return Err(fatal_error(f"{name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
+  guard ! (value < 0.0) else { return Err(fatal_error(f"{name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
   Ok(truncate(value))
 }
 # and, or and xor over unsigned 64-bit operands. A value that does not fit is

@@ -51,7 +51,7 @@ export proc command(argv: List[Str], new_session: Bool = false, detach: Bool = f
 
 ## Require explicit direct-kernel shutdown and sync unless disabled.
 export proc power(action: Str, no_sync: Bool, force: Bool) {
-  if ! force { return Err(ControlError.Unsupported("service manager shutdown is not available; use --force for the direct kernel operation")) }
+  guard force else { return Err(ControlError.Unsupported("service manager shutdown is not available; use --force for the direct kernel operation")) }
   if ! no_sync { fs.sync() }
   match action {
     "reboot" => linux.reboot()

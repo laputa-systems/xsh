@@ -43,7 +43,7 @@ pure trivial_line(line: Bytes, fmt: Format) -> Bool {
     if fmt.blank_skips_space {
       var blank = true
       for index in range(line.len()) {
-        if !gnudiff.is_space(line.byte_at(index) ?? 0) { blank = false; break }
+        guard gnudiff.is_space(line.byte_at(index) ?? 0) else { blank = false; break }
       }
       return true when blank
     }
@@ -69,12 +69,12 @@ pure analyze(chain: List[gnudiff.Change], first: gnudiff.Source, second: gnudiff
     to += item.inserted
     if trivial {
       for index in range(item.line0, l0 + 1) {
-        if !trivial_line(first.lines[index], fmt) { trivial = false; break }
+        guard trivial_line(first.lines[index], fmt) else { trivial = false; break }
       }
     }
     if trivial {
       for index in range(item.line1, l1 + 1) {
-        if !trivial_line(second.lines[index], fmt) { trivial = false; break }
+        guard trivial_line(second.lines[index], fmt) else { trivial = false; break }
       }
     }
   }

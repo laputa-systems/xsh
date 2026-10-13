@@ -323,7 +323,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
           if word == "--device" {
             options = {...options, device: value}
           } else if word == "--protocol" {
-            if value != "inet" {
+            guard value == "inet" else {
               eprint f"arp: {value}: kernel only supports 'inet'."
               exit 255
             }
@@ -379,7 +379,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
           if letter == "i" {
             options = {...options, device: value}
           } else if letter == "A" or letter == "p" {
-            if value != "inet" {
+            guard value == "inet" else {
               eprint f"arp: {value}: kernel only supports 'inet'."
               exit 255
             }

@@ -125,7 +125,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
     if let found = location {
       if value not in ["human-readable", "si"] {
         if let size = disk.parse_size(value) {
-          if size <= 0 { report_size_error("du", argv, found, value, block_size_error(value, option)); exit 1 }
+          guard size > 0 else { report_size_error("du", argv, found, value, block_size_error(value, option)); exit 1 }
         } else {
           report_size_error("du", argv, found, value, block_size_error(value, option))
           exit 1
@@ -470,7 +470,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   var targets = opts.targets
   if let list = opts.files0 {
     # GNU reports the first operand, then the conflict without the program prefix.
-    if ! targets.is_empty() {
+    guard targets.is_empty() else {
       gnu.error(f"extra operand {gnu.quote(targets[0])}")
       eprint "file operands cannot be combined with --files0-from"
       gnu.try_help()

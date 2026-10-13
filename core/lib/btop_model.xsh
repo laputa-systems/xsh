@@ -148,7 +148,7 @@ pure memory_panel(source: memory.MemorySource) -> MemoryPanel {
 }
 
 pure cpu_interval(current: Observation, previous: Observation?, gap: Bool) -> rates.Rate {
-  if current.cpu.stat.aggregate == null {
+  guard current.cpu.stat.aggregate != null else {
     return rate(if current.cpu.stat.state == .Observed { rates.Invalid } else { rates.Unavailable })
   }
 

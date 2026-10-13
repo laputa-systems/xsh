@@ -100,7 +100,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
             name_max = limits.name_max
           }
         } else if let Err(failure) = info {
-          if failure.errno != 2 { gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}"); failed = true; valid = false; break }
+          guard failure.errno == 2 else { gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}"); failed = true; valid = false; break }
         }
         parent_dir = candidate
       }

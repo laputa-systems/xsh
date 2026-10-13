@@ -239,7 +239,7 @@ pure normalize(text: Bytes, kind: TextKind) -> Result[Bytes, Error] {
         let source = at_byte(text, at + 2)
         var consumed = 3
         if source == 92 {
-          if at_byte(text, at + 3) != 92 { return Err(SedError.Invalid("recursive escaping after \\c not allowed")) }
+          guard at_byte(text, at + 3) == 92 else { return Err(SedError.Invalid("recursive escaping after \\c not allowed")) }
           consumed = 4
         }
         let upper = upper_byte(source)
@@ -778,7 +778,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
     at += 1
     command = {...command, op: op}
     if op == 35 {
-      if command.first != null { return Err(complain(chunk, at, "comments don't accept any addresses")) }
+      guard command.first == null else { return Err(complain(chunk, at, "comments don't accept any addresses")) }
       while at < text.len() and at_byte(text, at) != NEWLINE { at += 1 }
       continue
     }
@@ -830,7 +830,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       continue
     }
     if op == 58 {
-      if command.first != null { return Err(complain(chunk, at, ": doesn't want any addresses")) }
+      guard command.first == null else { return Err(complain(chunk, at, ": doesn't want any addresses")) }
       let operand = read_label(text, at)
       at = operand.next
       return Err(complain(chunk, at, "\":\" lacks a label")) when operand.name == ""
@@ -854,7 +854,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       continue
     }
     if op in [113, 81] {
-      if command.last != null { return Err(complain(chunk, at, "command only uses one address")) }
+      guard command.last == null else { return Err(complain(chunk, at, "command only uses one address")) }
     }
     if op in [113, 81, 108, 76] {
       let digit_at = skip_blanks(text, at)
@@ -921,7 +921,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
           write = operand.name
           done = true
         } else if is_digit(flag) {
-          if occurrence != 0 { return Err(complain(chunk, at, "multiple number options to 's' command")) }
+          guard occurrence == 0 else { return Err(complain(chunk, at, "multiple number options to 's' command")) }
           let scan = read_integer(text, at - 1)
           occurrence = scan.value
           at = scan.next

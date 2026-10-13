@@ -634,7 +634,7 @@ proc run_filter(command: Str, name: Path, input: Bytes) [process, error] -> Resu
 }
 
 proc check_filter(command: Str, status: Int) [process, env, io] {
-  if status != 0 {
+  guard status == 0 else {
     gnu.error(f"with filter '{command}': failed")
     exit 1
   }

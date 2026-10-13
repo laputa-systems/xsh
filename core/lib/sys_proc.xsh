@@ -216,7 +216,7 @@ export pure process_read_from_tape(pid: Int, page_size_bytes: Int, tape: Process
   }
   let before = live.parse_proc_stat_for_monitor(before_source.observation.value)
   if let Ok(stat) = before {
-    if stat.pid != pid {
+    guard stat.pid == pid else {
       return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "pid_directory_reused", null)]}
     }
 
@@ -288,7 +288,7 @@ proc process_read(root: FsRoot, directory: Path, pid: Int, page_size_bytes: Int)
 
 ## Enumerates numeric PID directories and discards rows whose identity changed mid-read.
 export proc collect(root: FsRoot, page_size_bytes: Int) [fs, error] -> ProcessSource {
-  if page_size_bytes <= 0 {
+  guard page_size_bytes > 0 else {
     return {state: report.Malformed, processes: [], issues: [src.issue("processes.page_size", report.Malformed, "invalid_page_size", null)]}
   }
   let listing = root.children(p"proc", max_entries: 65536)?

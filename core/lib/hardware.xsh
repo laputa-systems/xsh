@@ -539,7 +539,7 @@ export pure rfkill_list_lines(devices: List[LinuxRfkill]) -> List[Str] {
 export proc rfkill_set(devices: List[LinuxRfkill], selectors: List[Str], blocked: Bool) -> Result[Unit, Error] {
   for selector in selectors {
     if let Ok(id) = selector.parse_int() {
-      if ! (devices |> any .id == id) { return Err(HardwareError.InvalidSelector(f"radio ID '{selector}' was not found")) }
+      guard devices |> any .id == id else { return Err(HardwareError.InvalidSelector(f"radio ID '{selector}' was not found")) }
     }
   }
   for device in rfkill_select(devices, selectors)? {

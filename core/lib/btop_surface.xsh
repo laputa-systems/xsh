@@ -48,7 +48,7 @@ pure fit(value: Str, width: Int) -> Str {
 
 ## Creates a blank surface after checking its total cell bound.
 export pure blank(width: Int, height: Int) -> Result[Surface, Error] {
-  if ! valid_dimensions(width, height) {
+  guard valid_dimensions(width, height) else {
     return Err(error.failure("surface dimensions exceed the cell bound"))
   }
   let line = repeated(" ", width)
@@ -127,7 +127,7 @@ export pure intersect(left: Rect, right: Rect) -> Rect? {
 
 ## Clips a surface to its intersection with a cell rectangle.
 export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Error] {
-  if ! valid_rect(rectangle) {
+  guard valid_rect(rectangle) else {
     return Err(error.failure("surface clip rectangle exceeds the geometry bound"))
   }
   let clipped = intersect(
@@ -160,7 +160,7 @@ export pure meter(value: Float?, width: Int) -> Str {
 
 ## Builds one padded table row from columns with explicit cell widths.
 export pure table_row(columns: List[Str], widths: List[Int], separator: Str = " ") -> Result[Str, Error] {
-  if columns.len() != widths.len() {
+  guard columns.len() == widths.len() else {
     return Err(error.failure("table column and width counts differ"))
   }
   var row = ""

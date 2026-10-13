@@ -213,7 +213,7 @@ exit $child_status"""
 }
 
 test test_wc_files0_stops_after_stdout_write_error { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "wc-files0-write-error")?
   let stdout = fp"{root}/stdout"

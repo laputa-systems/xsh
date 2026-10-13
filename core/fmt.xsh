@@ -7,7 +7,7 @@ type Options = {width: Str, goal: Str, crown: Bool, tagged: Bool, split: Bool, u
 # Width limits report a numeric range error; goals report the selected width's
 # data-type bound. Both options use the same diagnostic name.
 proc size(value: Str, limit: Int, width: Bool) -> Int {
-  if ! rx"^[ \t\n\u{b}\u{c}\r]*[+]?[0-9]+$".matches(value) {
+  guard rx"^[ \t\n\u{b}\u{c}\r]*[+]?[0-9]+$".matches(value) else {
     gnu.error(f"invalid width: {gnu.quote_value(value)}")
     exit 1
   }

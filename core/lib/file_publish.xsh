@@ -108,7 +108,7 @@ export proc confirm(dest: Path, verb = "overwrite") -> Result[Bool, Error] {
 ## Stage a link in the destination directory so replacement is atomic and a
 ## failed source lookup leaves the old destination intact.
 export proc publish_link(source: Path, dest: Path, symbolic: Bool, logical: Bool, replace: Bool) -> Result[Unit, Error] {
-  if ! replace {
+  guard replace else {
     if symbolic { dest.symlink(to: source) } else { fs.link(source, dest, follow_symlinks: logical) }
     return
   }

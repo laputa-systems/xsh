@@ -919,7 +919,7 @@ proc nvme_session(options: Options, fd: Int, nsid_hint: Int?, now: Clock) [proce
       }
     } else if log in ["selftest", "xselftest"] {
       # Without the Device Self-test command the log page does not exist.
-      if !smart.bit_set(controller.oacs, 4) {
+      guard smart.bit_set(controller.oacs, 4) else {
         if log in options.logs and !everything {
           let line = "Self-tests not supported"
           body += line + "\n\n"
@@ -970,7 +970,7 @@ proc nvme_session(options: Options, fd: Int, nsid_hint: Int?, now: Clock) [proce
 proc scsi_read(fd: Int, cdb: Bytes, length: Int) [process] -> Fetched {
   match linux.sg_io(fd, cdb, length) {
     Ok(reply) => {
-      if reply.status != 0 { return {ok: false, data: b"", message: f"SCSI status 0x{smart.hex(reply.status, 2)}"} }
+      guard reply.status == 0 else { return {ok: false, data: b"", message: f"SCSI status 0x{smart.hex(reply.status, 2)}"} }
       fetched(reply.data)
     }
     Err(failure) => unfetched(failure)
@@ -1299,7 +1299,7 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
     exit FAIL_COMMAND_LINE
   }
   if kind == "nvme" {
-    if options.smart_switch != null {
+    guard options.smart_switch == null else {
       gnu.error("-s is not supported for NVMe devices: they have no SMART enable switch")
       exit FAIL_COMMAND_LINE
     }

@@ -23,7 +23,7 @@ test test_gnu_csplit_csplit_1000_log { |ctx|
 
 # origin: gnu csplit/csplit-io-err.log
 test test_gnu_csplit_csplit_io_err_log { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let s = uu.scene(ctx)?
   uu.symlink(s, "/dev/full", "xx01")
   let full = uu.invoke(s, "csplit", ["-", "1"], stdin: b"1\n2\n")?

@@ -123,7 +123,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
     if let found = location {
       if value not in ["human-readable", "si"] {
         if let size = disk.parse_size(value) {
-          if size <= 0 { report_size_error("df", argv, found, value, block_size_error(value, option)); exit 1 }
+          guard size > 0 else { report_size_error("df", argv, found, value, block_size_error(value, option)); exit 1 }
         } else {
           report_size_error("df", argv, found, value, block_size_error(value, option))
           exit 1

@@ -43,7 +43,7 @@ test test_tty_usage_errors_exit_with_status_two { |ctx|
 }
 
 test test_tty_stdout_write_failure_exits_three { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
 
   let root = test.temp_dir(ctx, name: "tty-full")?
   let err = fp"{root}/stderr"

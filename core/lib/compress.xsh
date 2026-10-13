@@ -87,7 +87,7 @@ pure suffix(format: Str) -> Str {
 # suffix recognized; `auto` lets xz also strip the lzma suffixes, which it
 # decodes too until --format pins one container.
 pure decoded_name(name: Str, format: Str, custom: Str?, auto: Bool) -> Str? {
-  if custom != null {
+  guard custom == null else {
     if name.ends_with(custom) and name.byte_len() > custom.byte_len() { return name.byte_slice(0, length: name.byte_len() - custom.byte_len()) }
     return null
   }
@@ -518,7 +518,7 @@ proc xz_number(text: Str, option: Str, sizes: Bool) [error, process, env] -> Res
   }
   let tail = text.byte_slice(end)
   if tail != "" {
-    if ! sizes {
+    guard sizes else {
       gnu.error(f"{text}: Value is not a non-negative decimal integer")
       exit 1
     }
@@ -804,7 +804,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       }
       custom_suffix = token.value
     } else if option == "format" and format == "zstd" {
-      if token.value != "zstd" {
+      guard token.value == "zstd" else {
         gnu.error(f"Incorrect parameter: --format={token.value}")
         exit 1
       }

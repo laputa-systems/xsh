@@ -274,7 +274,7 @@ proc cfg_eval(source_path: Str, lexed: Lexed, start: Int, assignments: Map[Bool]
 }
 
 proc satisfiable(source_path: Str, lexed: Lexed, predicates: List[CfgPredicate], atoms: List[Str], index: Int, assignments: Map[Bool]) [error] -> Result[Bool] {
-  if index < atoms.len() {
+  guard index >= atoms.len() else {
     return true when satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], false))
     return satisfiable(source_path, lexed, predicates, atoms, index + 1, assignments.set(atoms[index], true))?
   }
@@ -1239,7 +1239,7 @@ export proc measure(root: Path, source_roots: List[Str]) [fs, error] -> Result[R
 
 ## The separate allowance inventory uses the same live-module and inheritance traversal as the report.
 export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, error] -> Result[Measurement, Error] {
-  if (source_roots |> sort) != ["crates/xsht/src", "src"] { return Err(MetricError.Contract(detail: "source roots must be exactly src and crates/xsht/src")) }
+  guard (source_roots |> sort) == ["crates/xsht/src", "src"] else { return Err(MetricError.Contract(detail: "source roots must be exactly src and crates/xsht/src")) }
   let base = root.resolve()?
   var scans: List[SourceScan] = []
   var sizes: Map[Int] = {}
@@ -1299,7 +1299,7 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
 
 ## Fails on a structural rise or a changed metric schema; baseline files decode through Report.
 export proc assert_not_risen(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
-  if current.schema != baseline.schema { return Err(MetricError.Contract(detail: "metric schema changed")) }
+  guard current.schema == baseline.schema else { return Err(MetricError.Contract(detail: "metric schema changed")) }
   let names = current.metrics |> map .name |> sort
   let previous = baseline.metrics |> map .name |> sort
   if names != previous { return Err(MetricError.Contract(detail: "metric inventory changed")) }
@@ -1403,7 +1403,7 @@ proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] -> Result
     if segment in ["", ".", ".."] { return Err(MetricError.Contract(detail: "review artifact path escapes or aliases the workspace")) }
   }
   if artifact.sha256.byte_len() != 64 { return Err(MetricError.Contract(detail: "review artifact SHA-256 must be 64 hexadecimal characters")) }
-  for digit in artifact.sha256.split("") { if !(digit.lower() in "0123456789abcdef") { return Err(MetricError.Contract(detail: "review artifact SHA-256 is not hexadecimal")) } }
+  for digit in artifact.sha256.split("") { guard digit.lower() in "0123456789abcdef" else { return Err(MetricError.Contract(detail: "review artifact SHA-256 is not hexadecimal")) } }
   if artifact.command.trim() == "" or artifact.method.trim() == "" or artifact.result.trim() != "verified" {
     return Err(MetricError.Contract(detail: "review artifact needs a command, method, and verified reviewer result"))
   }
@@ -1417,7 +1417,7 @@ proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] -> Result
 
 ## Evidence stays separate from the fixed requirements; code and test trees bind it to reviewed behavior.
 export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle, root: Path) [fs, process, error] -> Result[Unit, Error] {
-  if bundle.schema != 1 { return Err(MetricError.Contract(detail: "unsupported review evidence schema")) }
+  guard bundle.schema == 1 else { return Err(MetricError.Contract(detail: "unsupported review evidence schema")) }
   let expected_names = REVIEW_REQUIREMENTS |> map .name |> sort
   let current_names = current.reviews |> map .name |> sort
   if current_names != expected_names { return Err(MetricError.Contract(detail: "current report does not contain the canonical review rows")) }

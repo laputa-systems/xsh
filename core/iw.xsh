@@ -566,7 +566,7 @@ pure parse_scan(words: List[Str], trigger: Bool) -> nl.ScanRequest? {
       }
       mode = "none"
     } else if mode == "ssid" {
-      if ! (word in scan_words()) {
+      guard word in scan_words() else {
         ssids += [word]
         index += 1
         continue
@@ -784,7 +784,7 @@ proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[
           return command_set_txpower(client, target, nl.TX_POWER.auto, null)
         }
         "fixed" | "limit" => {
-          if rest.len() < 2 {
+          guard rest.len() >= 2 else {
             eprint "Missing TX power level argument."
             return Ok(2)
           }
@@ -904,7 +904,7 @@ proc execute(tokens: List[Str]) -> Result[Int] {
       return Ok(0)
     }
     if tokens.len() == 3 and tokens[1] == "set" {
-      if tokens[2].byte_len() != 2 {
+      guard tokens[2].byte_len() == 2 else {
         eprint "not a valid ISO/IEC 3166-1 alpha2\nSpecial non-alpha2 usable entries:\n\t00\tWorld Regulatory domain"
         return Ok(2)
       }
@@ -960,7 +960,7 @@ proc main(...argv: List[Str]) {
   let outcome = execute(argv)
   match outcome {
     Ok(status) => {
-      if status != 0 {
+      guard status == 0 else {
         exit status
       }
     }

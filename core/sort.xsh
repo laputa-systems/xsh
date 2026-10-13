@@ -849,7 +849,7 @@ pure key_range_bytes(line: Str, delimiter: Str, spec: Str, opts: SortOptions) ->
 }
 
 pure key_field_start_byte(line: Str, delimiter: Str, field: Int) -> Int {
-  if delimiter != "" {
+  guard delimiter == "" else {
     let parts = line.split(delimiter)
     return line.byte_len() when field >= parts.len()
     var position = 0
@@ -869,7 +869,7 @@ pure key_field_start_byte(line: Str, delimiter: Str, field: Int) -> Int {
 }
 
 pure key_field_end_byte(line: Str, delimiter: Str, field: Int) -> Int? {
-  if delimiter != "" {
+  guard delimiter == "" else {
     let parts = line.split(delimiter)
     return null when field >= parts.len()
     return key_field_start_byte(line, delimiter, field) + parts[field].byte_len()
@@ -1880,7 +1880,7 @@ proc validate_batch_size(value: Str) [process, env, error] -> Unit {
   let maximum = if let soft = limit.soft { soft - 3 } else { 9223372036854775807 }
   match value.parse_int() {
     Ok(size) => {
-      if size < 2 {
+      guard size >= 2 else {
         gnu.error(f"invalid --batch-size argument {gnu.quote(value)}")
         gnu.error("minimum --batch-size argument is '2'")
         exit 2
@@ -2657,7 +2657,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let output_path = opts.output.get(0) ?? ""
   let has_output = ! opts.output.is_empty()
   for candidate in opts.output[1..] {
-    if candidate != output_path {
+    guard candidate == output_path else {
       gnu.error("multiple output files specified")
       exit 2
     }
@@ -2704,7 +2704,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   var inputs: List[SortInput] = []
   if let list = opts.files0_from {
-    if ! paths.is_empty() {
+    guard paths.is_empty() else {
       gnu.error(f"extra operand {gnu.quote(paths[0])}")
       eprint "file operands cannot be combined with --files0-from"
       gnu.try_help()

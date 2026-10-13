@@ -70,7 +70,7 @@ export pure take_due(state: State, now_ns: Int) -> Result[Plan, Error] {
     return Err(error.failure("collection schedule requires a nonnegative monotonic time"))
   }
   for index in range(state.entries.len()) {
-    if state.entries[index].interval_ns != interval(state.entries[index].class) {
+    guard state.entries[index].interval_ns == interval(state.entries[index].class) else {
       return Err(error.failure("collection schedule has a mismatched class interval"))
     }
     for prior in range(index) {

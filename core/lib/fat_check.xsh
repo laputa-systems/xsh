@@ -26,7 +26,7 @@ pure chain(initial: State, start: Int, owner: Int, safe_empty: Bool) -> Result[C
   var clusters = []
   var current = start
   while true {
-    if ! geom.valid(state.layout, current) {
+    guard geom.valid(state.layout, current) else {
       state = issue(state, f"invalid cluster {current} in entry {owner}", ! clusters.is_empty() or safe_empty)
       if state.repair and ! clusters.is_empty() { state.changes[clusters[clusters.len() - 1]] = geom.eoc(state.layout) }
       break

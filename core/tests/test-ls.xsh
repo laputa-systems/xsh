@@ -182,7 +182,7 @@ test test_ls_stats_proc_fd_entries_while_directory_is_open { |ctx|
 }
 
 test test_ls_write_errors_keep_serious_status { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let work = sandbox(ctx)?
   fp"{work}/file".write("")
 

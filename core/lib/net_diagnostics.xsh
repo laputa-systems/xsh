@@ -40,7 +40,7 @@ export proc dig_options(argv: List[Str]) [error] -> Result[DnsOptions, Error] {
   var help = false
   var version = false
   for token in cli.tokens(argv, ["p", "t"])? {
-    if token.kind != "operand" {
+    guard token.kind == "operand" else {
       match token.name {
         "p" => port = token.value as Int
         "t" => record = record_name(token.value)?

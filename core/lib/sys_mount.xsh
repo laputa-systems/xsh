@@ -203,7 +203,7 @@ export pure cgroup_mount_inventory(table: MountTable) -> CgroupMountInventory {
 
 ## Applies recorded capacity only when each value identifies one raw mount row.
 export pure apply_captured_usage(table: MountTable, captured: List[CapturedUsage]) -> Result[MountTable, Error] {
-  if captured.len() != table.mounts.len() {
+  guard captured.len() == table.mounts.len() else {
     return Err(error.failure("captured mount capacity count does not match the raw mount table"))
   }
 

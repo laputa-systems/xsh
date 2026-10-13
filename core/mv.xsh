@@ -269,7 +269,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     saved = files.backup_name(target, backup, suffix)?
     if saved != null {
       if files.same_entry(saved, source) {
-        if metadata.kind != "symlink" {
+        guard metadata.kind == "symlink" else {
           gnu.error(f"backing up {gnu.quote(target.display())} might destroy source;  {gnu.quote(source.display())} not moved")
           return {outcome: Failed, copies}
         }

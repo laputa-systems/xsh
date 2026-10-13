@@ -165,7 +165,7 @@ proc main(...argv: List[Bytes]) {
   if let directory = target_directory {
     match fs.stat(directory, follow_symlinks: true) {
       Ok(meta) => {
-        if meta.kind != "dir" {
+        guard meta.kind == "dir" else {
           gnu.error(f"target {gnu.quote_bytes(directory.bytes())} is not a directory")
           exit 1
         }

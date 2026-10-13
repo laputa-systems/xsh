@@ -99,7 +99,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, error] {{
   let plan = process.command_argv(ctx.xsh_bin, argv, root, child_env, b"", out, err, timeout: 60s)
   match linux.run_in_namespaces(plan, unshare: ["user", "net"], map_root_user: true) {
     Ok(status) => {
-      if status.shell_code()? != 0 {
+      guard status.shell_code()? == 0 else {
         test.skip(f"cannot build the interface fixture in a private network namespace: {err.read_text()?.trim()}")
         return ""
       }

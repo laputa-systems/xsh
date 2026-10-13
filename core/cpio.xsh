@@ -538,7 +538,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
   var format = known
   var junk = 0
   while true {
-    if data.len() - position < 6 {
+    guard data.len() - position >= 6 else {
       let message = if known == "" { "premature end of archive" } else { "premature end of file" }
       return Err(.Fatal(message: message))
     }
@@ -635,7 +635,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
     gnu.error("malformed header: file name of zero length")
     usable = false
   } else {
-    if data.len() - cursor < name_size {
+    guard data.len() - cursor >= name_size else {
       return Err(.Fatal(message: "premature end of file"))
     }
     let raw = data.slice(cursor, name_size)
@@ -1235,7 +1235,7 @@ proc create_parents(st: Run, opts: Options, file: Path) [fs, process, env] -> Cr
         if opts.warn_interdir { gnu.error(f"Creating intermediate directory `{directory.display()}'") }
       }
       Err(failure) => {
-        if gnu.errno(failure) != 17 {
+        guard gnu.errno(failure) == 17 else {
           gnu.error(f"cannot make directory `{directory.display()}': {gnu.strerror(failure)}")
           return {ok: false, st: st}
         }
@@ -1803,12 +1803,12 @@ proc create_directory(st: Run, opts: Options, header: Header, existing: Bool, ch
     match result {
       Ok(_) => {}
       Err(failure) => {
-        if gnu.errno(failure) != 17 {
+        guard gnu.errno(failure) == 17 else {
           return {name: name, st: call_error(state, "mkdir", name, failure)}
         }
         match fs.stat(file, follow_symlinks: false) {
           Ok(info) => {
-            if info.kind != "dir" {
+            guard info.kind == "dir" else {
               gnu.error(f"{shown(name)} is not a directory")
               return {name: name, st: state}
             }

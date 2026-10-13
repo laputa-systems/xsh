@@ -173,7 +173,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
           let next = bytes.concat([parent_dir.bytes(), b"/", bytes.from_text(renamed_name)]) as Path
           let renamed = fs.rename_noreplace(last, next)
           if let Err(failure) = renamed {
-            if failure.errno != 17 {
+            guard failure.errno == 17 else {
               # Renaming is best effort; unlink reports the final removal error.
               break
             }

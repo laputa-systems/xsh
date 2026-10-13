@@ -49,7 +49,7 @@ proc send(handle: ProcessHandle, signal: Str, verbose: Bool, foreground: Bool, c
     process.kill_group(handle.pid, signal)
   }
   if let Err(failure) = sent {
-    if failure.errno != 3 {
+    guard failure.errno == 3 else {
       gnu.error(f"failed to send signal: {gnu.strerror(failure)}")
       exit 125
     }

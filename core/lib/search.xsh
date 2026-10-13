@@ -81,7 +81,7 @@ export pure find_fixed(text: Bytes, needle: Bytes, offset = 0, insensitive = fal
   for at in range(offset, text.len() - needle.len() + 1) {
     var same = true
     for index in range(needle.len()) {
-      if fold(text.byte_at(at + index) ?? -1, insensitive) != fold(needle.byte_at(index) ?? -1, insensitive) {
+      guard fold(text.byte_at(at + index) ?? -1, insensitive) == fold(needle.byte_at(index) ?? -1, insensitive) else {
         same = false
         break
       }

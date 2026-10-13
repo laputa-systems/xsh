@@ -423,7 +423,7 @@ test test_sort_buffer_size_accepts_leading_blanks { |ctx|
 }
 
 test test_sort_batched_merge_progresses_under_small_descriptor_limit { |ctx|
-  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  guard p"/bin/sh".exists() else { test.skip("requires /bin/sh"); return }
   let root = test.temp_dir(ctx, name: "sort-batch-descriptors")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -755,7 +755,7 @@ test test_sort_key_spec_rejects_invalid_numbers_and_characters { |ctx|
 }
 
 test test_sort_merge_reports_stdout_write_failure { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "sort-merge-write-failure")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let first = fp"{root}/first"
@@ -1168,7 +1168,7 @@ test test_sort_bare_check_leaves_following_operand_as_input { |ctx|
 }
 
 test test_sort_reports_default_stdout_write_failure { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "sort-default-write-failure")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -1365,7 +1365,7 @@ test test_sort_reports_output_open_failure { |ctx|
 }
 
 test test_sort_compress_program_wraps_every_spilled_run { |ctx|
-  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  guard p"/bin/sh".exists() else { test.skip("requires /bin/sh"); return }
   let root = test.temp_dir(ctx, name: "sort-compress-spill")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -1390,7 +1390,7 @@ test test_sort_compress_program_wraps_every_spilled_run { |ctx|
 }
 
 test test_sort_compress_program_wraps_batched_merge_runs { |ctx|
-  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  guard p"/bin/sh".exists() else { test.skip("requires /bin/sh"); return }
   let root = test.temp_dir(ctx, name: "sort-compress-merge")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -1434,7 +1434,7 @@ test test_sort_compress_program_missing_is_reported_and_sorting_continues { |ctx
 }
 
 test test_sort_compress_program_failure_stops_the_sort { |ctx|
-  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  guard p"/bin/sh".exists() else { test.skip("requires /bin/sh"); return }
   let root = test.temp_dir(ctx, name: "sort-compress-failure")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
@@ -1588,7 +1588,7 @@ test test_sort_buffer_size_and_file_list_diagnostics { |ctx|
 }
 
 test test_sort_merge_reports_large_stdout_write_failure { |ctx|
-  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  guard p"/dev/full".exists() else { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "sort-large-merge-write-failure")?
   let script = fp"{ctx.core_dir}/sort.xsh"
   let input = fp"{root}/input"

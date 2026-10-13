@@ -56,7 +56,7 @@ export proc collect(
   cached_mounts_at_ns: Int? = null,
   captured_usage: List[mounts.CapturedUsage]? = null,
 ) [fs, error] -> Result[Source, Error] {
-  if at_ns < 0 {
+  guard at_ns >= 0 else {
     return Err(error.failure("btop storage capture time must be nonnegative"))
   }
   let blocks = block.collect(root)
@@ -93,7 +93,7 @@ pure block_state(source: Source) -> report.ObservationState {
 }
 
 pure counter(source: Source, device: block.BlockDevice?, name: Str) -> CounterValue {
-  if device == null {
+  guard device != null else {
     let state = block_state(source)
     return {value: null, state: if state == .Observed { report.Absent } else { state }}
   }

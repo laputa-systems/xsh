@@ -440,7 +440,7 @@ test test_fs_root_stat_preserves_metadata_and_symlink_policy { |ctx|
 }
 
 test test_fs_root_children_reads_without_search_permission { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("Linux descriptor semantics are required")
     return
   }

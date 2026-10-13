@@ -144,7 +144,7 @@ pure field_text(value: Int?, state: report.ObservationState) -> Str {
 }
 
 pure counter_text(value: rates.ByteValue) -> Str {
-  if value.value == null {
+  guard value.value != null else {
     return match value.state {
       rates.Invalid => "invalid"
       rates.Reset => "reset"

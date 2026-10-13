@@ -43,7 +43,7 @@ pure encode(data: Bytes, kind: Str) -> Result[Str] {
   return Ok(data.base64()) when kind == "base64"
   return Ok(data.base32()) when kind == "base32"
   if kind == "z85" {
-    if data.len() % 4 != 0 { fail "invalid input (length must be multiple of 4 characters)" }
+    guard data.len() % 4 == 0 else { fail "invalid input (length must be multiple of 4 characters)" }
     var out = ""
     for block in data.chunks(4) {
       var n = bytes.unpack_be(block, 4)?
