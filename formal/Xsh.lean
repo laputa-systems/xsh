@@ -5,9 +5,12 @@ import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
 import Xsh.Values.OrderedSet
 import Xsh.Values.MapPresence
+import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
+import Xsh.Calls.ArgumentOrder
 import Xsh.Semantics.Argv
 import Xsh.Semantics.ListAccess
+import Xsh.Strings.Slice
 import Xsh.Semantics.Environments
 import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace

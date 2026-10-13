@@ -5182,6 +5182,330 @@
       "status": "fragment",
       "scope": "Finite map-presence and update laws over ordinal keys.",
       "boundary": "Finite ordinal-key model only; present null is distinct from absence. No key validation, comparator, ordering, iteration, JSON, diagnostic tags, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.each_argument_source_has_one_evaluation",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.each_argument_source_has_one_evaluation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Each written argument source contributes exactly one evaluation event.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.source_events_preserve_written_append_order",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.source_events_preserve_written_append_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Appending argument sources preserves their written source-event order.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.supplied_values_preserve_written_append_order",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.supplied_values_preserve_written_append_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Expanded supplied values preserve written argument order and append order.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.list_splice_preserves_element_order",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.list_splice_preserves_element_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked list splice contributes supplied slots in the given element order.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.record_spread_preserves_visible_fields_once",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.record_spread_preserves_visible_fields_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked record spread contributes each visible field once in the represented field order.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.list_splice_evaluates_its_source_once",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.list_splice_evaluates_its_source_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A list splice evaluates its source expression once, independent of expanded slot count.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.record_spread_evaluates_its_source_once",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.record_spread_evaluates_its_source_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record spread evaluates its source expression once, independent of visible field count.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.receiver_precedes_written_arguments_and_defaults",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.receiver_precedes_written_arguments_and_defaults",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The receiver event precedes written argument-source events and selected default events.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.receiverless_call_orders_arguments_before_defaults",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.receiverless_call_orders_arguments_before_defaults",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A receiverless call evaluates written argument sources before selected defaults.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.default_events_follow_parameter_append_order",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.default_events_follow_parameter_append_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Selected defaults follow parameter declaration order after supplied slots are considered.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.supplied_parameter_suppresses_its_default",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.supplied_parameter_suppresses_its_default",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A supplied parameter slot suppresses its default regardless of payload.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.omitted_parameter_uses_its_default",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.omitted_parameter_uses_its_default",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An omitted parameter selects its declared default event.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.explicit_null_suppresses_default",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.explicit_null_suppresses_default",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An explicitly supplied null slot suppresses the default of that parameter.",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Calls.ArgumentOrder.parameter_order_mutation_reorders_source_event_trace",
+      "module": "Xsh.Calls.ArgumentOrder",
+      "declaration": "Xsh.Calls.ArgumentOrder.parameter_order_mutation_reorders_source_event_trace",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete mutation witness shows parameter-order sorting changes source events from [21, 20] to [20, 21].",
+      "boundary": "Already-checked finite call-layout model only; assumes resolved parameter IDs, pre-evaluated event IDs, and the exact visible fields of checked spreads. No parsing, expression evaluation or checking, duplicate-label or overload resolution, function entry or effects, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.sliceText_is_scalar_list_slice",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.sliceText_is_scalar_list_slice",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Text slices represented as finite Lean Char sequences use the same normalized scalar bounds and list slice as the modeled List operation.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.scalar_slice_round_trips_through_string",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.scalar_slice_round_trips_through_string",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Converting a modeled scalar slice to Lean String and back preserves the selected scalar sequence.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.full_scalar_slice_is_identity",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.full_scalar_slice_is_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Omitting both bounds returns the entire modeled scalar sequence.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.normalized_text_bounds_are_clamped",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.normalized_text_bounds_are_clamped",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Both normalized slice bounds lie within the modeled text's scalar count.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.scalar_slice_length_is_bounded_by_its_span",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.scalar_slice_length_is_bounded_by_its_span",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A modeled scalar slice has no more elements than the span between its normalized bounds.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.negative_text_bound_counts_from_end",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.negative_text_bound_counts_from_end",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A negative bound within the modeled text resolves backward from its scalar count.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.negative_scalar_bounds_count_from_end",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.negative_scalar_bounds_count_from_end",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete negative scalar range over a multibyte sample selects its second scalar.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.reversed_normalized_text_bounds_are_empty",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.reversed_normalized_text_bounds_are_empty",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "When normalized text bounds are reversed or equal, the modeled scalar slice is empty.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.scalar_slice_preserves_source_order",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.scalar_slice_preserves_source_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every modeled scalar slice is an ordered sublist of the source text.",
+      "boundary": "Independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.multibyte_text_counts_scalars_and_utf8_bytes",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.multibyte_text_counts_scalars_and_utf8_bytes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete Lean String example has three modeled scalar values and a UTF-8 byte-size calculation of seven.",
+      "boundary": "Independent Lean Char-list model only. This calculation does not model the XSH UTF-8 storage implementation. No Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.Slice.utf8_byte_offset_mutation_changes_scalar_slice",
+      "module": "Xsh.Strings.Slice",
+      "declaration": "Xsh.Strings.Slice.utf8_byte_offset_mutation_changes_scalar_slice",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Concrete mutation witness: normalizing the sample's negative bound by UTF-8 byte length before indexing scalar values changes the modeled slice.",
+      "boundary": "Mutation witness over the independent Lean Char-list model only. No UTF-8 storage implementation, Bytes operations, text search, parsing, runtime behavior, Rust evaluator correspondence, or G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.key_order_reflexive",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.key_order_reflexive",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.key_order_antisymmetric",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.key_order_antisymmetric",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.key_order_transitive",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.key_order_transitive",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.int_order_is_numeric",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.int_order_is_numeric",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.uint_order_is_numeric",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.uint_order_is_numeric",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.bool_false_precedes_true",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.bool_false_precedes_true",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.string_order_is_lexical",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.string_order_is_lexical",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.bytes_order_is_lexical",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.bytes_order_is_lexical",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.path_order_is_exact_native_bytes",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.path_order_is_exact_native_bytes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.duration_order_is_milliseconds",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.duration_order_is_milliseconds",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Collections.KeyOrder.reversed_boolean_order_mutation_detected",
+      "module": "Xsh.Collections.KeyOrder",
+      "declaration": "Xsh.Collections.KeyOrder.reversed_boolean_order_mutation_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
+      "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
     }
   ],
   "source_identity": null

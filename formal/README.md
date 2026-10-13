@@ -6,7 +6,8 @@ build depends on it. The current `Xsh` root imports every module under
 `formal/Xsh/`. These modules define and prove fragments for exact scalar and
 word representations; lexical environments, activations, and captured cells;
 checked integer outcomes and millisecond-duration operations over typed scalar
-values; finite map-presence laws; List index and slice bounds; validated
+values; finite map-presence and primitive key-order laws; checked call argument
+ordering; List index and slice bounds; Unicode scalar text-slice laws; validated
 boundaries and atomic typed-store writes; and effect lattices, recursive
 summaries, lexical bounds, and delayed-work origins. Failed typed writes
 preserve the old store and produce an uncatchable type error; `.require(UInt)`
@@ -74,7 +75,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 244 fragment
+G0b source freeze remain pending. The provisional inventory has 280 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -88,6 +89,31 @@ normalization, and clamped slice bounds. Literal negative reads count from the
 end while computed negative indices and negative assignment indices are rejected.
 The model does not cover parsing, diagnostic phases, store updates, String or
 Bytes slicing, signed overflow, or the Rust evaluator.
+
+`Xsh.Calls.ArgumentOrder` has fourteen roots for already-checked finite call
+layouts. The model preserves receiver, written argument-source, and omitted
+default event order; carries source events through list splices and visible
+record spreads; and treats a supplied `null` as present. Its mutation witness
+shows parameter-order sorting changes source events from `[21, 20]` to
+`[20, 21]`. It assumes resolved parameter IDs, pre-evaluated events, and the
+visible fields supplied by a checked spread. It does not model parsing,
+expression evaluation or checking, duplicate labels, overload resolution,
+function entry or effects, Rust correspondence, or full G1/G2/G3 closure.
+
+`Xsh.Collections.KeyOrder` has eleven roots for separate Int, UInt, Bool,
+String, Bytes, Path, and Duration key domains. It proves reflexivity,
+antisymmetry, and transitivity for the represented orders, with a concrete
+witness that reversing Boolean order changes the result. The fragment does not
+prove totality or model map/set operations, key validation, path normalization,
+runtime behavior, Rust correspondence, or full G1/G2/G3 closure.
+
+`Xsh.Strings.Slice` has eleven roots for text slicing represented as finite
+Lean `Char` sequences. The results cover normalized scalar bounds,
+end-relative indexing, omitted bounds, source order, and a mutation witness
+where normalizing by the example's UTF-8 byte size changes the modeled scalar
+slice. The fragment does not model XSH UTF-8 storage, `Bytes` operations, text
+search, parsing, runtime evaluation, Rust correspondence, or full G1/G2/G3
+closure.
 
 `Xsh.Values.DurationOps` has eighteen roots for checked millisecond addition,
 subtraction, multiplication, division, interval ratios, and time conversions.
@@ -135,7 +161,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 244 rooted Lean fragment declarations across 89 core owner
+The inventory names 280 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
