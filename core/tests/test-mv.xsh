@@ -155,8 +155,7 @@ test test_mv_cross_device_file_copies_before_removing_source { |ctx|
   }
 
   let source = fp"{root}/source"
-  source.write("payload")
-  source.chmod(0o6751)
+  source.write("payload", mode: 0o6751)
   fs.set_times(source, atime_ns: 1400000000123456789, mtime_ns: 1500000000987654321)
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- $source $destination
 

@@ -253,8 +253,7 @@ test test_diff_unreadable_operand_is_trouble { |ctx|
   }
   let root = test.temp_dir(ctx, name: "diff-unreadable")?
   let secret = fp"{root}/secret"
-  secret.write("x\n")
-  secret.chmod(0o000)
+  secret.write("x\n", mode: 0o000)
   fp"{root}/ok".write("y\n")
   let result = invoke(ctx, ["secret", "ok"], cwd: root)?
   assert result.status == 2

@@ -30,8 +30,7 @@ proc acl_run(ctx: TestContext, root: Path, command: Str, args: List[Str]) [fs, p
 
 test test_setfacl_kernel_masks_defaults_and_invalid_records_preserve_files { |ctx|
   let root = test.temp_dir(ctx, name: "acl-kernel")?
-  let file = fp"{root}/file"; file.write("keep"); file.chmod(0o640)
-  let probe = fs.xattr_set(file, "system.posix_acl_access", acl.encode(acl.calculate_mask(acl.parse("u::rw-,u:12345:r--,g::r--,o::---")?))?)
+  let file = fp"{root}/file"; file.write("keep", mode: 0o640);  let probe = fs.xattr_set(file, "system.posix_acl_access", acl.encode(acl.calculate_mask(acl.parse("u::rw-,u:12345:r--,g::r--,o::---")?))?)
   if let Err(failure) = probe {
     if (failure.errno ?? -1) in [95, 45, 1] { test.skip(f"ACL fixture unavailable: {failure.message}"); return }
     test.fail(failure.message)
@@ -58,8 +57,7 @@ test test_setfacl_kernel_masks_defaults_and_invalid_records_preserve_files { |ct
 
 test test_setfacl_test_and_restore_prevalidate_without_mutation { |ctx|
   let root = test.temp_dir(ctx, name: "acl-restore")?
-  let file = fp"{root}/file"; file.write("keep"); file.chmod(0o600)
-  let preview = acl_run(ctx, root, "setfacl", ["--test", "-m", "u:12345:rX", "file"])?
+  let file = fp"{root}/file"; file.write("keep", mode: 0o600);  let preview = acl_run(ctx, root, "setfacl", ["--test", "-m", "u:12345:rX", "file"])?
   assert preview.status == 0, preview.stderr
   assert "u:12345:r--" in preview.stdout
   assert fs.stat(file)?.mode.bit_and(0o777) == 0o600

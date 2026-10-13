@@ -85,8 +85,7 @@ test test_unix_duplicate_fd_shares_offset_and_owns_its_descriptor { |ctx|
 test test_unix_redirect_exact_create_mode_preserves_existing_permissions { |ctx|
   let root = test.temp_dir(ctx)?
   let log = fp"{root}/log"
-  log.write("prefix")
-  log.chmod(0o640)
+  log.write("prefix", mode: 0o640)
   let result = test.expect(ctx, r"""unix.redirect_fd(1, Path(args[0]), write: true, append: true, mode: 0o600, exact_create_mode: true)?
 print "suffix"
 """, status: 0, args: [log])?

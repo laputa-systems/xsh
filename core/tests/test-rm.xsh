@@ -224,8 +224,7 @@ test test_rm_effective_permissions_and_inaccessible_directory { |ctx|
   let file = fp"{root}/file"
   let no = test.temp_file(ctx, name: "no", contents: b"n\n")?
   let yes = test.temp_file(ctx, name: "yes", contents: b"y\n")?
-  file.write("")
-  file.chmod(0)
+  file.write("", mode: 0)
   let effective_root = unix.id()?.euid == 0
   let automatic = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- ---presume-input-tty $file < $no
   assert automatic.status.exited_with(0), automatic.stderr
@@ -313,8 +312,7 @@ test test_rm_interactive_once_prompts_for_write_protected_files_on_a_terminal { 
   let root = test.temp_dir(ctx, name: "rm-once-protected")?
   let file = fp"{root}/file"
   let no = test.temp_file(ctx, name: "no", contents: b"n\n")?
-  file.write("")
-  file.chmod(0)
+  file.write("", mode: 0)
   let effective_root = unix.id()?.euid == 0
   let declined = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- ---presume-input-tty -I $file < $no
   assert declined.status.exited_with(0), declined.stderr

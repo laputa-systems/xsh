@@ -71,8 +71,7 @@ test test_find_metadata_survives_delete_for_later_actions { |ctx|
 test test_find_symbolic_and_octal_permissions { |ctx|
   let root = test.temp_dir(ctx, name: "find-permissions")?
   let file = fp"{root}/file"
-  file.write("contents")
-  file.chmod(0o640)
+  file.write("contents", mode: 0o640)
   let exact = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/find.xsh" -- $file -perm "u=rw,g=r" -print
   assert exact == f"{file}\n"
   let all = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/find.xsh" -- $file -perm "-u+r,g+r" -print

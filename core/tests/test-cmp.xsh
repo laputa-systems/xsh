@@ -175,8 +175,7 @@ test test_cmp_unreadable_file_is_trouble_unless_silent { |ctx|
   }
   let root = test.temp_dir(ctx, name: "cmp-unreadable")?
   let secret = fp"{root}/secret"
-  secret.write("x\n")
-  secret.chmod(0o000)
+  secret.write("x\n", mode: 0o000)
   fp"{root}/ok".write("x\n")
   let loud = invoke(ctx, ["secret", "ok"], cwd: root)?
   assert loud.status == 2

@@ -124,8 +124,7 @@ test test_install_compare_checks_bytes_after_first_chunk { |ctx|
   let chunks = ["x"] |> repeat(65536)
   let prefix = chunks.join("")
   source.write(f"{prefix}a")
-  dest.write(f"{prefix}b")
-  dest.chmod(0o755)
+  dest.write(f"{prefix}b", mode: 0o755)
   let old = fs.stat(dest)?.ino
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -C $source $dest
   assert fs.stat(dest)?.ino != old
@@ -177,8 +176,7 @@ test test_install_compare_copies_fifo_source_symlink_in_bounded_chunks { |ctx|
   let writer = spawn run ${ctx.xsh_bin} $writer_script ?
   defer writer.cancel(kill_after: 100ms)
   let dest = fp"{root}/dest"
-  dest.write(b"")
-  dest.chmod(0o755)
+  dest.write(b"", mode: 0o755)
   let script = fp"{ctx.core_dir}/install.xsh"
   let reader_command = process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin, script, "-C", source, dest],

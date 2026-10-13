@@ -61,8 +61,7 @@ test test_shred_pattern_passes_and_rename_collisions { |ctx|
 test test_shred_force_changes_only_permission_bits { |ctx|
   let root = test.temp_dir(ctx, name: "shred-force")?
   let file = fp"{root}/file"
-  file.write("secret")
-  file.chmod(0o400)
+  file.write("secret", mode: 0o400)
   let result = run_applet(ctx, root, ["-u", "-f", "file"])?
   assert result.status == 0, result.stderr
   assert ! file.exists()?

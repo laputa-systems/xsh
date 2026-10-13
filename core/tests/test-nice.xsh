@@ -201,8 +201,7 @@ test test_nice_command_tokens_that_look_like_adjustments_survive { |ctx|
 test test_nice_nonexecutable_path_match_is_126 { |ctx|
   let root = test.temp_dir(ctx, name: "path-permission")?
   let blocked = fp"{root}/blocked"
-  blocked.write("printf must-not-run\n")
-  blocked.chmod(384)
+  blocked.write("printf must-not-run\n", mode: 384)
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/nice.xsh"

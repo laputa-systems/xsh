@@ -262,8 +262,7 @@ test test_tail_reads_a_regular_file_shorter_than_its_stat_size { |ctx|
 test test_tail_reports_an_unreadable_empty_file_at_open { |ctx|
   let root = test.temp_dir(ctx, name: "tail-unreadable-empty")?
   let empty = fp"{root}/empty"
-  empty.write(b"")
-  empty.chmod(0o000)
+  empty.write(b"", mode: 0o000)
   if fs.access(empty, read: true) {
     test.skip("the file stays readable for this user")
   }
@@ -277,8 +276,7 @@ test test_tail_reports_an_unreadable_empty_file_at_open { |ctx|
 test test_tail_follow_name_keeps_an_unreadable_file_waiting_silently { |ctx|
   let root = test.temp_dir(ctx, name: "tail-unreadable")?
   let log = fp"{root}/log"
-  log.write(b"one\n")
-  log.chmod(0o000)
+  log.write(b"one\n", mode: 0o000)
   if fs.access(log, read: true) {
     test.skip("the file stays readable for this user")
   }

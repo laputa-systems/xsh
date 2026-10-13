@@ -19,8 +19,7 @@ test test_cp_preserve_mode_and_nanosecond_times { |ctx|
   let root = test.temp_dir(ctx, name: "cp-preserve")?
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
-  source.write("contents")
-  source.chmod(0o751)
+  source.write("contents", mode: 0o751)
   fs.set_times(source, atime_ns: 1400000000123456789, mtime_ns: 1500000000987654321)
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p $source $dest
   let meta = fs.stat(dest)?
@@ -205,8 +204,7 @@ test test_cp_attributes_only_retains_contents_and_special_type { |ctx|
   let root = test.temp_dir(ctx, name: "cp-attributes")?
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
-  source.write("new")
-  source.chmod(0o740)
+  source.write("new", mode: 0o740)
   dest.write("old")
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --attributes-only --preserve=mode $source $dest
   assert dest.read_text()? == "old"
@@ -320,8 +318,7 @@ test test_cp_force_interactive_replaces_unwritable_destination { |ctx|
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
   source.write("new")
-  dest.write("old")
-  dest.chmod(0o000)
+  dest.write("old", mode: 0o000)
   let yes = fp"{root}/yes"
   yes.write("y")
   let accepted = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -f -i -v $source $dest < $yes
@@ -331,8 +328,7 @@ test test_cp_force_interactive_replaces_unwritable_destination { |ctx|
   assert dest.read_text()? == "new"
 
   let declined_dest = fp"{root}/declined"
-  declined_dest.write("old")
-  declined_dest.chmod(0o000)
+  declined_dest.write("old", mode: 0o000)
   let empty = fp"{root}/empty"
   empty.write("")
   let declined = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -f -i -v $source $declined_dest < $empty
@@ -409,8 +405,7 @@ test test_cp_option_order_and_equals_validation { |ctx|
 test test_cp_explicit_no_preserve_mode_and_later_preserve { |ctx|
   let root = test.temp_dir(ctx, name: "cp-no-mode")?
   let source = fp"{root}/source"
-  source.write("contents")
-  source.chmod(0o751)
+  source.write("contents", mode: 0o751)
   let stripped = fp"{root}/stripped"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -a --no-preserve=mode --preserve=timestamp $source $stripped
   assert fs.stat(stripped)?.mode.bit_and(0o7777) == 0o666.clear_bits(fs.umask()?)
@@ -632,8 +627,7 @@ test test_cp_preserve_mode_copies_posix_acl_and_removes_stale_acl { |ctx|
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p $source $dest
   assert fs.xattr_get(dest, "system.posix_acl_access")? == acl
   let plain = fp"{root}/plain"
-  plain.write("plain")
-  plain.chmod(0o600)
+  plain.write("plain", mode: 0o600)
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p $plain $dest
   assert "system.posix_acl_access" not in fs.xattr_list(dest)?
   assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o600
@@ -794,12 +788,10 @@ test test_cp_invalid_destination_parent_reports_stat_error { |ctx|
 test test_cp_preserve_through_destination_symlink_changes_referent { |ctx|
   let root = test.temp_dir(ctx, name: "cp-preserve-link")?
   let source = fp"{root}/source"
-  source.write("new")
-  source.chmod(0o640)
+  source.write("new", mode: 0o640)
   fs.set_times(source, mtime_ns: 1500000000123456789)
   let referent = fp"{root}/referent"
-  referent.write("old")
-  referent.chmod(0o600)
+  referent.write("old", mode: 0o600)
   let dest = fp"{root}/dest"
   dest.symlink(to: p"referent")
   let link_time = fs.stat(dest)?.mtime_ns
@@ -817,8 +809,7 @@ test test_cp_ownership_only_finishes_new_file_and_directory_modes { |ctx|
   source.mkdir()
   source.chmod(0o751)
   let file = fp"{source}/file"
-  file.write("contents")
-  file.chmod(0o740)
+  file.write("contents", mode: 0o740)
   let dest = fp"{root}/dest"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R --preserve=ownership $source $dest
   assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o751.clear_bits(fs.umask()?)
@@ -852,14 +843,12 @@ test test_cp_force_unreadable_source_keeps_destination { |ctx|
   root.chmod(0o777)
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
-  source.write("unreadable")
-  source.chmod(0o000)
+  source.write("unreadable", mode: 0o000)
   dest.write("protected")
   let helper = fp"{root}/helper.xsh"
   helper.write(f"""{privilege}let status = run.status p"{ctx.xsh_bin}" p"{ctx.core_dir}/cp.xsh" -- -f p"{source}" p"{dest}"
 exit status.shell_code()?
-""")
-  helper.chmod(0o644)
+""", mode: 0o644)
   let result = run.capture --text ${ctx.xsh_bin} $helper
   assert result.status.exited_with(1), result.stderr
   assert dest.read_text()? == "protected"
@@ -870,10 +859,8 @@ test test_cp_force_readonly_destination_restores_creation_mode { |ctx|
   let root = test.temp_dir(ctx, name: "cp-force-mode")?
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
-  source.write("new")
-  source.chmod(0o740)
-  dest.write("old")
-  dest.chmod(0o400)
+  source.write("new", mode: 0o740)
+  dest.write("old", mode: 0o400)
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -f --preserve=ownership $source $dest
   assert dest.read_text()? == "new"
   assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o740.clear_bits(fs.umask()?)

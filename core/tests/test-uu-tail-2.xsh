@@ -1296,8 +1296,7 @@ test test_uu_tail_stdin_via_script_redirection_and_pipe { |ctx|
   let shim = fp"{bin}/tail"
   let vars = {PATH: f"{bin}:/usr/local/bin:/usr/bin:/bin"}
   let argv = uu.argv(s, "tail", [], vars)?
-  shim.write("#!/bin/sh\nexec " + [shell_quote(word) for word in argv].join(" ") + "\n")
-  shim.chmod(0o755)
+  shim.write("#!/bin/sh\nexec " + [shell_quote(word) for word in argv].join(" ") + "\n", mode: 0o755)
   for script in ["./test.sh < file.txt", "cat file.txt | ./test.sh"] {
     let r = wrapped(s, [], [p"/bin/sh", p"-c", Path(script)], vars)?
     uu.succeeds(r)

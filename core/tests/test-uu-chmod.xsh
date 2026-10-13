@@ -199,8 +199,7 @@ test test_uu_chmod_chmod_non_existing_file_silent { |ctx|
 test test_uu_chmod_chmod_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"test_\xFF\xFE.txt")?
-  file.write("")
-  file.chmod(0o644)
+  file.write("", mode: 0o644)
   assert fs.stat(file)?.mode.bit_and(0o777) == 0o644
   let r = uu.invoke_paths(s, "chmod", [p"755", file])?
   uu.succeeds(r)

@@ -12,8 +12,7 @@ export let EPOCH_NS = 1000000000000000000
 const SECOND = 1000000000
 
 proc put(target: Path, text: Str, mode: Int, mtime_ns: Int, atime_ns: Int? = null) [fs, error] {
-  target.write(text)
-  target.chmod(mode)
+  target.write(text, mode: mode)
   fs.set_times(target, atime_ns: atime_ns ?? mtime_ns, mtime_ns:)
 }
 
