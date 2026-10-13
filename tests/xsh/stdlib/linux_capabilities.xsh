@@ -1,11 +1,3 @@
-pure errno_of(result: Result[Any, Error]) -> Int {
-  if let Err(failure) = result {
-    return failure.errno ?? -1
-  } else {
-    return 0
-  }
-}
-
 # The privilege setters change per-thread kernel state that children inherit,
 # so each test that mutates it runs the change in its own xsh process. The
 # prelude gives those scripts the same errno helper.
@@ -17,6 +9,14 @@ const PRELUDE = """pure errno_of(result: Result[Any, Error]) -> Int {
   }
 }
 """
+
+pure errno_of(result: Result[Any, Error]) -> Int {
+  if let Err(failure) = result {
+    return failure.errno ?? -1
+  } else {
+    return 0
+  }
+}
 
 pure hex_value(text: Str) -> Int {
   var value = 0

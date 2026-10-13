@@ -31,8 +31,8 @@ proc resource_return_tail_root() [fs, error] -> Result[FsRoot] {
   root
 }
 
-pure resource_return_early_root(root: FsRoot) -> FsRoot {
-  return root
+pure resource_return_early_root(root: FsRoot, return_early: Bool) -> FsRoot {
+  return root when return_early
   root
 }
 
@@ -135,7 +135,7 @@ test resource_lock_unlocks_after_its_defers { |ctx|
 
 test resource_middle_block_process_assignment_survives {
   var kept = null
-  var holder: ResourceChildHolder = ResourceChildHolder(child: null)
+  var holder: ResourceChildHolder = ResourceChildHolder(null)
   {
     let child = spawn run sleep 30 ?
     { kept = child }
@@ -153,7 +153,7 @@ test resource_middle_block_process_assignment_survives {
 test resource_middle_block_job_assignment_survives { |ctx|
   test.mock(ctx, "net.start", {url: resource_response.url}, Ok(resource_response), times: 2)
   var kept = null
-  var holder: ResourceJobHolder = ResourceJobHolder(job: null)
+  var holder: ResourceJobHolder = ResourceJobHolder(null)
   {
     let job = net.start({method: "GET", url: resource_response.url})?
     { kept = job }
@@ -252,7 +252,7 @@ test resource_root_return_block_break_and_borrow_survive {
   resource_borrow_root(returned)
   assert returned.read_text(p"borrowed")? == "live"
 
-  let early_returned = resource_return_early_root(fs.tempdir()?)
+  let early_returned = resource_return_early_root(fs.tempdir()?, true)
   defer early_returned.close()
   assert early_returned.exists(p".")?
 
@@ -271,7 +271,7 @@ test resource_root_return_block_break_and_borrow_survive {
   defer broken.close()
   assert broken.exists(p".")?
 
-  var holder: ResourceRootHolder = ResourceRootHolder(root: null)
+  var holder: ResourceRootHolder = ResourceRootHolder(null)
   {
     let root = fs.tempdir()?
     { holder.root = root }

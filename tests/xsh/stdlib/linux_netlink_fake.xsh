@@ -4,6 +4,9 @@
 # Nothing here reaches a kernel except the checks that a descriptor the fake
 # did not open still takes the real path.
 
+const REPLY = "AQIDBA=="
+const EVENT = "BQYHCA=="
+
 pure errno_of(result: Result[Any, Error]) -> Int {
   if let Err(failure) = result {
     return failure.errno ?? -1
@@ -34,9 +37,6 @@ proc install(ctx: TestContext, name: Str, lines: List[Any]) [fs, process, error]
   test.linux_fake(ctx, {netlink_fixture: fixture, log: log})
   log
 }
-
-const REPLY = "AQIDBA=="
-const EVENT = "BQYHCA=="
 
 test test_fixture_answers_family_lookups_and_requests { |ctx|
   let log = install(ctx, "requests", [
@@ -113,7 +113,7 @@ test test_events_reach_only_sockets_that_joined_their_group { |ctx|
   let first = linux.recvfrom(nl, 4096)?
   assert first.data.len() == 20
   assert bytes.unpack_le(first.data, 2, 4)? == 28 and bytes.unpack_le(first.data, 2, 6)? == 2
-  assert first.data.slice(16, 4) == b"\x05\x06\x07\x08"
+  assert first.data[16..20] == b"\x05\x06\x07\x08"
   assert first.address.family == "netlink"
   let second = linux.recvfrom(nl, 4096)?
   assert bytes.unpack_le(second.data, 2, 4)? == 29

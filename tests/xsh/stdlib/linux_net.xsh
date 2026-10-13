@@ -27,7 +27,7 @@ proc attributes(payload: Bytes, start: Int) [error] -> Result[List[Attribute]] {
       let length = bytes.unpack_le(payload, 2, offset)?
       let kind = bytes.unpack_le(payload, 2, offset + 2)?
       break when length < 4 or offset + length > payload.len()
-      yield {kind: kind, data: payload.slice(offset + 4, length - 4)}
+      yield {kind: kind, data: payload[offset + 4..offset + length]}
       offset += (length + 3) / 4 * 4
     }
   }
@@ -188,7 +188,7 @@ test test_icmp_echo_over_a_datagram_socket {
       assert reply.address.address == "127.0.0.1"
       assert reply.data.byte_at(0) == 0 and reply.data.byte_at(1) == 0
       assert bytes.unpack_be(reply.data, 2, 6)? == 1
-      assert reply.data.slice(8) == bytes.from_text("xsh-echo")
+      assert reply.data[8..] == bytes.from_text("xsh-echo")
     }
   }
 }
@@ -226,7 +226,7 @@ test test_raw_icmp_socket_filters_and_checks_replies {
 
       let body = bytes.concat([bytes.from_ints([8, 0, 0, 0, 18, 52, 0, 7])?, bytes.from_text("raw")])
       let sum = icmp_checksum(body)
-      let request = bytes.concat([body[..2], bytes.pack_be(sum, 2)?, body.slice(4)])
+      let request = bytes.concat([body[..2], bytes.pack_be(sum, 2)?, body[4..]])
       let _ = linux.sendto(fd, request, {family: "inet", address: "127.0.0.1"})?
       let reply = linux.recvfrom(fd, 256)?
       # Raw sockets deliver the IP header; its length is the low nibble in words.
@@ -235,8 +235,8 @@ test test_raw_icmp_socket_filters_and_checks_replies {
       assert reply.data.byte_at(header) == 0
       assert bytes.unpack_be(reply.data, 2, header + 4)? == 4660
       assert bytes.unpack_be(reply.data, 2, header + 6)? == 7
-      assert reply.data.slice(header + 8) == bytes.from_text("raw")
-      assert icmp_checksum(reply.data.slice(header)) == 0
+      assert reply.data[header + 8..] == bytes.from_text("raw")
+      assert icmp_checksum(reply.data[header..]) == 0
     }
   }
 }
@@ -469,7 +469,7 @@ test test_ioctl_reads_loopback_interface_state {
 
   let hardware = linux.ioctl(fd, c.SIOCGIFHWADDR, ifname("lo")?, 24)?
   assert bytes.unpack_le(hardware, 2, 16)? == c.ARPHRD_LOOPBACK
-  assert hardware.slice(18, 6) == bytes.zero(6)?
+  assert hardware[18..24] == bytes.zero(6)?
 
   let index = linux.ioctl(fd, c.SIOCGIFINDEX, ifname("lo")?, 20)?
   assert bytes.unpack_le(index, 4, 16)? == 1
@@ -478,7 +478,7 @@ test test_ioctl_reads_loopback_interface_state {
 
   let address = linux.ioctl(fd, c.SIOCGIFADDR, ifname("lo")?, 40)?
   assert bytes.unpack_le(address, 2, 16)? == c.AF_INET
-  assert address.slice(20, 4) == bytes.from_ints([127, 0, 0, 1])?
+  assert address[20..24] == bytes.from_ints([127, 0, 0, 1])?
   assert errno_of(linux.ioctl(fd, c.SIOCGIFFLAGS, ifname("xsh-no-such0")?, 40)) == 19
 }
 
