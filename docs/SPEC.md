@@ -772,9 +772,11 @@ optional nonnegative precision, retaining negative zero and native rounding.
 
 `Float` and `Int` never mix: convert with `.float()`, or back with
 `.floor()`, `.ceil()`, or `.round()`, which return `Result[Int]` and reject
-NaN, infinities, and out-of-range values. Float equality compares exact
-values. Non-finite values display as `NaN`, `Infinity`, and `-Infinity`; sorts
-use IEEE total order, so NaN orders stably. JSON encoding rejects non-finite
+NaN, infinities, and out-of-range values. Float equality follows IEEE 754:
+positive and negative zero are equal, and NaN is unequal to every Float,
+including itself. Relational comparisons with NaN are false. Non-finite values
+display as `NaN`, `Infinity`, and `-Infinity`. Float is not a stream sort key;
+the supported sort types are listed in §13.5. JSON encoding rejects non-finite
 values.
 
 ### 4.3 Durations
