@@ -31,7 +31,7 @@ proc expected(s: uu.Scene, name: Str = ".", inodes: Bool = false, separate: Bool
   var visited = seen
   visited[key] = true
   var size = if inodes { 1 } else { meta.blocks_512 * 512 }
-  var lines: List[Str] = []
+  var lines = []
   if meta.kind == "dir" {
     for child in fs.children(target, ordered: false)? {
       let found = expected(s, f"{name}/{child.name}", inodes, separate, follow, depth - 1, visited)?

@@ -199,8 +199,8 @@ export proc label(image: Path, label: Str? = null) -> Result[Str, Error] {
   let loaded = image_io.load(image)?
   let layout = loaded.layout
   let table = image_io.table(image, layout)?
-  var slot: Int? = null
-  var labels: List[Int] = []
+  var slot = null
+  var labels = []
   var ended = false
   for offset in image_io.root_offsets(layout, table)? {
     let chunk = image_io.read_region(image, offset, image_io.root_length(layout))?

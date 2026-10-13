@@ -46,7 +46,7 @@ proc relative_link(target: Path, base: Path) -> Result[Path] {
   while common < to.len() and common < from.len() and to[common].bytes() == from[common].bytes() {
     common += 1
   }
-  var parts: List[Bytes] = []
+  var parts = []
   for _ in range(from.len() - common) { parts += [b".."] }
   for index in range(common, to.len()) { parts += [to[index].bytes()] }
   if parts.len() == 0 { parts = [b"."] }
@@ -99,7 +99,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     exit 1
   }
   if existing and policy == "interactive" and ! files.confirm(target, "replace") { return false }
-  var saved: Path? = null
+  var saved = null
   if existing and backup != "none" {
     saved = files.backup_name(target, backup, opts.suffix ?? "~")?
     if saved != null {
@@ -155,7 +155,7 @@ proc main(...argv: List[Bytes]) {
     gnu.error("cannot do --relative without --symbolic")
     exit 1
   }
-  var paths: List[Path] = []
+  var paths = []
   for raw_path in opts.paths { paths += [Path.parse_bytes(gnu.argument_bytes(raw_path, prepared.raw))?] }
   let target_directory: Path? = if let target_text = opts.target {
     Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
@@ -227,7 +227,7 @@ proc main(...argv: List[Bytes]) {
   opts.suffix = suffix
   let replacing = policy != "default" or backup != "none"
   var failed = false
-  var seen: List[Path] = []
+  var seen = []
   for source in sources {
     let target = if is_dir { files.destination(dest, source) } else { dest }
     # A plain link into a name this run already created fails with EEXIST below;

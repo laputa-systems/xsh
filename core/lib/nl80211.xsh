@@ -429,7 +429,7 @@ export pure c_hex(value: Int) -> Str {
 
 ## A MAC address as six colon-separated lowercase hex pairs.
 export pure mac_text(data: Bytes) -> Str {
-  var parts: List[Str] = []
+  var parts = []
   for index in range(data.len()) {
     parts += [hex(data.byte_at(index) ?? 0, 2)]
   }
@@ -440,7 +440,7 @@ export pure mac_text(data: Bytes) -> Str {
 export pure parse_mac(text: Str) -> Bytes? {
   let parts = text.split(":")
   return null when parts.len() != 6
-  var values: List[Int] = []
+  var values = []
   for part in parts {
     return null when part.byte_len() != 2 or ! rx"^[0-9A-Fa-f]{2}$".matches(part)
     let value = ("0x" + part).parse_int() ?? -1
@@ -475,7 +475,7 @@ export pure ssid_text(data: Bytes) -> Str {
 
 ## Space-separated lowercase hex of `data`.
 export pure hex_bytes(data: Bytes) -> Str {
-  var parts: List[Str] = []
+  var parts = []
   for index in range(data.len()) {
     parts += [hex(data.byte_at(index) ?? 0, 2)]
   }
@@ -721,7 +721,7 @@ pure channel_text(attrs: List[Attr]) -> List[Str] {
 }
 
 pure interface_block(attrs: List[Attr], indent: Str, show_wiphy: Bool) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   let name = pick(attrs, ATTR_IFNAME)
   if name != null {
     lines += [f"{indent}Interface {cstring(name)}"]
@@ -769,7 +769,7 @@ pure interface_block(attrs: List[Attr], indent: Str, show_wiphy: Bool) -> List[S
 ## The `iw dev` listing: each interface under a `phy#N` header that appears
 ## whenever the wiphy changes.
 export pure dev_lines(messages: List[Message]) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   var current = -1
   for message in messages {
     let phy = pick_uint(message.attrs, ATTR_WIPHY)
@@ -802,7 +802,7 @@ pure dfs_region_name(region: Int) -> Str {
 ## `iw reg get`: one block per regulatory domain message (the global domain
 ## and each self-managed wiphy), each followed by a blank line.
 export pure reg_lines(messages: List[Message]) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   for message in messages {
     let alpha2 = pick(message.attrs, ATTR_REG_ALPHA2)
     let rules = pick(message.attrs, ATTR_REG_RULES)
@@ -941,7 +941,7 @@ const AKM_NAMES = [
 ]
 
 pure suites(data: Bytes, offset: Int, akm: Bool) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
   return names when offset + 2 > data.len()
   let count = uint(data.slice(offset, 2))
   var at = offset + 2
@@ -1133,7 +1133,7 @@ pure vendor_lines(data: Bytes, unknown: Bool) -> List[Str] {
 
 ## The element lines of a raw information-element block.
 export pure element_block(data: Bytes, unknown: Bool) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   for element in split_elements(data) {
     lines += element_lines(element, unknown)
   }
@@ -1296,7 +1296,7 @@ pure yes_no(value: Bool) -> Str {
 # empty string when the kernel sent no chain data.
 pure chain_signals(chains: Bytes?) -> Str {
   return "" when chains == null
-  var values: List[Str] = []
+  var values = []
   for chain in parse_attrs(chains, 0) {
     values += [f"{signed8(uint(chain.data))}"]
   }
@@ -1482,7 +1482,7 @@ export pure connection_of(messages: List[Message], interface: Str) -> Connection
     if status == BSS_STATUS_AUTHENTICATED {
       return {bssid: bssid, lines: [f"Authenticated with {mac_text(bssid)} (on {interface})"]}
     }
-    var lines: List[Str] = []
+    var lines = []
     if status == BSS_STATUS_ASSOCIATED {
       lines += [f"Connected to {mac_text(bssid)} (on {interface})"]
     } else if status == BSS_STATUS_IBSS_JOINED {
@@ -1514,7 +1514,7 @@ export pure link_lines(message: Message) -> List[Str] {
   let container = pick(message.attrs, ATTR_STA_INFO)
   return [] when container == null
   let info = parse_attrs(container, 0)
-  var lines: List[Str] = []
+  var lines = []
   let rx_bytes = pick_uint(info, STA_RX_BYTES)
   let rx_packets = pick_uint(info, STA_RX_PACKETS)
   if rx_bytes != null and rx_packets != null {
@@ -1540,7 +1540,7 @@ export pure link_lines(message: Message) -> List[Str] {
   let parameters = pick(info, STA_BSS_PARAM)
   if parameters != null {
     let fields = parse_attrs(parameters, 0)
-    var flags: List[Str] = []
+    var flags = []
     if pick(fields, BSS_PARAM_CTS_PROT) != null {
       flags += ["CTS-protection"]
     }
@@ -1591,7 +1591,7 @@ pure suite_dashed(selector: Bytes) -> Str {
 }
 
 pure frequency_lines(freqs: Bytes) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   for item in parse_attrs(freqs, 0) {
     let fields = parse_attrs(item.data, 0)
     let freq = pick_uint(fields, FREQ_FREQ)
@@ -1608,7 +1608,7 @@ pure frequency_lines(freqs: Bytes) -> List[Str] {
       let tenths = (power + 5) / 10
       text += f" ({tenths / 10}.{tenths % 10} dBm)"
     }
-    var restrictions: List[Str] = []
+    var restrictions = []
     if pick(fields, FREQ_NO_IR) != null {
       restrictions += ["no IR"]
     }
@@ -1624,7 +1624,7 @@ pure frequency_lines(freqs: Bytes) -> List[Str] {
 }
 
 pure bitrate_lines(rates: Bytes) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   for item in parse_attrs(rates, 0) {
     let fields = parse_attrs(item.data, 0)
     let rate = pick_uint(fields, 1)
@@ -1685,7 +1685,7 @@ pure ht_capability_lines(cap: Int) -> List[Str] {
 # The set bits of a 77-bit MCS bitmap as ` 0-7, 32`: runs of consecutive
 # indexes are written as ranges.
 pure mcs_index_text(mcs: Bytes) -> Str {
-  var runs: List[Str] = []
+  var runs = []
   var start = -1
   var previous = -1
   for index in range(78) {
@@ -1705,7 +1705,7 @@ pure mcs_index_text(mcs: Bytes) -> Str {
 
 # The HT MCS set: the receive data rate and the supported rate indexes.
 pure ht_mcs_lines(mcs: Bytes) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   let max_rate = (mcs.byte_at(10) ?? 0) + (mcs.byte_at(11) ?? 0).bit_and(3) * 256
   let tx_byte = mcs.byte_at(12) ?? 0
   let tx_defined = tx_byte.bit_and(1) != 0
@@ -1773,7 +1773,7 @@ pure band_lines(index: Int, band: Bytes) -> List[Str] {
 ## split wiphy dump. Each message prints the sections it carries, in the
 ## order `iw` does; a `Wiphy NAME` header starts each device.
 export pure phy_lines(messages: List[Message]) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   var band_index = 0
   for message in messages {
     let attrs = message.attrs
@@ -2121,7 +2121,7 @@ export type ScanRequest = {
 export proc scan_attrs(index: Int, scan: ScanRequest) [error] -> Result[List[Bytes], Error] {
   var attrs: List[Bytes] = [attr_u32(ATTR_IFINDEX, index)?]
   if ! scan.passive {
-    var entries: List[Bytes] = []
+    var entries = []
     var number = 0
     if scan.ssids.is_empty() {
       entries += [attr(number, b"")?]
@@ -2134,7 +2134,7 @@ export proc scan_attrs(index: Int, scan: ScanRequest) [error] -> Result[List[Byt
     attrs += [attr_nested(ATTR_SCAN_SSIDS, entries)?]
   }
   if ! scan.freqs.is_empty() {
-    var entries: List[Bytes] = []
+    var entries = []
     var number = 0
     for freq in scan.freqs {
       entries += [attr_u32(number, freq)?]

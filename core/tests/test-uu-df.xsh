@@ -311,8 +311,8 @@ test test_uu_df_exclude_all_types { |ctx|
   let r = uu.invoke(s, "df", ["--output=fstype"])?
   uu.succeeds(r)
   let output = lines(r)?
-  var kinds: List[Str] = []
-  var args: List[Str] = []
+  var kinds = []
+  var args = []
   for i in range(1, output.len()) {
     let kind = output[i].trim()
     if kind not in kinds { kinds += [kind]; args += ["-x", kind] }

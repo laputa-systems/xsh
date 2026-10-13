@@ -28,7 +28,7 @@ pure hex_value(text: Str) -> Int {
 
 pure bits_of(mask: Int) -> List[Int] {
   var rest = mask
-  var found: List[Int] = []
+  var found = []
   var number = 0
   while rest > 0 {
     if rest % 2 == 1 { found += [number] }

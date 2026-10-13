@@ -73,7 +73,7 @@ export pure parse_hex(text: Str) -> Int? {
 
 ## Space-separated lowercase hex of every byte.
 export pure hex_bytes(data: Bytes) -> Str {
-  var words: List[Str] = []
+  var words = []
   for index in range(data.len()) { words += [hex(data.byte_at(index) ?? 0, 2)] }
   words.join(" ")
 }
@@ -117,7 +117,7 @@ pure variable_path(store: Store, name: Str) -> Result[Path, Error] {
 ## Names of the variables in the global namespace, sorted.
 export proc variable_names(store: Store) [fs, error] -> Result[List[Str], Error] {
   let suffix = "-" + GLOBAL_GUID
-  var names: List[Str] = []
+  var names = []
   for child in fs.children(store.dir)? {
     continue when ! child.name.lower().ends_with(suffix)
     names += [child.name.byte_slice(0, child.name.byte_len() - suffix.byte_len())]
@@ -216,14 +216,14 @@ export proc entry_names(store: Store, family: Family) [fs, error] -> Result[List
 ## Decodes a list of 16-bit little-endian entry numbers.
 export pure parse_order(data: Bytes) -> Result[List[Int], Error] {
   guard data.len() % 2 == 0 else { return Err(error.failure("order list has an odd number of bytes")) }
-  var numbers: List[Int] = []
+  var numbers = []
   for at in range(data.len() / 2) { numbers += [bytes.unpack_le(data, 2, at * 2)?] }
   Ok(numbers)
 }
 
 ## Encodes a list of 16-bit entry numbers.
 export pure encode_order(numbers: List[Int]) -> Result[Bytes, Error] {
-  var chunks: List[Bytes] = []
+  var chunks = []
   for number in numbers { chunks += [bytes.pack_le(number, 2)?] }
   Ok(bytes.concat(chunks))
 }
@@ -237,7 +237,7 @@ export proc read_order(store: Store, family: Family) [fs, error] -> Result[List[
 
 pure code_points(text: Str) -> List[Int] {
   let raw = bytes.from_text(text)
-  var points: List[Int] = []
+  var points = []
   var at = 0
   while at < raw.len() {
     let lead = raw.byte_at(at) ?? 0
@@ -252,7 +252,7 @@ pure code_points(text: Str) -> List[Int] {
 
 ## UTF-16LE code units of `text`, without a terminator.
 export pure utf16_units(text: Str) -> List[Int] {
-  var units: List[Int] = []
+  var units = []
   for point in code_points(text) {
     if point < 65536 { units += [point]; continue }
     let offset = point - 65536
@@ -262,7 +262,7 @@ export pure utf16_units(text: Str) -> List[Int] {
 }
 
 pure units_to_bytes(units: List[Int]) -> Result[Bytes, Error] {
-  var chunks: List[Bytes] = []
+  var chunks = []
   for unit in units { chunks += [bytes.pack_le(unit, 2)?] }
   Ok(bytes.concat(chunks))
 }
@@ -283,7 +283,7 @@ pure utf8_ints(point: Int) -> List[Int] {
 
 ## Decodes UTF-16 code units; an unpaired surrogate becomes U+FFFD.
 export pure text_from_units(units: List[Int]) -> Result[Str, Error] {
-  var ints: List[Int] = []
+  var ints = []
   var at = 0
   while at < units.len() {
     let unit = units[at]
@@ -305,7 +305,7 @@ type UnitRun = {units: List[Int], next: Int}
 # Reads UTF-16LE units from `at` up to a NUL unit or the end of `data` and
 # reports the offset just past the terminator.
 pure unit_run(data: Bytes, at: Int, stop: Int) -> Result[UnitRun, Error] {
-  var units: List[Int] = []
+  var units = []
   var cursor = at
   while cursor + 2 <= stop {
     let unit = bytes.unpack_le(data, 2, cursor)?
@@ -342,14 +342,14 @@ export pure guid_bytes(text: Str) -> Result[Bytes, Error] {
 }
 
 pure guid_text(data: Bytes, at: Int) -> Str {
-  var parts: List[Str] = []
+  var parts = []
   for offset in [3, 2, 1, 0] { parts += [hex(data.byte_at(at + offset) ?? 0, 2)] }
   let first = parts.join("")
   let second = hex(data.byte_at(at + 5) ?? 0, 2) + hex(data.byte_at(at + 4) ?? 0, 2)
   let third = hex(data.byte_at(at + 7) ?? 0, 2) + hex(data.byte_at(at + 6) ?? 0, 2)
-  var rest: List[Str] = []
+  var rest = []
   for offset in range(8, 10) { rest += [hex(data.byte_at(at + offset) ?? 0, 2)] }
-  var tail: List[Str] = []
+  var tail = []
   for offset in range(10, 16) { tail += [hex(data.byte_at(at + offset) ?? 0, 2)] }
   f"{first}-{second}-{third}-{rest.join("")}-{tail.join("")}"
 }
@@ -364,7 +364,7 @@ export pure hard_drive_node(partition: Int, start: Int, size: Int, signature: By
 
 ## Serializes a device path, without adding a terminator.
 export pure encode_path(nodes: List[Node]) -> Result[Bytes, Error] {
-  var chunks: List[Bytes] = []
+  var chunks = []
   for item in nodes {
     chunks += [bytes.from_ints([item.kind, item.subtype])?, bytes.pack_le(item.data.len() + 4, 2)?, item.data]
   }
@@ -400,7 +400,7 @@ pure format_node(item: Node) -> Str {
     if table == 1 { return f"HD({partition},MBR,0x{hex(bytes.unpack_le(data, 4, 20) ?? 0, 8)},0x{hex(start, 1)},0x{hex(size, 1)})" }
   }
   if item.kind == 4 and item.subtype == 4 and data.len() >= 2 {
-    var units: List[Int] = []
+    var units = []
     for at in range(data.len() / 2) {
       let unit = bytes.unpack_le(data, 2, at * 2) ?? 0
       break when unit == 0
@@ -431,7 +431,7 @@ pure format_node(item: Node) -> Str {
 ## Renders a device path the way the boot manager lists it: nodes joined by
 ## `/`, the end node omitted.
 export pure format_path(nodes: List[Node]) -> Str {
-  var parts: List[Str] = []
+  var parts = []
   for item in nodes {
     continue when item.kind == 127 and item.subtype == 255
 

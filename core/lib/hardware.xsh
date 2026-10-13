@@ -158,7 +158,7 @@ pure pci_branch(devices: List[pci.PciFunction], index: Int, names: Map[Str], vie
 
 ## Renders PCI functions using collected identity, links, drivers and parent indexes.
 export pure pci_lines(devices: List[pci.PciFunction], names: Map[Str], view: PciView) -> Result[List[Str], Error] {
-  var lines: List[Str] = []
+  var lines = []
   if view.tree {
     for index in range(devices.len()) {
       if devices[index].parent_function_index == null { lines += pci_branch(devices, index, names, view, "", [])? }
@@ -220,7 +220,7 @@ pure usb_title(device: usb.UsbDevice, names: Map[Str]) -> Str {
 
 pure usb_depth(devices: List[usb.UsbDevice], index: Int) -> Result[Int] {
   var at = index
-  var seen: List[Int] = []
+  var seen = []
   var depth = 0
   while devices[at].parent_device_index != null {
     if at in seen { return Err(HardwareError.InvalidInventory("USB parent relationships contain a cycle")) }
@@ -234,7 +234,7 @@ pure usb_depth(devices: List[usb.UsbDevice], index: Int) -> Result[Int] {
 
 ## Renders USB identities, descriptor fields, interfaces, endpoints and topology.
 export pure usb_lines(devices: List[usb.UsbDevice], names: Map[Str], view: UsbView) -> Result[List[Str], Error] {
-  var lines: List[Str] = []
+  var lines = []
   for index in range(devices.len()) {
     let device = devices[index]
     if view.tree {
@@ -344,7 +344,7 @@ pure cpu_cell(section: report.CpuSection, processor: report.Cpu, column: Str, id
     }
     "ONLINE" => if processor.online == null { "-" } else if processor.online { "Y" } else { "N" }
     "CACHE" => {
-      var cache_ids: List[Str] = []
+      var cache_ids = []
       for index in processor.cache_indices {
         if index < 0 or index >= section.caches.len() { return Err(HardwareError.InvalidInventory("CPU cache index is out of range")) }
         let cache = section.caches[index]
@@ -375,11 +375,11 @@ export pure cpu_rows(section: report.CpuSection, columns: List[Str], selection: 
   let checked = columns |> map { |column| column.upper() }
   if physical and "CACHE" in checked { return Err(HardwareError.InvalidColumn("physical cache IDs are not available")) }
   let ids = cpu_identifiers(section)
-  var rows: List[List[Str]] = []
+  var rows = []
   for processor in section.cpus |> sort-by .id {
     continue when selection == "online" and processor.online != true
     continue when selection == "offline" and processor.online != false
-    var cells: List[Str] = []
+    var cells = []
     for column in checked {
       let value = cpu_cell(section, processor, column, ids, physical)?
       if parse { cells += [if value == "-" { "" } else { value }] } else if column == "ONLINE" { cells += [if value == "Y" { "yes" } else if value == "N" { "no" } else { value }] } else { cells += [value] }
@@ -421,7 +421,7 @@ export pure cpu_summary(section: report.CpuSection, architecture: Str, bytes_mod
   let nodes = section.cpus |> where .numa_node != null |> unique-by .numa_node ?? -1
   if ! sockets.is_empty() { rows += [{field: "Socket(s):", data: f"{sockets.len()}"}] }
   if ! nodes.is_empty() { rows += [{field: "NUMA node(s):", data: f"{nodes.len()}"}] }
-  var core_counts: List[Int] = []
+  var core_counts = []
   for socket in sockets {
     let cores = section.cpus |> where .package_id == socket.package_id |> where .core_id != null
       |> unique-by { |processor| f"{processor.die_id ?? -1}:{processor.core_id ?? -1}" }
@@ -435,7 +435,7 @@ export pure cpu_summary(section: report.CpuSection, architecture: Str, bytes_mod
   var cache_sizes: Map[Int] = {}
   var cache_counts: Map[Int] = {}
   var missing_sizes: Map[Bool] = {}
-  var cache_order: List[Str] = []
+  var cache_order = []
   for cache in section.caches {
     let suffix = if cache.kind.lower() == "data" { "d" } else if cache.kind.lower() == "instruction" { "i" } else if cache.kind.lower() == "unified" { "" } else { cache.kind }
     let name = f"L{cache.level}{suffix} cache:"
@@ -458,7 +458,7 @@ export pure cpu_summary(section: report.CpuSection, architecture: Str, bytes_mod
 ## Selects radio devices by numeric ID or conventional radio type aliases.
 export pure rfkill_select(devices: List[LinuxRfkill], selectors: List[Str]) -> Result[List[LinuxRfkill], Error] {
   return devices when selectors.is_empty()
-  var selected: List[LinuxRfkill] = []
+  var selected = []
   for selector in selectors {
     let radio = if selector == "wifi" { "wlan" } else { selector }
     let id = selector.parse_int()
@@ -481,7 +481,7 @@ pure radio_name(name: Str) -> Str {
 
 ## Renders the traditional rfkill list blocks with both independent block states.
 export pure rfkill_list_lines(devices: List[LinuxRfkill]) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   for device in devices |> sort-by .id {
     lines += [f"{device.id}: {device.name}: {radio_name(device.type)}", f"\tSoft blocked: {if device.soft_blocked { "yes" } else { "no" }}",
       f"\tHard blocked: {if device.hard_blocked { "yes" } else { "no" }}"]
@@ -536,7 +536,7 @@ export pure sensor_chip_name(channel: report.SensorChannel) -> Str {
 
 ## Renders human sensor labels and limits or raw feature names in source units.
 export pure sensor_lines(channels: List[report.SensorChannel], fahrenheit: Bool, raw: Bool, no_adapter = false) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   let chips = channels |> map { |channel| sensor_chip_name(channel) } |> unique-by . |> sort()
   for chip in chips {
     lines += [chip]
@@ -552,7 +552,7 @@ export pure sensor_lines(channels: List[report.SensorChannel], fahrenheit: Bool,
         if channel.alarm != null { lines += [f"  {channel.channel}_alarm: {if channel.alarm { 1 } else { 0 }}"] }
       } else {
         var line = f"{label}: {if channel.value != null { sensor_value(channel, channel.value, fahrenheit) } else { "N/A" }}"
-        var limits: List[Str] = []
+        var limits = []
         if channel.minimum != null { limits += [f"low = {sensor_value(channel, channel.minimum, fahrenheit)}"] }
         if channel.maximum != null { limits += [f"high = {sensor_value(channel, channel.maximum, fahrenheit)}"] }
         if channel.critical != null { limits += [f"crit = {sensor_value(channel, channel.critical, fahrenheit)}"] }
@@ -630,7 +630,7 @@ pure radio_raw(value: Str) -> Str {
 }
 
 pure table_row(values: List[Str], widths: List[Int]) -> Str {
-  var pieces: List[Str] = []
+  var pieces = []
   for index in range(values.len()) {
     let spaces = [" "] |> repeat(if index == values.len() - 1 { 0 } else { widths[index] - values[index].count_chars() })
     pieces += [values[index] + spaces.join("")]
@@ -639,8 +639,8 @@ pure table_row(values: List[Str], widths: List[Int]) -> Str {
 }
 
 pure aligned_lines(headers: List[Str], rows: List[List[Str]], headings: Bool) -> List[Str] {
-  var lines: List[Str] = []
-  var widths: List[Int] = []
+  var lines = []
+  var widths = []
   for index in range(headers.len()) {
     var width = headers[index].count_chars()
     for row in rows { if row[index].count_chars() > width { width = row[index].count_chars() } }
@@ -655,7 +655,7 @@ pure aligned_lines(headers: List[Str], rows: List[List[Str]], headings: Bool) ->
 export pure rfkill_table_lines(devices: List[LinuxRfkill], columns: List[Str], headings: Bool, raw: Bool) -> Result[List[Str], Error] {
   let checked = radio_columns(columns.join(","))?
   let rows = [[radio_cell(device, column)? for column in checked] for device in devices]
-  var lines: List[Str] = []
+  var lines = []
   if raw {
     if headings { lines += [checked.join(" ")] }
     for row in rows { lines += [row |> map { |value| radio_raw(value) }.join(" ")] }
@@ -667,9 +667,9 @@ export pure rfkill_table_lines(devices: List[LinuxRfkill], columns: List[Str], h
 ## Encodes numeric radio IDs and string columns without flattening their types.
 export pure rfkill_json(devices: List[LinuxRfkill], columns: List[Str]) -> Result[Str, Error] {
   let checked = radio_columns(columns.join(","))?
-  var records: List[Str] = []
+  var records = []
   for device in devices {
-    var fields: List[Str] = []
+    var fields = []
     for column in checked {
       let value = if column == "ID" { json.encode(device.id)? } else { json.encode(radio_cell(device, column)?)? }
       fields += [json.encode(column.lower())? + ":" + value]

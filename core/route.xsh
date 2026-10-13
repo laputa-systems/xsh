@@ -173,7 +173,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
   let inet6 = request.family == "inet6"
   var destination = b""
   var prefix = 0
-  var gateway: Bytes? = null
+  var gateway = null
   if inet6 {
     let split = split_prefix(request.target, 128, "inet6")
     if request.target == "default" {
@@ -198,7 +198,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
   } else {
     var network = request.network
     var target = request.target
-    var given_prefix: Int? = null
+    var given_prefix = null
     if target == "default" {
       destination = bytes.zero(4)?
       network = true
@@ -209,7 +209,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
       destination = resolve_host(target)
     }
     if given_prefix != null and request.netmask != null { modify_usage("inet") }
-    var mask_bytes: Bytes? = null
+    var mask_bytes = null
     if let length = given_prefix { mask_bytes = nettools.prefix_mask(length) }
     if let word = request.netmask {
       mask_bytes = nettools.netmask_parse(word)
@@ -271,7 +271,7 @@ proc send_route(request: Request) [fs, process, net, env, error] {
   var priority = request.metric ?? 0
   if inet6 and request.metric == null { priority = 1 }
   if priority > 0 { attributes += [int_attribute(6, priority)] }
-  var metrics: List[Bytes] = []
+  var metrics = []
   if let mss = request.mss { metrics += [int_attribute(8, mss - 40)] }
   if let window = request.window { metrics += [int_attribute(3, window)] }
   if let irtt = request.irtt { metrics += [int_attribute(4, irtt * 8)] }
@@ -313,7 +313,7 @@ pure hex8(value: Int) -> Str {
 # Parses the words after add or del into a request.
 proc parse_modify(add: Bool, family: Str, words: List[Str]) [process, error] -> Request {
   var at = 0
-  var network: Bool? = null
+  var network = null
   if at < words.len() and words[at] == "-net" {
     network = true
     at += 1

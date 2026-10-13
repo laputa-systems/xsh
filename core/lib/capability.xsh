@@ -92,7 +92,7 @@ export pure parse_set(text: Str) -> Result[Int, Error] {
 
 ## Render a bitmap in numeric order, retaining unknown future capability bits.
 export pure format_mask(mask: Mask) -> Str {
-  var names: List[Str] = []
+  var names = []
   for index in range(64) {
     continue when ! contains(mask, index)
     var name = f"{index}"
@@ -168,7 +168,7 @@ export pure parse(text: Str, rootid: Int? = null) -> Result[FileCaps, Error] {
 
 ## Group equal per-capability flags using canonical libcap expression syntax.
 export pure format(record: FileCaps) -> Str {
-  var groups: List[Str] = []
+  var groups = []
   for flags in ["i", "p", "ip", "e", "ei", "ep", "eip"] {
     var mask = empty()
     for index in range(64) {

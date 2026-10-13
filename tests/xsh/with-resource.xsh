@@ -77,7 +77,7 @@ test test_with_as_the_tail_of_a_result_function_is_its_result { |ctx|
 test test_with_enters_left_to_right_and_releases_every_resource { |ctx|
   let dir = test.temp_dir(ctx, name: "with-several")?
   fp"{dir}/inner".mkdir()
-  var outer_lock: FsLock? = null
+  var outer_lock = null
   var inner_root = null
   # The second value is opened through the first, so the first is in scope.
   with
@@ -250,8 +250,8 @@ test test_with_release_failure_after_a_finished_body_is_the_scope_failure { |ctx
 
 test test_with_releases_the_rest_when_one_release_fails { |ctx|
   let dir = test.temp_dir(ctx, name: "with-release-failure")?
-  var first: FsLock? = null
-  var last: FsLock? = null
+  var first = null
+  var last = null
   let foreign = foreign_lock(fp"{dir}/foreign")?
   let outcome = with a = fs.lock(fp"{dir}/a")?, broken = foreign, c = fs.lock(fp"{dir}/c")? {
     first = a

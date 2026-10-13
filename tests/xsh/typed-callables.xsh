@@ -1077,7 +1077,7 @@ test test_path_read_checks_each_inline_path_result { |ctx|
   }
   assert checked_projection == "contents"
 
-  let indexed_paths: List[Path] = [fp"{root}/note"]
+  let indexed_paths = [fp"{root}/note"]
   var indexed = ""
   with text = indexed_paths[0].read_text() {
     indexed = text

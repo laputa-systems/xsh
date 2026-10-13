@@ -154,9 +154,9 @@ proc main(...argv: List[Bytes]) {
         }
         line = line[begin..end]
       }
-      var chunks: List[Bytes] = []
+      var chunks = []
       if fields {
-        var parts: List[Bytes] = []
+        var parts = []
         var start = 0
         var at = 0
         while at < line.len() {

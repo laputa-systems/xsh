@@ -197,7 +197,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
   let mentioned = opts.pid.len() + opts.pgid.len() + opts.uid.len()
   var target = PROCESS
-  var ids: List[Str] = []
+  var ids = []
 
   if ! opts.pid.is_empty() {
     ids = opts.pid

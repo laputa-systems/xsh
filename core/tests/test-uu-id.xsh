@@ -50,7 +50,7 @@ proc expected_id(s: uu.Scene, args: List[Str], users: List[Str] = []) [fs, proce
         if let Ok(entry) = group.by_gid(me.egid) { output += f"({entry.name})" }
       }
       let default_gids = if target == null { [me.egid, @[g for g in me.supplementary if g != me.egid]] } else { gids }
-      var labels: List[Str] = []
+      var labels = []
       for g in default_gids {
         var label = f"{g}"
         if let Ok(entry) = group.by_gid(g) { label += f"({entry.name})" }

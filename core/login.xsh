@@ -49,7 +49,7 @@ proc main(...argv: List[Str]) [fs, env, process, error, io, time] {
   let requested = accounts.login_groups(entry)
   if let Err(failure) = requested { gnu.error(failure.message); exit 1 }
   let groups = requested?
-  let actual: List[Int] = identity.groups |> map .gid
+  let actual = identity.groups |> map .gid
   let environment = accounts.session_environment(entry, opts.preserve, opts.remote)?
   let shell = fp"{entry.shell}"
   let home = fs.stat(entry.home, follow_symlinks: true)

@@ -3,7 +3,7 @@
 use support.uu as uu
 
 proc numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[Int], Error] {
-  var result: List[Int] = []
+  var result = []
   for word in data.utf8()?.split(separator) {
     if word != "" { assert rx"^[+-]?[0-9]+$".matches(word); result += [word.parse_int()?] }
   }
@@ -15,7 +15,7 @@ proc sorted_numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[I
 }
 
 proc words(data: Bytes, separator: Str = "\n") [error] -> Result[List[Str], Error] {
-  var result: List[Str] = []
+  var result = []
   for word in data.utf8()?.split(separator) { if word != "" { result += [word] } }
   Ok(result)
 }

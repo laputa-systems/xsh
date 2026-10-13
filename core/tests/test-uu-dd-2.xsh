@@ -18,7 +18,7 @@ proc fifo_copy(s: uu.Scene, args: List[Str], data: Bytes, width: Int, pause: Dur
   var child_open = true
   defer { if child_open { child.cancel(signal: "KILL", kill_after: 0ms) } }
   let helper = fp"{s.ctx.xsh_bin.parent()}/xsh-test-helper"
-  let helper_args: List[Path] = [
+  let helper_args = [
     helper,
     p"fifo-write-acked",
     uu.at(s, "fifo"),

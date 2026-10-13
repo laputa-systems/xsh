@@ -175,8 +175,8 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
   var members: List[Member] = []
   var position = 0
   var after_zero = false
-  var long_name: Str? = null
-  var long_link: Str? = null
+  var long_name = null
+  var long_link = null
   var overrides: PaxOverrides = {path: null, linkpath: null}
   while true {
     let remaining = data.len() - position
@@ -559,7 +559,7 @@ proc member_chunks(name: Str, source: Path, opts: Options) [fs, error] -> Result
     Ok(value) => value
     Err(failure) => { return Err(TarError.Invalid(message: f"{name}: Cannot stat: {gnu.strerror(failure)}")) }
   }
-  var chunks: List[Bytes] = []
+  var chunks = []
   if info.kind == "dir" {
     let dir_name = if name.ends_with("/") { name } else { f"{name}/" }
     if opts.verbose { print $dir_name }
@@ -612,7 +612,7 @@ proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] -> 
 proc create_archive(opts: Options) [fs, io, error, process, env] -> Result[Unit] {
   if opts.members.is_empty() { return Err(TarError.Invalid(message: "Cowardly refusing to create an empty archive")) }
   let root = fp"{opts.root}"
-  var chunks: List[Bytes] = []
+  var chunks = []
   for operand in opts.members {
     chunks += member_chunks(operand, fp"{root}/{operand}", opts)?
   }
@@ -640,7 +640,7 @@ proc choose_mode(current: Str, next: Str) [process, env] -> Str {
 proc read_names(path_text: Str) [fs, error, process, env] -> List[Str] {
   match fp"{path_text}".read_lines() {
     Ok(lines) => {
-      var names: List[Str] = []
+      var names = []
       for line in lines {
         if line != "" { names += [line] }
       }
@@ -678,7 +678,7 @@ proc parse_options(argv: List[Str]) [fs, error, process, env] -> Options {
       let body = word.byte_slice(2)
       let equals = body.find("=") ?? -1
       let long_name = if equals < 0 { body } else { body.byte_slice(0, length: equals) }
-      var inline_value: Str? = null
+      var inline_value = null
       if equals >= 0 { inline_value = body.byte_slice(equals + 1) }
       match long_name {
         "overwrite" => opts.overwrite = true

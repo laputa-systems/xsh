@@ -107,7 +107,7 @@ pure numeric_address(value: Str) -> Bool {
 
 ## Resolve keyed hosts through typed forward or reverse host lookup.
 export proc resolve_hosts(key: Str) [net, error] -> Result[List[Str], Error] {
-  var lines: List[Str] = []
+  var lines = []
   if numeric_address(key) {
     for name in dns.reverse(key)? { lines += [pad_right(key, 15) + " " + name] }
   } else {

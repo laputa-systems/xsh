@@ -48,7 +48,7 @@ proc short_fields(option: Str) [fs, process, time, error] -> Result[List[Str], E
     Ok(found) => found,
     Err(failure) => {
       assert failure.errno == 2
-      let empty: List[UnixUtmp] = []
+      let empty = []
       empty
     },
   }

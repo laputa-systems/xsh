@@ -323,7 +323,7 @@ proc list_xz(names: List[Str]) [fs, io, error, process, env] -> Result[Int] {
   var blocks = 0
   var compressed = 0
   var uncompressed = 0
-  var checks: List[Int] = []
+  var checks = []
   for name in names {
     if name == "-" {
       gnu.error("--list does not support reading from standard input")
@@ -474,7 +474,7 @@ proc list_zstd(names: List[Str]) [fs, io, error, process, env] -> Result[Int] {
   var compressed = 0
   var uncompressed = 0
   var known = true
-  var checks: List[Str] = []
+  var checks = []
   for name in names {
     let file = fp"{name}"
     guard let info = fs.stat(file) else { |failure|
@@ -578,7 +578,7 @@ type Expansion = {names: List[Str], status: Int}
 # is verbose or testing, which is how it can be pointed at a mixed tree. zstd
 # tries every file.
 proc expand_directories(names: List[Str], format: Str, decode: Bool, custom: Str?, auto: Bool, force: Bool, explain: Bool) [fs, process, env, error] -> Result[Expansion] {
-  var expanded: List[Str] = []
+  var expanded = []
   var status = 0
   for name in names {
     if name == "-" or ! (fp"{name}".is_dir() ?? false) {
@@ -628,8 +628,8 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
   }
   let scratch = fs.tempdir()?
   let part = fp"{scratch.host_path()?}/part"
-  var joined: List[Bytes] = []
-  var consumed: List[Str] = []
+  var joined = []
+  var consumed = []
   var status = 0
   for name in names {
     if name == output {
@@ -637,7 +637,7 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
       status = 1
       continue
     }
-    var source: Path? = null
+    var source = null
     if name != "-" {
       guard let info = fs.stat(fp"{name}") else { |failure|
         if show_errors { gnu.error(f"can't stat {name} : {gnu.strerror(failure)} -- ignored") }
@@ -693,9 +693,9 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
   var listing = false
   var recursive = false
   var stored_names = false
-  var output_file: Str? = null
-  var custom_suffix: Str? = null
-  var name_mode: Bool? = null
+  var output_file = null
+  var custom_suffix = null
+  var name_mode = null
   var level = if format == "bz2" { 9 } else if format == "zstd" { 3 } else { 6 }
   var ultra = false
   var names = []
@@ -881,7 +881,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
   # xz also reads .lzma content, so a decoding xz applet lets the codec pick
   # between the two from the stream itself; every other applet names its format.
   let codec = if decode and format == "xz" and auto_format { "xz,lzma" } else { format }
-  var fixed: Path? = null
+  var fixed = null
   if let target = output_file {
     if names.len() > 1 and ! testing {
       exit write_concatenated(names, target, codec, decode, level, force, keep, show_errors, show_warnings)

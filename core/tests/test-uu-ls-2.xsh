@@ -66,7 +66,7 @@ proc offset_names(data: Bytes, tag: Str, trim: Bool = false) [error] -> Result[L
   assert tagged.len() == 1, f"missing or duplicated {tag}: {output}"
   let positions = [word.parse_int()? for word in tagged[0].fields()[1..]]
   assert positions.len() % 2 == 0
-  var names: List[Str] = []
+  var names = []
   for pair in range(positions.len() / 2) {
     let index = pair * 2
     let name = data[positions[index]..positions[index + 1]].utf8()?

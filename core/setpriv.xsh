@@ -205,9 +205,9 @@ proc parse_group(kind: Str, text: Str) [process, env, fs, error] -> Int {
 }
 
 proc parse_group_list(text: Str) [process, env, fs, error] -> List[Int] {
-  var ids: List[Int] = []
+  var ids = []
   for item in text.split(",") {
-    var found: Int? = null
+    var found = null
     if rx"^[0-9]+$".matches(item) {
       let number = item.parse_int() ?? -1
       if number >= 0 and number < 4294967295 { found = number }
@@ -282,19 +282,19 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
   var list_caps = 0
   var no_new_privs = false
   var reset_env = false
-  var ruid: Int? = null
-  var euid: Int? = null
-  var rgid: Int? = null
-  var egid: Int? = null
-  var group_mode: Str? = null
+  var ruid = null
+  var euid = null
+  var rgid = null
+  var egid = null
+  var group_mode = null
   var group_mode_name = ""
-  var groups: List[Int] = []
+  var groups = []
   var inheritable: List[Edit]? = null
   var ambient: List[Edit]? = null
   var bounding: List[Edit]? = null
   var securebits: List[FlagEdit]? = null
-  var pdeathsig: Str? = null
-  var ptracer: Int? = null
+  var pdeathsig = null
+  var ptracer = null
   var others = false
   var index = 0
   while index < argv.len() {
@@ -305,8 +305,8 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
     }
     break when ! word.starts_with("-") or word == "-"
     index += 1
-    var names: List[Str] = []
-    var attached: Str? = null
+    var names = []
+    var attached = null
     if word.starts_with("--") {
       let body = word.byte_slice(2)
       let equal = body.find("=")
@@ -428,7 +428,7 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
   if (rgid != null or egid != null) and group_mode == null {
     usage_fail("--[re]gid requires --keep-groups, --clear-groups, --init-groups, or --groups")
   }
-  var init_user: Int? = null
+  var init_user = null
   if group_mode == "init" {
     if ruid == null { usage_fail("--init-groups requires --ruid or --reuid") }
     init_user = ruid

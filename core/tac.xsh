@@ -55,7 +55,7 @@ pure separator_offset(argument: Bytes) -> Int {
 
 # Keep raw operands and separator bytes while the option parser sees safe text markers.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   var options = true
   var separator_next = false
@@ -220,7 +220,7 @@ pure previous_boundary(data: Bytes, at: Int) -> Int {
 # Map each byte to one scalar so the text regex engine can search invalid
 # UTF-8 data while preserving offsets into the source bytes.
 proc regex_byte_text(data: Bytes) [error] -> Result[RegexText] {
-  var chars: List[Bytes] = []
+  var chars = []
   var source_offsets = [0]
 
   for index in range(data.len()) {
@@ -253,8 +253,8 @@ proc regex_cuts_in_text(text: Str, pattern: Str, source_offsets: List[Int]) [err
   }
 
   var cursor = text_bytes.len()
-  var reversed_starts: List[Int] = []
-  var reversed_ends: List[Int] = []
+  var reversed_starts = []
+  var reversed_ends = []
 
   loop {
     var at = cursor
@@ -365,7 +365,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       continue
     }
 
-    var chunks: List[Bytes] = []
+    var chunks = []
     var offset = 0
 
     loop {

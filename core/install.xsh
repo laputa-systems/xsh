@@ -101,7 +101,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
       (uid == null or old.uid == uid) and (gid == null or old.gid == gid) and
       equal_contents(source, target, metadata.size) { return Unchanged }
   }
-  var saved: Path? = null
+  var saved = null
   if existing { saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")? }
   if saved != null and files.same_entry(saved, source) {
     gnu.error(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source;  {gnu.quote_bytes(source.bytes())} not copied")
@@ -307,8 +307,8 @@ proc main(...argv: List[Bytes]) {
     gnu.error(f"invalid mode {gnu.quote_bytes(mode_bytes)}")
     exit 1
   }
-  var uid: Int? = null
-  var gid: Int? = null
+  var uid = null
+  var gid = null
   if opts.owner != null {
     if let Ok(number) = opts.owner.parse_int() { uid = number } else {
       match user.lookup(opts.owner) {
@@ -326,7 +326,7 @@ proc main(...argv: List[Bytes]) {
     }
   }
   if opts.compare and mode.bit_and(0o7000) != 0 { gnu.error("the --compare (-C) option is ignored when you specify a mode with non-permission bits") }
-  var operands: List[Path] = []
+  var operands = []
   for operand in opts.operands { operands += [Path.parse_bytes(gnu.argument_bytes(operand, prepared.raw))?] }
   let target_directory: Path? = if let target_text = opts.target {
     Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
@@ -401,7 +401,7 @@ proc main(...argv: List[Bytes]) {
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   var failed = false
-  var seen: List[Path] = []
+  var seen = []
   for source in sources {
     let target = if is_dir { files.destination(dest, source) } else { dest }
     if target in seen {

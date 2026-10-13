@@ -226,7 +226,7 @@ pure numeric_prefix_raw(line: Bytes, opts: SortOptions) -> Bytes {
 pure normalized_numeric_prefix_raw(prefix: Bytes, opts: SortOptions) -> Bytes {
   let point = bytes.from_text(opts.decimal_point)
   var at = 0
-  var normalized: List[Bytes] = []
+  var normalized = []
   while at < prefix.len() {
     if numeric_decimal_at(prefix, at, opts) {
       normalized += [b"."]
@@ -420,7 +420,7 @@ pure has_general_numeric_keys(opts: SortOptions) -> Bool {
 proc general_numeric_input(value: Bytes, opts: SortOptions) [error] -> GeneralNumericInput {
   let decimal_point = bytes.from_text(opts.decimal_point)
   var text_value = ""
-  var source_ends: List[Int] = []
+  var source_ends = []
   var at = 0
   while at < value.len() {
     if decimal_point.len() > 0 and value.slice(at, length: decimal_point.len()) == decimal_point {
@@ -442,7 +442,7 @@ proc general_numeric_input(value: Bytes, opts: SortOptions) [error] -> GeneralNu
 ## rounding and range. Keeping only requested strings bounds merge caches to the
 ## current records; a failed host conversion propagates before comparisons start.
 proc prepare_general_numeric_keys(lines: List[SortRecord], opts: SortOptions) [env, error] -> SortOptions {
-  var specs: List[Str] = []
+  var specs = []
   for spec in opts.key {
     if is_general_numeric_sort(key_effective_options(spec, opts)) { specs += [spec] }
   }
@@ -1098,7 +1098,7 @@ pure sort_record_key_value(record: SortRecord, spec: Str, opts: SortOptions) -> 
 
 pure sort_record_primary_keys(record: SortRecord, opts: SortOptions, has_key: Bool) -> List[Str] {
   if has_key {
-    var keys: List[Str] = []
+    var keys = []
     for spec in opts.key { keys += [sort_record_key_value(record, spec, opts)] }
     return keys
   }
@@ -1206,7 +1206,7 @@ pure sort_merge_reader_order(reader: SortMergeReader, opts: SortOptions, has_key
 }
 
 pure sort_record_bytes(records: List[SortRecord], ending: Bytes) -> Bytes {
-  var output: List[Bytes] = []
+  var output = []
   for record in records { output += [record.bytes, ending] }
   bytes.concat(output)
 }
@@ -1236,7 +1236,7 @@ pure input_records(input: Bytes, zero_terminated: Bool) -> List[SortRecord] {
 
 ## Split before decoding so POSIX filenames with invalid UTF-8 remain usable paths.
 pure files0_names(data: Bytes) -> List[Bytes] {
-  var names: List[Bytes] = []
+  var names = []
   var start = 0
   for at in range(data.len()) {
     if data.byte_at(at) == 0 {
@@ -1342,7 +1342,7 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
 }
 
 pure debug_visible_bytes(line: Bytes) -> Bytes {
-  var visible: List[Bytes] = []
+  var visible = []
   for at in range(line.len()) {
     visible += [if line.byte_at(at) == 9 { b">" } else { line[at..at + 1] }]
   }
@@ -1419,7 +1419,7 @@ pure debug_key_annotation_bytes(record: SortRecord, opts: SortOptions, spec: Str
 
 pure debug_sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool, key_field: Int) -> Bytes {
   let has_last_resort = has_key or is_month_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
-  var output: List[Bytes] = []
+  var output = []
   for record in records {
     if let line = record.text {
       output += [bytes.from_text(debug_sort_text([line], opts, has_key, key_field))]
@@ -1506,7 +1506,7 @@ proc random_salt(source: Str?) [fs, process, env, error] -> Bytes {
 
 ## A required output operand may start with a dash, so attach it before parsing options.
 pure normalize_output_args(argv: List[Str]) -> List[Str] {
-  var normalized: List[Str] = []
+  var normalized = []
   var operands_only = false
   var at = 0
   while at < argv.len() {
@@ -1614,7 +1614,7 @@ proc traditional_key_syntax() [env] -> Bool {
 
 pure legacy_key_args(argv: List[Str], traditional: Bool) -> List[Str] {
   return argv unless traditional
-  var normalized: List[Str] = []
+  var normalized = []
   var at = 0
   while at < argv.len() {
     let arg = argv[at]
@@ -1673,7 +1673,7 @@ pure merge_sort_records(sources: List[List[SortRecord]], opts: SortOptions, has_
   var merged: List[SortRecord] = []
 
   loop {
-    var selected: Int? = null
+    var selected = null
     for index in range(sources.len()) {
       let position = positions[index]
       if position < sources[index].len() {
@@ -1769,7 +1769,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   }
 
   let line_ending = if opts.zero_terminated { b"\0" } else { b"\n" }
-  var output: List[Bytes] = []
+  var output = []
   var output_bytes = 0
   var previous: SortRecord? = null
   var prepared = opts
@@ -1781,7 +1781,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
       prepared = prepare_general_numeric_keys(active, prepared)
       for index in range(readers.len()) { readers[index] = sort_merge_reader_order(readers[index], prepared, has_key) }
     }
-    var selected: Int? = null
+    var selected = null
     for index in range(readers.len()) {
       if let candidate = readers[index].current {
         if let current_index = selected {
@@ -2136,7 +2136,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   }
 
   let line_ending = if opts.zero_terminated { b"\0" } else { b"\n" }
-  var output: List[Bytes] = []
+  var output = []
   var output_bytes = 0
   var previous: SortRecord? = null
   var prepared = opts
@@ -2148,7 +2148,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
       prepared = prepare_general_numeric_keys(active, prepared)
       for index in range(readers.len()) { readers[index] = sort_merge_reader_order(readers[index], prepared, has_key) }
     }
-    var selected: Int? = null
+    var selected = null
     for index in range(readers.len()) {
       if let candidate = readers[index].current {
         if let current_index = selected {
@@ -2230,7 +2230,7 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
 
 proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int, has_key: Bool, key_field: Int, output: Path, has_output: Bool) [fs, io, env, process, error] {
   let compress = startable_compress_program(opts.compress_program)
-  var temp_root: FsRoot? = null
+  var temp_root = null
   defer { if let root = temp_root { root.close() } }
 
   let requested_limit = if buffer_size == 0 { 9223372036854775807 } else { buffer_size }
@@ -2510,7 +2510,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if needs_months {
     let calendar = system.locale_time_info(sort_locale_name("LC_TIME"))?
-    var months: List[Str] = []
+    var months = []
     for name in calendar.abbreviated_months { months += [name.utf8()?.upper()] }
     opts = {...opts, months: months}
   }

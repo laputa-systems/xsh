@@ -19,7 +19,7 @@ export type Rate = {state: RateState, value: Float?}
 ## Holds an exact byte value with its availability state.
 export type ByteValue = {state: RateState, value: Int?}
 
-const max_counter: Int = 9223372036854775807
+const max_counter = 9223372036854775807
 
 pure add_checked(left: Int, right: Int) -> Int? {
   return null when left < 0 or right < 0 or left > max_counter - right

@@ -58,7 +58,7 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
   let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", Path(r"""exec "$@" <stream-input >stream-output """), p"sh"].extend(words), s.root, {}, b"", uu.at(s, "stream-capture"), uu.at(s, "stream-errors"), timeout: 5s)
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  var writer: Int? = null
+  var writer = null
   while writer == null {
     assert time.now() < deadline, "tee did not open its input pipe"
     match unix.open_fd(uu.at(s, "stream-input"), write: true, nonblock: true) {

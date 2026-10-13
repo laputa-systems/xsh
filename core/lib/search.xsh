@@ -93,7 +93,7 @@ export pure find_fixed(text: Bytes, needle: Bytes, offset = 0, insensitive = fal
 
 ## Split records without inventing an extra record after a final delimiter.
 export pure records(data: Bytes, delimiter: Int) -> List[Bytes] {
-  var out: List[Bytes] = []
+  var out = []
   var start = 0
   for at in range(data.len()) {
     if data.byte_at(at) == delimiter { out += [data[start..at]]; start = at + 1 }

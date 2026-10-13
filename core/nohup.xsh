@@ -79,7 +79,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   } else if input_terminal and ! error_terminal {
     advisory("ignoring input", failure_status)
   }
-  var saved_stderr: Int? = null
+  var saved_stderr = null
   if error_terminal {
     # If saving fails, suppress launch diagnostics instead of writing them to
     # the command's redirected output. A successful backup closes on exec.

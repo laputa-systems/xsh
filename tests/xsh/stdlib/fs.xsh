@@ -38,7 +38,7 @@ test test_fs_children_for_yields_precollected_entries { |ctx|
   fp"{root}/second".write("2")
   fp"{root}/first".write("1")
 
-  var names: List[Str] = []
+  var names = []
   for entry in fs.children(root)? { names += [entry.name] }
 
   assert names == ["first", "second"]

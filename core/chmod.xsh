@@ -195,8 +195,8 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
 
 proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
   const invalid_mode_marker = b"\0chmod-mode\0"
-  var parsed_argv: List[Bytes] = []
-  var invalid_mode: Bytes? = null
+  var parsed_argv = []
+  var invalid_mode = null
   for word in argv {
     let text = word.utf8() ?? ""
     if invalid_mode == null and malformed_mode_option(text) and ! rx"^-[rwxXstugoa0-7,+-=]+$".matches(text) {
@@ -210,7 +210,7 @@ proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
   if opts.reference != null and opts.option_like_mode { gnu.usage_error("cannot combine mode and --reference options") }
   if opts.operands.is_empty() { gnu.missing_operand() }
   var spec = ""
-  var reference: Int? = null
+  var reference = null
   var targets = opts.operands
   let umask = fs.umask()?
   if let file = opts.reference {

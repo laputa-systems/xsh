@@ -44,7 +44,7 @@ proc split_error(message: Str) [process, env, error] {
 }
 
 proc split_string(text: Str) [process, env, error] -> List[Str] {
-  var words: List[Str] = []
+  var words = []
   var word = ""
   var state = 0
   var started = false
@@ -197,7 +197,7 @@ proc environment_map(ignore_inherited: Bool, unset_names: List[Str], assignments
 }
 
 pure signal_names(text: Str) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
   for name in text.split(",") {
     if ! name.is_empty() { names += [name] }
   }
@@ -262,7 +262,7 @@ proc list_signal_actions(blocked: List[Str]) [process, error, io] {
 # The signal names a run of --block-signal options blocks: an option without a
 # list stands for every signal.
 proc blocked_signal_names(options: List[SignalActionOption]) [process] -> List[Str] {
-  var blocked: List[Str] = []
+  var blocked = []
   for option in options {
     if let names = option.names {
       blocked = blocked.extend(names)
@@ -386,12 +386,12 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
 
 proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
   var argv = raw
-  var cwd: Path? = null
+  var cwd = null
   var null_delimited = false
   var ignore_inherited = false
   var verbose = false
-  var argv0: Bytes? = null
-  var unset_names: List[Str] = []
+  var argv0 = null
+  var unset_names = []
   var assignments: Map[Str, Bytes] = {}
   var signal_actions: List[SignalActionOption] = []
   var block_options: List[SignalActionOption] = []

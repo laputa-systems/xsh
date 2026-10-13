@@ -66,7 +66,7 @@ test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
 test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
   let first_pidfile = test.temp_path(ctx, name: "discarded-process-stream-first-pid")
   let second_pidfile = test.temp_path(ctx, name: "discarded-process-stream-second-pid")
-  var pids: List[Int] = []
+  var pids = []
   var quiet_before_defers = false
   defer {
     for pid in pids {
@@ -76,7 +76,7 @@ test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
     }
   }
   {
-    var current: Stream[Str]? = null
+    var current = null
     current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $first_pidfile
     for _ in range(100) {
       break when first_pidfile.exists()

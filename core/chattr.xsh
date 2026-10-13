@@ -51,9 +51,9 @@ proc changed(name: Str, changes: Changes, descendant: Bool) [fs, process, env, e
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var add = 0
   var remove = 0
-  var assigned: Int? = null
-  var generation: Int? = null
-  var project: Int? = null
+  var assigned = null
+  var generation = null
+  var project = null
   var recursive = false
   var verbose = false
   var quiet = false

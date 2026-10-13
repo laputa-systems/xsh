@@ -266,7 +266,7 @@ pure apply_nocheck(options: Options, value: Str) -> Applied {
 # Resolves a long option name, accepting any unambiguous prefix as getopt_long
 # does. Returns "key:arity" or null.
 pure resolve_long(name: Str) -> Str? {
-  var matches: List[Str] = []
+  var matches = []
   for entry in LONG_OPTIONS {
     let parts = entry.split(":")
     return f"{parts[1]}:{parts[2]}" when parts[0] == name
@@ -280,7 +280,7 @@ type Parsed = {options: Options, operands: List[Str], failure: Failure?, early: 
 
 pure parse(argv: List[Str]) -> Parsed {
   var options = DEFAULT_OPTIONS
-  var operands: List[Str] = []
+  var operands = []
   var index = 0
   var ended = false
   while index < argv.len() {
@@ -578,8 +578,8 @@ proc nvme_self_test(fd: Int, code: Int) [process] -> Fetched {
 # sections, then any self-test start.
 proc ata_session(options: Options, fd: Int, size: Int, now: Clock) [process, time, error] -> Session {
   var members: List[j.Member] = []
-  var messages: List[Str] = []
-  var notes: List[Str] = []
+  var messages = []
+  var notes = []
   var status = 0
   let identity = ata_page(fd, size, "identify", 0)
   if !identity.ok {
@@ -679,7 +679,7 @@ proc ata_session(options: Options, fd: Int, size: Int, now: Clock) [process, tim
           usable = false
         }
       }
-      var thresholds: Bytes? = null
+      var thresholds = null
       if usable and (want_attributes or want_health) {
         let table = ata_page(fd, size, "thresholds", 0)
         if table.ok {
@@ -724,7 +724,7 @@ proc ata_session(options: Options, fd: Int, size: Int, now: Clock) [process, tim
   }
   if !read_failed {
     var summary_notice = false
-    var seen: List[Int] = []
+    var seen = []
     for log in logs {
       var address = 0
       var label = "SMART Log Directory"
@@ -836,8 +836,8 @@ proc ata_session(options: Options, fd: Int, size: Int, now: Clock) [process, tim
 # NVMe sessions: identify controller, namespace, then logs.
 proc nvme_session(options: Options, fd: Int, nsid_hint: Int?, now: Clock) [process, error] -> Session {
   var members: List[j.Member] = []
-  var messages: List[Str] = []
-  var notes: List[Str] = []
+  var messages = []
+  var notes = []
   var status = 0
   let identified = nvme_page(fd, "controller", 0, 4096)
   if !identified.ok {
@@ -978,8 +978,8 @@ proc scsi_read(fd: Int, cdb: Bytes, length: Int) [process] -> Fetched {
 
 proc scsi_session(options: Options, fd: Int, now: Clock) [process, error] -> Session {
   var members: List[j.Member] = []
-  var messages: List[Str] = []
-  var notes: List[Str] = []
+  var messages = []
+  var notes = []
   var status = 0
   var text = ""
   let standard = scsi_read(fd, b"\x12\x00\x00\x00\x24\x00", 36)
@@ -994,7 +994,7 @@ proc scsi_session(options: Options, fd: Int, now: Clock) [process, error] -> Ses
     }
   }
   let id = scsi.inquiry(standard.data)
-  var serial: Str? = null
+  var serial = null
   let unit = scsi_read(fd, b"\x12\x01\x80\x00\xff\x00", 255)
   if unit.ok { serial = scsi.serial_number(unit.data) }
   var capacity: scsi.Capacity? = null
@@ -1060,7 +1060,7 @@ proc scan(options: Options) [fs, process, error] -> Session {
   let family = head_word(options.device_type.split("+")[0])
   var text = ""
   var devices: List[j.Object] = []
-  var messages: List[Str] = []
+  var messages = []
   let found = smart.present_candidates(fp"/sys", fp"/dev")?
   for candidate in found {
     # Controllers carry the NVMe admin node; namespaces are reached through
@@ -1071,7 +1071,7 @@ proc scan(options: Options) [fs, process, error] -> Session {
     continue when family in ["scsi", "ata", "sat"] and candidate.protocol == "nvme"
     let node = f"{candidate.path}"
     var ata_behind = false
-    var open_error: Str? = null
+    var open_error = null
     let kind = if candidate.protocol == "nvme" { "nvme" } else { "scsi" }
     if options.scan_open {
       match unix.open_fd(candidate.path, nonblock: true) {
@@ -1178,7 +1178,7 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
   let family = head_word(requested.split("+")[0])
   var kind = ""
   var cdb_size = 16
-  var nsid_hint: Int? = null
+  var nsid_hint = null
   var sat_probe = false
   var protocol_name = ""
   var info_name = name

@@ -7,7 +7,7 @@ type ExpressionCase = {args: List[Str], out: Str, status: Int, err: Str}
 # Run every row before reporting failures so unrelated arithmetic, syntax and
 # locale behavior stays observable when one expression differs.
 proc check_rows(s: uu.Scene, rows: List[ExpressionCase], locale: Str) [fs, process, env, error] -> Result[List[Str], Error] {
-  var failures: List[Str] = []
+  var failures = []
   for item in rows {
     let r = uu.invoke(s, "expr", item.args, vars: {LC_ALL: locale, LANGUAGE: "C", LANG: "C"}, timeout: 5s)?
     # Regex libraries report either invalid interval content or an oversized
@@ -142,7 +142,7 @@ test test_gnu_expr_expr_log { |ctx|
 # origin: gnu expr/expr-multibyte.log
 test test_gnu_expr_expr_multibyte_log { |ctx|
   let s = uu.scene(ctx)?
-  var failures: List[Str] = []
+  var failures = []
   for item in [
     {locale: "fr_FR.UTF-8", args: [b"length", b"abcdef"], out: b"6\x0a", status: 0},
     {locale: "C", args: [b"length", b"abcdef"], out: b"6\x0a", status: 0},

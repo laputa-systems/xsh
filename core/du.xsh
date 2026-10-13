@@ -400,7 +400,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
     if opts.depth != null and depth != 0 { gnu.usage_error("summarizing conflicts with --max-depth") }
     depth = 0
   }
-  var threshold: Int? = null
+  var threshold = null
   var negative = false
   if let raw = opts.threshold {
     let cleaned = rx"^[ \t\r\n\v\f]+".replace(raw, with: "")
@@ -431,7 +431,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
       }
     }
   }
-  var patterns: List[Regex] = []
+  var patterns = []
   for pattern in excludes {
     match regex.compile(glob_regex(pattern)) {
       Ok(compiled) => patterns += [compiled]
@@ -491,7 +491,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
       return }
     targets = text.split("\0")
     if ! targets.is_empty() and targets[-1] == "" { targets = targets[..targets.len() - 1] }
-    var valid: List[Str] = []
+    var valid = []
     for index in range(targets.len()) {
       let name = targets[index]
       if name == "" {

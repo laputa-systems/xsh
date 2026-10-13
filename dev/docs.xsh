@@ -212,8 +212,8 @@ pure trim_blank_edges(lines: List[Str]) -> List[Str] {
 # The text a document shows for a snippet: the whole file when it has no
 # example region, otherwise its regions in order.
 pure shown_source(name: Str, source: Str) -> Result[Str] {
-  var shown: List[Str] = []
-  var region: List[Str] = []
+  var shown = []
+  var region = []
   var inside = false
   var regions = 0
   for line in source.lines() {

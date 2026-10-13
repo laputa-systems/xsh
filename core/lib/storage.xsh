@@ -346,10 +346,10 @@ proc unsupported(value: Str) {
 # Only declared options reach controllers; reject a complete invocation before
 # opening a device, including any unknown option after a valid operand.
 proc arguments(argv: List[Str], booleans: List[Str], valued: List[Str]) -> Arguments {
-  var flags: List[Str] = []
+  var flags = []
   var values: Map[Str] = {}
   var multiple: Map[List[Str]] = {}
-  var operands: List[Str] = []
+  var operands = []
   var index = 0
   var ended = false
   while index < argv.len() {
@@ -372,7 +372,7 @@ proc arguments(argv: List[Str], booleans: List[Str], valued: List[Str]) -> Argum
     continue when found
     for forms in valued {
       let aliases = forms.split(" ")
-      var attached: Str? = null
+      var attached = null
       if option not in aliases and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 2 and word.byte_slice(0, 2) in aliases {
         attached = word.byte_slice(2)
       }
@@ -393,9 +393,9 @@ proc arguments(argv: List[Str], booleans: List[Str], valued: List[Str]) -> Argum
     }
     continue when found
     if ! word.starts_with("--") and word.byte_len() > 2 {
-      var bundled: List[Str] = []
+      var bundled = []
       for char in word.byte_slice(1) {
-        var canonical: Str? = null
+        var canonical = null
         for forms in booleans {
           let aliases = forms.split(" ")
           if f"-{char}" in aliases { canonical = aliases[0]; break }
@@ -462,7 +462,7 @@ proc columns(value: Str, allowed: List[Str]) -> List[Str] {
 }
 
 proc json_fields(keys: List[Str], values: List[Str]) -> Str {
-  var fields: List[Str] = []
+  var fields = []
   for index in range(keys.len()) { fields += [json.encode(keys[index].lower())? + ":" + json.encode(values[index])?] }
   "{" + fields.join(",") + "}"
 }
@@ -470,7 +470,7 @@ proc json_fields(keys: List[Str], values: List[Str]) -> Str {
 # A containing-path lookup chooses the deepest mount at a component boundary.
 # Repeated targets resolve to the newest visible mount rather than prefix text.
 pure target_mount(entries: List[mounts.MountEntry], target: Str) -> Int? {
-  var selected: Int? = null
+  var selected = null
   var length = -1
   for index in range(entries.len()) {
     let entry = entries[index]
@@ -492,7 +492,7 @@ pure mount_children(entries: List[mounts.MountEntry], index: Int) -> List[Int] {
 
 proc mount_json_row(entries: List[mounts.MountEntry], index: Int, cols: List[Str], ancestors: List[Int]) -> Str {
   let row = json_fields(cols, [mount_value(entries[index], column) for column in cols])
-  var children: List[Str] = []
+  var children = []
   for child in mount_children(entries, index) { if child not in ancestors { children += [mount_json_row(entries, child, cols, ancestors + [index])] } }
   return row when children.is_empty()
   row.byte_slice(0, row.byte_len() - 1) + ",\"children\":[" + children.join(",") + "]}"
@@ -525,7 +525,7 @@ export proc findmnt_from_root(root: FsRoot, argv: List[Str]) {
   entries = [entry for entry in entries if type_matches(entry.filesystem, args.values.get("-t") ?? "")]
   if entries.is_empty() { exit 1 }
   let tree = "-l" not in args.flags and "-r" not in args.flags and "TARGET" in cols
-  var roots: List[Int] = []
+  var roots = []
   let ids = [entry.mount_id for entry in entries]
   for index in range(entries.len()) { if ! tree or entries[index].parent_id not in ids or entries[index].parent_id == entries[index].mount_id { roots += [index] } }
   if roots.is_empty() { gnu.error("mount table contains a cyclic hierarchy"); exit 1 }
@@ -550,7 +550,7 @@ proc findmnt(argv: List[Str]) {
 }
 
 pure block_children(devices: List[block.BlockDevice], parent: Int) -> List[Int] {
-  var children: List[Int] = []
+  var children = []
   for index in range(devices.len()) {
     if devices[index].parent_device_index == parent or parent in devices[index].slave_indices { children += [index] }
   }
@@ -581,7 +581,7 @@ proc block_values(device: block.BlockDevice, table: mounts.MountTable, cols: Lis
 
 proc block_json_row(devices: List[block.BlockDevice], index: Int, table: mounts.MountTable, cols: List[Str], args: Arguments, ancestors: List[Int]) -> Str {
   let values = block_values(devices[index], table, cols, "-b" in args.flags, "-p" in args.flags)
-  var fields: List[Str] = []
+  var fields = []
   for at in range(cols.len()) {
     let key = json.encode(cols[at].lower())?
     let value = values[at]
@@ -592,7 +592,7 @@ proc block_json_row(devices: List[block.BlockDevice], index: Int, table: mounts.
     fields += [key + ":" + encoded]
   }
   if "-d" not in args.flags and "-l" not in args.flags and "-r" not in args.flags {
-    var children: List[Str] = []
+    var children = []
     for child in block_children(devices, index) {
       if child not in ancestors and child != index { children += [block_json_row(devices, child, table, cols, args, ancestors + [index])] }
     }
@@ -622,7 +622,7 @@ export proc lsblk_from_root(root: FsRoot, argv: List[Str]) {
   if ! inventory.enumeration_succeeded { gnu.error("cannot enumerate block devices"); exit 1 }
   let table = mounts.collect(root)
   let devices = inventory.devices
-  var selected: List[Int] = []
+  var selected = []
   for index in range(devices.len()) {
     let device = devices[index]
     continue when "-a" not in args.flags and device.size_bytes == 0
@@ -664,7 +664,7 @@ pure hex_offset(value: UInt, digits: Int) -> Str {
 }
 
 pure hex_bytes(data: Bytes) -> Str {
-  var pairs: List[Str] = []
+  var pairs = []
   for index in range(data.len()) {
     let value = data.byte_at(index) ?? 0
     pairs += ["0123456789abcdef".byte_slice(value / 16, length: 1) + "0123456789abcdef".byte_slice(value % 16, length: 1)]
@@ -677,7 +677,7 @@ pure hex_bytes(data: Bytes) -> Str {
 # separator behind exactly as the util-linux table printer does. A column with
 # a minimum width widens to it only once its data outgrows its heading.
 pure table_lines(headers: List[Str], right: List[Bool], minimums: List[Int], rows: List[List[Str]], headings: Bool) -> List[Str] {
-  var widths: List[Int] = []
+  var widths = []
   for at in range(headers.len()) {
     var widest = 0
     for row in rows { if row[at].count_chars() > widest { widest = row[at].count_chars() } }
@@ -686,9 +686,9 @@ pure table_lines(headers: List[Str], right: List[Bool], minimums: List[Int], row
     if widest > heading and minimums[at] > width { width = minimums[at] }
     widths += [width]
   }
-  var lines: List[Str] = []
+  var lines = []
   for row in if headings { [headers] + rows } else { rows } {
-    var cells: List[Str] = []
+    var cells = []
     for at in range(row.len()) {
       if right[at] { cells += [tui.left_pad(row[at], widths[at])] } else if at + 1 < row.len() { cells += [tui.right_pad(row[at], widths[at])] } else { cells += [row[at]] }
     }
@@ -750,7 +750,7 @@ proc wipefs(argv: List[Str]) {
   let cols = columns((args.values.get("-O") ?? "DEVICE,OFFSET,TYPE,UUID,LABEL").upper(), ["DEVICE", "OFFSET", "TYPE", "UUID", "LABEL", "LENGTH", "USAGE"])
   let given_offsets = args.multiple.get("-o") ?? []
   if "-a" in args.flags and ! given_offsets.is_empty() { gnu.usage_error("--all and --offset are mutually exclusive") }
-  var offsets: List[UInt] = []
+  var offsets = []
   for value in given_offsets {
     if value.starts_with("0x") {
       let digits = value.byte_slice(2)
@@ -767,8 +767,8 @@ proc wipefs(argv: List[Str]) {
   let erase = "-a" in args.flags or ! offsets.is_empty()
   if erase and "-J" in args.flags { gnu.usage_error("JSON cannot be combined with signature erasure") }
   # One table spans every operand, so column widths are shared.
-  var rows: List[List[Str]] = []
-  var json_rows: List[Str] = []
+  var rows = []
+  var json_rows = []
   for name in args.operands {
     guard let found = device_signatures(name) else { |failure|
       gnu.error(f"error: {name}: probing initialization failed: {gnu.strerror(failure)}")
@@ -794,7 +794,7 @@ proc wipefs(argv: List[Str]) {
       let cells = [values.get(column) ?? "" for column in cols]
       rows += [cells]
       if "-J" in args.flags {
-        var members: List[Str] = []
+        var members = []
         for at in range(cols.len()) {
           let key = json.encode(cols[at].lower())?
           let present = cells[at] != "" or cols[at] in ["DEVICE", "OFFSET", "TYPE", "LENGTH", "USAGE"]
@@ -862,7 +862,7 @@ proc blkid(argv: List[Str]) {
     let info = linux.blkid(fp"{name}")?
     let tags = ["UUID", "LABEL", "TYPE", "PTTYPE", "PART_ENTRY_UUID"]
     let values = [info.uuid, info.label, info.type, info.part_table_type, info.part_entry_uuid]
-    var fields: List[Str] = []
+    var fields = []
     for index in range(tags.len()) {
       if values[index] == "" or (! selected_tags.is_empty() and tags[index] not in selected_tags) { continue }
       observed = true
@@ -1062,8 +1062,8 @@ proc write_sfdisk(name: Str, args: Arguments) {
   var label = args.values.get("--label") ?? "dos"
   var id = ""
   var sector_size = 512
-  var first_lba: Int? = null
-  var last_lba: Int? = null
+  var first_lba = null
+  var last_lba = null
   var partitions: List[PartitionInput] = []
   for input in text.lines() {
     let line = input.trim()
@@ -1107,8 +1107,8 @@ proc write_sfdisk(name: Str, args: Arguments) {
       if node != partition_node(name, partition_index) { gnu.usage_error("invalid partition node") }
       body = prefix[1].trim()
     }
-    var start: Int? = null
-    var size: Int? = null
+    var start = null
+    var size = null
     var kind = if label == "gpt" { "0fc63daf-8483-4772-8e79-3d69d8477de4" } else { "83" }
     var uuid = ""
     var part_name = ""
@@ -1191,7 +1191,7 @@ pure dos_code(code: Str) -> Str {
 # GPT attribute bits by name, ascending; the high word is the type-specific
 # GUID:N range.
 pure gpt_attribute_names(raw: Bytes) -> Str {
-  var names: List[Str] = []
+  var names = []
   for bit in range(64) {
     var mask = 1
     for _ in range(bit % 8) { mask *= 2 }
@@ -1280,7 +1280,7 @@ proc json_layout(name: Str, layout: DiskLayout) {
   if small_disk(layout) { members += [f"\"grain\": \"{layout.sector_size}\""] }
   members += [f"\"sectorsize\": {layout.sector_size}"]
   var text = "{\n   \"partitiontable\": {\n"
-  var rows: List[Str] = []
+  var rows = []
   for item in layout.partitions {
     var fields = [f"\"node\": {json.encode(partition_node(name, item.index))?}", f"\"start\": {item.start}", f"\"size\": {item.size}", f"\"type\": {json.encode(item.type)?}"]
     if item.uuid != "" { fields += [f"\"uuid\": {json.encode(item.uuid)?}"] }
@@ -1309,20 +1309,20 @@ proc list_layout(name: Str, layout: DiskLayout, request: Str) {
   if layout.label != "none" { text += f"Disklabel type: {layout.label}\nDisk identifier: {layout.id}\n" }
   gnu.write_text(text)
   return when layout.label == "none" or layout.partitions.is_empty()
-  var cols: List[Str] = []
+  var cols = []
   var requested = request
   if requested.starts_with("+") or requested == "" { cols = fdisk_default_columns(layout.label) }
   if requested.starts_with("+") { requested = requested.byte_slice(1) }
   for word in requested.split(",") {
     continue when word == ""
-    var canonical: Str? = null
+    var canonical = null
     for known in FDISK_COLUMNS { if known.lower() == word.lower() { canonical = known } }
     let column = canonical ?? word
     let offered = if layout.label == "dos" { column in ["Device", "Boot", "Start", "End", "Sectors", "Size", "Id", "Type"] } else { column in ["Device", "Start", "End", "Sectors", "Size", "Type", "Type-UUID", "Attrs", "Name", "UUID"] }
     if ! offered { gnu.error(f"{layout.label} unknown column: {word}"); exit 1 }
     cols += [column]
   }
-  var rows: List[List[Str]] = []
+  var rows = []
   for item in layout.partitions {
     let known: Map[Str] = {
       "Device": partition_node(name, item.index), "Boot": if item.bootable { "*" } else { "" },

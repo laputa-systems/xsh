@@ -48,7 +48,7 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
 ## Deduplicates gates while retaining the order in which their owners appear.
 export pure select(paths: List[Str]) -> Result[Selection, Error] {
   var areas: List[Area] = []
-  var native_files: List[Str] = []
+  var native_files = []
   for changed_path in paths {
     if ! changed_path.starts_with("tests/fixtures/") and changed_path.ends_with(".xsh") and (changed_path.starts_with("tests/") or changed_path.starts_with("dev/tests/") or changed_path.starts_with("core/tests/") or changed_path.starts_with("showcase/tests/")) {
       native_files += [changed_path] when changed_path not in native_files

@@ -11,7 +11,7 @@ proc unsigned(value: Int) [error] -> Result[Str, Error] {
   return Ok(f"{value}") when value >= 0
   let inverse = f"{-(value + 1)}"
   var carry = 0
-  var digits: List[Str] = []
+  var digits = []
   for offset in range(20) {
     let maximum_digit = "18446744073709551615".byte_slice(19 - offset, length: 1).parse_int()?
     let index = inverse.byte_len() - 1 - offset
@@ -25,7 +25,7 @@ proc unsigned(value: Int) [error] -> Result[Str, Error] {
 
 proc radix(value: Int, base: Int) [error] -> Result[Str, Error] {
   var remaining = if value < 0 { -(value + 1) } else { value }
-  var digits: List[Str] = []
+  var digits = []
   if value < 0 {
     assert base == 16
     for offset in range(16) {

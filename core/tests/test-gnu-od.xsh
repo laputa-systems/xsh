@@ -69,7 +69,7 @@ test test_gnu_od_od_endian_log { |ctx|
   for endian in ["little", "big"] {
     let opposite = if endian == "little" { "big" } else { "little" }
     for width in [1, 2, 4, 8, 16] {
-      var values: List[Int] = []
+      var values = []
       for block in range(16 / width) {
         for offset in range(width) {
           if let value = original.byte_at(block * width + width - offset - 1) { values += [value] } else { assert false, "missing input byte" }

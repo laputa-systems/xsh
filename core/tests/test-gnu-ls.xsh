@@ -446,7 +446,7 @@ test test_gnu_ls_quote_align_log { |ctx|
   for row in [{flags: ["-w0", "-x"], out: f"'dir:name':\n'a b'  {colored}\n"}, {flags: ["-x"], out: f"'dir:name':\n'a b'   {colored}\n"}, {flags: ["-og"], out: f"'dir:name':\n'a b'\n {colored}\n"}, {flags: ["-1"], out: f"'dir:name':\n'a b'\n{colored}\n"}, {flags: ["-m"], out: f"'dir:name':\n'a b', {colored}\n"}, {flags: ["-C"], out: f"'dir:name':\n'a b'   {colored}\n"}] {
     let r = uu.invoke(s, "ls", row.flags.extend(["-R", "--quoting=shell-escape", "--color=always", "dir:name"]), vars: {TERM: "xterm", LS_COLORS: "*.foo=31;42", TIME_STYLE: "+T"})?
     uu.succeeds(r)
-    var lines: List[Str] = []
+    var lines = []
     for line in r.stdout.utf8()?.lines() {
       continue when line.starts_with("total")
       let parts = line.split("T ")
@@ -570,7 +570,7 @@ test test_gnu_ls_abmon_align_log { |ctx|
   let current = uu.invoke(s, "date", ["+%Y-%m-15"])?
   uu.succeeds(current)
   let mid = current.stdout.utf8()?.trim()
-  var names: List[Str] = []
+  var names = []
   for month in range(1, 13) {
     let padded = if month < 10 { f"0{month}" } else { f"{month}" }
     names += [f"{padded}.ts"]
@@ -581,7 +581,7 @@ test test_gnu_ls_abmon_align_log { |ctx|
       let r = uu.invoke(s, "ls", ["-lgG"].extend(names), vars: {LC_ALL: locale, TIME_STYLE: f"+{format}"})?
       let months = [bytes.from_text(line).slice(15, line.byte_len() - 15 - 6).utf8()?.replace(" ", with: ".") for line in r.stdout.utf8()?.lines()]
       assert months.len() == 12
-      var widths: List[Str] = []
+      var widths = []
       for month in months {
         let width = uu.invoke(s, "wc", ["-L"], stdin: bytes.from_text(month + "\n"), vars: {LC_ALL: locale})?
         widths += [width.stdout.utf8()?.trim()]
@@ -629,7 +629,7 @@ test test_gnu_ls_block_size_log { |ctx|
     let width = uu.invoke(sub, "wc", ["-L"], stdin: bytes.from_text(prefix), vars: {LC_ALL: locale})?
     continue when width.stdout.utf8()?.trim() != "5"
     let all = uu.invoke(sub, "ls", ["-s1", "--block-size='k"], vars: {LC_ALL: locale})?
-    var widths: List[Str] = []
+    var widths = []
     for line in [all.stdout.utf8()?.lines()[i] for i in range(1, all.stdout.utf8()?.lines().len())] {
       let measured = uu.invoke(sub, "wc", ["-L"], stdin: bytes.from_text(line.split("K")[0] + "\n"), vars: {LC_ALL: locale})?
       widths += [measured.stdout.utf8()?.trim()]

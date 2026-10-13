@@ -159,7 +159,7 @@ pure ipv4_text(raw: Bytes, at: Int) -> Str {
 # the longest run of zero groups (two or more) compressed, and IPv4-mapped
 # addresses with a dotted tail.
 pure ipv6_text(raw: Bytes, at: Int) -> Str {
-  var groups: List[Int] = []
+  var groups = []
 
   for index in range(8) {
     let high = raw.byte_at(at + index * 2) ?? 0
@@ -423,7 +423,7 @@ proc resolve_host(name: Str, family: Str, argc: Int) [net, process, error] -> Re
 
 proc dotted_quad(name: Str) [net, error] -> Result[Bytes] {
   let addr = resolve_one(name, "ipv4")?
-  var octets: List[Int] = []
+  var octets = []
 
   for part in addr.split(".") {
     octets += [part.parse_int_decimal()?]
@@ -1210,7 +1210,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
       usage_die(f"Cannot handle `-w' option with arg `{text}' (argc {argc})")
     }
 
-    var numbers: List[Float] = []
+    var numbers = []
 
     for part in parts {
       guard let number = part.parse_float() else { |failure|
@@ -1269,7 +1269,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     port = value ?? port
   }
 
-  var tos: Int? = null
+  var tos = null
 
   if let text = opts.tos {
     tos = bounded(text, 0, 255)
@@ -1291,7 +1291,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     source_port = value ?? 0
   }
 
-  var fwmark: Int? = null
+  var fwmark = null
 
   if let text = opts.fwmark {
     fwmark = bounded(text, 0, 4294967295)
@@ -1305,7 +1305,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
   let host = opts.operands[0]
   let target = resolve_host(host, family, argc)?
 
-  var source: Str? = null
+  var source = null
 
   if let text = opts.source {
     let found = dns.resolve_host(text, "any") ?? []
@@ -1324,7 +1324,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     source = found[0].addr
   }
 
-  var gateways: List[Bytes] = []
+  var gateways = []
 
   if ! opts.gateway.is_empty() and target.v6 {
     usage_die("traceroute: option '-g' is not supported: IPv6 routing headers are not available")

@@ -33,7 +33,7 @@ export pure canonical(entries: List[Entry]) -> List[Entry] {
 ## Require complete, unique entries and a mask whenever a named identity occurs.
 export pure validate(entries: List[Entry], allow_empty = false) -> Result[Unit, Error] {
   return Ok() when entries.is_empty() and allow_empty
-  var keys: List[Str] = []
+  var keys = []
   for entry in entries {
     return Err(AclError.Invalid("permissions outside ACL range")) when entry.permissions < 0 or entry.permissions > 7
     let named = entry.tag == AclUser or entry.tag == AclGroup
@@ -105,7 +105,7 @@ export proc parse(text: Str, remove = false, defaults = false) [fs, error] -> Re
     let identity = parts[1].trim()
     let kind = parts[0].trim()
     var tag: Tag = AclOther
-    var id: Int? = null
+    var id = null
     if kind in ["u", "user"] { tag = if identity == "" { AclOwner } else { AclUser }; if identity != "" { id = perm.uid(identity)? } } else if kind in ["g", "group"] { tag = if identity == "" { AclGroupOwner } else { AclGroup }; if identity != "" { id = perm.gid(identity)? } } else if kind in ["m", "mask"] and identity == "" { tag = AclMask } else if kind in ["o", "other"] and identity == "" { tag = AclOther } else { return Err(AclError.Invalid("invalid ACL tag or identity")) }
     entries += [{tag: tag, id: id, permissions: if parts.len() == 3 { parse_permissions(parts[2].trim())? } else { 0 }, default: default, conditional_execute: parts.len() == 3 and "X" in parts[2]}]
   }
@@ -150,7 +150,7 @@ export pure calculate_mask(entries: List[Entry], force = false) -> List[Entry] {
 ## Project an access ACL onto owner, masked group, and other mode bits.
 export pure mode(entries: List[Entry]) -> Result[Int, Error] {
   validate(entries)
-  var owner = 0; var group_bits = 0; var other = 0; var mask: Int? = null
+  var owner = 0; var group_bits = 0; var other = 0; var mask = null
   for entry in entries {
     continue when entry.default
     if entry.tag == AclOwner { owner = entry.permissions }
@@ -215,7 +215,7 @@ type Visit = {name: Str, top: Bool, ancestors: List[Str]}
 ## Follow policy affects top-level links separately from recursive descendants.
 export proc visit_names(names: List[Str], recursive: Bool, traversal: Str) [fs, error] -> Result[List[Str], Error] {
   var pending: List[Visit] = collect { for name in names { yield {name: name, top: true, ancestors: []} } }
-  var result: List[Str] = []
+  var result = []
   while ! pending.is_empty() {
     let visit = pending[0]; pending = pending[1..]
     let target = fp"{visit.name}"

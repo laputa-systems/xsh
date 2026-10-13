@@ -97,8 +97,8 @@ export pure build(
   for row in ordered {
     continue when row.pid in finished
     var cursor = row.pid
-    var predecessor: Int? = null
-    var walked: List[Int] = []
+    var predecessor = null
+    var walked = []
     var path_index: Map[Int, Int] = {}
     for _ in range(ordered.len() + 1) {
       break when cursor in finished
@@ -121,7 +121,7 @@ export pure build(
     for pid in walked { finished = finished.add(pid) }
   }
 
-  var roots: List[Int] = []
+  var roots = []
   var children_by_pid: Map[Int, List[Int]] = {}
   for row in ordered {
     if let Ok(parent) = parent_by_pid.get(row.pid) {
@@ -134,7 +134,7 @@ export pure build(
 
   var nodes: Map[Int, TreeNode] = {}
   for row in ordered {
-    var parent: Int? = null
+    var parent = null
     if let Ok(found) = parent_by_pid.get(row.pid) { parent = found }
     let children = if let Ok(found) = children_by_pid.get(row.pid) { found } else { [] }
     let orphan = if let Ok(found) = orphan_by_pid.get(row.pid) { found } else { false }
@@ -155,7 +155,7 @@ export pure build(
   for index in range(roots.len()) {
     stack += [{pid: roots[roots.len() - index - 1], depth: 0}]
   }
-  var preorder: List[Int] = []
+  var preorder = []
   while ! stack.is_empty() {
     let pending = stack[stack.len() - 1]
     stack = stack |> take(stack.len() - 1)

@@ -17,7 +17,7 @@ proc apply(name: Str, attribute: Str, value: Bytes, remove: Bool, follow: Bool) 
 # Dump entries are applied in source order; a failed entry does not suppress
 # later operands. An invalid encoding is rejected before its attribute changes.
 proc restore_dump(data: Bytes, follow: Bool, raw: Bool) [fs, process, error] -> Bool {
-  var name: Str? = null
+  var name = null
   var success = true
   var at = 0
   while at < data.len() {

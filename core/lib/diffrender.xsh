@@ -99,7 +99,7 @@ pure terminated(source: gnudiff.Source, index: Int) -> Bool {
 # Tab expansion of one output line: tabs become spaces to the next stop, a
 # carriage return restarts the column and, when a flag is shown, repeats it.
 pure expand(line: Bytes, tabsize: Int, repeat_flag: Bytes?, utf8: Bool) -> Bytes {
-  var chunks: List[Bytes] = []
+  var chunks = []
   var column = 0
   var start = 0
   let size = line.len()
@@ -152,7 +152,7 @@ export pure paint(fmt: Format, slot: Int, text: Bytes) -> Bytes {
 # `slot` is the palette slot the line text is painted with (0 for none).
 pure render_line(flag: Str, line: Bytes, open: Bool, fmt: Format, slot: Int) -> Bytes {
   var prefix = b""
-  var repeat: Bytes? = null
+  var repeat = null
   if flag != "" {
     let sep = if fmt.initial_tab { "\t" } else if fmt.style == "unified" { "" } else { " " }
     if fmt.suppress_blank_empty and line.is_empty() {
@@ -204,7 +204,7 @@ pure function_heading(first: gnudiff.Source, from: Int, floor: Int, last_match: 
 # joins the one before it when fewer than `2 * context + 1` lines separate
 # them, or fewer than `context` when the later change is ignorable.
 pure hunk_groups(script: List[gnudiff.Change], flags: List[Bool], context: Int) -> List[List[Int]] {
-  var groups: List[List[Int]] = []
+  var groups = []
   var index = 0
   let count = script.len()
   while index < count {
@@ -230,7 +230,7 @@ pure hunk_groups(script: List[gnudiff.Change], flags: List[Bool], context: Int) 
 
 # Flags saying which changes of the script are individually ignorable.
 pure ignorable(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format) -> List[Bool] {
-  var flags: List[Bool] = []
+  var flags = []
   for item in script { flags += [analyze([item], first, second, fmt).changes == 0] }
   flags
 }
@@ -258,7 +258,7 @@ pure heading_text(first: gnudiff.Source, at: Int, state: Heading, fmt: Format) -
 # Print a script as unified or context hunks. `header` is written before the
 # first hunk that is actually printed.
 pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format, header: Bytes, unified: Bool) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var wrote_header = false
   let flags = ignorable(first, second, script, fmt)
   var state: Heading = {search_from: 0, line: -1}
@@ -343,8 +343,8 @@ pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[
 
 # Normal, ed and RCS formats: each change is printed on its own.
 pure render_simple(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format) -> Bytes {
-  var out: List[Bytes] = []
-  var order: List[Int] = []
+  var out = []
+  var order = []
   if fmt.style == "ed" {
     var at = script.len() - 1
     while at >= 0 {
@@ -404,7 +404,7 @@ pure render_simple(first: gnudiff.Source, second: gnudiff.Source, script: List[g
 # Pad from column `from` to column `to` with tabs (unless tabs are expanded)
 # and then spaces. Returns the target column even when `from` is past it.
 pure tab_from_to(from: Int, to: Int, fmt: Format) -> Piece {
-  var chunks: List[Bytes] = []
+  var chunks = []
   var at = from
   if !fmt.expand_tabs {
     var stop = from + fmt.tabsize - from % fmt.tabsize
@@ -424,7 +424,7 @@ pure tab_from_to(from: Int, to: Int, fmt: Format) -> Piece {
 # One half of a side-by-side line, cut to `bound` columns. Returns the bytes and
 # the column the output ends at.
 pure half_line(line: Bytes, indent: Int, bound: Int, fmt: Format) -> Piece {
-  var chunks: List[Bytes] = []
+  var chunks = []
   var in_position = 0
   var out_position = 0
   var index = 0
@@ -497,7 +497,7 @@ pure sdiff_line(left: Bytes?, left_open: Bool, mark: Str, right: Bytes?, right_o
   let layout = sdiff_layout(fmt)
   let half = layout.half
   let second = layout.second
-  var chunks: List[Bytes] = []
+  var chunks = []
   var column = 0
   var newline = false
   var sep = mark
@@ -538,7 +538,7 @@ pure sdiff_line(left: Bytes?, left_open: Bool, mark: Str, right: Bytes?, right_o
 
 # Side-by-side output: common lines, then each hunk's paired and unpaired lines.
 pure render_sdiff(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var next0 = 0
   var next1 = 0
   let n0 = first.lines.len()
@@ -717,7 +717,7 @@ pure char_spec(raw: Bytes, at: Int) -> Literal? {
 # text), writing to the result only when `emit` is true. Unknown or malformed
 # directives are copied through as they were written.
 pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Scan {
-  var out: List[Bytes] = []
+  var out = []
   var at = start
   let size = raw.len()
   while at < size {
@@ -759,7 +759,7 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
       }
     } else if letter == 40 {
       var cursor = at + 2
-      var values: List[Int] = []
+      var values = []
       var well_formed = true
       for side in range(2) {
         let number = number_at(raw, cursor)
@@ -841,7 +841,7 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
 # One line through a line format: `%L` the line with its newline, `%l` without,
 # `%n` (with printf flags) the line number, `%c'C'` and `%%`.
 pure line_text(raw: Bytes, line: Bytes, terminated: Bool, number: Int) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   let size = raw.len()
   while at < size {
@@ -916,7 +916,7 @@ pure line_text(raw: Bytes, line: Bytes, terminated: Bool, number: Int) -> Bytes 
 
 # The lines `from` up to `to` of one file through a line format.
 pure group_lines(layout_text: Str, source: gnudiff.Source, from: Int, to: Int) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   let raw = bytes.from_text(layout_text)
   for index in range(from, to) {
     out += [line_text(raw, source.lines[index], terminated(source, index), index + 1)]
@@ -927,7 +927,7 @@ pure group_lines(layout_text: Str, source: gnudiff.Source, from: Int, to: Int) -
 ## Merged-file output: unchanged stretches and changed groups through the group
 # formats, each changed group chosen by what it changes.
 export pure render_ifdef(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format, templates: Templates) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var next0 = 0
   var next1 = 0
   let n0 = first.lines.len()

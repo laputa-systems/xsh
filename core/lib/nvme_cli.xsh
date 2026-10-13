@@ -310,7 +310,7 @@ Options:
 # The command's usage text, without a final newline, with the two headings in
 # bold as nvme-cli prints them whether or not stdout is a terminal.
 pure usage_with_headings(cmd: Str) -> Str {
-  var out: List[Str] = []
+  var out = []
   for line in usage_text(cmd).lines() {
     if line.starts_with("Usage: ") or line == "Options:" {
       out += [BOLD + line + PLAIN]
@@ -423,7 +423,7 @@ pure digit_value(byte: Int) -> Int {
 proc parse(cmd: Str, own: List[Str], argv: List[Str]) [process, env, io] -> Parsed {
   let specs = own + COMMON_OPTIONS
   var values: Map[Str] = {}
-  var operands: List[Str] = []
+  var operands = []
   var index = 0
   var ended = false
   while index < argv.len() {
@@ -441,7 +441,7 @@ proc parse(cmd: Str, own: List[Str], argv: List[Str]) [process, env, io] -> Pars
       let body = word.byte_slice(2)
       let split = body.find("=")
       let option = if split == null { body } else { body.byte_slice(0, split ?? 0) }
-      var matches: List[Str] = []
+      var matches = []
       for spec in specs {
         let long = long_name(spec)
         if long == option {
@@ -476,7 +476,7 @@ proc parse(cmd: Str, own: List[Str], argv: List[Str]) [process, env, io] -> Pars
     while position < letters {
       let letter = word.byte_slice(position, length: 1)
       position += 1
-      var found: Str? = null
+      var found = null
       for spec in specs {
         if short_name(spec) == letter { found = spec }
       }
@@ -675,7 +675,7 @@ proc admin(dev: Session, what: Str, opcode: Int, nsid: Int, cdw10: Int, length: 
 # One Get Log Page covering `length` bytes at `nsid`, in transfers of at most
 # 4 KiB with the log page offset carried in dwords 12 and 13.
 proc get_log(dev: Session, what: Str, log_id: Int, nsid: Int, length: Int) [process, env, io, error] -> Bytes {
-  var chunks: List[Bytes] = []
+  var chunks = []
   var offset = 0
   while offset < length {
     let size = if length - offset > LOG_CHUNK_BYTES { LOG_CHUNK_BYTES } else { length - offset }
@@ -712,7 +712,7 @@ pure label(name: Str, width: Int, text: Str) -> Str {
 # first text, an empty text for zero hides a reserved field that is zero.
 # `%P` in a text is replaced by two to the power of the field value.
 pure bit_lines(value: Int, table: List[Str], prefix: Str, between: Str) -> List[Str] {
-  var out: List[Str] = []
+  var out = []
   for entry in table {
     let parts = entry.split("|")
     let range = parts[0].split(" ")
@@ -915,7 +915,7 @@ pure max_power_text(state: dec.PowerState) -> Str {
 }
 
 pure power_state_lines(states: List[dec.PowerState]) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
   for index in range(states.len()) {
     let state = states[index]
     let kind = if state.non_operational { "non-operational" } else { "operational" }
@@ -1065,7 +1065,7 @@ proc list_ns(argv: List[Str]) [fs, process, env, io, error] {
     exit 1
   }
   let data = admin(dev, "id namespace list", OPCODE_IDENTIFY, first - 1, selector, 4096, cdw11: csi * 16777216).data
-  var ids: List[Int] = []
+  var ids = []
   for index in range(1024) {
     let nsid = dec.le(data, index * 4, 4)
     break when nsid == 0
@@ -1076,7 +1076,7 @@ proc list_ns(argv: List[Str]) [fs, process, env, io, error] {
     gnu.write_text(json_object([["nsid_list", json_array(items)]]) + "\n")
     return
   }
-  var lines: List[Str] = []
+  var lines = []
   for index in range(ids.len()) {
     lines += [f"[{tui.left_pad(f"{index}", 4)}]:{hex(ids[index])}"]
   }
@@ -1101,7 +1101,7 @@ proc smart_log(argv: List[Str]) [fs, process, env, io, error] {
   let fields = dec.decode(data, dec.SMART_LAYOUT)
   let sensors = [item for item in fields if item.name.starts_with("temp_sensor")]
   if begun.format == "json" {
-    var members: List[List[Str]] = []
+    var members = []
     for item in fields {
       continue when item.name.starts_with("temp_sensor") and item.value == 0
       members += [[smart_json_key(item.name), item.decimal]]
@@ -1187,7 +1187,7 @@ proc error_log(argv: List[Str]) [fs, process, env, io, error] {
   }
   let devname = device_name(begun.parsed.operands[0])
   if begun.format == "json" {
-    var items: List[Str] = []
+    var items = []
     for index in range(entries) {
       let fields = dec.error_entry(data, index)
       let status = dec.field_value(fields, "status_field")
@@ -1258,7 +1258,7 @@ proc self_test_log(argv: List[Str]) [fs, process, env, io, error] {
   let results = dec.self_test_results(data, entries)
   let devname = device_name(begun.parsed.operands[0])
   if begun.format == "json" {
-    var items: List[Str] = []
+    var items = []
     for item in results {
       var members = [
         ["Self test result", json_number(item.result)],
@@ -1309,7 +1309,7 @@ proc fw_log(argv: List[Str]) [fs, process, env, io, error] {
   }
   let devname = device_name(begun.parsed.operands[0])
   let active = dec.u8(data, 0)
-  var slots: List[List[Str]] = []
+  var slots = []
   for slot in range(1, 8) {
     let magnitude = dec.wide(data, 8 + (slot - 1) * 8, 8)
     if magnitude.hex != "0" { slots += [[f"{slot}", magnitude.hex, dec.firmware_revision(data, slot)]] }
@@ -1607,7 +1607,7 @@ proc list_devices(argv: List[Str], sys_root: Path, dev_root: Path) [fs, process,
   if has(parsed, "dry-run") { exit 0 }
   let rows = listed_namespaces(sys_root, dev_root)
   if format == "json" {
-    var items: List[Str] = []
+    var items = []
     for row in rows {
       items += [json_object([
         ["NameSpace", json_number(row.nsid)],
@@ -1629,7 +1629,7 @@ proc list_devices(argv: List[Str], sys_root: Path, dev_root: Path) [fs, process,
     eprint "No NVMe devices detected."
     return
   }
-  var lines: List[Str] = []
+  var lines = []
   let widths = [21, 21, 20, 40, 10, 26, 16, 8]
   let titles = ["Node", "Generic", "SN", "Model", "Namespace", "Usage", "Format", "FW Rev"]
   lines += [[tui.right_pad(titles[index], widths[index]) for index in range(8)].join(" ")]

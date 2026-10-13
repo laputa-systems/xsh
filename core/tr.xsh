@@ -254,7 +254,7 @@ proc main(...argv: List[Bytes]) {
   }
   let deletes = [opts.delete and contains(first, byte) for byte in range(256)]
   let squeezes = [opts.squeeze and contains(squeeze_set, byte) for byte in range(256)]
-  var squeeze_byte: Int? = null
+  var squeeze_byte = null
   if opts.squeeze and ! opts.delete and (! translate or first == second) and ! squeeze_set.is_empty() {
     let candidate = squeeze_set[0].byte
     var one_byte = true

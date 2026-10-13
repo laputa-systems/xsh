@@ -1011,7 +1011,7 @@ proc seed(ctx: TestContext, label: Str) [fs, error] -> Result[Path] {
 
 # The regular files below `root`, as `./`-relative names in sorted order.
 proc files_under(root: Path) [fs, error] -> Result[List[Str]] {
-  var found: List[Str] = []
+  var found = []
   for entry in fs.walk(root, hidden: true)? |> sort-by .path {
     if entry.kind == "file" { found += [f"./{entry.path.relative_to(root).display()}"] }
   }

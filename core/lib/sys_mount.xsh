@@ -307,9 +307,9 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
       let target = decode_mount_field(fields[4])
       let source = decode_mount_field(fields[separator + 2])
       var usage_state = report.NotRequested
-      var usage_total_bytes: Int? = null
-      var usage_used_bytes: Int? = null
-      var usage_available_bytes: Int? = null
+      var usage_total_bytes = null
+      var usage_used_bytes = null
+      var usage_available_bytes = null
       if include_usage and mount_usage_safe(usage_index, ids) {
         if ! target.starts_with("/") {
           usage_state = report.Malformed

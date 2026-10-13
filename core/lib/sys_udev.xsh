@@ -75,7 +75,7 @@ pure upsert(properties: List[Property], name: Str, value: Str) -> List[Property]
 
 pure sorted_unique(values: List[Str]) -> List[Str] {
   var seen: Set[Str] = set.empty()
-  var kept: List[Str] = []
+  var kept = []
   for value in values |> sort-by { |item| item } {
     if value not in seen {
       seen = seen.add(value)
@@ -87,7 +87,7 @@ pure sorted_unique(values: List[Str]) -> List[Str] {
 }
 
 pure path_parts(text: Str) -> List[Str] {
-  var parts: List[Str] = []
+  var parts = []
   for part in text.split("/") {
     if part != "" {
       parts += [part]
@@ -121,7 +121,7 @@ proc has_uevent(root: FsRoot, directory: Str) [fs, error] -> Bool {
 ## component, or a link chain longer than 40, resolves to null.
 export proc resolve(root: FsRoot, relative: Str) [fs, error] -> Result[Str?, Error] {
   var pending = path_parts(relative)
-  var resolved: List[Str] = []
+  var resolved = []
   var links = 0
   while ! pending.is_empty() {
     let part = pending[0]
@@ -203,10 +203,10 @@ export proc load(root: FsRoot, devpath: Str) [fs, error] -> Result[Device?, Erro
     properties = upsert(properties, "SUBSYSTEM", subsystem)
   }
 
-  var devnode: Str? = null
-  var major: Int? = null
-  var minor: Int? = null
-  var ifindex: Int? = null
+  var devnode = null
+  var major = null
+  var minor = null
+  var ifindex = null
   for line in root.read_text(fp"{directory}/uevent")?.lines() {
     let pair = line.split("=", maxsplit: 1)
     continue when pair.len() != 2 or pair[0] == ""
@@ -229,10 +229,10 @@ export proc load(root: FsRoot, devpath: Str) [fs, error] -> Result[Device?, Erro
     }
   }
 
-  var symlinks: List[Str] = []
-  var tags: List[Str] = []
+  var symlinks = []
+  var tags = []
   var link_priority = 0
-  var initialized: Str? = null
+  var initialized = null
   let record = database_name(subsystem, sysname, major, minor, ifindex)
   if record != null and root.exists(fp"run/udev/data/{record}") {
     for line in root.read_text(fp"run/udev/data/{record}")?.lines() {
@@ -303,7 +303,7 @@ export proc parent_devpath(root: FsRoot, devpath: Str) [fs, error] -> Result[Str
 export proc attributes(root: FsRoot, devpath: Str) [fs, error] -> Result[List[Attribute], Error] {
   let printable = regex.compile("^[ -~]*$")?
   let listing = root.children(fp"sys{devpath}", max_entries: 8192)?
-  var names: List[Str] = []
+  var names = []
   for entry in listing.children {
     names += [entry.name()]
   }
@@ -347,7 +347,7 @@ export proc attributes(root: FsRoot, devpath: Str) [fs, error] -> Result[List[At
 ## the target is joined lexically instead of walked component by component.
 export proc enumerate(root: FsRoot) [fs, error] -> Result[List[Str], Error] {
   var seen: Set[Str] = set.empty()
-  var devpaths: List[Str] = []
+  var devpaths = []
   for area in ["bus", "class"] {
     let kinds = root.children(fp"sys/{area}", max_entries: 4096)?
     for kind in kinds.children {

@@ -230,7 +230,7 @@ export pure parse_count(text: Str) -> Int? {
 ## with `zero`. `lines()` drops the CR of a CRLF, so a newline is recognized
 ## from the bytes after each line.
 export pure line_ends(data: Bytes, zero: Bool) -> List[Int] {
-  var ends: List[Int] = []
+  var ends = []
 
   if zero {
     for index in range(data.len()) {

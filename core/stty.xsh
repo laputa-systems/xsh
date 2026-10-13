@@ -815,7 +815,7 @@ pure parse_saved(text: Str) -> List[Int]? {
 proc parse_arguments(argv: List[Str]) [process, env] -> Parsed {
   var all = false
   var save = false
-  var file: Str? = null
+  var file = null
   var help = false
   var version = false
   var marked = false
@@ -875,7 +875,7 @@ proc parse_arguments(argv: List[Str]) [process, env] -> Parsed {
         var consumed_next = false
         var recognized_all = false
         var recognized_save = false
-        var device: Str? = null
+        var device = null
 
         while position < letters.byte_len() {
           let letter = letters.byte_slice(position, length: 1)
@@ -1101,7 +1101,7 @@ proc display_settings(table: UnixTtyTable, attrs: UnixTtyAttrs, device: Device, 
 
   head += [f"line = {attrs.line};"]
 
-  var chars: List[Str] = []
+  var chars = []
 
   for name in CHAR_NAMES {
     let char = char_named(table, name) ?? {index: 0, name: name, sane: 0}

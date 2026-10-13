@@ -92,7 +92,7 @@ type AppletManifest = {
 export proc applet_manifest(ctx: context.Context) [fs, error] -> Result[Str, Error] {
   let sources = core_sources(ctx)?
   var applets: List[AppletEntry] = []
-  var libraries: List[Str] = []
+  var libraries = []
 
   for relative in sources {
     let text = relative.display()

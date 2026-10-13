@@ -156,9 +156,9 @@ export pure hex_bytes(data: Bytes, offset: Int, width: Int) -> Str {
 # Decimal text of a big-endian byte list, exact for any width.
 pure decimal_of(digits: List[Int]) -> Str {
   var current = digits
-  var chunks: List[Int] = []
+  var chunks = []
   while ! current.is_empty() {
-    var quotient: List[Int] = []
+    var quotient = []
     var remainder = 0
     for byte in current {
       let accumulated = remainder * 256 + byte
@@ -186,7 +186,7 @@ pure decimal_of(digits: List[Int]) -> Str {
 ## Exact decimal and minimal hexadecimal text of a little-endian unsigned
 ## value of any width.
 export pure wide(data: Bytes, offset: Int, width: Int) -> Wide {
-  var big_endian: List[Int] = []
+  var big_endian = []
   var started = false
   var index = width - 1
   while index >= 0 {

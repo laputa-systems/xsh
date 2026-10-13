@@ -87,8 +87,8 @@ test resource_temp_root_closes_after_its_defers { |ctx|
   test.mock(ctx, "net.start", {url: resource_response.url}, Ok(resource_response))
   var usable_in_defer = false
   var quiet_in_defer = false
-  var cleanup_root_path: Path? = null
-  var cleanup_child_pid: Int? = null
+  var cleanup_root_path = null
+  var cleanup_child_pid = null
   let root_path = {
     let root = fs.tempdir()?
     let child = spawn run sleep 30 ?
@@ -114,7 +114,7 @@ test resource_lock_unlocks_after_its_defers { |ctx|
   let dir = test.temp_dir(ctx, name: "resource-lock-exit")?
   let lock_path = fp"{dir}/lock"
   let second_lock_path = fp"{dir}/second-lock"
-  var root_paths: List[Path] = []
+  var root_paths = []
   var held_in_defer = false
   {
     let first_root = fs.tempdir()?
@@ -136,7 +136,7 @@ test resource_lock_unlocks_after_its_defers { |ctx|
 }
 
 test resource_middle_block_process_assignment_survives {
-  var kept: ProcessHandle? = null
+  var kept = null
   var holder: ResourceChildHolder = {child: null}
   {
     let child = spawn run sleep 30 ?
@@ -154,7 +154,7 @@ test resource_middle_block_process_assignment_survives {
 
 test resource_middle_block_job_assignment_survives { |ctx|
   test.mock(ctx, "net.start", {url: resource_response.url}, Ok(resource_response), times: 2)
-  var kept: NetJob? = null
+  var kept = null
   var holder: ResourceJobHolder = {job: null}
   {
     let job = net.start({method: "GET", url: resource_response.url})?
@@ -346,7 +346,7 @@ assert values == [true]
 }
 
 test resource_outer_assignment_moves_root_out_of_nested_scope {
-  var escaped: FsRoot? = null
+  var escaped = null
   {
     let root = fs.tempdir()?
     { escaped = root }
@@ -357,7 +357,7 @@ test resource_outer_assignment_moves_root_out_of_nested_scope {
 }
 
 test resource_fail_payload_survives_with_else {
-  var escaped: FsRoot? = null
+  var escaped = null
   with value = resource_fail_with_root() {
     escaped = value
   } else { |failure|
@@ -509,7 +509,7 @@ test resource_worker_rejects_foreign_materialized_and_live_streams { |ctx|
 }
 
 test resource_worker_teardown_stops_its_owned_child {
-  var worker_pids: List[Int] = []
+  var worker_pids = []
   defer {
     for pid in worker_pids {
       let child_is_live = process.list()? |> any { |entry|
@@ -533,7 +533,7 @@ test resource_worker_teardown_stops_its_owned_child {
 }
 
 test resource_fused_worker_teardown_stops_its_owned_child {
-  var worker_pids: List[Int] = []
+  var worker_pids = []
   defer {
     for pid in worker_pids {
       let child_is_live = process.list()? |> any { |entry|

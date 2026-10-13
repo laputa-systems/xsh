@@ -50,7 +50,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     if initial.needed.is_empty() and initial.interpreter == "" { gnu.write_text("\tstatically linked\n"); continue }
     if initial.interpreter != "" { gnu.write_text(f"\t{initial.interpreter}\n") }
     var pending = [fp"{name}"]
-    var visited: List[Str] = []
+    var visited = []
     var index = 0
     while index < pending.len() {
       let object = pending[index]

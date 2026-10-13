@@ -249,7 +249,7 @@ pure list_or_table_count(words: List[Str]) -> Int {
 proc signal_every_process(name: Str) [process, error] -> Result[Bool, Error] {
   let self_pid = process.current_pid()?
   var members = false
-  var failure: Error? = null
+  var failure = null
 
   for entry in process.list()? {
     continue when entry.pid <= 1 or entry.pid == self_pid

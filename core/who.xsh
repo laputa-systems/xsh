@@ -215,7 +215,7 @@ proc read_sessions(file: Path) [process, env, error] -> List[UnixUtmp] {
         exit 1
       }
 
-      let none: List[UnixUtmp] = []
+      let none = []
       none
     }
   }

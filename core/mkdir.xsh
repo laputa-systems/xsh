@@ -134,7 +134,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if opts.directories.is_empty() { gnu.missing_operand() }
   let umask = fs.umask()?
-  var mode: Int? = null
+  var mode = null
   if let spec = opts.mode {
     match parse_mode(spec, umask) {
       Ok(value) => mode = value

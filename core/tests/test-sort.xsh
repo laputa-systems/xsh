@@ -494,8 +494,8 @@ test test_sort_buffer_size_spills_sorted_runs { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var input_lines: List[Str] = []
-  var expected_lines: List[Str] = []
+  var input_lines = []
+  var expected_lines = []
   for index in range(400) { expected_lines += [f"{index:04} {payload}"] }
   for index in range(400) { input_lines += [expected_lines[399 - index]] }
   let input = bytes.from_text(input_lines.join("\n") + "\n")
@@ -514,7 +514,7 @@ test test_sort_sigint_removes_external_runs { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var lines: List[Str] = []
+  var lines = []
   for index in range(30000) { lines += [f"{index:05} {payload}"] }
   input.write(lines.join("\n") + "\n")
 
@@ -542,7 +542,7 @@ test test_sort_buffer_size_requires_temporary_directory_when_spilling { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let payload = text.padding(200, "x")
-  var input_lines: List[Str] = []
+  var input_lines = []
   for index in range(400) { input_lines += [f"{399 - index:04} {payload}"] }
   let input = bytes.from_text(input_lines.join("\n") + "\n")
   let result = process.run(process.command_argv(ctx.xsh_bin,
@@ -559,7 +559,7 @@ test test_sort_merge_batch_size_merges_multiple_passes { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let inputs = ["a\ng\n", "b\nh\n", "c\ni\n", "d\nj\n", "e\nk\n", "f\nl\n"]
-  var paths: List[Str] = []
+  var paths = []
   for index in range(inputs.len()) {
     let input_path = fp"{root}/input{index}"
     input_path.write(inputs[index])
@@ -1866,8 +1866,8 @@ test test_sort_invalid_utf8_spill_and_merge_roundtrip { |ctx|
   let tail = bytes.from_text(["x" for _ in range(128)].join(""))
   let first = bytes.concat([b"a", high, tail])
   let second = bytes.concat([b"z", high, tail])
-  var input: List[Bytes] = []
-  var expected: List[Bytes] = []
+  var input = []
+  var expected = []
   for _ in range(260) {
     input += [second, b"\n", first, b"\n"]
   }

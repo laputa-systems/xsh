@@ -73,7 +73,7 @@ const SPECS: List[Spec] = [
 
 # Real wget options this applet does not implement; each is refused rather
 # than accepted and ignored.
-const UNSUPPORTED: List[Str] = [
+const UNSUPPORTED = [
   "recursive", "r", "mirror", "m", "no-parent", "np", "level", "l", "span-hosts", "H",
   "timestamping", "N", "background", "b", "execute", "e", "append-output", "a", "output-file", "o",
   "load-cookies", "save-cookies", "keep-session-cookies", "post-file", "content-disposition",
@@ -461,7 +461,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
   } else if !options.spider {
     var base = http_transfer.url_file_name(url)
     if base == "" { base = "index.html" }
-    var directory: Path? = null
+    var directory = null
     if let prefix = options.prefix { directory = fp"{prefix}" }
     let chosen = unique_name(directory, base, options.no_clobber or options.resume)
     if options.no_clobber and (chosen.exists() ?? false) {
@@ -539,7 +539,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
     } else {
       match dns.resolve_host(host) {
         Ok(found) => {
-          var addresses: List[Str] = []
+          var addresses = []
           for entry in found { addresses += [entry.addr] }
           log_verbose(options, f"Resolving {host} ({host})... {addresses.join(", ")}\n")
           announce = f"Connecting to {host} ({host})|{addresses[0]}|:{port}... "

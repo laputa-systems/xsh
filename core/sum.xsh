@@ -8,7 +8,7 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 # The shared option parser takes text, so map undecodable operands through
 # NUL-marked placeholders; OS arguments cannot contain NUL and cannot collide.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
@@ -64,7 +64,7 @@ proc main(...argv: List[Bytes]) [fs, io, error, process, env] {
     }
   }
   let algorithm = if sysv { "sysv" } else { "bsd" }
-  var files: List[Bytes] = []
+  var files = []
   for file in opts.files { files += [argument_bytes(file, prepared.raw)] }
   if files.is_empty() { files = [b"-"] }
   var failed = false

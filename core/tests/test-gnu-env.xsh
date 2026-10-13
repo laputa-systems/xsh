@@ -57,7 +57,7 @@ test test_gnu_env_env_S_script_log { |ctx|
 test test_gnu_env_env_null_log { |ctx|
   let s = uu.scene(ctx)?
   let search_path = env.get("PATH") ?? ""
-  var outputs: List[Bytes] = []
+  var outputs = []
   for util in ["env", "printenv"] {
     for flag in ["-0", "--null"] {
       let target = nested(s, util, [flag])?

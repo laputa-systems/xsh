@@ -48,7 +48,7 @@ proc settled_dump() [process, error] -> Result[LinuxNetworkDump] {
 }
 
 proc interface_names(replies: List[LinuxNetlinkMessage]) [error] -> Result[List[Str]] {
-  var names: List[Str] = []
+  var names = []
   for reply in replies {
     for attribute in attributes(reply.payload, 16)? {
       if attribute.kind == 3 {
@@ -617,7 +617,7 @@ proc proc_route_address(word: Str) [error] -> Result[Str] {
   guard pairs.len() == 4 else {
     return Err(error.failure(f"malformed /proc/net/route address {word}"))
   }
-  var octets: List[Str] = []
+  var octets = []
   for index in [3, 2, 1, 0] {
     let value = f"0x{pairs[index]}".parse_int()?
     octets += [f"{value}"]
@@ -647,7 +647,7 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
     test.skip("this kernel has no /proc/net/route")
     return
   }
-  var expected: List[Str] = []
+  var expected = []
   var header = true
   for line in table.read_text()?.lines() {
     if header {
@@ -690,7 +690,7 @@ test test_interfaces_and_routes_agree_with_the_netlink_snapshot {
     }
   }
 
-  var expected: List[Str] = []
+  var expected = []
   for route in dump.routes {
     continue when route.table != 254 or (route.family != "inet" and route.family != "inet6")
     continue when route.flags.bit_and(512) != 0

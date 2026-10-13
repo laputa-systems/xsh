@@ -13,7 +13,7 @@ proc main(...argv: List[Str]) [process, env, time, error, io] {
   let interval = if parsed? < 0.1 { 0.1 } else { parsed? }
   let command = opts.operands[0]
   let command_args = opts.operands |> drop(1)
-  var previous: Str? = null
+  var previous = null
   while true {
     let captured = run.capture --text $command @command_args
     gnu.write_text("\u{1b}[H\u{1b}[2J")

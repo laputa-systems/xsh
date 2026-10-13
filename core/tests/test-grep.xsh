@@ -146,7 +146,7 @@ type Outcome = {id: Str, status: Int, out: Str, err: Str}
 # would break the line format, `\xHH` for the rest.
 pure escape(data: Bytes) -> Str {
   let digits = "0123456789abcdef"
-  var pieces: List[Str] = []
+  var pieces = []
   for index in range(data.len()) {
     let byte = data.byte_at(index) ?? 0
     if byte == 92 { pieces += ["\\\\"] } else if byte == 10 { pieces += ["\\n"] } else if byte == 9 { pieces += ["\\t"] } else if byte == 13 { pieces += ["\\r"] } else if byte == 0 { pieces += ["\\0"] } else if byte >= 32 and byte < 127 { pieces += [data.slice(index, length: 1).utf8() ?? "?"] } else {
@@ -223,7 +223,7 @@ proc check_group(ctx: TestContext, family: Str) [fs, process, error] {
   let expected = expected_outcomes(ctx)?
   let scratch = test.temp_dir(ctx, name: f"grep-{family}")?
   let actual: List[Outcome] = cases |> par-map(jobs: 12) { |c| run_case(ctx, scratch, c) } |> collect()
-  var failures: List[Str] = []
+  var failures = []
   for index in range(cases.len()) {
     let c = cases[index]
     let got = actual[index]
@@ -295,7 +295,7 @@ test test_grep_binary_detection_works_per_buffer { |ctx|
   let root = test.temp_dir(ctx, name: "grep-buffers")?
   let file = fp"{root}/input"
   let padding = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  var data: List[Bytes] = []
+  var data = []
   for index in range(1100) {
     data += [bytes.from_text(f"line {index:05} match {padding.byte_slice(0, 82)}\n")]
   }

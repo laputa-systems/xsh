@@ -284,7 +284,7 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
 # connected or while a writer is silent.
 proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: Duration) [fs, process, net, time, error] -> Result[Bytes] {
   let fd = unix.open_fd(fifo, nonblock: true)?
-  var chunks: List[Bytes] = []
+  var chunks = []
 
   loop {
     match unix.read_fd(fd, tio.CHUNK) {
@@ -373,7 +373,7 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
 
     # A name that was missing when following began (under --retry) is opened once it
     # is a regular file, and read from its start like any file that appears later.
-    var still_missing: List[Str] = []
+    var still_missing = []
     for name in pending {
       match fs.stat(fp"{name}", follow_symlinks: true) {
         Ok(entry) => {
@@ -652,7 +652,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   # parser strips the leading dashes of long names, so this spelling cannot be declared
   # as an option; it is removed here before parsing, and this pre-scan can go once the
   # form can name it.
-  var rest: List[Str] = []
+  var rest = []
   var operands_only = false
   var inotify = true
   for arg in tio.without_presume_pipe(argv) {
@@ -781,10 +781,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
   var last = ""
   var failed = false
-  var waiting: List[Str] = []
+  var waiting = []
   var name_files: List[NameFile] = []
   var follow_files: List[FollowFile] = []
-  var follow_classes: List[Str] = []
+  var follow_classes = []
   var pid_fifos: List[PidFifo] = []
 
   for name in operands {

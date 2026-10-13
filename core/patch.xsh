@@ -362,7 +362,7 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
   let lines = patch_parse.split_lines(patch_bytes)
   return when lines.is_empty()
   let allowed = patch_options.chosen_format(opts_argv)
-  var named: Str? = null
+  var named = null
   if opts.files.len() > 0 { named = opts.files[0] }
   var position = 0
   var status = 0
@@ -936,7 +936,7 @@ proc make_backup(opts: Options, name: Str, exists: Bool, original: Bytes, mode: 
 
 proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reject_name: Str, strip: Int, cr_marked: Bool) [fs, io, process, env, error] -> Result[Unit, Error] {
   let as_context = if opts.reject_format != null { opts.reject_format == "context" } else { scan.kind != "unified" and scan.kind != "git" }
-  var parts: List[Bytes] = []
+  var parts = []
   let old_header = if outcome.reversed { scan.new_name } else { scan.old_name }
   let new_header = if outcome.reversed { scan.old_name } else { scan.new_name }
   var header_old = "/dev/null"
@@ -995,7 +995,7 @@ pure reject_name_of(header: patch_parse.HeaderName, strip: Int) -> Str {
 # Apply every hunk of the file patch to `input_lines` and report the result.
 proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_parse.Scan, input_lines: List[Bytes], start_reversed: Bool, facts: Facts, assumed: Bool, start_skip: Bool) [io, process, env, error] -> Outcome {
   var reverse = start_reversed
-  var output: List[Bytes] = []
+  var output = []
   var rejected: List[patch_parse.Hunk] = []
   var total = 0
   var mismatch = assumed
@@ -1113,8 +1113,8 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
         continue
       }
       var end = step
-      var removed: List[Bytes] = []
-      var added: List[Bytes] = []
+      var removed = []
+      var added = []
       while end < hunk.kinds.len() and hunk.kinds[end] != 0 {
         if hunk.kinds[end] == 1 { removed += [hunk.texts[end]] } else { added += [hunk.texts[end]] }
         end += 1

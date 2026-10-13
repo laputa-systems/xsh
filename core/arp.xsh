@@ -43,13 +43,13 @@ proc usage_error() [process, error] {
 pure parse_address(word: Str) -> Bytes? {
   let parts = word.split(".")
   return null when parts.len() < 1 or parts.len() > 4
-  var values: List[Int] = []
+  var values = []
   for part in parts {
     let value = nettools.decimal(part)
     return null when value == null
     values += [value ?? 0]
   }
-  var octets: List[Int] = []
+  var octets = []
   for index in range(parts.len() - 1) {
     return null when values[index] > 255
     octets += [values[index]]
@@ -59,7 +59,7 @@ pure parse_address(word: Str) -> Bytes? {
   var limit = 1
   for _ in range(room) { limit = limit * 256 }
   return null when tail >= limit
-  var last: List[Int] = []
+  var last = []
   for _ in range(room) {
     last = [tail % 256] + last
     tail = tail / 256
@@ -141,7 +141,7 @@ proc set_entry(options: Options, host: Str, hardware: Str, words: List[Str]) [fs
     mac = parsed ?? b""
   }
   var flags = 6
-  var mask: Bytes? = null
+  var mask = null
   var at = 0
   while at < words.len() {
     let word = words[at]
@@ -216,7 +216,7 @@ proc show(options: Options) [fs, process, env, io, error] {
     eprint f"arp: cannot read the neighbour table: {gnu.strerror(failure)}"
     exit 255
   }
-  var wanted: Str? = null
+  var wanted = null
   var wanted_address = ""
   if !options.operands.is_empty() {
     let raw = parse_address(options.operands[0])
@@ -244,7 +244,7 @@ proc show(options: Options) [fs, process, env, io, error] {
       continue
     }
     shown += 1
-    let name: Str = names.get(entry.address) ?? ""
+    let name = names.get(entry.address) ?? ""
     if options.bsd {
       gnu.write_text(nettools.arp_bsd_row(entry, if name == "" { "?" } else { name }) + "\n")
     } else {
@@ -285,7 +285,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     device: null, hw: 1, hw_given: false, operands: [],
   }
   var at = 0
-  var operands: List[Str] = []
+  var operands = []
   while at < argv.len() {
     let word = argv[at]
     at += 1

@@ -95,8 +95,8 @@ export pure decode(data: Bytes, utf8: Bool) -> Decoded {
   var ascii = true
   for byte in raw { if byte >= 128 { ascii = false; break } }
   return {chars: raw, offs: [], native: false} when ascii
-  var chars: List[Int] = []
-  var offs: List[Int] = []
+  var chars = []
+  var offs = []
   var at = 0
   while at < n {
     let lead = raw[at]
@@ -276,7 +276,7 @@ pure bracket_element(pc: List[Int], pos: Int, first: Bool) -> Element {
     let delim = pc[pos + 1]
     var at = pos + 2
     return {kind: 0, cp: 0, name: "", next: at, error: MSG_EBRACK} when at >= n
-    var name: List[Int] = []
+    var name = []
     while true {
       return {kind: 0, cp: 0, name: "", next: at, error: MSG_EBRACK} when name.len() >= 32
       let ch = pc[at]
@@ -316,10 +316,10 @@ pure parse_bracket(pc: List[Int], start: Int, icase: Bool, utf8: Bool) -> Bracke
     at += 1
     return {set: null, next: at, error: "Invalid regular expression", late: ""} when at >= n
   }
-  var singles: List[Int] = []
-  var ranges: List[Int] = []
-  var classes: List[Str] = []
-  var plain: List[Int] = []
+  var singles = []
+  var ranges = []
+  var classes = []
+  var plain = []
   var fancy = false
   var first = true
   while true {
@@ -440,18 +440,18 @@ pure parse(pattern: Bytes, ere: Bool, icase: Bool, utf8: Bool) -> Parsed {
   let n = pc.len()
   var nodes: List[Node] = []
   var sets: List[CharSet] = []
-  var warnings: List[Str] = []
+  var warnings = []
   var late = ""
   var late_at = 0
   var groups = 0
   var backrefs = false
   var exotic = false
   var frames: List[Frame] = []
-  var seq: List[Int] = []
-  var alts: List[Int] = []
-  var completed: List[Int] = []
-  var init: List[Int] = []
-  var acc: List[Int] = []
+  var seq = []
+  var alts = []
+  var completed = []
+  var init = []
+  var acc = []
   var cur_group = 0
   var laststart = true
   var error = ""
@@ -764,7 +764,7 @@ pure native_pattern(parsed: Parsed, icase: Bool) -> Bool {
   let root = parsed.nodes[parsed.root]
   for alt in root.kids {
     let node = parsed.nodes[alt]
-    var items: List[Int] = []
+    var items = []
     if node.kind == N_CAT { items = node.kids } else { items = [alt] }
     return false when items.is_empty()
     var begin = 0
@@ -818,9 +818,9 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
     if ops[pc] == OP_SPLIT { splits += 1 }
     if ops[pc] == OP_JMP and xs[pc] < 0 { looping = true }
   }
-  var literal: Bytes? = null
-  var native: Str? = null
-  var text: List[Int] = []
+  var literal = null
+  var native = null
+  var text = []
   var plain = true
   for pc in range(ops.len() - 1) {
     if ops[pc] == OP_CHAR and xs[pc] < 128 { text += [xs[pc]] } else { plain = false; break }
@@ -831,7 +831,7 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
         literal = data
         # The same bytes as a basic regular expression for the native
         # matcher, with its few special characters escaped.
-        var quoted: List[Int] = []
+        var quoted = []
         for byte in text {
           if byte in [92, 91, 93, 46, 42, 94, 36] { quoted += [92] }
           quoted += [byte]
@@ -865,7 +865,7 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
 export pure compile_fixed(pattern: Bytes, icase: Bool, utf8: Bool) -> Result[Compiled, Error] {
   let chars = decode(pattern, utf8).chars
   var nodes: List[Node] = []
-  var kids: List[Int] = []
+  var kids = []
   for cp in chars {
     nodes += [{kind: N_CHAR, a: cp, b: 0, kids: []}]
     kids += [nodes.len() - 1]
@@ -907,7 +907,7 @@ pure explore(program: Program, chars: List[Int], from: Int, single: Bool) -> Lis
     var stack_at: List[Int] = [start]
     var stack_caps: List[List[Int]] = if tracked { [blank] } else { [] }
     var top = 1
-    var ends: List[Int] = []
+    var ends = []
     while top > 0 {
       top -= 1
       var pc = stack_pc[top]
@@ -1028,7 +1028,7 @@ pure offset_of(offs: List[Int], index: Int) -> Int {
 
 # Leftmost start over a pack of programs and, there, the longest end.
 pure group_leftmost(pack: List[Program], chars: List[Int], from: Int) -> List[Int] {
-  var best: List[Int] = []
+  var best = []
   for program in pack {
     let found = explore(program, chars, from, false)
     continue when found.is_empty()
@@ -1039,7 +1039,7 @@ pure group_leftmost(pack: List[Program], chars: List[Int], from: Int) -> List[In
 
 # Every end reachable from `start` by any program of the pack.
 pure group_ends(pack: List[Program], chars: List[Int], start: Int) -> List[Int] {
-  var ends: List[Int] = []
+  var ends = []
   for program in pack {
     for end in explore(program, chars, start, true) { if end not in ends { ends += [end] } }
   }
@@ -1110,13 +1110,13 @@ pure find_group(m: Matcher, pack: List[Program], chars: List[Int], offs: List[In
 ## without back-references act as one alternation, as in GNU grep, while
 ## each back-reference pattern is matched on its own.
 export pure find(m: Matcher, chars: List[Int], offs: List[Int], from: Int, iterating: Bool) -> List[Int] {
-  var candidates: List[List[Int]] = []
+  var candidates = []
   var plain: List[Program] = []
   for program in m.programs {
     if program.backrefs { candidates += [find_group(m, [program], chars, offs, from, iterating)] } else { plain += [program] }
   }
   if ! plain.is_empty() { candidates += [find_group(m, plain, chars, offs, from, iterating)] }
-  var best: List[Int] = []
+  var best = []
   for found in candidates {
     continue when found.is_empty()
     if best.is_empty() or found[0] < best[0] or (found[0] == best[0] and found[1] > best[1]) { best = found }
@@ -1169,7 +1169,7 @@ pure find_decoded(m: Matcher, dec: Decoded, from_byte: Int, iterating: Bool) -> 
 export pure find_bytes(m: Matcher, line: Bytes, dec: Decoded, from_byte: Int, iterating: Bool) -> List[Int] {
   return [] when iterating and m.empty_only
   return find_decoded(m, dec, from_byte, iterating) unless dec.native
-  var best: List[Int] = []
+  var best = []
   for program in m.programs {
     let text = program.native ?? ""
     var at = from_byte
@@ -1212,11 +1212,11 @@ pure ascii_word(byte: Int) -> Bool {
 ## it finds the records that can match at all.
 export pure alternation(programs: List[Program]) -> Str? {
   return null when programs.is_empty() or programs.len() > 2000
-  var parts: List[Str] = []
+  var parts = []
   for program in programs {
     let literal = program.literal
     return null when literal == null or program.backrefs
-    var quoted: List[Int] = []
+    var quoted = []
     for byte in literal ?? b"" {
       if byte in [92, 94, 36, 46, 91, 93, 124, 40, 41, 42, 43, 63, 123, 125] { quoted += [92] }
       quoted += [byte]

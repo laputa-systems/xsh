@@ -36,7 +36,7 @@ export proc table(image: Path, layout: geom.Layout) -> Result[Bytes, Error] { re
 ## Enumerate FAT32 root clusters, rejecting loops and invalid references.
 export pure root_offsets(layout: geom.Layout, table: Bytes) -> Result[List[Int], Error] {
   return Ok([geom.root_offset(layout)]) when layout.bits != 32
-  var offsets: List[Int] = []
+  var offsets = []
   var seen: Map[Int, Bool] = {}
   var cluster = layout.root_cluster
   while true {

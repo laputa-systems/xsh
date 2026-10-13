@@ -339,12 +339,12 @@ proc check_matrix_shard(ctx: TestContext, family: Str, shard: Int) [fs, process,
   let start = shard * 8
   assert start < cases.len(), f"empty AWK matrix shard {family}/{shard}"
   let end = if start + 8 < cases.len() { start + 8 } else { cases.len() }
-  var failures: List[Str] = []
+  var failures = []
   for index in range(start, end) {
     let case = cases[index]
     let seen = run_case(ctx, case, index)?
     let root = seen.root
-    var problems: List[Str] = []
+    var problems = []
     if "stdout" not in case.loose and normalized(seen.stdout, root) != expected_bytes(case, "stdout")? { problems += ["stdout"] }
     if "stderr" not in case.loose and normalized(seen.stderr, root) != expected_bytes(case, "stderr")? { problems += ["stderr"] }
     let wanted_status = (pair_value(case.xsh, "status") ?? f"{case.status}").parse_int_decimal()?

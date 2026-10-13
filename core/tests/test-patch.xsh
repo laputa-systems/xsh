@@ -65,7 +65,7 @@ pure hex_digit(byte: Int) -> Int {
 # A stored file name with its %XX escapes turned back into bytes.
 pure decode_name(name: Str) -> Bytes {
   let raw = bytes.from_text(name)
-  var output: List[Int] = []
+  var output = []
   var at = 0
   while at < raw.len() {
     let byte = raw.byte_at(at) ?? 0
@@ -119,7 +119,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     fp"{work}/w".mkdir()
   }
   # Stored names are percent-encoded; restore them, deepest first.
-  var encoded: List[Str] = []
+  var encoded = []
   for entry in fs.walk(fp"{work}/w", hidden: true)? {
     if entry.path.display().find("%") != null { encoded += [entry.path.display()] }
   }
@@ -143,7 +143,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
       if relative != "" and relative != "." and !fp"{work}/w/{relative}".exists() { fp"{work}/w/{relative}".mkdir() }
     }
   }
-  var mtimes: List[Str] = []
+  var mtimes = []
   if fp"{root}/mtimes".exists() { mtimes = fp"{root}/mtimes".read_text()?.lines().collect() }
   if fp"{root}/setup".exists() {
     for line in fp"{root}/setup".read_text()?.lines() {
@@ -155,7 +155,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
       }
     }
   }
-  var arguments: List[Str] = []
+  var arguments = []
   if fp"{root}/args".exists() { arguments = fp"{root}/args".read_text()?.lines().collect() }
   var input = b""
   if fp"{root}/stdin".exists() { input = fp"{root}/stdin".read_bytes()? }
@@ -176,7 +176,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   let script = fp"{ctx.core_dir}/patch.xsh"
   let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(arguments), fp"{work}/w", vars, input, out, err)
   let status = process.run(plan)?
-  var problems: List[Str] = []
+  var problems = []
   let expected_status = fp"{root}/out/status".read_text()?.trim().parse_int()?
   if status.exit_code()? != expected_status {
     problems += [f"{name}: exit status {status.exit_code()?}, expected {expected_status}"]
@@ -226,12 +226,12 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
 # split over several tests so the runner can work on them in parallel.
 proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, error] -> Result[Unit, Error] {
   let corpus = fp"{ctx.core_dir}/tests/data/patch"
-  var names: List[Str] = []
+  var names = []
   for entry in fs.children(corpus, stat: true)? {
     if entry.kind == "dir" { names += [entry.name] }
   }
   let ordered = names |> sort
-  var problems: List[Str] = []
+  var problems = []
   var count = 0
   for index in range(ordered.len()) {
     continue when index % shards != shard

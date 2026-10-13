@@ -60,8 +60,8 @@ pure ascii_byte(text: Bytes, at: Int) -> Str {
 
 pure parse_spec(text: Bytes, start: Int) -> PrintfSpec {
   var at = start + 1
-  var position: Int? = null
-  var invalid_position_end: Int? = null
+  var position = null
+  var invalid_position_end = null
   let leading = scan_decimal(text, at)
   if leading.next > at and leading.next < text.len() and ascii_byte(text, leading.next) == "$" {
     position = leading.value - 1
@@ -78,7 +78,7 @@ pure parse_spec(text: Bytes, start: Int) -> PrintfSpec {
 
   var width = 0
   var width_dynamic = false
-  var width_position: Int? = null
+  var width_position = null
   if at < text.len() and ascii_byte(text, at) == "*" {
     width_dynamic = true
     at += 1
@@ -94,9 +94,9 @@ pure parse_spec(text: Bytes, start: Int) -> PrintfSpec {
     at = scanned.next
   }
 
-  var precision: Int? = null
+  var precision = null
   var precision_dynamic = false
-  var precision_position: Int? = null
+  var precision_position = null
   if at < text.len() and ascii_byte(text, at) == "." {
     at += 1
     precision = 0
@@ -454,7 +454,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
 }
 
 pure unescape_bytes(text: Bytes, utf8: Bool) -> Result[Escape] {
-  var output: List[Bytes] = []
+  var output = []
   var at = 0
 
   while at < text.len() {
@@ -676,7 +676,7 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
 }
 
 proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, prefix: Bytes) [error, io, process, env] -> Pass {
-  var output: List[Bytes] = []
+  var output = []
   var at = 0
   var prefix_data = prefix
   var prefix_flushed = false

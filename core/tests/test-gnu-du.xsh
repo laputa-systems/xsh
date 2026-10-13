@@ -30,7 +30,7 @@ test test_gnu_du_8gb_log { |ctx|
 test test_gnu_du_apparent_log { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d")
-  var files: List[Str] = []
+  var files = []
   for n in range(1, 101) {
     let name = f"d/{n}"
     uu.write(s, name, "foo\n")
@@ -143,7 +143,7 @@ test test_gnu_du_exclude_log { |ctx|
 test test_gnu_du_fd_leak_log { |ctx|
   let s = uu.scene(ctx)?
   let alphabet = "abcdefghijklmnopqrstuvwxyz0123456789".split("")
-  var names: List[Str] = []
+  var names = []
   for first in alphabet { for second in alphabet {
     let name = first + second
     uu.touch(s, name)

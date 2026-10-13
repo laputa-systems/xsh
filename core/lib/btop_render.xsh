@@ -533,7 +533,7 @@ pure disk_panel_content(
   let graph_count = if state.disk_io_mode { 2 } else { 1 }
   let device_slots = (height - graph_count) / 2
   let shown_devices = if device_slots < value.storage.devices.len() { device_slots } else { value.storage.devices.len() }
-  var lines: List[Str] = []
+  var lines = []
   for index in range(shown_devices) {
     let device = value.storage.devices[index]
     lines += [device_line(device), device_usage_line(device)]

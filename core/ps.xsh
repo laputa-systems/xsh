@@ -53,7 +53,7 @@ pure cell(row: LinuxProcessSample, field: Str, memory_total: Int) -> Str {
 }
 
 proc main(...argv: List[Str]) [fs, process, error] {
-  var normalized: List[Str] = []
+  var normalized = []
   for word in argv { normalized = normalized.push(if word == "aux" { "--bsd-aux" } else { word }) }
   let bsd = "--bsd-aux" in normalized
   normalized = normalized |> where . != "--bsd-aux"
@@ -77,7 +77,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     if ! rx"^[+-]?(pid|ppid|uid|user|comm|start|rss|vsz|pcpu|%cpu)$".matches(sorting) { eprint f"ps: unsupported sort key '{sorting}'"; exit 2 }
     let reverse = sorting.starts_with("-")
     let key = sorting.replace("-", with: "").replace("+", with: "")
-    var next_groups: List[List[LinuxProcessSample]] = []
+    var next_groups = []
     for tied_rows in groups {
       var ordered = tied_rows
     match key {
@@ -92,8 +92,8 @@ proc main(...argv: List[Str]) [fs, process, error] {
     "pcpu" | "%cpu" => { ordered = ordered |> sort-by(desc: reverse) (if .runtime_seconds <= 0 { 0 } else { .cpu_ticks * 1000 / .ticks_per_second / .runtime_seconds }) }
     else => { eprint f"ps: unsupported sort key '{sorting}'"; exit 2 }
   }
-      var segment: List[LinuxProcessSample] = []
-      var previous_value: Str? = null
+      var segment = []
+      var previous_value = null
       for row in ordered {
         let value = match key {
           "start" => f"{row.start_time_ms}"

@@ -274,7 +274,7 @@ pure process_tree_rows(
   }
 
   var visible: List[VisibleRow] = []
-  var hidden_depth: Int? = null
+  var hidden_depth = null
   for pid in hierarchy.preorder {
     let node = hierarchy.nodes[pid]
     if hidden_depth != null {
@@ -381,7 +381,7 @@ pure select_network_interface(state: State, value: model.Model, direction: Int) 
   let interfaces = value.network.interfaces
   return state when interfaces.is_empty()
   let selected_name = active_network_interface(state, value)
-  var selected_index: Int? = null
+  var selected_index = null
   for index in range(interfaces.len()) {
     if interfaces[index].name == selected_name { selected_index = index }
   }

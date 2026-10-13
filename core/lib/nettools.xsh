@@ -154,7 +154,7 @@ pure hex_pair(value: Int, upper: Bool) -> Str {
 
 ## Formats the first `count` bytes of an address with a separator.
 export pure address_text(raw: Bytes, count: Int, separator: Str, upper: Bool) -> Str {
-  var parts: List[Str] = []
+  var parts = []
   for index in range(count) {
     parts += [hex_pair(raw.byte_at(index) ?? 0, upper)]
   }
@@ -170,7 +170,7 @@ export pure ipv4_text(raw: Bytes, offset: Int) -> Str {
 export pure ipv4_parse(text: Str) -> Bytes? {
   let parts = text.split(".")
   return null when parts.len() != 4
-  var octets: List[Int] = []
+  var octets = []
   for part in parts {
     return null when part.is_empty() or part.byte_len() > 3
     let value = part.parse_int_decimal() ?? -1
@@ -190,7 +190,7 @@ export pure ipv4_parse(text: Str) -> Bytes? {
 export pure ether_parse(text: Str) -> Bytes? {
   let parts = text.split(":")
   return null when parts.len() != 6
-  var octets: List[Int] = []
+  var octets = []
   for part in parts {
     return null when part.byte_len() < 1 or part.byte_len() > 2
     var value = 0
@@ -225,7 +225,7 @@ const OCTET_BY_BITS = [0, 128, 192, 224, 240, 248, 252, 254, 255]
 
 ## The netmask bytes for a prefix length of 0 to 32.
 export pure prefix_mask(prefix: Int) -> Bytes {
-  var octets: List[Int] = []
+  var octets = []
   for index in range(4) {
     let bits = prefix - index * 8
     let clamped = if bits > 8 { 8 } else if bits < 0 { 0 } else { bits }
@@ -249,7 +249,7 @@ export pure mask_prefix(mask: Bytes) -> Int? {
 export pure ipv6_parse(text: Str) -> Bytes? {
   return null when text.is_empty() or text.find(":") == null
   var body = text
-  var tail: List[Int] = []
+  var tail = []
   # An embedded IPv4 tail takes the place of the last two groups.
   let last = body.split(":")
   let final = last[last.len() - 1]
@@ -261,11 +261,11 @@ export pure ipv6_parse(text: Str) -> Bytes? {
   }
   let halves = body.split("::")
   return null when halves.len() > 2
-  var groups: List[Int] = []
-  var lead: List[Int] = []
-  var rest: List[Int] = []
+  var groups = []
+  var lead = []
+  var rest = []
   for index, half in halves {
-    var parsed: List[Int] = []
+    var parsed = []
     if !half.is_empty() {
       for piece in half.split(":") {
         return null when piece.is_empty() or piece.byte_len() > 4
@@ -291,7 +291,7 @@ export pure ipv6_parse(text: Str) -> Bytes? {
   if tail.len() == 2 {
     groups = groups[0..6] + tail
   }
-  var octets: List[Int] = []
+  var octets = []
   for value in groups {
     octets += [value / 256, value % 256]
   }
@@ -503,7 +503,7 @@ export proc interfaces() [process, error] -> Result[List[Interface], Error] {
 # ------------------------------------------------------------ long and short
 
 pure flag_names(flags: Int) -> Str {
-  var names: List[Str] = []
+  var names = []
   for entry in FLAG_NAMES {
     if flags.bit_and(entry.bit) != 0 { names += [entry.name] }
   }
@@ -571,7 +571,7 @@ pure hardware_line(item: Interface) -> Str {
 
 ## The multi-line listing of one interface, ending with a blank line.
 export pure long_listing(item: Interface) -> Str {
-  var lines: List[Str] = []
+  var lines = []
   let flags = signed16(item.flags)
   lines += [f"{item.name}: flags={flags}<{flag_names(item.flags)}>  mtu {item.mtu}"]
   if let address = item.ipv4 {
@@ -699,7 +699,7 @@ export proc ipv6_routes() [fs, error] -> Result[List[Route6Row], Error] {
 }
 
 pure ipv6_from_hex(text: Str) -> Str {
-  var groups: List[Str] = []
+  var groups = []
   for index in range(8) {
     groups += [text.byte_slice(index * 4, length: 4)]
   }
@@ -708,7 +708,7 @@ pure ipv6_from_hex(text: Str) -> Str {
 
 ## The canonical text of an IPv6 address given as eight hexadecimal groups.
 export pure compress_ipv6(text: Str) -> Str {
-  var values: List[Int] = []
+  var values = []
   for piece in text.split(":") {
     values += [hex_int(piece)]
   }

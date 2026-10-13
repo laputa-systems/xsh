@@ -290,9 +290,9 @@ proc main(...argv: List[Str]) {
   let separator = opts.separator_string ?? opts.separator ?? (if joined { "\t" } else { " " })
   let numbered_width = if number_sep == "\t" { number_width + 8 - number_width % 8 } else { number_width + 1 }
   let names = if opts.paths.is_empty() { ["-"] } else { opts.paths }
-  var inputs: List[List[Bytes]] = []
-  var labels: List[Str] = []
-  var timestamps: List[Int] = []
+  var inputs = []
+  var labels = []
+  var timestamps = []
   var failed = false
   for name in names {
     guard let data = gnu.read_operand(name) else { |failure|
@@ -351,9 +351,9 @@ proc main(...argv: List[Str]) {
         }
 
         if opts.merge { last_column = count - 1 }
-        var chunks: List[Bytes] = []
-        var separator_tabs: List[Int] = []
-        var separator_ends: List[Int] = []
+        var chunks = []
+        var separator_tabs = []
+        var separator_ends = []
         var preserved = 0
         for column in range(count) {
           let index = if opts.merge { at + row } else if opts.across { at + row * count + column } else { at + column * row_count + row }

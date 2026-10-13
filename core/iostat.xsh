@@ -6,7 +6,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   let opts: Options = cli.applet(argv, {gnu: {status: 2}, cpu: {form: "-c", default: false}, devices: {form: "-d", default: false}, mebi: {form: "-m", default: false}, no_first: {form: "-y", default: false}, help: {form: "--help", default: false}, operands: {form: "...ARG"}})?
   if opts.help { print "Usage: iostat [-cdmy] [INTERVAL [COUNT]]"; return }
   let sampling = procps.sampling_args(opts.operands)?
-  var previous: LinuxSample? = null
+  var previous = null
   var index = 0
   while index < sampling.count {
     let current = linux.sample()?

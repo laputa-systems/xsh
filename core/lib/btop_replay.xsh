@@ -160,7 +160,7 @@ export proc load(bundle_path: Path) [fs, error] -> Result[Bundle, Error] {
   let captured_usage = read_captured_usage(root, manifest.frames)?
 
   var observations: List[model.Observation] = []
-  var previous_at_ns: Int? = null
+  var previous_at_ns = null
   for index in range(manifest.frames.len()) {
     let at_ns = manifest.frames[index].at_ns
     if at_ns < 0 or (previous_at_ns != null and at_ns <= (previous_at_ns ?? -1)) {

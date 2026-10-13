@@ -304,7 +304,7 @@ test sed_nul_bytes_are_ordinary_text_for_regexes { |ctx|
 type CaseRow = {name: Str, args: List[Str], stdin: Str, show: List[Str], env: List[Str], setup: List[Str], skip: Str}
 
 pure escape_bytes(data: Bytes) -> Str {
-  var out: List[Str] = []
+  var out = []
   let digits = "0123456789abcdef"
   for index in range(data.len()) {
     let byte = data.byte_at(index) ?? 0
@@ -398,7 +398,7 @@ proc expected_transcripts(ctx: TestContext) [fs, error] -> Result[Map[Str]] {
   let text = fp"{ctx.core_dir}/tests/data/sed/expected.txt".read_text()?
   var table: Map[Str] = {}
   var name = ""
-  var chunk: List[Str] = []
+  var chunk = []
   for line in text.split("\n") {
     if line.starts_with("case ") {
       if name != "" { table = table.set(name, chunk.join("\n") + "\n") }
@@ -416,7 +416,7 @@ proc expected_transcripts(ctx: TestContext) [fs, error] -> Result[Map[Str]] {
 proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process, error] -> Result[List[Str]] {
   let scratch = test.temp_dir(ctx, name: "sed-table")?
   let work = fp"{scratch}/work"
-  var failures: List[Str] = []
+  var failures = []
   var ran = 0
   for line in fp"{ctx.core_dir}/tests/data/sed/cases.jsonl".read_text()?.split("\n") {
     continue unless line.starts_with(f"{{\"name\": \"{prefix}")

@@ -26,7 +26,7 @@ pure module_name(text: Str) -> Str {
 # The kernel parameter parser understands double quotes around values. Keep
 # whitespace inside one argv item attached to its parameter, without a shell.
 pure parameters(values: List[Str]) -> Str {
-  var output: List[Str] = []
+  var output = []
   for value in values {
     let pieces = value.split("=", maxsplit: 1)
     if pieces.len() == 2 {
@@ -40,10 +40,10 @@ pure parameters(values: List[Str]) -> Str {
 # Split only complete groups of recognized boolean short options. Values of
 # options such as -Ffield and parameter argv items keep their original bytes.
 pure short_options(argv: List[Str], boolean_flags: Str) -> List[Str] {
-  var output: List[Str] = []
+  var output = []
   for arg in argv {
     if arg.starts_with("-") and ! arg.starts_with("--") and arg.byte_len() > 2 {
-      var pieces: List[Str] = []
+      var pieces = []
       var recognized = true
       for char in arg.byte_slice(1) {
         if boolean_flags.find(char) == null { recognized = false }
@@ -82,7 +82,7 @@ export proc modinfo(raw: List[Str]) {
   let argv = short_options(raw, "adlpn0")
   var selected = ""
   var delimiter = "\n"
-  var names: List[Str] = []
+  var names = []
   var index = 0
   var operands = false
   while index < argv.len() {
@@ -130,7 +130,7 @@ export proc modinfo(raw: List[Str]) {
 
 ## Insert one module file, forwarding kernel parameters as one typed value.
 export proc insmod(argv: List[Str]) {
-  var operands: List[Str] = []
+  var operands = []
   var positional = false
   for arg in argv {
     if ! positional and arg == "--" { positional = true; continue }
@@ -152,7 +152,7 @@ export proc insmod(argv: List[Str]) {
 export proc rmmod(argv: List[Str]) {
   var force = false
   var verbose = false
-  var names: List[Str] = []
+  var names = []
   var operands = false
   for arg in short_options(argv, "fv") {
     if ! operands and arg == "--" { operands = true; continue }
@@ -180,7 +180,7 @@ export proc modprobe(argv: List[Str]) {
   var quiet = false
   var show = false
   var verbose = false
-  var operands: List[Str] = []
+  var operands = []
   var positional = false
   for arg in short_options(argv, "nDvqar") {
     if ! positional and arg == "--" { positional = true; continue }

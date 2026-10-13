@@ -1217,7 +1217,7 @@ test test_uu_install_install_d_parallel_mkdir_race { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "s")
   for round in range(10) {
-    var children: List[ProcessHandle] = []
+    var children = []
     for k in range(32) {
       let command = uu.command(s, "install", ["-D", "s", f"o{round}/q/f{k}"],
         stdout: uu.at(s, f"out{k}"), stderr: uu.at(s, f"err{k}"), timeout: 10s)?

@@ -29,7 +29,7 @@ test test_arp_bsd_rows_follow_the_reference_wording {
 }
 
 pure sorted_lines(text: Str) -> List[Str] {
-  var sorted: List[Str] = []
+  var sorted = []
   for line in text.lines() {
     var at = sorted.len()
     for index in range(sorted.len()) {

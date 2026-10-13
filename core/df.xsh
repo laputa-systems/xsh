@@ -164,7 +164,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     gnu.usage_error("options --output and -i, -P or -T are mutually exclusive")
   }
   var invalid_types = false
-  var selected_types: List[Str] = []
+  var selected_types = []
   for kind in opts.include {
     continue when kind in selected_types
     var at = 0
@@ -181,7 +181,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
   validate_block_sizes(argv)
   var units = disk.argument_units(argv, disk.environment_units("df", opts.portable), ["B", "block-size", "t", "type", "x", "exclude-type"], "H")
   if opts.portable and units.human == 0 { units = {...units, label: f"{units.block}-blocks"} }
-  var columns: List[Str] = []
+  var columns = []
   if ! opts.output.is_empty() {
     for selection in opts.output { columns = columns.extend(selection.split(",")) }
   } else if opts.inodes {
@@ -190,7 +190,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
   if opts.show_type { columns = ["source", "fstype"].extend(columns[1..]) }
   # GNU labels the avail column "Avail" under --output and -h, and "Available" otherwise.
   let headings: Map[Str] = {source: "Filesystem", fstype: "Type", size: units.label, used: "Used", avail: if units.human != 0 or ! opts.output.is_empty() { "Avail" } else { "Available" }, pcent: if opts.portable { "Capacity" } else { "Use%" }, target: "Mounted on", file: "File", itotal: "Inodes", iused: "IUsed", iavail: "IFree", ipcent: "IUse%"}
-  var unique: List[Str] = []
+  var unique = []
   for column in columns {
     if column not in headings { gnu.usage_error(f"field {gnu.quote_value(column)} unknown") }
     if column in unique { gnu.usage_error(f"option --output: field {gnu.quote_value(column)} used more than once") }
@@ -231,8 +231,8 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
       }
     }
   }
-  var table: List[Map[Str]] = []
-  var devices: List[Int] = []
+  var table = []
+  var devices = []
   var totals: Counters = {size: 0, used: 0, avail: 0, files: 0, iused: 0, ifree: 0}
   for mount in mounts {
     continue when ! opts.include.is_empty() and mount.kind not in opts.include
@@ -264,7 +264,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
   }
   let locale = env.get_or("LC_ALL", env.get_or("LC_CTYPE", env.get_or("LANG", "C") ?? "C") ?? "C") ?? "C"
   let ascii = locale in ["C", "POSIX"]
-  var widths: List[Int] = []
+  var widths = []
   for column in columns {
     var width = minimum_width(column)
     if column_width(headings[column], ascii) > width { width = column_width(headings[column], ascii) }
@@ -272,7 +272,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     widths += [width]
   }
   for data in [headings].extend(table) {
-    var cells: List[Str] = []
+    var cells = []
     for index in range(columns.len()) {
       let field = columns[index]
       let text = data[field]

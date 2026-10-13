@@ -176,7 +176,7 @@ proc dump_frames(
   display: terminal.Inputs,
 ) [fs, error] -> Result[Unit, Error] {
   if let output_path = model_path {
-    var lines: List[Str] = []
+    var lines = []
     for frame in frames {
       lines += [model.encode_wire_json(frame)?]
     }
@@ -185,7 +185,7 @@ proc dump_frames(
   if let output_path = screen_path {
     var histories = graph_series.empty()
     let capabilities = terminal.detect(display)
-    var lines: List[Str] = []
+    var lines = []
     for frame in frames {
       let view = ui.initial(frame, renderer.process_capacity(display.rows))
       histories = graph_series.observe(histories, frame, view.network_interface)?

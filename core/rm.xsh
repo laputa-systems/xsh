@@ -11,7 +11,7 @@ type Removal = {ok: Bool, removed: Bool, write_error: Error?}
 const DEEP_NAME_BYTES = 1024
 
 pure prepare_arguments(argv: List[Bytes], posix: Bool) -> RmArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   var options = true
   var presume_input_tty = false
@@ -90,7 +90,7 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
     return {ok: true, removed: false, write_error: null}
   }
   var success = true
-  var write_error: Error? = null
+  var write_error = null
   var protected = false
   if ! opts.force and meta.kind != "symlink" and (interactive or (automatic and (unix.isatty(0) or presume_input_tty))) {
     match fs.access(target, write: true) {
@@ -276,7 +276,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     return when ! confirm(f"remove {count} {noun}{recursive}")
   }
   var success = true
-  var write_error: Error? = null
+  var write_error = null
   let root = fs.stat(p"/")?
   for name in targets {
     let target = Path.parse_bytes(name)?

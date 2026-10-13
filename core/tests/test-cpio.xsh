@@ -116,7 +116,7 @@ pure is_zero_tail(data: Bytes, from: Int) -> Bool {
 test test_cpio_round_trips_through_every_format { |ctx|
   let root = test.temp_dir(ctx, name: "cpio-roundtrip")?
   let source = test.temp_dir(ctx, name: "cpio-roundtrip-src")?
-  var every_byte: List[Int] = []
+  var every_byte = []
   for value in range(256) { every_byte += [value] }
   fp"{source}/all bytes".write(bytes.from_ints(every_byte)?)
   fp"{source}/line\nbreak".write(b"newline in the name")
@@ -444,7 +444,7 @@ test test_cpio_reports_bad_archives { |ctx|
 
 # Swaps the bytes of each 16-bit word in data[from, from + length).
 pure swap_words(data: Bytes, from: Int, length: Int) -> Bytes {
-  var out: List[Int] = []
+  var out = []
   for index in range(data.len()) {
     out += [data.byte_at(index) ?? 0]
   }

@@ -43,7 +43,7 @@ pure pattern_label(data: Bytes) -> Str {
 # both ends. The listed pattern order is stable. For up to three iterations
 # every pass uses random data.
 pure pass_patterns(passes: Int) -> List[Bytes] {
-  var sequence: List[Bytes] = []
+  var sequence = []
   if passes <= 3 { for unused in range(passes) { sequence += [b""] }; return sequence }
   let patterns = [b"\xff\xff\xff", b"\x92\x49\x24", b"\x88\x88\x88", b"\xdb\x6d\xb6", b"\x77\x77\x77", b"\x49\x24\x92", b"\xbb\xbb\xbb", b"\x55\x55\x55", b"\xaa\xaa\xaa", b"\x6d\xb6\xdb", b"\x24\x92\x49", b"\x99\x99\x99", b"\x11\x11\x11", b"\x00\x00\x00", b"\xb6\xdb\x6d", b"\xee\xee\xee", b"\x33\x33\x33", b"\x22\x22\x22", b"\x44\x44\x44", b"\x66\x66\x66", b"\xcc\xcc\xcc", b"\xdd\xdd\xdd"]
   let randoms = if passes / 10 > 3 { passes / 10 } else { 3 }
@@ -93,14 +93,14 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let parsed = opts.iterations.parse_int()
   if parsed is Err(_) or (parsed ?? -1) < 0 { gnu.error(f"invalid number of passes: {gnu.quote_value(opts.iterations)}"); exit 1 }
   let passes = parsed?
-  var size: Int? = null
+  var size = null
   if opts.size != null {
     size = fs_misc.size_value(opts.size ?? "")
     if size == null { gnu.error(f"invalid file size: {gnu.quote_value(opts.size ?? "")}"); exit 1 }
   }
   var remove = opts.remove ?? (if opts.unlink { "wipesync" } else { "" })
   if remove != "" {
-    var matches: List[Str] = []
+    var matches = []
     if remove in ["unlink", "wipe", "wipesync"] { matches = [remove] } else {
       for method in ["unlink", "wipe", "wipesync"] { if method.starts_with(remove) { matches += [method] } }
     }

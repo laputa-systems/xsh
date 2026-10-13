@@ -23,7 +23,7 @@ pure value(state: State, cluster: Int) -> Result[Int] {
 
 pure chain(initial: State, start: Int, owner: Int, safe_empty: Bool) -> Result[Chain] {
   var state = initial
-  var clusters: List[Int] = []
+  var clusters = []
   var current = start
   while true {
     if ! geom.valid(state.layout, current) {
@@ -103,7 +103,7 @@ proc directories(image: Path, initial: State) -> Result[State] {
     next_directory += 1
     if directory.cluster in visited { state = issue(state, f"directory cycle at cluster {directory.cluster}", false); continue }
     visited[directory.cluster] = true
-    var offsets: List[Int] = []
+    var offsets = []
     let length = if directory.root and layout.bits != 32 { layout.roots * 32 } else { geom.cluster_bytes(layout) }
     if directory.root and layout.bits != 32 { offsets = [geom.root_offset(layout)] } else {
       let walked = chain(state, directory.cluster, -directory.cluster - 1, false)?

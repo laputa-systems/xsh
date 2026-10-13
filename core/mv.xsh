@@ -263,7 +263,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     return {outcome: Failed, copies}
   }
   var moving_source = source
-  var saved: Path? = null
+  var saved = null
   if existing {
     saved = files.backup_name(target, backup, suffix)?
     if saved != null {
@@ -397,7 +397,7 @@ proc main(...argv: List[Str]) {
     exit 1
   }
   var failed = false
-  var seen: List[Path] = []
+  var seen = []
   var copies: List[FileIdentity] = []
   for text in sources {
     var stripped = text

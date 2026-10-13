@@ -115,7 +115,7 @@ pure is_address(text: Str) -> Bool {
 # otherwise decimal.
 proc tos_option(text: Str) [process, env] -> Int {
   let lower = text.trim().lower()
-  var value: Int? = null
+  var value = null
   if lower.starts_with("0x") {
     var number = 0
     var valid = lower.byte_len() > 2
@@ -208,8 +208,8 @@ proc plan_of(opts: Options, forced: Str) [process, env, io, error] -> Plan {
       gnu.write_text("PATTERN: 0x" + [hex_byte(value) for value in pattern].join("") + "\n")
     }
   }
-  var interface: Str? = null
-  var source: Str? = null
+  var interface = null
+  var source = null
   if let text = opts.interface {
     if is_address(text) { source = text } else { interface = text }
   }

@@ -8,7 +8,7 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 # The shared option parser takes text; NUL-marked operands preserve Unix argv bytes.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]

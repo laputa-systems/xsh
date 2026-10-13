@@ -21,7 +21,7 @@ Built-in programs:
 # of an applet; directories, this front end, and names with other dots such as
 # README.md are not applets.
 proc applet_names(dir: Path) [fs, error] -> Result[List[Str]] {
-  var names: List[Str] = []
+  var names = []
 
   for entry in fs.children(dir)? {
     let name = if entry.name.ends_with(".xsh") { entry.name.byte_slice(0, entry.name.byte_len() - 4) } else { entry.name }
@@ -68,7 +68,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io, fs] {
   # A non-UTF-8 argument reads as a NUL marker, which no applet name can match.
   # `words` and `operands` stay in step: operands keep the raw bytes forwarded
   # to the applet.
-  var words: List[Str] = []
+  var words = []
   var operands = argv
 
   for arg in argv {

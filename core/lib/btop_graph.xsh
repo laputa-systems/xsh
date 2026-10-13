@@ -11,7 +11,7 @@ const MAX_GRAPH_HEIGHT = 2000
 const LEFT_DOT_BITS = [1, 2, 4, 64]
 const RIGHT_DOT_BITS = [8, 16, 32, 128]
 
-const BRAILLE_GLYPHS: List[Str] = [
+const BRAILLE_GLYPHS = [
   "\u{2800}", "\u{2801}", "\u{2802}", "\u{2803}", "\u{2804}", "\u{2805}", "\u{2806}", "\u{2807}",
   "\u{2808}", "\u{2809}", "\u{280a}", "\u{280b}", "\u{280c}", "\u{280d}", "\u{280e}", "\u{280f}",
   "\u{2810}", "\u{2811}", "\u{2812}", "\u{2813}", "\u{2814}", "\u{2815}", "\u{2816}", "\u{2817}",
@@ -168,7 +168,7 @@ pure check_history(history: History) -> Result[Unit, Error] {
   if history.samples.len() > HISTORY_LIMIT {
     return Err(error.failure("graph history exceeds its retained sample bound"))
   }
-  var previous_at: Int? = null
+  var previous_at = null
   for sample in history.samples {
     if sample.at_ns < 0 or (previous_at != null and sample.at_ns <= (previous_at ?? sample.at_ns)) {
       return Err(error.failure("graph history times must increase"))
@@ -209,7 +209,7 @@ export pure project(
   let capacity = width * samples_per_cell
   let start = if history.samples.len() > capacity { history.samples.len() - capacity } else { 0 }
   let visible = history.samples |> drop(start)
-  let times: List[Int] = [sample.at_ns for sample in visible]
+  let times = [sample.at_ns for sample in visible]
   let states: List[SampleState] = [sample.state for sample in visible]
   let graph_width = if symbols == .Braille { (visible.len() + 1) / 2 } else { visible.len() }
   let left_padding = width - graph_width

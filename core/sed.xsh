@@ -138,7 +138,7 @@ proc apply(settings: Settings, code: Str, value: Str?) [fs, io, error, process, 
 # Resolve a `--name[=value]` word against the long-option table.
 proc long_option(settings: Settings, word: Str, rest: List[Str], at: Int) [fs, io, error, process, env] -> LongScan {
   var name = word.byte_slice(2)
-  var inline: Str? = null
+  var inline = null
   if let eq = name.find("=") {
     inline = name.byte_slice(eq + 1)
     name = name.byte_slice(0, eq)
@@ -155,7 +155,7 @@ proc long_option(settings: Settings, word: Str, rest: List[Str], at: Int) [fs, i
   let chosen = found[0]
   if found.len() > 1 {
     var same = true
-    var listed: List[Str] = []
+    var listed = []
     for option in found {
       if option.argument != chosen.argument or option.code != chosen.code { same = false }
       listed += [f"'--{option.name}'"]

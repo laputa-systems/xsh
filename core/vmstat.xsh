@@ -6,7 +6,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   let opts: Options = cli.applet(argv, {gnu: {status: 2}, no_header: {form: "-n --one-header", default: false}, help: {form: "--help", default: false}, operands: {form: "...ARG"}})?
   if opts.help { print "Usage: vmstat [-n] [INTERVAL [COUNT]]"; return }
   let sampling = procps.sampling_args(opts.operands)?
-  var previous: LinuxSample? = null
+  var previous = null
   var index = 0
   while index < sampling.count {
     let current = linux.sample()?

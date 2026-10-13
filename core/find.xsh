@@ -187,7 +187,7 @@ proc prepare_output(name: Str, raw: List[gnu.RawArgument]) [fs, process, env, er
 
 proc parse_exec(args: List[Str], parsed: Parsed, token: Str, opts: Options) [process, env, error] -> Result[Parsed, Error] {
   var at = parsed.at + 1
-  var argv: List[Str] = []
+  var argv = []
   var plus = false
   var found = false
   var braces = 0
@@ -318,7 +318,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     }
     "-type" | "-xtype" => {
       node.kind = token.byte_slice(1)
-      var kinds: List[Str] = []
+      var kinds = []
       var expect_letter = true
       for char in value {
         if expect_letter {
@@ -524,7 +524,7 @@ pure time_test(node: Node, meta: fmt.Meta) -> Bool {
 }
 
 pure replace_marker(word: Bytes, value: Bytes) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   while at < word.len() {
     let found = search.find_fixed(word, b"{}", offset: at)
@@ -681,7 +681,7 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
     "exec" | "execdir" | "ok" | "okdir" => {
       let in_directory = node.kind in ["execdir","okdir"]
       let value = if in_directory { dot_name(raw)?.bytes() } else { raw }
-      var words: List[Path] = []
+      var words = []
       for word in node.argv { words += [Path.parse_bytes(replace_marker(gnu.argument_bytes(word, plan.raw), value))?] }
       var proceed = true
       if node.kind in ["ok","okdir"] {
@@ -776,15 +776,15 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
   for index in range(plan.nodes.len()) {
     let node = plan.nodes[index]
     continue when node.kind not in kinds
-    var initial: List[Path] = []
+    var initial = []
     var initial_size = 0
     for word in node.argv[..node.argv.len() - 1] {
       let bytes_of_word = gnu.argument_bytes(word, plan.raw)
       initial += [Path.parse_bytes(bytes_of_word)?]
       initial_size += bytes_of_word.len() + 1
     }
-    var batch: List[Path] = []
-    var directory: Path? = null
+    var batch = []
+    var directory = null
     var size = 0
     for item in deferred {
       continue when item.node != index
@@ -838,7 +838,7 @@ proc main(...operands: List[Bytes]) {
     if token == "--" { at += 1; break }
     break
   }
-  var roots: List[Path] = []
+  var roots = []
   var last_token = ""
   var read_failed = false
   if at < args.len() and args[at] == "-files0-from" {

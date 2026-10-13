@@ -140,7 +140,7 @@ pure long_names() -> List[Str] {
 }
 
 pure matching_names(prefix: Str) -> List[Str] {
-  var found: List[Str] = []
+  var found = []
   var exact = false
 
   for name in long_names() {
@@ -262,7 +262,7 @@ pure padded(text: Str, width: Int, right: Bool, last: Bool) -> Str {
 # every column but the last padded to its widest cell, SOFT and HARD right
 # aligned. `--raw` drops the padding and escapes blanks.
 pure render(rows: List[Row], columns: List[Str], headings: Bool, raw: Bool) -> Str {
-  var widths: List[Int] = []
+  var widths = []
 
   for column in columns {
     var width = if headings { column.byte_len() } else { 0 }
@@ -278,10 +278,10 @@ pure render(rows: List[Row], columns: List[Str], headings: Bool, raw: Bool) -> S
     widths += [width]
   }
 
-  var lines: List[Str] = []
+  var lines = []
 
   if headings {
-    var pieces: List[Str] = []
+    var pieces = []
 
     for index in range(columns.len()) {
       pieces += [if raw { columns[index] } else { padded(columns[index], widths[index], columns[index] == "SOFT" or columns[index] == "HARD", index == columns.len() - 1) }]
@@ -291,7 +291,7 @@ pure render(rows: List[Row], columns: List[Str], headings: Bool, raw: Bool) -> S
   }
 
   for row in rows {
-    var pieces: List[Str] = []
+    var pieces = []
 
     for index in range(columns.len()) {
       let column = columns[index]
@@ -321,7 +321,7 @@ proc fail(message: Str) [process, env] {
 # name is reported with the rest of the list that follows it, as util-linux
 # does.
 proc parse_columns(text: Str) [process, env, error] -> List[Str] {
-  var columns: List[Str] = []
+  var columns = []
   var consumed = 0
 
   for element in text.split(",") {
@@ -357,8 +357,8 @@ proc option_error(message: Str) [process, env] {
 # examined.
 proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
   var requests: List[Request] = []
-  var pid: Str? = null
-  var output: Str? = null
+  var pid = null
+  var output = null
   var noheadings = false
   var raw = false
   var verbose = false
@@ -442,7 +442,7 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
       let resource = resource_of_letter(letter)
 
       if resource >= 0 {
-        var value: Str? = null
+        var value = null
 
         if rest.starts_with("=") {
           value = rest.byte_slice(1)
@@ -465,7 +465,7 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
       }
 
       if letter == "p" or letter == "o" {
-        var value: Str? = null
+        var value = null
 
         if rest != "" {
           value = rest
@@ -491,7 +491,7 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
 }
 
 proc nr_open() [process] -> Int? {
-  var found: Int? = null
+  var found = null
 
   if let Ok(text) = linux.sysctl_get("fs.nr_open") {
     if let Ok(value) = text.trim().parse_int_decimal() {
@@ -588,8 +588,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         }
       }
 
-      var new_soft: Int? = null
-      var new_hard: Int? = null
+      var new_soft = null
+      var new_hard = null
 
       # The bounds left out keep the limits the process has now.
       if wanted_soft.kind == "keep" or wanted_hard.kind == "keep" {

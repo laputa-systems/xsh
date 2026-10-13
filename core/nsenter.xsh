@@ -131,7 +131,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
   if opts.help { gnu.help(USAGE); return }
   if opts.version { gnu.version("nsenter"); return }
 
-  var target: Int? = null
+  var target = null
   if let text = opts.target {
     let parsed = parse_number(text)
     if parsed == null or parsed <= 0 {
@@ -140,8 +140,8 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     }
     target = parsed
   }
-  var uid: Int? = null
-  var gid: Int? = null
+  var uid = null
+  var gid = null
   if let text = opts.setuid { uid = parse_id(text, "uid") }
   if let text = opts.setgid { gid = parse_id(text, "gid") }
 
@@ -157,8 +157,8 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     {name: "mnt", file: value_of(opts.mnt)},
     {name: "time", file: value_of(opts.time)},
   ]
-  var join: List[Path] = []
-  var entered: List[Str] = []
+  var join = []
+  var entered = []
   var needs_target = false
   for entry in order {
     if let file = entry.file {
@@ -184,8 +184,8 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
 
   let wd_file = value_of(opts.wd)
   let root_file = value_of(opts.root)
-  var cwd_path: Path? = null
-  var root_path: Path? = null
+  var cwd_path = null
+  var root_path = null
   if let file = root_file {
     if file != "" {
       root_path = fp"{file}"

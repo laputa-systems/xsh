@@ -208,7 +208,7 @@ Do NOT screenscrape this tool, we don't consider its output stable.
 # The words that name the command in a usage line, with the device
 # placeholder where the command takes one.
 pure usage_words(command: Entry) -> Str {
-  var words: List[Str] = []
+  var words = []
   if command.idby == "dev" {
     words += ["dev <devname>"]
   } else if command.idby == "phy" {
@@ -531,7 +531,7 @@ pure scan_words() -> List[Str] {
 
 # Hex bytes written as `00:11:..`, or null when malformed.
 pure parse_hex_list(text: Str) -> Bytes? {
-  var values: List[Int] = []
+  var values = []
   for part in text.split(":") {
     return null unless rx"^[0-9A-Fa-f]{1,2}$".matches(part)
     values += [("0x" + part).parse_int() ?? 0]
@@ -545,10 +545,10 @@ pure parse_hex_list(text: Str) -> Bytes? {
 # The scan options of `iw scan` and `iw scan trigger`; null means the words
 # are not valid and the usage is shown.
 pure parse_scan(words: List[Str], trigger: Bool) -> nl.ScanRequest? {
-  var ssids: List[Str] = []
-  var freqs: List[Int] = []
+  var ssids = []
+  var freqs = []
   var elements = b""
-  var duration: Int? = null
+  var duration = null
   var mandatory = false
   var flags = 0
   var passive = false
@@ -866,7 +866,7 @@ proc execute(tokens: List[Str]) -> Result[Int] {
   # Which selector the line begins with, and the words that remain.
   var idby = ""
   var name = ""
-  var words: List[Str] = []
+  var words = []
   if first == "dev" or first == "phy" or first == "wdev" {
     if tokens.len() == 1 {
       if first == "dev" {

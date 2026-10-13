@@ -461,8 +461,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     var output_size = 0
     var failed = false
     var limited = false
-    var selected: List[List[Int]] = []
-    var output_parts: List[Bytes] = []
+    var selected = []
+    var output_parts = []
 
     while produced < amount and ! failed and ! limited {
       var found = false
@@ -528,9 +528,9 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     return
   }
 
-  var items: List[Bytes] = []
+  var items = []
   var total = 0
-  var later: List[Bytes] = []
+  var later = []
   var reservoir = false
 
   if ! opts.range.is_empty() {
@@ -594,7 +594,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let ranged = ! opts.range.is_empty()
   let sparse = ranged and ! opts.repeat and amount * 16 < total
   var moved: Map[Int, Int] = {}
-  var picks: List[Int] = []
+  var picks = []
 
   if ranged and ! opts.repeat and ! sparse {
     picks = [lo + step for step in range(total)]

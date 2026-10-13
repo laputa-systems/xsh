@@ -99,7 +99,7 @@ proc controller_page() [error] -> Result[Bytes, Error] {
 proc nvme(ctx: TestContext, lines: List[Record], args: List[Str], log: Path) [fs, process, error] -> Result[Ran, Error] {
   let root = test.temp_dir(ctx, name: "nvme-run")?
   let fixture = fp"{root}/fixture.jsonl"
-  var recorded: List[Any] = []
+  var recorded = []
   for line in lines {
     recorded += [line]
   }
@@ -665,7 +665,7 @@ proc namespace_tree(ctx: TestContext) [fs, process, error] -> Result[Path, Error
 proc nvme_list(ctx: TestContext, root: Path, lines: List[Record], args: List[Str]) [fs, process, error] -> Result[Ran, Error] {
   let work = test.temp_dir(ctx, name: "nvme-list-run")?
   let fixture = fp"{work}/fixture.jsonl"
-  var recorded: List[Any] = []
+  var recorded = []
   for line in lines {
     recorded += [line]
   }

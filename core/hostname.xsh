@@ -96,7 +96,7 @@ proc main(...argv: List[Str]) [net, process, env, error, io] {
   let name = system.hostname()?
 
   if opts.ip_address {
-    var seen: List[Str] = []
+    var seen = []
 
     for record in dns.resolve_host(name)? {
       if ! (record.addr in seen) {

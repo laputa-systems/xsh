@@ -287,7 +287,7 @@ proc configure(name_in: Str, words: List[Str]) [fs, process, net, env, error] ->
           exit 1
         }
         var text = word
-        var prefix: Int? = null
+        var prefix = null
         let slash = word.find("/")
         if slash != null {
           text = word.byte_slice(0, length: slash ?? 0)

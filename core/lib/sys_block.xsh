@@ -61,8 +61,8 @@ export pure parse_scheduler(value: Str) -> BlockScheduler? {
   return null when value.trim() == "" or value.lines().len() != 1
 
   let choices = value.replace("\t", with: " ").split(" ") |> where .trim() != ""
-  var available: List[Str] = []
-  var active: Str? = null
+  var available = []
+  var active = null
   for choice in choices {
     var name = choice
     if choice.starts_with("[") and choice.ends_with("]") and choice.count_chars() >= 3 {
@@ -135,8 +135,8 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     let dev = src.read_source_text(root, fp"{device_path}/dev", max_bytes: 4096)
     let dev_text = src.observed_text(dev)
     let dev_parts = (dev_text ?? "").split(":")
-    var major: Int? = null
-    var minor: Int? = null
+    var major = null
+    var minor = null
     if dev_text == null {
       issues += [src.issue(f"devices.{name}.major_minor", dev.observation.state, dev.error_kind, dev.errno)]
     } else if dev_parts.len() != 2 {
@@ -197,8 +197,8 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     }
 
     let scheduler = src.read_source_text(root, fp"{device_path}/queue/scheduler", max_bytes: 4096)
-    var active_scheduler: Str? = null
-    var available_schedulers: List[Str] = []
+    var active_scheduler = null
+    var available_schedulers = []
     if scheduler.observation.state != .Observed and scheduler.observation.state != .Absent {
       issues += [
         src.issue(f"devices.{name}.scheduler", scheduler.observation.state, scheduler.error_kind, scheduler.errno),
@@ -408,7 +408,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     } else {
       "disk"
     }
-    var parent_pci_address: Str? = null
+    var parent_pci_address = null
     if target_path != null {
       parent_pci_address = sys_pci.address_in_target(target_path)
     }
@@ -450,7 +450,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
       }
     }
 
-    var parent_name: Str? = null
+    var parent_name = null
     let target_components = target.split("/")
     for component in target_components {
       if component != name and component != "block" and component in listed_names {
@@ -458,7 +458,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
       }
     }
 
-    var sector_bytes: Int? = null
+    var sector_bytes = null
     if sectors >= 0 and sectors <= 17592186044415 {
       sector_bytes = sectors * 512
     }

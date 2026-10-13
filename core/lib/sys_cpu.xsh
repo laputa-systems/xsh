@@ -32,7 +32,7 @@ pure empty_stat(state: report.ObservationState, issues: List[src.Issue] = []) ->
 pure parse_counter_fields(words: List[Str]) -> CounterParse {
   return {state: report.Malformed, fields: []} when words.len() < 4
 
-  var fields: List[Int] = []
+  var fields = []
   for word in words {
     let parsed = src.parse_integer(word)
     if parsed == null or (parsed ?? -1) < 0 {
@@ -164,7 +164,7 @@ export pure parse_loadavg(source: src.SourceRead) -> LoadAverage {
   }
   let words = src.parse_words(source.observation.value)
   return {state: report.Malformed, values: []} when words.len() < 3
-  var values: List[Float] = []
+  var values = []
   for word in words |> take(3) {
     let value = decimal_seconds(word)
     return {state: report.Malformed, values: []} when value == null

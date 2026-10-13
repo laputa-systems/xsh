@@ -224,10 +224,10 @@ export pure size_value(raw: Str) -> Int? {
 export proc canonical(name: Str, missing: Str, logical = false, strip = false) [fs, error] -> Result[Str, Error] {
   return Err(FsMiscError.Invalid("No such file or directory")) when name == ""
   var pending = name.split("/")
-  var parts: List[Str] = []
+  var parts = []
   if ! name.starts_with("/") { parts = components(fs.cwd()?.display()) }
   if logical {
-    var normalized: List[Str] = []
+    var normalized = []
     for part in parts.extend(pending) {
       if part == ".." { if ! normalized.is_empty() { normalized = normalized[0..normalized.len() - 1] } } else if part != "." and part != "" { normalized += [part] }
     }
@@ -276,14 +276,14 @@ export pure relative(target: Str, base: Str) -> Str {
   let b = components(base)
   var common = 0
   while common < a.len() and common < b.len() and a[common] == b[common] { common += 1 }
-  var out: List[Str] = []
+  var out = []
   for unused in range(b.len() - common) { out += [".."] }
   out = out.extend(a[common..])
   if out.is_empty() { "." } else { out.join("/") }
 }
 
 pure components(name: Str) -> List[Str] {
-  var parts: List[Str] = []
+  var parts = []
   for part in name.split("/") { if part != "" { parts += [part] } }
   parts
 }

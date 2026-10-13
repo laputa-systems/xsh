@@ -98,7 +98,7 @@ pure utf8_char_width(raw: Bytes, at: Int) -> Int {
 # unchanged, so a `%` before it prints literally and the byte is never read as a
 # conversion.
 proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Bytes] {
-  var pieces: List[Bytes] = []
+  var pieces = []
   var piece_start = 0
   var at = 0
   while at < format.len() {
@@ -422,7 +422,7 @@ proc debug_date(text: Str, instant: date_parse.Instant, base: date_parse.Instant
     let clock = rx"([0-9]{1,2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?)".captures(prefix)
     let military = rx"^([A-Za-z])([0-9]{1,2})$".captures(prefix)
     let number = rx"^[0-9]{1,4}[jJ]?$".matches(prefix) or (prefix == "" and relative.is_empty())
-    var offset: Int? = null
+    var offset = null
     var civil = starting
     let zone = rx"^(.*\S)\s+([A-Za-z]+|[+-][0-9]{1,6}(?::[0-9]{2}){0,2})$".captures(prefix)
     if ! zone.is_empty() and (! clock.is_empty() or ! iso.is_empty()) {
@@ -504,7 +504,7 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateSty
 proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
   let prepared = gnu.prepare_arguments(raw)
   var style = date_style(locale_name())
-  var argv: List[Str] = []
+  var argv = []
   for item in prepared.text {
     if item.starts_with("-") and ! item.starts_with("--") and item.byte_len() > 2 {
       var rest = item.byte_slice(1)

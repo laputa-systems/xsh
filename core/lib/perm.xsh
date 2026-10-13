@@ -28,10 +28,10 @@ export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[O
   var dereference = true
   var explicit_dereference = false
   var preserve_root = false
-  var reference: Bytes? = null
-  var from: Bytes? = null
-  var operands: List[Bytes] = []
-  var option_mode: Str? = null
+  var reference = null
+  var from = null
+  var operands = []
+  var option_mode = null
   var stopped = false
   var at = 0
   while at < argv.len() {
@@ -175,8 +175,8 @@ export proc owner(raw: Str, group_only = false) [fs, error, process] -> Result[O
   let parts = spec.split(":")
   return Err(PermError.Invalid("invalid group")) when parts.len() > 2
   let username = parts[0]
-  var user_id: Int? = null
-  var group_id: Int? = null
+  var user_id = null
+  var group_id = null
   if username != "" {
     match uid(username) {
       Ok(id) => user_id = id
@@ -213,8 +213,8 @@ proc requested_names(raw: Str, ids: Owner, group_only: Bool) [fs, error] -> Owne
   }
   let spec = if ! (":" in raw) and "." in raw and user.lookup(raw) is Err(_) { raw.replace(".", with: ":") } else { raw }
   let parts = spec.split(":")
-  var user_name: Str? = null
-  var group_name: Str? = null
+  var user_name = null
+  var group_name = null
   if parts[0] != "" and ! parts[0].starts_with("+") and user.lookup(parts[0]) is Ok(_) { user_name = parts[0] }
   if parts.len() == 2 and ids.gid != null {
     if parts[1] == "" { group_name = owner_label({uid: null, gid: ids.gid}, true) } else if ! parts[1].starts_with("+") and group.lookup(parts[1]) is Ok(_) { group_name = parts[1] }

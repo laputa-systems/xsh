@@ -252,7 +252,7 @@ pure big_divmod(a: List[Int], b: List[Int]) -> Division {
   let width = b.len()
   let divisor_top = b[width - 1].float() * 1000000000.0 + b[width - 2].float()
   var quotient: List[Int] = [0 for slot in range(a.len())]
-  var rest: List[Int] = []
+  var rest = []
   var at = a.len() - 1
 
   while at >= 0 {
@@ -970,14 +970,14 @@ pure parse_format(text: Str) -> FormatParse {
     at += 1
   }
 
-  var width: Int? = null
+  var width = null
 
   if padding != "" {
     # strtoimax saturates overflowing widths; formatting is deferred until input.
     width = padding.parse_int() ?? (if padding.starts_with("-") { -9223372036854775807 - 1 } else { 9223372036854775807 })
   }
 
-  var precision: Int? = null
+  var precision = null
 
   if at < total and text[at..at + 1] == "." {
     at += 1
@@ -1315,7 +1315,7 @@ type ByteRendered = {text: Bytes, err: Str}
 pure split_bytes(line: Bytes, delimiter: Bytes) -> List[Bytes] {
   return [line] when delimiter.len() == 0
 
-  var pieces: List[Bytes] = []
+  var pieces = []
   var start = 0
   var at = 0
 
@@ -1341,7 +1341,7 @@ pure invalid_utf8(value: Bytes) -> Bool {
 }
 
 proc format_delimited_bytes(line: Bytes, delimiter: Bytes, settings: Settings) [env, error] -> ByteRendered {
-  var out: List[Bytes] = []
+  var out = []
   let pieces = split_bytes(line, delimiter)
 
   for index in range(pieces.len()) {
@@ -1585,8 +1585,8 @@ proc settings_from(opts: NumfmtOptions, byte_delimiter: Bool) [process, env, io]
     header = value
   }
 
-  var lows: List[Int] = []
-  var highs: List[Int] = []
+  var lows = []
+  var highs = []
 
   # GNU rejects a second --field while parsing options, so it reports no usage hint.
   if opts.fields.len() > 1 {
@@ -1744,8 +1744,8 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   }
 
   let terminator = if settings.zero { "\0" } else { "\n" }
-  var lines: List[Bytes] = []
-  var ends: List[Bool] = []
+  var lines = []
+  var ends = []
 
   if ! opts.numbers.is_empty() {
     lines = [gnu.argument_bytes(item, prepared.raw) for item in opts.numbers]
@@ -1777,7 +1777,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
 
   if byte_delimiter {
     let terminator_bytes = bytes.from_text(if settings.zero { "\0" } else { "\n" })
-    var output: List[Bytes] = []
+    var output = []
     var failed = false
     var saw_invalid = false
 

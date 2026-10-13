@@ -6,7 +6,7 @@ use lib.capability
 type Operation = {name: Str, remove: Bool, record: capability.FileCaps?}
 proc main(...argv: List[Str]) [fs, process, env, io, error] {
   var verify = false; var quiet = false; var force = false
-  var rootid: Int? = null
+  var rootid = null
   var operations: List[Operation] = []
   var at = 0
   while at < argv.len() {

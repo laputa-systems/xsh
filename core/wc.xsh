@@ -395,7 +395,7 @@ proc count_input(
   }
 
   var data = b""
-  var read_error: Str? = null
+  var read_error = null
   var counted: Counts? = null
 
   if input.stdin and only_bytes {

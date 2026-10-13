@@ -12,7 +12,7 @@ test test_gnu_wc_wc_cpu_log { |ctx|
   let selected = shuffled.stdout.utf8()?.lines()[0].parse_int() ?? -1
   assert selected >= 0 and selected <= 1000
   uu.write(s, "lines", [f"{n}\n" for n in range(1, selected + 1)].join(""))
-  var outputs: List[Bytes] = []
+  var outputs = []
   for tunables in ["", "glibc.cpu.hwcaps=-AVX512F", disabled] {
     let r = uu.invoke_from_path(s, "wc", ["-l"], uu.at(s, "lines"), vars: {GLIBC_TUNABLES: tunables})?
     uu.succeeds(r)

@@ -51,7 +51,7 @@ export pure blank(width: Int, height: Int) -> Result[Surface, Error] {
     return Err(error.failure("surface dimensions exceed the cell bound"))
   }
   let line = repeated(" ", width)
-  var lines: List[Str] = []
+  var lines = []
   for _ in range(height) { lines += [line] }
   Ok({width: width, height: height, lines: lines, roles: no_roles(height)})
 }
@@ -61,7 +61,7 @@ export pure from_lines(width: Int, height: Int, source: List[Str]) -> Result[Sur
   if ! valid_dimensions(width, height) or source.len() > height {
     return Err(error.failure("surface rows do not fit the requested geometry"))
   }
-  var lines: List[Str] = []
+  var lines = []
   for row in range(height) {
     let value = if row < source.len() { source[row] } else { "" }
     lines += [fit(value, width)]
@@ -132,7 +132,7 @@ export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Erro
   )
   return blank(0, 0) when clipped == null
   let area = clipped ?? {x: 0, y: 0, width: 0, height: 0}
-  var lines: List[Str] = []
+  var lines = []
   for y in range(area.y, area.y + area.height) {
     lines += [tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)]
   }
@@ -183,7 +183,7 @@ export pure selected_row(value: Str, selected: Bool, width: Int) -> Str {
 export pure viewport(rows: List[Str], offset: Int, height: Int) -> List[Str] {
   return [] when height <= 0 or height > MAX_DIMENSION
   let start = if offset < 0 { 0 } else { offset }
-  var visible: List[Str] = []
+  var visible = []
   for row in range(height) {
     let at = start + row
     visible += [if at < rows.len() { rows[at] } else { "" }]

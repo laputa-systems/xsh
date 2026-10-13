@@ -176,13 +176,13 @@ test test_gnu_cp_cp_mv_backup_log { |ctx|
         let has_destination = "y" in initial
         let numbered = option in ["numbered", "t"] or (option in ["existing", "nil"] and "y.~1~" in initial)
         let backing = has_destination and !(option in ["none", "off"])
-        var expected_names: List[Str] = []
+        var expected_names = []
         for name in ["x", "y", "y~", "y.~1~", "y.~2~"] {
           let expected = if name == "x" { util == "cp" } else if name == "y" { true } else if name == "y~" { name in initial or (backing and !numbered) } else if name == "y.~1~" { name in initial or (backing and numbered and !("y.~1~" in initial)) } else { backing and numbered and "y.~1~" in initial }
           assert uu.exists(s, name)? == expected, f"{util} {initial.join(" ")} {option}: {name}"
           if expected { expected_names += [name] }
         }
-        var actual_names: List[Str] = []
+        var actual_names = []
         for entry in fs.children(s.root)? {
           if entry.name.starts_with("x") or entry.name.starts_with("y") { actual_names += [entry.name] }
         }

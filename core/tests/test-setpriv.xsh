@@ -61,7 +61,7 @@ proc has_capability(number: Int) [process, error] -> Bool {
 }
 
 pure list_after(text: Str, label: Str) -> List[Int] {
-  var found: List[Int] = []
+  var found = []
   for line in text.lines() {
     if line.starts_with(label) {
       for word in line.byte_slice(label.byte_len()).trim().split("\t") {

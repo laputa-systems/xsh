@@ -48,7 +48,7 @@ pure reverse_line(content: Bytes) -> Bytes {
     return bytes.from_text(text.reverse())
   }
 
-  var pieces: List[Bytes] = []
+  var pieces = []
   var at = 0
 
   while at < content.len() {

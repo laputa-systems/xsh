@@ -20,13 +20,13 @@ proc exists(dir: Path, name: Str) [fs, error] -> Bool {
 proc u16(value: Int) -> Bytes { bytes.pack_le(value, 2)? }
 
 proc u16_list(values: List[Int]) -> Bytes {
-  var chunks: List[Bytes] = []
+  var chunks = []
   for value in values { chunks += [u16(value)] }
   bytes.concat(chunks)
 }
 
 proc utf16z(text: Str) -> Bytes {
-  var ints: List[Int] = []
+  var ints = []
   for byte in bytes.from_text(text) { ints += [byte, 0] }
   bytes.concat([bytes.from_ints(ints)?, b"\x00\x00"])
 }
@@ -278,14 +278,14 @@ proc disk_image(ctx: TestContext, name: Str, label: Str) [fs, process, error] ->
 }
 
 proc names_in(dir: Path) [fs, error] -> List[Str] {
-  var names: List[Str] = []
+  var names = []
   for child in fs.children(dir)? { names += [child.name] }
   names
 }
 
 # Whole-directory snapshot used to prove a refused command changed nothing.
 proc snapshot(dir: Path) [fs, error] -> Str {
-  var lines: List[Str] = []
+  var lines = []
   for child in fs.children(dir)? { lines += [f"{child.name} {child.path.read_bytes()?.base64()}"] }
   lines.join("\n")
 }
@@ -395,7 +395,7 @@ test test_efibootmgr_writes_only_named_variables_in_the_directory { |ctx|
   let result = invoke(ctx, dir, ["-c", "-d", image.display(), "-n", "0000", "-t", "2"])
   assert result.status == 0, result.stderr
   let after = names_in(dir)
-  var added: List[Str] = []
+  var added = []
   for name in after { if name not in before { added += [name] } }
   let ordered = added |> sort-by .
   assert ordered == [f"Boot0003{GUID_SUFFIX}", f"BootNext{GUID_SUFFIX}"], added.join(",")
@@ -408,7 +408,7 @@ test test_efibootmgr_clears_and_restores_the_immutable_flag_around_writes { |ctx
   let written = invoke(ctx, dir, ["-t", "4"])
   assert written.status == 0, written.stderr
   let entries = log.read_text()?.lines()
-  var flags: List[Str] = []
+  var flags = []
   for line in entries {
     if "set_file_attrs" in line {
       let record = json.decode(line)?

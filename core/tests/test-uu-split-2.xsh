@@ -26,7 +26,7 @@ proc random_line_input(s: uu.Scene, name: Str, count: Int) [fs, error] -> Result
   let entropy = fp"{s.ctx.core_dir}/tests/data/uutils/split/seeded-123.bin".read_bytes()?
   assert entropy.len() == 16384
   let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-  var letters: List[Bytes] = []
+  var letters = []
   for index in range(entropy.len()) {
     guard let value = entropy.byte_at(index) else { return test.fail("recorded entropy index is missing") }
     letters += [bytes.from_text(alphabet.byte_slice(value % 62, length: 1))]

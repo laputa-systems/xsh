@@ -502,7 +502,7 @@ export pure attributes_json(values: smart.SmartValues) -> List[j.Member] {
     ])]
   }
   var out: List[j.Member] = [j.m("ata_smart_attributes", j.object([j.m("revision", values.revision), j.m("table", table)]))]
-  var temperature: Int? = null
+  var temperature = null
   for attribute in values.attributes {
     if attribute.id == 9 { out += [j.m("power_on_time", j.object([j.m("hours", attribute.raw_value % 4294967296)]))] }
     if attribute.id == 12 { out += [j.m("power_cycle_count", attribute.raw_value)] }

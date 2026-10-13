@@ -87,9 +87,9 @@ pure empty_identity() -> Identity { {uid: null, gid: null, username: null} }
 proc identity(spec: Str) [fs, error] -> Result[Identity] {
   let parts = spec.split(":")
   return Err(IdentityError.Invalid("invalid group")) when parts.len() > 2
-  var uid: Int? = null
-  var gid: Int? = null
-  var username: Str? = null
+  var uid = null
+  var gid = null
+  var username = null
   if parts[0] != "" {
     match perm.uid(parts[0]) {
       Ok(id) => uid = id
@@ -113,7 +113,7 @@ proc identity(spec: Str) [fs, error] -> Result[Identity] {
 
 proc additional_groups(spec: Str) [fs, error, env] -> Result[List[Int]] {
   return [] when spec == ""
-  var groups: List[Int] = []
+  var groups = []
   for name in spec.split(",") {
     continue when name == ""
     let group_name = name.trim()

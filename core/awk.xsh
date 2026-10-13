@@ -102,7 +102,7 @@ proc usage_failure(prefix: Str) [io] -> Unit {
 # GNU awk looks program files up on AWKPATH and retries each name with ".awk"
 # appended; a name with a slash is taken as it stands.
 proc find_program(name: Str) [fs, env] -> Str? {
-  var candidates: List[Str] = []
+  var candidates = []
   if "/" in name { candidates = [name, f"{name}.awk"] } else {
     let search = env.get("AWKPATH") ?? ".:/usr/local/share/awk"
     for directory in search.split(":") {
@@ -219,8 +219,8 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
   var index = 0
   var program_given = false
   var seen: List[Given] = []
-  var include_found: List[Str] = []
-  var program_found: List[Str] = []
+  var include_found = []
+  var program_found = []
   while index < args.len() {
     let argument = args[index]
     if argument == "--" { index += 1; break }
@@ -228,7 +228,7 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
     index += 1
     if argument.starts_with("--") {
       var body = argument.byte_slice(2)
-      var value: Str? = null
+      var value = null
       let equals = body.find("=")
       if equals != null {
         value = body.byte_slice((equals ?? 0) + 1)
@@ -252,7 +252,7 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
         at += 1
         if letter not in SHORT_LONG { usage_failure("") }
         let option = SHORT_LONG.get(letter) ?? ""
-        var value: Str? = null
+        var value = null
         if letter in SHORT_WITH_VALUE {
           if at < argument.byte_len() { value = argument.byte_slice(at); at = argument.byte_len() } else {
             if index >= args.len() { usage_failure(f"awk: option requires an argument -- {letter}\n") }

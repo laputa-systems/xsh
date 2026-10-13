@@ -45,7 +45,7 @@ export pure words(command: Int, values: List[Int]) -> Result[Bytes, Error] {
 
 ## The 32-bit words of a reply, starting after the command word.
 export pure unwords(data: Bytes, count: Int) -> Result[List[Int], Error] {
-  var found: List[Int] = []
+  var found = []
   for index in range(count) { found += [bytes.unpack_le(data, 4, 4 + index * 4)?] }
   Ok(found)
 }
@@ -61,7 +61,7 @@ export pure text_field(data: Bytes, at: Int, length: Int) -> Result[Str, Error] 
 ## Kernel strings of a string set: `count` fixed 32-byte entries after the
 ## three-word `ethtool_gstrings` header.
 export pure string_set(data: Bytes, count: Int) -> Result[List[Str], Error] {
-  var found: List[Str] = []
+  var found = []
   for index in range(count) { found += [text_field(data, 12 + index * 32, 32)?] }
   Ok(found)
 }
@@ -287,7 +287,7 @@ export type Outcome = {lines: List[Str], changed: Bool, unsatisfied: Bool}
 
 ## Compares feature states before and after a `-K` request; see `Outcome`.
 export pure features_outcome(before: List[Feature], after: List[Feature], wanted: Map[Int, Bool]) -> Outcome {
-  var lines: List[Str] = []
+  var lines = []
   var changed = false
   var unsatisfied = false
   var noted = false
@@ -350,7 +350,7 @@ export pure drvinfo_lines(info: Driver) -> List[Str] {
 ## is reported as not set.
 export pure permaddr_line(reply: Bytes) -> Result[Str, Error] {
   let size = bytes.unpack_le(reply, 4, 4)?
-  var parts: List[Str] = []
+  var parts = []
   var any = false
   for index in range(size) {
     let value = reply.byte_at(8 + index) ?? 0
@@ -373,8 +373,8 @@ pure or_na(value: Int) -> Str { if value == 0 { "n/a" } else { f"{value}" } }
 ## limits explains it.
 export pure channels_refusal(current: Bytes, requested: List[Int?], name_length: Int) -> Result[Str?, Error] {
   let v = unwords(current, 8)?
-  var counts: List[Int] = []
-  var offsets: List[Int] = []
+  var counts = []
+  var offsets = []
   var offset = 24 + (name_length + 4) / 4 * 4 + 4
   for index in range(4) {
     counts += [requested[index] ?? v[4 + index]]
@@ -460,7 +460,7 @@ export pure coalesce_lines(device: Str, reply: Bytes) -> Result[List[Str], Error
 ## `ethtool_coalesce` with the fields in `changes` (field position to value) replaced.
 export pure coalesce_set_request(reply: Bytes, changes: Map[Int, Int]) -> Result[Bytes, Error] {
   var values = unwords(reply, 22)?
-  var next: List[Int] = []
+  var next = []
   for index in range(22) { next += [changes.get(index) ?? values[index]] }
   words(CMD.SCOALESCE, next)
 }
@@ -574,7 +574,7 @@ pure mode_any(mask: List[Int]) -> Bool {
 # continuation lines of a labelled block: `label` names the first line and
 # `pad` aligns the rest under it.
 pure mode_block(label: Str, mask: List[Int]) -> List[Str] {
-  var rows: List[Str] = []
+  var rows = []
   var row = ""
   for index in range(LINK_MODES.len()) {
     let name = LINK_MODES[index]
@@ -591,7 +591,7 @@ pure mode_block(label: Str, mask: List[Int]) -> List[Str] {
   rows += [row] when row != ""
   return [label + "Not reported"] when rows.is_empty()
 
-  var lines: List[Str] = []
+  var lines = []
   let blank = spaces(label.byte_len())
   for index in range(rows.len()) { lines += [(if index == 0 { label } else { blank }) + rows[index]] }
   lines
@@ -633,9 +633,9 @@ export pure link_settings_nwords(reply: Bytes) -> Int {
 ## Decodes a complete `ethtool_link_settings` reply.
 export pure link_settings_decode(reply: Bytes) -> Result[LinkSettings, Error] {
   let nwords = link_settings_nwords(reply)
-  var supported: List[Int] = []
-  var advertising: List[Int] = []
-  var partner: List[Int] = []
+  var supported = []
+  var advertising = []
+  var partner = []
   for index in range(nwords) {
     supported += [bytes.unpack_le(reply, 4, 48 + index * 4)?]
     advertising += [bytes.unpack_le(reply, 4, 48 + (nwords + index) * 4)?]
@@ -733,7 +733,7 @@ export pure wol_lines(reply: Bytes) -> Result[List[Str], Error] {
   let options = bytes.unpack_le(reply, 4, 8)?
   var lines: List[Str] = [f"\tSupports Wake-on: {wol_letters(supported)}", f"\tWake-on: {wol_letters(options)}"]
   if bit(supported, 6) and bit(options, 6) {
-    var parts: List[Str] = []
+    var parts = []
     for index in range(6) { parts += [hex(reply.byte_at(12 + index) ?? 0, 2)] }
     lines += [f"\tSecureOn password: {parts.join(":")}"]
   }

@@ -229,7 +229,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     exit 1
   }
 
-  var wanted: Str? = null
+  var wanted = null
   if let name = opts.type {
     if name not in TYPES {
       gnu.error(f"unknown namespace type: {name}")
@@ -237,7 +237,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     }
     wanted = name
   }
-  var task: Int? = null
+  var task = null
   if let text = opts.task {
     let parsed = parse_pid(text)
     if parsed == null {

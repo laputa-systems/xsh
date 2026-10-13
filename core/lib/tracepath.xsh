@@ -129,7 +129,7 @@ proc read_answers(fd: Int, ttl: Int, start: Walk, setup: Setup, clock: icmp.Cloc
     let received_ns = entry.stamp_ns ?? icmp.clock_ns(clock)?
     let slot = entry.port - setup.base_port
     var sent_hops = -1
-    var sent_ns: Int? = null
+    var sent_ns = null
     if slot >= 0 and slot < HISTORY_SLOTS - 1 and slot in walk.history {
       let known = walk.history.get(slot)?
       sent_hops = known.hops

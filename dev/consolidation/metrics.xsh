@@ -39,7 +39,7 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
     let envelope = json.read(fp"{o.envelope}")?.require(Envelope)?
     let metadata = json.read(fp"{o.root}/dev/consolidation/baseline-metadata.json")?.require(Metadata)?
     if envelope.start_commit != metadata.start_commit { fail "envelope baseline commit changed" }
-    var seen: List[Str] = []
+    var seen = []
     for limit in envelope.limits {
       let old = baseline.metrics |> where .name == limit.metric |> collect
       if old.len() != 1 or limit.metric in seen { fail f"unknown or repeated envelope metric {limit.metric}" }

@@ -19,7 +19,7 @@ proc table(entries: List[acl.Entry], uid: Int, gid: Int, numeric: Bool) [fs, io,
     keys += [key]
     let label = match entry.tag { acl.AclOwner => "USER", acl.AclUser => "user", acl.AclGroupOwner => "GROUP", acl.AclGroup => "group", acl.AclMask => "mask", acl.AclOther => "other" }
     let name = if entry.tag == acl.AclOwner { acl.identity(uid, false, numeric) } else if entry.tag == acl.AclGroupOwner { acl.identity(gid, true, numeric) } else if let id = entry.id { acl.identity(id, entry.tag == acl.AclGroup, numeric) } else { "" }
-    var columns: List[Str] = []
+    var columns = []
     for default in [false, true] {
       var value = "   "
       for candidate in entries {
@@ -49,7 +49,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   if opts.version { gnu.version("getfacl"); return }
   var files = opts.files
   if files.is_empty() { gnu.missing_operand(status: 2) }
-  var names: List[Str] = []
+  var names = []
   for name in files { if name == "-" { names += gnu.read_operand("-")?.utf8()?.lines() } else { names += [name] } }
   var traversal = if opts.physical { "P" } else if opts.logical { "L" } else { "H" }
   for word in argv {

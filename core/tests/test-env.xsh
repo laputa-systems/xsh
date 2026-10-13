@@ -78,10 +78,10 @@ test test_env_forwards_non_utf8_command_arguments { |ctx|
   let printf = fp"{ctx.core_dir}/printf.xsh"
   let env_script = fp"{ctx.core_dir}/env.xsh"
   let invalid = Path.parse_bytes(b"\xff")?
-  let argv: List[Path] = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, p"%s", invalid]
+  let argv = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, p"%s", invalid]
   let status = process.run(process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr))?
   let raw_format = Path.parse_bytes(b"Swer \xff")?
-  let raw_format_argv: List[Path] = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, raw_format]
+  let raw_format_argv = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, raw_format]
   let raw_format_status = process.run(process.command_argv(ctx.xsh_bin, raw_format_argv, root, {LC_ALL: "C"}, b"", raw_format_stdout, raw_format_stderr))?
 
   assert status.exit_code()? == 0

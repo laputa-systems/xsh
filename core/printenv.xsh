@@ -20,7 +20,7 @@ type PrintenvOptions = {null: Bool, help: Bool, version: Bool, names: List[Str]}
 # value that is not valid UTF-8, and GNU printenv prints the variables
 # unchanged.
 proc environment_entries() [env, error] -> Result[List[Bytes]] {
-  var entries: List[Bytes] = []
+  var entries = []
 
   for item in env.entries()? {
     entries += [bytes.concat([item.name, b"=", item.value])]

@@ -633,7 +633,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let writing = walk.failure == "" or opts.keep
-  var made: List[Str] = []
+  var made = []
 
   for piece in pieces {
     let size = piece.to - piece.from

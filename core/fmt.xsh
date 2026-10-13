@@ -160,7 +160,7 @@ proc paragraph(lines: List[Bytes], width: Int, goal: Int, quick: Bool, first: St
   let words = lines |> flat-map { |line| word_parts(line) }
   return when words.is_empty()
   if quick {
-    var breaks: List[Int] = []
+    var breaks = []
     var begin = 0
     while begin < words.len() {
       var end = begin
@@ -245,7 +245,7 @@ proc main(...argv: List[Bytes]) {
   let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
   for name in paths {
     guard let data = text.read_operand_bytes(name) else { |failure| text.cannot_open_bytes(name, failure); failed = true; continue }
-    var lines: List[Bytes] = []
+    var lines = []
     var first = ""
     var later = ""
     for raw in text.records(data) {

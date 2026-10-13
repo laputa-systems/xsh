@@ -2589,8 +2589,8 @@ export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int], Error] 
   }
 
   let data = raw.require(LscpuExtended)?
-  var seen: List[Int] = []
-  var online: List[Int] = []
+  var seen = []
+  var online = []
   for cpu_item in data.cpus {
     if cpu_item.cpu < 0 or cpu_item.cpu in seen {
       return Err(check_failure("lscpu JSON has a negative or duplicate CPU ID"))
@@ -2753,10 +2753,10 @@ export pure compare_lscpu_topology(
     candidate_cores = candidate_cores.set(core_key, (candidate_cores.get(core_key) ?? []).push(item.id))
   }
 
-  var missing_ids: List[Int] = []
-  var sibling_mismatches: List[Str] = []
-  var node_mismatches: List[Str] = []
-  var field_missing: List[Str] = []
+  var missing_ids = []
+  var sibling_mismatches = []
+  var node_mismatches = []
+  var field_missing = []
   var matched_count = 0
   for item in before {
     let key = f"{item.cpu}"
@@ -2931,8 +2931,8 @@ export pure compare_cpu_cache_sharing(
     candidate_key_by_id = candidate_key_by_id.set(id_key, key)
   }
 
-  var missing_keys: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var missing_keys = []
+  var field_mismatches = []
   var matched_count = 0
   var expected_by_cpu: Map[List[Str]] = {}
   for {key, value: source} in reference_by_key {
@@ -2989,7 +2989,7 @@ export pure compare_cpu_cache_sharing(
 
   var actual_by_cpu: Map[List[Str]] = {}
   var seen_cpu: Set[Str] = set.empty()
-  var relationship_mismatches: List[Str] = []
+  var relationship_mismatches = []
   for cpu_item in cpus {
     let cpu_key = f"{cpu_item.id}"
     if cpu_item.id < 0 or cpu_key in seen_cpu {
@@ -2997,7 +2997,7 @@ export pure compare_cpu_cache_sharing(
     }
 
     seen_cpu = seen_cpu.add(cpu_key)
-    var keys: List[Str] = []
+    var keys = []
     var seen_id: Set[Str] = set.empty()
     for cache_id in cpu_item.cache_ids {
       let id_key = f"{cache_id}"
@@ -3185,7 +3185,7 @@ export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[L
     return Err(check_failure("CPU set is empty"))
   }
 
-  var ids: List[Int] = []
+  var ids = []
   var seen: Set[Str] = set.empty()
   for term in source.split(",") {
     let bounds = term.split("-")
@@ -3264,14 +3264,14 @@ export pure compare_cpufreq_policies(
     candidate_by_name = candidate_by_name.set(candidate[index].name, index)
   }
 
-  var missing_names: List[Str] = []
-  var policy_mismatches: List[Str] = []
-  var bound_mismatches: List[Str] = []
-  var unstable_bounds: List[Str] = []
-  var gauge_mismatches: List[Str] = []
-  var unstable_gauges: List[Str] = []
-  var control_mismatches: List[Str] = []
-  var unstable_controls: List[Str] = []
+  var missing_names = []
+  var policy_mismatches = []
+  var bound_mismatches = []
+  var unstable_bounds = []
+  var gauge_mismatches = []
+  var unstable_gauges = []
+  var control_mismatches = []
+  var unstable_controls = []
   var eligible_bounds = false
   var eligible_controls = false
   var matched_count = 0
@@ -3533,9 +3533,9 @@ export pure compare_usb_topology(
     candidate_by_name = candidate_by_name.set(name, index)
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   for item in before {
     if item.name not in after_by_name {
@@ -3690,7 +3690,7 @@ export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List
   }
 
   var devices: List[UsbTopologyReference] = []
-  var names: List[Str] = []
+  var names = []
   for device_path in listing.children {
     let name = device_path.name()
     continue when ":" in name
@@ -3762,9 +3762,9 @@ export pure compare_usb_ids(
     candidate_by_name = candidate_by_name.set(name, index)
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   var eligible = false
   for item in after {
@@ -3959,7 +3959,7 @@ export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbI
   }
 
   var devices: List[UsbIdsReference] = []
-  var names: List[Str] = []
+  var names = []
   for device_path in listing.children {
     let name = device_path.name()
     continue when ":" in name
@@ -4042,7 +4042,7 @@ export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[Us
   }
 
   var devices: List[UsbPowerReference] = []
-  var names: List[Str] = []
+  var names = []
   for device_path in listing.children {
     let name = device_path.name()
     continue when ":" in name
@@ -4070,8 +4070,8 @@ export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[Us
 ## Decodes only configuration, interface, and endpoint ownership from exported USB bytes.
 export pure parse_usb_interface_descriptors(data: Bytes) -> Result[List[UsbInterfaceSettingReference], Error] {
   var current: UsbInterfaceSettingReference? = null
-  var configuration: Int? = null
-  var configuration_end: Int? = null
+  var configuration = null
+  var configuration_end = null
   var offset = 0
   let settings: List[UsbInterfaceSettingReference] = collect {
     while offset < data.len() {
@@ -4248,7 +4248,7 @@ export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[Lis
   }
 
   var rows: List[UsbInterfaceReference] = []
-  var seen: List[Str] = []
+  var seen = []
   for device_path in listing.children {
     let device_name = device_path.name()
     continue when ":" in device_name
@@ -4392,9 +4392,9 @@ export pure compare_usb_interfaces(
     }
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   let eligible = ! before.is_empty() or ! after.is_empty()
   for item in before {
@@ -4607,7 +4607,7 @@ export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List
   }
 
   var supplies: List[PowerSupplyReference] = []
-  var seen: List[Str] = []
+  var seen = []
   for supply_path in listing.children {
     let name = supply_path.name()
     if name == "" or name in seen {
@@ -4672,7 +4672,7 @@ proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyB
     }
 
     let link = root.readlink_result(entry)?
-    var class_target: Str? = null
+    var class_target = null
     var storage = entry.display()
     if link.state == "observed" {
       class_target = link.target.require(Path)?.display()
@@ -4774,11 +4774,11 @@ export proc capture_power_supply_bundle(
   }
 
   var sources: List[PowerSupplyBundleSource] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for item in layout.paths {
     let raw = source.read_result(fp"{item.path}", max_bytes: 4096)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -4974,9 +4974,9 @@ export pure compare_power_supplies(
     candidate_by_name = candidate_by_name.set(name, index)
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
+  var unstable_fields = []
   let supply_enumeration_complete = ! power_supply_has_issue(issues, "supplies") and section.status.state != "not_requested"
   var matched_count = 0
   for item in before {
@@ -5179,8 +5179,8 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
     return Err(check_failure("powercap zone enumeration is incomplete"))
   }
 
-  var zone_paths: List[Path] = []
-  var zone_names: List[Str] = []
+  var zone_paths = []
+  var zone_names = []
   var names: List[PowerTextReference] = []
   for entry in listing.children {
     let name = reference_power_text(root, fp"{entry}/name")?
@@ -5200,7 +5200,7 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
     let entry_name = zone_path.name()
     let attributes = root.children(zone_path, max_entries: 256)?
     var constraints: List[PowerCapConstraintReference] = []
-    var indices: List[Int] = []
+    var indices = []
     if attributes.state == "complete" {
       for attribute in attributes.children {
         let parsed_index = powercap_constraint_index(attribute.name())?
@@ -5281,7 +5281,7 @@ pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[Str] 
 proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLayout] {
   let listing = root.children(p"sys/class/powercap", max_entries: 1024)?
   var zones: List[PowerCapBundleZone] = []
-  var source_paths: List[Str] = []
+  var source_paths = []
   var complete = listing.state == "complete" or listing.state == "absent"
   if listing.state != "complete" {
     return {listing_state: listing.state, zones: zones, source_paths: source_paths, complete: complete}
@@ -5295,7 +5295,7 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
     }
 
     let link = root.readlink_result(entry)?
-    var target: Str? = null
+    var target = null
     if link.state == "observed" {
       target = (link.target ?? p"").display()
     } else if link.state != "read_failure" or link.errno != 22 {
@@ -5312,7 +5312,7 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
       continue
     }
 
-    var indices: List[Int] = []
+    var indices = []
     for attribute in attributes.children {
       let parsed = powercap_constraint_index(attribute.name())?
       guard let index = parsed else {
@@ -5372,11 +5372,11 @@ export proc capture_powercap_bundle(
   }
 
   var observations: List[PowerCapSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
     let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -5555,9 +5555,9 @@ export pure compare_powercap(
     candidate_by_name = candidate_by_name.set(name, index)
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
+  var unstable_fields = []
   let enumeration_complete = ! power_supply_has_issue(issues, "cap_zones") and section.status.state != "not_requested"
   var matched_count = 0
   for zone in before {
@@ -5895,8 +5895,8 @@ pure device_class_pci_address(component: Str) -> Bool {
 }
 
 pure device_class_parent_ids(target: Str?) -> DeviceClassParentIds {
-  var pci: Str? = null
-  var usb: Str? = null
+  var pci = null
+  var usb = null
   if target != null {
     for component in target.split("/") {
       if device_class_pci_address(component) {
@@ -5970,9 +5970,9 @@ export pure compare_device_classes(
     candidate_by_key = candidate_by_key.set(key, index)
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   let enumeration_complete = section.status.enumeration_succeeded and section.status.state != "not_requested"
   for item in before {
@@ -6012,7 +6012,7 @@ export pure compare_device_classes(
       unstable_fields += [f"{key}.parent"]
     } else {
       let parents = device_class_parent_ids(item.parent_target)
-      var pci_address: Str? = null
+      var pci_address = null
       var pci_index_valid = true
       if actual.parent_pci_function_index != null {
         let index = actual.parent_pci_function_index ?? -1
@@ -6032,7 +6032,7 @@ export pure compare_device_classes(
         }
       }
 
-      var usb_name: Str? = null
+      var usb_name = null
       var usb_index_valid = true
       if actual.parent_usb_device_index != null {
         let index = actual.parent_usb_device_index ?? -1
@@ -6276,7 +6276,7 @@ pure hwmon_bundle_device_target_safe(storage: Str, target: Str) -> Bool {
 proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] {
   let listing = root.children(p"sys/class/hwmon", max_entries: 1024)?
   var chips: List[HwmonBundleChip] = []
-  var source_paths: List[Str] = []
+  var source_paths = []
   var complete = listing.state == "complete" or listing.state == "absent"
   if listing.state != "complete" {
     return {listing_state: listing.state, chips: chips, source_paths: source_paths, complete: complete}
@@ -6292,7 +6292,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
     }
 
     let class_link = root.readlink_result(entry)?
-    var class_target: Str? = null
+    var class_target = null
     var storage = entry.display()
     if class_link.state == "observed" {
       class_target = class_link.target.require(Path)?.display()
@@ -6302,7 +6302,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
     }
 
     let device_link = root.readlink_result(fp"{entry}/device")?
-    var device_target: Str? = null
+    var device_target = null
     if device_link.state == "observed" {
       device_target = device_link.target.require(Path)?.display()
       if ! hwmon_bundle_device_target_safe(storage, device_target ?? "") {
@@ -6377,11 +6377,11 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   }
 
   var sources: List[HwmonSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
     let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -6596,9 +6596,9 @@ export pure compare_hwmon(
     candidate_by_key = candidate_by_key.set(key, index)
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   let enumeration_complete = section.status.enumeration_succeeded and section.status.state != "not_requested" and ! hwmon_enumeration_issue(
     issues,
@@ -6647,7 +6647,7 @@ export pure compare_hwmon(
       unstable_fields += [f"{key}.parent"]
     } else {
       let parents = device_class_parent_ids(channel.parent_target)
-      var pci_address: Str? = null
+      var pci_address = null
       var pci_index_valid = true
       if actual.parent_pci_function_index != null {
         let index = actual.parent_pci_function_index ?? -1
@@ -6667,7 +6667,7 @@ export pure compare_hwmon(
         }
       }
 
-      var usb_name: Str? = null
+      var usb_name = null
       var usb_index_valid = true
       if actual.parent_usb_device_index != null {
         let index = actual.parent_usb_device_index ?? -1
@@ -6824,9 +6824,9 @@ export pure compare_usb_power(
     candidate_by_name = candidate_by_name.set(name, index)
   }
 
-  var missing_names: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_names = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   var eligible = false
   for item in before.extend(after) {
@@ -6998,10 +6998,10 @@ export pure compare_cpuidle(
     candidate_by_key = candidate_by_key.set(key, index)
   }
 
-  var missing_keys: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var counter_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_keys = []
+  var field_mismatches = []
+  var counter_mismatches = []
+  var unstable_fields = []
   if before.driver != after.driver {
     unstable_fields += ["global_idle_driver"]
   } else if driver != before.driver {
@@ -7233,7 +7233,7 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
 }
 
 pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
-  var ids: List[Int] = []
+  var ids = []
   var seen: Set[Str] = set.empty()
   for word in output.trim().replace("\t", with: " ").split(" ") {
     continue when word == ""
@@ -7346,7 +7346,7 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
   let no_turbo_text = reference_cpufreq_text(root, p"sys/devices/system/cpu/intel_pstate/no_turbo", false)?
   let boost = parse_cpufreq_boost_reference(boost_text, no_turbo_text)?
   var policies: List[CpuFreqPolicyReference] = []
-  var names: List[Str] = []
+  var names = []
   for policy_path in listing.children {
     let name = policy_path.name()
     continue unless name.starts_with("policy")
@@ -7402,7 +7402,7 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
 
 ## Reads the process-visible affinity from a complete proc status snapshot.
 export pure parse_proc_status_affinity(output: Str) -> Result[List[Int], Error] {
-  var affinity: Str? = null
+  var affinity = null
   for line in output.lines() {
     if line.starts_with("Cpus_allowed_list:") {
       guard affinity == null else {
@@ -7465,7 +7465,7 @@ export proc capture_cpu_set_bundle(
   bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)
   var observations: List[CpuSetSourceObservation] = []
   var complete = true
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   for name in ["possible", "present", "online", "offline"] {
     let relative = fp"sys/devices/system/cpu/{name}"
     let raw = source.read_result(relative, max_bytes: 65536)?
@@ -7479,7 +7479,7 @@ export proc capture_cpu_set_bundle(
     }
 
     saved_bytes += [raw.data]
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     if raw.data != null {
       sha256_hex = hash.sha256(raw.data).hex()
     }
@@ -7620,7 +7620,7 @@ pure cpufreq_bundle_is_gauge(relative: Str) -> Bool {
 
 proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayout] {
   let listing = root.children(p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
-  var policies: List[Str] = []
+  var policies = []
   var source_paths: List[Str] = [
     "sys/devices/system/cpu/possible",
     "sys/devices/system/cpu/present",
@@ -7714,11 +7714,11 @@ export proc capture_cpufreq_bundle(
   }
 
   var sources: List[CpuFreqSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
     let raw = source.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -7883,7 +7883,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
     "sys/devices/system/cpu/online",
     "sys/devices/system/cpu/offline",
   ]
-  var cpu_ids: List[Int] = []
+  var cpu_ids = []
   var complete = true
   if let Ok(sets) = captured_cpu_set_reference(root) {
     cpu_ids = sets.present
@@ -7977,7 +7977,7 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
         return Err(check_failure("CPU topology siblings omit their owner"))
       }
 
-      var node_id: Int? = null
+      var node_id = null
       for link in layout.node_links {
         if link.cpu_id == cpu_id {
           node_id = reference_cpu_number(link.name.split("") |> drop(4).join(""))?
@@ -8019,8 +8019,8 @@ export pure compare_cpu_topology_raw(
   }
 
   var seen: Set[Str] = set.empty()
-  var missing_ids: List[Int] = []
-  var field_mismatches: List[Str] = []
+  var missing_ids = []
+  var field_mismatches = []
   var matched_count = 0
   for item in reference {
     let key = f"{item.id}"
@@ -8104,7 +8104,7 @@ export proc capture_cpu_topology_bundle(
   }
 
   var sources: List[CpuTopologySourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
     let limit = if relative.ends_with("/possible") or relative.ends_with("/present") or relative.ends_with("/online") or relative.ends_with(
@@ -8115,7 +8115,7 @@ export proc capture_cpu_topology_bundle(
       4096
     }
     let raw = source.read_result(fp"{relative}", max_bytes: limit)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -8325,7 +8325,7 @@ export proc capture_memory_bundle(
   bundle.mkdir(p"proc", mode: 0o700, parents: true)
   bundle.mkdir(p"sys/kernel/mm/transparent_hugepage", mode: 0o700, parents: true)
   var observations: List[MemorySourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = true
   for index in range(paths.len()) {
     let relative = paths[index]
@@ -8339,7 +8339,7 @@ export proc capture_memory_bundle(
       complete = false
     }
 
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -8696,9 +8696,9 @@ export pure compare_meminfo(
   var matched_count = 0
   var stable_count = 0
   var changed_count = 0
-  var missing_names: List[Str] = []
-  var mismatched_names: List[Str] = []
-  var scalar_mismatches: List[Str] = []
+  var missing_names = []
+  var mismatched_names = []
+  var scalar_mismatches = []
   for first in before {
     if first.name not in candidate_by_name {
       missing_names += [first.name]
@@ -8840,8 +8840,8 @@ export pure compare_thp(
     candidate_by_name = candidate_by_name.set(parts[0], parts[1])
   }
 
-  var missing_names: List[Str] = []
-  var mismatched_names: List[Str] = []
+  var missing_names = []
+  var mismatched_names = []
   var matched_count = 0
   for item in before {
     if item.name not in candidate_by_name {
@@ -8923,8 +8923,8 @@ export pure compare_vulnerabilities(
     candidate_by_name = candidate_by_name.set(item.name, item.description)
   }
 
-  var missing_names: List[Str] = []
-  var mismatched_names: List[Str] = []
+  var missing_names = []
+  var mismatched_names = []
   var matched_count = 0
   for item in before {
     if item.name not in candidate_by_name {
@@ -8977,7 +8977,7 @@ export proc capture_vulnerabilities_bundle(
   let first = source.children(directory, max_entries: 256)?
   var sources: List[VulnerabilityCaptureSource] = []
   var reference: List[VulnerabilityReference] = []
-  var names: List[Str] = []
+  var names = []
   var captured_bytes = 0
   var scoreable = first.state == "complete" and ! first.children.is_empty()
   if first.state == "complete" {
@@ -8989,7 +8989,7 @@ export proc capture_vulnerabilities_bundle(
 
       names += [name]
       let raw = source.read_result(child, max_bytes: 16384)?
-      var digest: Str? = null
+      var digest = null
       if raw.data != null {
         bundle.write(child, raw.data)
         digest = hash.sha256(raw.data).hex()
@@ -9083,7 +9083,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
   }
 
   var names = [child.name() for child in listing.children]
-  var expected_names: List[Str] = []
+  var expected_names = []
   var reference: List[VulnerabilityReference] = []
   var captured_bytes = 0
   for item in capture.sources {
@@ -9196,9 +9196,9 @@ export pure compare_huge_pages(
     candidate_by_key = candidate_by_key.set(key, index)
   }
 
-  var missing_keys: List[Str] = []
-  var mismatched_fields: List[Str] = []
-  var changed_fields: List[Str] = []
+  var missing_keys = []
+  var mismatched_fields = []
+  var changed_fields = []
   var matched_count = 0
   for first in before {
     let key = huge_page_pool_key(first)
@@ -9337,10 +9337,10 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
 
       let kind = columns[0]
       kinds = kinds.add(kind)
-      var avg10: Str? = null
-      var avg60: Str? = null
-      var avg300: Str? = null
-      var total_text: Str? = null
+      var avg10 = null
+      var avg60 = null
+      var avg300 = null
+      var total_text = null
       var fields: Set[Str] = set.empty()
       for column in columns |> drop(1) {
         let pair = column.split("=", maxsplit: 1)
@@ -9440,9 +9440,9 @@ export pure compare_psi(
     candidate_by_key = candidate_by_key.set(key, index)
   }
 
-  var missing_keys: List[Str] = []
-  var mismatched_fields: List[Str] = []
-  var changing_averages: List[Str] = []
+  var missing_keys = []
+  var mismatched_fields = []
+  var changing_averages = []
   var matched_count = 0
   for first in before {
     let key = psi_reference_key(first.resource, first.kind)
@@ -9565,7 +9565,7 @@ export proc capture_pressure_bundle(
       }
 
       var byte_count = 0
-      var sha256_hex: Str? = null
+      var sha256_hex = null
       if raw.data != null {
         let data = raw.data
         bundle.write(relative, data)
@@ -9802,7 +9802,7 @@ export proc capture_proc_swaps_bundle(
   bundle.mkdir(p"proc", mode: 0o700, parents: true)
   let first = source.read_result(p"proc/swaps", max_bytes: 262144)?
   var byte_count = 0
-  var sha256_hex: Str? = null
+  var sha256_hex = null
   if first.data != null {
     let data = first.data
     bundle.write(p"proc/swaps", data)
@@ -9945,8 +9945,8 @@ export pure compare_swap_devices(
   var candidate_seen: Set[Str] = set.empty()
   var candidate_field_missing = source_evidence_missing
   var matched_count = 0
-  var unexpected_names: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var unexpected_names = []
+  var field_mismatches = []
   var kind_mismatches = 0
   var size_mismatches = 0
   var used_mismatches = 0
@@ -10125,7 +10125,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference], E
     let class_base = pci_reference_hex(fields.get("Class") ?? "", 4)?
     let prog_if = pci_reference_optional_hex(fields, "ProgIf", 2)?
     let revision = pci_reference_optional_hex(fields, "Rev", 2)?
-    var numa_node: Int? = null
+    var numa_node = null
     if "NUMANode" in fields {
       let numa_text = fields.get("NUMANode") ?? ""
       for digit in numa_text {
@@ -10142,12 +10142,12 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference], E
       numa_node = parsed
     }
 
-    var driver: Str? = null
+    var driver = null
     if "Driver" in fields {
       driver = fields.get("Driver")?
     }
 
-    var iommu_group: Str? = null
+    var iommu_group = null
     if "IOMMUGroup" in fields {
       iommu_group = fields.get("IOMMUGroup")?
     }
@@ -10208,8 +10208,8 @@ export pure compare_lspci_identity(
   }
 
   var references: Set[Str] = set.empty()
-  var missing_addresses: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var missing_addresses = []
+  var field_mismatches = []
   var matched_count = 0
   for item in reference {
     if item.address in references {
@@ -10346,9 +10346,9 @@ export pure compare_pci_links(
     candidate_by_address = candidate_by_address.set(address, index)
   }
 
-  var missing_addresses: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_addresses = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   var eligible = false
   for item in before {
@@ -10495,9 +10495,9 @@ export pure compare_pci_bindings(
     candidate_by_address = candidate_by_address.set(address, index)
   }
 
-  var missing_addresses: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var missing_addresses = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   for item in before {
     let address = item.address
@@ -10541,7 +10541,7 @@ export pure compare_pci_bindings(
       field_mismatches += [f"{address}.numa_node"]
     }
 
-    var actual_parent: Str? = null
+    var actual_parent = null
     let parent_index = actual.parent_function_index
     if parent_index != null {
       if parent_index < 0 or parent_index >= candidate.len() {
@@ -10638,8 +10638,8 @@ export pure compare_thermal_zones(
     candidate_by_id = candidate_by_id.set(key, index)
   }
 
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var field_mismatches = []
+  var unstable_fields = []
   for zone in before {
     let zone_key = f"{zone.id}"
     if zone_key not in after_by_id {
@@ -10906,8 +10906,8 @@ pure thermal_bundle_trip_source(name: Str) -> Bool {
 # Enumerates only thermal-zone identity, temperature, and indexed trip sources.
 proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayout] {
   let listing = root.children(p"sys/class/thermal", max_entries: 1024)?
-  var zone_paths: List[Str] = []
-  var source_paths: List[Str] = []
+  var zone_paths = []
+  var source_paths = []
   var complete = listing.state == "complete" or listing.state == "absent"
   if listing.state != "complete" {
     return {listing_state: listing.state, zone_paths: zone_paths, source_paths: source_paths, complete: complete}
@@ -10967,11 +10967,11 @@ export proc capture_thermal_bundle(
   }
 
   var observations: List[ThermalSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
     let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -11102,8 +11102,8 @@ export proc replay_thermal_bundle(bundle: FsRoot) [fs, time, error] -> Result[Th
 
 ## Interprets the bus-entry symlink's real device path as a PCI parent chain.
 export pure pci_binding_parent_from_target(target: Path, address: Str) -> Result[Str?, Error] {
-  var preceding: Str? = null
-  var last_bdf: Str? = null
+  var preceding = null
+  var last_bdf = null
   for component in target.display().split("/") {
     if let Ok(bdf) = pci_reference_bdf(component) {
       preceding = last_bdf
@@ -11315,7 +11315,7 @@ pure pci_bundle_storage_path(address: Str, target: Str) -> Result[Str] {
 proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
   let listing = root.children(p"sys/bus/pci/devices", max_entries: 4096)?
   var functions: List[PciBundleFunction] = []
-  var source_paths: List[Str] = []
+  var source_paths = []
   if listing.state != "complete" {
     return {
       listing_state: listing.state,
@@ -11334,8 +11334,8 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
       return Err(check_failure("PCI function attributes are incomplete"))
     }
 
-    var driver_target: Str? = null
-    var iommu_target: Str? = null
+    var driver_target = null
+    var iommu_target = null
     for attribute in attributes.children {
       if attribute.name() == "driver" {
         driver_target = root.readlink(attribute)?.display()
@@ -11413,11 +11413,11 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   }
 
   var sources: List[PciSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
     let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -11616,7 +11616,7 @@ pure usb_bundle_root_hub_interface(name: Str) -> Result[Bool] {
 proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
   let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   var entries: List[UsbBundleEntry] = []
-  var source_paths: List[Str] = []
+  var source_paths = []
   if listing.state != "complete" {
     return {
       listing_state: listing.state,
@@ -11639,7 +11639,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
 
     let class_target = root.readlink(entry)?.display()
     let storage = usb_bundle_storage_path(name, class_target)?
-    var driver_target: Str? = null
+    var driver_target = null
     if interface {
       let attributes = root.children(entry, max_entries: 4096)?
       if attributes.state != "complete" {
@@ -11746,11 +11746,11 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   }
 
   var sources: List[UsbSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
     let raw = source.read_result(fp"{relative}", max_bytes: usb_bundle_source_limit(relative))?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -11957,7 +11957,7 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference], Err
         flag_seen = flag_seen.add(flag)
       }
 
-      var operstate: Str? = null
+      var operstate = null
       if state != null {
         operstate = ip_link_operstate(state)?
       } else if state_index != null {
@@ -12022,8 +12022,8 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     reference_by_name = reference_by_name.set(link.name, link.ifindex)
   }
 
-  var missing_ids: List[Int] = []
-  var field_mismatches: List[Str] = []
+  var missing_ids = []
+  var field_mismatches = []
   var matched_count = 0
   for link in reference {
     let id_key = f"{link.ifindex}"
@@ -12059,7 +12059,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
       field_mismatches += [f"{link.ifindex}.kind"]
     }
 
-    var expected_master: Int? = null
+    var expected_master = null
     if link.master_name != null {
       let master_name = link.master_name
       if master_name not in reference_by_name {
@@ -12149,7 +12149,7 @@ pure network_link_raw_flags(bits: Int) -> List[Str] {
 }
 
 pure network_link_candidate_bits(flags: List[Str]) -> Int? {
-  var bits: Int? = null
+  var bits = null
   for flag in flags {
     continue unless flag.starts_with("raw_bits=")
     return null when bits != null
@@ -12299,8 +12299,8 @@ export pure compare_network_link_raw(
     candidate_by_index = candidate_by_index.set(key, index)
   }
 
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var field_mismatches = []
+  var unstable_fields = []
   var matched_count = 0
   let enumerated = network_candidate_enumerated(section.status.state, section.status.enumeration_succeeded)
   for item in before {
@@ -12569,8 +12569,8 @@ export pure compare_ip_addresses(
   }
 
   var reference_keys: Set[Str] = set.empty()
-  var missing_keys: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var missing_keys = []
+  var field_mismatches = []
   var matched_count = 0
   for address in reference {
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
@@ -12655,8 +12655,8 @@ export pure compare_ip_address_lifetimes(
   }
 
   var seen_before: Set[Str] = set.empty()
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var field_mismatches = []
+  var unstable_fields = []
   for address in before {
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
     if key in seen_before {
@@ -13047,8 +13047,8 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
         continue
       }
 
-      var input_name: Str? = null
-      var output_name: Str? = null
+      var input_name = null
+      var output_name = null
       if input_index != 0 {
         input_name = names_by_index.get(f"{input_index}")?
       }
@@ -13062,7 +13062,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
         continue
       }
 
-      var goto_target: Int? = null
+      var goto_target = null
       for attribute in rule.attributes {
         continue when attribute.kind.bit_and(16383) != 4
         if goto_target != null {
@@ -13438,7 +13438,7 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
       return Err(check_failure("ip route reference has conflicting source selectors"))
     }
 
-    var source: Str? = null
+    var source = null
     var source_prefix_length = 0
     if source_text != null {
       let parts = ip_route_destination(source_text, family)?
@@ -13571,7 +13571,7 @@ export pure compare_ip_routes(
   }
 
   var candidate_keys: Set[Str] = set.empty()
-  var candidate_key_list: List[Str] = []
+  var candidate_key_list = []
   for route_index in range(candidate.len()) {
     let route = candidate[route_index]
     let input_ifindex = json.get(raw_candidate[route_index], ["input_ifindex"], null).require(Int?)?
@@ -13629,7 +13629,7 @@ export pure compare_ip_routes(
       continue
     }
 
-    var output_name: Str? = null
+    var output_name = null
     if output_index != 0 {
       output_name = names_by_index.get(f"{output_index}")?
     }
@@ -13908,8 +13908,8 @@ export pure compare_block_devices(
   var candidate_by_name: Map[Int] = {}
   var candidate_field_missing = false
   var matched_count = 0
-  var unexpected_names: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var unexpected_names = []
+  var field_mismatches = []
   var major_minor_mismatches = 0
   var size_mismatches = 0
   var sector_mismatches = 0
@@ -14170,8 +14170,8 @@ export pure compare_block_queue_fields(
   var candidate_seen: Set[Str] = set.empty()
   var candidate_field_missing = false
   var matched_count = 0
-  var unexpected_names: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var unexpected_names = []
+  var field_mismatches = []
   var scheduler_mismatches = 0
   var read_ahead_mismatches = 0
   var discard_mismatches = 0
@@ -14413,7 +14413,7 @@ pure block_bundle_link_path(storage: Str, directory: Str, target: Str) -> Str? {
 proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] {
   let listing = root.children(p"sys/class/block", max_entries: 4096)?
   var entries: List[BlockBundleEntry] = []
-  var source_paths: List[Str] = []
+  var source_paths = []
   var complete = listing.state == "complete" or listing.state == "absent"
   if listing.state != "complete" {
     return {listing_state: listing.state, entries: entries, source_paths: source_paths, complete: complete}
@@ -14426,7 +14426,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
     }
 
     let class_link = root.readlink_result(entry)?
-    var class_target: Str? = null
+    var class_target = null
     var storage = entry.display()
     if class_link.state == "observed" {
       class_target = class_link.target.require(Path)?.display()
@@ -14461,7 +14461,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
         }
 
         let link = root.readlink_result(child)?
-        var target: Str? = null
+        var target = null
         if link.state == "observed" {
           target = link.target.require(Path)?.display()
           if block_bundle_link_path(storage, relation.kind, target ?? "") == null {
@@ -14604,7 +14604,7 @@ pure block_raw_scheduler(raw: Str?) -> Result[Str?] {
   let words = raw.split(" ")
     |> where .trim() != ""
     |> collect()
-  var selected: Str? = null
+  var selected = null
   for word in words {
     if word.starts_with("[") or word.ends_with("]") {
       if ! word.starts_with("[") or ! word.ends_with("]") or word.count_chars() < 3 or selected != null {
@@ -14693,7 +14693,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
     } else {
       "disk"
     }
-    var parent_name: Str? = null
+    var parent_name = null
     if partition {
       let parts = class_target.split("/")
       if parts.len() < 2 {
@@ -14824,8 +14824,8 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
   }
 
   var candidate_by_name: Map[Int] = {}
-  var unexpected_names: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var unexpected_names = []
+  var field_mismatches = []
   var matched_count = 0
   for index in range(candidates.len()) {
     let device = candidates[index]
@@ -15055,11 +15055,11 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   }
 
   var sources: List[BlockSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = layout.complete
   for relative in layout.source_paths {
     let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -15628,7 +15628,7 @@ export proc capture_mountinfo_bundle(
   bundle.mkdir(p"proc/self", mode: 0o700, parents: true)
   let first = source.read_result(relative, max_bytes: 4194304)?
   var byte_count = 0
-  var sha256_hex: Str? = null
+  var sha256_hex = null
   var reference: List[MountReference]? = null
   if first.data != null {
     let data = first.data
@@ -15829,8 +15829,8 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
 
   var candidate_seen: Set[Str] = set.empty()
   var matched_count = 0
-  var unexpected_ids: List[Int] = []
-  var field_mismatches: List[Int] = []
+  var unexpected_ids = []
+  var field_mismatches = []
   var parent_mismatches = 0
   var identity_mismatches = 0
   var path_mismatches = 0
@@ -16284,8 +16284,8 @@ export pure compare_kernel_modules(
 
   var candidate_seen: Set[Str] = set.empty()
   var matched_count = 0
-  var unexpected_names: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var unexpected_names = []
+  var field_mismatches = []
   var size_mismatches = 0
   var users_mismatches = 0
   var state_mismatches = 0
@@ -16365,7 +16365,7 @@ export proc capture_kernel_modules_bundle(
   bundle.mkdir(p"proc", mode: 0o700, parents: true)
   let first = source.read_result(p"proc/modules", max_bytes: 1048576)?
   var byte_count = 0
-  var sha256_hex: Str? = null
+  var sha256_hex = null
   if first.data != null {
     let data = first.data
     bundle.write(p"proc/modules", data)
@@ -16498,8 +16498,8 @@ export proc capture_kernel_command_line_bundle(
   bundle.mkdir(p"proc", mode: 0o700, parents: true)
   let first = source.read_result(p"proc/cmdline", max_bytes: 65536)?
   var byte_count = 0
-  var sha256_hex: Str? = null
-  var reference_base64: Str? = null
+  var sha256_hex = null
+  var reference_base64 = null
   if first.data != null {
     let data = first.data
     bundle.write(p"proc/cmdline", data)
@@ -16623,8 +16623,8 @@ export pure compare_kernel_parameters(
 
   var seen: Set[Str] = set.empty()
   var matched_count = 0
-  var unexpected_names: List[Str] = []
-  var field_mismatches: List[Str] = []
+  var unexpected_names = []
+  var field_mismatches = []
   for candidate in candidates {
     let key = f"{candidate.source}:{candidate.name}"
     if candidate.name == "" or key in seen {
@@ -16730,7 +16730,7 @@ export proc capture_kernel_parameters_bundle(
   }
 
   var observations: List[KernelParameterSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = true
   for item in sources {
     let relative = item.path.strip_prefix(/)?
@@ -16740,7 +16740,7 @@ export proc capture_kernel_parameters_bundle(
     }
 
     var byte_count = 0
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     if raw.data != null {
       let data = raw.data
       if ! bundle.exists(relative.parent()) {
@@ -16959,8 +16959,8 @@ pure reference_os_release_id(value: Str) -> Bool {
 
 ## Parses ID and VERSION_ID as data; neither variable nor command syntax is evaluated.
 export pure parse_reference_os_release(source: Str) -> Result[OsReleaseReference, Error] {
-  var id: Str? = null
-  var version_id: Str? = null
+  var id = null
+  var version_id = null
   for line in source.lines() {
     let trimmed = line.trim()
     continue when trimmed == "" or trimmed.starts_with("#")
@@ -17044,10 +17044,10 @@ export proc capture_os_release_bundle(
   bundle.mkdir(p"etc", mode: 0o700, parents: true)
   bundle.mkdir(p"usr/lib", mode: 0o700, parents: true)
   var observations: List[OsReleaseSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   for relative in paths {
     let raw = source.read_result(fp"{relative}", max_bytes: 65536)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -17287,7 +17287,7 @@ export pure parse_reference_device_tree(
     return Err(check_failure("device-tree reference has no source files"))
   }
 
-  var model: Str? = null
+  var model = null
   if model_raw != null {
     let values = parse_reference_device_tree_strings(model_raw)?
     if values.len() != 1 {
@@ -17297,7 +17297,7 @@ export pure parse_reference_device_tree(
     model = values[0]
   }
 
-  var compatible: List[Str] = []
+  var compatible = []
   if compatible_raw != null {
     compatible = parse_reference_device_tree_strings(compatible_raw)?
   }
@@ -17387,7 +17387,7 @@ export proc capture_device_tree_bundle(
 
   bundle.mkdir(p"sys/firmware/devicetree/base", mode: 0o700, parents: true)
   var sources: List[DeviceTreeSourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = true
   for index in range(paths.len()) {
     let relative = paths[index]
@@ -17398,7 +17398,7 @@ export proc capture_device_tree_bundle(
     }
 
     var byte_count = 0
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     if raw.data != null {
       let data = raw.data
       bundle.write(fp"{relative}", data)
@@ -17588,7 +17588,7 @@ export proc capture_dmi_identity_bundle(
 
   bundle.mkdir(p"sys/class/dmi/id", mode: 0o700, parents: true)
   var sources: List[DmiIdentitySourceObservation] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = true
   for relative in paths {
     let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
@@ -17597,7 +17597,7 @@ export proc capture_dmi_identity_bundle(
     }
 
     var byte_count = 0
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     if raw.data != null {
       let data = raw.data
       bundle.write(fp"{relative}", data)
@@ -17732,8 +17732,8 @@ export pure compare_dmi_identity(
   let data = json.decode(candidate_json)?
   let actual = json.get(data, ["identity", "firmware"])?.require(CandidateDmiIdentity)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
-  var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
+  var field_mismatches = []
+  var unstable_fields = []
   var eligible = false
   for field in [
     {
@@ -17916,8 +17916,8 @@ export proc capture_uptime_bundle(
   bundle.mkdir(p"proc", mode: 0o700, parents: true)
   let raw = source.read_result(p"proc/uptime", max_bytes: 4096)?
   var byte_count = 0
-  var sha256_hex: Str? = null
-  var reference_seconds: Int? = null
+  var sha256_hex = null
+  var reference_seconds = null
   if raw.data != null {
     let data = raw.data
     bundle.write(p"proc/uptime", data)
@@ -18071,7 +18071,7 @@ export pure parse_proc_stat_thread_reference(output: Str) -> Result[ProcStatThre
 
 ## Reads the real numeric UID from the one complete status row.
 export pure parse_proc_status_uid_reference(output: Str) -> Result[Int, Error] {
-  var found: Int? = null
+  var found = null
   for line in output.lines() {
     continue unless line.starts_with("Uid:")
     if found != null {
@@ -18131,7 +18131,7 @@ export pure parse_proc_statm_reference(output: Str, page_size_bytes: Int) -> Res
 export pure parse_proc_cgroup_reference(output: Str) -> Result[Str?, Error] {
   return Err(check_failure("process cgroup reference is empty")) when output == ""
 
-  var unified_path: Str? = null
+  var unified_path = null
   for line in output.lines() {
     let fields = line.split(":", maxsplit: 2)
     if fields.len() != 3 {
@@ -18435,7 +18435,7 @@ export pure parse_cpu_scope_quota(output: Str) -> Result[CpuScopeQuota, Error] {
   }
 
   let unlimited = fields[0] == "max"
-  var quota: Int? = null
+  var quota = null
   if ! unlimited {
     let amount = reference_cpu_number(fields[0])?
     if amount < 1 or amount > 9007199254740991 {
@@ -18658,7 +18658,7 @@ export proc read_cgroup2_resource_reference(
 ) [fs, time, error] -> Result[Cgroup2ResourceObservation, Error] {
   let started = time.now()
   let paths = visible_cgroup2_reference_paths(root)?
-  var ancestors: List[Str] = []
+  var ancestors = []
   var resources: List[Cgroup2ResourceReference] = []
   for path_item in paths {
     ancestors += [path_item.visible_path]
@@ -18908,12 +18908,12 @@ export proc capture_cgroup2_bundle(
 
   let layout = cgroup2_bundle_layout(source)?
   var sources: List[Cgroup2BundleSource] = []
-  var saved_bytes: List[Bytes?] = []
+  var saved_bytes = []
   var complete = true
   for item in layout.paths {
     let relative = fp"{item.path}"
     let raw = source.read_result(relative, max_bytes: item.max_bytes)?
-    var sha256_hex: Str? = null
+    var sha256_hex = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
@@ -18965,7 +18965,7 @@ export proc capture_cgroup2_bundle(
     }
   }
 
-  var reference_ancestors: List[Str] = []
+  var reference_ancestors = []
   var reference_resources: List[Cgroup2ResourceReference] = []
   if complete {
     if let Ok(snapshot) = read_cgroup2_resource_reference(bundle) {
@@ -19127,9 +19127,9 @@ export pure compare_cgroup2_resources(
   let candidates = json.get(data, ["memory", "cgroup"])?.require(List[CandidateCgroup2Resource])?
   var seen: Set[Str] = set.empty()
   var matched = 0
-  var unexpected: List[Str] = []
-  var field_mismatches: List[Str] = []
-  var unscored_gauges: List[Str] = []
+  var unexpected = []
+  var field_mismatches = []
+  var unscored_gauges = []
   for candidate in candidates {
     let key = f"{candidate.hierarchy_level}:{candidate.resource}"
     if key in seen {
@@ -19238,7 +19238,7 @@ export pure compare_cpu_scope_cgroup(
   }
 
   var seen: Set[Str] = set.empty()
-  var mismatches: List[Str] = []
+  var mismatches = []
   var checked = 0
   for candidate in candidates {
     continue when candidate.resource not in ["cpu.max", "cpuset.cpus.effective"]
@@ -19532,7 +19532,7 @@ export proc capture_process_bundle(
   }
 
   let listing = source.children(p"proc", max_entries: 8192)?
-  var pids: List[Int] = []
+  var pids = []
   var sources: List[ProcessBundleSource] = []
   var skipped: List[ProcessBundleSkip] = []
   var total_bytes = 0
@@ -19946,8 +19946,8 @@ export pure compare_process_identity(
   var stable_count = 0
   var unstable_count = 0
   var matched_count = 0
-  var missing_pids: List[Int] = []
-  var mismatched_pids: List[Int] = []
+  var missing_pids = []
+  var mismatched_pids = []
   for first in before {
     let key = f"{first.pid}"
     if key not in after_by_pid {
@@ -20041,9 +20041,9 @@ export pure compare_process_resources(
   var unstable_count = 0
   var matched_count = 0
   var scored_fields = 0
-  var missing_pids: List[Int] = []
-  var unscored_fields: List[Str] = []
-  var mismatched_fields: List[Str] = []
+  var missing_pids = []
+  var unscored_fields = []
+  var mismatched_fields = []
   for first in before {
     let key = f"{first.pid}"
     if key not in after_by_pid or after[after_by_pid.get(key) ?? -1].start_ticks != first.start_ticks {
@@ -20144,10 +20144,10 @@ export pure compare_namespace_scope(
   }
 
   let data = json.decode(candidate_json)?
-  var seen: List[Str] = []
+  var seen = []
   var matched_count = 0
-  var missing_fields: List[Str] = []
-  var mismatched_fields: List[Str] = []
+  var missing_fields = []
+  var mismatched_fields = []
   for reference in references {
     if reference.field == "" or reference.target == "" or reference.field in seen {
       return Err(check_failure("namespace reference has an empty or duplicate identity"))
@@ -20212,7 +20212,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
     return Err(check_failure("coverage manifest has no producer or assertions"))
   }
 
-  var seen: List[Str] = []
+  var seen = []
   var has_mandatory = false
   for assertion in manifest.assertions {
     if assertion.id.trim() == "" or assertion.domain.trim() == "" or assertion.field.trim() == "" {
@@ -20384,7 +20384,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
       return Err(check_failure(f"assertion '{assertion.id}' has an invalid source ABI or reference invocation"))
     }
 
-    var seen_commands: List[List[Str]] = []
+    var seen_commands = []
     for command in assertion.reference_commands {
       if command.is_empty() or command[0].trim() == "" or command in seen_commands {
         return Err(check_failure(f"assertion '{assertion.id}' has an empty or duplicate reference command"))
@@ -20485,7 +20485,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
     return Err(check_failure("coverage manifest declares no mandatory assertions"))
   }
 
-  var seen_scenarios: List[Str] = []
+  var seen_scenarios = []
   for scenario in manifest.fixture_scenarios {
     if scenario.trim() == "" {
       return Err(check_failure("coverage manifest has an empty fixture scenario"))
@@ -20506,7 +20506,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
     }
   }
 
-  var covered_scenarios: List[Str] = []
+  var covered_scenarios = []
   for fixture_case in manifest.fixture_cases.extend(manifest.macos_fixture_cases) {
     if fixture_case.scenario not in manifest.fixture_scenarios {
       return Err(check_failure(f"fixture case '{fixture_case.scenario}' is not declared"))
@@ -20532,7 +20532,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
       return Err(check_failure(f"fixture case '{fixture_case.scenario}' has no tests"))
     }
 
-    var seen_tests: List[Str] = []
+    var seen_tests = []
     for test_name in fixture_case.tests {
       let native_case = test_name.starts_with("tests/xsh/system-report.xsh::test_system_report_")
       let source_parser_case = test_name.starts_with("tests/xsh/system-report-collect.xsh::test_system_report_")
@@ -20689,8 +20689,8 @@ pure traced_call_arguments(line: Str, name: Str) -> List[Str] {
   let call = line.split(f"{name}(", maxsplit: 1)
   return [] when call.len() != 2
 
-  var arguments: List[Str] = []
-  var current: List[Str] = []
+  var arguments = []
+  var current = []
   var braces = 0
   var brackets = 0
   var parentheses = 0
@@ -21093,7 +21093,7 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
   }
 
   let traced_path = argument.split("\"").get(1) ?? ""
-  var components: List[Str] = []
+  var components = []
   for component in traced_path.split("/") {
     continue when component == "" or component == "."
     if component == ".." {
@@ -21872,7 +21872,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   let scratch = fs.tempdir()?
   defer scratch.close()
   var before: List[NamespaceReference] = []
-  var reference_argv: List[List[Str]] = []
+  var reference_argv = []
   let before_started = time.now()
   for spec in specs {
     reference_argv += [["readlink", f"/proc/self/ns/{spec.kernel}"]]

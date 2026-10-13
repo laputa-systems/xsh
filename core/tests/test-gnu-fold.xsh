@@ -101,7 +101,7 @@ test test_gnu_fold_fold_zero_width_log { |ctx|
   let stream_locale = {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}
   let empty_words = uu.argv(s, "fold", [p"/dev/null"], vars: stream_locale)?
   var minimum = 0
-  var probe_results: List[Bool] = []
+  var probe_results = []
   # Cold interpreter startup can exceed the standalone utility probe ceiling.
   # Extend only baseline discovery; the stream still gets 6000 KiB above the
   # measured startup minimum, including the same page-alignment allowance.

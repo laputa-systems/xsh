@@ -197,7 +197,7 @@ test test_uu_wc_files0_progressive_stream { |ctx|
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   let deadline = time.now() + 5000
-  var writer: Int? = null
+  var writer = null
   while writer == null {
     assert time.now() < deadline, "wc did not open stdin"
     match unix.open_fd(uu.at(s, "stream-input"), write: true, nonblock: true) {

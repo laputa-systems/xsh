@@ -37,7 +37,7 @@ export pure split(data: Bytes, strip_cr: Bool) -> Source {
   let open = data.byte_at(size - 1) != 10
   let parts = data.lines()
   return {lines: parts, open: false} when ! open and ! (b"\r" in data)
-  var lines: List[Bytes] = []
+  var lines = []
   var at = 0
   let count = parts.len()
   var index = 0
@@ -98,7 +98,7 @@ export pure unit_at(raw: Bytes, at: Int, utf8: Bool) -> Glyph {
 pure line_key(line: Bytes, rules: Rules) -> Bytes {
   var text = line
   if rules.expand_tabs {
-    var chunks: List[Bytes] = []
+    var chunks = []
     var column = 0
     var start = 0
     var index = 0
@@ -119,7 +119,7 @@ pure line_key(line: Bytes, rules: Rules) -> Bytes {
     if start > 0 { chunks += [text[start..text.len()]]; text = bytes.concat(chunks) }
   }
   if rules.all_space or rules.space_change or rules.trailing_space {
-    var chunks: List[Bytes] = []
+    var chunks = []
     var start = 0
     var index = 0
     let size = text.len()
@@ -171,7 +171,7 @@ pure classify(source: Source, from: Int, to: Int, rules: Rules, plain: Bool, ids
   var table = ids
   var open_table = open_ids
   var counter = next
-  var classes: List[Int] = []
+  var classes = []
   let last = source.lines.len() - 1
   for index in range(from, to) {
     let line = if plain { source.lines[index] } else { line_key(source.lines[index], rules) }
@@ -199,7 +199,7 @@ pure discards(classes: List[Int], other_counts: List[Int]) -> List[Int] {
     break when tem <= 0
     many *= 2
   }
-  var marks: List[Int] = []
+  var marks = []
   for value in classes {
     let matches = other_counts[value]
     marks += [if matches == 0 { 1 } else if matches > many { 2 } else { 0 }]
@@ -650,8 +650,8 @@ export pure script(first: Source, second: Source, rules: Rules) -> List[Change] 
   for value in right.classes { count1[value] += 1 }
   let drop0 = discards(left.classes, count1)
   let drop1 = discards(right.classes, count0)
-  var kept0: List[Int] = []
-  var real0: List[Int] = []
+  var kept0 = []
+  var real0 = []
   var changed0: List[Int] = [0 for _ in range(m0 + 2)]
   for index in range(m0) {
     if drop0[index] == 0 {
@@ -661,8 +661,8 @@ export pure script(first: Source, second: Source, rules: Rules) -> List[Change] 
       changed0[index + 1] = 1
     }
   }
-  var kept1: List[Int] = []
-  var real1: List[Int] = []
+  var kept1 = []
+  var real1 = []
   var changed1: List[Int] = [0 for _ in range(m1 + 2)]
   for index in range(m1) {
     if drop1[index] == 0 {

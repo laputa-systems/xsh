@@ -11,11 +11,11 @@ export pure reorder_candidates(message: Str) -> Str {
   let at = message.find(marker) ?? -1
   return message when at < 0
   let head = message.byte_slice(0, at + marker.byte_len())
-  var names: List[Str] = []
+  var names = []
   for part in message.byte_slice(at + marker.byte_len()).split(" ") {
     if part != "" { names += [part] }
   }
-  var ordered: List[Str] = []
+  var ordered = []
   for known in LONG_OPTION_ORDER {
     for name in names { if name == f"'--{known}'" { ordered += [name] } }
   }

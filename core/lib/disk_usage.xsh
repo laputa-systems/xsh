@@ -113,7 +113,7 @@ export pure block_label(size: Int) -> Str {
 export proc argument_units(argv: List[Str], initial: Units, value_flags: List[Str], si_short = "") [env, process, error] -> Units {
   var selected = initial
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
-  var token_argv: List[Str] = []
+  var token_argv = []
   var options = true
   for raw in argv {
     var expanded = raw

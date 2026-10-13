@@ -169,7 +169,7 @@ pure item(data: Bytes, fmt: Format, big: Bool) -> Result[Str] {
   if fmt.kind == "d" {
     let lead = data.byte_at(if big { 0 } else { data.len() - 1 }) ?? 0
     if lead >= 128 {
-      var magnitude: List[Int] = []
+      var magnitude = []
       var carry = 1
       for i in range(data.len()) {
         let at = if big { data.len() - i - 1 } else { i }
@@ -254,8 +254,8 @@ pure byte_count_overflow(text: Str) -> Bool {
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # Each traditional format option appends at its position, preserving GNU's
   # output order even when short options and explicit type strings mix.
-  var args: List[Str] = []
-  var requested: List[Str] = []
+  var args = []
+  var requested = []
   var options = true
   var i = 0
   while i < argv.len() {
@@ -318,8 +318,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.help { gnu.help("Usage: od [OPTION]... [FILE]...\nWrite an unambiguous representation of FILE bytes.\n  -A, --address-radix=RADIX  d, o, x or n\n  -t, --format=TYPE         a, c, d, o, u or x with size\n  -j, --skip-bytes=BYTES\n  -N, --read-bytes=BYTES\n  -w, --width[=BYTES]\n  -v, --output-duplicates\n  -S, --strings[=BYTES]\n      --endian=ORDER       little or big\n      --help --version"); return }
   if opts.version { gnu.version("od"); return }
   var operands = opts.files
-  var origin: Int? = null
-  var label: Int? = null
+  var origin = null
+  var label = null
   if opts.traditional {
     if operands.len() > 3 { gnu.extra_operand(operands[3]) }
     if operands.len() >= 2 and old_offset(operands[-2]) != null and old_offset(operands[-1]) != null {
@@ -416,10 +416,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
   let files = if operands.is_empty() { ["-"] } else { operands }
-  var chunks: List[Bytes] = []
+  var chunks = []
   var failed = false
   var remaining = if count > 9223372036854775807 - skip { 9223372036854775807 } else { count + skip }
-  var seekable_device: Path? = null
+  var seekable_device = null
   for name in files {
     if name == "-" {
       while remaining > 0 {

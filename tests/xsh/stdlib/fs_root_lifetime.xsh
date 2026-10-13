@@ -24,7 +24,7 @@ test test_fs_root_returned_from_match_stays_live_through_borrowed_calls {
 }
 
 test test_fs_root_assigned_to_outer_optional_survives_loop_scope {
-  var retained: FsRoot? = null
+  var retained = null
   for _ in range(1) {
     let opened = fs.tempdir()?
     retained = opened

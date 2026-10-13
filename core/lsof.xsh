@@ -14,7 +14,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let snapshot: List[ProcessEntry] = process.list()? |> collect
   let selected = procps.select(snapshot, selector, 0)?
   let wanted = [fs.stat(fp"{name}", follow_symlinks: true)? for name in opts.operands]
-  var found: List[Int] = []
+  var found = []
   if ! opts.terse { print "COMMAND PID USER FD TYPE NODE NAME" }
   for row in selected {
     let files = linux.open_files(row.pid)?

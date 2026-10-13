@@ -109,7 +109,7 @@ test test_gnu_sort_sort_continue_log { |ctx|
 # origin: gnu sort/sort-debug-keys.log
 test test_gnu_sort_sort_debug_keys_log { |ctx|
   let s = uu.scene(ctx)?
-  var failures: List[Str] = []
+  var failures = []
   for item in [
     {args: ["-s", "-k2n", "--debug"], input: "1\n\n44\n33\n2\n", expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n", strip_nul: false},
     {args: ["-s", "-k1.3n", "--debug"], input: "1\n\n44\n33\n2\n", expected: "1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n", strip_nul: false},
@@ -250,7 +250,7 @@ test test_gnu_sort_sort_files0_from_log { |ctx|
 test test_gnu_sort_sort_float_log { |ctx|
   let s = uu.scene(ctx)?
   let limits = ["1.189731495357231765e+4932", "1.7976931348623157e+308", "3.4028235e+38", "1.1754944e-38", "2.2250738585072014e-308", "3.3621031431120935063e-4932"]
-  var failures: List[Str] = []
+  var failures = []
   let negative = ["-" + value for value in limits]
   let positive = reversed(limits)
   let canonical = (negative + ["0"] + positive).join("\n") + "\n"
@@ -275,7 +275,7 @@ test test_gnu_sort_sort_float_log { |ctx|
 # origin: gnu sort/sort-locale.log
 test test_gnu_sort_sort_locale_log { |ctx|
   let s = uu.scene(ctx)?
-  var failures: List[Str] = []
+  var failures = []
   for setting in ["LC_ALL", "LC_COLLATE"] {
     for item in [
       {locale: "en_US.iso8859-1", left: b"a_a", right: b"a b"},

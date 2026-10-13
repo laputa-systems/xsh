@@ -137,7 +137,7 @@ proc task_ids(pid: Int) [process, error] -> List[Int]? {
   match process.threads(pid) {
     Ok(threads) => {
       let rows: List[ProcessThread] = threads |> collect
-      var ids: List[Int] = []
+      var ids = []
 
       for row in rows {
         ids += [row.thread_id]
@@ -260,7 +260,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.usage_error("too few arguments", 1)
   }
 
-  var explicit: Str? = null
+  var explicit = null
 
   if opts.other { explicit = "other" }
   if opts.fifo { explicit = "fifo" }

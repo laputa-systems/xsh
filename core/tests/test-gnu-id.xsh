@@ -45,7 +45,7 @@ test test_gnu_id_zero_log { |ctx|
     let found = uu.invoke(s, "id", [candidate])?
     if found.status == 0 { accounts += [candidate] }
   }
-  var failures: List[Str] = []
+  var failures = []
   for name in accounts + [""] {
     let operands = if name == "" { [] } else { [name] }
     for mode in ["g", "gr", "G", "Gr", "u", "ur"] {

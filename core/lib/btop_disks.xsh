@@ -46,7 +46,7 @@ export type Panel = {
 }
 
 type CounterValue = {value: Int?, state: report.ObservationState}
-const max_counter: Int = 9223372036854775807
+const max_counter = 9223372036854775807
 
 ## Refreshes block counters while reusing slow mount capacity until its deadline.
 export proc collect(
@@ -169,7 +169,7 @@ pure selected_mount(entries: List[mounts.MountEntry]) -> mounts.MountEntry {
 }
 
 pure grouped_targets(entries: List[mounts.MountEntry]) -> List[Str] {
-  var values: List[Str] = []
+  var values = []
   for entry in entries {
     if entry.target not in values {
       values += [entry.target]

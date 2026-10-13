@@ -67,7 +67,7 @@ proc wait_readable(fd: Int) [net, process, error] -> Result[Unit] {
 }
 
 proc read_to_eof(fd: Int) [net, process, error] -> Result[Bytes] {
-  var chunks: List[Bytes] = []
+  var chunks = []
   while true {
     wait_readable(fd)
     let data = unix.read_fd(fd, 65536)?
@@ -103,7 +103,7 @@ proc udp_socket() [net, process, error] -> Result[Listener] {
 
 # A payload that covers every byte value and spans several relay buffers.
 proc pattern(length: Int) [error] -> Result[Bytes] {
-  var chunks: List[Bytes] = []
+  var chunks = []
   var made = 0
   let block = bytes.from_ints([n for n in range(256)])?
   while made < length {
@@ -134,7 +134,7 @@ test test_nc_help_and_usage_match_the_utility { |ctx|
 }
 
 test test_nc_diagnoses_bad_operands_and_values { |ctx|
-  let cases: List[List[Str]] = [
+  let cases = [
     ["-l"], ["127.0.0.1"], ["-lk", "-z", "5700"], ["-zk", "127.0.0.1", "5700"],
     ["-lv", "1", "2", "3"], ["-l", "-s", "127.0.0.1", "5700"], ["-l", "-p", "5700", "5701"],
     ["-U"], ["-U", "/a", "/b"], ["-U", "-p", "5", "/a"], ["-U", "-F", "/a"],
@@ -176,7 +176,7 @@ test test_nc_diagnoses_bad_operands_and_values { |ctx|
 # The options below change no behavior on Linux the utility could honor, so
 # each names why it stops instead of being accepted and ignored.
 test test_nc_refuses_unimplemented_options_by_name { |ctx|
-  let cases: List[List[Str]] = [
+  let cases = [
     ["-x", "127.0.0.1:9", "127.0.0.1", "22"], ["-X", "5", "127.0.0.1", "22"], ["-P", "user", "127.0.0.1", "22"],
     ["-S", "127.0.0.1", "22"], ["-F", "127.0.0.1", "22"], ["-Z", "127.0.0.1", "22"],
   ]
@@ -327,7 +327,7 @@ test test_nc_scans_ascending_ranges_even_when_given_backwards { |ctx|
   var middle = -1
   for _ in range(20) {
     let seed = closed_port()?
-    var held: List[Int] = []
+    var held = []
     let c = linux.net_constants()
     var usable = true
     for offset in range(3) {
@@ -407,7 +407,7 @@ test test_nc_connect_timeout_is_reported_by_name { |ctx|
   linux.bind(held, {family: "inet", address: "127.0.0.1", port: 0})
   linux.listen(held, 0)
   let port = linux.getsockname(held)?.port
-  var fillers: List[Int] = []
+  var fillers = []
   var full = false
   for _ in range(16) {
     let filler = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?

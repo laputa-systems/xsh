@@ -74,7 +74,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   }
 
   # Operands may be undecodable bytes, so the line is assembled as bytes.
-  var pieces: List[Bytes] = []
+  var pieces = []
   for index in range(opts.words.len()) {
     if index > 0 { pieces += [b" "] }
     pieces += [gnu.argument_bytes(opts.words[index], prepared.raw)]

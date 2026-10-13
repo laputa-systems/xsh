@@ -299,7 +299,7 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alterna
   var bits = length
   var expected = ""
   var name = ""
-  var alternate_path: Str? = null
+  var alternate_path = null
   let open = line.find("(") ?? -1
   let tag_end = if open > 0 and line.byte_slice(open - 1, length: 1) == " " { open - 1 } else { open }
   let split = last_separator(line)

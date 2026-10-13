@@ -538,7 +538,7 @@ pure strip_start(raw: Bytes) -> Bytes {
 
 proc option_value(value: Str, choices: List[Str], option: Str) -> Str {
   return value when value in choices
-  var matches: List[Str] = []
+  var matches = []
   for choice in choices {
     if value != "" and choice.starts_with(value) { matches += [choice] }
   }
@@ -556,7 +556,7 @@ proc main(...raw_argv: List[Bytes]) {
     mode: false, no_mode: false, xattr: "none", context: "none", owner: false, times: false, links: false, parents: false,
     remove: false, backup: "none", suffix: e"SIMPLE_BACKUP_SUFFIX" ?? "~", sparse: "auto", reflink: "auto",
     verbose: false, attributes: false, one_fs: false, strip: false, copy_contents: false, keep_directory_symlink: false, debug: false}
-  var operands: List[Str] = []
+  var operands = []
   var at = 0
   var ended = false
   let names = ["archive", "recursive", "no-clobber", "force", "interactive", "update", "no-target-directory",
@@ -573,12 +573,12 @@ proc main(...raw_argv: List[Bytes]) {
       continue
     }
     if arg == "--" { ended = true; continue }
-    var flags: List[Str] = []
-    var value: Str? = null
+    var flags = []
+    var value = null
     if arg.starts_with("--") {
       let parts = arg.byte_slice(2).split("=")
       let requested = parts[0]
-      var matches: List[Str] = []
+      var matches = []
       for name in names { if name.starts_with(requested) { matches += [name] } }
       if requested in names { flags = [requested] } else if matches.len() == 1 { flags = matches } else if matches.len() > 1 { gnu.usage_error(f"option {gnu.quote(arg)} is ambiguous") } else { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") }
       if parts.len() > 1 {
@@ -684,7 +684,7 @@ proc main(...raw_argv: List[Bytes]) {
   if dest_arg == b"" { gnu.error("cannot create regular file '': No such file or directory"); exit 1 }
   let dest = Path.parse_bytes(dest_arg)?
   let sources = if opts.target == null { operands[..operands.len() - 1] } else { operands }
-  let source_args: List[Bytes] = [gnu.argument_bytes(text, prepared.raw) for text in sources]
+  let source_args = [gnu.argument_bytes(text, prepared.raw) for text in sources]
   var directory = false
   if ! opts.no_target {
     if let Ok(meta) = fs.stat(dest, follow_symlinks: true) { directory = meta.kind == "dir" }

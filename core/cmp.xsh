@@ -76,7 +76,7 @@ pure option_events(argv: List[Str]) -> List[Event] {
       let equals = body.find("=")
       let name = if equals == null { body } else { body.byte_slice(0, length: equals ?? 0) }
       var resolved = ""
-      var candidates: List[Str] = []
+      var candidates = []
       for known in LONGS {
         if known == name { resolved = known }
         if known.starts_with(name) { candidates += [known] }
@@ -302,7 +302,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
       different = true
       if quiet { exit 1 }
       if listed {
-        var rows: List[Str] = []
+        var rows = []
         for index in range(shared) {
           let av = head_a.byte_at(index) ?? 0
           let bv = head_b.byte_at(index) ?? 0

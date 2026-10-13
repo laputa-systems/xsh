@@ -687,7 +687,7 @@ proc parse_args(argv: List[Str], arguments: text.RawArguments, start: Cfg, tty: 
         }
 
         let opt = found[0]
-        var value: Str? = null
+        var value = null
 
         if opt.arg == 1 {
           if position < total {
@@ -1090,9 +1090,9 @@ pure code_point_width(cp: Int) -> Int {
 }
 
 pure decode_units(raw: Bytes, utf8: Bool) -> Units {
-  var chars: List[Bytes] = []
-  var printable: List[Bool] = []
-  var widths: List[Int] = []
+  var chars = []
+  var printable = []
+  var widths = []
   var at = 0
   let total = raw.len()
 
@@ -1638,7 +1638,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
   var ok = false
   var kind = hint
   var failed = false
-  var absolute: Bytes? = null
+  var absolute = null
   var canonical_status = 0
 
   if ctx.hyper {
@@ -1698,7 +1698,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     }
   }
 
-  var link: Bytes? = null
+  var link = null
   var linkok = false
   var linkmode = 0
   var linkkind = ""
@@ -2949,9 +2949,9 @@ proc render_files(ctx: Ctx, files: List[File], used0: Bool) [fs] -> Rendered {
   }
 
   let pad = ctx.align and ! [f for f in files if f.quoted].is_empty()
-  var chunks: List[Bytes] = []
+  var chunks = []
   var used = used0
-  var dired: List[Int] = []
+  var dired = []
   var length = 0
 
   match ctx.format {
@@ -3051,15 +3051,15 @@ proc list_all(ctx: Ctx, operands: List[Bytes]) [fs, process, env, error, io] -> 
   let cfg = ctx.cfg
   let indent = if cfg.dired { "  " } else { "" }
   var status = 0
-  var out: List[Bytes] = []
+  var out = []
   var pos = 0
   var used = false
-  var dired: List[Int] = []
-  var subdired: List[Int] = []
+  var dired = []
+  var subdired = []
   var first = true
   var print_name = true
   var pending: List[Pending] = []
-  var active: List[Str] = []
+  var active = []
   var files: List[File] = []
 
   if operands.is_empty() {
@@ -3518,7 +3518,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, time, error, io] {
   let arguments = text.normalize_arguments(argv)
   let prog = gnu.prog()
   let tty = stdout_is_tty()
-  var quoting: Str? = null
+  var quoting = null
   var warning_failed = false
 
   match env.get("QUOTING_STYLE") {

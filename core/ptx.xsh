@@ -322,8 +322,8 @@ type Pieces = {texts: List[Str], starts: List[Int]}
 
 # One context per line, as `ptx -r` and `ptx -G` read their input.
 pure line_pieces(text: Str) -> Pieces {
-  var texts: List[Str] = []
-  var starts: List[Int] = []
+  var texts = []
+  var starts = []
   var at = 0
   let parts = text.split("\n")
 
@@ -344,8 +344,8 @@ pure line_pieces(text: Str) -> Pieces {
 # Contexts ending where `ending` matches, the match included and trailing
 # whitespace dropped.
 pure sentence_pieces(text: Str, ending: Regex) -> Pieces {
-  var texts: List[Str] = []
-  var starts: List[Int] = []
+  var texts = []
+  var starts = []
   var at = 0
 
   for hit in ending.find(text) {
@@ -525,7 +525,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let width = if opts.width != "" { positive(opts.width, "line width") } else if opts.typeset { 100 } else { 72 }
   let gap = if opts.gap != "" { positive(opts.gap, "gap width") } else { 3 }
   let context_pattern = if opts.traditional { "[^ \t\n]+" } else { WORD_CLASS }
-  var sentence: Regex? = null
+  var sentence = null
 
   if opts.sentence != null and opts.sentence != "" {
     let pattern = patch_backslash(opts.sentence)
@@ -555,8 +555,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     inputs = ["-"]
   }
 
-  var only_words: List[Str] = []
-  var ignore_words: List[Str] = []
+  var only_words = []
+  var ignore_words = []
   var break_chars = ""
 
   if opts.only_file != null {
@@ -587,9 +587,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     WORD_CLASS
   }
 
-  var files: List[List[Str]] = []
-  var starts: List[List[Int]] = []
-  var breaks: List[List[Int]] = []
+  var files = []
+  var starts = []
+  var breaks = []
   var ending: Regex? = sentence
 
   if ending == null and opts.sentence == null and ! opts.references and ! opts.traditional {

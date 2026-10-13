@@ -166,7 +166,7 @@ export proc run_internal(
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
-  var common_git: Path? = null
+  var common_git = null
   if operation in ["gate-lane", "gate-batch"] {
     cd ctx.root {
       let output = run.text git rev-parse --path-format=absolute --git-common-dir

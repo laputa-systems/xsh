@@ -154,7 +154,7 @@ const DIGITS = "0123456789abcdef"
 
 ## Lowercase hexadecimal text of the bytes.
 export pure hex(data: Bytes) -> Str {
-  var parts: List[Str] = []
+  var parts = []
   for at in range(data.len()) {
     let byte = data.byte_at(at) ?? 0
     parts += [DIGITS.byte_slice(byte / 16, 1), DIGITS.byte_slice(byte % 16, 1)]
@@ -164,7 +164,7 @@ export pure hex(data: Bytes) -> Str {
 
 ## The bytes that `hex` encoded.
 export pure unhex(text: Str) -> Bytes {
-  var values: List[Int] = []
+  var values = []
   var at = 0
   while at + 1 < text.byte_len() {
     values += [(DIGITS.find(text.byte_slice(at, 1)) ?? 0) * 16 + (DIGITS.find(text.byte_slice(at + 1, 1)) ?? 0)]
@@ -206,7 +206,7 @@ export pure mark_ids(data: Bytes, uid: Int, gid: Int) -> Bytes {
 # Split into records and order them bytewise, so output that depends on
 # directory enumeration order can be compared as a set.
 pure sorted_records(data: Bytes, separator: Int) -> List[Str] {
-  var records: List[Str] = []
+  var records = []
   var start = 0
   for at in range(data.len()) {
     if data.byte_at(at) == separator { records += [hex(data[start..at])]; start = at + 1 }
@@ -219,9 +219,9 @@ pure sorted_records(data: Bytes, separator: Int) -> List[Str] {
 export pure normalize_ls(data: Bytes) -> Bytes {
   return data when data.utf8() is Err(_)
   let text = data.utf8() ?? ""
-  var lines: List[Str] = []
+  var lines = []
   for line in text.split("\n") {
-    var fields: List[Str] = []
+    var fields = []
     var at = 0
     while fields.len() < 10 {
       while at < line.byte_len() and line.byte_slice(at, 1) == " " { at += 1 }
@@ -240,7 +240,7 @@ export pure normalize_ls(data: Bytes) -> Bytes {
 
 # Paths below `directory` relative to the directory `strip` bytes up.
 proc listing(directory: Path, strip: Int) [fs, error] -> Result[List[Bytes]] {
-  var names: List[Bytes] = []
+  var names = []
   for entry in fs.children(directory)? {
     let full = entry.path.bytes()
     names += [full[strip..]]
@@ -261,7 +261,7 @@ pure with_root_name(data: Bytes, root: Path) -> Bytes {
 ## stored corpus; anything else is the bytes themselves.
 export pure expand_input(data: Bytes) -> Bytes {
   let text = data.utf8() ?? ""
-  var lines: List[Str] = []
+  var lines = []
   if text.starts_with("@seq:") {
     for number in range(1, (text.byte_slice(5).parse_int() ?? 0) + 1) { lines += [f"{number}\n"] }
     return bytes.from_text(lines.join(""))
@@ -293,7 +293,7 @@ export proc invoke(xsh_bin: Path, script: Path, root: Path, work: Path, c: Case)
     if cap.exists() { tail += [b"cap:\n", cap.read_bytes()?] }
     var names = ["scratch"] |> map { |name| bytes.from_text(name) } |> collect()
     names += listing(scratch, root.bytes().len() + 1)?
-    var keyed: List[Str] = []
+    var keyed = []
     for name in names { keyed += [hex(name)] }
     let ordered = keyed |> sort() |> collect()
     for key in ordered { tail += [unhex(key), b"\n"] }
@@ -326,7 +326,7 @@ export pure same_output(c: Case, expected: Bytes, actual: Bytes) -> Bool {
 
 # Printable rendering of output for failure messages.
 pure show(data: Bytes) -> Str {
-  var parts: List[Str] = []
+  var parts = []
   for at in range(data.len()) {
     let byte = data.byte_at(at) ?? 0
     if byte == 10 { parts += ["\\n"] } else if byte == 9 { parts += ["\\t"] } else if byte >= 32 and byte < 127 {
@@ -346,7 +346,7 @@ export type Stored = {name: Str, flags: Str, args: List[Str], input: Str, input_
 ## matches.
 export proc run_corpus(xsh_bin: Path, script: Path, corpus: Path, root: Path, work: Path, part: Int, parts: Int) [fs, process, time, error] -> Result[List[Str], Error] {
   let identity = unix.id()?
-  var failures: List[Str] = []
+  var failures = []
   var position = -1
   for line in corpus.read_text()?.split("\n") {
     continue when line == ""

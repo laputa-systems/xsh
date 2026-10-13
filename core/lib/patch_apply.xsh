@@ -10,7 +10,7 @@ use patch_parse
 
 ## Canonical comparison forms of the input file lines, one per line.
 export pure keys(lines: List[Bytes], loose_space: Bool) -> List[Bytes] {
-  var output: List[Bytes] = []
+  var output = []
   for line in lines { output += [line_key(line, loose_space)] }
   output
 }
@@ -30,7 +30,7 @@ export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
   # Loose matching also ignores the line end: a final line without one
   # matches the same line with one.
   let content = if text.ends_with(b"\n") { text[0..text.len() - 1] } else { text }
-  var pieces: List[Int] = []
+  var pieces = []
   var in_blanks = false
   for byte in content {
     if is_blank(byte) {
@@ -46,7 +46,7 @@ export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
 
 ## The old-side lines of a hunk: its context and removed lines.
 export pure pattern(hunk: patch_parse.Hunk) -> List[Bytes] {
-  var output: List[Bytes] = []
+  var output = []
   for index in range(hunk.kinds.len()) {
     if hunk.kinds[index] != 2 { output += [hunk.texts[index]] }
   }
@@ -59,8 +59,8 @@ export pure reversed(hunk: patch_parse.Hunk) -> patch_parse.Hunk {
   var out = hunk
   # Within a change group removed lines come first, as in a hunk read
   # straight from a diff.
-  var kinds: List[Int] = []
-  var texts: List[Bytes] = []
+  var kinds = []
+  var texts = []
   var at = 0
   let total = hunk.kinds.len()
   while at < total {

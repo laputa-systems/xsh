@@ -33,7 +33,7 @@ proc index_of(name: Str) [process, net, error] -> Int {
 }
 
 pure mac_bytes(text: Str) -> Bytes {
-  var octets: List[Int] = []
+  var octets = []
   for part in text.split(":") {
     var value = 0
     for digit in part.lower() {
@@ -117,8 +117,8 @@ export proc route_add_type4(destination: Str, prefix: Int, kind: Int) [process, 
 export proc run_commands(argv: List[Str]) [fs, process, io, error] {
   let xsh = argv[0]
   let script = argv[1]
-  var current: List[Str] = []
-  var blocks: List[List[Str]] = []
+  var current = []
+  var blocks = []
   for word in argv[2..] {
     if word == "--" {
       blocks += [current]

@@ -21,7 +21,7 @@ export type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 # arguments because operating-system argv values cannot contain NUL.
 ## Prepare raw argv for the text-based option parser.
 export pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]

@@ -23,8 +23,8 @@ pure inline_value_prefix(raw: Bytes, options: List[Str]) -> Str? {
 ## Keep invalid UTF-8 operands in a form the string option parser can carry.
 export pure normalize_arguments(original: List[Bytes], inline_value_options: List[Str] = []) -> RawArguments {
   var options = true
-  var values: List[Str] = []
-  var value_offsets: List[Int] = []
+  var values = []
+  var value_offsets = []
   for at in range(original.len()) {
     let raw = original[at]
     if raw == b"--" {
@@ -92,7 +92,7 @@ export pure character(data: Bytes, at: Int) -> Character {
 
 ## Read operands in order and retain successful input after a read error.
 export proc read(paths: List[Str]) -> Input {
-  var chunks: List[Bytes] = []
+  var chunks = []
   var failed = false
   for name in if paths.is_empty() { ["-"] } else { paths } {
     match gnu.read_operand(name) {
@@ -116,7 +116,7 @@ export proc name_error_bytes(name: Bytes, failure: Error) [process, env] {
 
 ## Read the parsed path operands without decoding their original bytes.
 export proc read_arguments(arguments: RawArguments, paths: List[Str]) -> Input {
-  var chunks: List[Bytes] = []
+  var chunks = []
   var failed = false
   for value in if paths.is_empty() { ["-"] } else { paths } {
     let name = argument_bytes(arguments, value)
@@ -169,7 +169,7 @@ proc tab_error(message: Str) [process, env] -> Unit {
 
 ## Parse GNU tab lists, including final /N and +N continuation stops.
 export proc tabs(values: List[Str]) -> Tabs {
-  var stops: List[Int] = []
+  var stops = []
   var interval = 0
   var relative = false
   var last_marker = ""
@@ -255,7 +255,7 @@ export proc expand(data: Bytes, spec: Tabs, initial = false, tab_byte = 9) -> By
   var column = 0
   var leading = true
   var held = 0
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   while at < data.len() {
     let unit = if by_bytes { {size: 1, width: 1} } else { character(data, at) }
@@ -289,7 +289,7 @@ export pure blank_size(data: Bytes, at: Int, by_bytes = false) -> Int {
 ## Byte mode counts undecodable bytes and controls as one column, except NUL;
 ## backspace and newline retain their cursor behavior.
 export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0, by_bytes = false) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var held = 0
   var at = 0
   var column = column_start
@@ -310,7 +310,7 @@ export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0, by_by
       }
       if at == start { out += [data[at..at + 1]]; at += 1; held = at; column += 1; continue }
       var pos = origin
-      var blanks: List[Bytes] = []
+      var blanks = []
       var converted = false
       while pos < column {
         let next = next_stop(pos, spec)

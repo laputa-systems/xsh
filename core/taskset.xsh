@@ -58,7 +58,7 @@ pure count_of(digits: Str) -> Int {
 
 pure sorted_unique(values: List[Int]) -> List[Int] {
   let ordered = values |> sort
-  var out: List[Int] = []
+  var out = []
 
   for value in ordered {
     if out.is_empty() or out[-1] != value {
@@ -75,7 +75,7 @@ pure sorted_unique(values: List[Int]) -> List[Int] {
 pure parse_list(text: Str) -> List[Int]? {
   return null when text == ""
 
-  var cpus: List[Int] = []
+  var cpus = []
 
   for element in text.split(",") {
     let parts = LIST_ELEMENT.captures(element)
@@ -108,7 +108,7 @@ pure parse_mask(text: Str) -> List[Int]? {
 
   return null when ! MASK_TEXT.matches(body)
 
-  var cpus: List[Int] = []
+  var cpus = []
   var number = 0
   var at = body.byte_len() - 1
 
@@ -148,7 +148,7 @@ pure parse_mask(text: Str) -> List[Int]? {
 pure format_mask(cpus: List[Int]) -> Str {
   return "0" when cpus.is_empty()
 
-  var nibbles: List[Int] = []
+  var nibbles = []
 
   for _ in range(cpus[-1] / 4 + 1) {
     nibbles += [0]
@@ -174,7 +174,7 @@ pure format_mask(cpus: List[Int]) -> Str {
 # starts at the first CPU not yet written; a shorter run is written one CPU at a
 # time, so the tail of a two-CPU run can start the next range.
 pure format_list(cpus: List[Int]) -> Str {
-  var entries: List[Str] = []
+  var entries = []
   var at = 0
 
   while at < cpus.len() {
@@ -255,7 +255,7 @@ proc task_ids(pid: Int) [process, error] -> List[Int]? {
   match process.threads(pid) {
     Ok(threads) => {
       let rows: List[ProcessThread] = threads |> collect
-      var ids: List[Int] = []
+      var ids = []
 
       for row in rows {
         ids += [row.thread_id]
@@ -325,7 +325,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let setting = if opts.pid { count == 2 } else { true }
-  var requested: List[Int] = []
+  var requested = []
 
   let pid = if opts.pid { pid_argument(operands[count - 1]) } else { 0 }
 

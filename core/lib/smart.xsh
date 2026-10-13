@@ -395,7 +395,7 @@ export pure bit_set(value: Int, bit: Int) -> Bool {
 ## An ATA string: each 16-bit word holds two characters, high byte first;
 ## leading and trailing blanks are dropped.
 export pure ata_string(page: Bytes, first_word: Int, word_count: Int) -> Str {
-  var chars: List[Int] = []
+  var chars = []
   for index in range(word_count) {
     chars += [at(page, (first_word + index) * 2 + 1), at(page, (first_word + index) * 2)]
   }
@@ -640,7 +640,7 @@ export pure smart_values(data: Bytes, thresholds: Bytes?) -> SmartValues {
     continue when id == 0
     let flags = le(data, base + 1, 2)
     let raw = [at(data, base + 5 + index) for index in range(6)]
-    var threshold: Int? = null
+    var threshold = null
     if let table = thresholds {
       # Thresholds normally sit at the same slot, but a device may order the
       # threshold table differently, so look the id up when the slot differs.
@@ -723,7 +723,7 @@ export pure power_up_time(ms: Int) -> Str {
 
 ## Error-register mnemonic list for an ATA error.
 export pure error_flags(error: Int) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
   if bit_set(error, 7) { names += ["ICRC"] }
   if bit_set(error, 6) { names += ["UNC"] }
   if bit_set(error, 5) { names += ["MC"] }

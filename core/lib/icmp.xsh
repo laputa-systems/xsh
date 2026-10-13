@@ -80,7 +80,7 @@ export pure echo_stamped(fill: Bytes, stamp: Bytes) -> Bytes {
 ## odd digit standing alone, at most sixteen bytes. Returns null for a
 ## non-hexadecimal character.
 export pure pattern_bytes(text: Str) -> Bytes? {
-  var values: List[Int] = []
+  var values = []
   var index = 0
   let size = text.byte_len()
   while index < size and values.len() < 16 {
@@ -295,8 +295,8 @@ export pure parse_queued_error(data: Bytes, payload: Bytes) -> QueuedError? {
 export proc receive(fd: Int, flags: Int = 0, max_bytes: Int = 65600) [process, net, error] -> Result[Received, Error] {
   let c = linux.net_constants()
   let got = linux.recvfrom(fd, max_bytes, flags)?
-  var ttl: Int? = null
-  var stamp: Int? = null
+  var ttl = null
+  var stamp = null
   for message in got.control {
     if message.level == c.SOL_IP and message.type == c.IP_TTL {
       ttl = bytes.unpack_le(message.data, 4)?
@@ -321,8 +321,8 @@ export proc read_error(fd: Int) [process, net, error] -> Result[QueuedError?, Er
     }
   }
   var found: QueuedError? = null
-  var ttl: Int? = null
-  var stamp: Int? = null
+  var ttl = null
+  var stamp = null
   for message in got.control {
     if message.level == c.SOL_SOCKET and message.type == c.SO_TIMESTAMPNS {
       stamp = bytes.unpack_le(message.data, 8, 0)? * 1000000000 + bytes.unpack_le(message.data, 8, 8)?

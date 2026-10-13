@@ -459,7 +459,7 @@ test test_uu_cp_cp_r_symlink { |ctx|
   uu.mkdir(s, "tmp")
   uu.symlink(s, "doesnotexist", "tmp/symlink")
   let source_gid = fs.stat(uu.at(s, "tmp/symlink"))?.gid
-  var other_gid: Int? = null
+  var other_gid = null
   for gid in unix.id()?.supplementary {
     if gid != source_gid { other_gid = gid; break }
   }

@@ -347,7 +347,7 @@ pure shown(name: Bytes) -> Str {
 # A failed write ends the run with status 2 after GNU cpio's wording, except a
 # closed pipe, which ends it as SIGPIPE would.
 proc write_out(data: Bytes) [io, process, env] -> Unit {
-  var failed: Error? = null
+  var failed = null
   match io.write_stdout_bytes(data) {
     Ok(_) => {}
     Err(failure) => { failed = failure }
@@ -869,7 +869,7 @@ pure strip_trailing_slashes(name: Bytes) -> Bytes {
 pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
   match data.utf8() {
     Ok(text) => {
-      var names: List[Bytes] = []
+      var names = []
       let parts = text.split(if terminator == 0 { "\0" } else { "\n" })
       for index in range(parts.len()) {
         break when index == parts.len() - 1 and parts[index] == ""
@@ -879,7 +879,7 @@ pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
       names
     }
     Err(_) => {
-      var names: List[Bytes] = []
+      var names = []
       var begin = 0
       for index in range(data.len()) {
         if data.byte_at(index) == terminator {
@@ -1214,7 +1214,7 @@ proc block_count_text(bytes_seen: Int, block_size: Int) -> Str {
 # Makes every missing parent directory of `file`, shallowest first. Under
 # -W interdir each directory made is announced; failures use GNU's wording.
 proc create_parents(st: Run, opts: Options, file: Path) [fs, process, env] -> Created {
-  var missing: List[Path] = []
+  var missing = []
   var current = file.parent()
   while true {
     let text = current.display()
@@ -1343,7 +1343,7 @@ proc apply_fixups(st: Run, opts: Options, chown_enabled: Bool) [fs, process, env
 # word is reversed. The caller checked that the length fits the swap.
 pure swap_data(data: Bytes, halfwords: Bool, swap_bytes: Bool) -> Bytes {
   return data when ! halfwords and ! swap_bytes
-  var out: List[Int] = []
+  var out = []
   let total = data.len()
   if halfwords {
     for word in range(total / 4) {
@@ -1417,8 +1417,8 @@ proc parse_owner(spec: Str) [fs, process, env] -> Result[UserSpec, Str] {
     user_part = spec.byte_slice(0, length: colon)
     group_part = spec.byte_slice(colon + 1)
   }
-  var uid: Int? = null
-  var gid: Int? = null
+  var uid = null
+  var gid = null
   if user_part != "" {
     match user.lookup(user_part) {
       Ok(account) => {
@@ -1631,7 +1631,7 @@ proc parse_command_line(argv: List[Str]) [fs, io, process, env] -> Options {
       let body = word.byte_slice(2)
       let equals = body.find("=") ?? -1
       let given = if equals < 0 { body } else { body.byte_slice(0, length: equals) }
-      var inline_value: Str? = null
+      var inline_value = null
       if equals >= 0 { inline_value = body.byte_slice(equals + 1) }
       var chosen: LongOption? = null
       var candidates: List[LongOption] = []
@@ -2122,7 +2122,7 @@ proc extract_entry(st: Run, opts: Options, format: Str, header: Header, content:
 
 # Reads one line from the controlling terminal (or the batch file) for -r.
 proc read_tty_line(descriptor: Int) [process, net] -> Str? {
-  var line: List[Bytes] = []
+  var line = []
   while true {
     match unix.read_fd(descriptor, 1) {
       Ok(chunk) => {
@@ -2146,7 +2146,7 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
   var format = opts.format
   var consumed = 0
   var peeked_to = 0
-  var listing: List[Bytes] = []
+  var listing = []
   var rename_index = 0
   let now_seconds = time.now() / 1000
   let terminator = if opts.null { b"\0" } else { b"\n" }
@@ -2208,7 +2208,7 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
       }
     } else if opts.table {
       if opts.verbose {
-        var target: Bytes? = null
+        var target = null
         if kind == TYPE_LINK { target = content }
         listing += [long_line(header, target, opts.numeric, now_seconds)]
       } else {
@@ -2229,7 +2229,7 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
       var entry = header
       var wanted = true
       if opts.rename or opts.rename_batch != null {
-        var answer: Str? = null
+        var answer = null
         if opts.rename {
           let prompt = bytes.concat([b"rename ", header.name, b" -> "])
           let _ = unix.write_fd(tty_out, prompt)
@@ -2722,7 +2722,7 @@ proc read_archive(opts: Options) [fs, io, error, process, env] -> Bytes {
 
 # Pattern operands plus the lines of the -E file.
 proc collect_patterns(opts: Options) [fs, error, process, env] -> List[Bytes] {
-  var patterns: List[Bytes] = []
+  var patterns = []
   if let name = opts.pattern_file {
     match fp"{name}".read_bytes() {
       Ok(data) => {

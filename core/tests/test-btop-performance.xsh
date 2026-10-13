@@ -10,9 +10,9 @@ use core.lib.btop_surface as surface
 use core.lib.system_report as report
 use core.tests.support.btop as fixture
 
-const process_seed: Int = 424242
-const process_count: Int = 256
-const disk_count: Int = 64
+const process_seed = 424242
+const process_count = 256
+const disk_count = 64
 
 pure synthetic_processes(count: Int, first_pid: Int, cpu_base: Int, seed: Int) -> List[sysproc.Process] {
   var state = seed
@@ -155,8 +155,8 @@ test test_btop_process_join_scales_from_one_thousand_to_two_thousand {
 
   let _ = measured_process_join(current_1000.processes.processes, previous_1000.processes.processes)
   let _ = measured_process_join(current_2000.processes.processes, previous_2000.processes.processes)
-  var samples_1000: List[Int] = []
-  var samples_2000: List[Int] = []
+  var samples_1000 = []
+  var samples_2000 = []
   for _ in range(5) {
     samples_1000 += [measured_process_join(current_1000.processes.processes, previous_1000.processes.processes)]
     samples_2000 += [measured_process_join(current_2000.processes.processes, previous_2000.processes.processes)]
@@ -193,7 +193,7 @@ test test_btop_preloaded_model_render_and_diff_profile_at_one_thousand_processes
   let initial_surface = surface.from_lines(120, 40, initial_screen.lines)?
   let initial_update = surface.prepare(surface.initial(), initial_surface)
   var committed = surface.complete(initial_update, initial_update.bytes.byte_len())
-  var samples: List[Int] = []
+  var samples = []
   for _ in range(20) {
     let started_ns = time.monotonic()?
     let updated = model.step_cached(current, previous, model.empty_metadata_cache("profile"))

@@ -111,8 +111,8 @@ export proc read_source_text(
 ) [fs, error] -> SourceRead {
   let raw = root.read_result(source_path, max_bytes:)?
   var state = source_state(raw.state, raw.truncated)
-  var value: Str? = null
-  var raw_bytes_base64: Str? = null
+  var value = null
+  var raw_bytes_base64 = null
 
   if raw.data != null {
     let data = raw.data
@@ -319,7 +319,7 @@ export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassP
 export proc driver_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead {
   if let Ok(observed) = root.readlink_result(source_path) {
     let state = source_state(observed.state, false)
-    var value: Str? = null
+    var value = null
     if observed.target != null {
       value = observed.target.name()
     }

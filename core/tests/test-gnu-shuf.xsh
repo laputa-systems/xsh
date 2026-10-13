@@ -3,7 +3,7 @@ use support.uu
 proc sequence(count: Int) -> Bytes { bytes.from_text([f"{n}\n" for n in range(1, count + 1)].join("")) }
 proc integers(data: Bytes) [error] -> Result[List[Int], Error] { Ok([word.parse_int()? for word in data.utf8()?.lines()] |> sort-by .) }
 proc distinct(values: List[Str]) -> List[Str] {
-  var result: List[Str] = []
+  var result = []
   for value in values |> sort-by . { if value not in result { result += [value] } }
   result
 }

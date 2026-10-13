@@ -211,8 +211,8 @@ proc select_device(root: FsRoot, opts: InfoOptions) [fs, env, io, process, error
     gnu.extra_operand(opts.operands[1])
   }
 
-  var sysfs_path: Str? = null
-  var node_name: Str? = null
+  var sysfs_path = null
+  var node_name = null
   if opts.path != null {
     sysfs_path = udev.sysfs_relative(opts.path)
   } else if opts.name != null {
@@ -231,7 +231,7 @@ proc select_device(root: FsRoot, opts: InfoOptions) [fs, env, io, process, error
     exit 2
   }
 
-  var devpath: Str? = null
+  var devpath = null
   if node_name != null {
     let given = node_name
     let relative = if given.starts_with("/dev/") { given.byte_slice(5) } else { given }
@@ -275,7 +275,7 @@ proc select_device(root: FsRoot, opts: InfoOptions) [fs, env, io, process, error
 proc remove_database(root: FsRoot) [fs, process, error] {
   let host = root.host_path()?
   var failed = false
-  var doomed: List[Path] = []
+  var doomed = []
   if root.exists(p"run/udev/queue.bin") {
     doomed += [p"run/udev/queue.bin"]
   }
@@ -494,7 +494,7 @@ pure property_selected(device: udev.Device, selector: Str) -> Bool {
 # device path: `/dev/NAME` through the device node name, anything else as a
 # sysfs path (with or without the `/sys` prefix).
 proc device_argument(root: FsRoot, given: Str, shown: Str) [fs, process, error] -> Result[Str, Error] {
-  var devpath: Str? = null
+  var devpath = null
   if given.starts_with("/dev/") {
     devpath = udev.find_by_name(root, given.byte_slice(5))?
   } else {
@@ -560,7 +560,7 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
 
   let root = open_root()?
   defer root.close()
-  var targets: List[Str] = []
+  var targets = []
   if opts.kind == "subsystems" {
     let unsupported = [@opts.attr_match, @opts.attr_nomatch, @opts.property_match, @opts.tag_match, @opts.sysname_match, @opts.name_match, @opts.operands]
     if ! unsupported.is_empty() or opts.parent_match != null {
@@ -585,7 +585,7 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
       targets += [device_argument(root, if given.starts_with("/dev/") { given } else { f"/dev/{given}" }, given)?]
     }
   } else {
-    var parent: Str? = null
+    var parent = null
     if opts.parent_match != null {
       parent = device_argument(root, opts.parent_match, opts.parent_match)?
     }

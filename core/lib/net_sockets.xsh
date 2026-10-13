@@ -209,15 +209,15 @@ pure decode_inet(payload: Bytes, protocol: Int) -> DiagSocket? {
   let reported = find_attribute(list, INET_DIAG_PROTOCOL)
   let real_protocol = if let data = reported { data.byte_at(0) ?? protocol } else { protocol }
   let netid = if real_protocol == IPPROTO_UDP { "udp" } else if real_protocol == IPPROTO_TCP { "tcp" } else { "raw" }
-  var congestion: Str? = null
+  var congestion = null
   if let data = find_attribute(list, INET_DIAG_CONG) { congestion = cstring(data) }
-  var mark: Int? = null
+  var mark = null
   if let data = find_attribute(list, INET_DIAG_MARK) { mark = u32(data, 0) }
-  var cgroup_id: Int? = null
+  var cgroup_id = null
   if let data = find_attribute(list, INET_DIAG_CGROUP_ID) { cgroup_id = u64(data, 0) }
-  var shutdown: Int? = null
+  var shutdown = null
   if let data = find_attribute(list, INET_DIAG_SHUTDOWN) { shutdown = data.byte_at(0) }
-  var v6only: Int? = null
+  var v6only = null
   if let data = find_attribute(list, INET_DIAG_SKV6ONLY) { v6only = data.byte_at(0) }
   {
     netid: netid,
@@ -257,7 +257,7 @@ pure decode_unix(payload: Bytes) -> DiagSocket? {
   let kind = payload.byte_at(1) ?? 0
   let netid = if kind == 1 { "u_str" } else if kind == 2 { "u_dgr" } else { "u_seq" }
   let list = attributes(payload, 16)
-  var name: Str? = null
+  var name = null
   if let data = find_attribute(list, UNIX_DIAG_NAME) {
     if data.byte_at(0) == 0 {
       # An abstract name begins with a NUL byte and may hold more of them;
@@ -282,11 +282,11 @@ pure decode_unix(payload: Bytes) -> DiagSocket? {
   if let data = find_attribute(list, UNIX_DIAG_PEER) { peer = u32(data, 0) }
   var vfs: VfsIdentity? = null
   if let data = find_attribute(list, UNIX_DIAG_VFS) { vfs = {inode: u32(data, 0), device: u32(data, 4)} }
-  var pending: List[Int] = []
+  var pending = []
   if let data = find_attribute(list, UNIX_DIAG_ICONS) {
     for index in range(data.len() / 4) { pending += [u32(data, index * 4)] }
   }
-  var shutdown: Int? = null
+  var shutdown = null
   if let data = find_attribute(list, UNIX_DIAG_SHUTDOWN) { shutdown = data.byte_at(0) }
   {
     netid: netid,
@@ -378,7 +378,7 @@ export proc collect_unix(nl: Int, states: Int, memory: Bool, details: Bool) [pro
 # Decodes the hex of a /proc/net address: each 32-bit word is printed in
 # host (little-endian) order.
 pure proc_address(text: Str, size: Int) -> Bytes {
-  var raw: List[Int] = []
+  var raw = []
   for word in range(size / 4) {
     let chunk = text.byte_slice(word * 8, length: 8)
     for index in range(4) {
@@ -457,7 +457,7 @@ export proc summary() [fs, error] -> Result[Summary, Error] {
   let four = v4 ?? ""
   let six = fp"/proc/net/sockstat6".read_text() ?? ""
   var established = 0
-  var header: List[Str] = []
+  var header = []
   for line in (fp"/proc/net/snmp".read_text() ?? "").lines() {
     continue unless line.starts_with("Tcp:")
     let fields = line.fields()
@@ -572,7 +572,7 @@ export proc owners() [process, error] -> Result[List[Owner], Error] {
 ## `users:(("name",pid=N,fd=N),...)` text for one inode, or null.
 export pure owners_text(list: List[Owner], inode: Int) -> Str? {
   return null when inode == 0
-  var parts: List[Str] = []
+  var parts = []
   for item in list {
     if item.inode == inode { parts = [f"(\"{item.name}\",pid={item.pid},fd={item.fd})"].extend(parts) }
   }
@@ -597,7 +597,7 @@ export pure ipv6_text(data: Bytes) -> Str {
     return f"::ffff:{ipv4_text(data.slice(12, 4))}"
   }
 
-  var groups: List[Int] = []
+  var groups = []
   for index in range(8) {
     groups += [(data.byte_at(index * 2) ?? 0) * 256 + (data.byte_at(index * 2 + 1) ?? 0)]
   }
@@ -691,7 +691,7 @@ pure round_div(numerator: Int, denominator: Int) -> Int {
 ## `skmem:(r..,rb..)` text from a SKMEMINFO or MEMINFO attribute.
 export pure skmem_text(data: Bytes) -> Str {
   let names = ["r", "rb", "t", "tb", "f", "w", "o", "bl", "d"]
-  var parts: List[Str] = []
+  var parts = []
   for index in range(names.len()) {
     break when index * 4 + 4 > data.len()
     parts += [f"{names[index]}{u32(data, index * 4)}"]
@@ -741,7 +741,7 @@ export pure timer_text(timer: Int, expires: Int, retrans: Int) -> Str? {
 ## order. Zero counters are omitted. Algorithm-specific blocks (bbr, dctcp,
 ## vegas) are not decoded.
 export pure tcp_info_text(info: Bytes, congestion: Str?, state: Int, options: Bool) -> Str {
-  var out: List[Str] = []
+  var out = []
   let flags = info.byte_at(5) ?? 0
   if options {
     if flags.bit_and(1) != 0 { out += ["ts"] }

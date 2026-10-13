@@ -28,7 +28,7 @@ pure hex_value(pair: Str) -> Int {
 pure decode(text: Str) -> Bytes {
   return bytes.from_text(text) when text.find("\\") == null
   let raw = bytes.from_text(text)
-  var values: List[Int] = []
+  var values = []
   var at = 0
   while at < raw.len() {
     let value = raw.byte_at(at) ?? 0
@@ -49,7 +49,7 @@ pure decode(text: Str) -> Bytes {
 # The stream bytes of stored lines: a lower-case tag ends the line with a
 # newline, an upper-case tag is a final line without one.
 pure joined(lines: List[Str], small: Str) -> Bytes {
-  var chunks: List[Bytes] = []
+  var chunks = []
   for line in lines {
     chunks += [decode(line.byte_slice(2))]
     if line.starts_with(small) { chunks += [b"\n"] }
@@ -65,7 +65,7 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
     if line.starts_with("@") {
       if let done = current { cases += [done] }
       let fields = line.byte_slice(1).split("\t")
-      var arguments: List[Str] = []
+      var arguments = []
       for field in fields[1..] { arguments += [decode(field).utf8() ?? ""] }
       current = {id: fields[0], args: arguments, stdin: "", locale: "C", status: 0, out: [], err: []}
       continue

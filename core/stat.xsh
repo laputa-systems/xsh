@@ -96,7 +96,7 @@ type RawArgument = {marker: Str, value: Bytes}
 type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
@@ -382,7 +382,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
 
   var at = 0
   var output = b""
-  var warnings: List[Str] = []
+  var warnings = []
   let data = bytes.from_text(fmt)
   let length = data.len()
   while at < length {
@@ -471,7 +471,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       width = if next_width > 1000000 { 1000000 } else { next_width }
       at += 1
     }
-    var precision: Int? = null
+    var precision = null
     if at < length and stat_format_byte(data, at) == "." {
       at += 1
       var digits = 0

@@ -261,7 +261,7 @@ test test_btop_process_source_keeps_identity_uid_cpu_ticks_and_rss {
 test test_btop_process_source_keeps_i64_start_identity_outside_report_json_v1 {
   let root = fs.tempdir()?
   defer root.close()
-  let maximum: Int = 9223372036854775807
+  let maximum = 9223372036854775807
   let text = process_stat(42, maximum, 10, 0, 2)
 
   assert system_live.parse_proc_stat(text) is Err(_)
@@ -425,7 +425,7 @@ test test_btop_counter_precision_preserves_small_deltas_at_large_bases {
   assert rates.process_percent(base + 10, base, current_cpu, previous_cpu, 2).value == 50.0
   assert rates.counter_rate(base + 100, base, elapsed_ns: 1000000000).value == 100.0
 
-  let maximum: Int = 9223372036854775807
+  let maximum = 9223372036854775807
   assert rates.counter_rate(maximum, maximum - 10, elapsed_ns: 10).value == 1000000000.0
   let at_limit = syscpu.parse_stat(observed_source(f"cpu {maximum} 0 0 0\n"))
   assert at_limit.state == report.Observed
@@ -437,7 +437,7 @@ test test_btop_counter_precision_preserves_small_deltas_at_large_bases {
 }
 
 test test_btop_counter_precision_withholds_aggregate_sum_overflow {
-  let half: Int = 4611686018427387903
+  let half = 4611686018427387903
   let previous: syscpu.CpuCounters = {fields: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}
   let current: syscpu.CpuCounters = {fields: [half, half, half, half, half, half, half, half, 0, 0]}
   assert rates.cpu_percent(current, previous).state == rates.Invalid

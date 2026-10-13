@@ -149,7 +149,7 @@ pure split_fields(line: Bytes, layout: Layout) -> List[Bytes] {
     }
   }
 
-  var out: List[Bytes] = []
+  var out = []
 
   if layout.mode == "sep" {
     let width = layout.sep.len()

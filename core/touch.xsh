@@ -10,7 +10,7 @@ type RawArgument = {marker: Str, value: Bytes}
 type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]
@@ -53,10 +53,10 @@ pure obsolete_stamp(operand: Str) -> Str? {
 # Sets the selected timestamps: an explicit instant, or the kernel's current
 # time when none was given; the unselected one is left unchanged.
 proc set_times(target: Path, atime: date_parse.Instant?, mtime: date_parse.Instant?, access: Bool, modify: Bool, follow_symlinks: Bool) [fs] -> Result[Unit, Error] {
-  var atime_sec: Int? = null
-  var atime_nsec: Int? = null
-  var mtime_sec: Int? = null
-  var mtime_nsec: Int? = null
+  var atime_sec = null
+  var atime_nsec = null
+  var mtime_sec = null
+  var mtime_nsec = null
   if access {
     if let instant = atime { atime_sec = instant.seconds
       atime_nsec = instant.nanoseconds }

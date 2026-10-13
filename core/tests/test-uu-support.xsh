@@ -167,7 +167,7 @@ test test_uu_support_command_preserves_parallel_input_and_append_output { |ctx|
   let s = uu.scene(ctx)?
   let output = uu.at(s, "output")
   output.write("")
-  var children: List[ProcessHandle] = []
+  var children = []
   for index in range(3) {
     let plan = uu.command(s, "cat", [], stdin: bytes.from_text(f"child-{index}\n"),
       stdout: output, stderr: uu.at(s, f"stderr-{index}"), stdout_append: true, timeout: 2s)?
@@ -213,7 +213,7 @@ test test_uu_support_child_umask_applies_to_path_and_parallel_commands { |ctx|
   uu.write(s, "input", "")
   uu.succeeds(uu.invoke_from_path(s, "mkdir", ["from-input"], uu.at(s, "input"), umask: 0o027)?)
   assert uu.mode(s, "from-input")? == 0o750
-  var children: List[ProcessHandle] = []
+  var children = []
   for index in range(3) {
     let plan = uu.command(s, "mkdir", [f"parallel-{index}"], umask: 0o022,
       stdout: uu.at(s, f"stdout-{index}"), stderr: uu.at(s, f"stderr-{index}"))?

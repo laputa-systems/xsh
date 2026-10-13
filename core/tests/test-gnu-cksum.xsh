@@ -410,7 +410,7 @@ test test_gnu_cksum_cksum_base64_log { |ctx|
   check_case(s, "cksum", ["-a", "sha1", "--check"], [], bytes.from_text("\\0\\0\\0"), "", "cksum: 'standard input': no properly formatted checksum lines found\n", 1)
   let help = uu.invoke(s, "cksum", ["--help"])?
   uu.succeeds(help)
-  var algorithms: List[Str] = []
+  var algorithms = []
   var in_digest = false
   for line in help.stdout.utf8()?.lines() {
     if line.starts_with("DIGEST determines") { in_digest = true; continue }

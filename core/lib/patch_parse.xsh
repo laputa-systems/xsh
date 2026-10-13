@@ -114,7 +114,7 @@ export const EMPTY_HUNK: Hunk = {
 ## when the data does not end in a line break. Lone carriage returns stay in
 ## the line.
 export pure split_lines(data: Bytes) -> List[Bytes] {
-  var output: List[Bytes] = []
+  var output = []
   var at = 0
   let total = data.len()
   for chunk in data.lines() {
@@ -157,7 +157,7 @@ pure number(text: Str) -> Int {
 
 pure unquote(text: Str) -> HeaderName {
   let raw = bytes.from_text(text)
-  var output: List[Int] = []
+  var output = []
   var index = 1
   let size = raw.len()
   while index < size {
@@ -310,7 +310,7 @@ pure read_git_header(lines: List[Bytes], at: Int) -> GitRead {
 ## The lines from `from` on with up to `width` leading blanks removed from
 ## each, which is how an indented patch is read.
 export pure deindent(lines: List[Bytes], from: Int, width: Int) -> List[Bytes] {
-  var output: List[Bytes] = []
+  var output = []
   for index in range(lines.len()) {
     var line = lines[index]
     if index >= from {
@@ -398,8 +398,8 @@ pure finish(hunk: Hunk) -> Hunk {
   var out = hunk
   # Within a change group removed lines come before added ones, whatever
   # order the patch wrote them in.
-  var kinds: List[Int] = []
-  var texts: List[Bytes] = []
+  var kinds = []
+  var texts = []
   var at = 0
   let count = hunk.kinds.len()
   while at < count {
@@ -462,8 +462,8 @@ export pure read_unified(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   let old_count = if header[2] == "" { 1 } else { number(header[2]) }
   let new_first = number(header[3])
   let new_count = if header[4] == "" { 1 } else { number(header[4]) }
-  var kinds: List[Int] = []
-  var texts: List[Bytes] = []
+  var kinds = []
+  var texts = []
   var old_seen = 0
   var new_seen = 0
   var i = at + 1
@@ -531,7 +531,7 @@ export pure read_context(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   var old_lines: List[HalfLine] = []
   var new_lines: List[HalfLine] = []
   var i = at + 2
-  var new_header: List[Str] = []
+  var new_header = []
   var old_listed = false
   while i < total {
     let text = body_text(lines[i])
@@ -587,8 +587,8 @@ export pure read_context(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   if !new_listed and !old_lines.is_empty() {
     for entry in old_lines { if entry.mark == 32 { new_lines += [entry] } }
   }
-  var kinds: List[Int] = []
-  var texts: List[Bytes] = []
+  var kinds = []
+  var texts = []
   var oi = 0
   var ni = 0
   while oi < old_lines.len() or ni < new_lines.len() {
@@ -645,8 +645,8 @@ export pure read_normal(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   let old_count = if action == "a" { 0 } else { range_count(command[1], command[2]) }
   let new_start = number(command[4])
   let new_count = if action == "d" { 0 } else { range_count(command[4], command[5]) }
-  var kinds: List[Int] = []
-  var texts: List[Bytes] = []
+  var kinds = []
+  var texts = []
   var i = at + 1
   var removed = 0
   while removed < old_count {

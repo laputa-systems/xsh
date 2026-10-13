@@ -97,8 +97,8 @@ export pure exceptions(page: Bytes) -> Exceptions {
 ## The temperature log page's current and reference temperatures; null when a
 ## parameter is absent or reports 0xff.
 export pure temperatures(page: Bytes) -> Temperatures {
-  var current: Int? = null
-  var trip: Int? = null
+  var current = null
+  var trip = null
   var offset = 4
   let end = 4 + be(page, 2, 2)
   while offset + 4 <= end {

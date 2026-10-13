@@ -63,7 +63,7 @@ pure simple_escape(byte: Int) -> Int {
 # one byte, and an unrecognized sequence keeps its backslash.
 proc expand(raw: Bytes) [error] -> Result[Expanded] {
   let total = raw.len()
-  var out: List[Int] = []
+  var out = []
   var at = 0
 
   while at < total {
@@ -172,13 +172,13 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
     }
   }
 
-  var words: List[Bytes] = []
+  var words = []
   for text in texts[first..texts.len()] {
     words += [gnu.argument_bytes(text, prepared.raw)]
   }
 
   if ! (escapes or posix) {
-    var parts: List[Bytes] = []
+    var parts = []
     for index in range(words.len()) {
       if index > 0 { parts += [b" "] }
       parts += [words[index]]

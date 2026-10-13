@@ -42,7 +42,7 @@ type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 # Keep raw operands for paths while giving the text option parser safe markers.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
 
   for index in range(argv.len()) {

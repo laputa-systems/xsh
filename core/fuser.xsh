@@ -22,7 +22,7 @@ pure plain_letters(access: Str) -> Str {
 }
 
 proc main(...argv: List[Str]) [fs, process, io, error] {
-  var normalized: List[Str] = []
+  var normalized = []
   var option_words = true
   for word in argv {
     if word == "--" { option_words = false }
@@ -50,8 +50,8 @@ proc main(...argv: List[Str]) [fs, process, io, error] {
       spec = parts[0]
       protocol = parts[1]
     }
-    var pids: List[Int] = []
-    var rows: List[LinuxOpenFile] = []
+    var pids = []
+    var rows = []
     if protocol == "file" {
       let metadata = fs.stat(fp"{operand}", follow_symlinks: true)
       if let Err(_) = metadata { eprint f"Specified filename {operand} does not exist."; continue }

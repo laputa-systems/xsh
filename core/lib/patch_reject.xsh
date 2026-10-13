@@ -35,12 +35,12 @@ pure context_range(first: Int, count: Int) -> Str {
 ## context lines and prints the bare ranges GNU patch prints for such hunks;
 ## `cr_marked` is set for a CRLF context patch whose first hunk changes lines.
 export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool, cr_marked: Bool) -> Bytes {
-  var old_lines: List[Bytes] = []
-  var new_lines: List[Bytes] = []
+  var old_lines = []
+  var new_lines = []
   let kinds = hunk.kinds
   # Within one change group, removed and added lines show as changed (`!`)
   # when the group has both, otherwise as `-` or `+`.
-  var marks: List[Str] = []
+  var marks = []
   var index = 0
   while index < kinds.len() {
     if kinds[index] == 0 {

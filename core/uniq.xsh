@@ -485,8 +485,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let records = split_records(data, sep)?
-  var out: List[Bytes] = []
-  var bunch: List[Bytes] = []
+  var out = []
+  var bunch = []
   var group_key = b""
   var printed = 0
 
@@ -501,7 +501,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     if ! bunch.is_empty() {
       let size = bunch.len()
-      var lines: List[Bytes] = []
+      var lines = []
 
       if select.group {
         lines = bunch

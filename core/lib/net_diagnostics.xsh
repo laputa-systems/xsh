@@ -33,7 +33,7 @@ export proc dig_options(argv: List[Str]) [error] -> Result[DnsOptions, Error] {
   var name = ""
   var record = "A"
   var server = ""
-  var port: Int? = null
+  var port = null
   var timeout = 5s
   var attempts = 3
   var short = false
@@ -66,7 +66,7 @@ export proc nslookup_options(argv: List[Str]) [error] -> Result[DnsOptions, Erro
   var name = ""
   var record = "A"
   var server = ""
-  var port: Int? = null
+  var port = null
   var timeout = 5s
   var attempts = 3
   var help = false

@@ -137,7 +137,7 @@ export pure namespace(page: Bytes) -> Namespace {
 
 ## Decodes the SMART/health information log page (512 bytes).
 export pure health(page: Bytes) -> Health {
-  var sensors: List[Int] = []
+  var sensors = []
   for index in range(8) {
     let kelvin = smart.le(page, 200 + index * 2, 2)
     sensors += [if kelvin == 0 { 0 } else { kelvin - 273 }]
@@ -280,7 +280,7 @@ export pure info_text(ctrl: Controller, ns: Namespace?, nsid: Int, local_time: S
 }
 
 pure flag_names(value: Int, names: List[Str]) -> Str {
-  var out: List[Str] = []
+  var out = []
   for index in range(names.len()) {
     if smart.bit_set(value, index) { out += [names[index]] }
   }
@@ -348,7 +348,7 @@ export pure capabilities_text(ctrl: Controller, ns: Namespace?, nsid: Int, ident
 
 ## The reasons a nonzero critical warning byte names, in bit order.
 export pure warning_reasons(warning: Int) -> List[Str] {
-  var reasons: List[Str] = []
+  var reasons = []
   if smart.bit_set(warning, 0) { reasons += ["- available spare has fallen below threshold"] }
   if smart.bit_set(warning, 1) { reasons += ["- temperature is above or below threshold"] }
   if smart.bit_set(warning, 2) { reasons += ["- NVM subsystem reliability has been degraded"] }
@@ -552,7 +552,7 @@ export pure info_json(ctrl: Controller, ns: Namespace?, nsid: Int, serials: Bool
 
 ## JSON members for the health log and the summaries derived from it.
 export pure health_json(log: Health) -> List[j.Member] {
-  var sensors: List[Int] = []
+  var sensors = []
   for temperature in log.sensors { if temperature != 0 { sensors += [temperature] } }
   var members: List[j.Member] = [
     j.m("critical_warning", log.critical_warning),

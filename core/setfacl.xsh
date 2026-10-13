@@ -64,7 +64,7 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
   }
   acl.validate(entries)
   if testing {
-    var access: List[Str] = []; var defaults: List[Str] = []
+    var access = []; var defaults = []
     for entry in acl.canonical(entries) { if entry.default { defaults += [acl.text(entry).replace("default:", with: "d:").replace("user:", with: "u:").replace("group:", with: "g:").replace("mask:", with: "m:").replace("other:", with: "o:")] } else { access += [acl.text(entry).replace("default:", with: "d:").replace("user:", with: "u:").replace("group:", with: "g:").replace("mask:", with: "m:").replace("other:", with: "o:")] } }
     gnu.write_text(target.display() + ": " + access.join(",") + "," + (if defaults.is_empty() { "*" } else { defaults.join(",") }) + "\n")
     return Ok()
@@ -76,8 +76,8 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
 # Restore input is parsed and validated in full before its first inode changes.
 proc parse_restore(text: Str) [fs, error] -> Result[List[Restore], Error] {
   var records: List[Restore] = []
-  var name: Str? = null; var lines: List[Str] = []
-  var uid: Int? = null; var gid: Int? = null; var special = 0
+  var name = null; var lines = []
+  var uid = null; var gid = null; var special = 0
   for line in text.lines().extend(["# file: "]) {
     if line.starts_with("# file: ") {
       if let previous = name {
@@ -112,10 +112,10 @@ proc restore_record(target: Path, record: Restore) [fs, error] -> Result[Unit, E
 }
 
 proc main(...argv: List[Str]) [fs, process, env, io, error] {
-  var actions: List[Action] = []; var names: List[Str] = []; var works: List[Work] = []; var saw_files = false
+  var actions: List[Action] = []; var names = []; var works: List[Work] = []; var saw_files = false
   var mask_policy = "auto"; var defaults = false; var recursive = false; var traversal = "H"; var testing = false
-  var restore: Str? = null; var stopped = false; var at = 0
-  var words: List[Str] = []
+  var restore = null; var stopped = false; var at = 0
+  var words = []
   var literal = false; var argument = false
   for word in argv {
     if argument { words += [word]; argument = false; continue }
@@ -140,7 +140,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     if saw_files { actions = []; saw_files = false }
     if word in ["--help", "-h"] { gnu.help("Usage: setfacl [-RLPdn] [-m ACL|-x ACL|-M FILE|-X FILE] FILE...\n       setfacl --set=ACL FILE... | --set-file=FILE FILE...\n       setfacl [-b|-k] FILE... | --restore=FILE\n--mask recalculates masks; -n preserves masks; -d selects default entries; --test displays results without mutation.\n"); return }
     if word in ["--version", "-v"] { gnu.version("setfacl"); return }
-    var option = word; var attached: Str? = null
+    var option = word; var attached = null
     if let equal = word.find("=") { option = word.byte_slice(0, length: equal); attached = word.byte_slice(equal + 1) }
     if option.starts_with("--") {
       let known = ["--modify", "--remove", "--modify-file", "--remove-file", "--set", "--set-file", "--restore", "--remove-all", "--remove-default", "--no-mask", "--mask", "--default", "--recursive", "--logical", "--physical", "--test"]

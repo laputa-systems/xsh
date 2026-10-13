@@ -64,7 +64,7 @@ const OPTIONS: List[Spec] = [
 # Options real curl has that this applet does !implement. Each one stops
 # with curl's "not supported by this build" diagnostic and status 4 rather than
 # being accepted and ignored; anything else unknown is curl's "is unknown".
-const UNSUPPORTED: List[Str] = [
+const UNSUPPORTED = [
   "proxy", "x", "form", "F", "config", "K", "parallel", "Z", "http1.0", "0", "http2", "http3",
   "ipv4", "4", "ipv6", "6", "limit-rate", "netrc", "n", "digest", "ntlm", "negotiate", "anyauth",
   "oauth2-bearer", "remote-header-name", "J", "output-dir", "next", "retry-max-time", "cert", "E",
@@ -212,7 +212,7 @@ proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error
   match raw {
     Ok(content) => {
       return content unless strip
-      var kept: List[Int] = []
+      var kept = []
       for index in range(content.len()) {
         let byte = content.byte_at(index) ?? 0
         if byte != 10 and byte != 13 { kept += [byte] }
@@ -551,7 +551,7 @@ proc cookie_from(header: Str, host: Str, route: Str) [time] -> Cookie? {
   var scope = route
   var secure = false
   var expires = 0
-  var max_age: Int? = null
+  var max_age = null
   for attribute in parts[1..] {
     let item = attribute.trim()
     let kv = item.split("=", 1)
@@ -687,10 +687,10 @@ proc unknown_variable(name: Str) [io, error] -> Str {
   ""
 }
 
-const ALLOWED_METHODS: List[Str] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
+const ALLOWED_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
 # Statuses curl treats as transient for --retry.
-const TRANSIENT_STATUS: List[Int] = [408, 429, 500, 502, 503, 504]
+const TRANSIENT_STATUS = [408, 429, 500, 502, 503, 504]
 
 type Attempt = {code: Int, again: Str?}
 
@@ -750,7 +750,7 @@ proc request_headers_for(settings: Settings, url: Str, body: Bytes, resume_from:
   if agent != "" { headers += [{name: "User-Agent", value: agent}] }
   headers += [{name: "Accept", value: "*/*"}]
   if let from = settings.referer { headers += [{name: "Referer", value: from}] }
-  var pairs: List[Str] = []
+  var pairs = []
   let host = http_transfer.url_host(url)
   let route = http_transfer.url_path(url)
   let https = http_transfer.url_scheme(url) == "https"
@@ -804,7 +804,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     return 3
   }
   var body = b""
-  var parts: List[Bytes] = []
+  var parts = []
   var first = true
   for part in settings.data {
     if !first { parts += [b"&"] }
@@ -839,7 +839,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     }
   }
 
-  var dest: Path? = null
+  var dest = null
   if output == "\0remote" {
     dest = fp"{remote_name(settings, url)}"
   } else if output != "" and output != "-" {
@@ -992,7 +992,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
           return {code: 63, again: null}
         }
       }
-      var again: Str? = null
+      var again = null
       if reply.status in TRANSIENT_STATUS { again = "HTTP error" }
       let failed = settings.fail and reply.status >= 400 and !(resume_from > 0 and reply.status == 416)
       if failed and !settings.fail_with_body {

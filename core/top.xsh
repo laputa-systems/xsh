@@ -11,7 +11,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   if ! opts.operands.is_empty() { eprint "top: unexpected operand"; exit 2 }
   let sampling = procps.sampling_args([opts.delay, opts.count])?
   let pids = if opts.pids == null { [] } else { procps.ids(opts.pids)? }
-  var previous: LinuxSample? = null
+  var previous = null
   var index = 0
   while index < sampling.count {
     let current = linux.sample()?

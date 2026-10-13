@@ -632,7 +632,7 @@ proc write_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
 # -C: every bare LF becomes CR LF. `after_cr` carries a chunk's final byte.
 pure add_carriage_returns(data: Bytes, after_cr: Bool) -> Bytes {
   return data when data.count_lines() == 0
-  var pieces: List[Bytes] = []
+  var pieces = []
   var start = 0
   var previous_cr = after_cr
   for at in range(data.len()) {
@@ -714,10 +714,10 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
       }
     }
 
-    var wanted: List[Str] = []
+    var wanted = []
     if net_in { wanted += ["readable"] }
     if ! pending.is_empty() and net_out { wanted += ["writable"] }
-    var events: List[Str] = []
+    var events = []
     if ! wanted.is_empty() {
       events = unix.poll_fd(fd, wanted, if progressed { 0 } else { WAIT_SLICE_MS }) ?? []
     } else if ! progressed {
@@ -822,7 +822,7 @@ proc connect_unix(socket_path: Str, opts: Options) [net, fs, process, io, error]
 }
 
 proc run_client(host: Str, port_specs: List[Str], opts: Options) [net, fs, process, time, io, error] -> Unit {
-  var ports: List[Int] = []
+  var ports = []
   for spec in port_specs {
     ports = ports.extend(build_ports(spec, opts))
   }
@@ -1055,8 +1055,8 @@ proc main(...argv: List[Str]) [net, fs, process, time, env, io, error] {
     fatal("proxy connections (-X, -x, -P) are not supported")
   }
 
-  var host: Str? = null
-  var port_specs: List[Str] = []
+  var host = null
+  var port_specs = []
   if opts.family == "unix" {
     if operands.len() == 0 { usage() }
     if operands.len() > 1 { fatal("cannot use port with -U") }

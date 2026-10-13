@@ -71,8 +71,8 @@ pure caret_error(piece: Piece, offset: Int, message: Str, reported_line_shift: I
 # assignments. Unknown escapes keep the character and report a note.
 pure escaped(source: Bytes, start: Int, quote: Int, hex_escapes: Bool) -> Result[Escaped] {
   var at = start
-  var out: List[Int] = []
-  var notes: List[Str] = []
+  var out = []
+  var notes = []
   while at < source.len() {
     let byte = source.byte_at(at) ?? 0
     at += 1
@@ -117,7 +117,7 @@ pure escaped(source: Bytes, start: Int, quote: Int, hex_escapes: Bool) -> Result
 type Body = {content: Str, at: Int}
 pure regex_body(source: Bytes, start: Int) -> Result[Body] {
   var at = start
-  var out: List[Int] = []
+  var out = []
   var bracket = false
   while at < source.len() {
     let byte = source.byte_at(at) ?? 0
@@ -170,9 +170,9 @@ const GNU_FUNCTIONS = ["gensub", "asort", "asorti", "patsplit", "strtonum", "sys
 pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
   let source = bytes.from_text(piece.text)
   var tokens: List[Token] = []
-  var starts: List[Int] = []
-  var lines: List[Int] = []
-  var notes: List[Str] = []
+  var starts = []
+  var lines = []
+  var notes = []
   var at = 0
   var line = 1
   var counted = 0
@@ -434,7 +434,7 @@ pure starts_operand(p: Parser) -> Bool {
 
 pure expression_list(parser: Parser, end: Str) -> Result[Parsed[List[Int]]] {
   var p = parser
-  var ids: List[Int] = []
+  var ids = []
   return Ok({parser: advance(p), value: ids}) when is_at(p, end)
   loop {
     let parsed = expression(p, 0)?
@@ -724,7 +724,7 @@ pure add_error(parser: Parser, message: Str) -> Parser {
 }
 pure block(parser: Parser) -> Result[Parsed[Int]] {
   var p = separators(require(parser, "{")?)
-  var body: List[Int] = []
+  var body = []
   while ! is_at(p, "}") {
     return Err(unexpected(p)) when peek(p) == TokEnd
     let next = statement(p)?
@@ -783,7 +783,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
     let condition = expression(require(advance(p), "(")?, 0)?
     let yes = statement(skip_newlines(require(condition.parser, ")")?))?
     p = separators(yes.parser)
-    var no: Int? = null
+    var no = null
     if is_at(p, "else") { let branch = statement(skip_newlines(advance(p)))?; p = branch.parser; no = branch.value } else { p = yes.parser }
     return Ok(statement_node(p, If(condition.value, yes.value, no)))
   }
@@ -853,7 +853,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
   if word == "delete" {
     let target = name(advance(p))?
     p = target.parser
-    var keys: List[Int]? = null
+    var keys = null
     if is_at(p, "[") { let next = expression_list(advance(p), "]")?; p = next.parser; keys = next.value }
     return finish_simple(statement_node(p, Delete(target.value, keys)))
   }
@@ -862,13 +862,13 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
       return Err(syntax_error(caret_error(p.piece, token_start(p), "`return' used outside function context")))
     }
     p = advance(p)
-    var value: Int? = null
+    var value = null
     if ! terminated(p) { let next = expression(p, 0)?; p = next.parser; value = next.value }
     return finish_simple(statement_node(p, if word == "exit" { Exit(value) } else { Return(value) }))
   }
   if word in ["print", "printf"] {
     p = advance(p)
-    var args: List[Int] = []
+    var args = []
     if is_at(p, "(") and group_is_argument_list(p) {
       return Err(unexpected(advance(p))) when is_at(advance(p), ")")
       let next = expression_list(advance(p), ")")?
@@ -885,7 +885,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
         p = skip_newlines(advance(p))
       }
     }
-    var target: Int? = null
+    var target = null
     var mode = ""
     if is_at(p, ">") or is_at(p, ">>") or is_at(p, "|") {
       if p.sandbox { return Err(AwkError.Plain(message: f"{label_here(p)}: fatal: redirection not allowed in sandbox mode", pending: "")) }
@@ -931,7 +931,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
       if function_name.value in SPECIAL_VARIABLES or function_name.value in ["FUNCTAB", "SYMTAB"] {
         p.errors += [f"{location}: error: function name `{function_name.value}' previously defined"]
       }
-      var parameters: List[Str] = []
+      var parameters = []
       if ! is_at(p, ")") {
         loop {
           let parameter_start = token_start(p)
@@ -977,8 +977,8 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
       p.context = ""
       if word == "BEGIN" { p.program.begin += [body.value] } else { p.program.end += [body.value] }
     } else {
-      var pattern: Int? = null
-      var end: Int? = null
+      var pattern = null
+      var end = null
       let site = label_here(p)
       if ! is_at(p, "{") { let next = expression(p, 0)?; p = next.parser; pattern = next.value }
       if is_at(p, ",") { let next = expression(skip_newlines(advance(p)), 0)?; p = next.parser; end = next.value }
@@ -1006,7 +1006,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Re
 pure parse(pieces: List[Piece], sandbox: Bool, mode: Int) -> Result[Program] {
   var program = Program(expressions: [], statements: [], site: [], begin: [], end: [], rules: [], functions: {}, notes: [], uses: [], environ: false, grouped: [])
   for piece in pieces { program = parse_piece(program, piece, sandbox, mode)?.parser.program }
-  var errors: List[Str] = []
+  var errors = []
   for seen in program.uses {
     continue when seen.name not in program.functions
     # A call with more arguments than declared draws a warning from GNU awk;
@@ -1202,7 +1202,7 @@ pure parse_format(format: Str, start: Int, values: List[Scalar], argument: Int) 
 pure padding(char: Str, count: Int) -> Str { [char for _ in range(count)].join("") }
 pure utf8_char(code: Int) -> Str {
   return "�" when code < 0 or code > 1114111 or (code >= 55296 and code <= 57343)
-  var encoded: List[Int] = []
+  var encoded = []
   if code < 128 { encoded = [code] } else if code < 2048 { encoded = [192 + code / 64, 128 + code % 64] } else if code < 65536 { encoded = [224 + code / 4096, 128 + code / 64 % 64, 128 + code % 64] } else { encoded = [240 + code / 262144, 128 + code / 4096 % 64, 128 + code / 64 % 64, 128 + code % 64] }
   let encoded_bytes = bytes.from_ints(encoded) ?? b""
   encoded_bytes.utf8() ?? "\u{fffd}"
@@ -1371,7 +1371,7 @@ pure escape_byte(chars: List[Str], at: Int) -> ByteEscape? {
 # Translates one awk regular expression into the host's ERE dialect.
 pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
   let chars = pattern.split("")
-  var out: List[Str] = []
+  var out = []
   var at = 0
   var depth = 0
   var operand_start = true
@@ -1529,7 +1529,7 @@ pure rx_bracket(chars: List[Str], start: Int, alphabet: Alphabet) -> Result[Brac
   if at < chars.len() and chars[at] == "^" { negate = true; at += 1 }
   # A bracket with nothing after it is rejected before the matcher sees it.
   return Err(ere_error("Invalid regular expression")) when at >= chars.len()
-  var items: List[Str] = []
+  var items = []
   var has_close = false
   var has_dash = false
   var has_caret = false
@@ -1609,7 +1609,7 @@ pure make_alphabet(pattern: Str, subject: Str) -> Alphabet {
     let byte = source.byte_at(index) ?? 0
     if byte < 128 { present[byte] = true }
   }
-  var free: List[Int] = []
+  var free = []
   for code in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127] { if ! present[code] { free += [code] } }
   var chars: Map[Str] = {}
   var next = 0
@@ -1711,8 +1711,8 @@ pure rx_matches(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Ma
   let alphabet = make_alphabet(pattern, content)
   let translated = rx_translate(bounds.body, alphabet)?
   let characters = content.split("")
-  var mapped: List[Int] = []
-  var offsets: List[Int] = []
+  var mapped = []
+  var offsets = []
   var position = 0
   for character in characters {
     offsets += [position]
@@ -1749,7 +1749,7 @@ pure regex_message(message: Str) -> Str {
 # almost certainly a mistyped character class.
 pure regex_warnings(pattern: Str) -> List[Str] {
   let chars = pattern.split("")
-  var found: List[Str] = []
+  var found = []
   var at = 0
   while at < chars.len() {
     if chars[at] == "\\" { at += 2; continue }
@@ -1779,8 +1779,8 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
   let alphabet = make_alphabet(pattern, content)
   let translated = rx_translate(pattern, alphabet)?
   let characters = content.split("")
-  var mapped: List[Int] = []
-  var offsets: List[Int] = []
+  var mapped = []
+  var offsets = []
   var position = 0
   for character in characters {
     offsets += [position]
@@ -1826,7 +1826,7 @@ pure continuation(byte: Int) -> Bool { byte >= 128 and byte <= 191 }
 # sequence is kept as the private-use character U+10FF00 plus the byte (and
 # turned back into that byte on output), as GNU awk keeps such bytes in place.
 pure decode_lossy(data: Bytes) -> Result[Str] {
-  var out: List[Int] = []
+  var out = []
   let size = data.len()
   var at = 0
   while at < size {
@@ -1878,7 +1878,7 @@ pure decode_chunk(carry: Bytes, fresh: Bytes) -> Result[Chunk] {
 pure output_bytes(text: Str, lossy: Bool) -> Bytes {
   let encoded = bytes.from_text(text)
   return encoded unless lossy
-  var out: List[Int] = []
+  var out = []
   let size = encoded.len()
   var at = 0
   while at < size {
@@ -2037,7 +2037,7 @@ pure integer_code(value: Int) -> Int {
 # sequence numbers at which the table grew; null simulates growth from counts.
 pure string_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[Str] {
   return [] when keys.is_empty()
-  var codes: List[Int] = []
+  var codes = []
   for key in keys { codes += [string_code(key)] }
   var size = 13
   var chains: List[List[Int]] = [[] for _ in range(size)]
@@ -2059,14 +2059,14 @@ pure string_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[
     }
     chains[codes[at] % size] = [at] + chains[codes[at] % size]
   }
-  var listing: List[Str] = []
+  var listing = []
   for chain in chains { for item in chain { listing += [keys[item]] } }
   listing
 }
 # Integer subscripts hash into buckets of two, newest bucket first.
 pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[Str] {
   return [] when keys.is_empty()
-  var values: List[Int] = []
+  var values = []
   for key in keys { values += [key.parse_int() ?? 0] }
   var size = 13
   var chains: List[List[List[Int]]] = [[] for _ in range(size)]
@@ -2094,14 +2094,14 @@ pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List
     let slot = integer_code(values[at]) % size
     if chains[slot].is_empty() or chains[slot][0].len() >= 2 { chains[slot] = [[at]] + chains[slot] } else { chains[slot][0] = chains[slot][0] + [at] }
   }
-  var listing: List[Str] = []
+  var listing = []
   for chain in chains { for bucket in chain { for item in bucket { listing += [keys[item]] } } }
   listing
 }
 # Non-negative integer subscripts in ascending order.
 pure ascending_integers(keys: List[Str]) -> List[Str] {
   return keys when keys.len() <= 1
-  var numbers: List[Int] = []
+  var numbers = []
   for key in keys { numbers += [key.parse_int() ?? 0] }
   let ordered = merge_integers(numbers)
   [f"{value}" for value in ordered]
@@ -2111,7 +2111,7 @@ pure merge_integers(values: List[Int]) -> List[Int] {
   let middle = values.len() / 2
   let left = merge_integers(values[..middle])
   let right = merge_integers(values[middle..])
-  var merged: List[Int] = []
+  var merged = []
   var i = 0
   var j = 0
   while i < left.len() and j < right.len() {
@@ -2126,7 +2126,7 @@ pure merge_integers(values: List[Int]) -> List[Int] {
 # one that would waste too much allocated capacity overflows to the hash table.
 # Returns, for each key in insertion order, whether it stayed in the blocks.
 pure leaf_blocks(keys: List[Str]) -> List[Bool] {
-  var stays: List[Bool] = []
+  var stays = []
   var capacity = 0
   var count = 0
   var leaves: Map[Bool] = {}
@@ -2182,16 +2182,16 @@ pure array_order(table: Table) -> List[Str] {
     slots[seq] = key
     present[seq] = true
   }
-  var keys: List[Str] = []
-  var seqs: List[Int] = []
+  var keys = []
+  var seqs = []
   for at in range(table.next) { if present[at] { keys += [slots[at]]; seqs += [at] } }
   let events: List[Int]? = if table.size > 0 { table.growths } else { null }
   return string_order(keys, seqs, events) when table.kind == 3
-  var strings: List[Str] = []
-  var string_seqs: List[Int] = []
-  var integers: List[Str] = []
-  var integer_seqs: List[Int] = []
-  var naturals: List[Str] = []
+  var strings = []
+  var string_seqs = []
+  var integers = []
+  var integer_seqs = []
+  var naturals = []
   for at in range(keys.len()) {
     let kind = subscript_kind(keys[at])
     if kind == 1 { naturals += [keys[at]] }
@@ -2200,21 +2200,21 @@ pure array_order(table: Table) -> List[Str] {
   }
   if table.kind == 2 {
     # Every integer subscript is in the integer table, strings in its overflow.
-    var all_seqs: List[Int] = []
+    var all_seqs = []
     for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { all_seqs += [seqs[at]] } }
-    var in_order: List[Str] = []
+    var in_order = []
     for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { in_order += [keys[at]] } }
     return string_order(strings, string_seqs, null) + integer_order(in_order, all_seqs, events)
   }
   # Non-negative integers still held by the blocks list ascending after the
   # overflow table, which is an integer table when its first subscript was an
   # integer, else a string table.
-  var natural_keys: List[Str] = []
+  var natural_keys = []
   for at in range(keys.len()) { if subscript_kind(keys[at]) == 1 { natural_keys += [keys[at]] } }
   let stays = leaf_blocks(natural_keys)
-  var held: List[Str] = []
-  var overflow: List[Str] = []
-  var overflow_seqs: List[Int] = []
+  var held = []
+  var overflow = []
+  var overflow_seqs = []
   var first_overflow_kind = 0
   var natural_at = 0
   for at in range(keys.len()) {
@@ -2230,12 +2230,12 @@ pure array_order(table: Table) -> List[Str] {
       overflow_seqs += [seqs[at]]
     }
   }
-  var head: List[Str] = []
+  var head = []
   if first_overflow_kind == 2 {
-    var overflow_strings: List[Str] = []
-    var overflow_string_seqs: List[Int] = []
-    var overflow_integers: List[Str] = []
-    var overflow_integer_seqs: List[Int] = []
+    var overflow_strings = []
+    var overflow_string_seqs = []
+    var overflow_integers = []
+    var overflow_integer_seqs = []
     for at in range(overflow.len()) {
       if subscript_kind(overflow[at]) == 3 { overflow_strings += [overflow[at]]; overflow_string_seqs += [overflow_seqs[at]] } else { overflow_integers += [overflow[at]]; overflow_integer_seqs += [overflow_seqs[at]] }
     }
@@ -2249,7 +2249,7 @@ pure grown_table(cells: Map[Cell], first_key: Str) -> Table {
   let count = cells.len()
   let kind = if count == 0 { 0 } else { subscript_kind(first_key) }
   var size = 0
-  var growths: List[Int] = []
+  var growths = []
   if kind != 1 and count > 0 {
     size = 13
     for seq in range(count) { if (seq + 1) / size > 10 { size = next_table_size(size); growths += [seq] } }
@@ -2468,7 +2468,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
     }
     if name in ["patsplit", "asort", "asorti", "typeof", "isarray", "length"] and args.len() >= 1 {
       var spots: List[Spot] = []
-      var plain: List[Int] = []
+      var plain = []
       for at in range(args.len()) {
         let is_array_position = (name == "patsplit" and (at == 1 or at == 3)) or (name in ["asort", "asorti"] and at <= 1) or (name in ["typeof", "isarray", "length"] and at == 0)
         match x[args[at]] {
@@ -3053,8 +3053,8 @@ pure split_with_separators(content: Str, separator: Str, regex_mode: Bool, ignor
   } else if separator.count_chars() == 1 and ! regex_mode {
     pattern = if separator in REGEX_SPECIAL { "\\" + separator } else { separator }
   }
-  var fields: List[Str] = []
-  var seps: List[Str] = []
+  var fields = []
+  var seps = []
   var start = 0
   var leading = ""
   for hit in rx_matches(pattern, content, ignore_case)? {
@@ -3086,8 +3086,8 @@ type Advanced = {state: MainState, stdin: Reader, record: Str?, terminator: Str,
 proc advance_main(start: MainState, standard_input: Reader, operands: Table, count: Int, separator: Str, ignore_case: Bool) -> Result[Advanced] {
   var state = start
   var stdin = standard_input
-  var bindings: List[Str] = []
-  var filename: Str? = null
+  var bindings = []
+  var filename = null
   var argind = 0
   loop {
     if state.finished { return Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, argind: argind}) }
@@ -3367,7 +3367,7 @@ pure leading_integer(word: Str) -> Int? {
   if negative { 0 - value } else { value }
 }
 proc make_time(spec: Str, utc: Bool) -> Result[Int] {
-  var parts: List[Int] = []
+  var parts = []
   for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
     continue when word.is_empty()
     let number = leading_integer(word)
@@ -3528,7 +3528,7 @@ pure record_fields(record: Str, globals: Map[Scalar], mode: Int) -> Result[List[
 # Subscripts on the stack joined with SUBSEP.
 pure subscript_key(stack: List[Scalar], top: Int, count: Int, separator: Str, conversion: Str) -> Result[Str] {
   return scalar_text(stack[top - 1], conversion) when count == 1
-  var pieces: List[Str] = []
+  var pieces = []
   for at in range(top - count, top) { pieces += [scalar_text(stack[at], conversion)?] }
   Ok(pieces.join(separator))
 }
@@ -3656,7 +3656,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   var stack: List[Scalar] = [Empty for _ in range(512)]
   var sp = 0
   var slots: List[Scalar] = []
-  var aliases: List[Str] = []
+  var aliases = []
   var frames: List[Frame] = []
   var iterators: List[Iteration] = []
   var readers: Map[Reader] = {}
@@ -4000,7 +4000,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
           var taken = sp - computed
           var new_slots: List[Scalar] = []
-          var new_aliases: List[Str] = []
+          var new_aliases = []
           for at in range(function.parameters.len()) {
             if at >= kinds.len() {
               new_slots += [Empty]
@@ -4153,7 +4153,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           } else {
             if count == 0 { text = record } else {
               let output_format = plain_text(globals.get("OFMT") ?? Empty)?
-              var pieces: List[Str] = []
+              var pieces = []
               for at in range(sp - count, sp) { pieces += [scalar_text(stack[at], output_format)?] }
               text = pieces.join(plain_text(globals.get("OFS") ?? Empty)?)
             }
@@ -4439,7 +4439,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
           } else if name == "and" or name == "or" or name == "xor" {
             if count < 2 { Err(fatal_error(f"{name}: called with less than two arguments"))? }
-            var operands: List[Float] = []
+            var operands = []
             for at in range(count) { operands += [to_bit_operand(name, at + 1, number(values[at])?)?] }
             result = Numeric(bit_fold(name, operands))
           } else if name == "lshift" or name == "rshift" {

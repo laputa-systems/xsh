@@ -46,7 +46,7 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
       issues += [src.issue(f"network.{name}", report.Malformed, "incomplete_netdev_row", null)]
       continue
     }
-    var counters: List[Int] = []
+    var counters = []
     var state: report.ObservationState? = null
     for value in fields |> take(16) {
       let parsed = src.parse_integer(value)

@@ -105,7 +105,7 @@ pure blksize_option(item: Str) -> Bool {
 # option name that starts with a dash).
 pure modernize(argv: List[Str]) -> Rewritten {
   var obsolete = ""
-  var blksize: Str? = null
+  var blksize = null
   var pending = false
   var options = true
   var value = false
@@ -187,7 +187,7 @@ pure equals_offset(argument: Bytes) -> Int {
 }
 
 pure prepare_arguments(argv: List[Bytes]) -> gnu.PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[gnu.RawArgument] = []
 
   for index in range(argv.len()) {
@@ -417,7 +417,7 @@ pure contains_slash(value: Bytes) -> Bool {
 # Offsets just past each record separator, plus the end of an unterminated
 # final record.
 proc record_ends(data: Bytes, sep: Int) [error] -> Result[List[Int]] {
-  var ends: List[Int] = []
+  var ends = []
 
   if sep == 10 {
     ends = tio.line_ends(data, false)
@@ -481,7 +481,7 @@ pure lines_pieces(data: Bytes, ends: List[Int], per: Int) -> List[Bytes] {
 # `-C`: whole records up to SIZE bytes per piece; a record longer than SIZE
 # starts a fresh piece and is cut every SIZE bytes, its tail staying open.
 pure line_bytes_pieces(data: Bytes, ends: List[Int], size: Int, sep: Int) -> List[Bytes] {
-  var out: List[Bytes] = []
+  var out = []
   var origin = 0
   var used = 0
 
@@ -544,7 +544,7 @@ pure chunk_bytes(data: Bytes, count: Int, k: Int) -> Bytes {
 
 # The Kth of COUNT chunks without splitting records, or every chunk (K = 0).
 pure chunk_lines(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) -> List[Bytes] {
-  var out: List[Bytes] = []
+  var out = []
   var current = 0
   var origin = 0
   var stop = 0
@@ -645,7 +645,7 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
   var eof = false
 
   while ! eof {
-    var parts: List[Bytes] = []
+    var parts = []
     var remaining = size
 
     while remaining > 0 {
@@ -908,7 +908,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
 proc read_input(name: Bytes, block_size: Int) [fs, process, error, io] -> Result[Bytes] {
   let fd = if name == b"-" { 0 } else { unix.open_fd(Path.parse_bytes(name)?)? }
   defer { if fd != 0 { unix.close_fd(fd) } }
-  var parts: List[Bytes] = []
+  var parts = []
   while true {
     let part = unix.read_fd(fd, block_size)?
     break when part.is_empty()
@@ -1170,7 +1170,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   var sep = 10
-  var distinct: List[Bytes] = []
+  var distinct = []
 
   for text in opts.separator {
     let value = gnu.argument_bytes(text, prepared.raw)
@@ -1320,7 +1320,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     exit 1
   }
 
-  var pieces: List[Bytes] = []
+  var pieces = []
   let ends = if chunks.kind in ["l", "r"] or (chunks.n == 0 and size == 0) { record_ends(data, sep)? } else { [] }
 
   if chunks.n > 0 {

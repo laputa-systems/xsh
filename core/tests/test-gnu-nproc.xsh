@@ -36,7 +36,7 @@ test test_gnu_nproc_nproc_override_log { |ctx|
     {vars: {OMP_THREAD_LIMIT: f"{available + 1}", OMP_NUM_THREADS: f"{available + 2}"}, expected: f"{available + 1}"},
     {vars: {OMP_NUM_THREADS: f"{available + 1}"}, expected: f"{available + 1}"},
   ]
-  var failures: List[Str] = []
+  var failures = []
   for index in range(rows.len()) {
     let item = rows[index]
     let r = uu.invoke(s, "nproc", [], vars: item.vars)?

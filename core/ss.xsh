@@ -169,7 +169,7 @@ proc reject(name: Str) [process, io, error] {
 proc add_tables(chosen: List[Str], query: Str) [process, io, error] -> List[Str] {
   var tables = chosen
   for word in query.split(",") {
-    var more: List[Str] = []
+    var more = []
     match word {
       "all" => more = ["u_str", "u_dgr", "u_seq", "raw", "udp", "tcp"]
       "inet" => more = ["raw", "udp", "tcp"]
@@ -199,7 +199,7 @@ type Scanned = {options: List[Opt], words: List[Str]}
 # and options and words may interleave until `--`.
 proc scan_options(argv: List[Str]) [process, io, error] -> Scanned {
   var options: List[Opt] = []
-  var words: List[Str] = []
+  var words = []
   var index = 0
   var only_words = false
   while index < argv.len() {
@@ -213,7 +213,7 @@ proc scan_options(argv: List[Str]) [process, io, error] -> Scanned {
       let body = word.byte_slice(2)
       let split = body.find("=")
       let given = if let at = split { body.byte_slice(0, length: at) } else { body }
-      var candidates: List[Str] = []
+      var candidates = []
       for name in LONG.keys() {
         if name == given {
           candidates = [name]
@@ -221,9 +221,9 @@ proc scan_options(argv: List[Str]) [process, io, error] -> Scanned {
         }
         if name.starts_with(given) { candidates += [name] }
       }
-      var identities: List[Str] = []
+      var identities = []
       for name in candidates {
-        let identity: Str = LONG.get(name) ?? ""
+        let identity = LONG.get(name) ?? ""
         if identity not in identities { identities += [identity] }
       }
       if identities.is_empty() { usage_fail(f"unrecognized option '--{given}'") }
@@ -274,7 +274,7 @@ proc parse_args(argv: List[Str]) [process, io, error] -> Config {
   var resolve = false
   var state_mode = ""
   var family = 0
-  var tables: List[Str] = []
+  var tables = []
   var timers = false
   var extended = false
   var memory = false
@@ -427,7 +427,7 @@ pure parse_ipv4(text: Str) -> Bytes? {
   let parts = text.split(".")
   return null when parts.len() != 4
 
-  var values: List[Int] = []
+  var values = []
   for part in parts {
     return null when part == "" or part.byte_len() > 3
     for letter in part {
@@ -447,7 +447,7 @@ pure parse_ipv6(text: Str) -> Bytes? {
   return null when text.find(":") == null
 
   var body = text
-  var tail: List[Int] = []
+  var tail = []
   if body.find(".") != null {
     let at = last_index(body, ":")
     return null when at < 0
@@ -461,10 +461,10 @@ pure parse_ipv6(text: Str) -> Bytes? {
   let halves = body.split("::")
   return null when halves.len() > 2
 
-  var groups: List[Int] = []
-  var after: List[Int] = []
+  var groups = []
+  var after = []
   for index in range(halves.len()) {
-    var target: List[Int] = []
+    var target = []
     if halves[index] != "" {
       for part in halves[index].split(":") {
         return null when part == "" or part.byte_len() > 4
@@ -477,7 +477,7 @@ pure parse_ipv6(text: Str) -> Bytes? {
     }
     if index == 0 { groups = target } else { after = target }
   }
-  var all: List[Int] = []
+  var all = []
   if halves.len() == 2 {
     let missing = 8 - groups.len() - after.len()
     return null when missing < 1
@@ -490,7 +490,7 @@ pure parse_ipv6(text: Str) -> Bytes? {
   }
   return null when all.len() != 8
 
-  var raw: List[Int] = []
+  var raw = []
   for value in all {
     raw += [value / 256, value % 256]
   }
@@ -855,7 +855,7 @@ pure compare_port(op: Str, have: Int, want: Int) -> Bool {
 }
 
 pure evaluate(program: List[Cond], item: sockets.DiagSocket, context: Context) -> Bool {
-  var stack: List[Bool] = []
+  var stack = []
   for cond in program {
     match cond.kind {
       "and" => {
@@ -1052,7 +1052,7 @@ proc socket_row(item: sockets.DiagSocket, config: Config, names: Names, owners: 
 }
 
 proc render(rows: List[List[Str]], visible: List[Bool], config: Config) [process, env, io] {
-  var widths: List[Int] = []
+  var widths = []
   for column in range(10) {
     var width = 0
     if !config.no_header { width = HEADERS[column].byte_len() }
@@ -1248,7 +1248,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   var found: List[sockets.DiagSocket] = []
   var incomplete = false
 
-  var unix_tables: List[Str] = []
+  var unix_tables = []
   for table in ["u_str", "u_dgr", "u_seq"] {
     if table in tables { unix_tables += [table] }
   }
@@ -1296,13 +1296,13 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
       }
     }
   }
-  var rows: List[List[Str]] = []
+  var rows = []
   for item in found {
     continue when ! program.is_empty() and ! evaluate(program, item, context)
     rows += [socket_row(item, config, names, owners, interfaces, cgroup_map)]
   }
 
-  var visible: List[Bool] = []
+  var visible = []
   for column in range(10) {
     var shown = true
     if column == 0 and tables.len() == 1 { shown = false }

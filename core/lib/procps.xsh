@@ -11,7 +11,7 @@ export pure selector() -> Selector {
 
 ## Parses positive decimal process identifiers without accepting empty fields.
 export proc ids(text: Str) [error] -> Result[List[Int], Error] {
-  var out: List[Int] = []
+  var out = []
   for word in text.replace(" ", with: ",").split(",") {
     return Err(error.failure(f"invalid process id: {word}")) when ! rx"^[0-9]+$".matches(word)
     let value = word.parse_int()?
@@ -30,7 +30,7 @@ export proc select(rows: List[ProcessEntry], options: Selector, self_pid: Int) [
   let source = options.pattern ?? ""
   let bounded = if options.exact { f"^(?:{source})$" } else { source }
   let pattern = regex.compile(if options.ignore_case { f"(?i){bounded}" } else { bounded })?
-  var out: List[ProcessEntry] = []
+  var out = []
   for row in rows {
     continue when row.pid == self_pid
     var matches = options.pids.is_empty() or row.pid in options.pids
@@ -60,7 +60,7 @@ export pure clock(seconds: Int) -> Str {
 
 ## Parses the shared pgrep/pkill selector interface and renders or signals matches.
 export proc grep_main(argv: List[Str], send_signal: Bool) [process, env, error, io] {
-  var normalized: List[Str] = []
+  var normalized = []
   var option_words = true
   for word in argv {
     if word == "--" { option_words = false }
@@ -100,7 +100,7 @@ export proc grep_main(argv: List[Str], send_signal: Bool) [process, env, error, 
   if let Err(problem) = matching { eprint f"pgrep/pkill: {problem.message}"; exit 2 }
   let selected = matching?
   var delivered = 0
-  var output: List[Str] = []
+  var output = []
   if send_signal {
     let requested = process.signal(opts.signal)
     if let Err(problem) = requested { eprint f"pkill: {problem.message}"; exit 2 }

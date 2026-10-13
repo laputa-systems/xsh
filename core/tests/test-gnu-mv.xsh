@@ -331,7 +331,7 @@ test test_gnu_mv_leak_fd_log { |ctx|
   defer remote.remove()
   let letters = "a b c d e f g h i j k l m n o p q r s t u v w x y z".split(" ")
   let alphabet = [f"{i}" for i in range(10)].extend(letters).extend([f"_{letter.upper()}" for letter in letters])
-  var names: List[Str] = []
+  var names = []
   for prefix in alphabet {
     names = names.extend([prefix]).extend([f"{prefix}{suffix}" for suffix in alphabet])
   }
@@ -402,7 +402,7 @@ test test_gnu_mv_mv_special_1_log { |ctx|
   assert fs.stat(fp"{remote}/mv-null")?.kind == "fifo"
   assert fp"{remote}/mv-dir/a/b/c".is_dir()?
   assert fs.stat(fp"{remote}/mv-dir2/mv-null")?.kind == "fifo"
-  var actual: List[Str] = []
+  var actual = []
   for line in r.stdout.utf8()?.lines() {
     continue when line.starts_with("removed ")
     let normalized = line.replace("renamed ", with: "").replace("copied ", with: "").replace(remote.display(), with: "XXX")

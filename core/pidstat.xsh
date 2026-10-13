@@ -8,7 +8,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   let sampling = procps.sampling_args(opts.operands)?
   let pids = if opts.pids == "ALL" { [] } else { procps.ids(opts.pids)? }
   let pattern = regex.compile(opts.command ?? "")?
-  var previous: LinuxSample? = null
+  var previous = null
   var index = 0
   while index < sampling.count {
     let current = linux.sample()?

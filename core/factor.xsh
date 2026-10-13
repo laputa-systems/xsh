@@ -189,7 +189,7 @@ pure big_divmod(a: List[Int], b: List[Int]) -> Division {
   let width = b.len()
   let divisor_top = b[width - 1].float() * 1000000000.0 + b[width - 2].float()
   var quotient: List[Int] = [0 for slot in range(a.len())]
-  var rest: List[Int] = []
+  var rest = []
   var at = a.len() - 1
 
   while at >= 0 {
@@ -772,7 +772,7 @@ type Factors = {primes: List[Str], incomplete: Bool}
 type Stripped = {primes: List[Str], rest: List[Int], proven: Bool}
 
 pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
-  var primes: List[Str] = []
+  var primes = []
   var rest = n
 
   if rest.len() <= 2 {
@@ -926,7 +926,7 @@ pure is_prime(n: List[Int]) -> Bool {
 pure factorize(n: List[Int], small: List[Int]) -> Factors {
   let stripped = strip_small_primes(n, small)
   var primes = stripped.primes
-  var work: List[List[Int]] = []
+  var work = []
 
   if stripped.proven {
     primes += [big_text(stripped.rest)]
@@ -972,7 +972,7 @@ pure before(a: Str, b: Str) -> Bool {
 }
 
 pure sorted_primes(primes: List[Str]) -> List[Str] {
-  var out: List[Str] = []
+  var out = []
 
   for item in primes {
     var at = out.len()
@@ -1143,7 +1143,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   let small = primes_below(2048)
-  var tokens: List[Bytes] = []
+  var tokens = []
 
   if ! opts.numbers.is_empty() {
     tokens = [bytes.from_text(item.trim()) for item in opts.numbers]

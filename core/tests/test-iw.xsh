@@ -134,7 +134,7 @@ proc wlan0_reply() [error] -> Result[Record, Error] {
 
 proc fixture(ctx: TestContext, name: Str, lines: List[Record]) [fs, error] -> Result[Path, Error] {
   let file = test.temp_file(ctx, name: f"{name}.jsonl", contents: b"")?
-  var values: List[Any] = []
+  var values = []
   for line in lines {
     values += [line]
   }
@@ -409,7 +409,7 @@ proc phy_messages() [error] -> Result[List[Record], Error] {
 test test_list_and_phy_info_merge_a_split_wiphy_dump { |ctx|
   let split = nl.attr_flag(A_SPLIT_WIPHY_DUMP)?
   let by_index = nl.attr_u32(A_WIPHY, 0)?
-  let lines: List[Record] = [
+  let lines = [
     family_line(),
     dump_line(1, [split], phy_messages()?)?,
     dump_line(1, [split, by_index], phy_messages()?)?,

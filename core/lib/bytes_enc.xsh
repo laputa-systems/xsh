@@ -57,7 +57,7 @@ pure encode(data: Bytes, kind: Str) -> Result[Str] {
     return Ok(out)
   }
   if kind == "base58" {
-    var digits: List[Int] = []
+    var digits = []
     # Leading zero bytes each become '1' and do not affect the radix digits.
     # Scan them without allocating a value for every input byte.
     let zeros = bytes.repeat_prefix_count(data, b"\0")?
@@ -121,7 +121,7 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
   if kind == "base64url" and ! ignore and has_any_byte(data, [43, 47]) {
     return Ok({data: b"", valid: false})
   }
-  var values: List[Int] = []
+  var values = []
   var valid = true
   var padded = false
   var pads = 0
@@ -149,7 +149,7 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
     }
     values += [value ?? 0]
   }
-  var out: List[Int] = []
+  var out = []
   if kind == "base58" {
     # GNU accumulates base58 input before converting it, so an invalid byte
     # produces no output at all.
@@ -235,7 +235,7 @@ export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env,
   # Encoding selectors use ordered argv rather than Boolean fields: GNU
   # permits multiple selectors and the last one chooses the encoding.
   var kind = default_kind
-  var args: List[Str] = []
+  var args = []
   var options = true
   let selectors = ["--base64", "--base64url", "--base32", "--base32hex", "--base16", "--base2msbf", "--base2lsbf", "--z85", "--base58"]
   for arg in argv {

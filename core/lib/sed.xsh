@@ -150,7 +150,7 @@ pure bracket_end(text: Bytes, open: Int, newline_ends: Bool) -> Int {
 # regex a bracket expression holds the delimiter literally.
 pure match_slash(text: Bytes, start: Int, slash: Int, is_regex: Bool) -> SlashScan {
   var at = start
-  var out: List[Bytes] = []
+  var out = []
   while at < text.len() {
     let byte = at_byte(text, at)
     return {ok: false, text: b"", next: at} when byte == NEWLINE
@@ -195,7 +195,7 @@ enum TextKind { RegexText, ReplacementText, LiteralText, TextBlock }
 # GNU's normalize_text: C-style and numeric escapes become the bytes they name.
 # Unknown escapes keep their backslash, except in a/i/c text where it is dropped.
 pure normalize(text: Bytes, kind: TextKind) -> Result[Bytes, Error] {
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   while at < text.len() {
     let byte = at_byte(text, at)
@@ -281,7 +281,7 @@ pure group_count(pattern: Bytes, extended: Bool) -> Int {
 # GNU `\`` and `\'` anchor to the whole pattern space; the host matcher lacks
 # them, so they are rewritten to `^` and `$` outside bracket expressions.
 pure rewrite_anchors(pattern: Bytes) -> AnchorScan {
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   var start = false
   var end = false
@@ -380,7 +380,7 @@ pure regex_message(host: Str, pattern: Str, extended: Bool) -> Str {
 
 # GNU accepts `{,N}` as `{0,N}`; the host matcher does not.
 pure widen_intervals(pattern: Bytes, extended: Bool) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   while at < pattern.len() {
     let byte = at_byte(pattern, at)
@@ -418,7 +418,7 @@ pure widen_intervals(pattern: Bytes, extended: Bool) -> Bytes {
 # collating symbol or equivalence class such as `[[.a.]]` and `[[=a=]]`; the
 # host matcher rejects both.
 pure adapt_basic(pattern: Bytes) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   var fresh = true
   while at < pattern.len() {
@@ -454,7 +454,7 @@ pure adapt_basic(pattern: Bytes) -> Bytes {
 
 # Replace `[.c.]` and `[=c=]` inside a bracket expression by the byte `c`.
 pure simplify_bracket(text: Bytes) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var at = 0
   while at < text.len() {
     if at_byte(text, at) == 91 and at_byte(text, at + 1) in [46, 61] and at + 4 < text.len() and at_byte(text, at + 3) == at_byte(text, at + 1) and at_byte(text, at + 4) == 93 {
@@ -580,7 +580,7 @@ pure read_file_name(text: Bytes, start: Int) -> NameScan {
 pure read_text(chunk: Chunk, start: Int) -> Result[TextScan, Error] {
   let text = chunk.text
   var at = start
-  var out: List[Bytes] = []
+  var out = []
   var open = false
   while at < text.len() {
     let byte = at_byte(text, at)
@@ -681,7 +681,7 @@ pure blank_command(op: Int) -> Instruction {
 # Decode a `y` operand: `\\` is a backslash and `\n` a newline; the delimiter's
 # escape was already removed by the scan.
 pure translate_operand(text: Bytes) -> List[Int] {
-  var out: List[Int] = []
+  var out = []
   var at = 0
   while at < text.len() {
     let byte = at_byte(text, at)
@@ -889,7 +889,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       var occurrence = 0
       var ignore_case = false
       var multiline = false
-      var write: Str? = null
+      var write = null
       var done = false
       while !done {
         let flag = at_byte(text, at)
@@ -1083,7 +1083,7 @@ pure octal(value: Int) -> Str { f"\\{value / 64}{value / 8 % 8}{value % 8}" }
 # The `l` rendering: escapes, `$` at the end, and `\` line wraps so that no
 # output row is longer than WIDTH characters (0 never wraps).
 pure list_text(text: Bytes, width: Int, delim: Bytes) -> Bytes {
-  var parts: List[Bytes] = []
+  var parts = []
   var column = 0
   for index in range(text.len()) {
     let byte = at_byte(text, index)
@@ -1130,7 +1130,7 @@ pure regex_subject(pattern: Str, text: Bytes) -> Result[Bytes, Error] {
     }
   }
   if stand_in < 0 { return Err(SedError.Invalid("no control byte is free to stand in for NUL")) }
-  var out: List[Bytes] = []
+  var out = []
   for at in range(text.len()) {
     out += [if text.byte_at(at) == 0 { bytes.from_ints([stand_in])? } else { text[at..at + 1] }]
   }
@@ -1295,7 +1295,7 @@ pure convert_case(text: Bytes, kind: Int) -> Bytes {
   let mode = kind % 4
   let upper_first = kind / 4 % 2 == 1
   let lower_first = kind / 8 % 2 == 1
-  var out: List[Int] = []
+  var out = []
   for index in range(text.len()) {
     let byte = at_byte(text, index)
     var value = byte
@@ -1308,7 +1308,7 @@ pure convert_case(text: Bytes, kind: Int) -> Bytes {
 # GNU's append_replacement: a pending `\u` or `\l` left over from an empty group
 # applies to the next piece that has no modifier of its own.
 pure expand_replacement(nodes: List[ReplNode], text: Bytes, captures: List[Capture?]) -> Bytes {
-  var out: List[Bytes] = []
+  var out = []
   var carried = 0
   for node in nodes {
     var kind = if node.kind >= 4 { node.kind } else { node.kind + carried }
@@ -1338,7 +1338,7 @@ pure expand_replacement(nodes: List[ReplNode], text: Bytes, captures: List[Captu
 # behave like GNU's loop. An empty match directly after the previous match is
 # skipped, and an empty match advances one byte.
 pure substitute(spec: RegexSpec, text: Bytes, sub: Substitution, extended: Bool) -> Result[Replacement, Error] {
-  var out: List[Bytes] = []
+  var out = []
   var search = 0
   var copied = 0
   var count = 0
@@ -1384,7 +1384,7 @@ pure split_records(data: Bytes, delim: Int) -> List[Bytes] {
     for item in lines { covered += item.len() }
     if covered == data.len() or (covered == data.len() - 1 and !data.ends_with(b"\n")) { return lines }
   }
-  var records: List[Bytes] = []
+  var records = []
   var start = 0
   for at in range(data.len()) {
     if data.byte_at(at) == delim {
@@ -1550,7 +1550,7 @@ proc runtime_failure(m: Machine, ctx: Context, failure: Error) [fs, io, error, p
 proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error, process, env] -> Machine {
   var m = machine
   var cursor: Cursor = {next_name: 0, position: 0, count: 0, trailing: true, current: "-", line: 0, bad: 0, fatal: false}
-  var records: List[Bytes] = []
+  var records = []
   let name_count = names.len()
   let commands = ctx.program.commands
   let total = commands.len()
@@ -1799,7 +1799,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
           }
         }
         121 => {
-          var translated: List[Int] = []
+          var translated = []
           for at in range(line.text.len()) { translated += [command.table[at_byte(line.text, at)]] }
           line = {...line, text: bytes.from_ints(translated) ?? line.text}
         }
@@ -1897,8 +1897,8 @@ proc commit_in_place(target: Str, output: Bytes, mode: Int, suffix: Str) [fs, io
 export proc execute(program: Program, options: Options, in_place: InPlace, names: List[Str]) [fs, io, error, process, env] -> Int {
   let delim = if options.null_data { 0 } else { NEWLINE }
   # Collect every output file the program names, in first-use order.
-  var file_names: List[Str] = []
-  var targets: List[Int] = []
+  var file_names = []
+  var targets = []
   for command in program.commands {
     var name = ""
     if command.op in [119, 87] { name = command.name }

@@ -438,7 +438,7 @@ pure apply_capability(base: Colors, name: Str, value: Str?) -> Colors {
 pure parse_colors(spec: Str, base: Colors) -> Colors {
   var c = base
   var name = ""
-  var value: Str? = null
+  var value = null
   let n = spec.byte_len()
   for at in range(n + 1) {
     let ch = if at < n { spec.byte_slice(at, 1) } else { "" }
@@ -480,7 +480,7 @@ pure separator_byte(ctx: Context, sep: Int) -> Bytes {
 # The prefix GNU grep prints before a line or match: file name, line
 # number, byte offset and the optional alignment tab.
 pure line_head(ctx: Context, show_name: Bool, label: Bytes, lineno: Int, offset: Int, sep: Int, width: Int, length: Int) -> Bytes {
-  var parts: List[Bytes] = []
+  var parts = []
   if show_name {
     parts += [paint(ctx, ctx.c.filename, label)]
     parts += [if ctx.o.null_name { b"\0" } else { separator_byte(ctx, sep) }]
@@ -521,7 +521,7 @@ pure render_line(ctx: Context, line: Bytes, dec: Decoded, sep: Int, show_name: B
     line_color = if selected != (o.invert and ctx.c.reversed) { ctx.c.selected_line } else { ctx.c.context_line }
     match_color = if selected { ctx.c.selected_match } else { ctx.c.context_match }
   }
-  var parts: List[Bytes] = []
+  var parts = []
   if ! o.only { parts += [line_head(ctx, show_name, label, lineno, offset, sep, width_for(ctx, width), line.len())] }
   var cur = 0
   let total = line.len()
@@ -580,7 +580,7 @@ pure delimiter_positions(data: Bytes, eol: Int, zap: Bool) -> List[Int] {
       Err(_) => {}
     }
   }
-  var out: List[Int] = []
+  var out = []
   for at in range(data.len()) {
     let byte = data.byte_at(at) ?? 0
     if byte == eol or (zap and byte == 0) { out += [at] }
@@ -606,9 +606,9 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
   var count = 0
   var outleft = o.max_count
   var pending = 0
-  var ring_lines: List[Bytes] = []
-  var ring_numbers: List[Int] = []
-  var ring_offsets: List[Int] = []
+  var ring_lines = []
+  var ring_numbers = []
+  var ring_offsets = []
   var lastout = -1
   var lineno = 0
   var consumed = 0
@@ -675,7 +675,7 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
     let data = if leftover.is_empty() { chunk } else { bytes.concat([leftover, chunk]) }
     let marks = delimiter_positions(data, ctx.eol, zap)
     var begin = 0
-    var records: List[Bytes] = []
+    var records = []
     for mark in marks {
       records += [data[begin..mark]]
       begin = mark + 1
@@ -684,7 +684,7 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
     if eof and ! leftover.is_empty() { records += [leftover]; leftover = b"" }
     # Plain strings: one native search over the buffer finds which records
     # can match at all, so the rest skip per-record matching.
-    var possible: List[Bool] = []
+    var possible = []
     if ctx.prefilter != null and ! zap and ctx.eol == 10 and ! records.is_empty() {
       match regex.find_bytes(ctx.prefilter ?? "", data, extended: true, ignore_case: o.ignore_case) {
         Ok(found) => {
@@ -835,7 +835,7 @@ proc finish_input(ctx: Context, progress: Run, scanned: Scan, label: Bytes, show
   out.used = scanned.used
   if ! scanned.ok { out.failed = true }
   if o.count and o.list == 0 and ! o.quiet {
-    var parts: List[Bytes] = []
+    var parts = []
     if show_name {
       parts += [paint(ctx, ctx.c.filename, label)]
       parts += [if o.null_name { b"\0" } else { separator_byte(ctx, 58) }]
@@ -990,7 +990,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
   }
   let longs = long_options()
   let posixly = (env.get_or("POSIXLY_CORRECT", "\u{0}unset") ?? "") != "\u{0}unset"
-  var operands: List[Bytes] = []
+  var operands = []
   var index = 0
   var options_ended = false
   while index < args.len() {
@@ -1005,7 +1005,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
     if raw.byte_at(1) == 45 {
       let body = raw[2..]
       var name_bytes = body
-      var value: Bytes? = null
+      var value = null
       var equals = -1
       for at in range(body.len()) { if body.byte_at(at) == 61 { equals = at; break } }
       if equals >= 0 {
@@ -1076,7 +1076,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
         o = apply_option(o, ch, null, null)
         continue
       }
-      var value: Bytes? = null
+      var value = null
       if position < text.byte_len() {
         value = bytes.from_text(text.byte_slice(position))
         position = text.byte_len()
@@ -1110,7 +1110,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
   var invert = o.invert
   var whole = o.whole
   var word = o.word
-  var patterns: List[Bytes] = []
+  var patterns = []
   if keys.is_empty() {
     invert = ! invert
     whole = false
@@ -1141,7 +1141,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
   if o.matcher == "A" { die("awk matchers are not supported") }
   let utf8 = detect_utf8()
   var programs: List[gnu_regex.Program] = []
-  var warnings: List[Str] = []
+  var warnings = []
   for pattern in patterns {
     let compiled = if o.matcher == "F" { gnu_regex.compile_fixed(pattern, o.ignore_case, utf8) } else { gnu_regex.compile_one(pattern, o.matcher == "E", o.ignore_case, utf8) }
     match compiled {

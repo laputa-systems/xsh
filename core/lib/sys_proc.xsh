@@ -51,7 +51,7 @@ pure page_bytes(pages: Int?, page_size_bytes: Int) -> Int? {
 }
 
 pure display_bytes(data: Bytes) -> Str {
-  var parts: List[Str] = []
+  var parts = []
   var start = 0
   for at in range(data.len()) {
     if data.byte_at(at) == 0 {
@@ -103,7 +103,7 @@ export proc collect_local_display(root: FsRoot, process_rows: List[Process]) [fs
     let before = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
     let command = root.read_result(fp"{process_path}/cmdline", max_bytes: 4096)?
     let after = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
-    var command_line: Str? = null
+    var command_line = null
     if stat_matches_process(before, row) and stat_matches_process(after, row) and
         command.state == "observed" and command.data != null {
       let text = display_bytes(command.data ?? b"")
@@ -139,7 +139,7 @@ pure parse_status_uid(source: src.SourceRead, pid: Int) -> UidParse {
     }
   }
   var rows = 0
-  var uid: Int? = null
+  var uid = null
   var issue: src.Issue? = null
   for line in source.observation.value.lines() {
     continue when ! line.starts_with("Uid:")
@@ -183,7 +183,7 @@ pure parse_statm(source: src.SourceRead, page_size_bytes: Int, pid: Int) -> Stat
       issues: [src.issue(f"processes.{pid}.statm", report.Malformed, "invalid_statm_row", null)],
     }
   }
-  var parsed: List[Int] = []
+  var parsed = []
   for field in fields {
     let value = src.parse_integer(field)
     if value == null or (value ?? -1) < 0 {

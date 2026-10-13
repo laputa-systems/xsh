@@ -158,7 +158,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let tab3 = bytes.from_text(lead1 + lead2)
   let mode = if opts.check_order { "always" } else if opts.nocheck_order { "never" } else { "default" }
 
-  var out: List[Bytes] = []
+  var out = []
   var first = 0
   var second = 0
   var only1 = 0

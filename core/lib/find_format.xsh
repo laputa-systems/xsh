@@ -21,7 +21,7 @@ export type Entry = {path: Path, start: Path, depth: Int, meta: Meta}
 export type Segment = {kind: Str, text: Bytes, flags: Str, width: Int, precision: Int, spec: Str, sub: Str}
 
 pure spaces(count: Int) -> Bytes {
-  var parts: List[Bytes] = []
+  var parts = []
   for _ in range(count) { parts += [b" "] }
   bytes.concat(parts)
 }
@@ -70,7 +70,7 @@ pure is_octal(byte: Int) -> Bool { byte >= 48 and byte <= 55 }
 ## are copied through, matching GNU; a lone trailing `%` or `\` is an error.
 export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment], Error] {
   var out: List[Segment] = []
-  var text: List[Bytes] = []
+  var text = []
   var at = 0
   while at < format.len() {
     let byte = format.byte_at(at) ?? 0
@@ -325,7 +325,7 @@ export pure needs_stat(segments: List[Segment]) -> Bool {
 
 ## Expand a compiled format for an entry.
 export proc render(segments: List[Segment], entry: Entry) [fs, time, error] -> Result[Bytes, Error] {
-  var parts: List[Bytes] = []
+  var parts = []
   for segment in segments {
     break when segment.kind == "stop"
     if segment.kind == "text" { parts += [segment.text]; continue }
@@ -337,7 +337,7 @@ export proc render(segments: List[Segment], entry: Entry) [fs, time, error] -> R
 # `-ls` names print with C escapes for control bytes and backslash, and as
 # octal for bytes outside printable ASCII.
 pure escape_name(raw: Bytes) -> Bytes {
-  var parts: List[Bytes] = []
+  var parts = []
   for at in range(raw.len()) {
     let byte = raw.byte_at(at) ?? 0
     let simple = match byte { 7 => "\\a"; 8 => "\\b"; 9 => "\\t"; 10 => "\\n"; 11 => "\\v"; 12 => "\\f"; 13 => "\\r"; 92 => "\\\\"; _ => "" }

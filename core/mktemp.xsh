@@ -6,7 +6,7 @@ type RawArgument = {marker: Str, value: Bytes}
 type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var raw: List[RawArgument] = []
   for index in range(argv.len()) {
     let argument = argv[index]

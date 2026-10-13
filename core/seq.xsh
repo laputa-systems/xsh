@@ -521,7 +521,7 @@ pure infinity_text(negative: Bool, spec: Spec) -> Str {
 }
 
 pure prepared_args(argv: List[Bytes]) -> PreparedArguments {
-  var text: List[Str] = []
+  var text = []
   var byte_values: List[ByteArgument] = []
 
   for value in argv {

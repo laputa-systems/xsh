@@ -80,7 +80,7 @@ proc main(...argv: List[Bytes]) {
   let delimiter = if single_delimiter_character { bytes.concat([delimiter_arg, b":"]) } else { delimiter_arg }
   let separator = text.argument_bytes(arguments, opts.separator)
   let separator_count = character_count(separator)
-  var lines: List[Bytes] = []
+  var lines = []
   var failed = false
   let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
   for name in paths {

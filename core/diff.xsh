@@ -372,7 +372,7 @@ proc stamp(moment: Int, unified: Bool) [env, time, error] -> Str {
 proc header(cfg: Settings, left: Probe, right: Probe) [env, time, error] -> Bytes {
   let unified = cfg.style == "unified"
   let marks = if unified { ["---", "+++"] } else { ["***", "---"] }
-  var chunks: List[Bytes] = []
+  var chunks = []
   for side in range(2) {
     let item = if side == 0 { left } else { right }
     var text = ""
@@ -460,7 +460,7 @@ const DEVICE_LIMIT = 67108864
 # Read a character or block device in chunks until it ends or passes the limit.
 proc read_device(name: Str) [fs, io, error] -> Result[Bytes, Error] {
   let source = tio.open_source(name)?
-  var parts: List[Bytes] = []
+  var parts = []
   var total = 0
   while true {
     let chunk = tio.read_chunk(source, total, 65536)?
@@ -482,7 +482,7 @@ proc read_side(item: Probe) [fs, io, error] -> Result[Bytes, Error] {
 # `--ignore-file-name-case`), minus excluded names. An absent side (`-N`) is
 # an empty directory.
 proc entry_names(cfg: Settings, side: Probe) [fs, error] -> Result[List[Str], Error] {
-  var names: List[Str] = []
+  var names = []
   return Ok(names) when side.kind == "absent"
   for child in fs.children(fp"{side.name}", stat: false, ordered: true)? {
     if !excluded(cfg.patterns, child.name) { names += [child.name] }
@@ -490,7 +490,7 @@ proc entry_names(cfg: Settings, side: Probe) [fs, error] -> Result[List[Str], Er
   if cfg.fold_names {
     var keyed: List[Folded] = []
     for name in names { keyed += [{key: name.lower(), name: name}] }
-    var ordered: List[Str] = []
+    var ordered = []
     for item in keyed |> sort-by .key { ordered += [item.name] }
     names = ordered
   }
@@ -849,7 +849,7 @@ pure format_events(argv: List[Str]) -> List[FormatEvent] {
       let equals = body.find("=")
       let name = if equals == null { body } else { body.byte_slice(0, length: equals ?? 0) }
       var resolved = ""
-      var candidates: List[Str] = []
+      var candidates = []
       for known in FORMAT_LONGS + VALUE_LONGS + OTHER_LONGS + ["digits"] {
         if known == name { resolved = known }
         if known.starts_with(name) and !(known in candidates) { candidates += [known] }
@@ -897,9 +897,9 @@ proc merged_templates(events: List[FormatEvent]) [process, env] -> diffrender.Te
   let group_names = ["--old-group-format", "--new-group-format", "--changed-group-format", "--unchanged-group-format"]
   let line_names = ["--old-line-format", "--new-line-format", "--unchanged-line-format"]
   for event in events {
-    var texts: List[Str] = []
+    var texts = []
     var is_group = false
-    var slots: List[Int] = []
+    var slots = []
     if event.name == "-D" {
       is_group = true
       slots = [0, 1, 2, 3]
@@ -1036,7 +1036,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   if opts.help { gnu.write_text(HELP); return }
   if opts.version { gnu.version("diff"); return }
 
-  var styles: List[Str] = []
+  var styles = []
   if opts.normal { styles += ["normal"] }
   if opts.unified or !opts.unified_short.is_empty() or !opts.unified_long.is_empty() { styles += ["unified"] }
   if opts.context_c or !opts.context_short.is_empty() or !opts.context_long.is_empty() { styles += ["context"] }
@@ -1155,7 +1155,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   let fmt: diffrender.Format = {utf8: rules.utf8, style: style, context: context, initial_tab: opts.initial_tab, expand_tabs: opts.expand_tabs, tabsize: tabsize, suppress_blank_empty: opts.suppress_blank_empty, width: width, left_column: opts.left_column, suppress_common: opts.suppress_common, function_patterns: function_patterns, ignore_blank: opts.ignore_blank, blank_skips_space: opts.space_change or opts.all_space, patterns: opts.ignore_matching, palette: if colored { palette } else { [] }}
   let cfg: Settings = {opts: opts, rules: rules, fmt: fmt, templates: templates, labels: opts.label, switches: switch_text(argv), patterns: patterns, style: style, fold_names: fold_names}
 
-  var pairs: List[List[Str]] = []
+  var pairs = []
   if let from = opts.from_file {
     for operand in opts.files { pairs += [[from, operand]] }
   } else if let to = opts.to_file {
