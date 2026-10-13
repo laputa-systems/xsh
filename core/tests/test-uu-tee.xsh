@@ -6,7 +6,7 @@ pure numbered_input(count: Int) -> Bytes {
 
 # Wait for the temporary reader to close before exec so stdout is already
 # broken. Shell status preserves signal deaths as well as ordinary exits.
-proc broken_stdout(s: uu.Scene, args: List[Str], input: Bytes, idle: Bool = false) [fs, process, env, error] -> Result[uu.Ran] {
+proc broken_stdout(s: uu.Scene, args: List[Str], input: Bytes, idle = false) [fs, process, env, error] -> Result[uu.Ran] {
   uu.mkfifo(s, "broken-stdout")
   let words = uu.argv(s, "tee", [Path(word) for word in args])?
   let setup = if idle {
@@ -22,7 +22,7 @@ proc broken_stdout(s: uu.Scene, args: List[Str], input: Bytes, idle: Bool = fals
   Ok({util: "tee", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 
-proc check_file(s: uu.Scene, name: Str, input: Bytes, short: Bool = false) [fs, error] {
+proc check_file(s: uu.Scene, name: Str, input: Bytes, short = false) [fs, error] {
   assert uu.file_exists(s, name)?
   let actual = uu.read(s, name)?
   if short {

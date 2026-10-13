@@ -22,7 +22,7 @@ proc write_proc_stat(root: FsRoot, aggregate: Str, cpu0: Str, cpu1: Str) [fs, er
   root.write(p"proc/loadavg", "0.10 0.20 0.30 1/100 42\n")
 }
 
-proc process_stat(pid: Int, start_ticks: Int, user_ticks: Int, system_ticks: Int, rss_pages: Int, command: Str = "sample (worker)") -> Str {
+proc process_stat(pid: Int, start_ticks: Int, user_ticks: Int, system_ticks: Int, rss_pages: Int, command = "sample (worker)") -> Str {
   f"{pid} ({command}) S 1 {pid} {pid} 0 -1 4194560 100 0 0 0 {user_ticks} {system_ticks} 0 0 20 1 1 0 {start_ticks} 16777216 {rss_pages} 0 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
 }
 

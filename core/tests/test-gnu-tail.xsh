@@ -11,7 +11,7 @@ proc following(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result
   let plan = uu.command(s, "tail", args, stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 60s)?
   Ok(spawn plan?)
 }
-proc seen(s: uu.Scene, file: Str, needle: Str, attempts: Int = 7) [fs, process, time, error] {
+proc seen(s: uu.Scene, file: Str, needle: Str, attempts = 7) [fs, process, time, error] {
   var delay = 100ms
   for _ in range(attempts) {
     return when needle in uu.read_text(s, file)?
@@ -271,7 +271,7 @@ test test_gnu_tail_tail_c_log { |ctx|
   if p"/dev/urandom".exists() { uu.succeeds(uu.invoke(s, "tail", ["-c", "4096", "/dev/urandom"], timeout: 10s)?) }
 }
 
-proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = null, timeout: Duration = 10s) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = null, timeout = 10s) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let tail = uu.argv(s, "tail", [fp"{arg}" for arg in args])?
   let words = if prefix[0] == p"timeout" {
     uu.argv(s, "timeout", prefix[1..].extend(tail))?
@@ -563,7 +563,7 @@ test test_gnu_tail_wait_log { |ctx|
 
 proc repeated(value: Str, count: Int) -> Str { [value for _ in range(count)].join("") }
 type MatrixCase = {name: Str, args: List[Str], input: Str, output: Str, status: Int, error: Str, normalize: Bool}
-proc matrix_case(name: Str, args: List[Str], input: Str, output: Str, status: Int = 0, error: Str = "", normalize: Bool = false) -> MatrixCase {
+proc matrix_case(name: Str, args: List[Str], input: Str, output: Str, status = 0, error = "", normalize = false) -> MatrixCase {
   {name: name, args: args, input: input, output: output, status: status, error: error, normalize: normalize}
 }
 # origin: gnu tail/tail.log

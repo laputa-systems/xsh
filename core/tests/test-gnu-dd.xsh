@@ -15,7 +15,7 @@ proc shell(s: uu.Scene, code: Str, words: List[Path], stdin: Path? = null, stder
 
 # Two applets share a single inherited input descriptor, so the second begins
 # after the first applet's reads and seeks rather than reopening the file.
-proc sequential(s: uu.Scene, first: List[Str], second: List[Str], input: Path, quiet_first: Bool = false) [fs, process, env, error] -> uu.Ran {
+proc sequential(s: uu.Scene, first: List[Str], second: List[Str], input: Path, quiet_first = false) [fs, process, env, error] -> uu.Ran {
   let left = uu.argv(s, "dd", [Path(word) for word in first])?
   let right = uu.argv(s, "dd", [Path(word) for word in second])?
   let one = ["\"" + r"$" + "{" + f"{index + 1}" + "}\"" for index in range(left.len())].join(" ")

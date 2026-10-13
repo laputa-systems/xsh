@@ -3,7 +3,7 @@
 use support.uu
 
 # CRC reports each candidate it tries and stops at the first supported implementation.
-proc crc_debug(disabled: Str = "") -> Str {
+proc crc_debug(disabled = "") -> Str {
   let features = unix.cpu_features()
   var expected = ""
   for feature in ["avx512", "avx2", "pclmul"] {
@@ -17,7 +17,7 @@ proc crc_debug(disabled: Str = "") -> Str {
 }
 
 # The mixed list hashes empty stdin for four algorithms; later variants add malformed and mismatching lines.
-proc check_scene(ctx: TestContext, variant: Int = 0) [fs, process, env, io, error] -> Result[uu.Scene, Error] {
+proc check_scene(ctx: TestContext, variant = 0) [fs, process, env, io, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?
   uu.write(s, "input", "9\n7\n1\n4\n2\n6\n3\n5\n8\n10\n")
   uu.touch(s, "CHECKSUMS")

@@ -27,7 +27,7 @@ test test_printf_escapes_and_usage { |ctx|
 
 type PrintfResult = {status: Int, stdout: Str, stderr: Str}
 
-proc printf_run(ctx: TestContext, args: List[Str], posix: Bool = false) [fs, process, error] -> Result[PrintfResult] {
+proc printf_run(ctx: TestContext, args: List[Str], posix = false) [fs, process, error] -> Result[PrintfResult] {
   let root = test.temp_dir(ctx, name: "printf-argv")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"

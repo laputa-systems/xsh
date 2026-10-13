@@ -1993,7 +1993,7 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
 ## The runtime buffers stdout, so an intermediate chunk's flush still belongs
 ## to the write phase; only the final flush uses the fflush diagnostic. A closed
 ## reader ends the process with the SIGPIPE status and no diagnostic.
-proc finish_sort_stdout_bytes(data: Bytes, intermediate: Bool = false) [io, env, process] -> Unit {
+proc finish_sort_stdout_bytes(data: Bytes, intermediate = false) [io, env, process] -> Unit {
   if let Err(failure) = io.write_stdout_bytes(data) {
     if gnu.errno(failure) == 32 { exit 141 }
     gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")

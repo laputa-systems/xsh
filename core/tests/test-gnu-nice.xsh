@@ -2,7 +2,7 @@ use support.uu
 
 # Nested commands use the same launcher as the outer nice invocation so both
 # levels observe the inherited priority under the native and oracle runs.
-proc nested(s: uu.Scene, options: List[Str], util: Str = "nice", stderr: Path? = null) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc nested(s: uu.Scene, options: List[Str], util = "nice", stderr: Path? = null) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let child = uu.argv(s, util, [])?
   if stderr == null {
     return uu.invoke_paths(s, "nice", [fp"{word}" for word in options].extend(child))

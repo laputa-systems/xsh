@@ -1,6 +1,6 @@
 use core.lib.procps
 
-pure row(pid: Int, name: Str, argv: Str, uid: Int = 1000, parent: Int = 1) -> ProcessEntry {
+pure row(pid: Int, name: Str, argv: Str, uid = 1000, parent = 1) -> ProcessEntry {
   {pid: pid, parent_pid: parent, command: name, argv: argv, argv0: name, user: "fixture", uid: uid, status: "S", start_time: "", start_time_ms: pid * 1000, runtime_seconds: 10, user_ticks: null, system_ticks: null, cpu_ticks: null, start_ticks: null, ticks_per_second: null, rss_bytes: null, vsize_bytes: null, pgrp: null, session: null, tty_number: null, nice: null, priority: null, thread_count: null, processor: null, tty: null}
 }
 
@@ -170,7 +170,7 @@ proc unique_name(ctx: TestContext, tag: Str) [process, error] -> Result[Str, Err
 # exits on its own after about ten seconds if a test fails before releasing it.
 type Sleeper = {name: Str, pid: Int, release: Path, child: ProcessHandle}
 
-proc start_sleeper(ctx: TestContext, tag: Str, token: Str = "", reading: Path? = null, appending: Path? = null) [fs, process, time, error] -> Result[Sleeper, Error] {
+proc start_sleeper(ctx: TestContext, tag: Str, token = "", reading: Path? = null, appending: Path? = null) [fs, process, time, error] -> Result[Sleeper, Error] {
   let name = unique_name(ctx, tag)?
   let link = fp"{test.temp_dir(ctx, name:)?}/{name}"
   fs.symlink(ctx.xsh_bin, link)

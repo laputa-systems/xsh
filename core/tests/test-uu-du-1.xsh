@@ -2,7 +2,7 @@
 use support.uu
 
 # Capture files must be outside the walked scene so their sizes and inodes are not counted.
-proc invoke(s: uu.Scene, args: List[Str], stdin: Bytes = b"", vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran] {
+proc invoke(s: uu.Scene, args: List[Str], stdin = b"", vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran] {
   let capture = test.temp_dir(s.ctx, name: "du-capture")?
   let out = fp"{capture}/stdout"
   let err = fp"{capture}/stderr"
@@ -23,7 +23,7 @@ proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
 # The reference walks filesystem metadata independently of the applet output.
 # GNU counts directory metadata for disk blocks and counts each inode once.
 type Expected = {size: Int, seen: Map[Bool], lines: List[Str]}
-proc expected(s: uu.Scene, name: Str = ".", inodes: Bool = false, separate: Bool = false, follow: Bool = false, depth: Int = 100, seen: Map[Bool] = {}) [fs, error] -> Result[Expected] {
+proc expected(s: uu.Scene, name = ".", inodes = false, separate = false, follow = false, depth = 100, seen: Map[Bool] = {}) [fs, error] -> Result[Expected] {
   let target = uu.at(s, name)
   let meta = fs.stat(target, follow_symlinks: follow)?
   let key = f"{meta.dev}:{meta.ino}"

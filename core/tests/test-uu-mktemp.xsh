@@ -16,7 +16,7 @@ proc output_name(r: uu.Ran) [error] -> Result[Str] {
   Ok(name.byte_slice(0, length: end))
 }
 
-proc created(s: uu.Scene, r: uu.Ran, pattern: Str, directory: Bool = false) [fs, error] {
+proc created(s: uu.Scene, r: uu.Ran, pattern: Str, directory = false) [fs, error] {
   uu.succeeds(r)
   uu.no_stderr(r)
   let name = output_name(r)?

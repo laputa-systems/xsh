@@ -1,10 +1,10 @@
 use support.uu
 
 type CutCase = {name: Str, args: List[Bytes], input: Bytes?, output: Bytes, status: Int, stderr: Str}
-proc case(name: Str, args: List[Str], input: Bytes?, output: Bytes = b"", status: Int = 0, stderr: Str = "") -> CutCase {
+proc case(name: Str, args: List[Str], input: Bytes?, output = b"", status = 0, stderr = "") -> CutCase {
   {name: name, args: [bytes.from_text(arg) for arg in args], input: input, output: output, status: status, stderr: stderr}
 }
-proc byte_case(name: Str, args: List[Bytes], input: Bytes?, output: Bytes = b"", status: Int = 0, stderr: Str = "") -> CutCase {
+proc byte_case(name: Str, args: List[Bytes], input: Bytes?, output = b"", status = 0, stderr = "") -> CutCase {
   {name: name, args: args, input: input, output: output, status: status, stderr: stderr}
 }
 proc repeated(value: Bytes, count: Int) -> Bytes { bytes.concat([value for _ in range(count)]) }

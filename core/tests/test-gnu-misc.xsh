@@ -4,7 +4,7 @@ pure shell_words(words: List[Path]) -> Str {
   ["'" + word.display().replace("'", with: "'\\''") + "'" for word in words].join(" ")
 }
 
-proc terminal_run(s: uu.Scene, util: Str, args: List[Path], redirect: Str = "", umask: Int? = null) -> Result[Int] {
+proc terminal_run(s: uu.Scene, util: Str, args: List[Path], redirect = "", umask: Int? = null) -> Result[Int] {
   let words = uu.argv(s, util, args, umask:)?
   let command = shell_words(words) + redirect
   let plan = process.command_argv(p"/usr/bin/script", ["script", "-q", "-e", "-c", command, "/dev/null"], s.root,

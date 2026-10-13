@@ -1,6 +1,6 @@
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
-proc invoke(ctx: TestContext, args: List[Str], posix: Bool = false) [fs, process, error] -> Result[Ran] {
+proc invoke(ctx: TestContext, args: List[Str], posix = false) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "nohup")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"

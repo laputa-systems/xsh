@@ -42,7 +42,7 @@ proc radix(value: Int, base: Int) [error] -> Result[Str, Error] {
   Ok(digits.join(""))
 }
 
-proc canonical_number(word: Str, hex: Bool = false) [error] -> Result[Str, Error] {
+proc canonical_number(word: Str, hex = false) [error] -> Result[Str, Error] {
   var digits = if word.starts_with("+") { word.byte_slice(1) } else { word }
   assert if hex { rx"^[0-9a-fA-F]+$".matches(digits) } else { rx"^[0-9]+$".matches(digits) }
   while digits.byte_len() > 1 and digits.starts_with("0") { digits = digits.byte_slice(1) }
@@ -82,7 +82,7 @@ proc date_text(nanos: Int) [time, error] -> Result[Str, Error] {
 }
 
 # Serialize the fixed full-format contract directly from native metadata.
-proc normal_output(target: Path, name: Str, device: Bool = false, follow: Bool = false) [fs, process, time, error] -> Result[Str, Error] {
+proc normal_output(target: Path, name: Str, device = false, follow = false) [fs, process, time, error] -> Result[Str, Error] {
   let mount = fs.mount_for(target.resolve()?)?
   let meta = fs.stat(target, follow_symlinks: follow)?
   let owner = user.by_uid(meta.uid)?.name

@@ -1,6 +1,6 @@
 type FakeOutput = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}
 
-proc lsattr_fake(ctx: TestContext, args: List[Str], flags: Int, generation: Int = 7, project: Int = 19) [fs, process, error] -> FakeOutput {
+proc lsattr_fake(ctx: TestContext, args: List[Str], flags: Int, generation = 7, project = 19) [fs, process, error] -> FakeOutput {
   test.linux_fake(ctx, {file_attrs_flags: flags, file_version: generation, file_project: project})
   let source = fp"{ctx.core_dir}/lsattr.xsh".read_text()?
   test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, b"", "lsattr")?

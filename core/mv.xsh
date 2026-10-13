@@ -46,7 +46,7 @@ pure child_path(parent: Path, child: Path) -> Path {
   if raw.byte_at(raw.len() - 1) == 47 { fp"{parent}{child}" } else { fp"{parent}/{child}" }
 }
 
-pure same_entry_display(value: Path, destination: Bool = false) -> Str {
+pure same_entry_display(value: Path, destination = false) -> Str {
   let shown = value.display()
   if shown == "./" { if destination { "./." } else { "." } } else { shown }
 }
@@ -109,7 +109,7 @@ proc copy_move_node(source: Path, target: Path, copies: List[FileIdentity]) -> R
   copies
 }
 
-proc remove_move_tree(entry_path: Path, verbose: Bool = false) {
+proc remove_move_tree(entry_path: Path, verbose = false) {
   let metadata = fs.stat(entry_path)?
   if metadata.kind == "dir" {
     for entry in fs.children(entry_path)? {

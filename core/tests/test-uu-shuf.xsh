@@ -2,7 +2,7 @@
 
 use support.uu
 
-proc numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[Int], Error] {
+proc numbers(data: Bytes, separator = "\n") [error] -> Result[List[Int], Error] {
   let result = collect {
     for word in data.utf8()?.split(separator) {
       if word != "" { assert rx"^[+-]?[0-9]+$".matches(word); yield word as Int }
@@ -11,11 +11,11 @@ proc numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[Int], Er
   Ok(result)
 }
 
-proc sorted_numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[Int], Error] {
+proc sorted_numbers(data: Bytes, separator = "\n") [error] -> Result[List[Int], Error] {
   Ok([value for value in numbers(data, separator)? |> sort-by .])
 }
 
-proc words(data: Bytes, separator: Str = "\n") [error] -> Result[List[Str], Error] {
+proc words(data: Bytes, separator = "\n") [error] -> Result[List[Str], Error] {
   let result = collect {
     for word in data.utf8()?.split(separator) { if word != "" { yield word } }
   }

@@ -1137,11 +1137,11 @@ test test_uu_ls_ls_color_does_not_make_quoted_names_align_as_unquoted { |ctx|
 }
 
 # Linux ACL v2 fixture fields reproduce the default/access entries installed by setfacl.
-proc acl_fixture_entry(tag: Int, permissions: Int, id: Int = 4294967295) [error] -> Result[Bytes, Error] {
+proc acl_fixture_entry(tag: Int, permissions: Int, id = 4294967295) [error] -> Result[Bytes, Error] {
   Ok(bytes.concat([bytes.pack_le(tag, 2)?, bytes.pack_le(permissions, 2)?, bytes.pack_le(id, 4)?]))
 }
 
-proc default_acl_fixture(target: Path, named_bin: Bool = false) [fs, error] {
+proc default_acl_fixture(target: Path, named_bin = false) [fs, error] {
   let mode = fs.stat(target)?.mode
   var entries = [b"\x02\0\0\0", acl_fixture_entry(1, mode / 64 % 8)?]
   if named_bin { entries += [acl_fixture_entry(2, 7, user.lookup("bin")?.uid)?] }

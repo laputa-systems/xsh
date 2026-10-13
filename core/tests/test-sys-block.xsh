@@ -3,7 +3,7 @@ use core.lib.system_report as report
 
 # Creates a class entry for a device whose real directory lives at `device_path`.
 # Partitions expose holders but no slaves directory of their own.
-proc add_device(root: FsRoot, name: Str, device_path: Str, number: Str, sectors: Str, slaves: Bool = true) [fs, error] {
+proc add_device(root: FsRoot, name: Str, device_path: Str, number: Str, sectors: Str, slaves = true) [fs, error] {
   root.mkdir(fp"sys/devices/{device_path}/holders", parents: true)
   if slaves {
     root.mkdir(fp"sys/devices/{device_path}/slaves", parents: true)

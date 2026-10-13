@@ -8,7 +8,7 @@ type Listener = {fd: Int, port: Int}
 
 const USAGE = "usage: nc [-46CDdFhklNnrStUuvZz] [-I length] [-i interval] [-M ttl]\n\t  [-m minttl] [-O length] [-P proxy_username] [-p source_port]\n\t  [-q seconds] [-s sourceaddr] [-T keyword] [-V rtable] [-W recvlimit]\n\t  [-w timeout] [-X proxy_protocol] [-x proxy_address[:port]]\n\t  [destination] [port]\n"
 
-proc nc_command(ctx: TestContext, root: Path, tag: Str, args: List[Str], stdin: Bytes = b"") [process] -> Command {
+proc nc_command(ctx: TestContext, root: Path, tag: Str, args: List[Str], stdin = b"") [process] -> Command {
   let script = fp"{ctx.core_dir}/nc.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   process.command_argv(
@@ -27,7 +27,7 @@ proc finished(root: Path, tag: Str, status: Status) [fs, process, error] -> Resu
   Ok({status: status.shell_code()?, stdout: fp"{root}/{tag}.out".read_bytes()?, stderr: fp"{root}/{tag}.err".read_text()?})
 }
 
-proc run_nc(ctx: TestContext, args: List[Str], stdin: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc run_nc(ctx: TestContext, args: List[Str], stdin = b"") [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "nc")?
   let status = process.run(nc_command(ctx, root, "run", args, stdin))?
   finished(root, "run", status)
@@ -44,7 +44,7 @@ proc await_text(file: Path, needle: Str) [fs, time, error] {
   Err(error.failure(f"{file} never showed {needle}"))
 }
 
-proc tcp_listener(address: Str = "127.0.0.1") [net, process, error] -> Result[Listener] {
+proc tcp_listener(address = "127.0.0.1") [net, process, error] -> Result[Listener] {
   let c = linux.net_constants()
   let family = if address.find(":") != null { c.AF_INET6 } else { c.AF_INET }
   let fd = linux.socket(family, c.SOCK_STREAM)?
@@ -87,7 +87,7 @@ proc send_all(fd: Int, data: Bytes) [net, process, error] {
 }
 
 # Opens a TCP connection to `port` on loopback from the test itself.
-proc tcp_client(port: Int, address: Str = "127.0.0.1") [net, process, error] -> Result[Int] {
+proc tcp_client(port: Int, address = "127.0.0.1") [net, process, error] -> Result[Int] {
   let c = linux.net_constants()
   let v6 = address.find(":") != null
   let fd = linux.socket(if v6 { c.AF_INET6 } else { c.AF_INET }, c.SOCK_STREAM)?

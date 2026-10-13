@@ -1,6 +1,6 @@
 use support.uu
 
-proc wrapped(s: uu.Scene, code: Str, words: List[Path], stdin: Path? = null, input: Bytes = b"", timeout: Duration = 20s) [fs, process, env, error] -> uu.Ran {
+proc wrapped(s: uu.Scene, code: Str, words: List[Path], stdin: Path? = null, input = b"", timeout = 20s) [fs, process, env, error] -> uu.Ran {
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
   let argv = [p"/bin/sh", p"-c", fp"{code}", p"tee-wrapper"].extend(words)

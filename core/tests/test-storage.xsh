@@ -280,7 +280,7 @@ test test_storage_mkswap_initializes_owned_file_and_rejects_fifo { |ctx|
 # Runs an applet against the real host primitives. Nothing here may reach a
 # block device or mount point: every operand is an image file, a scratch
 # directory or a path that cannot exist.
-proc run_real(ctx: TestContext, name: Str, args: List[Str], stdin: Bytes = b"") -> StorageRun {
+proc run_real(ctx: TestContext, name: Str, args: List[Str], stdin = b"") -> StorageRun {
   let source = fp"{ctx.core_dir}/{name}.xsh".read_text()?
   test.run_script(ctx, source, args, {XSH_MODULE_PATH: ctx.core_dir}, stdin, name)?
 }

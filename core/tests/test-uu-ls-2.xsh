@@ -3,7 +3,7 @@
 use support.uu
 
 # Captures live outside the listed scene, including when ls shows hidden files.
-proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}, terminal: Bool = false, stderr: Path? = null) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
+proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}, terminal = false, stderr: Path? = null) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let captures = test.temp_dir(s.ctx, name: "ls-captures")?
   let output = fp"{captures}/stdout"
   let error_output = stderr ?? fp"{captures}/stderr"
@@ -60,7 +60,7 @@ proc stderr_lacks(r: uu.Ran, needle: Str) [error] {
 }
 
 # Offset pairs index the full byte stream, including escapes and rendered headers.
-proc offset_names(data: Bytes, tag: Str, trim: Bool = false) [error] -> Result[List[Str], Error] {
+proc offset_names(data: Bytes, tag: Str, trim = false) [error] -> Result[List[Str], Error] {
   let output = data as Str
   let tagged = [line for line in output.lines() if line.starts_with(tag)]
   assert tagged.len() == 1, f"missing or duplicated {tag}: {output}"

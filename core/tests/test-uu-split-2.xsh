@@ -63,7 +63,7 @@ proc split_to_stdout_pipe(s: uu.Scene, args: List[Str], input: Bytes) [fs, proce
   Ok({...r, stdout: output.read_bytes()?})
 }
 
-proc byte_named_outputs(s: uu.Scene, prefix: Bytes, suffix: Bytes = b"") [fs, error] -> Result[List[Bytes], Error] {
+proc byte_named_outputs(s: uu.Scene, prefix: Bytes, suffix = b"") [fs, error] -> Result[List[Bytes], Error] {
   let offset = s.root.bytes().len() + 1
   let entries = s.root.glob("*")? |> sort
   let names = [entry.bytes()[offset..] for entry in entries]

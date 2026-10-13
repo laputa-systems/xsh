@@ -8,7 +8,7 @@ proc present(s: uu.Scene, names: List[Str]) [fs, error] {
   for name in names { assert uu.exists(s, name)?, f"{name} disappeared" }
 }
 
-proc shell_run(s: uu.Scene, args: List[Str], setup: Str, input: Bytes = b"", timeout: Duration = 120s) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc shell_run(s: uu.Scene, args: List[Str], setup: Str, input = b"", timeout = 120s) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let out = uu.at(s, ".wrapper-out")
   let err = uu.at(s, ".wrapper-err")
   let words = [p"/bin/sh", p"-c", fp"{setup}", p"rm-wrapper"].extend(uu.argv(s, "rm", [fp"{arg}" for arg in args])?)

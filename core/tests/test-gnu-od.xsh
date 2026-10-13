@@ -1,6 +1,6 @@
 use support.uu
 
-proc wrapped(s: uu.Scene, words: List[Path], input: Bytes = b"", stdin: Path? = null, timeout: Duration = 20s) [fs, process, env, error] -> uu.Ran {
+proc wrapped(s: uu.Scene, words: List[Path], input = b"", stdin: Path? = null, timeout = 20s) [fs, process, env, error] -> uu.Ran {
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
   let plan = if let input_path = stdin {

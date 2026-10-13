@@ -245,7 +245,7 @@ test test_gnu_split_r_chunk_log { |ctx|
 
 # The isolation launcher runs before the budget is set; the limit applies to
 # the applet itself. A marker distinguishes failed setup from a started applet.
-proc vm_status(s: uu.Scene, args: List[Str], kilobytes: Int, marker: Str? = null, discovery: Bool = false) [fs, process, env, time, error] -> Result[Int, Error] {
+proc vm_status(s: uu.Scene, args: List[Str], kilobytes: Int, marker: Str? = null, discovery = false) [fs, process, env, time, error] -> Result[Int, Error] {
   let shell = process.which("sh")?
   let argv = uu.argv(s, "split", [fp"{word}" for word in args])?
   let wrapper = r"""trap '' SEGV; ulimit -c 0; ulimit -v "$1" || exit 77; shift; if test -n "$1"; then : > "$1" || exit; fi; shift; exec "$@"; """

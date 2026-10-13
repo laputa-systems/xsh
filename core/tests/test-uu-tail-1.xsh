@@ -25,7 +25,7 @@ proc append(s: uu.Scene, name: Str, data: Str) [fs, process, net, error] {
 }
 
 # Every follow run uses its own captures; callers own the handle and cancel it on scope exit.
-proc follow(s: uu.Scene, args: List[Str], input: Union[Bytes, Path] = b"", merged: Bool = false) [fs, process, env, error] -> Result[Command, Error] {
+proc follow(s: uu.Scene, args: List[Str], input: Union[Bytes, Path] = b"", merged = false) [fs, process, env, error] -> Result[Command, Error] {
   let argv = uu.argv(s, "tail", [Path(word) for word in args])?
   let out = uu.at(s, ".live-out")
   let err = uu.at(s, ".live-err")
@@ -38,7 +38,7 @@ proc follow(s: uu.Scene, args: List[Str], input: Union[Bytes, Path] = b"", merge
 }
 
 # Status belongs to the separately asserted process handle. This view carries only stream bytes.
-proc streams(s: uu.Scene, out_offset: Int = 0, err_offset: Int = 0) [fs, error] -> Result[uu.Ran, Error] {
+proc streams(s: uu.Scene, out_offset = 0, err_offset = 0) [fs, error] -> Result[uu.Ran, Error] {
   let out = uu.at(s, ".live-out").read_bytes()?
   let err = uu.at(s, ".live-err").read_bytes()?
   Ok({util: "tail", args: [], status: 0, stdout: out[out_offset..], stderr: err[err_offset..]})

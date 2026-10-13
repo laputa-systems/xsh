@@ -36,7 +36,7 @@ proc seeded_bytes(s: uu.Scene, name: Str, length: Int) [fs, error] {
 }
 
 # The upstream line corpus uses independent alphanumeric data and includes each newline.
-proc random_lines(s: uu.Scene, name: Str, count: Int, width: Int = 32) [fs, error] {
+proc random_lines(s: uu.Scene, name: Str, count: Int, width = 32) [fs, error] {
   let source = bytes.read_at(p"/dev/urandom", 0, count * width)?
   assert source.len() == count * width
   let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"

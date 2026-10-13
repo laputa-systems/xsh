@@ -1,6 +1,6 @@
 type EnvResult = {status: Int, stdout: Str, stderr: Str}
 
-proc env_run(ctx: TestContext, args: List[Str], unset_probe: Bool = false) [fs, process, error] -> Result[EnvResult] {
+proc env_run(ctx: TestContext, args: List[Str], unset_probe = false) [fs, process, error] -> Result[EnvResult] {
   let root = test.temp_dir(ctx, name: "env-argv")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"

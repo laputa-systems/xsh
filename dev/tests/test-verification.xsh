@@ -3,7 +3,7 @@ use dist as distributions
 use fixtures
 use verify
 
-pure verification_context(root: Path, profile: Str = "dist") -> Result[context.Context] {
+pure verification_context(root: Path, profile = "dist") -> Result[context.Context] {
   fixtures.linux_context(root, profile)
 }
 

@@ -1,6 +1,6 @@
 use support.uu
 
-proc check(s: uu.Scene, args: List[Str], expected: Bytes, status: Int = 0, diagnostic: Str = "", vars: Record = {}) [fs, process, env, error] {
+proc check(s: uu.Scene, args: List[Str], expected: Bytes, status = 0, diagnostic = "", vars: Record = {}) [fs, process, env, error] {
   let r = uu.invoke(s, "printf", args, vars:)?
   uu.fails_with_code(r, status)
   uu.stdout_is_bytes(r, expected)

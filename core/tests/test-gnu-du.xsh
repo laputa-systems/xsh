@@ -8,7 +8,7 @@ proc blocks(s: uu.Scene, name: Str) [fs, error] -> Int {
   fs.stat(uu.at(s, name))?.blocks_512
 }
 
-proc check_paths(s: uu.Scene, args: List[Str], expected: List[Str], ordered: Bool = true) [fs, process, env, error] {
+proc check_paths(s: uu.Scene, args: List[Str], expected: List[Str], ordered = true) [fs, process, env, error] {
   let r = uu.invoke(s, "du", args, timeout: 10s)?
   uu.succeeds(r)
   let actual = paths(r)

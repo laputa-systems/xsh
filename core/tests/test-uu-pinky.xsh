@@ -21,7 +21,7 @@ pure capitalized(name: Str) -> Str {
   if name == "" { "" } else { name.byte_slice(0, length: 1).upper() + name.byte_slice(1) }
 }
 
-pure long_output(login: Str, entries: List[Account], omit_directory: Bool = false) -> Str {
+pure long_output(login: Str, entries: List[Account], omit_directory = false) -> Str {
   for account in entries {
     if account.name == login {
       let real_name = account.gecos.replace("&", with: capitalized(account.name))

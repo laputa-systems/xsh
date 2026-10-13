@@ -69,7 +69,7 @@ proc seek_stdin(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resul
   wrapped(s, args, [s.ctx.xsh_bin, launcher, uu.at(s, "k")].extend(argv))
 }
 
-proc start(s: uu.Scene, args: List[Str], held_stdin: Bool = false) [fs, process, env, error] -> Result[Live] {
+proc start(s: uu.Scene, args: List[Str], held_stdin = false) [fs, process, env, error] -> Result[Live] {
   let captures = test.temp_dir(s.ctx, name: "tail-live")?
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
