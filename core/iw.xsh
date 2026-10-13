@@ -243,7 +243,7 @@ pure selected(command: Entry, words: List[Str]) -> Bool {
 }
 
 pure usage_header() -> Str {
-  "Usage:\tiw [options] command\nOptions:\n\t--version\tshow version ({VERSION})\nCommands:\n".replace("{VERSION}", with: VERSION)
+  f"Usage:\tiw [options] command\nOptions:\n\t--version\tshow version ({VERSION})\nCommands:\n".replace(f"{VERSION}", with: VERSION)
 }
 
 # Full help text for `words`, or the bare command list when `brief`.
