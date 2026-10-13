@@ -784,12 +784,42 @@ fn expr_control_flow_materialized_pipeline(
         ArenaExprKind::StructuredPipeline { input, stages } => {
             materialized_pipeline_control_flow(arena, input, stages, true, facts)
         }
+        ArenaExprKind::Call { callee, args }
+            if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
+                && name.as_str() == "collect" =>
+        {
+            let mut flow = expr_control_flow_materialized_pipeline(arena, base, facts);
+            for arg in arena.arena.call_args(args) {
+                let expr = call_arg_expr(&arg.kind);
+                if flow.completes {
+                    flow = flow.then(expr_control_flow(arena, expr, facts));
+                }
+            }
+            flow
+        }
         _ => expr_control_flow(arena, id, facts),
     }
 }
 
+#[derive(Clone, Copy)]
+enum PipelineFlowStage {
+    Expression(ExprId),
+    Stream {
+        kind: StreamStageKind,
+        args: ArenaRange,
+        block: Option<BlockId>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StreamCardinality {
+    Empty,
+    NonEmpty,
+    Maybe,
+}
+
 /// Includes callback transfers only when pipeline materialization can pull an
-/// item; sources and filters keep later callbacks optional when they may empty.
+/// item; zero-producing stages and materializers bound each lazy segment.
 fn materialized_pipeline_control_flow(
     arena: &ArenaProgram,
     input: ExprId,
@@ -798,85 +828,285 @@ fn materialized_pipeline_control_flow(
     facts: &FlowFacts<'_>,
 ) -> ControlFlow {
     let mut flow = expr_control_flow(arena, input, facts);
-    let mut may_be_empty = !definitely_nonempty_iterable(arena, input);
-    let callbacks_run = !pipeline_takes_zero_items(arena, stages, structured);
-    if structured {
-        for stage in arena.arena.stream_stages(stages) {
-            if !flow.completes {
-                break;
-            }
-            flow = flow.then(stream_stage_args_control_flow(arena, stage.args, facts));
-            if !flow.completes {
-                break;
-            }
-            if callbacks_run && let Some(block) = stage.block {
-                let may_skip_callback = may_be_empty
-                    || matches!(stage.kind, StreamStageKind::Reduce | StreamStageKind::ReduceBy);
-                flow = flow.then(callback_control_flow(arena, block, may_skip_callback, facts));
-            }
-            may_be_empty |= stage_may_empty(stage.kind);
+    let pipeline_stages = pipeline_flow_stages(arena, stages, structured);
+    let mut cardinality = expression_cardinality(arena, input);
+    for (index, stage) in pipeline_stages.iter().copied().enumerate() {
+        if !flow.completes {
+            break;
         }
-    } else {
-        for stage in arena.arena.pipe_stages(stages) {
-            if !flow.completes {
-                break;
+        match stage {
+            PipelineFlowStage::Expression(expr) => {
+                flow = flow.then(expr_control_flow(arena, expr, facts));
+                cardinality = StreamCardinality::Maybe;
             }
-            match &stage.kind {
-                crate::syntax::arena::ArenaPipeStageKind::Expr(expr) => {
-                    flow = flow.then(expr_control_flow(arena, *expr, facts));
+            PipelineFlowStage::Stream { kind, args, block } => {
+                flow = flow.then(stream_stage_args_control_flow(arena, args, facts));
+                if !flow.completes {
+                    break;
                 }
-                crate::syntax::arena::ArenaPipeStageKind::Stream(stage) => {
-                    flow = flow.then(stream_stage_args_control_flow(arena, stage.args, facts));
-                    if !flow.completes {
-                        break;
+                if let Some(block) = block {
+                    let demand = callback_demand(
+                        arena,
+                        &pipeline_stages,
+                        index,
+                        cardinality,
+                        kind,
+                        args,
+                    );
+                    match demand {
+                        CallbackDemand::Never => flow = flow.then(ControlFlow::NORMAL),
+                        CallbackDemand::Maybe => {
+                            flow = flow.then(callback_control_flow(arena, block, true, facts));
+                        }
+                        CallbackDemand::Required => {
+                            flow = flow.then(callback_control_flow(arena, block, false, facts));
+                        }
                     }
-                    if callbacks_run && let Some(block) = stage.block {
-                        let may_skip_callback = may_be_empty
-                            || matches!(stage.kind, StreamStageKind::Reduce | StreamStageKind::ReduceBy);
-                        flow = flow.then(callback_control_flow(arena, block, may_skip_callback, facts));
-                    }
-                    may_be_empty |= stage_may_empty(stage.kind);
                 }
+                cardinality = stage_output_cardinality(arena, cardinality, kind, args);
             }
         }
     }
     flow
 }
 
-fn pipeline_takes_zero_items(
+fn pipeline_flow_stages(
     arena: &ArenaProgram,
     stages: ArenaRange,
     structured: bool,
-) -> bool {
+) -> Vec<PipelineFlowStage> {
     if structured {
         arena
             .arena
             .stream_stages(stages)
             .iter()
-            .any(|stage| stage_takes_zero(arena, stage.kind, stage.args))
+            .map(|stage| PipelineFlowStage::Stream {
+                kind: stage.kind,
+                args: stage.args,
+                block: stage.block,
+            })
+            .collect()
     } else {
-        arena.arena.pipe_stages(stages).iter().any(|stage| {
-            matches!(&stage.kind, crate::syntax::arena::ArenaPipeStageKind::Stream(stage)
-                if stage_takes_zero(arena, stage.kind, stage.args))
-        })
+        arena
+            .arena
+            .pipe_stages(stages)
+            .iter()
+            .map(|stage| match &stage.kind {
+                crate::syntax::arena::ArenaPipeStageKind::Expr(expr) => {
+                    PipelineFlowStage::Expression(*expr)
+                }
+                crate::syntax::arena::ArenaPipeStageKind::Stream(stage) => {
+                    PipelineFlowStage::Stream {
+                        kind: stage.kind,
+                        args: stage.args,
+                        block: stage.block,
+                    }
+                }
+            })
+            .collect()
     }
 }
 
-fn stage_takes_zero(arena: &ArenaProgram, kind: StreamStageKind, args: ArenaRange) -> bool {
-    kind == StreamStageKind::Take
-        && arena
-            .arena
-            .call_args(args)
-            .first()
-            .and_then(|arg| match arg.kind {
-                crate::syntax::arena::ArenaCallArgKind::Positional(expr)
-                | crate::syntax::arena::ArenaCallArgKind::Named { value: expr, .. }
-                | crate::syntax::arena::ArenaCallArgKind::Splice { value: expr, .. }
-                | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value: expr, .. } => {
-                    known_literal(arena, expr)
-                }
-            })
-        == Some(KnownLiteral::Int(0))
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CallbackDemand {
+    Never,
+    Maybe,
+    Required,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StageInputPull {
+    Never,
+    Maybe,
+    Required,
+}
+
+fn callback_demand(
+    arena: &ArenaProgram,
+    stages: &[PipelineFlowStage],
+    callback_index: usize,
+    cardinality: StreamCardinality,
+    kind: StreamStageKind,
+    args: ArenaRange,
+) -> CallbackDemand {
+    if cardinality == StreamCardinality::Empty {
+        return CallbackDemand::Never;
+    }
+    let mut may_skip = false;
+    if cardinality == StreamCardinality::Maybe
+        || matches!(kind, StreamStageKind::Reduce | StreamStageKind::ReduceBy)
+    {
+        may_skip = true;
+    }
+    if stage_materializes_input(arena, kind, args) {
+        return if may_skip {
+            CallbackDemand::Maybe
+        } else {
+            CallbackDemand::Required
+        };
+    }
+    for stage in stages.iter().copied().skip(callback_index + 1) {
+        let PipelineFlowStage::Stream { kind, args, .. } = stage else {
+            continue;
+        };
+        match stage_input_pull(arena, kind, args) {
+            StageInputPull::Never => return CallbackDemand::Never,
+            StageInputPull::Maybe => may_skip = true,
+            StageInputPull::Required => {}
+        }
+        if stage_materializes_input(arena, kind, args) {
+            return if may_skip {
+                CallbackDemand::Maybe
+            } else {
+                CallbackDemand::Required
+            };
+        }
+    }
+    if may_skip {
+        CallbackDemand::Maybe
+    } else {
+        CallbackDemand::Required
+    }
+}
+
+fn stage_input_pull(
+    arena: &ArenaProgram,
+    kind: StreamStageKind,
+    args: ArenaRange,
+) -> StageInputPull {
+    match kind {
+        StreamStageKind::Take | StreamStageKind::Repeat => match first_known_int_arg(arena, args) {
+            Some(0) => StageInputPull::Never,
+            Some(count) if count > 0 => StageInputPull::Required,
+            _ => StageInputPull::Maybe,
+        },
+        // A range stage generates its own sequence and does not pull from its
+        // preceding input.
+        StreamStageKind::Range => StageInputPull::Never,
+        _ => StageInputPull::Required,
+    }
+}
+
+fn stage_materializes_input(
+    arena: &ArenaProgram,
+    kind: StreamStageKind,
+    args: ArenaRange,
+) -> bool {
+    matches!(
+        kind,
+        StreamStageKind::Batch
+            | StreamStageKind::Count
+            | StreamStageKind::Collect
+            | StreamStageKind::First
+            | StreamStageKind::Last
+            | StreamStageKind::Max
+            | StreamStageKind::Min
+            | StreamStageKind::Sum
+            | StreamStageKind::Sort
+            | StreamStageKind::SortBy
+            | StreamStageKind::Shuffle
+            | StreamStageKind::Zip
+            | StreamStageKind::ParMap
+            | StreamStageKind::TablePrint
+            | StreamStageKind::GroupBy
+            | StreamStageKind::Fold
+            | StreamStageKind::Reduce
+            | StreamStageKind::ReduceBy
+            | StreamStageKind::Any
+            | StreamStageKind::All
+    ) || (kind == StreamStageKind::Repeat
+        && first_known_int_arg(arena, args).is_some_and(|count| count > 0))
+}
+
+fn stage_output_cardinality(
+    arena: &ArenaProgram,
+    input: StreamCardinality,
+    kind: StreamStageKind,
+    args: ArenaRange,
+) -> StreamCardinality {
+    match kind {
+        StreamStageKind::Take => match first_known_int_arg(arena, args) {
+            Some(0) => StreamCardinality::Empty,
+            Some(count) if count > 0 => input,
+            _ if input == StreamCardinality::Empty => StreamCardinality::Empty,
+            _ => StreamCardinality::Maybe,
+        },
+        StreamStageKind::Repeat => match first_known_int_arg(arena, args) {
+            Some(0) => StreamCardinality::Empty,
+            Some(count) if count > 0 => input,
+            _ if input == StreamCardinality::Empty => StreamCardinality::Empty,
+            _ => StreamCardinality::Maybe,
+        },
+        StreamStageKind::Range => range_cardinality(arena, args),
+        StreamStageKind::Where
+        | StreamStageKind::FlatMap
+        | StreamStageKind::Zip => match input {
+            StreamCardinality::Empty => StreamCardinality::Empty,
+            StreamCardinality::NonEmpty | StreamCardinality::Maybe => StreamCardinality::Maybe,
+        },
+        StreamStageKind::Drop => match (input, first_known_int_arg(arena, args)) {
+            (StreamCardinality::Empty, _) => StreamCardinality::Empty,
+            (cardinality, Some(0)) => cardinality,
+            (_, _) => StreamCardinality::Maybe,
+        },
+        _ => input,
+    }
+}
+
+fn expression_cardinality(arena: &ArenaProgram, expr: ExprId) -> StreamCardinality {
+    match arena.arena.expr(expr).kind {
+        ArenaExprKind::Call { callee, args }
+            if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == "range") =>
+        {
+            range_cardinality(arena, args)
+        }
+        _ if definitely_empty_iterable(arena, expr) => StreamCardinality::Empty,
+        _ if definitely_nonempty_iterable(arena, expr) => StreamCardinality::NonEmpty,
+        _ => StreamCardinality::Maybe,
+    }
+}
+
+fn range_cardinality(arena: &ArenaProgram, args: ArenaRange) -> StreamCardinality {
+    let args = arena.arena.call_args(args);
+    match args {
+        [end] => match known_literal(arena, call_arg_expr(&end.kind)) {
+            Some(KnownLiteral::Int(0)) => StreamCardinality::Empty,
+            Some(KnownLiteral::Int(_)) => StreamCardinality::NonEmpty,
+            _ => StreamCardinality::Maybe,
+        },
+        [start, end] => match (
+            known_literal(arena, call_arg_expr(&start.kind)),
+            known_literal(arena, call_arg_expr(&end.kind)),
+        ) {
+            (Some(KnownLiteral::Int(start)), Some(KnownLiteral::Int(end))) if start == end => {
+                StreamCardinality::Empty
+            }
+            (Some(KnownLiteral::Int(_)), Some(KnownLiteral::Int(_))) => StreamCardinality::NonEmpty,
+            _ => StreamCardinality::Maybe,
+        },
+        _ => StreamCardinality::Maybe,
+    }
+}
+
+fn first_known_int_arg(arena: &ArenaProgram, args: ArenaRange) -> Option<i64> {
+    arena
+        .arena
+        .call_args(args)
+        .first()
+        .map(|arg| call_arg_expr(&arg.kind))
+        .and_then(|expr| match known_literal(arena, expr) {
+            Some(KnownLiteral::Int(value)) => Some(value),
+            _ => None,
+        })
+}
+
+fn call_arg_expr(kind: &crate::syntax::arena::ArenaCallArgKind) -> ExprId {
+    match kind {
+        crate::syntax::arena::ArenaCallArgKind::Positional(expr)
+        | crate::syntax::arena::ArenaCallArgKind::Named { value: expr, .. }
+        | crate::syntax::arena::ArenaCallArgKind::Splice { value: expr, .. }
+        | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value: expr, .. } => *expr,
+    }
 }
 
 fn callback_control_flow(
@@ -894,17 +1124,6 @@ fn callback_control_flow(
     } else {
         callback
     }
-}
-
-fn stage_may_empty(kind: StreamStageKind) -> bool {
-    matches!(
-        kind,
-        StreamStageKind::Where
-            | StreamStageKind::FlatMap
-            | StreamStageKind::Drop
-            | StreamStageKind::Take
-            | StreamStageKind::Zip
-    )
 }
 
 fn stream_stage_args_control_flow(
@@ -6324,6 +6543,150 @@ mod return_flow_tests {
             false,
             &rustc_hash::FxHashMap::default(),
         ));
+    }
+
+    #[test]
+    fn a_zero_repeat_does_not_require_a_downstream_callback_return() {
+        let source = "pure choose() -> Int { let ignored = [1] |> repeat(0) |> map { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_dynamic_zero_take_can_skip_an_upstream_callback() {
+        let source = "pure choose(count: Int) -> Int { let ignored = [1] |> map { |item| return item } |> take(count) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_literal_zero_take_does_not_require_an_upstream_callback_return() {
+        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> take(0) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_range_stage_does_not_require_a_downstream_callback_return() {
+        let source = "pure choose() -> Int { let ignored = [1] |> range(0, 0) |> map { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_range_source_does_not_require_a_callback_return() {
+        let source = "pure choose() -> Int { let ignored = range(0, 0) |> map { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_positive_take_preserves_known_nonempty_pipeline_cardinality() {
+        let source = "pure choose() -> Int { let ignored = [1] |> take(1) |> map { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_positive_repeat_preserves_known_nonempty_pipeline_cardinality() {
+        let source = "pure choose() -> Int { let ignored = [1] |> repeat(2) |> map { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_positive_range_stage_preserves_known_nonempty_pipeline_cardinality() {
+        let source = "pure choose() -> Int { let ignored = [1] |> range(0, 1) |> map { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn group_by_preserves_nonempty_pipeline_cardinality() {
+        let source = "pure choose() -> Int { let ignored = [1] |> group-by . |> map { |group| return 1 } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_materializing_sort_drains_callbacks_before_a_zero_take() {
+        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> sort |> take(0) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_materializing_sort_by_runs_its_callback_before_a_zero_take() {
+        let source = "pure choose() -> Int { let ignored = [1] |> sort-by { |item| if true { return item } else { item } } |> take(0) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn collect_materializes_a_pipeline_nested_in_a_method_call() {
+        let source = "pure choose() -> Int { let ignored = ([1] |> map { |item| return item }).collect() }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
     }
 
     #[test]
