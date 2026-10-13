@@ -79,7 +79,7 @@ test test_uu_realpath_realpath_file_and_links_strip_zero { |ctx|
   uu.symlink(s, f"{s.root}/foo", "bar")
   for option in ["-s", "--strip", "--no-symlinks"] {
     for name in ["foo", "bar"] {
-      let args = [name].extend([option]).extend(["-z"])
+      let args = [name, option, "-z"]
       let r = uu.invoke(s, "realpath", args)?
       uu.succeeds(r)
       let expected = name

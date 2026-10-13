@@ -326,7 +326,7 @@ test test_gnu_cp_link_deref_log { |ctx|
   for source in ["dirlink", "filelink", "danglink"] {
     for option in ["", "-L", "-H", "-P"] {
       for recursive in [false, true] {
-        let options = ["--link"].extend(if option == "" { [] } else { [option] }).extend(if recursive { ["-R"] } else { [] })
+        let options = ["--link", @if option == "" { [] } else { [option] }, @if recursive { ["-R"] } else { [] }]
         let r = uu.invoke(s, "cp", options.extend([source, "dst"]))?
         if option == "-P" {
           uu.succeeds(r)
@@ -478,7 +478,7 @@ test test_gnu_cp_perm_log { |ctx|
               uu.remove(s, "dest")
               if existing { uu.touch(s, "dest"); uu.set_mode(s, "dest", 0o600 + group_bits * 8 + other) }
               let util = if command == "mv" { "mv" } else { "cp" }
-              let args = (if command == "preserve" { ["-p"] } else { [] }).extend(if force { ["-f"] } else { [] }).extend(["src", "dest"])
+              let args = [@if command == "preserve" { ["-p"] } else { [] }, @if force { ["-f"] } else { [] }, "src", "dest"]
               uu.succeeds(uu.invoke(s, util, args, umask: mask)?)
               if command == "mv" { assert !uu.exists(s, "src")? }
               if command == "cp" { assert uu.file_exists(s, "src")? }
@@ -710,7 +710,7 @@ test test_gnu_cp_sparse_extents_log { |ctx|
     for allocation in [["-l", "4194304"], ["-l", "1048576", "-o", "4194304"], ["-l", "1"]] {
       let random = host(s, ["dd", "count=10", "if=/dev/urandom", "iflag=fullblock", "of=unwritten.withdata"])?
       uu.truncate(s, "unwritten.withdata", 2 * 1024 * 1024)
-      let _ = host(s, ["fallocate"].extend(allocation).extend(["-n", "unwritten.withdata"]))?
+      let _ = host(s, ["fallocate", @allocation, "-n", "unwritten.withdata"])?
       copied(s, ["--reflink=never", f"--sparse={sparse}", "unwritten.withdata", "cp.test"])
       assert uu.size(s, "unwritten.withdata")? == uu.size(s, "cp.test")?
       assert uu.read(s, "unwritten.withdata")? == uu.read(s, "cp.test")?

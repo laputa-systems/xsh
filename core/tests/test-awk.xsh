@@ -195,7 +195,7 @@ test test_awk_argv_file_selection_matrix { |ctx|
   ]
 
   for scenario in cases {
-    let result = test.run_script(ctx, source, args: [item for item in [scenario.program] + scenario.files], env: {XSH_MODULE_PATH: ctx.core_dir})?
+    let result = test.run_script(ctx, source, args: [item for item in [scenario.program, @scenario.files]], env: {XSH_MODULE_PATH: ctx.core_dir})?
     assert result.status == 0, f"{scenario.name}: {result.stderr}"
     assert result.stdout == scenario.stdout, scenario.name
   }
@@ -317,7 +317,7 @@ proc run_case(ctx: TestContext, case: MatrixCase, index: Int) [fs, process, env,
   let arguments = [argument.replace("@DIR@", with: root.display()) for argument in case.args]
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
-  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/awk.xsh".display(), "--"] + arguments
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/awk.xsh".display(), "--", @arguments]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: ""}, stdin, out, err)
   var overlay: Map[Str] = {}
   for pair in case.env { overlay = overlay.set(pair[0], pair[1]) }

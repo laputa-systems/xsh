@@ -38,7 +38,7 @@ pure sorted_lines(text: Str) -> List[Str] {
         break
       }
     }
-    sorted = sorted[0..at] + [line] + sorted[at..]
+    sorted = [@sorted[0..at], line, @sorted[at..]]
   }
   sorted
 }

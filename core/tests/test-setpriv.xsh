@@ -195,7 +195,7 @@ test test_setpriv_dump_layout_matches_util_linux { |ctx|
   # The layout util-linux prints, down to labels, "[none]" and comma lists.
   let child = shared_script(ctx, "state.xsh", STATE_SCRIPT)?
   let me = unix.id()?
-  let chain = applet_words(ctx).extend(["--inh-caps=-all", "--nnp", "--pdeathsig=TERM", ctx.xsh_bin.display()]).extend(applet_words(ctx)[1..])
+  let chain = [@applet_words(ctx), "--inh-caps=-all", "--nnp", "--pdeathsig=TERM", ctx.xsh_bin.display(), @applet_words(ctx)[1..]]
   let short = run_command(ctx, ctx.xsh_bin, chain.extend(["-d"]))?
   assert short.status == 0, short.stderr
   let lines = short.stdout.lines()
@@ -249,11 +249,11 @@ test test_setpriv_sets_no_new_privs_and_the_parent_death_signal { |ctx|
 test test_setpriv_pdeathsig_keep_and_clear_act_on_an_inherited_signal { |ctx|
   let child = shared_script(ctx, "state.xsh", STATE_SCRIPT)?
   let tail = [ctx.xsh_bin.display()].extend(applet_words(ctx)[1..])
-  let inherited = setpriv(ctx, ["--pdeathsig=TERM"].extend(tail).extend([ctx.xsh_bin.display(), child]))?
+  let inherited = setpriv(ctx, ["--pdeathsig=TERM", @tail, ctx.xsh_bin.display(), child])?
   assert inherited.stdout.find("pdeathsig=15") != null, inherited.stderr
-  let kept = setpriv(ctx, ["--pdeathsig=TERM"].extend(tail).extend(["--pdeathsig=keep", ctx.xsh_bin.display(), child]))?
+  let kept = setpriv(ctx, ["--pdeathsig=TERM", @tail, "--pdeathsig=keep", ctx.xsh_bin.display(), child])?
   assert kept.stdout.find("pdeathsig=15") != null, kept.stderr
-  let cleared = setpriv(ctx, ["--pdeathsig=TERM"].extend(tail).extend(["--pdeathsig=clear", ctx.xsh_bin.display(), child]))?
+  let cleared = setpriv(ctx, ["--pdeathsig=TERM", @tail, "--pdeathsig=clear", ctx.xsh_bin.display(), child])?
   assert cleared.stdout.find("pdeathsig=0") != null, cleared.stderr
 }
 
@@ -436,12 +436,12 @@ test test_setpriv_bounding_set_edits_drop_and_cannot_grow { |ctx|
   let only = setpriv(ctx, ["--bounding-set=-all,+chown", ctx.xsh_bin.display(), child])?
   assert only.stdout.find("bounding=[0]") != null, only.stdout
   # A capability that was dropped cannot be named back into the set.
-  let chain = ["--bounding-set=-chown", ctx.xsh_bin.display()].extend(applet_words(ctx)[1..]).extend(["--bounding-set=+chown", ctx.xsh_bin.display(), child])
+  let chain = ["--bounding-set=-chown", ctx.xsh_bin.display(), @applet_words(ctx)[1..], "--bounding-set=+chown", ctx.xsh_bin.display(), child]
   let regrown = setpriv(ctx, chain)?
   assert regrown.status == 127
   assert regrown.stderr.find("setpriv: apply bounding set: Operation not permitted") != null
   # `+all` only names what is still there.
-  let everything = setpriv(ctx, ["--bounding-set=-chown", ctx.xsh_bin.display()].extend(applet_words(ctx)[1..]).extend(["--bounding-set=+all", ctx.xsh_bin.display(), child]))?
+  let everything = setpriv(ctx, ["--bounding-set=-chown", ctx.xsh_bin.display(), @applet_words(ctx)[1..], "--bounding-set=+all", ctx.xsh_bin.display(), child])?
   assert everything.status == 0, everything.stderr
 }
 
@@ -454,7 +454,7 @@ test test_setpriv_securebits_are_edited_from_the_current_flags { |ctx|
   let removed = setpriv(ctx, ["--securebits=+noroot,+no_setuid_fixup,-noroot", ctx.xsh_bin.display(), child])?
   assert removed.stdout.find("securebits=[\"no_setuid_fixup\"]") != null, removed.stdout
   # A locked flag stays: the kernel refuses to clear it.
-  let chain = ["--securebits=+noroot,+noroot_locked", ctx.xsh_bin.display()].extend(applet_words(ctx)[1..]).extend(["--securebits=-noroot", ctx.xsh_bin.display(), child])
+  let chain = ["--securebits=+noroot,+noroot_locked", ctx.xsh_bin.display(), @applet_words(ctx)[1..], "--securebits=-noroot", ctx.xsh_bin.display(), child]
   let locked = setpriv(ctx, chain)?
   assert locked.status == 127
   assert locked.stderr.find("setpriv: set process securebits failed: Operation not permitted") != null

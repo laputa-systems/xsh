@@ -150,7 +150,7 @@ pure pci_branch(devices: List[pci.PciFunction], index: Int, names: Map[Str], vie
   var lines = [f"{prefix}+-{pci_line(devices[index], names, view)}"]
   for child in range(devices.len()) {
     if devices[child].parent_function_index == index {
-      lines += pci_branch(devices, child, names, view, prefix + "  ", visited + [index])?
+      lines += pci_branch(devices, child, names, view, prefix + "  ", [@visited, index])?
     }
   }
   lines

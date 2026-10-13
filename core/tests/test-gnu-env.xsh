@@ -14,7 +14,7 @@ proc shebang(s: uu.Scene, name: Str, args: List[Str]) [fs, process, env, error] 
   let header = uu.read_text(s, name)?.lines()[0]
   let split = header.find(" ") ?? 0
   let rest = header.byte_slice(split + 1)
-  uu.invoke(s, "env", [rest, "./" + name] + args, timeout: 30s)
+  uu.invoke(s, "env", [rest, "./" + name, @args], timeout: 30s)
 }
 
 # origin: gnu env/env-S-script.log
@@ -61,7 +61,7 @@ test test_gnu_env_env_null_log { |ctx|
     for util in ["env", "printenv"] {
       for flag in ["-0", "--null"] {
         let target = nested(s, util, [flag])?
-        let r = uu.invoke(s, "env", ["-i", "PATH=" + search_path] + target)?
+        let r = uu.invoke(s, "env", ["-i", "PATH=" + search_path, @target])?
         uu.succeeds(r)
         uu.no_stderr(r)
         yield r.stdout
@@ -75,13 +75,13 @@ test test_gnu_env_env_null_log { |ctx|
   let one = uu.invoke(s, "env", ["-i", "-0", "a=b\nc="])?
   uu.succeeds(one)
   uu.stdout_only_bytes(one, b"a=b\nc=\0")
-  let present = uu.invoke(s, "env", ["a=b\nc="] + nested(s, "printenv", ["-0", "a"])?)?
+  let present = uu.invoke(s, "env", ["a=b\nc=", @nested(s, "printenv", ["-0", "a"])?])?
   uu.succeeds(present)
   uu.stdout_only_bytes(present, b"b\nc=\0")
-  let absent = uu.invoke(s, "env", ["-u", "a"] + nested(s, "printenv", ["-0", "a"])?)?
+  let absent = uu.invoke(s, "env", ["-u", "a", @nested(s, "printenv", ["-0", "a"])?])?
   uu.fails_with_code(absent, 1)
   uu.no_stdout(absent)
-  let mixed = uu.invoke(s, "env", ["-u", "b", "a=b\nc="] + nested(s, "printenv", ["-0", "b", "a"])?)?
+  let mixed = uu.invoke(s, "env", ["-u", "b", "a=b\nc=", @nested(s, "printenv", ["-0", "b", "a"])?])?
   uu.fails_with_code(mixed, 1)
   uu.stdout_only_bytes(mixed, b"b\nc=\0")
 }

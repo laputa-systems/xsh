@@ -286,7 +286,7 @@ pure units_to_bytes(units: List[Int]) -> Result[Bytes, Error] {
 export pure utf16(text: Str) -> Result[Bytes, Error] { units_to_bytes(utf16_units(text)) }
 
 ## UTF-16LE bytes of `text` with the terminating NUL used in load options.
-export pure utf16_terminated(text: Str) -> Result[Bytes, Error] { units_to_bytes(utf16_units(text) + [0]) }
+export pure utf16_terminated(text: Str) -> Result[Bytes, Error] { units_to_bytes([@utf16_units(text), 0]) }
 
 pure utf8_ints(point: Int) -> List[Int] {
   return [point] when point < 128

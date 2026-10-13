@@ -193,7 +193,7 @@ test test_gnu_split_l_chunk_log { |ctx|
         clear_pieces(s)
         let selected: Bytes? = if elide { null } else { uu.invoke(s, "split", [f"---io-blksize={block}", "-n", f"l/2/{row.count}", "in"])?.stdout }
         if ! elide { assert pieces(s)?.is_empty() }
-        let flags = [f"---io-blksize={block}"].extend(if elide { ["-e"] } else { [] }).extend(["-n", f"l/{row.count}", "in"])
+        let flags = [f"---io-blksize={block}", @if elide { ["-e"] } else { [] }, "-n", f"l/{row.count}", "in"]
         let _ = uu.invoke(s, "split", flags)?
         let found = pieces(s)?
         let sizes = [fs.stat(file)?.size for file in found]
@@ -236,7 +236,7 @@ test test_gnu_split_r_chunk_log { |ctx|
   clear_pieces(s)
   let argv = uu.argv(s, "split", [p"-n", p"r/30"])?
   let shell = process.which("sh")?
-  let plan = process.command_argv(s.ctx.xsh_bin, argv[..3].extend([shell, p"-c", p"ulimit -n 20; exec \"$@\"", p"rr-limit"]).extend(argv[3..]), s.root, {}, bytes.concat([b"y\n" for _ in range(90)]), uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
+  let plan = process.command_argv(s.ctx.xsh_bin, [@argv[..3], shell, p"-c", p"ulimit -n 20; exec \"$@\"", p"rr-limit", @argv[3..]], s.root, {}, bytes.concat([b"y\n" for _ in range(90)]), uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
   assert process.run(plan)?.exit_code()? == 0
   let found = pieces(s)?
   assert found.len() == 30
@@ -249,7 +249,7 @@ proc vm_status(s: uu.Scene, args: List[Str], kilobytes: Int, marker: Str? = null
   let shell = process.which("sh")?
   let argv = uu.argv(s, "split", [fp"{word}" for word in args])?
   let wrapper = r"""trap '' SEGV; ulimit -c 0; ulimit -v "$1" || exit 77; shift; if test -n "$1"; then : > "$1" || exit; fi; shift; exec "$@"; """
-  let words = argv[..3].extend([shell, p"-c", fp"{wrapper}", p"vm-limit", Path(f"{kilobytes}"), fp"{marker ?? ""}"]).extend(argv[3..])
+  let words = [@argv[..3], shell, p"-c", fp"{wrapper}", p"vm-limit", Path(f"{kilobytes}"), fp"{marker ?? ""}", @argv[3..]]
   let plan = process.command_argv(s.ctx.xsh_bin, words, s.root, {}, b"", uu.at(s, "vm-out"), uu.at(s, "vm-err"), timeout: 11s)
   let began = time.now() / 1000
   let result = process.run(plan)

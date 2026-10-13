@@ -468,7 +468,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         source = raw_word[15..]
       }
       let expanded = split_words(source, verbose)
-      argv = argv[0..option_index].extend(expanded).extend(argv[option_index + consumed..])
+      argv = [@argv[0..option_index], @expanded, @argv[option_index + consumed..]]
       continue
     }
 
@@ -535,7 +535,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
           } else {
             let expanded = split_words(argument, verbose)
             let consumed = if consume_word { 2 } else { 1 }
-            argv = argv[0..option_index].extend(expanded).extend(argv[option_index + consumed..])
+            argv = [@argv[0..option_index], @expanded, @argv[option_index + consumed..]]
             split_seen = true
           }
           break

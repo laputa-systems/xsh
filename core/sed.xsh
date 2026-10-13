@@ -190,7 +190,7 @@ proc main(...argv: List[Str]) [fs, error, io, process, env] {
     let word = argv[at]
     at += 1
     if only_operands or word == "-" or !word.starts_with("-") {
-      settings = {...settings, operands: settings.operands + [word]}
+      settings = {...settings, operands: [@settings.operands, word]}
       continue
     }
     if word == "--" {

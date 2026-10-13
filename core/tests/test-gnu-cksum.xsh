@@ -470,7 +470,7 @@ test test_gnu_cksum_cksum_a_log { |ctx|
     let utility = if algorithm == "bsd" or algorithm == "sysv" { "sum" } else if algorithm == "crc" { "cksum" } else if algorithm == "blake2b" { "b2sum" } else { algorithm + "sum" }
     for mode in ["-b", "-t"] {
       let options = if algorithm == "bsd" { ["-r"] } else if algorithm == "sysv" { ["-s"] } else if algorithm == "crc" { [] } else { [mode] }
-      let separate = uu.invoke(s, utility, options + ["/dev/null"])?
+      let separate = uu.invoke(s, utility, [@options, "/dev/null"])?
       uu.succeeds(separate)
       let generic = uu.invoke(s, "cksum", ["--untagged", mode, "--algorithm=" + algorithm, "/dev/null"])?
       uu.succeeds(generic)
@@ -501,7 +501,7 @@ test test_gnu_cksum_cksum_a_log { |ctx|
   uu.succeeds(binary)
   uu.stdout_contains(binary, " *")
   for args in [["--binary", "--untagged"], ["--binary", "--tag", "--untagged"]] {
-    let ordered = uu.invoke(s, "cksum", args + ["-a", "md5", "/dev/null"])?
+    let ordered = uu.invoke(s, "cksum", [@args, "-a", "md5", "/dev/null"])?
     uu.succeeds(ordered)
     assert binary.stdout == ordered.stdout
   }
@@ -513,7 +513,7 @@ proc tagged_roundtrip(s: uu.Scene, util: Str, base: List[Str], lengths: List[Int
   for name in names {
     uu.write(s, name, name + "\n")
     for length in lengths {
-      let r = uu.invoke(s, util, base + ["-l", f"{length}"] + tag + [name])?
+      let r = uu.invoke(s, util, [@base, "-l", f"{length}", @tag, name])?
       uu.succeeds(r)
       uu.no_stderr(r)
       checks += r.stdout as Str
@@ -521,7 +521,7 @@ proc tagged_roundtrip(s: uu.Scene, util: Str, base: List[Str], lengths: List[Int
     }
   }
   uu.write(s, check_name, checks)
-  let verified = uu.invoke(s, util, base + ["--strict", "-c", check_name])?
+  let verified = uu.invoke(s, util, [@base, "--strict", "-c", check_name])?
   uu.succeeds(verified)
   uu.stdout_only(verified, expected)
   var openssl = ""
@@ -529,7 +529,7 @@ proc tagged_roundtrip(s: uu.Scene, util: Str, base: List[Str], lengths: List[Int
     openssl += line.replace(" (", with: "(").replace(" =", with: "=") + "\n"
   }
   uu.write(s, openssl_name, openssl)
-  let alternate = uu.invoke(s, util, base + ["--strict", "-c", openssl_name])?
+  let alternate = uu.invoke(s, util, [@base, "--strict", "-c", openssl_name])?
   uu.succeeds(alternate)
   uu.stdout_only(alternate, expected)
   Ok()
@@ -544,25 +544,25 @@ test test_gnu_cksum_b2sum_log { |ctx|
     let untag = if util == "cksum" { ["--untagged"] } else { [] }
     var values = ""
     for length in [0, 128] {
-      let r = uu.invoke(s, util, base + untag + ["--text", "-l", f"{length}", "/dev/null"])?
+      let r = uu.invoke(s, util, [@base, @untag, "--text", "-l", f"{length}", "/dev/null"])?
       uu.succeeds(r)
       values += r.stdout as Str
       uu.write_bytes(s, "check.b2sum", r.stdout)
       for options in [["-l", f"{length}"], []] {
-        uu.succeeds(uu.invoke(s, util, base + options + ["--strict", "-c", "check.b2sum"])?)
+        uu.succeeds(uu.invoke(s, util, [@base, @options, "--strict", "-c", "check.b2sum"])?)
       }
     }
     uu.write(s, "check.vals", values)
-    let digest = uu.invoke(s, util, base + untag + ["--length=128", "check.vals"])?
+    let digest = uu.invoke(s, util, [@base, @untag, "--length=128", "check.vals"])?
     uu.succeeds(digest)
     uu.stdout_only(digest, "796485dd32fe9b754ea5fd6c721271d9  check.vals\n")
     uu.write(s, "crash.check", "BLAKE2\nBLAKE2b\nBLAKE2-\nBLAKE2(\nBLAKE2 (\n")
-    uu.fails_with_code(uu.invoke(s, util, base + ["-c", "crash.check"])?, 1)
+    uu.fails_with_code(uu.invoke(s, util, [@base, "-c", "crash.check"])?, 1)
     uu.write(s, "overflow.check", "0A0BA0")
-    uu.fails_with_code(uu.invoke(s, util, base + ["-c", "overflow.check"])?, 1)
-    uu.succeeds(uu.invoke(s, util, base + ["-l", "123", "-l", "128", "/dev/null"])?)
+    uu.fails_with_code(uu.invoke(s, util, [@base, "-c", "overflow.check"])?, 1)
+    uu.succeeds(uu.invoke(s, util, [@base, "-l", "123", "-l", "128", "/dev/null"])?)
     for length in ["513", "1024", "18446744073709551616"] {
-      let r = uu.invoke(s, util, base + ["-l", length, "/dev/null"])?
+      let r = uu.invoke(s, util, [@base, "-l", length, "/dev/null"])?
       uu.fails_with_code(r, 1)
       uu.stderr_is(r, f"{util}: invalid length: '{length}'\n{util}: maximum digest length for 'BLAKE2b' is 512 bits\n")
     }
@@ -576,26 +576,26 @@ test test_gnu_cksum_cksum_sha3_log { |ctx|
   tagged_roundtrip(s, "cksum", base, [224, 256, 384, 512], ["a", " b", "*c", "44", " "], [], "check.sha3", "openssl.sha3")
   var values = ""
   for length in [224, 256, 384, 512] {
-    let r = uu.invoke(s, "cksum", base + ["--untagged", "--text", "-l", f"{length}", "/dev/null"])?
+    let r = uu.invoke(s, "cksum", [@base, "--untagged", "--text", "-l", f"{length}", "/dev/null"])?
     uu.succeeds(r)
     values += r.stdout as Str
     uu.write_bytes(s, "check.sha3", r.stdout)
     for options in [["-l", f"{length}"], []] {
-      uu.succeeds(uu.invoke(s, "cksum", base + options + ["--strict", "-c", "check.sha3"])?)
+      uu.succeeds(uu.invoke(s, "cksum", [@base, @options, "--strict", "-c", "check.sha3"])?)
     }
   }
   uu.write(s, "check.vals", values)
-  let digest = uu.invoke(s, "cksum", base + ["--length=256", "check.vals"])?
+  let digest = uu.invoke(s, "cksum", [@base, "--length=256", "check.vals"])?
   uu.succeeds(digest)
   uu.stdout_only(digest, "SHA3-256 (check.vals) = b4753bf1696fda712821b665494c89090ffb0e87b8645559ad9f5db25b42d4f3\n")
   uu.write(s, "inp", "SHA3-248 (check.vals) = b4753bf1696fda712821b665494c89090ffb0e87b8645559ad9f5db25b42d4\n")
-  let truncated = uu.invoke(s, "cksum", base + ["-c", "--warn", "inp"])?
+  let truncated = uu.invoke(s, "cksum", [@base, "-c", "--warn", "inp"])?
   uu.fails_with_code(truncated, 1)
   uu.stderr_only(truncated, "cksum: inp: 1: improperly formatted SHA3 checksum line\ncksum: inp: no properly formatted checksum lines found\n")
-  uu.succeeds(uu.invoke(s, "cksum", base + ["-l", "253", "-l", "256", "/dev/null"])?)
+  uu.succeeds(uu.invoke(s, "cksum", [@base, "-l", "253", "-l", "256", "/dev/null"])?)
   for length in ["216", "248", "376", "504", "513", "1024", "18446744073709551616"] {
     for mode in [[], ["--check"]] {
-      let r = uu.invoke(s, "cksum", base + ["-l", length] + mode + ["/dev/null"])?
+      let r = uu.invoke(s, "cksum", [@base, "-l", length] + mode + ["/dev/null"])?
       uu.fails_with_code(r, 1)
       uu.stderr_is(r, f"cksum: invalid length: '{length}'\ncksum: digest length for 'SHA3' must be 224, 256, 384, or 512\n")
     }
@@ -612,10 +612,10 @@ test test_gnu_cksum_cksum_raw_log { |ctx|
     let lengths = if algorithm in ["sha2", "sha3"] { [224, 256, 384, 512] } else if algorithm == "blake2b" { [8, 256, 512] } else { [0] }
     for length in lengths {
       let options = ["-a", algorithm, "-l" + f"{length}"]
-      let raw = uu.invoke(s, "cksum", ["--raw"] + options + ["file.in"])?
+      let raw = uu.invoke(s, "cksum", ["--raw", @options, "file.in"])?
       uu.succeeds(raw)
       uu.no_stderr(raw)
-      let textual = uu.invoke(s, "cksum", ["--untagged"] + options, stdin: timestamp.stdout)?
+      let textual = uu.invoke(s, "cksum", ["--untagged", @options], stdin: timestamp.stdout)?
       uu.succeeds(textual)
       uu.no_stderr(textual)
       let encoded = if algorithm in ["bsd", "sysv", "crc"] {
@@ -701,7 +701,7 @@ test test_gnu_cksum_md5sum_bsd_log { |ctx|
   let tail = reverse.byte_slice((reverse.find("\n") ?? 0) + 1)
   uu.fails_with_code(uu.invoke(s, "md5sum", ["--strict", "-c"], stdin: bytes.from_text(tail))?, 1)
   for options in [["--tag", "--check"], ["--tag", "--text"]] {
-    uu.fails_with_code(uu.invoke(s, "md5sum", options + ["/dev/null"])?, 1)
+    uu.fails_with_code(uu.invoke(s, "md5sum", [@options, "/dev/null"])?, 1)
   }
   uu.write(s, "backslash\\is\\not\\dir\\sep", "\n")
   var escapes = ""
@@ -740,16 +740,16 @@ test test_gnu_cksum_md5sum_parallel_log { |ctx|
   let names = [f"tmp/{n}" for n in range(1, 501)]
   for name in names { uu.touch(s, name) }
   let checksum_argv = uu.argv(s, "md5sum", [])?
-  let xargs_argv = uu.argv(s, "xargs", [p"-n500", p"-P2"] + checksum_argv)?
+  let xargs_argv = uu.argv(s, "xargs", [p"-n500", p"-P2", @checksum_argv])?
   let cat_argv = uu.argv(s, "cat", [])?
   # The shared pipe exercises record atomicity with three batches and two workers.
   # Every child command still uses the isolated applet launcher.
   let reader = ["'" + word.display().replace("'", with: "'\\''") + "'" for word in cat_argv].join(" ")
-  let payload = bytes.from_text((names + names + names).join("\n") + "\n")
+  let payload = bytes.from_text(([@names, @names, @names]).join("\n") + "\n")
   let output = uu.at(s, "out")
   let diagnostic = uu.at(s, "err")
   let script = fp"{"\"$@\" | " + reader}"
-  let pipeline = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"sh"] + xargs_argv,
+  let pipeline = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"sh", @xargs_argv],
     s.root, {}, payload, output, diagnostic, timeout: 30s)
   assert process.run(pipeline)?.exit_code()? == 0
   assert uu.read(s, "err")? == b""

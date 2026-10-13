@@ -40,12 +40,12 @@ const A_CENTER_FREQ1 = 160
 const A_SPLIT_WIPHY_DUMP = 174
 
 proc genl(cmd: Int, attrs: List[Bytes]) [error] -> Result[Bytes, Error] {
-  bytes.concat([bytes.from_ints([cmd, 1, 0, 0])?] + attrs)
+  bytes.concat([bytes.from_ints([cmd, 1, 0, 0])?, @attrs])
 }
 
 # The payload `lib/nl80211.xsh` sends for `cmd` with `attrs`.
 proc request_payload(cmd: Int, attrs: List[Bytes]) [error] -> Result[Bytes, Error] {
-  bytes.concat([bytes.from_ints([cmd, 0, 0, 0])?] + attrs)
+  bytes.concat([bytes.from_ints([cmd, 0, 0, 0])?, @attrs])
 }
 
 proc reply_of(cmd: Int, attrs: List[Bytes]) [error] -> Result[Record, Error] {
@@ -546,7 +546,7 @@ test test_scan_dump_prints_bss_blocks_in_iw_layout { |ctx|
 
   let unknown = run_iw(ctx, "scan-dump-u", lines, ["dev", "wlan0", "scan", "dump", "-u"])?
   assert unknown.success, unknown.stderr
-  assert unknown.stdout == (expected + ["\tUnknown IE (45): ef 09 1b"]).join("\n") + "\n"
+  assert unknown.stdout == ([@expected, "\tUnknown IE (45): ef 09 1b"]).join("\n") + "\n"
 }
 
 test test_scan_dump_reports_both_element_sets_and_status { |ctx|
@@ -816,7 +816,7 @@ test test_scan_trigger_builds_the_request_from_every_option { |ctx|
   # `trigger` returns once the kernel accepted the request, with no results.
   assert output.success and output.stdout == "", output.stderr
   for words in [["bogus"], ["duration"], ["ies", "zz"], ["ies", "00:"], ["passive", "ssid", "a"], ["-u"], ["meshid"]] {
-    let bad = run_iw(ctx, "scan-bad", lines, ["dev", "wlan0", "scan", "trigger"] + words)?
+    let bad = run_iw(ctx, "scan-bad", lines, ["dev", "wlan0", "scan", "trigger", @words])?
     assert bad.status == 1 and "dev <devname> scan trigger" in bad.stdout, words.join(" ")
   }
   let coloc = run_iw(ctx, "scan-coloc", lines, ["dev", "wlan0", "scan", "coloc"])?

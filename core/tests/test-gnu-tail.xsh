@@ -3,7 +3,7 @@ use support.uu
 
 proc modes() -> List[List[Str]] { [[], ["---disable-inotify"]] }
 proc fast(args: List[Str], mode: List[Str]) -> List[Str] {
-  mode.extend(["-s.1", "--max-unchanged-stats=1"]).extend(args)
+  [@mode, "-s.1", "--max-unchanged-stats=1", @args]
 }
 proc following(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[ProcessHandle, Error] {
   uu.touch(s, "out")
@@ -329,16 +329,16 @@ test test_gnu_tail_pid_log { |ctx|
     let s = uu.scene(ctx)?
     uu.touch(s, "empty")
     uu.touch(s, "here")
-    let child = following(s, ["-f"].extend(mode).extend(["here"]))?
+    let child = following(s, ["-f", @mode, "here"])?
     defer stop(child)
     for pids in [[f"--pid={child.pid}"], ["--pid=2147483647", f"--pid={child.pid}"]] {
-      let plan = uu.command(s, "tail", ["-f", "-s.1"].extend(pids).extend(mode).extend(["here"]), stdout: uu.at(s, "monitor-out"), stderr: uu.at(s, "monitor-err"))?
+      let plan = uu.command(s, "tail", ["-f", "-s.1", @pids, @mode, "here"], stdout: uu.at(s, "monitor-out"), stderr: uu.at(s, "monitor-err"))?
       let monitor = spawn plan?
       defer stop(monitor)
       assert process.wait_timeout([monitor], 1s)? == null
     }
     for interval in ["-s.1", "-s10"] {
-      let r = uu.invoke(s, "tail", ["-f", interval, "--pid=2147483647"].extend(mode).extend(["empty"]), timeout: 10s)?
+      let r = uu.invoke(s, "tail", ["-f", interval, "--pid=2147483647", @mode, "empty"], timeout: 10s)?
       uu.succeeds(r)
     }
   }
@@ -354,7 +354,7 @@ test test_gnu_tail_tail_n0f_log { |ctx|
   for mode in modes() {
     for file in ["empty", "nonempty"] {
       for unit in ["c", "n"] {
-        let child = following(s, ["--sleep=4", f"-{unit}", "0", "-f"].extend(mode).extend([file]))?
+        let child = following(s, ["--sleep=4", f"-{unit}", "0", "-f", @mode, file])?
         defer stop(child)
         var sleeping = false
         var delay = 100ms

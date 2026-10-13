@@ -363,7 +363,7 @@ proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument
 # items, unless they came from a file (-a), which leaves standard input free.
 proc start(argv: List[Path], inherit_stdin: Bool, use_tty: Bool, slot_var: Str?, slot: Int) [process, env, error] -> Result[ProcessHandle, Error] {
   var words = argv
-  if slot_var != null { words = [fp"env", fp"{slot_var}={slot}"] + argv }
+  if slot_var != null { words = [fp"env", fp"{slot_var}={slot}", @argv] }
   let target = words[0]
   let tail = words[1..]
   let handle = if use_tty { spawn run $target @tail < /dev/tty ? } else if inherit_stdin { spawn run $target @tail ? } else { spawn run $target @tail < /dev/null ? }
@@ -511,7 +511,7 @@ proc main(...operands: List[Bytes]) {
             let chunks = collect {
               for index in range(batch.len()) { if index > 0 { yield b" " }; yield c_string(batch[index].data) }
             }
-            gnu.write_bytes(bytes.concat(chunks + [b"\n"]))
+            gnu.write_bytes(bytes.concat([@chunks, b"\n"]))
           } else {
             if ! checked { checked = true; require_command(command[0]) }
             var proceed = true
@@ -547,7 +547,7 @@ proc main(...operands: List[Bytes]) {
         let chunks = collect {
           for index in range(batch.len()) { if index > 0 { yield b" " }; yield c_string(batch[index].data) }
         }
-        gnu.write_bytes(bytes.concat(chunks + [b"\n"]))
+        gnu.write_bytes(bytes.concat([@chunks, b"\n"]))
       } else {
         if ! checked { checked = true; require_command(command[0]) }
         var proceed = true

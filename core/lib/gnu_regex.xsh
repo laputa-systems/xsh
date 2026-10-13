@@ -601,7 +601,7 @@ pure parse(pattern: Bytes, ere: Bool, icase: Bool, utf8: Bool) -> Parsed {
         nodes += [{kind: N_GROUP, a: gid, b: 0, kids: [body]}]
         let frame = frames[frames.len() - 1]
         frames = frames[0..frames.len() - 1]
-        seq = frame.seq + [nodes.len() - 1]
+        seq = [@frame.seq, nodes.len() - 1]
         alts = frame.alts
         cur_group = frame.group
         init = frame.init

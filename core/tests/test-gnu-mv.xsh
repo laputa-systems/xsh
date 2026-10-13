@@ -330,10 +330,10 @@ test test_gnu_mv_leak_fd_log { |ctx|
   let remote = other_fs(s)?
   defer remote.remove()
   let letters = "a b c d e f g h i j k l m n o p q r s t u v w x y z".split(" ")
-  let alphabet = [f"{i}" for i in range(10)].extend(letters).extend([f"_{letter.upper()}" for letter in letters])
+  let alphabet = [@[f"{i}" for i in range(10)], @letters, @[f"_{letter.upper()}" for letter in letters]]
   var names = []
   for prefix in alphabet {
-    names = names.extend([prefix]).extend([f"{prefix}{suffix}" for suffix in alphabet])
+    names = [@names, prefix, @[f"{prefix}{suffix}" for suffix in alphabet]]
   }
   uu.write(s, ".dirs", f"{names.join("\n")}\n")
   for name in names { uu.mkdir(s, name); uu.touch(s, f"{name}/f") }

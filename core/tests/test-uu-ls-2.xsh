@@ -342,7 +342,7 @@ test test_uu_ls_ls_dired_leading_info_offsets { |ctx|
   uu.touch(s, "bay/quill")
   uu.touch(s, "bay/parchment")
   for leading in [["-i"], ["-s"], ["-i", "-s"]] {
-    let args = ["--dired", "-l", "--quoting-style=literal"].extend(leading).extend(["bay"])
+    let args = ["--dired", "-l", "--quoting-style=literal", @leading, "bay"]
     let r = invoke(s, args)?
     uu.succeeds(r)
     assert offset_names(r.stdout, "//DIRED//")? == ["parchment", "quill"]
@@ -375,7 +375,7 @@ test test_uu_ls_ls_dired_name_boundaries { |ctx|
     {args: ["--quoting-style=literal", "-F", "--color=always"], names: ["link", "sub", "target", "with space"]},
     {args: ["--quoting-style=shell-escape"], names: ["link", "sub", "target", "'with space'"]},
   ] {
-    let r = invoke(s, ["--dired", "-l"].extend(case.args).extend(["d"]))?
+    let r = invoke(s, ["--dired", "-l", @case.args, "d"])?
     uu.succeeds(r)
     assert offset_names(r.stdout, "//DIRED//")? == case.names
   }
@@ -623,7 +623,7 @@ test test_uu_ls_ls_group_directories_first { |ctx|
   {
     let r = invoke(s, ["-1a", "--group-directories-first"])?
     uu.succeeds(r)
-    assert r.stdout.utf8()?.lines() == dots.extend(dirs).extend(files)
+    assert r.stdout.utf8()?.lines() == [@dots, @dirs, @files]
   }
   {
     let r = invoke(s, ["-1", "--group-directories-first", "--sort=size"])?
@@ -633,7 +633,7 @@ test test_uu_ls_ls_group_directories_first { |ctx|
   {
     let r = invoke(s, ["-1ar", "--group-directories-first"])?
     uu.succeeds(r)
-    assert r.stdout.utf8()?.lines() == reversed_names(dirs).extend(reversed_names(dots)).extend(reversed_names(files))
+    assert r.stdout.utf8()?.lines() == [@reversed_names(dirs), @reversed_names(dots), @reversed_names(files)]
   }
   let grouped = invoke(s, ["-1aU", "--group-directories-first"])?
   uu.succeeds(grouped)

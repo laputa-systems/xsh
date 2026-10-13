@@ -218,15 +218,15 @@ pure apply_log(options: Options, value: Str) -> Applied {
   let known = ["error", "selftest", "selective", "directory", "xerror", "xselftest", "background", "sasphy", "sataphy", "scttemp", "scttempint", "scterc", "devstat", "defects", "ssd", "gplog", "smartlog", "nvmelog", "tapedevstat", "zdevstat", "envrep", "farm"]
   guard name in known else { return rejected(options, invalid("-l", value, LOG_TYPES)) }
   if name in ["error", "selftest", "selective"] and value == name {
-    return accepted({...options, logs: options.logs + [name]})
+    return accepted({...options, logs: [@options.logs, name]})
   }
   if name == "directory" and value in ["directory", "directory,s"] {
-    return accepted({...options, logs: options.logs + ["directory"]})
+    return accepted({...options, logs: [@options.logs, "directory"]})
   }
   # The entry count (`xerror,N`) cannot be honored over SMART READ LOG, so
   # only the forms that name the summary log are accepted.
   if value in ["xerror", "xerror,error", "xselftest", "xselftest,selftest"] {
-    return accepted({...options, logs: options.logs + [name]})
+    return accepted({...options, logs: [@options.logs, name]})
   }
   rejected(options, unsupported(f"-l {value}", "the log needs commands or a transport this implementation does not provide"))
 }
@@ -472,7 +472,7 @@ proc json_document(options: Options, argv: List[Str], machine: Str, release: Str
     j.m("svn_revision", "5714"),
     j.m("platform_info", platform(machine, release)),
     j.m("build_info", "(XSH core)"),
-    j.m("argv", ["smartctl"] + argv),
+    j.m("argv", ["smartctl", @argv]),
   ]
   if !messages.is_empty() or !notes.is_empty() {
     let entries: List[j.Object] = collect {

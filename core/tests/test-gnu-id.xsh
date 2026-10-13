@@ -46,7 +46,7 @@ test test_gnu_id_zero_log { |ctx|
     if found.status == 0 { accounts += [candidate] }
   }
   let failures = collect {
-    for name in accounts + [""] {
+    for name in [@accounts, ""] {
       let operands = if name == "" { [] } else { [name] }
       for mode in ["g", "gr", "G", "Gr", "u", "ur"] {
         for suffix in ["", "n"] {

@@ -709,7 +709,7 @@ test test_gnu_ls_recursive_log { |ctx|
   uu.mkdir(s, [f"{i}" for i in range(1, 31)].join("/"))
   let argv = uu.argv(s, "ls", [p"-R", p"1"])?
   let shell = process.which("sh")?
-  let plan = process.command_argv(s.ctx.xsh_bin, argv[..3].extend([shell, p"-c", p"ulimit -n 20; exec \"$@\"", p"ls-depth"]).extend(argv[3..]), s.root, {}, b"", uu.at(s, "deep-out"), uu.at(s, "deep-err"), timeout: 10s)
+  let plan = process.command_argv(s.ctx.xsh_bin, [@argv[..3], shell, p"-c", p"ulimit -n 20; exec \"$@\"", p"ls-depth", @argv[3..]], s.root, {}, b"", uu.at(s, "deep-out"), uu.at(s, "deep-err"), timeout: 10s)
   assert process.run(plan)?.exit_code()? == 0
   assert uu.read(s, "deep-out")?.count_lines() == 88
   assert uu.read(s, "deep-err")? == b""
@@ -783,7 +783,7 @@ proc mount_inode(s: uu.Scene, name: Str) [fs, process, env, error] -> Result[Byt
   let errors = uu.at(s, "mount-inode-errors")
   let timeout = process.which("timeout")?
   let argv = uu.argv(s, "stat", [p"--format=%i", fp"{name}"])?
-  let words = argv[..3].extend([timeout, p"1"]).extend(argv[3..])
+  let words = [@argv[..3], timeout, p"1", @argv[3..]]
   let plan = process.command_argv(s.ctx.xsh_bin, words, s.root, {}, b"", output, errors)
   let status = process.run(plan)?.shell_code()?
   assert status in [0, 1, 124], f"mount stat wrapper status {status}: {errors.read_text()?}"

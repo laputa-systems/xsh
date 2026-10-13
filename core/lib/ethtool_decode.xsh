@@ -764,7 +764,7 @@ export pure msglvl_lines(level: Int) -> List[Str] {
 export pure eee_lines(device: Str, reply: Bytes) -> Result[List[Str], Error] {
   let v = unwords(reply, 7)?
   var lines: List[Str] = [f"EEE settings for {device}:"]
-  return Ok(lines + ["\tEEE status: not supported"]) when v[0] == 0
+  return Ok([@lines, "\tEEE status: not supported"]) when v[0] == 0
   let status = if v[4] == 0 { "disabled" } else if v[3] != 0 { "enabled - active" } else { "enabled - inactive" }
   lines += [f"\tEEE status: {status}"]
   lines += [if v[5] != 0 { f"\tTx LPI: {v[6]} (us)" } else { "\tTx LPI: disabled" }]

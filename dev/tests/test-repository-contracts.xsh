@@ -1,5 +1,5 @@
 proc check_repository_contract(script: Str, args: List[Str] = []) [process, error] {
-  let command = process.command_argv("python3", ["python3", script] + args)
+  let command = process.command_argv("python3", ["python3", script, @args])
   let status = process.run(command)?
   assert status.exited_with(0), f"repository contract failed: {script}"
 }

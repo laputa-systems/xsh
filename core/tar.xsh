@@ -670,7 +670,7 @@ proc parse_options(argv: List[Str]) [fs, error, process, env] -> Options {
   var opts: Options = {mode: "", verbose: false, archive_path: null, root: ".", compression: "", to_stdout: false, keep: false, overwrite: false, strip: 0, excludes: [], members: [], help: false, version: false}
   var words = argv
   if ! words.is_empty() and ! words[0].starts_with("-") {
-    words = [f"-{words[0]}"] + words[1..]
+    words = [f"-{words[0]}", @words[1..]]
   }
   var index = 0
   var operands_only = false

@@ -405,14 +405,14 @@ test test_gnu_misc_close_stdout_log { |ctx|
     {util: "printf", args: [""]},
   ] {
     let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = words[..3].extend([p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output"]).extend(words[3..])
+    let wrapper = [@words[..3], p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output", @words[3..]]
     let status = process.run(process.command_argv(wrapper[0], wrapper, s.root, stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 5s))?
     assert status.exited_with(0), f"{entry.util}: {status.shell_code()?} {uu.read_text(s, "err")?}"
   }
   assert uu.exists(s, "b")?
   for entry in [{util: "printf", args: ["foo"]}, {util: "cp", args: ["--verbose", "a", "b"]}, {util: "mktemp", args: ["tmpfile-XXXXXX"]}, {util: "mktemp", args: ["tmpfile-XXXXXX", "-q"]}] {
     let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = words[..3].extend([p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output"]).extend(words[3..])
+    let wrapper = [@words[..3], p"/bin/sh", p"-c", Path(r"""exec 1>&-; exec "$@"; """), p"closed-output", @words[3..]]
     let result = process.run(process.command_argv(wrapper[0], wrapper, s.root, stderr: uu.at(s, "err"), timeout: 5s))?
     assert result.exited_with(1), f"{entry.util} {entry.args.join(" ")}: {result.shell_code()?} {uu.read_text(s, "err")?}"
   }
@@ -426,7 +426,7 @@ test test_gnu_misc_no_fork_log { |ctx|
   # stdbuf needs an LD_PRELOAD library to configure child libc buffering; the standalone static musl build does not ship it.
   for entry in [{util: "chroot", args: ["--skip-chdir", "/", "true"]}, {util: "env", args: ["true"]}, {util: "nice", args: ["true"]}, {util: "nohup", args: ["true"]}] {
     let words = uu.argv(s, entry.util, [Path(arg) for arg in entry.args])?
-    let wrapper = words[..3].extend([p"/bin/bash", p"-c", Path(r"""ulimit -u 0 || exit; exec "$@"; """), p"no-fork"]).extend(words[3..])
+    let wrapper = [@words[..3], p"/bin/bash", p"-c", Path(r"""ulimit -u 0 || exit; exec "$@"; """), p"no-fork", @words[3..]]
     let status = process.run(process.command_argv(wrapper[0], wrapper, s.root, stderr: uu.at(s, "err"), timeout: 5s))?
     if entry.util != "chroot" { assert status.exited_with(0), uu.read_text(s, "err")? }
   }

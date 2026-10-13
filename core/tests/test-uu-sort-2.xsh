@@ -11,7 +11,7 @@ proc fixture_case(ctx: TestContext, base: Str, options: List[Str]) [fs, process,
       let s = uu.scene(ctx)?
       let input = f"{base}.txt"
       uu.fixture(s, "sort", input, input)
-      let args = [input].extend(if debug { ["--debug"] } else { [] }).extend([word for word in option.split(" ") if word != ""])
+      let args = [input, @if debug { ["--debug"] } else { [] }, @[word for word in option.split(" ") if word != ""]]
       let r = uu.invoke(s, "sort", args)?
       uu.succeeds(r)
       let expected = if debug { f"{base}.expected.debug" } else { f"{base}.expected" }

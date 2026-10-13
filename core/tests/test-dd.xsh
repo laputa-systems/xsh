@@ -388,7 +388,7 @@ test test_dd_oflag_append_on_standard_output { |ctx|
   assert status.exited_with(0), err.read_text()?
   assert out.read_text()? == "xab"
   let converted_out = fp"{root}/converted"
-  let converted = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout"].extend(argv).extend(["conv=ucase"]), root, {LC_ALL: "C"}, b"ab", converted_out, err, timeout: 3s)
+  let converted = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout", @argv, "conv=ucase"], root, {LC_ALL: "C"}, b"ab", converted_out, err, timeout: 3s)
   assert process.run(converted)?.exited_with(0), err.read_text()?
   assert converted_out.read_text()? == "xAB"
 }

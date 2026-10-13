@@ -5,7 +5,7 @@ const UTF8 = "fr_FR.UTF-8"
 
 proc fold_file(s: uu.Scene, name: Str, input: Bytes, args: List[Str], expected: Bytes) [fs, process, env, error] -> Result[Unit, Error] {
   uu.write_bytes(s, name, input)
-  let r = uu.invoke(s, "fold", args + [name], vars: {LC_ALL: UTF8}, timeout: 30s)?
+  let r = uu.invoke(s, "fold", [@args, name], vars: {LC_ALL: UTF8}, timeout: 30s)?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, expected)
   Ok()
@@ -73,7 +73,7 @@ pure shell_word(value: Str) -> Str {
 # compilation is outside the memory budget of the applet selected by uu.
 pure constrained(words: List[Path], kib: Int) -> List[Path] {
   let script = Path(r"""ulimit -v "$1" || exit; shift; exec "$@"; """)
-  [words[0], words[1], words[2], p"/bin/sh", p"-c", script, p"fold-limit", Path(f"{kib}")] + [words[index] for index in range(3, words.len())]
+  [words[0], words[1], words[2], p"/bin/sh", p"-c", script, p"fold-limit", Path(f"{kib}"), @[words[index] for index in range(3, words.len())]]
 }
 
 proc limited(s: uu.Scene, words: List[Path], kib: Int, input: Path, output: Path, diagnostic: Path, vars: Record) [process, env, error] -> Result[Bool, Error] {
@@ -105,7 +105,7 @@ test test_gnu_fold_fold_zero_width_log { |ctx|
   # Cold interpreter startup can exceed the standalone utility probe ceiling.
   # Extend only baseline discovery; the stream still gets 6000 KiB above the
   # measured startup minimum, including the same page-alignment allowance.
-  let candidates = [n * 5000 for n in range(1, 11)] + [100000, 200000, 400000, 800000]
+  let candidates = [@[n * 5000 for n in range(1, 11)], 100000, 200000, 400000, 800000]
   for candidate in candidates {
     let code = limited(s, empty_words, candidate, p"/dev/null", p"/dev/null", uu.at(s, "probe.err"), stream_locale)?
     probe_results += [code]
@@ -126,7 +126,7 @@ test test_gnu_fold_fold_zero_width_log { |ctx|
     let producer_words = uu.argv(s, "tr", [p"\\0", Path(character)])?
     let producer = [shell_word(word.display()) for word in producer_words].join(" ")
     let script = Path(producer + " < /dev/zero | \"$@\" > /dev/full")
-    let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"fold-stream"] + fold_words,
+    let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"fold-stream", @fold_words],
       s.root, {LC_ALL: "", LC_CTYPE: UTF8, LANG: "C"}, b"", uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
     let status = process.run(command)?
     assert !status.exited_with(124), "fold did not diagnose the full output device within ten seconds"

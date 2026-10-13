@@ -779,7 +779,7 @@ test test_command_line_errors_use_smartctl_wording_and_status { |ctx|
 
 test test_unsupported_options_fail_before_any_device_command { |ctx|
   for option in [["-o", "on"], ["-S", "on"], ["-C"], ["-g", "all"], ["-v", "9,minutes"], ["-n", "standby"], ["-r", "ioctl"], ["--identify"], ["-l", "scttemp"], ["-l", "xerror,5"], ["-t", "select,0-100"], ["-s", "wcache,on"], ["-T", "permissive"], ["-F", "samsung"], ["-B", "drivedb.h"], ["-P", "showall"], ["-f", "hex"], ["-d", "usbcypress"], ["-q", "bogus"]] {
-    let out = smartctl_logged(ctx, ata_fixture(smart_data_page(200)), ["-d", "sat", "-a"] + option)
+    let out = smartctl_logged(ctx, ata_fixture(smart_data_page(200)), ["-d", "sat", "-a", @option])
     assert out.result.status == 1, f"{option.join(" ")}: {out.result.stdout}{out.result.stderr}"
     assert out.log == "", f"{option.join(" ")} reached the device"
   }
@@ -943,7 +943,7 @@ test test_scsi_identity_health_and_temperature { |ctx|
 
 test test_scsi_rejects_options_it_cannot_serve { |ctx|
   for option in [["-c"], ["-l", "error"], ["-t", "short"], ["-s", "on"], ["-x"]] {
-    let out = smartctl_logged(ctx, scsi_fixture("SEAGATE", 0), ["-d", "scsi"] + option)
+    let out = smartctl_logged(ctx, scsi_fixture("SEAGATE", 0), ["-d", "scsi", @option])
     assert out.result.status == 1, option.join(" ")
     assert out.log == ""
   }
@@ -1128,7 +1128,7 @@ test test_nvme_rejects_logs_it_does_not_have { |ctx|
   let source = fp"{ctx.core_dir}/smartctl.xsh".read_text()?
   let scope = {XSH_MODULE_PATH: ctx.core_dir.display()}
   for option in [["-l", "directory"], ["-l", "selective"], ["-s", "on"]] {
-    let out = test.run_script(ctx, source, option + [fp"{root}/nvme0".display()], scope, b"", "smartctl")?
+    let out = test.run_script(ctx, source, [@option, fp"{root}/nvme0".display()], scope, b"", "smartctl")?
     assert out.status == 1, option.join(" ")
     assert "not supported for NVMe devices" in out.stderr
   }
@@ -1153,7 +1153,7 @@ test test_scan_type_filter_and_unknown_type { |ctx|
 
 test test_ata_brief_and_badsum_options_do_not_apply_to_other_transports { |ctx|
   for option in [["-f", "brief"], ["-b", "ignore"]] {
-    let scsi_run = smartctl_logged(ctx, scsi_fixture("SEAGATE", 0), ["-d", "scsi", "-H"] + option)
+    let scsi_run = smartctl_logged(ctx, scsi_fixture("SEAGATE", 0), ["-d", "scsi", "-H", @option])
     assert scsi_run.result.status == 1, option.join(" ")
     assert scsi_run.log == ""
   }

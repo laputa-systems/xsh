@@ -172,7 +172,7 @@ test test_gnu_test_test_log { |ctx|
   for case in cases {
     expression(s, case.args, case.status)
     expression(s, ["!"].extend(case.args), 1 - case.status)
-    let grouped = ["("].extend(case.args).extend([")"])
+    let grouped = ["(", @case.args, ")"]
     expression(s, grouped, case.status)
     expression(s, ["!"].extend(grouped), 1 - case.status)
     expression(s, ["!", "!"].extend(grouped), case.status)

@@ -113,12 +113,12 @@ test test_gnu_wc_wc_parallel_log { |ctx|
   let names = [f"tmp/{n}" for n in range(1, 2001)]
   for name in names { uu.touch(s, name) }
   let wc_words = uu.argv(s, "wc", [])?
-  let xargs_words = uu.argv(s, "xargs", [p"-n2000", p"-P2"] + wc_words)?
+  let xargs_words = uu.argv(s, "xargs", [p"-n2000", p"-P2", @wc_words])?
   let cat_words = uu.argv(s, "cat", [])?
   let reader = [shell_word(word.display()) for word in cat_words].join(" ")
   let script = Path("\"$@\" | " + reader)
-  let input = bytes.from_text((names + names + names).join("\n") + "\n")
-  let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"wc-pipe"] + xargs_words,
+  let input = bytes.from_text(([@names, @names, @names]).join("\n") + "\n")
+  let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"wc-pipe", @xargs_words],
     s.root, {}, input, uu.at(s, "out"), uu.at(s, "err"), timeout: 30s)
   assert process.run(command)?.exit_code()? == 0
   assert uu.read(s, "err")? == b""
@@ -155,7 +155,7 @@ test test_gnu_wc_wc_proc_log { |ctx|
   for case in [{name: "no_read", expected: "2\n0\n"}, {name: "do_read", expected: "1048576\n0\n"}] {
     # Both children inherit the same open file description and its current offset.
     let script = Path(r""""$@"; "$@"; """)
-    let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"wc-offset"] + words,
+    let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"wc-offset", @words],
       s.root, {}, uu.at(s, case.name), uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
     assert process.run(command)?.exit_code()? == 0
     uu.file_is(s, "out", case.expected)
@@ -184,8 +184,8 @@ test test_gnu_wc_wc_total_log { |ctx|
   uu.touch(s, "big")
   uu.truncate(s, "big", 2305843009213693952)
   let files = ["big" for n in range(8)]
-  let overflow = uu.invoke(s, "wc", ["--total=only", "-c"] + files, timeout: 10s)?
-  let hidden = uu.invoke(s, "wc", ["--total=never", "-c"] + files, timeout: 10s)?
+  let overflow = uu.invoke(s, "wc", ["--total=only", "-c", @files], timeout: 10s)?
+  let hidden = uu.invoke(s, "wc", ["--total=never", "-c", @files], timeout: 10s)?
   assert overflow.status == 1, f"total=only status {overflow.status}, stderr {overflow.stderr as Str}; total=never status {hidden.status}, stderr {hidden.stderr as Str}"
   uu.stdout_is(overflow, "18446744073709551615\n")
   uu.succeeds(hidden)

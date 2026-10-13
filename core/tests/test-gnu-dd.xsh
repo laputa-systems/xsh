@@ -166,10 +166,10 @@ test test_gnu_dd_stderr_log { |ctx|
   let s = uu.scene(ctx)?
   let help_words = uu.argv(s, "dd", [p"--help"])?
   let closing = [p"/bin/sh", p"-c", Path(r"""exec "$@" 2>&-; """), p"dd-stderr"]
-  let help = shell(s, r"""exec "$@"; """, help_words[..3].extend(closing).extend(help_words[3..]))
+  let help = shell(s, r"""exec "$@"; """, [@help_words[..3], @closing, @help_words[3..]])
   uu.succeeds(help)
   let closed_words = uu.argv(s, "dd", [])?
-  let closed = shell(s, r"""exec "$@"; """, closed_words[..3].extend(closing).extend(closed_words[3..]))
+  let closed = shell(s, r"""exec "$@"; """, [@closed_words[..3], @closing, @closed_words[3..]])
   let full = uu.invoke(s, "dd", [], stderr: p"/dev/full")?
   assert closed.status == 1 and full.status == 1, f"stderr failures: closed={closed.status}, full={full.status}"
 }

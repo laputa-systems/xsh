@@ -1257,7 +1257,7 @@ test test_xz_format_and_suffix_options_choose_the_container { |ctx|
     let packed = run_in_seed(ctx, "xz-format", "xz", case.args.extend(["plain"]))?
     assert packed.ran.status == 0, f"{case.args.join(" ")}: {packed.ran.stderr}"
     assert files_under(packed.root)? == ["./d/a", "./d/e/b", f"./{case.made}"], case.args.join(" ")
-    let decoded = invoke_in(ctx, "xz", ["-d"].extend(case.args).extend([case.made]), packed.root)?
+    let decoded = invoke_in(ctx, "xz", ["-d", @case.args, case.made], packed.root)?
     assert decoded.status == 0, f"{case.args.join(" ")}: {decoded.stderr}"
     assert fp"{packed.root}/plain".read_bytes()? == seed_text()
   }

@@ -546,7 +546,7 @@ test test_uu_tail_follow_detects_file_truncation { |ctx|
   for row in [{delay: 1000ms, extra: ["---disable-inotify"]}, {delay: 250ms, extra: []}] {
     for mode in ["-f", "-F"] {
       uu.write(s, "data", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-  let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "data"].extend(row.extra).extend([mode]))?
+  let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "data", @row.extra, mode])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
       time.sleep(row.delay)

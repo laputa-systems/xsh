@@ -630,7 +630,7 @@ proc show_settings(fd: Int, device: Str) {
     gnu.write_text("No data available\n")
     exit 75
   }
-  emit([f"Settings for {device}:"] + lines)
+  emit([f"Settings for {device}:", @lines])
 }
 
 # `-s`: the generic settings of the link. Fields are written back into the

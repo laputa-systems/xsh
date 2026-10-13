@@ -101,7 +101,7 @@ test test_gnu_sort_sort_continue_log { |ctx|
   let merged = shell_sort(s, ["-n", "-m"].extend(files), r"""ulimit -n 7 || exit; exec 3<&- 4<&- 5<&- 6<&-; exec "$@";""")?
   uu.succeeds(merged)
   uu.stdout_is(merged, sequence(1, 31))
-  let stdin = shell_sort(s, ["-n", "-m"].extend(files).extend(["-"]), r"""ulimit -n 7 || exit; exec 3<&- 4<&- 5<&- 6<&-; exec "$@";""", b"32\n")?
+  let stdin = shell_sort(s, ["-n", "-m", @files, "-"], r"""ulimit -n 7 || exit; exec 3<&- 4<&- 5<&- 6<&-; exec "$@";""", b"32\n")?
   uu.succeeds(stdin)
   uu.stdout_is(stdin, sequence(1, 32))
 }
@@ -589,8 +589,8 @@ test test_gnu_sort_sort_float_log { |ctx|
   var failures = []
   let negative = ["-" + value for value in limits]
   let positive = reversed(limits)
-  let canonical = (negative + ["0"] + positive).join("\n") + "\n"
-  let reverse_input = reversed(positive).extend(["0"]).extend(reversed(negative)).join("\n") + "\n"
+  let canonical = ([@negative, "0", @positive]).join("\n") + "\n"
+  let reverse_input = [@reversed(positive), "0", @reversed(negative)].join("\n") + "\n"
   # A French numeric locale stops a numeric prefix at a dot; limit strings
   # emitted with a comma retain the complete scientific value.
   let french_dots = "-3.3621031431120935063e-4932\n-3.4028235e+38\n-2.2250738585072014e-308\n-1.1754944e-38\n-1.7976931348623157e+308\n-1.189731495357231765e+4932\n0\n1.189731495357231765e+4932\n1.7976931348623157e+308\n1.1754944e-38\n2.2250738585072014e-308\n3.4028235e+38\n3.3621031431120935063e-4932\n"

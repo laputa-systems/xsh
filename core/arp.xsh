@@ -63,7 +63,7 @@ pure parse_address(word: Str) -> Bytes? {
   return null when tail >= limit
   var last = []
   for _ in range(room) {
-    last = [tail % 256] + last
+    last = [tail % 256, @last]
     tail = tail / 256
   }
   if let Ok(raw) = bytes.from_ints(octets + last) {

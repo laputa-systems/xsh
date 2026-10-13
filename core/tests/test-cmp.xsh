@@ -81,9 +81,9 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
     } else if line.starts_with("status ") {
       current = {...found, status: line.byte_slice(7).parse_int() ?? 0}
     } else if line.starts_with("o:") or line.starts_with("O:") {
-      current = {...found, out: found.out + [line]}
+      current = {...found, out: [@found.out, line]}
     } else if line.starts_with("e:") or line.starts_with("E:") {
-      current = {...found, err: found.err + [line]}
+      current = {...found, err: [@found.err, line]}
     }
   }
   if let done = current { cases += [done] }

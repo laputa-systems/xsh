@@ -390,7 +390,7 @@ pure cpu_content(
   let summary = f"Usage {rate_text(value.cpu_percent)} | Uptime {uptime_text(value.uptime)} | Load {load_text(value.load)}"
   let sensors = f"{temperature_text(value.telemetry.temperature)} | {frequency_text(value.telemetry.frequency)}"
   let details = f"{core_temperature_text(value.telemetry.temperature)} | {battery_text(value.telemetry.battery)}"
-  Ok([summary] + cpu_graph + temperature_graph + [sensors, details])
+  Ok([summary, @cpu_graph, @temperature_graph, sensors, details])
 }
 
 pure memory_panel_content(
@@ -406,13 +406,7 @@ pure memory_panel_content(
   } else {
     f"Swap {counter_text(value.memory.swap_used_bytes)}"
   }
-  Ok([
-    f"Used {memory_percent_text(value)}",
-  ] + used_graph + [
-    f"Total {field_text(value.memory.total_bytes, value.memory.total_state)}",
-    f"Available {field_text(value.memory.available_bytes, value.memory.available_state)}",
-    swap,
-  ])
+  Ok([f"Used {memory_percent_text(value)}", @used_graph, f"Total {field_text(value.memory.total_bytes, value.memory.total_state)}", f"Available {field_text(value.memory.available_bytes, value.memory.available_state)}", swap])
 }
 
 pure network_panel_content(

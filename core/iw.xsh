@@ -317,7 +317,7 @@ proc command_dev(client: nl.Client) -> Result[Int] {
 }
 
 proc command_list(client: nl.Client, filter: List[Bytes]) -> Result[Int] {
-  let messages = nl.request(client, nl.CMD.get_wiphy, [nl.attr_flag(nl.ATTRS.split)?] + filter, dump: true)?
+  let messages = nl.request(client, nl.CMD.get_wiphy, [nl.attr_flag(nl.ATTRS.split)?, @filter], dump: true)?
   emit(nl.phy_lines(messages))
   Ok(0)
 }

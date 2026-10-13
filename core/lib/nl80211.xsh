@@ -604,7 +604,7 @@ proc decode_messages(replies: List[LinuxNetlinkMessage]) -> List[Message] {
 ## `dump` asks for every object; a kernel refusal is `IwError.Errno`.
 export proc request(client: Client, cmd: Int, attrs: List[Bytes], dump: Bool = false) [process, error] -> Result[List[Message], Error] {
   let header = bytes.from_ints([cmd, 0, 0, 0])?
-  let payload = bytes.concat([header] + attrs)
+  let payload = bytes.concat([header, @attrs])
   let flags = if dump { NLM_F_REQUEST + NLM_F_ACK + NLM_F_DUMP } else { NLM_F_REQUEST + NLM_F_ACK }
   match linux.netlink_request(client.fd, client.family, flags, payload) {
     Ok(replies) => Ok(decode_messages(replies))
@@ -1121,14 +1121,14 @@ pure rsn_lines(data: Bytes) -> List[Str] {
   return ["\tRSN: <invalid>"] when data.len() < 2
   let version = uint(data.slice(0, 2))
   let body = cipher_lines(data, 2, version, true)
-  ["\tRSN:" + body[0]] + body[1..]
+  ["\tRSN:" + body[0], @body[1..]]
 }
 
 pure vendor_lines(data: Bytes, unknown: Bool) -> List[Str] {
   if data.len() >= 8 and hex_bytes(data.slice(0, 4)) == "00 50 f2 01" {
     let version = uint(data.slice(4, 2))
     let body = cipher_lines(data, 6, version, false)
-    return ["\tWPA:" + body[0]] + body[1..]
+    return ["\tWPA:" + body[0], @body[1..]]
   }
   if unknown {
     let oui = hex_bytes(data[0..3]).replace(" ", with: ":")

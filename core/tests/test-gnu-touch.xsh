@@ -5,7 +5,7 @@ use support.uu
 proc descriptor_touch(s: uu.Scene, args: List[Str], setup: Str) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let launch = uu.argv(s, "touch", [fp"{arg}" for arg in args])?
   let wrapper = [p"/bin/sh", p"-c", fp"{setup}", p"touch-descriptor"]
-  let argv = if "1>&-" in setup { launch[0..3].extend(wrapper).extend(launch[3..]) } else { wrapper.extend(launch) }
+  let argv = if "1>&-" in setup { [@launch[0..3], @wrapper, @launch[3..]] } else { wrapper.extend(launch) }
   let out = uu.at(s, ".descriptor-out")
   let err = uu.at(s, ".descriptor-err")
   let status = process.run(process.command_argv(argv[0], argv, s.root, {}, b"", out, err, timeout: 10s))?

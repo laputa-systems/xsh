@@ -18,7 +18,7 @@ proc run_stat_with_path(ctx: TestContext, options: List[Path], name: Path) [fs, 
   let root = test.temp_dir(ctx, name: "stat-path")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/stat.xsh", p"--"].extend(options).extend([name])
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/stat.xsh", p"--", @options, name]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: stdout.read_bytes()?, stderr: stderr.read_text()?})

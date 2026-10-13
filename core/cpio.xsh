@@ -851,7 +851,7 @@ proc safe_name(st: Run, name: Bytes, absolute: Bool, strip_dots: Bool) [process,
     }
     if ! seen {
       gnu.error(f"Removing leading `{shown(result.prefix)}' from member names")
-      updated = {...st, prefixes: st.prefixes + [result.prefix]}
+      updated = {...st, prefixes: [@st.prefixes, result.prefix]}
     }
   }
   if result.substituted {
@@ -1226,7 +1226,7 @@ proc create_parents(st: Run, opts: Options, file: Path) [fs, process, env] -> Cr
     match fs.stat(current) {
       Ok(_) => { break }
       Err(_) => {
-        missing = [current] + missing
+        missing = [current, @missing]
         current = current.parent()
       }
     }
@@ -1618,7 +1618,7 @@ proc parse_command_line(argv: List[Str]) [fs, io, process, env] -> Options {
     let word = argv[index]
     index += 1
     if only_operands or word == "-" or ! word.starts_with("-") {
-      opts = {...opts, operands: opts.operands + [word]}
+      opts = {...opts, operands: [@opts.operands, word]}
       continue
     }
     if word == "--" {
@@ -2291,7 +2291,7 @@ proc sink_flush(sink: Sink) [fs, io, error, process, env] -> Sink {
 }
 
 proc sink_emit(sink: Sink, data: Bytes) [fs, io, error, process, env] -> Sink {
-  let grown: Sink = {...sink, pending: sink.pending + [data], pending_size: sink.pending_size + data.len(), total: sink.total + data.len()}
+  let grown: Sink = {...sink, pending: [@sink.pending, data], pending_size: sink.pending_size + data.len(), total: sink.total + data.len()}
   return sink_flush(grown) when grown.pending_size >= 4194304
   grown
 }

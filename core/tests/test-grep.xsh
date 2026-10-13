@@ -314,7 +314,7 @@ test test_grep_binary_detection_works_per_buffer { |ctx|
       yield bytes.from_text(f"line {index:05} match {padding.byte_slice(0, 82)}\n")
     }
   }
-  file.write(bytes.concat(data + [b"tail\0 match\n"]))
+  file.write(bytes.concat([@data, b"tail\0 match\n"]))
   let ran = run.capture --bytes ${ctx.xsh_bin} fp"{ctx.core_dir}/grep.xsh" -- match $file
   assert ran.status.exited_with(0)
   assert ran.stdout.len() == 98300

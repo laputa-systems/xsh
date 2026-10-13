@@ -938,7 +938,7 @@ proc visit(ctx: Context, progress: Run, display: Bytes, walk_name: Bytes, real: 
             match child {
               Ok(entry_path) => {
                 let child_name = join_path(if command_line { walk_name } else { display }, leaf)
-                current = visit(ctx, current, child_name, child_name, entry_path, if show_names { 1 } else { 0 }, false, false, ancestors + [identity])
+                current = visit(ctx, current, child_name, child_name, entry_path, if show_names { 1 } else { 0 }, false, false, [@ancestors, identity])
               }
               Err(failure) => {
                 open_error(ctx, display, failure.message)

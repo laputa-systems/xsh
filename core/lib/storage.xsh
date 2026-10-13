@@ -386,7 +386,7 @@ proc arguments(argv: List[Str], booleans: List[Str], valued: List[Str]) -> Argum
           }
         }
         values = values.set(aliases[0], value)
-        multiple = multiple.set(aliases[0], (multiple.get(aliases[0]) ?? []) + [value])
+        multiple = multiple.set(aliases[0], [@multiple.get(aliases[0]) ?? [], value])
         found = true
         break
       }
@@ -496,7 +496,7 @@ proc mount_json_row(entries: List[mounts.MountEntry], index: Int, cols: List[Str
   let row = json_fields(cols, [mount_value(entries[index], column) for column in cols])
   let children = collect {
     for child in mount_children(entries, index) {
-      if child not in ancestors { yield mount_json_row(entries, child, cols, ancestors + [index]) }
+      if child not in ancestors { yield mount_json_row(entries, child, cols, [@ancestors, index]) }
     }
   }
   return row when children.is_empty()
@@ -507,7 +507,7 @@ proc mount_text_row(entries: List[mounts.MountEntry], index: Int, cols: List[Str
   var values = [mount_value(entries[index], column) for column in cols]
   for at in range(cols.len()) { if cols[at] == "TARGET" { values[at] = prefix + values[at] } }
   gnu.write_text(values.join(" ") + "\n")
-  for child in mount_children(entries, index) { if child not in ancestors { mount_text_row(entries, child, cols, ancestors + [index], prefix + "  ") } }
+  for child in mount_children(entries, index) { if child not in ancestors { mount_text_row(entries, child, cols, [@ancestors, index], prefix + "  ") } }
 }
 
 ## Render a rooted mount table using decoded targets and mount identities.
@@ -605,7 +605,7 @@ proc block_json_row(devices: List[block.BlockDevice], index: Int, table: mounts.
   if "-d" not in args.flags and "-l" not in args.flags and "-r" not in args.flags {
     var children = []
     for child in block_children(devices, index) {
-      if child not in ancestors and child != index { children += [block_json_row(devices, child, table, cols, args, ancestors + [index])] }
+      if child not in ancestors and child != index { children += [block_json_row(devices, child, table, cols, args, [@ancestors, index])] }
     }
     if ! children.is_empty() { fields += ["\"children\":[" + children.join(",") + "]"] }
   }
@@ -620,7 +620,7 @@ proc block_text_row(devices: List[block.BlockDevice], index: Int, table: mounts.
   gnu.write_text((if "-r" in args.flags { [raw_field(value) for value in values] } else { values }).join(" ") + "\n")
   if "-d" not in args.flags and "-l" not in args.flags and "-r" not in args.flags {
     for child in block_children(devices, index) {
-      if child not in ancestors and child != index { block_text_row(devices, child, table, cols, args, ancestors + [index], prefix + "  ") }
+      if child not in ancestors and child != index { block_text_row(devices, child, table, cols, args, [@ancestors, index], prefix + "  ") }
     }
   }
 }
@@ -703,7 +703,7 @@ pure table_lines(headers: List[Str], right: List[Bool], minimums: List[Int], row
     }
   }
   var lines = []
-  for row in if headings { [headers] + rows } else { rows } {
+  for row in if headings { [headers, @rows] } else { rows } {
     let cells = collect {
       for at in range(row.len()) {
         if right[at] {
@@ -880,7 +880,7 @@ proc blkid(argv: List[Str]) {
   for tag in selected_tags { if tag not in ["TYPE", "UUID", "LABEL", "PTTYPE", "PART_ENTRY_UUID"] { unsupported(f"tag {tag}") } }
   var devices = args.operands
   if devices.is_empty() {
-    for device in linux.block_devices()? { devices += [f"{device.path}"] + [f"{partition}" for partition in device.partitions] }
+    for device in linux.block_devices()? { devices += [f"{device.path}", @[f"{partition}" for partition in device.partitions]] }
   }
   var observed = false
   for name in devices {

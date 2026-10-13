@@ -991,7 +991,7 @@ test test_cp_gnu_option_conflicts_and_destination_lookup_errors { |ctx|
   uu.write(s, "source", "contents")
   uu.write(s, "target", "old")
   for flags in [["--link", "--symbolic-link"], ["--symbolic-link", "--link"]] {
-    let result = uu.invoke(s, "cp", flags + ["source", "target"])?
+    let result = uu.invoke(s, "cp", [@flags, "source", "target"])?
     uu.fails(result)
     uu.stderr_is(result, "cp: cannot make both hard and symbolic links\nTry 'cp --help' for more information.\n")
   }

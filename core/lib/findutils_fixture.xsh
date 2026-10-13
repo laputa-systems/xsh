@@ -303,7 +303,7 @@ export proc invoke(xsh_bin: Path, script: Path, root: Path, work: Path, c: Case)
     }
     let ordered = keyed |> sort() |> collect()
     for key in ordered { tail += [unhex(key), b"\n"] }
-    stdout = bytes.concat([stdout] + tail)
+    stdout = bytes.concat([stdout, @tail])
   }
   if "l" in c.flags { stdout = normalize_ls(stdout) }
   Ok({status: status.exit_code() ?? -1, stdout: with_root_name(stdout, root), stderr: with_root_name(err.read_bytes()?, root)})

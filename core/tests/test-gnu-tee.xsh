@@ -44,8 +44,7 @@ test test_gnu_tee_write_eagain_log { |ctx|
   let trace = uu.at(s, "trace")
   # File identity selects the same output even when the implementation writes
   # through a duplicated descriptor rather than its original descriptor number.
-  let injected = words[..3].extend([p"strace", p"-f", p"-qqq", p"-o", trace,
-    p"-P", uu.at(s, "file1"), p"-e", p"trace=write", p"-e", p"inject=write:error=EAGAIN:when=1"]).extend(words[3..])
+  let injected = [@words[..3], p"strace", p"-f", p"-qqq", p"-o", trace, p"-P", uu.at(s, "file1"), p"-e", p"trace=write", p"-e", p"inject=write:error=EAGAIN:when=1", @words[3..]]
   let r = wrapped(s, r"""exec "$@"; """, injected, stdin: uu.at(s, "exp"), timeout: 10s)
   uu.succeeds(r)
   uu.stdout_only(r, "a\n")

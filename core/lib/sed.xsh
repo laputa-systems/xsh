@@ -715,7 +715,7 @@ proc open_output(opened: List[Str], name: Str) [fs, io, error, process, env] -> 
     exit 4
   }
 
-  opened + [name]
+  [@opened, name]
 }
 
 proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, process, env] -> Result[Parser, Error] {

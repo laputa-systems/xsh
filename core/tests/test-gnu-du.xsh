@@ -180,7 +180,7 @@ test test_gnu_du_hard_link_log { |ctx|
     {args: ["dir"], out: ["dir/f_", "dir/f_", "dir"]},
     {args: ["-L", "dir"], out: ["dir/f_", "dir"]},
   ] {
-    let r = uu.invoke(s, "du", ["-a", "--exclude=sub"].extend(row.args).extend(["dir"]))?
+    let r = uu.invoke(s, "du", ["-a", "--exclude=sub", @row.args, "dir"])?
     uu.succeeds(r)
     assert [name.replace("f1", with: "f_").replace("f2", with: "f_").replace("f3", with: "f_") for name in paths(r)] == row.out
   }

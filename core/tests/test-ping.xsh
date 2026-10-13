@@ -240,7 +240,7 @@ test test_ping_socket_options_are_applied_or_refused_by_the_kernel { |ctx|
     assert ran.status == 0, f"{hint}: {ran.stderr}"
   }
   for args in [["-t", "5"], ["-Q", "0x10"], ["-Q", "16"], ["-S", "65536"], ["-r"], ["-L"], ["-v"], ["-b"], ["-n"], ["-W", "0.5"], ["-i", "0.5"]] {
-    let ran = ping(ctx, ["-c", "1", "-q"].extend(args).extend(["127.0.0.1"]))?
+    let ran = ping(ctx, ["-c", "1", "-q", @args, "127.0.0.1"])?
     assert ran.status == 0, f"{args.join(" ")}: {ran.stderr}"
   }
   # A mark and the debug flag need CAP_NET_ADMIN: the kernel's answer is

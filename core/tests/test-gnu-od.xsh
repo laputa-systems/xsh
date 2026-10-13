@@ -39,7 +39,7 @@ test test_gnu_od_od_N_log { |ctx|
   let two = uu.argv(s, "od", [p"-An", p"-N3", p"-c"])?
   let left = ["\"" + r"$" + "{" + f"{index + 1}" + "}\"" for index in range(one.len())].join(" ")
   let right = ["\"" + r"$" + "{" + f"{index + one.len() + 1}" + "}\"" for index in range(two.len())].join(" ")
-  let words = [p"/bin/sh", p"-c", Path(f"{left}; {right}"), p"od-shared"].extend(one).extend(two)
+  let words = [p"/bin/sh", p"-c", Path(f"{left}; {right}"), p"od-shared", @one, @two]
   let shared = wrapped(s, words, stdin: uu.at(s, "in"))
   uu.stdout_is(shared, "   a   b   c\n   d   e   f\n")
   let spaces100 = [" " for _ in range(100)].join("")
@@ -154,7 +154,7 @@ test test_gnu_od_od_float_log { |ctx|
     {format: "fD", width: 8, obsolete: "-5.314010372517808e+303"},
     {format: "fL", width: 16, obsolete: "-1.023442870282055988e+4855"},
   ] {
-    let values = [254 for _ in range(row.width)].extend([255]).extend([254 for _ in range(row.width - 1)]).extend([10])
+    let values = [@[254 for _ in range(row.width)], 255, @[254 for _ in range(row.width - 1)], 10]
     let r = uu.invoke(s, "od", ["-t", row.format], stdin: bytes.from_ints(values)?)?
     let text = r.stdout as Str
     assert "0-" not in text

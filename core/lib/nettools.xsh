@@ -291,7 +291,7 @@ export pure ipv6_parse(text: Str) -> Bytes? {
   } else {
     let missing = 8 - lead.len() - rest.len()
     return null when missing < 1
-    groups = lead + [0 for _ in range(missing)] + rest
+    groups = [@lead, @[0 for _ in range(missing)], @rest]
   }
   if tail.len() == 2 {
     groups = groups[0..6] + tail

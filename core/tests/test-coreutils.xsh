@@ -8,7 +8,7 @@ proc front_end_dir(ctx: TestContext, applets: List[Str]) [fs, process, error] ->
   fp"{root}/lib".mkdir()
   fp"{ctx.core_dir}/lib/gnu.xsh".copy(to: fp"{root}/lib/gnu.xsh")
 
-  for name in ["coreutils"] + applets {
+  for name in ["coreutils", @applets] {
     let source = if name == "coreutils" { fp"{ctx.core_dir}/coreutils.xsh" } else { fp"{ctx.core_dir}/{name}.xsh" }
     let body = source.read_text()?.replace("#!/bin/xsh", with: f"#!{ctx.xsh_bin.display()}")
     let target = fp"{root}/{name}"

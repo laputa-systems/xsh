@@ -212,7 +212,7 @@ test test_storage_wipefs_rejects_invalid_modes_before_erasing { |ctx|
   let image = test.temp_file(ctx, name: "wipefs-invalid.img", contents: b"XFSBowned-payload")?
   let source = fp"{ctx.core_dir}/wipefs.xsh".read_text()?
   for args in [["-a", "-J"], ["-o", "0xnothex"], ["-o", "99"]] {
-    let output = test.run_script(ctx, source, args + [f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
+    let output = test.run_script(ctx, source, [@args, f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
     assert ! output.success
     assert image.read_bytes()? == b"XFSBowned-payload"
   }
@@ -329,23 +329,13 @@ test test_storage_fdisk_list_reports_the_util_linux_layout_for_gpt_and_dos { |ct
   let before = gpt.read_bytes()?
   let listed = run_real(ctx, "fdisk", ["-l", f"{gpt}"])
   assert listed.success, listed.stderr
-  assert listed.stdout.lines() == disk_heading(gpt, "gpt", "11111111-2222-3333-4444-555555555555") + [
-    "",
-    tui.right_pad("Device", f"{gpt}p1".count_chars()) + " Start   End Sectors Size Type",
-    f"{gpt}p1" + "  2048  6143    4096   2M Linux filesystem",
-    f"{gpt}p2" + "  8192 10239    2048   1M EFI System",
-  ]
+  assert listed.stdout.lines() == [@disk_heading(gpt, "gpt", "11111111-2222-3333-4444-555555555555"), "", tui.right_pad("Device", f"{gpt}p1".count_chars()) + " Start   End Sectors Size Type", f"{gpt}p1" + "  2048  6143    4096   2M Linux filesystem", f"{gpt}p2" + "  8192 10239    2048   1M EFI System"]
   assert gpt.read_bytes()? == before
 
   let dos = partitioned_image(ctx, "dos")
   let boot = run_real(ctx, "fdisk", ["-l", f"{dos}"])
   assert boot.success, boot.stderr
-  assert boot.stdout.lines() == disk_heading(dos, "dos", "0x1234abcd") + [
-    "",
-    tui.right_pad("Device", f"{dos}p1".count_chars()) + " Boot Start   End Sectors Size Id Type",
-    f"{dos}p1" + "       2048  6143    4096   2M 83 Linux",
-    f"{dos}p2" + "       8192 10239    2048   1M ef EFI (FAT-12/16/32)",
-  ]
+  assert boot.stdout.lines() == [@disk_heading(dos, "dos", "0x1234abcd"), "", tui.right_pad("Device", f"{dos}p1".count_chars()) + " Boot Start   End Sectors Size Id Type", f"{dos}p1" + "       2048  6143    4096   2M 83 Linux", f"{dos}p2" + "       8192 10239    2048   1M ef EFI (FAT-12/16/32)"]
 }
 
 test test_storage_fdisk_list_selects_columns_and_names_the_ones_a_label_lacks { |ctx|
@@ -638,7 +628,7 @@ test test_storage_fstrim_rejects_bad_operands_before_the_kernel { |ctx|
   assert ! extra.success
   assert "unexpected number of arguments" in extra.stderr
   for case in [["-l", "abc"], ["-o", "-1"], ["-m", "12x"]] {
-    let invalid = run_real(ctx, "fstrim", case + [f"{dir}"])
+    let invalid = run_real(ctx, "fstrim", [@case, f"{dir}"])
     assert ! invalid.success
     assert diagnostics(invalid) == [f"failed to parse {if case[0] == "-l" { "length" } else if case[0] == "-o" { "offset" } else { "minimum extent length" }}: '{case[1]}': Invalid argument"]
     assert invalid.stdout == ""

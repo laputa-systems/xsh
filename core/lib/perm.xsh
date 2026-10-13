@@ -56,7 +56,7 @@ export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[O
       let equal = word.find("=")
       let name = if let split = equal { word.byte_slice(0, split) } else { word }
       let known = ["--recursive", "--silent", "--quiet", "--verbose", "--changes", "--dereference", "--no-dereference", "--preserve-root", "--no-preserve-root", "--reference", "--help", "--version"]
-      let choices = if chmod { known } else { known + ["--from"] }
+      let choices = if chmod { known } else { [@known, "--from"] }
       let matches = collect { for option in choices { yield option when option.starts_with(name) } }
       if ! (name in choices) and matches.len() == 1 {
         word = f"{matches[0]}{if let split = equal { word.byte_slice(split) } else { "" }}"
@@ -124,7 +124,7 @@ export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[O
       }
     }
   }
-  if let mode = option_mode { operands = [bytes.from_text(mode)] + operands }
+  if let mode = option_mode { operands = [bytes.from_text(mode), @operands] }
   if recursive and traversal == "P" {
     if explicit_dereference and dereference {
       gnu.usage_error("-R --dereference requires -H or -L")
@@ -291,7 +291,7 @@ proc owner_tree(target: Path, ids: Owner, filter: Owner?, opts: Options, names: 
         if root.dev == meta.dev and root.ino == meta.ino { refuse_root(target); return false }
       }
       match fs.children(target) {
-        Ok(children) => for child in children { if ! owner_tree(child_path(target, child.path)?, ids, filter, opts, names, false, ancestors + [key]) { success = false } }
+        Ok(children) => for child in children { if ! owner_tree(child_path(target, child.path)?, ids, filter, opts, names, false, [@ancestors, key]) { success = false } }
         Err(failure) => { if ! opts.quiet { gnu.cannot("read directory", f"{target}", failure) }; success = false }
       }
     }

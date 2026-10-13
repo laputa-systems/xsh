@@ -595,7 +595,7 @@ proc compare_known(cfg: Settings, left: Probe, right: Probe, entry: Bool, trail:
       gnu.error(f"{gnu.quote_maybe(left.name)}: recursive directory loop")
       return 2
     }
-    return diff_dirs(cfg, left, right, trail + [pair], !entry)
+    return diff_dirs(cfg, left, right, [@trail, pair], !entry)
   }
   if left_dir or right_dir {
     gnu.write_text(f"File {left_shown} is a {type_name(left)} while file {right_shown} is a {type_name(right)}\n")
@@ -858,7 +858,7 @@ pure format_events(argv: List[Str]) -> List[FormatEvent] {
       let name = if equals == null { body } else { body.byte_slice(0, length: equals) }
       var resolved = ""
       var candidates = []
-      for known in FORMAT_LONGS + VALUE_LONGS + OTHER_LONGS + ["digits"] {
+      for known in [@FORMAT_LONGS, @VALUE_LONGS, @OTHER_LONGS, "digits"] {
         if known == name { resolved = known }
         if known.starts_with(name) and !(known in candidates) { candidates += [known] }
       }
@@ -1057,7 +1057,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
   let style = if !styles.is_empty() { styles[0] } else if opts.show_c { "context" } else { "normal" }
 
   var context = -1
-  for text in opts.unified_short + opts.unified_long + opts.context_short + opts.context_long {
+  for text in [@opts.unified_short, @opts.unified_long, @opts.context_short, @opts.context_long] {
     let value = count_option(text, "context length", 0)
     if value > context { context = value }
   }

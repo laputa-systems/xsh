@@ -294,7 +294,7 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
     lines += [line]
   }
   let size = source.len()
-  Ok({tokens: tokens + [TokEnd], starts: starts + [size], lines: lines + [line], notes: notes})
+  Ok({tokens: tokens + [TokEnd], starts: [@starts, size], lines: [@lines, line], notes: notes})
 }
 
 pure spelling(token: Token) -> Str { match token { TokWord(word) => word; TokCall(word) => word; TokOp(op) => op; _ => "" } }
@@ -2070,12 +2070,12 @@ pure string_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[
       let bigger = next_table_size(size)
       var rehashed: List[List[Int]] = [[] for _ in range(bigger)]
       for index in range(size) {
-        for item in chains[index] { rehashed[codes[item] % bigger] = [item] + rehashed[codes[item] % bigger] }
+        for item in chains[index] { rehashed[codes[item] % bigger] = [item, @rehashed[codes[item] % bigger]] }
       }
       chains = rehashed
       size = bigger
     }
-    chains[codes[at] % size] = [at] + chains[codes[at] % size]
+    chains[codes[at] % size] = [at, @chains[codes[at] % size]]
   }
   let listing = collect {
     for chain in chains { for item in chain { yield keys[item] } }
@@ -2104,7 +2104,7 @@ pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List
         for bucket in chains[index] {
           for item in bucket {
             let slot = integer_code(values[item]) % bigger
-            if rehashed[slot].is_empty() or rehashed[slot][0].len() >= 2 { rehashed[slot] = [[item]] + rehashed[slot] } else { rehashed[slot][0] = rehashed[slot][0] + [item] }
+            if rehashed[slot].is_empty() or rehashed[slot][0].len() >= 2 { rehashed[slot] = [[item], @rehashed[slot]] } else { rehashed[slot][0] = [@rehashed[slot][0], item] }
           }
         }
       }
@@ -2112,7 +2112,7 @@ pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List
       size = bigger
     }
     let slot = integer_code(values[at]) % size
-    if chains[slot].is_empty() or chains[slot][0].len() >= 2 { chains[slot] = [[at]] + chains[slot] } else { chains[slot][0] = chains[slot][0] + [at] }
+    if chains[slot].is_empty() or chains[slot][0].len() >= 2 { chains[slot] = [[at], @chains[slot]] } else { chains[slot][0] = [@chains[slot][0], at] }
   }
   let listing = collect {
     for chain in chains { for bucket in chain { for item in bucket { yield keys[item] } } }
@@ -3126,7 +3126,7 @@ pure split_with_separators(content: Str, separator: Str, regex_mode: Bool, ignor
   }
   let rest = content.byte_slice(start)
   if ! (separator == " " and ! regex_mode and rest.is_empty()) { fields += [rest] }
-  Ok({fields: fields, separators: if leading.is_empty() { seps } else { [leading] + seps }})
+  Ok({fields: fields, separators: if leading.is_empty() { seps } else { [leading, @seps] }})
 }
 # Rebuilds $0 from the fields.
 pure joined_fields(fields: List[Scalar], separator: Str, conversion: Str) -> Result[Str] {
