@@ -56,6 +56,18 @@ class InventoryCheckerTests(unittest.TestCase):
         with self.assertRaises(CHECKER.InventoryError):
             CHECKER.compare_owner_items("types.fixture", inventoried, live)
 
+    def test_enum_body_search_stops_at_declaration_end(self) -> None:
+        sources = (
+            "enum Target; enum Other { A }",
+            "mod outer { enum Target } enum Other { A }",
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                with self.assertRaisesRegex(
+                    CHECKER.InventoryError, "unsupported enum declaration for Target"
+                ):
+                    CHECKER.extract_enum(source, "Target")
+
     def test_token_fingerprint_preserves_boundaries_in_payloads_and_bodies(self) -> None:
         left = ["ab", "c"]
         right = ["a", "bc"]

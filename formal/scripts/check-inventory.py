@@ -568,10 +568,13 @@ def extract_enum(source: str, enum_name: str) -> list[str]:
     ]
     if len(found) != 1:
         raise InventoryError(f"expected one enum {enum_name}, found {len(found)}")
-    opening = next(
-        (index for index in range(found[0] + 2, len(tokens)) if tokens[index] == "{"),
-        None,
-    )
+    opening = None
+    for index in range(found[0] + 2, len(tokens)):
+        if tokens[index] in (";", "}"):
+            raise InventoryError(f"unsupported enum declaration for {enum_name}")
+        if tokens[index] == "{":
+            opening = index
+            break
     if opening is None:
         raise InventoryError(f"enum body missing for {enum_name}")
     end = matching(tokens, opening)
