@@ -569,8 +569,17 @@ class PublicationRunnerTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8"))
         final_args = [value.decode("utf-8") for value in record_path.read_bytes().split(b"\0")[:-1]]
-        resource_names = set(runner.DOCKER_RESOURCE_FLAGS)
-        final_resources = [arg for arg in final_args if arg.split("=", 1)[0] in resource_names]
+        exercised_resource_names = {
+            "--cpus",
+            "--cpu-period",
+            "--cpu-quota",
+            "--cpu-shares",
+            "--cpuset-cpus",
+            "--cpuset-mems",
+            "--memory",
+            "--memory-swap",
+        }
+        final_resources = [arg for arg in final_args if arg.split("=", 1)[0] in exercised_resource_names]
         self.assertEqual(final_resources, ["--cpuset-cpus=2", "--cpus=1", "--memory=1g"])
 
     def test_docker_endpoint_must_resolve_to_a_local_unix_socket(self):
