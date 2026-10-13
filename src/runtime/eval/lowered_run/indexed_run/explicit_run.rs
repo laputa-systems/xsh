@@ -9707,25 +9707,37 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         Err(iterable) => iterable,
                     };
                     if let LoweredValue::Stream(stream) = iterable {
-                        let stream_index = {
-                            let mut streams = state
-                                .streams
-                                .lock()
-                                .expect("comprehension stream state poisoned");
-                            let slot = streams
-                                .iter()
-                                .position(Option::is_none)
-                                .unwrap_or(streams.len());
-                            if slot == streams.len() {
-                                streams.push(None);
-                            }
-                            streams[slot] = Some((*stream, active.span));
-                            slot
-                        };
-                        state.iterators.push(CompIterator::Stream {
-                            stream: stream_index,
-                            active,
-                        });
+                        if stream.source.is_some() || stream.script().is_some() {
+                            let stream_index = {
+                                let mut streams = state
+                                    .streams
+                                    .lock()
+                                    .expect("comprehension stream state poisoned");
+                                let slot = streams
+                                    .iter()
+                                    .position(Option::is_none)
+                                    .unwrap_or(streams.len());
+                                if slot == streams.len() {
+                                    streams.push(None);
+                                }
+                                streams[slot] = Some((*stream, active.span));
+                                slot
+                            };
+                            state.iterators.push(CompIterator::Stream {
+                                stream: stream_index,
+                                active,
+                            });
+                        } else {
+                            let items = self.evaluator.lowered_list_items(
+                                LoweredValue::Stream(stream),
+                                active.span,
+                                "comprehension expected List or Stream",
+                            )?;
+                            state.iterators.push(CompIterator::Items {
+                                items: items.into_iter(),
+                                active,
+                            });
+                        }
                     } else if let LoweredValue::Map(entries) = iterable {
                         state.iterators.push(CompIterator::Map {
                             cursor: LoweredMapCursor::new(entries),
