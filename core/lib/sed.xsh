@@ -1610,7 +1610,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
   var ends: List[Int] = [0 for command in commands]
   if ctx.options.separate { m = {...m, roffset: {}, rdata: {}, hold: {text: b"", chomped: true}} }
   var queue: List[QueueItem] = []
-  var line: Space = Space(text: b"", chomped: true)
+    var line: Space = Space(b"", true)
   var replaced = false
   var restart = false
   while true {
