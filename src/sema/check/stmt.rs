@@ -33,8 +33,8 @@ fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     )
 }
 
-/// Arena-native mirror of `block_always_returns`/`stmt_always_returns` — a
-/// pure structural walk, same pattern as `block_has_exit_point_arena`.
+/// Proves that a block cannot fall through; a loop without a reachable break
+/// also satisfies this because it never completes normally.
 #[allow(dead_code)]
 pub(super) fn block_always_returns_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
     let block = arena.arena.block(block_id);
@@ -51,6 +51,9 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
         ArenaStmtKind::Return(_) => true,
         ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
             ArenaExprKind::ErrorContext { block, .. } => block_always_returns_arena(arena, block),
+            ArenaExprKind::Loop { block } => {
+                !block_has_reachable_break_target_arena(arena, block)
+            }
             ArenaExprKind::Null
             | ArenaExprKind::Bool(_)
             | ArenaExprKind::Int(_)
@@ -98,7 +101,6 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
             | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
-            | ArenaExprKind::Loop { .. }
             | ArenaExprKind::Retry { .. }
             | ArenaExprKind::ValueBlock(_)
             | ArenaExprKind::ContextScope { .. }
@@ -134,6 +136,12 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
         } => {
             block_always_returns_arena(arena, body) && block_always_returns_arena(arena, else_block)
         }
+        ArenaStmtKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
+        ArenaStmtKind::While { condition, block }
+            if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(true)) =>
+        {
+            !block_has_reachable_break_target_arena(arena, block)
+        }
         ArenaStmtKind::Use(_)
         | ArenaStmtKind::Export(_)
         | ArenaStmtKind::TypeDef(_)
@@ -152,7 +160,6 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
         }
         | ArenaStmtKind::While { .. }
         | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::Loop { .. }
         | ArenaStmtKind::Guard { .. }
         | ArenaStmtKind::Yield(_)
         | ArenaStmtKind::YieldDelegate(_)
@@ -163,6 +170,275 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
         | ArenaStmtKind::Exit(_)
         | ArenaStmtKind::Command(_)
         | ArenaStmtKind::TailBareIdent(_) => false,
+    }
+}
+
+/// Only breaks that this loop can receive make its body fall through. Nested
+/// loops consume their own breaks, while deferred bodies run after control
+/// leaves their scope and cannot provide an exit path for the loop body.
+fn block_has_reachable_break_target_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
+    for id in arena.arena.stmt_ids(arena.arena.block(block_id).statements) {
+        if stmt_has_reachable_break_target_arena(arena, id) {
+            return true;
+        }
+        if stmt_never_falls_through_arena(arena, id) {
+            return false;
+        }
+    }
+    false
+}
+
+fn block_never_falls_through_arena(arena: &ArenaProgram, block: BlockId) -> bool {
+    arena
+        .arena
+        .stmt_ids(arena.arena.block(block).statements)
+        .any(|id| stmt_never_falls_through_arena(arena, id))
+}
+
+fn stmt_never_falls_through_arena(arena: &ArenaProgram, id: StmtId) -> bool {
+    match arena.arena.stmt(id).kind {
+        ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_) => true,
+        ArenaStmtKind::Sugar { expansion, .. } => {
+            stmt_never_falls_through_arena(arena, expansion)
+        }
+        ArenaStmtKind::If {
+            branches,
+            else_block,
+        } => {
+            for branch in arena.arena.if_branches(branches) {
+                let condition = arena.arena.expr(branch.condition).kind;
+                if matches!(condition, ArenaExprKind::Bool(false)) {
+                    continue;
+                }
+                if !block_never_falls_through_arena(arena, branch.block) {
+                    return false;
+                }
+                if matches!(condition, ArenaExprKind::Bool(true)) {
+                    return true;
+                }
+            }
+            else_block.is_some_and(|block| block_never_falls_through_arena(arena, block))
+        }
+        ArenaStmtKind::Match { arms, .. } => arena
+            .arena
+            .match_arms(arms)
+            .iter()
+            .all(|arm| block_never_falls_through_arena(arena, arm.block)),
+        ArenaStmtKind::With {
+            body, else_block, ..
+        } => {
+            block_never_falls_through_arena(arena, body)
+                && block_never_falls_through_arena(arena, else_block)
+        }
+        ArenaStmtKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
+        ArenaStmtKind::While { condition, block }
+            if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(true)) =>
+        {
+            !block_has_reachable_break_target_arena(arena, block)
+        }
+        ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
+            ArenaExprKind::Loop { block } => {
+                !block_has_reachable_break_target_arena(arena, block)
+            }
+            _ => false,
+        },
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::Export(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(..)
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_) => false,
+    }
+}
+
+fn stmt_has_reachable_break_target_arena(arena: &ArenaProgram, id: StmtId) -> bool {
+    match arena.arena.stmt(id).kind {
+        ArenaStmtKind::Break { .. } => true,
+        ArenaStmtKind::Sugar { expansion, .. } => {
+            stmt_has_reachable_break_target_arena(arena, expansion)
+        }
+        ArenaStmtKind::If {
+            branches,
+            else_block,
+        } => {
+            let mut has_break = false;
+            for branch in arena.arena.if_branches(branches) {
+                let condition = arena.arena.expr(branch.condition).kind;
+                if matches!(condition, ArenaExprKind::Bool(false)) {
+                    continue;
+                }
+                has_break |= block_has_reachable_break_target_arena(arena, branch.block);
+                if matches!(condition, ArenaExprKind::Bool(true)) {
+                    return has_break;
+                }
+            }
+            has_break
+                || else_block.is_some_and(|block| {
+                    block_has_reachable_break_target_arena(arena, block)
+                })
+        }
+        ArenaStmtKind::Match { arms, .. } => arena
+            .arena
+            .match_arms(arms)
+            .iter()
+            .any(|arm| block_has_reachable_break_target_arena(arena, arm.block)),
+        ArenaStmtKind::With {
+            body, else_block, ..
+        } => {
+            block_has_reachable_break_target_arena(arena, body)
+                || block_has_reachable_break_target_arena(arena, else_block)
+        }
+        ArenaStmtKind::Guard { else_block, .. } => {
+            block_has_reachable_break_target_arena(arena, else_block)
+        }
+        ArenaStmtKind::Expr(expr) => expr_has_reachable_break_target_arena(arena, expr),
+        ArenaStmtKind::Let {
+            initializer: ArenaExprOrRun::Expr(expr),
+            ..
+        }
+        | ArenaStmtKind::Var {
+            initializer: ArenaExprOrRun::Expr(expr),
+            ..
+        }
+        | ArenaStmtKind::Assign {
+            value: ArenaExprOrRun::Expr(expr),
+            ..
+        } => expr_has_reachable_break_target_arena(arena, expr),
+        ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::Defer(..)
+        | ArenaStmtKind::Use(_)
+        | ArenaStmtKind::Export(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let {
+            initializer: ArenaExprOrRun::Run(_),
+            ..
+        }
+        | ArenaStmtKind::Var {
+            initializer: ArenaExprOrRun::Run(_),
+            ..
+        }
+        | ArenaStmtKind::Assign {
+            value: ArenaExprOrRun::Run(_),
+            ..
+        }
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_) => false,
+    }
+}
+
+fn expr_has_reachable_break_target_arena(arena: &ArenaProgram, id: ExprId) -> bool {
+    match arena.arena.expr(id).kind {
+        ArenaExprKind::If {
+            branches,
+            else_value,
+        } => {
+            let mut has_break = false;
+            for branch in arena.arena.if_expr_branches(branches) {
+                let condition = arena.arena.expr(branch.condition).kind;
+                if matches!(condition, ArenaExprKind::Bool(false)) {
+                    continue;
+                }
+                has_break |= expr_has_reachable_break_target_arena(arena, branch.value);
+                if matches!(condition, ArenaExprKind::Bool(true)) {
+                    return has_break;
+                }
+            }
+            has_break || expr_has_reachable_break_target_arena(arena, else_value)
+        }
+        ArenaExprKind::Match { arms, .. } => arena
+            .arena
+            .match_expr_arms(arms)
+            .iter()
+            .any(|arm| expr_has_reachable_break_target_arena(arena, arm.value)),
+        ArenaExprKind::Capture(block)
+        | ArenaExprKind::ValueBlock(block)
+        | ArenaExprKind::Collect { block }
+        | ArenaExprKind::ErrorContext { block, .. }
+        | ArenaExprKind::ContextScope { block, .. }
+        | ArenaExprKind::TempDirScope { block, .. }
+        | ArenaExprKind::ResourceScope { block, .. }
+        | ArenaExprKind::Retry { block, .. } => {
+            block_has_reachable_break_target_arena(arena, block)
+        }
+        ArenaExprKind::Try(inner) => expr_has_reachable_break_target_arena(arena, inner),
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::PatternTest { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        => false,
     }
 }
 
@@ -4997,4 +5273,117 @@ fn copy_update_mistake(
         ),
         repair,
     })
+}
+
+#[cfg(test)]
+mod return_flow_tests {
+    use crate::diagnostic::DiagnosticCode;
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    fn diagnostics(source: &str) -> Vec<crate::diagnostic::Diagnostic> {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed
+            .arena
+            .symbol_owner()
+            .with_current(|| Checker::check_arena(&parsed.arena, source).diagnostics)
+    }
+
+    #[test]
+    fn a_loop_without_a_break_cannot_fall_through_from_a_typed_function() {
+        let source = "pure choose() -> Int {\n  loop { return 1 }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_reachable_loop_break_still_requires_a_function_result() {
+        let source = "pure choose(stop: Bool) -> Int {\n  loop {\n    if stop { return 1 }\n    break\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_in_a_nested_loop_does_not_make_the_outer_loop_fall_through() {
+        let source = "pure choose() -> Int {\n  loop {\n    loop { break }\n    return 1\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_in_a_match_arm_targets_the_enclosing_loop() {
+        let source = "pure choose(stop: Bool) -> Int {\n  loop {\n    match stop {\n      true => { break }\n      false => { return 1 }\n    }\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_in_a_try_block_targets_the_enclosing_loop() {
+        let source = "pure choose() -> Int {\n  loop { try { break } }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_deferred_break_does_not_make_a_loop_fall_through() {
+        let source = "pure choose() -> Int {\n  loop { defer { break } }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_after_an_unconditional_return_is_unreachable() {
+        let source = "pure choose() -> Int {\n  loop {\n    if true { return 1 } else { break }\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_after_an_unconditional_continue_is_unreachable() {
+        let source = "pure choose() -> Int {\n  loop {\n    if true { continue }\n    break\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
 }
