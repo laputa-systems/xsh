@@ -587,21 +587,33 @@ pub fn parse_load_check_entry_source_with_token_table(
     sources
         .get(entry_source_id)
         .expect("entry source id must exist in the source map");
-    let checked = parsed
-        .diagnostics
-        .is_empty()
-        .then(|| {
-            Checker::check_arena_with_sources_and_options(
-                &parsed.arena,
-                &sources,
-                entry_source_id,
-                options,
-            )
-        });
+    let ArenaParseOutput {
+        arena,
+        cst,
+        diagnostics,
+    } = parsed;
+    let type_program = Arc::new(arena);
+    let checked = diagnostics.is_empty().then(|| {
+        Checker::check_arena_with_sources_options_and_type_program(
+            &type_program,
+            &sources,
+            entry_source_id,
+            options,
+            Arc::clone(&type_program),
+        )
+    });
+    let arena = match Arc::try_unwrap(type_program) {
+        Ok(arena) => arena,
+        Err(_) => panic!("checker retained the loader's type program"),
+    };
     CheckedEntry {
         sources,
         entry_source_id,
-        parsed,
+        parsed: ArenaParseOutput {
+            arena,
+            cst,
+            diagnostics,
+        },
         checked,
     }
 }

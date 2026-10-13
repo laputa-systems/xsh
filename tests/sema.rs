@@ -81,32 +81,39 @@ fn checker_publication_options_preserve_repository_diagnostics() {
 
 #[test]
 fn imported_command_value_sites_keep_the_importing_module_source() {
-    use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots};
+    use xsh::frontend::load::{
+        entry_source_from_text, parse_load_check_entry_source, project_module_roots,
+    };
     use xsh::frontend::symbols::Name;
 
     let root = tempfile::tempdir().expect("create imported-module fixture");
     let entry_path = root.path().join("entry.xsh");
     let module_path = root.path().join("helper.xsh");
-    let entry_source = "use helper\n";
-    let module_source = "##! Process-backed helper.\n## Capture output from a command.\nexport proc version() [process, error] {\n  let argv = [\"true\"]\n  let output = run.capture --text --timeout=30s @argv\n  print output.stdout.trim()\n}\n";
+    let entry_source = "use helper\nlet label: helper.Label = 7\n";
+    let module_source = "##! Process-backed helper.\n## Capture output from a command.\nexport type Label = Str\nexport proc version() [process, error] {\n  let argv = [\"true\"]\n  let output = run.capture --text --timeout=30s @argv\n  print output.stdout.trim()\n}\nexport pure invalid(value: Label) -> Int { value }\n";
     std::fs::write(&entry_path, entry_source).expect("write entry source");
     std::fs::write(&module_path, module_source).expect("write imported module");
 
     let entry_file = entry_path.to_str().expect("fixture path is UTF-8");
-    let (sources, parsed) = parse_load_entry_source_arena_only(
+    let entry = entry_source_from_text(entry_file, entry_source.to_owned());
+    let entry_source_id = entry.source_id;
+    let checked_entry = parse_load_check_entry_source(
         entry_file,
-        entry_source_from_text(entry_file, entry_source.to_owned()),
+        entry,
         project_module_roots(&entry_path).expect("resolve module roots"),
-    );
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let entry_source_id = parsed.arena.source_text_source_id().expect("entry source identity");
-    let checked = Checker::check_arena_with_sources_and_options(
-        &parsed.arena,
-        &sources,
-        entry_source_id,
         CheckOptions::default(),
     );
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked_entry.parsed.diagnostics.is_empty(),
+        "{:?}",
+        checked_entry.parsed.diagnostics
+    );
+    assert_eq!(checked_entry.entry_source_id, entry_source_id);
+    let sources = &checked_entry.sources;
+    let checked = checked_entry
+        .checked
+        .as_ref()
+        .expect("loader checks a successfully parsed entry");
     let module_source_id = sources
         .files()
         .iter()
@@ -128,6 +135,32 @@ fn imported_command_value_sites_keep_the_importing_module_source() {
         .expect("value-site binding declaration is published");
     assert_eq!(declaration.span.source_id, module_source_id);
     assert_eq!(sources.span_text(span), Some("@argv"));
+
+    let type_mismatches = checked
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch))
+        .collect::<Vec<_>>();
+    assert!(
+        type_mismatches.iter().any(|diagnostic| {
+            diagnostic
+                .labels
+                .iter()
+                .any(|label| label.span.source_id == entry_source_id)
+        }),
+        "the imported alias must resolve at the entry source: {:?}",
+        checked.diagnostics
+    );
+    assert!(
+        type_mismatches.iter().any(|diagnostic| {
+            diagnostic
+                .labels
+                .iter()
+                .any(|label| label.span.source_id == module_source_id)
+        }),
+        "the imported module diagnostic must retain its source identity: {:?}",
+        checked.diagnostics
+    );
 }
 
 #[test]
