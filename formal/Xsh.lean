@@ -5,6 +5,8 @@ import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
 import Xsh.Values.OrderedSet
 import Xsh.Values.MapPresence
+import Xsh.Results.Fallback
+import Xsh.Json.Path
 import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
 import Xsh.Calls.ArgumentOrder

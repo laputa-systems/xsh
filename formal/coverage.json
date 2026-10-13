@@ -5506,6 +5506,258 @@
       "status": "fragment",
       "scope": "Primitive key-order laws for Int, UInt, Bool, String, Bytes, Path, and Duration keys.",
       "boundary": "Independent domain-indexed comparators only; reflexive, antisymmetric, and transitive laws plus a reversed-Boolean mutation witness. No totality theorem, map/set operations, key validation, path normalization, runtime or Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.result_ok_returns_payload_lazily",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.result_ok_returns_payload_lazily",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.optional_some_returns_value_lazily",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.optional_some_returns_value_lazily",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.handler_receives_original_error",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.handler_receives_original_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.result_error_evaluates_tail_once",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.result_error_evaluates_tail_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.optional_null_evaluates_tail_once",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.optional_null_evaluates_tail_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.result_fallback_error_propagates",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.result_fallback_error_propagates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.optional_fallback_error_propagates",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.optional_fallback_error_propagates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.right_chain_nests_fallbacks_in_order",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.right_chain_nests_fallbacks_in_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.right_chain_short_circuits_after_left_success",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.right_chain_short_circuits_after_left_success",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Results.Fallback.eager_fallback_mutation_is_detectable",
+      "module": "Xsh.Results.Fallback",
+      "declaration": "Xsh.Results.Fallback.eager_fallback_mutation_is_detectable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite `??` fallback selection for modeled Result and optional inputs, with original-error handler context, a fallback-only call trace, and an eager-call mutation witness.",
+      "boundary": "The trace records selected fallback-tail calls only; a tail is an opaque callback and the model covers one right-associated `??` chain. It excludes general expression or operator evaluation, `?` propagation, parsing, checking, cleanup, static effects, concrete runtime errors, Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.finite_float_excludes_all_ones_exponent",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.finite_float_excludes_all_ones_exponent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.nonnegative_integer_becomes_index",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.nonnegative_integer_becomes_index",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.negative_integer_is_not_an_index",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.negative_integer_is_not_an_index",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.get_empty_path_returns_root",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.get_empty_path_returns_root",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.set_empty_path_replaces_root",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.set_empty_path_replaces_root",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.remove_empty_path_returns_null",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.remove_empty_path_returns_null",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.present_null_differs_from_absence",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.present_null_differs_from_absence",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.mixed_path_reads_nested_value",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.mixed_path_reads_nested_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.set_object_leaf_replaces_or_inserts",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.set_object_leaf_replaces_or_inserts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.set_get_preserves_finite_float_leaf",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.set_get_preserves_finite_float_leaf",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.set_requires_existing_intermediate_key",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.set_requires_existing_intermediate_key",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.nested_set_preserves_record_shape",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.nested_set_preserves_record_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.nested_set_preserves_map_shape",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.nested_set_preserves_map_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.set_existing_list_index_preserves_length",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.set_existing_list_index_preserves_length",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.append_at_length_mutation_detected",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.append_at_length_mutation_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.remove_missing_object_key_fails",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.remove_missing_object_key_fails",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.remove_list_element_shifts_suffix",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.remove_list_element_shifts_suffix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Path.nested_remove_preserves_record_and_map_shapes",
+      "module": "Xsh.Json.Path",
+      "declaration": "Xsh.Json.Path.nested_remove_preserves_record_and_map_shapes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON-tree traversal and updates for key and nonnegative-index paths, finite Float leaves, and an append-at-length mutation witness.",
+      "boundary": "Only String-keyed association lists and Nat indices are represented; Record and Map remain distinct, and Float leaves exclude NaN and infinities. It excludes non-Str Map-key validation, key uniqueness policy, source integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime or Rust correspondence, and full G1/G2/G3 closure."
     }
   ],
   "source_identity": null

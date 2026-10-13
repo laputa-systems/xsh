@@ -75,7 +75,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 280 fragment
+G0b source freeze remain pending. The provisional inventory has 308 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -106,6 +106,22 @@ antisymmetry, and transitivity for the represented orders, with a concrete
 witness that reversing Boolean order changes the result. The fragment does not
 prove totality or model map/set operations, key validation, path normalization,
 runtime behavior, Rust correspondence, or full G1/G2/G3 closure.
+
+`Xsh.Results.Fallback` has ten roots for modeled `??` selection over Result and
+optional sources. It records only selected fallback-tail calls, preserves the
+original error in a Result handler context, models a right-associated chain,
+and detects an eager-call mutation on a successful Result. The tail is an
+opaque callback; the fragment does not model general expression or operator
+evaluation, `?`, cleanup, static effects, concrete runtime errors, Rust
+correspondence, or full G1/G2/G3 closure.
+
+`Xsh.Json.Path` has eighteen roots for finite JSON-tree traversal, nested reads,
+updates, and removals using string keys and nonnegative indices. Its Float leaves
+exclude NaN and infinities; Records and Maps remain distinct. An append-at-length
+mutation witness detects extension beyond an existing list index. The model
+does not cover non-String Map-key validation, key uniqueness policy, source
+integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime
+or Rust correspondence, or full G1/G2/G3 closure.
 
 `Xsh.Strings.Slice` has eleven roots for text slicing represented as finite
 Lean `Char` sequences. The results cover normalized scalar bounds,
@@ -161,7 +177,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 280 rooted Lean fragment declarations across 89 core owner
+The inventory names 308 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
