@@ -4,6 +4,7 @@ import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Semantics.Environments
 import Xsh.Validation.Boundary
+import Xsh.Validation.Store
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
