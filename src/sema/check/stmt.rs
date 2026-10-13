@@ -42,22 +42,30 @@ pub(crate) fn block_never_falls_through_arena(arena: &ArenaProgram, block_id: Bl
 #[derive(Clone, Copy, Debug, Default)]
 struct ControlFlow {
     breaks_target: bool,
+    exits: bool,
+    propagates: bool,
     completes: bool,
 }
 
 impl ControlFlow {
     const NONE: Self = Self {
         breaks_target: false,
+        exits: false,
+        propagates: false,
         completes: false,
     };
     const NORMAL: Self = Self {
         breaks_target: false,
+        exits: false,
+        propagates: false,
         completes: true,
     };
 
     fn then(self, next: Self) -> Self {
         Self {
             breaks_target: self.breaks_target || (self.completes && next.breaks_target),
+            exits: self.exits || (self.completes && next.exits),
+            propagates: self.propagates || (self.completes && next.propagates),
             completes: self.completes && next.completes,
         }
     }
@@ -65,14 +73,17 @@ impl ControlFlow {
     fn either(self, other: Self) -> Self {
         Self {
             breaks_target: self.breaks_target || other.breaks_target,
+            exits: self.exits || other.exits,
+            propagates: self.propagates || other.propagates,
             completes: self.completes || other.completes,
         }
     }
 }
 
-/// Summarizes reachable exits for the loop currently being checked. Sequence
-/// flow prunes unreachable expressions, while nested loops consume their own
-/// breaks and deferred actions stay outside the current execution path.
+/// Summarizes reachable loop breaks, explicit exits, error propagation, and
+/// normal completion.
+/// Sequence flow prunes unreachable expressions, nested loops consume their
+/// own breaks, and deferred actions stay outside the current execution path.
 fn block_control_flow(arena: &ArenaProgram, block_id: BlockId) -> ControlFlow {
     let mut flow = ControlFlow::NORMAL;
     for id in arena.arena.stmt_ids(arena.arena.block(block_id).statements) {
@@ -90,6 +101,8 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
         ArenaStmtKind::Return(_) | ArenaStmtKind::Exit(_) => {
             stmt_children_flow(arena, id).then(ControlFlow {
                 breaks_target: false,
+                exits: true,
+                propagates: false,
                 completes: false,
             })
         }
@@ -97,11 +110,15 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
             let value = stmt_children_flow(arena, id);
             ControlFlow {
                 breaks_target: value.breaks_target || value.completes,
+                exits: value.exits,
+                propagates: value.propagates,
                 completes: false,
             }
         }
         ArenaStmtKind::Continue => ControlFlow {
             breaks_target: false,
+            exits: false,
+            propagates: false,
             completes: false,
         },
         ArenaStmtKind::Defer(..) => ControlFlow::NORMAL,
@@ -152,8 +169,22 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
             }
             subject.then(arms_flow)
         }
-        ArenaStmtKind::With { body, else_block, .. } => {
-            let inputs = stmt_expression_children_flow(arena, id);
+        ArenaStmtKind::With {
+            bindings,
+            body,
+            else_block,
+        } => {
+            let mut inputs = ControlFlow::NORMAL;
+            for binding in arena.arena.with_bindings(bindings) {
+                if !inputs.completes {
+                    break;
+                }
+                let mut initializer = expr_control_flow(arena, binding.initializer);
+                // A failed binding enters the handler; only failures raised by
+                // the initializer are captured by this `with`.
+                initializer.propagates = false;
+                inputs = inputs.then(initializer);
+            }
             inputs.then(
                 block_control_flow(arena, body).either(block_control_flow(arena, else_block)),
             )
@@ -177,6 +208,8 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
                     .map_or(ControlFlow::NORMAL, |message| expr_control_flow(arena, message))
                     .then(ControlFlow {
                         breaks_target: false,
+                        exits: false,
+                        propagates: false,
                         completes: false,
                     })
             };
@@ -186,6 +219,8 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
             let body = block_control_flow(arena, block);
             ControlFlow {
                 breaks_target: false,
+                exits: body.exits,
+                propagates: body.propagates,
                 completes: body.breaks_target,
             }
         }
@@ -195,13 +230,24 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
             let can_skip = bool_literal(arena, condition) != Some(true);
             ControlFlow {
                 breaks_target: condition_flow.breaks_target,
+                exits: condition_flow.exits
+                    || (condition_flow.completes
+                        && bool_literal(arena, condition) != Some(false)
+                        && body.exits),
+                propagates: condition_flow.propagates
+                    || (condition_flow.completes
+                        && bool_literal(arena, condition) != Some(false)
+                        && body.propagates),
                 completes: condition_flow.completes && (can_skip || body.breaks_target),
             }
         }
-        ArenaStmtKind::For { iter, .. } => {
+        ArenaStmtKind::For { iter, block, .. } => {
             let iter = expr_control_flow(arena, iter);
+            let body = block_control_flow(arena, block);
             ControlFlow {
                 breaks_target: iter.breaks_target,
+                exits: iter.exits || (iter.completes && body.exits),
+                propagates: iter.propagates || (iter.completes && body.propagates),
                 completes: iter.completes,
             }
         }
@@ -363,8 +409,43 @@ fn expr_control_flow(arena: &ArenaProgram, id: ExprId) -> ControlFlow {
             let body = block_control_flow(arena, block);
             ControlFlow {
                 breaks_target: false,
+                exits: body.exits,
+                propagates: body.propagates,
                 completes: body.breaks_target,
             }
+        }
+        ArenaExprKind::Try(inner) => {
+            let mut flow = expr_control_flow(arena, inner);
+            if flow.completes {
+                // The `Err` path leaves the current propagation boundary; the
+                // `Ok` path still produces a value.
+                flow.propagates = true;
+            }
+            flow
+        }
+        ArenaExprKind::Capture(block) => {
+            let mut flow = block_control_flow(arena, block);
+            // A try block turns propagated errors into its Result value while
+            // returns and loop transfers still target their enclosing scopes.
+            flow.propagates = false;
+            flow
+        }
+        ArenaExprKind::Retry { .. } => {
+            let mut flow = ControlFlow::NORMAL;
+            arena.arena.for_each_expr_child(id, |child| {
+                if flow.completes {
+                    let child_flow = match child {
+                        ArenaChild::Block(block) => {
+                            let mut child_flow = block_control_flow(arena, block);
+                            child_flow.propagates = false;
+                            child_flow
+                        }
+                        _ => child_control_flow(arena, child),
+                    };
+                    flow = flow.then(child_flow);
+                }
+            });
+            flow
         }
         ArenaExprKind::Binary { op, left, right }
             if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::ResultFallback) =>
@@ -379,6 +460,9 @@ fn expr_control_flow(arena: &ArenaProgram, id: ExprId) -> ControlFlow {
             ControlFlow {
                 breaks_target: lhs.breaks_target
                     || (lhs.completes && rhs.breaks_target && may_run),
+                exits: lhs.exits || (lhs.completes && rhs.exits && may_run),
+                propagates: lhs.propagates
+                    || (lhs.completes && rhs.propagates && may_run),
                 completes: lhs.completes && (may_skip || rhs.completes),
             }
         }
@@ -431,11 +515,8 @@ pub(super) fn if_stmt_may_produce_value(arena: &ArenaProgram, id: StmtId) -> boo
         || else_block.is_some_and(ends_in_value)
 }
 
-/// Returns true if the block contains an exit point in the current loop or a
-/// reachable break in an expression evaluated before a nested loop begins.
-/// A loop body with at least one such exit point is not statically infinite.
-/// This analysis reads the AST directly rather than depending on recovered
-/// expression types.
+/// Returns true if the block can break the current loop, explicitly exit, or
+/// propagate an error. Flow is read from the AST, without recovered types.
 #[allow(dead_code)]
 pub(super) fn block_has_exit_point_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
     let block = arena.arena.block(block_id);
@@ -443,7 +524,10 @@ pub(super) fn block_has_exit_point_arena(arena: &ArenaProgram, block_id: BlockId
         .arena
         .stmt_ids(block.statements)
         .any(|id| stmt_has_exit_point_arena(arena, id))
-        || block_control_flow(arena, block_id).breaks_target
+        || {
+            let flow = block_control_flow(arena, block_id);
+            flow.breaks_target || flow.exits || flow.propagates
+        }
 }
 
 #[allow(dead_code)]
@@ -5456,5 +5540,81 @@ mod return_flow_tests {
                 .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
             "{diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn returns_in_evaluated_expressions_are_loop_exit_points() {
+        let sources = [
+            "pure choose(result: Result[Int, Error]) -> Int {\n  loop {\n    let value = result ?? { |_| return 1 }\n  }\n}\n",
+            "pure choose(result: Result[Bool, Error]) -> Int {\n  loop {\n    while result ?? { |_| return 1 } {}\n  }\n}\n",
+        ];
+        for source in sources {
+            let diagnostics = diagnostics(source);
+            assert!(
+                !diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+                "{diagnostics:?}"
+            );
+            assert!(
+                !diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+                "{diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unhandled_propagation_is_a_loop_exit_point() {
+        let sources = [
+            "pure choose(result: Result[Int, Error]) -> Result[Int, Error] {\n  loop {\n    let value = result?\n  }\n}\n",
+            "pure choose(result: Result[Bool, Error]) -> Result[Int, Error] {\n  loop {\n    while result? {}\n  }\n}\n",
+            "pure choose(result: Result[Int, Error]) -> Result[Int, Error] {\n  loop {\n    with value = result {} else { |_| let ignored = result? }\n  }\n}\n",
+        ];
+        for source in sources {
+            let diagnostics = diagnostics(source);
+            assert!(
+                !diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+                "{diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn captured_propagation_does_not_make_a_loop_exit_point() {
+        let sources = [
+            "pure choose(result: Result[Int, Error]) -> Result[Int, Error] {\n  loop {\n    let value = try { result? }\n  }\n}\n",
+            "pure choose(result: Result[Int, Error]) -> Result[Int, Error] {\n  loop {\n    with value = result? {} else { |_| {} }\n  }\n}\n",
+        ];
+        for source in sources {
+            let diagnostics = diagnostics(source);
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+                "{diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_returns_remain_loop_exit_points_inside_error_boundaries() {
+        let sources = [
+            "pure choose() -> Int {\n  loop {\n    let value = try { return 1; 2 }\n  }\n}\n",
+            "pure choose(result: Result[Int, Error]) -> Int {\n  loop {\n    with value = result? { return value } else { |_| return 0 }\n  }\n}\n",
+            "proc choose() [] {\n  loop { exit 0 }\n}\n",
+        ];
+        for source in sources {
+            let diagnostics = diagnostics(source);
+            assert!(
+                !diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+                "{diagnostics:?}"
+            );
+        }
     }
 }
