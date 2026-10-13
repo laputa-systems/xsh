@@ -262,7 +262,11 @@ OWNER_SPECS: dict[str, OwnerSpec] = {
         "pipeline-stage-schema",
     ),
     "ir.lowered_value": OwnerSpec(
-        "src/runtime/eval.rs", "LoweredValue", "rust-enum"
+        "src/runtime/eval.rs",
+        "LoweredValue",
+        "rust-enum",
+        "Variant payload types are encoded as unambiguous token arrays before being reconciled with codec routes.",
+        "Describes lowered values and payload types only; lowering behavior and codec correctness are not proved.",
     ),
     "ir.values": OwnerSpec(
         "src/runtime/eval/indexed/full.rs",
@@ -450,60 +454,6 @@ def skip_attributes(tokens: list[str], index: int, end: int) -> int:
     return index
 
 
-def extract_enum(source: str, enum_name: str) -> list[str]:
-    tokens = lex_rust(source)
-    found: list[int] = []
-    for index in range(len(tokens) - 1):
-        if tokens[index] == "enum" and tokens[index + 1] == enum_name:
-            found.append(index)
-    if len(found) != 1:
-        raise InventoryError(
-            f"expected one enum {enum_name}, found {len(found)}"
-        )
-    index = found[0] + 2
-    while index < len(tokens) and tokens[index] != "{":
-        if tokens[index] in (";", "}"):
-            raise InventoryError(f"unsupported enum declaration for {enum_name}")
-        index += 1
-    if index == len(tokens):
-        raise InventoryError(f"enum body missing for {enum_name}")
-    end = matching(tokens, index)
-    names: list[str] = []
-    index += 1
-    while index < end:
-        index = skip_attributes(tokens, index, end)
-        if index >= end:
-            break
-        name = tokens[index]
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
-            raise InventoryError(f"unrecognized {enum_name} variant at token {name!r}")
-        item = name
-        index += 1
-        if index < end and tokens[index] == "(":
-            tuple_end = matching(tokens, index)
-            fields = split_top_level(tokens[index + 1 : tuple_end])
-            item += f"({','.join(compact_tokens(field) for field in fields)})"
-            index = tuple_end + 1
-        elif index < end and tokens[index] == "{":
-            fields, index = parse_field_group(tokens, index, "{")
-            item += f"{{{','.join(fields)}}}"
-        if index < end and tokens[index] == "=":
-            index += 1
-            value_start = index
-            while index < end and tokens[index] != ",":
-                if tokens[index] in ("(", "[", "{"):
-                    index = matching(tokens, index) + 1
-                else:
-                    index += 1
-            item += f"={compact_tokens(tokens[value_start:index])}"
-        names.append(item)
-        if index < end:
-            if tokens[index] != ",":
-                raise InventoryError(f"unrecognized {enum_name} variant tail {tokens[index]!r}")
-            index += 1
-    return ensure_unique(names, enum_name)
-
-
 def self_variant_from_pattern(tokens: list[str], label: str) -> str:
     variants = [
         tokens[index + 2]
@@ -562,19 +512,99 @@ def parse_field_group(tokens: list[str], start: int, expected: str) -> tuple[lis
         override = None
         if "=>" in tail:
             pivot = tail.index("=>")
-            override = compact_tokens(tail[pivot + 1 :])
+            override = token_fingerprint(tail[pivot + 1 :])
             tail = tail[:pivot]
         if not tail:
             raise InventoryError(f"field {name} has no type")
-        encoded = f"{name}:{compact_tokens(tail)}"
+        encoded = f"{name}:{token_fingerprint(tail)}"
         if override:
             encoded += f"=>{override}"
         fields.append(encoded)
     return fields, end + 1
 
 
-def compact_tokens(tokens: Iterable[str]) -> str:
-    return "".join(tokens)
+def token_fingerprint(tokens: Iterable[str]) -> str:
+    """Encode a token sequence without losing boundaries between tokens."""
+    return "tokens:" + json.dumps(list(tokens), ensure_ascii=True, separators=(",", ":"))
+
+
+def token_fingerprint_at(value: str, start: int) -> tuple[list[str], int]:
+    prefix = "tokens:"
+    if not value.startswith(prefix, start):
+        raise InventoryError("expected a token fingerprint")
+    try:
+        tokens, end = json.JSONDecoder().raw_decode(value, start + len(prefix))
+    except json.JSONDecodeError as exc:
+        raise InventoryError("malformed token fingerprint") from exc
+    if not isinstance(tokens, list) or any(
+        not isinstance(token, str) for token in tokens
+    ):
+        raise InventoryError("token fingerprint must contain a string array")
+    return tokens, end
+
+
+def enum_field_rows(tokens: list[str], start: int, delimiter: str) -> tuple[list[str], int]:
+    if tokens[start] != delimiter:
+        raise InventoryError(f"expected {delimiter!r} enum payload")
+    end = matching(tokens, start)
+    fields: list[str] = []
+    for raw in split_top_level(tokens[start + 1 : end]):
+        if delimiter == "(":
+            fields.append(token_fingerprint(raw))
+            continue
+        name_end = raw.index(":") if ":" in raw else -1
+        if name_end != 1 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", raw[0]):
+            raise InventoryError("unrecognized record enum payload field")
+        fields.append(f"{raw[0]}:{token_fingerprint(raw[name_end + 1 :])}")
+    return fields, end + 1
+
+
+def extract_enum(source: str, enum_name: str) -> list[str]:
+    tokens = lex_rust(source)
+    found = [
+        index
+        for index in range(len(tokens) - 1)
+        if tokens[index] == "enum" and tokens[index + 1] == enum_name
+    ]
+    if len(found) != 1:
+        raise InventoryError(f"expected one enum {enum_name}, found {len(found)}")
+    opening = next(
+        (index for index in range(found[0] + 2, len(tokens)) if tokens[index] == "{"),
+        None,
+    )
+    if opening is None:
+        raise InventoryError(f"enum body missing for {enum_name}")
+    end = matching(tokens, opening)
+    items: list[str] = []
+    index = opening + 1
+    while index < end:
+        index = skip_attributes(tokens, index, end)
+        if index >= end:
+            break
+        name = tokens[index]
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise InventoryError(f"unrecognized {enum_name} variant at token {name!r}")
+        item = name
+        index += 1
+        if index < end and tokens[index] in ("(", "{"):
+            delimiter = tokens[index]
+            fields, index = enum_field_rows(tokens, index, delimiter)
+            item += f"{delimiter}{','.join(fields)}{')' if delimiter == '(' else '}'}"
+        if index < end and tokens[index] == "=":
+            index += 1
+            value_start = index
+            while index < end and tokens[index] != ",":
+                if tokens[index] in ("(", "[", "{"):
+                    index = matching(tokens, index) + 1
+                else:
+                    index += 1
+            item += f"={token_fingerprint(tokens[value_start:index])}"
+        items.append(item)
+        if index < end:
+            if tokens[index] != ",":
+                raise InventoryError(f"unrecognized {enum_name} variant tail {tokens[index]!r}")
+            index += 1
+    return ensure_unique(items, enum_name)
 
 
 def parse_instruction_schema(source: str) -> list[str]:
@@ -637,7 +667,7 @@ def parse_instruction_schema(source: str) -> list[str]:
             meta = split_top_level(tokens[index + 1 : meta_end], ";")
             if len(meta) not in (3, 4) or any(len(part) != 1 for part in meta[1:]):
                 raise InventoryError(f"unrecognized instruction metadata for {variant}")
-            effects = compact_tokens(meta[0])
+            effects = token_fingerprint(meta[0])
             classification = ":" + meta[3][0] if len(meta) == 4 else ""
             rows.append(
                 f"{tag}={ordinal}|{row_name}:{view}:{kind}|{variant}"
@@ -758,7 +788,7 @@ def parse_resource_table(source: str) -> list[str]:
         tuple_parts = split_top_level(tokens[index + 1 : tuple_end])
         if len(tuple_parts) != 2:
             raise InventoryError(f"resource row {variant} has malformed type and rule")
-        type_expression = compact_tokens(tuple_parts[0])
+        type_expression = token_fingerprint(tuple_parts[0])
         rule = tuple_parts[1]
         if len(rule) < 3 or rule[0] != "ResourceRule" or rule[1] != "{":
             raise InventoryError(f"resource row {variant} has an unknown rule layout")
@@ -770,7 +800,7 @@ def parse_resource_table(source: str) -> list[str]:
             colon = raw.index(":") if ":" in raw else -1
             if colon != 1:
                 raise InventoryError(f"resource row {variant} has malformed rule field")
-            fields[raw[0]] = compact_tokens(raw[colon + 1 :])
+            fields[raw[0]] = token_fingerprint(raw[colon + 1 :])
         if tuple(fields) != RESOURCE_RULE_FIELDS:
             raise InventoryError(
                 f"resource rule layout changed for {variant}: "
@@ -927,7 +957,7 @@ def parse_lowered_value_schema(source: str) -> list[str]:
     while cursor < aliases_end:
         arrow = find_top_level(tokens, cursor, aliases_end, "=>")
         pattern_tokens = tokens[cursor:arrow]
-        pattern = compact_tokens(pattern_tokens)
+        pattern = token_fingerprint(pattern_tokens)
         self_variant_from_pattern(pattern_tokens, "lowered value alias")
         tag = tokens[arrow + 1]
         if tag not in seen_tags:
@@ -935,7 +965,10 @@ def parse_lowered_value_schema(source: str) -> list[str]:
         fields_key = tokens.index("fields", arrow + 2, aliases_end)
         fields_open = tokens.index("{", fields_key + 1, aliases_end)
         fields_end = matching(tokens, fields_open)
-        fields = [compact_tokens(part) for part in split_top_level(tokens[fields_open + 1 : fields_end])]
+        fields = [
+            token_fingerprint(part)
+            for part in split_top_level(tokens[fields_open + 1 : fields_end])
+        ]
         rows.append(f"alias:{pattern}=>{tag}|{','.join(fields)}")
         cursor = fields_end + 1
         if tokens[cursor] != "}":
@@ -956,7 +989,7 @@ def parse_lowered_value_schema(source: str) -> list[str]:
         if tokens[cursor] != "{":
             raise InventoryError(f"custom lowered value row {tag} body missing")
         custom_end_row = matching(tokens, cursor)
-        procedures: dict[str, str] = {}
+        procedures: dict[str, list[str]] = {}
         section_cursor = cursor + 1
         while section_cursor < custom_end_row:
             procedure = tokens[section_cursor]
@@ -974,18 +1007,16 @@ def parse_lowered_value_schema(source: str) -> list[str]:
                 )
             procedure_open = section_cursor + 1
             procedure_end = matching(tokens, procedure_open)
-            procedures[procedure] = compact_tokens(
-                tokens[procedure_open + 1 : procedure_end]
-            )
+            procedures[procedure] = tokens[procedure_open : procedure_end + 1]
             section_cursor = procedure_end + 1
         if set(procedures) != {"encode", "decode", "verify"}:
             raise InventoryError(
                 "custom lowered value route requires exactly one encode, decode, and verify procedure"
             )
-        encode_tokens = lex_rust(procedures["encode"])
-        encode_arrow = find_top_level(encode_tokens, 0, len(encode_tokens), "=>")
+        encode_tokens = procedures["encode"]
+        encode_arrow = find_top_level(encode_tokens, 1, len(encode_tokens) - 1, "=>")
         encoded_variant = self_variant_from_pattern(
-            encode_tokens[:encode_arrow], f"custom lowered value row {tag}"
+            encode_tokens[1:encode_arrow], f"custom lowered value row {tag}"
         )
         if encoded_variant != tag:
             raise InventoryError(
@@ -996,9 +1027,9 @@ def parse_lowered_value_schema(source: str) -> list[str]:
         helper = function_body(source, "decode_set_payload")
         rows.append(
             f"{tag}={ordinal}|custom"
-            f"|encode:{procedures['encode']}"
-            f"|decode:{procedures['decode']}"
-            f"|verify:{procedures['verify']}"
+            f"|encode:{token_fingerprint(procedures['encode'])}"
+            f"|decode:{token_fingerprint(procedures['decode'])}"
+            f"|verify:{token_fingerprint(procedures['verify'])}"
             f"|decode_set_payload:{helper}"
         )
         cursor = custom_end_row + 1
@@ -1008,7 +1039,7 @@ def parse_lowered_value_schema(source: str) -> list[str]:
         arrow = find_top_level(tokens, cursor, reject_end, "=>")
         for pattern_tokens in split_top_level(tokens[cursor:arrow], "|"):
             self_variant_from_pattern(pattern_tokens, "rejected lowered value pattern")
-            pattern = compact_tokens(pattern_tokens)
+            pattern = token_fingerprint(pattern_tokens)
             rows.append(f"reject:{pattern}")
         cursor = arrow + 1
         if tokens[cursor] != "{":
@@ -1044,17 +1075,20 @@ def reconcile_lowered_value_routes(
     routes: list[tuple[str, str]] = []
     for item in schema_items:
         if item.startswith("alias:"):
-            pattern = item[len("alias:") :].split("=>", 1)[0]
-            match = re.search(r"Self::([A-Za-z_][A-Za-z0-9_]*)", pattern)
-            if match is None:
+            pattern_start = len("alias:")
+            pattern, pattern_end = token_fingerprint_at(item, pattern_start)
+            if item[pattern_end : pattern_end + 2] != "=>":
                 raise InventoryError(f"unrecognized lowered value alias route {item}")
-            routes.append((match.group(1), "alias"))
+            routes.append(
+                (self_variant_from_pattern(pattern, "lowered value alias"), "alias")
+            )
         elif item.startswith("reject:"):
-            pattern = item[len("reject:") :]
-            match = re.search(r"Self::([A-Za-z_][A-Za-z0-9_]*)", pattern)
-            if match is None:
+            pattern, pattern_end = token_fingerprint_at(item, len("reject:"))
+            if pattern_end != len(item):
                 raise InventoryError(f"unrecognized lowered value reject route {item}")
-            routes.append((match.group(1), "rejected"))
+            routes.append(
+                (self_variant_from_pattern(pattern, "rejected lowered value"), "rejected")
+            )
         else:
             row, separator, details = item.partition("|")
             variant, equals, ordinal = row.partition("=")
@@ -1121,19 +1155,25 @@ def extract_struct_fields(source: str, struct_name: str) -> list[str]:
         if tokens[opening] == "(":
             if raw and raw[0] == "pub":
                 raw = raw[1:]
-            fields.append(f"{len(fields)}:{compact_tokens(raw)}")
+            fields.append(f"{len(fields)}:{token_fingerprint(raw)}")
         else:
             raw = raw[1:] if raw and raw[0] == "pub" else raw
             colon = find_top_level(raw, 0, len(raw), ":")
             if colon != 1 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", raw[0]):
                 raise InventoryError(f"unrecognized field in struct {struct_name}")
-            fields.append(f"{raw[0]}:{compact_tokens(raw[colon + 1 :])}")
+            fields.append(f"{raw[0]}:{token_fingerprint(raw[colon + 1 :])}")
     return ensure_unique(fields, struct_name)
 
 
 def function_body(
     source: str, function_name: str, impl_name: str | None = None
 ) -> str:
+    return token_fingerprint(function_tokens(source, function_name, impl_name))
+
+
+def function_tokens(
+    source: str, function_name: str, impl_name: str | None = None
+) -> list[str]:
     tokens = lex_rust(source)
     if impl_name is not None:
         impls = [
@@ -1167,7 +1207,7 @@ def function_body(
     )
     if opening is None or tokens[opening] != "{":
         raise InventoryError(f"body missing for function {function_name}")
-    return "{" + compact_tokens(tokens[opening + 1 : matching(tokens, opening)]) + "}"
+    return tokens[opening : matching(tokens, opening) + 1]
 
 
 def constant_value(source: str, name: str) -> str:
@@ -1181,7 +1221,7 @@ def constant_value(source: str, name: str) -> str:
         raise InventoryError(f"expected one const {name}, found {len(found)}")
     equals = tokens.index("=", found[0] + 2)
     end = tokens.index(";", equals + 1)
-    return compact_tokens(tokens[equals + 1 : end])
+    return token_fingerprint(tokens[equals + 1 : end])
 
 
 def parse_callable_contract(source: str) -> list[str]:
@@ -1239,7 +1279,7 @@ def parse_indexed_id_layout(source: str) -> list[str]:
     if len(macro) != 1:
         raise InventoryError(f"expected one ir_id macro, found {len(macro)}")
     opening = tokens.index("{", macro[0] + 3)
-    macro_body = "{" + compact_tokens(tokens[opening + 1 : matching(tokens, opening)]) + "}"
+    macro_body = token_fingerprint(tokens[opening : matching(tokens, opening) + 1])
     names = []
     for index in range(len(tokens) - 3):
         if tokens[index : index + 3] == ["ir_id", "!", "("]:
@@ -1310,7 +1350,7 @@ def parse_indexed_type_pool_schema(source: str) -> list[str]:
     variants = extract_enum(source, "TypeTag")
     classified: dict[str, list[str]] = {}
     for helper in helpers:
-        body = lex_rust(function_body(source, helper, "TypeTag"))
+        body = function_tokens(source, helper, "TypeTag")
         members = [
             body[index + 2]
             for index in range(len(body) - 2)

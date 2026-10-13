@@ -30,7 +30,11 @@ class InventoryCheckerTests(unittest.TestCase):
         inventoried = CHECKER.extract_enum(fixture, "ArenaExprTag")
         self.assertEqual(["Null", "BoolFalse", "Call"], inventoried)
         self.assertEqual(
-            ["Any", "List(Box<Type>)", "Result{ok:Box<Type>,error:Box<Type>}"],
+            [
+                'Any',
+                'List(tokens:["Box","<","Type",">"])',
+                'Result{ok:tokens:["Box","<","Type",">"],error:tokens:["Box","<","Type",">"]}',
+            ],
             CHECKER.extract_enum(fixture, "Type"),
         )
         changed_sources = (
@@ -51,6 +55,32 @@ class InventoryCheckerTests(unittest.TestCase):
         live = CHECKER.extract_enum(changed, "Type")
         with self.assertRaises(CHECKER.InventoryError):
             CHECKER.compare_owner_items("types.fixture", inventoried, live)
+
+    def test_token_fingerprint_preserves_boundaries_in_payloads_and_bodies(self) -> None:
+        left = ["ab", "c"]
+        right = ["a", "bc"]
+        self.assertEqual("".join(left), "".join(right))
+        self.assertNotEqual(CHECKER.token_fingerprint(left), CHECKER.token_fingerprint(right))
+
+        left_schema = CHECKER.extract_enum(
+            "enum Payload { Item(payload!(ab c)) }", "Payload"
+        )
+        right_schema = CHECKER.extract_enum(
+            "enum Payload { Item(payload!(a bc)) }", "Payload"
+        )
+        self.assertNotEqual(left_schema, right_schema)
+        with self.assertRaisesRegex(CHECKER.InventoryError, "owner drift in types.fixture"):
+            CHECKER.compare_owner_items("types.fixture", left_schema, right_schema)
+
+        left_body = CHECKER.function_body(
+            "fn body() { macro_rules! m { (ab c) => {}; } }", "body"
+        )
+        right_body = CHECKER.function_body(
+            "fn body() { macro_rules! m { (a bc) => {}; } }", "body"
+        )
+        self.assertNotEqual(left_body, right_body)
+        with self.assertRaisesRegex(CHECKER.InventoryError, "owner drift in body.fixture"):
+            CHECKER.compare_owner_items("body.fixture", [left_body], [right_body])
 
     def test_lowered_value_variant_requires_exactly_one_codec_route(self) -> None:
         source = (ROOT / "src/runtime/eval.rs").read_text()
@@ -212,7 +242,10 @@ class InventoryCheckerTests(unittest.TestCase):
             changed_enum, CHECKER.parse_lowered_value_schema(schema_source)
         )
         self.assertTrue(
-            any(item.startswith("Set=19|custom:Arc<Vec<MapKey>>") for item in changed_schema)
+            any(
+                item.startswith('Set=19|custom:tokens:["Arc","<","Vec"')
+                for item in changed_schema
+            )
         )
         with self.assertRaisesRegex(CHECKER.InventoryError, "ir.lowered_value"):
             CHECKER.compare_owner_items("ir.lowered_value", inventoried_enum, changed_enum)
@@ -224,8 +257,9 @@ class InventoryCheckerTests(unittest.TestCase):
         rows = CHECKER.parse_instruction_schema(fixture)
         self.assertEqual(
             [
-                "ValueEmpty=0|BuildValueRow:ValueView:Value|Empty()|0|Operands|FrameApply",
-                "ValuePair=1|BuildValueRow:ValueView:Value|Pair(left:BuildExprId,right:Option<BuildExprId>)|EFFECT_HOST|EFFECT_TRACE|Scheduled|FrameControl:EagerAtom",
+                'ValueEmpty=0|BuildValueRow:ValueView:Value|Empty()|tokens:["0"]|Operands|FrameApply',
+                'ValuePair=1|BuildValueRow:ValueView:Value|Pair(left:tokens:["BuildExprId"],right:tokens:["Option","<","BuildExprId",">"])'
+                '|tokens:["EFFECT_HOST","|","EFFECT_TRACE"]|Scheduled|FrameControl:EagerAtom',
             ],
             rows,
         )
