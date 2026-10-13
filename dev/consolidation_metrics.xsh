@@ -802,7 +802,7 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
   while cursor < closing and lexed.tokens[cursor].text != ";" { context += [lexed.tokens[cursor].text]; cursor += 1 }
   let core_context = ["stage_builder", "stage_decoder", "stage_payload"]
   let view_context = [@core_context, "stage_view_context", "stage_view_input", "stage_view_value", "stage_view_expectations"]
-  if context != core_context and context != view_context or (lexed.tokens.get(cursor) ?? end_token).text != ";" {
+  if (context != core_context and context != view_context) or (lexed.tokens.get(cursor) ?? end_token).text != ";" {
     invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")
   }
   cursor += 1
