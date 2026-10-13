@@ -469,7 +469,7 @@ proc extract_one(member: Member, target: Path, root: Path, data: Bytes, opts: Op
       target.chmod(member.mode.bit_and(0o7777))
       fs.set_times(target, mtime_ns: member.mtime * NANOS, follow_symlinks: false)
     }
-    "symlink" => fs.symlink(fp"{member.link}", target)
+    "symlink" => target.symlink(to: fp"{member.link}")
     "hardlink" => fs.link(member_path(root, strip_components(canonical(member.link), opts.strip))?, target, follow_symlinks: false)
     else => {}
   }

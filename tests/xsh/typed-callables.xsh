@@ -1127,7 +1127,7 @@ test test_with_try_path_results_keep_registry_error_types { |ctx|
   let file = fp"{root}/file"
   file.write("contents")
   let link = fp"{root}/link"
-  fs.symlink(file, link)
+  link.symlink(to: file)
 
   var resolved = ""
   with resolved_path = link.resolve()? {

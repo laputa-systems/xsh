@@ -1937,11 +1937,11 @@ proc extract_link(st: Run, opts: Options, header: Header, target: Bytes, chown_e
     }
   }
   let destination = path_of(target) ?? { |failure| return call_error(state, "symlink", name, failure) }
-  var result = fs.symlink(destination, file)
+  var result = file.symlink(to: destination)
   if result is Err(_) and opts.make_dirs {
     let parents = create_parents(state, opts, file)
     state = parents.st
-    result = fs.symlink(destination, file)
+    result = file.symlink(to: destination)
   }
   match result {
     Ok(_) => {}
@@ -1981,11 +1981,11 @@ proc replace_placeholders(st: Run, opts: Options, chown_enabled: Bool) [fs, proc
       state = call_error(state, "symlink", holder.name, failure)
       continue
     }
-    var result = fs.symlink(destination, holder.path)
+    var result = holder.path.symlink(to: destination)
     if result is Err(_) and opts.make_dirs {
       let parents = create_parents(state, opts, holder.path)
       state = parents.st
-      result = fs.symlink(destination, holder.path)
+      result = holder.path.symlink(to: destination)
     }
     match result {
       Ok(_) => {

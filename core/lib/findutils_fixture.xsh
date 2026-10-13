@@ -48,9 +48,9 @@ export proc build(root: Path, name: Str = "tree") [fs, time, error] {
   fs.mkfifo(fp"{tree}/fifo", 0o644)
   put(bytes.concat([tree.bytes(), b"/odd\nname"]) as Path, "n", 0o644, T)
   put(bytes.concat([tree.bytes(), b"/bad\xffname"]) as Path, "b", 0o644, T)
-  fs.symlink(p"a.txt", fp"{tree}/link_a")
-  fs.symlink(p"sub", fp"{tree}/link_dir")
-  fs.symlink(p"nowhere", fp"{tree}/broken")
+  fp"{tree}/link_a".symlink(to: p"a.txt")
+  fp"{tree}/link_dir".symlink(to: p"sub")
+  fp"{tree}/broken".symlink(to: p"nowhere")
   for link in ["link_a", "link_dir", "broken"] {
     fs.set_times(fp"{tree}/{link}", atime_ns: T, mtime_ns: T, follow_symlinks: false)
   }
@@ -105,8 +105,8 @@ export proc build_scratch(root: Path) [fs, error] {
   put(fp"{scratch}/ro.txt", "ro", 0o444, T)
   put(fp"{scratch}/hard1", "h\n", 0o644, T)
   fs.link(fp"{scratch}/hard1", fp"{scratch}/hard2")
-  fs.symlink(p"a.txt", fp"{scratch}/link_a")
-  fs.symlink(p"nowhere", fp"{scratch}/broken")
+  fp"{scratch}/link_a".symlink(to: p"a.txt")
+  fp"{scratch}/broken".symlink(to: p"nowhere")
   fp"{scratch}/empty_dir".mkdir()
 }
 
@@ -115,9 +115,9 @@ export proc build_scratch(root: Path) [fs, error] {
 export proc build_loops(root: Path) [fs, error] {
   fp"{root}/loops".mkdir()
   fp"{root}/loops/file".write("f")
-  fs.symlink(p"loop2", fp"{root}/loops/loop1")
-  fs.symlink(p"loop1", fp"{root}/loops/loop2")
-  fs.symlink(p".", fp"{root}/loops/self")
+  fp"{root}/loops/loop1".symlink(to: p"loop2")
+  fp"{root}/loops/loop2".symlink(to: p"loop1")
+  fp"{root}/loops/self".symlink(to: p".")
 }
 
 ## An unreadable directory and a readable one that cannot be searched, both

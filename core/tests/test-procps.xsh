@@ -171,7 +171,7 @@ type Sleeper = {name: Str, pid: Int, release: Path, child: ProcessHandle}
 proc start_sleeper(ctx: TestContext, tag: Str, token = "", reading: Path? = null, appending: Path? = null) [fs, process, time, error] -> Result[Sleeper, Error] {
   let name = unique_name(ctx, tag)?
   let link = fp"{test.temp_dir(ctx, name:)?}/{name}"
-  fs.symlink(ctx.xsh_bin, link)
+  link.symlink(to: ctx.xsh_bin)
   let ready = test.temp_path(ctx, name: f"{name}.ready")
   let release = test.temp_path(ctx, name: f"{name}.release")
   let script = test.temp_file(ctx, name: f"{name}.xsh", contents: bytes.from_text("""
@@ -309,7 +309,7 @@ test test_pkill_reports_usage_and_selection_errors_with_distinct_statuses { |ctx
 test test_pkill_and_killall_never_select_their_own_process { |ctx|
   let name = unique_name(ctx, "s")?
   let link = fp"{test.temp_dir(ctx, name:)?}/{name}"
-  fs.symlink(ctx.xsh_bin, link)
+  link.symlink(to: ctx.xsh_bin)
   let own = run.capture --text $link fp"{ctx.core_dir}/pkill.xsh" -- -x $name
   assert own.status.exited_with(1), "pkill matched its own process"
   let full = run.capture --text $link fp"{ctx.core_dir}/pkill.xsh" -- -f $name

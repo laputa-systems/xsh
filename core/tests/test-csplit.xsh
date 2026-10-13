@@ -242,7 +242,7 @@ test test_csplit_write_error_removes_the_file_it_opened { |ctx|
 
   let root = test.temp_dir(ctx, name: "csplit-full-file")?
   fp"{root}/n".write(numbers(1, 3))
-  fs.symlink(p"/dev/full", fp"{root}/xx01")
+  fp"{root}/xx01".symlink(to: p"/dev/full")
 
   let failed = csplit_run(ctx, root, ["n", "1"])?
   assert failed.status == 1
