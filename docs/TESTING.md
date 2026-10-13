@@ -372,8 +372,14 @@ the virtual allocation to physical memory.
 The `core_compat_extra_privileged` target includes the same aggregator source
 and requires `linux-priv-tests`, so a focused run can compile the gated cases
 without changing the ordinary target. For the recursive block-device copy
-cases, build with `--features linux-priv-tests --test
-core_compat_extra_privileged --no-run`, then run the target with filter
+cases, build with:
+
+```sh
+cargo test --locked --profile verification --target "$TARGET" -p xsh \
+  --features linux-priv-tests --test core_compat_extra_privileged --no-run
+```
+
+Then run the target with filter
 `cp::privileged::test_cp_recursive_block_device_` in the pinned image as root,
 with no network, a 1 GiB memory limit, and a `nodev` `/tmp` tmpfs.
 
