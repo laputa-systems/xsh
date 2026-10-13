@@ -19,16 +19,16 @@ for owner in process.port(8080)? |> where .state == "LISTEN" {
 Choose the `xsh` and `xsht` binaries for your platform from the
 [release assets](https://github.com/laputa-systems/xsh/releases), rename them
 to `xsh` and `xsht`, and put both in a directory on your `PATH`.
-Make them executable with `chmod +x xsh xsht`. For a source build, see
-[Testing](docs/TESTING.md#building-from-source).
+Make them executable with `chmod +x xsh xsht`.
 
 ```bash
 xsh examples/streams.xsh       # run a script
 xsht check examples/           # type-check without running
 ```
 
-`xsh` runs scripts. `xsht` is the toolchain: `check`, `test`, `fmt`, `lint`,
-`trace`, and `api`.
+`xsh` runs scripts. `xsht` provides `check`, `test`, `fmt`, `lint`, `trace`,
+and `api`; run `xsht help` for the command list and `xsht help COMMAND` for
+command options.
 
 Tool configuration lives in `xsht-config.ini`; see
 [configuration](docs/XSHT.md#configuration).
