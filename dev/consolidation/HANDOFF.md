@@ -2098,9 +2098,11 @@ durable lane handoff before cherry-picking, rebasing, or resuming a build.
    **not** happened; do not remove fields while old readers still exist.
 5. Apply and test the shared-loader's two stale project-module-path expectation
    migrations from check-session `.work/check-session/`, retaining missing-import
-   behavior coverage. Resolve reveal_type publication versus entry legality
-   explicitly against the approved same-diagnostics contract; do not invent a
-   runtime spelling or silence a diagnostic to bridge the conflict.
+   behavior coverage. Reveal-type publication versus entry legality is resolved
+   by `b1b4e99f` and `c8fc9e26`: checker diagnostics are profile-independent,
+   reveal notes are separately published, and execution rejects `reveal_type`
+   outside `xsht check` per SPEC §5.4. Existing Rust and native tests cover the
+   diagnostic parity, note publication, and rejection behavior.
 6. Resume W2 instance marks using generated operand traversal and the single
    schema class column. Pure tag classification alone is insufficient: mark
    only instances whose transitive operands cannot run script code, with proof

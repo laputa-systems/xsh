@@ -221,7 +221,7 @@ where known; it is not the current work queue.
 | Run propagation initializer | removable propagation is reported and fixed | `lint_redundant_propagation.rs` tests require silence for the initializer forms named as defects; preserve cases where propagation terminates run grammar |
 | Flat-map result callback | one engine, List/Stream-only behavior from evaluator design | `stage-result-contracts.xsh::test_flat_map_preserves_existing_result_collection_boundary` requires implicit Ok(List) flattening and nominal Err propagation; new tests must assert the approved accepted/rejected contract |
 | Opaque Any fix fixture | navigation requires validation or json.get | design promises the existing contextual-fix test unchanged although its input and expected output navigate raw Any; migrate fixture without losing contextual require-fix coverage |
-| Reveal-type publication | publication options do not change user diagnostics | existing native test requires xsh rejection of reveal_type; resolve publication versus entry legality explicitly |
+| Reveal-type publication | checker diagnostics are profile-independent; reveal notes are separately published; execution rejects `reveal_type` outside `xsht check` | Resolved against SPEC §5.4 by `b1b4e99f` and `c8fc9e26`; existing Rust and native tests cover diagnostic parity, separate note publication, and execution rejection. |
 
 Factually stale examples also need correction without inventing new APIs:
 `process.command_argv` has concrete List[Str]/List[Path] overloads, not an Any
