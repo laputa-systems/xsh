@@ -66,6 +66,9 @@ def main() -> int:
                 text=True,
             ).strip()
         )
+        if not exclude_path.is_absolute():
+            exclude_path = repo_root / exclude_path
+        exclude_path = exclude_path.resolve()
     except subprocess.CalledProcessError as error:
         print(f"cannot locate the repository's git exclude file: {error}", file=sys.stderr)
         return 2
