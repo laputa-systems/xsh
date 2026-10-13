@@ -1,4 +1,5 @@
 use fixtures
+use docker
 use gates
 use test_workflows as tests
 
@@ -116,4 +117,48 @@ test test_batch_automatic_checks_use_retained_repository_gates {
   let retained = gates.select(["dev/checks/check_inventory.py"])?
   assert retained.areas == [gates.Automation]
   assert retained.native_files.is_empty()
+}
+
+test test_docker_gate_captures_repository_root_before_inspecting_image { |ctx|
+  let repository = fs.cwd()?
+  let tools = test.temp_dir(ctx, name: "docker-gate-tools")?
+  let log = fp"{tools}/docker.log"
+  fp"{tools}/docker".write(
+    f"""#!{ctx.xsh_bin}
+let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+log.write(previous + args.join(" ") + "\\n")?
+""",
+    mode: 0o755,
+  )
+  let inherited_path = env.get_or("PATH", "")?
+  let result = test.expect(
+    ctx,
+    f"""
+use docker
+use fixtures
+
+proc main() [fs, process, env, error, io] -> Result[Unit] {{
+  let ctx = fixtures.linux_context(p"{repository}")?
+  docker.run_internal(ctx, "gate-lane", false, ["tests/xsh/float-equality.xsh"])?
+}}
+
+main()?
+""",
+    status: 0,
+    stdout: [
+      "docker-image-inspect target=x86_64-unknown-linux-musl",
+      "docker-gate-lane target=x86_64-unknown-linux-musl",
+    ],
+    args: [],
+    env: {
+      PATH: f"{tools}:{inherited_path}",
+      XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
+      XSH_TEST_IMAGE_BUILD: "0",
+      XSH_TEST_IMAGE: "xsh-test:cwd-regression",
+    },
+  )?
+  assert "docker-image-inspect" in result.stdout
+  assert "docker-gate-lane" in result.stdout
+  assert log.read_lines()?.len() == 2
 }
