@@ -365,7 +365,7 @@ proc apply_setup(work: Path, command: Str) [fs, error] {
     fp"{work}/{words[3]}".symlink(to: fp"{words[2]}")
   } else if words[0] == "chmod" {
     var mode = 0
-    for digit in words[1].split("") { mode = mode * 8 + (digit.parse_int() ?? 0) }
+    for digit in words[1] { mode = mode * 8 + (digit.parse_int() ?? 0) }
     fp"{work}/{words[2]}".chmod(mode)
   } else {
     return Err(AssertionError.Failed(f"unknown setup command {command}"))

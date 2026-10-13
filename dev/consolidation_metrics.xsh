@@ -1374,7 +1374,7 @@ export proc verify_blanket_baseline(root: Path, baseline_path: Str, provenance_p
 
 pure valid_object_id(value: Str) -> Bool {
   return false when value.byte_len() not in [40, 64]
-  for digit in value.split("") { return false unless digit.lower() in "0123456789abcdef" }
+  for digit in value { return false unless digit.lower() in "0123456789abcdef" }
   true
 }
 
@@ -1403,7 +1403,7 @@ proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] {
     if segment in ["", ".", ".."] { return Err(MetricError.Contract(detail: "review artifact path escapes or aliases the workspace")) }
   }
   if artifact.sha256.byte_len() != 64 { return Err(MetricError.Contract(detail: "review artifact SHA-256 must be 64 hexadecimal characters")) }
-  for digit in artifact.sha256.split("") { guard digit.lower() in "0123456789abcdef" else { return Err(MetricError.Contract(detail: "review artifact SHA-256 is not hexadecimal")) } }
+  for digit in artifact.sha256 { guard digit.lower() in "0123456789abcdef" else { return Err(MetricError.Contract(detail: "review artifact SHA-256 is not hexadecimal")) } }
   if artifact.command.trim() == "" or artifact.method.trim() == "" or artifact.result.trim() != "verified" {
     return Err(MetricError.Contract(detail: "review artifact needs a command, method, and verified reviewer result"))
   }

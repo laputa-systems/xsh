@@ -1622,7 +1622,7 @@ pure make_alphabet(pattern: Str, subject: Str) -> Alphabet {
   ]
   var chars: Map[Str] = {}
   var next = 0
-  for character in (pattern + subject).split("") {
+  for character in (pattern + subject) {
     if (character.byte_len() > 1 or character == "\0") and ! (character in chars) {
       if next < free.len() { chars = chars.set(character, shown_char(free[next])); next += 1 } else { chars = chars.set(character, shown_char(free[0])) }
     }
@@ -2985,7 +2985,7 @@ pure fold_case(globals: Map[Scalar]) -> Bool {
 pure split_fields(content: Str, separator: Str, regex_mode: Bool, ignore_case: Bool) -> Result[List[Scalar]] {
   return Ok([]) when content.is_empty()
   if separator == " " and ! regex_mode { return Ok([input(piece)? for piece in content.replace("\n", with: " ").replace("\t", with: " ").split(" ") if ! piece.is_empty()]) }
-  if separator.is_empty() and ! regex_mode { return Ok([input(piece)? for piece in content.split("")]) }
+  if separator.is_empty() and ! regex_mode { return Ok([input(piece)? for piece in content]) }
   if separator.count_chars() == 1 and ! regex_mode { return Ok([input(piece)? for piece in content.split(separator)]) }
   var start = 0
   let fields: List[Scalar] = collect {
@@ -3294,11 +3294,11 @@ type SortItem = {rank: Int, number: Float, text: Str, value: Scalar}
 
 pure upper_text(content: Str) -> Str {
   return content.upper() when is_ascii_text(content)
-  [convert_case(character, true) for character in content.split("")].join("")
+  [convert_case(character, true) for character in content].join("")
 }
 pure lower_text(content: Str) -> Str {
   return content.lower() when is_ascii_text(content)
-  [convert_case(character, false) for character in content.split("")].join("")
+  [convert_case(character, false) for character in content].join("")
 }
 # One character at a time, as towupper does: a conversion that would change
 # the length (other than sharp s) leaves the character alone.

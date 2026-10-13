@@ -180,7 +180,7 @@ pure apply(options: Options, key: Str, value: Str) -> Applied {
 pure apply_json(options: Options, value: Str) -> Applied {
   return accepted({...options, json: true}) when value == ""
   var compact = false
-  for letter in value.split("") {
+  for letter in value {
     if letter == "c" {
       compact = true
     } else if letter in ["g", "i", "o", "s", "u", "v", "y"] {
@@ -1202,7 +1202,7 @@ proc main(...argv: List[Str]) [fs, process, time, env, error, io] {
       let digits = if parts[1].starts_with("0x") { parts[1].byte_slice(2) } else { "" }
       var value = 0
       var valid = digits != ""
-      for letter in digits.lower().split("") {
+      for letter in digits.lower() {
         let digit = "0123456789abcdef".find(letter)
         if digit == null { valid = false } else { value = value * 16 + (digit) }
       }

@@ -318,7 +318,7 @@ proc parse(argv: List[Str]) [process, env, fs, error, io] -> Request {
       if let at = equal { attached = body.byte_slice(at + 1) }
       names = [option]
     } else {
-      for letter in word.byte_slice(1).split("") {
+      for letter in word.byte_slice(1) {
         if letter == "d" { names += ["dump"] } else if letter == "h" { names += ["help"] } else if letter == "V" { names += ["version"] } else {
           gnu.usage_error(f"invalid option -- '{letter}'")
         }

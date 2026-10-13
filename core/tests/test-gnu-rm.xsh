@@ -220,7 +220,7 @@ test test_gnu_rm_fail_eacces_log { |ctx|
 test test_gnu_rm_hash_log { |ctx|
   let s = uu.scene(ctx)?
   let suffix = ["y/" for _ in range(150)].join("")
-  for i in range(1, 4) { for letter in "abcdefghijklmnopqrstuvwxyz".split("") { uu.mkdir(s, f"t/{i}/{letter}/{suffix}") } }
+  for i in range(1, 4) { for letter in "abcdefghijklmnopqrstuvwxyz" { uu.mkdir(s, f"t/{i}/{letter}/{suffix}") } }
   uu.succeeds(uu.invoke(s, "rm", ["-r", "t"], timeout: 60s)?)
 }
 
@@ -311,7 +311,7 @@ test test_gnu_rm_r_2_log { |ctx|
 test test_gnu_rm_r_3_log { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "t")
-  for i in "0123456789abcdefghij".split("") { for j in "abcdefghijklmnopqrstuvwxy".split("") { uu.touch(s, f"t/{i}{j}") } }
+  for i in "0123456789abcdefghij" { for j in "abcdefghijklmnopqrstuvwxy" { uu.touch(s, f"t/{i}{j}") } }
   present(s, ["t/0a", "t/by"])
   uu.succeeds(uu.invoke(s, "rm", ["-rf", "t"])?)
   removed(s, ["t"])
