@@ -51,7 +51,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-defer-block` | Replace a single-use literal cleanup helper with a `defer` block |
 | `lint.prefer-empty-map-literal` | Use `{}` for an empty map in map-typed contexts |
 | `lint.prefer-env-string` | Read an environment variable with a literal identifier name as `e"NAME"` |
-| `lint.prefer-fail` | Return a failure that only carries a message with `fail MESSAGE` instead of a one-variant error family |
+| `lint.prefer-fail` | Consider replacing a private one-variant message-only error family with `fail MESSAGE` when its nominal identity is not needed |
 | `lint.prefer-file-lines` | Use `path.lines()?` instead of `read_text()?.lines()` in a loop |
 | `lint.prefer-fs-files` | Use `fs.files()` instead of `fs.walk()` filtered to `kind == file` |
 | `lint.prefer-generic-record-constructor` | Let a constructor infer its concrete schema from the supplied fields |
