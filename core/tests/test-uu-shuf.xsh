@@ -17,7 +17,7 @@ proc sorted_numbers(data: Bytes, separator = "\n") [error] -> Result[List[Int], 
 
 proc words(data: Bytes, separator = "\n") [error] -> Result[List[Str], Error] {
   let result = collect {
-    for word in data.utf8()?.split(separator) { if word != "" { yield word } }
+    for word in data.utf8()?.split(separator) { yield word when word != "" }
   }
   Ok(result)
 }

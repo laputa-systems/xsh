@@ -118,7 +118,7 @@ pure expand(line: Bytes, tabsize: Int, repeat_flag: Bytes?, utf8: Bool) -> Bytes
         start = index + 1
         column = 0
         if let flag = repeat_flag {
-          if index + 1 < size { yield flag }
+          yield flag when index + 1 < size
         }
         index += 1
       } else if value == 8 {
@@ -376,7 +376,7 @@ pure render_simple(first: gnudiff.Source, second: gnudiff.Source, script: List[g
           }
         }
 
-        if hunk.changes == CHANGED { yield b"---\n" }
+        yield b"---\n" when hunk.changes == CHANGED
         if hunk.changes.bit_and(NEW) != 0 {
           for i in range(hunk.first1, hunk.last1 + 1) {
             yield render_line(">", second.lines[i], ! terminated(second, i), fmt, 2)
@@ -401,7 +401,7 @@ pure render_simple(first: gnudiff.Source, second: gnudiff.Source, script: List[g
             }
           }
 
-          if insert_mode { yield b".\n" }
+          yield b".\n" when insert_mode
         }
       } else {
         let from0 = hunk.first0 + 1

@@ -492,7 +492,7 @@ pure line_head(ctx: Context, show_name: Bool, label: Bytes, lineno: Int, offset:
     if ctx.o.byte {
       yield @[paint(ctx, ctx.c.byte_offset, bytes.from_text(padded(offset, width))), separator_byte(ctx, sep)]
     }
-    if ctx.o.tabs and (show_name or ctx.o.number or ctx.o.byte) and length > 0 { yield b"\t" }
+    yield b"\t" when ctx.o.tabs and (show_name or ctx.o.number or ctx.o.byte) and length > 0
   }
   bytes.concat(parts)
 }
@@ -582,7 +582,7 @@ pure delimiter_positions(data: Bytes, eol: Int, zap: Bool) -> List[Int] {
   let out = collect {
     for at in range(data.len()) {
       let byte = data.byte_at(at) ?? 0
-      if byte == eol or (zap and byte == 0) { yield at }
+      yield at when byte == eol or (zap and byte == 0)
     }
   }
   out
@@ -1011,7 +1011,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
       let candidates: List[LongOption] = collect {
         for option in longs {
           if option.name == name { found = option; break }
-          if option.name.starts_with(name) { yield option }
+          yield option when option.name.starts_with(name)
         }
       }
       if found == null {

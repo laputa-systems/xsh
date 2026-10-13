@@ -148,9 +148,7 @@ pure matching_names(prefix: Str) -> List[Str] {
         exact = true
       }
 
-      if name.starts_with(prefix) {
-        yield name
-      }
+      yield name when name.starts_with(prefix)
     }
   }
 

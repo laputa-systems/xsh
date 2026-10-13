@@ -889,7 +889,7 @@ pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
         }
       }
   
-      if begin < data.len() { yield cut_at_nul(data.slice(begin, data.len() - begin)) }
+      yield cut_at_nul(data.slice(begin, data.len() - begin)) when begin < data.len()
     }
     names
   }
@@ -1619,7 +1619,7 @@ proc parse_command_line(argv: List[Str]) [fs, io, process, env] -> Options {
       let candidates: List[LongOption] = collect {
         for option in LONG_OPTIONS {
           if option.name == given { chosen = option }
-          if option.name.starts_with(given) { yield option }
+          yield option when option.name.starts_with(given)
         }
       }
       if chosen == null {

@@ -321,9 +321,7 @@ export pure frequency(sources: live.MonitorSources, mode: FrequencyMode) -> CpuF
 
 pure battery_percent(battery: live.MonitorBattery) -> Int? {
   let reported = battery.capacity_percent
-  if reported != null and (reported ?? -1) >= 0 and reported <= 100 {
-    return reported
-  }
+  return reported when reported != null and (reported ?? -1) >= 0 and reported <= 100
 
   let energy_now = battery.energy_now_uwh ?? -1
   let energy_full = battery.energy_full_uwh ?? 0

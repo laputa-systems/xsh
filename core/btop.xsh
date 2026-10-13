@@ -60,9 +60,7 @@ pure apply_events(
 ) -> InputResult {
   var view = initial_ui
   for event in events {
-    if event == .Eof or event == input.Pressed(input.Cancel) {
-      return {quit: true, ui: view}
-    }
+    return {quit: true, ui: view} when event == .Eof or event == input.Pressed(input.Cancel)
     if ! view.editing_filter and (event == input.Pressed(.Text("q")) or event == input.Pressed(.Text("Q"))) {
       return {quit: true, ui: view}
     }

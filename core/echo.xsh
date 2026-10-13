@@ -181,10 +181,10 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   if ! (escapes or posix) {
     let parts = collect {
       for index in range(words.len()) {
-        if index > 0 { yield b" " }
+        yield b" " when index > 0
         yield words[index]
       }
-      if newline { yield b"\n" }
+      yield b"\n" when newline
     }
     gnu.write_bytes(bytes.concat(parts))
     return

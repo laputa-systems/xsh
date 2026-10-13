@@ -928,7 +928,7 @@ proc main(...operands: List[Bytes]) {
       Err(failure) => { gnu.error(failure.message); exit 1 }
     }
     let kept: List[Deferred] = collect {
-      for item in deferred { if plan.nodes[item.node].kind != "execdir+" { yield item } }
+      for item in deferred { yield item when plan.nodes[item.node].kind != "execdir+" }
     }
     deferred = kept
     break when quit

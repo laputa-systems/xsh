@@ -77,7 +77,7 @@ pure disk_sum_rate(device: disks.Device?) -> rates.Rate {
     if read.state == .Observed and write.state == .Observed and read.value != null and write.value != null {
       return {state: rates.Observed, value: read.value + write.value}
     }
-    if read.state == .Gap or write.state == .Gap { return {state: rates.Gap, value: null} }
+    return {state: rates.Gap, value: null} when read.state == .Gap or write.state == .Gap
     if read.state == .Reset or write.state == .Reset { return {state: rates.Reset, value: null} }
     if read.state == .Invalid or write.state == .Invalid { return {state: rates.Invalid, value: null} }
     if read.state == .Warming or write.state == .Warming { return {state: rates.Warming, value: null} }

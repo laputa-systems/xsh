@@ -1548,15 +1548,9 @@ export pure link_lines(message: Message) -> List[Str] {
   if parameters != null {
     let fields = parse_attrs(parameters, 0)
     let flags = collect {
-      if pick(fields, BSS_PARAM_CTS_PROT) != null {
-        yield "CTS-protection"
-      }
-      if pick(fields, BSS_PARAM_SHORT_PREAMBLE) != null {
-        yield "short-preamble"
-      }
-      if pick(fields, BSS_PARAM_SHORT_SLOT_TIME) != null {
-        yield "short-slot-time"
-      }
+      yield "CTS-protection" when pick(fields, BSS_PARAM_CTS_PROT) != null
+      yield "short-preamble" when pick(fields, BSS_PARAM_SHORT_PREAMBLE) != null
+      yield "short-slot-time" when pick(fields, BSS_PARAM_SHORT_SLOT_TIME) != null
     }
     lines += ["\tbss flags: " + flags.join(" ")]
     let dtim = pick_uint(fields, BSS_PARAM_DTIM_PERIOD)
@@ -1617,12 +1611,8 @@ pure frequency_lines(freqs: Bytes) -> List[Str] {
       text += f" ({tenths / 10}.{tenths % 10} dBm)"
     }
     let restrictions = collect {
-      if pick(fields, FREQ_NO_IR) != null {
-        yield "no IR"
-      }
-      if pick(fields, FREQ_RADAR) != null {
-        yield "radar detection"
-      }
+      yield "no IR" when pick(fields, FREQ_NO_IR) != null
+      yield "radar detection" when pick(fields, FREQ_RADAR) != null
     }
     if ! restrictions.is_empty() {
       text += " (" + restrictions.join(", ") + ")"
@@ -1723,9 +1713,7 @@ pure ht_mcs_lines(mcs: Bytes) -> List[Str] {
   let streams = tx_byte / 4 % 4 + 1
   let unequal = tx_byte.bit_and(16) != 0
   let lines = collect {
-    if max_rate != 0 {
-      yield f"\t\tHT Max RX data rate: {max_rate} Mbps"
-    }
+    yield f"\t\tHT Max RX data rate: {max_rate} Mbps" when max_rate != 0
     if tx_defined {
       if tx_equal {
         yield "\t\tHT TX/RX MCS rate indexes supported:" + mcs_index_text(mcs)

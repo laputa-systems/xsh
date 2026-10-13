@@ -270,10 +270,10 @@ export pure usb_lines(devices: List[usb.UsbDevice], names: Map[Str], view: UsbVi
         f"  idVendor           0x{hex(device.vendor_id, 4)}",
         f"  idProduct          0x{hex(device.product_id, 4)}",
       ]
-      if device.device_version != null { yield f"  bcdDevice          {device.device_version}" }
+      yield f"  bcdDevice          {device.device_version}" when device.device_version != null
       if device.manufacturer.value != null { yield f"  iManufacturer      {device.manufacturer.value}" }
-      if device.product.value != null { yield f"  iProduct           {device.product.value}" }
-      if device.serial.value != null { yield f"  iSerialNumber      {device.serial.value}" }
+      yield f"  iProduct           {device.product.value}" when device.product.value != null
+      yield f"  iSerialNumber      {device.serial.value}" when device.serial.value != null
       if device.configuration_count != null { yield f"  bNumConfigurations {device.configuration_count}" }
       for interface in device.interfaces {
         for alternate in interface.alternate_settings {
@@ -699,7 +699,7 @@ pure aligned_lines(headers: List[Str], rows: List[List[Str]], headings: Bool) ->
     }
   }
   let lines = collect {
-    if headings { yield table_row(headers, widths) }
+    yield table_row(headers, widths) when headings
     for row in rows { yield table_row(row, widths) }
   }
   lines

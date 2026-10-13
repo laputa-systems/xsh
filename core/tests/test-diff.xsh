@@ -77,7 +77,7 @@ pure joined(lines: List[Str], small: Str) -> Bytes {
   let chunks = collect {
     for line in lines {
       yield decode(line.byte_slice(2))
-      if line.starts_with(small) { yield b"\n" }
+      yield b"\n" when line.starts_with(small)
     }
   }
   bytes.concat(chunks)

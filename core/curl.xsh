@@ -214,7 +214,7 @@ proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error
     let kept = collect {
       for index in range(content.len()) {
         let byte = content.byte_at(index) ?? 0
-        if byte != 10 and byte != 13 { yield byte }
+        yield byte when byte != 10 and byte != 13
       }
     }
     return bytes.from_ints(kept) ?? b""
@@ -317,7 +317,7 @@ proc find_long(name: Str) [io, error] -> Spec? {
   }
   let matches: List[Spec] = collect {
     for spec in OPTIONS {
-      if spec.long.starts_with(name) and spec.long != "" { yield spec }
+      yield spec when spec.long.starts_with(name) and spec.long != ""
     }
   }
   return null when matches.is_empty()
@@ -808,7 +808,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
   var first = true
   let parts = collect {
     for part in settings.data {
-      if !first { yield b"&" }
+      yield b"&" unless first
       yield part
       first = false
     }

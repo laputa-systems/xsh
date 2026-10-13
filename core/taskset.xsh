@@ -132,9 +132,7 @@ pure parse_mask(text: Str) -> List[Int]? {
       for bit in range(4) {
         let weight = [1, 2, 4, 8][bit]
 
-        if value / weight % 2 == 1 and number + bit < CPU_LIMIT {
-          yield number + bit
-        }
+        yield number + bit when value / weight % 2 == 1 and number + bit < CPU_LIMIT
       }
 
       number += 4

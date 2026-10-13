@@ -446,7 +446,7 @@ proc general_numeric_input(value: Bytes, opts: SortOptions) [error] -> GeneralNu
 proc prepare_general_numeric_keys(lines: List[SortRecord], opts: SortOptions) [env, error] -> SortOptions {
   let specs = collect {
     for spec in opts.key {
-      if is_general_numeric_sort(key_effective_options(spec, opts)) { yield spec }
+      yield spec when is_general_numeric_sort(key_effective_options(spec, opts))
     }
   }
   if (opts.key.is_empty() and ! is_general_numeric_sort(opts)) or
@@ -1237,7 +1237,7 @@ pure input_records(input: Bytes, zero_terminated: Bool) -> List[SortRecord] {
       }
       at += 1
     }
-    if start < input.len() { yield sort_record(input[start..]) }
+    yield sort_record(input[start..]) when start < input.len()
   }
   records
 }
@@ -1252,7 +1252,7 @@ pure files0_names(data: Bytes) -> List[Bytes] {
         start = at + 1
       }
     }
-    if start < data.len() { yield data[start..] }
+    yield data[start..] when start < data.len()
   }
   names
 }

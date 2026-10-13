@@ -132,7 +132,7 @@ pure line_key(line: Bytes, rules: Rules) -> Bytes {
             yield text[start..index]
           } else if rules.space_change {
             yield text[start..index]
-            if end < size { yield b" " }
+            yield b" " when end < size
           } else if end < size {
             yield text[start..end]
           } else {
@@ -144,7 +144,7 @@ pure line_key(line: Bytes, rules: Rules) -> Bytes {
           index += 1
         }
       }
-      if start < size { yield text[start..size] }
+      yield text[start..size] when start < size
     }
     text = bytes.concat(chunks)
   }

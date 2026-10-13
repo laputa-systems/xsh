@@ -708,8 +708,8 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
     }
 
     let wanted = collect {
-      if net_in { yield "readable" }
-      if ! pending.is_empty() and net_out { yield "writable" }
+      yield "readable" when net_in
+      yield "writable" when ! pending.is_empty() and net_out
     }
     var events = []
     if ! wanted.is_empty() {
@@ -879,8 +879,8 @@ proc listen_addresses(host: Str?, opts: Options) [net, process, io] -> List[Addr
     return found.rows
   }
   let rows: List[Address] = collect {
-    if opts.family != "inet6" { yield {addr: "0.0.0.0", family: "ipv4", name: ""} }
-    if opts.family != "inet" { yield {addr: "::", family: "ipv6", name: ""} }
+    yield {addr: "0.0.0.0", family: "ipv4", name: ""} when opts.family != "inet6"
+    yield {addr: "::", family: "ipv6", name: ""} when opts.family != "inet"
   }
   rows
 }

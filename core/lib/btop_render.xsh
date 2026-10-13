@@ -160,9 +160,7 @@ pure uptime_text(value: syscpu.Uptime) -> Str {
 }
 
 pure load_text(value: syscpu.LoadAverage) -> Str {
-  if value.state != .Observed or value.values.len() < 3 {
-    return state_text(value.state)
-  }
+  return state_text(value.state) when value.state != .Observed or value.values.len() < 3
   f"{value.values[0].format(precision: 2)} {value.values[1].format(precision: 2)} {value.values[2].format(precision: 2)}"
 }
 

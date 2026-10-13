@@ -286,7 +286,7 @@ export pure info_text(ctrl: Controller, ns: Namespace?, nsid: Int, local_time: S
 pure flag_names(value: Int, names: List[Str]) -> Str {
   let out = collect {
     for index in range(names.len()) {
-      if smart.bit_set(value, index) { yield names[index] }
+      yield names[index] when smart.bit_set(value, index)
     }
   }
   out.join(" ")
@@ -354,11 +354,11 @@ export pure capabilities_text(ctrl: Controller, ns: Namespace?, nsid: Int, ident
 ## The reasons a nonzero critical warning byte names, in bit order.
 export pure warning_reasons(warning: Int) -> List[Str] {
   let reasons = collect {
-    if smart.bit_set(warning, 0) { yield "- available spare has fallen below threshold" }
-    if smart.bit_set(warning, 1) { yield "- temperature is above or below threshold" }
-    if smart.bit_set(warning, 2) { yield "- NVM subsystem reliability has been degraded" }
-    if smart.bit_set(warning, 3) { yield "- media has been placed in read only mode" }
-    if smart.bit_set(warning, 4) { yield "- volatile memory backup device has failed" }
+    yield "- available spare has fallen below threshold" when smart.bit_set(warning, 0)
+    yield "- temperature is above or below threshold" when smart.bit_set(warning, 1)
+    yield "- NVM subsystem reliability has been degraded" when smart.bit_set(warning, 2)
+    yield "- media has been placed in read only mode" when smart.bit_set(warning, 3)
+    yield "- volatile memory backup device has failed" when smart.bit_set(warning, 4)
     if smart.bit_set(warning, 5) { yield "- persistent memory region has become read-only or unreliable" }
     if warning / 64 != 0 { yield f"- unknown critical warning(s) (0x{smart.hex(warning / 64 * 64, 2)})" }
   }

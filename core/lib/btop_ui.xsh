@@ -206,7 +206,7 @@ pure filter_matches(
   let filter = filter_text(state)
   let visible: List[model.ProcessRow] = collect {
     for row in rows {
-      if matches(row, filter, values) { yield row }
+      yield row when matches(row, filter, values)
     }
   }
   visible

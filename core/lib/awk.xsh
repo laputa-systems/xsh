@@ -1072,7 +1072,7 @@ pure not_a_number() -> Float { let zero = 0.0; zero / zero }
 pure input(content: Str) -> Result[Scalar] {
   let plain = trimmed(content)
   let end = decimal_end(plain)
-  if end != null and end == plain.byte_len() { return Ok(Input(content, plain as Float)) }
+  return Ok(Input(content, plain as Float)) when end != null and end == plain.byte_len()
   let kind = ieee_kind(plain)
   return Ok(Input(content, infinity())) when kind == 1
   return Ok(Input(content, -infinity())) when kind == 2
@@ -2226,10 +2226,10 @@ pure array_order(table: Table) -> List[Str] {
   if table.kind == 2 {
     # Every integer subscript is in the integer table, strings in its overflow.
     let all_seqs = collect {
-      for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { yield seqs[at] } }
+      for at in range(keys.len()) { yield seqs[at] when subscript_kind(keys[at]) != 3 }
     }
     let in_order = collect {
-      for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { yield keys[at] } }
+      for at in range(keys.len()) { yield keys[at] when subscript_kind(keys[at]) != 3 }
     }
     return string_order(strings, string_seqs, null) + integer_order(in_order, all_seqs, events)
   }
@@ -2237,7 +2237,7 @@ pure array_order(table: Table) -> List[Str] {
   # overflow table, which is an integer table when its first subscript was an
   # integer, else a string table.
   let natural_keys = collect {
-    for at in range(keys.len()) { if subscript_kind(keys[at]) == 1 { yield keys[at] } }
+    for at in range(keys.len()) { yield keys[at] when subscript_kind(keys[at]) == 1 }
   }
   let stays = leaf_blocks(natural_keys)
   var held = []

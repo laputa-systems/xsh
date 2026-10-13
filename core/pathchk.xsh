@@ -34,11 +34,11 @@ pure path_components(name: Bytes) -> List[Bytes] {
   let parts = collect {
     for index in range(name.len()) {
       if name.byte_at(index) == 47 {
-        if index > begin { yield name.slice(begin, length: index - begin) }
+        yield name.slice(begin, length: index - begin) when index > begin
         begin = index + 1
       }
     }
-    if name.len() > begin { yield name.slice(begin) }
+    yield name.slice(begin) when name.len() > begin
   }
   parts
 }

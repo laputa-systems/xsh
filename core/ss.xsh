@@ -1249,7 +1249,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
 
   let unix_tables = collect {
     for table in ["u_str", "u_dgr", "u_seq"] {
-      if table in tables { yield table }
+      yield table when table in tables
     }
   }
   if !unix_tables.is_empty() {

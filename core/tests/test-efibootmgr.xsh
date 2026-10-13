@@ -400,7 +400,7 @@ test test_efibootmgr_writes_only_named_variables_in_the_directory { |ctx|
   assert result.status == 0, result.stderr
   let after = names_in(dir)
   let added = collect {
-    for name in after { if name not in before { yield name } }
+    for name in after { yield name when name not in before }
   }
   let ordered = added |> sort-by .
   assert ordered == [f"Boot0003{GUID_SUFFIX}", f"BootNext{GUID_SUFFIX}"], added.join(",")

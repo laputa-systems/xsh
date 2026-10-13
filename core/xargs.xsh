@@ -506,7 +506,7 @@ proc main(...operands: List[Bytes]) {
           let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
           if command.is_empty() {
             let chunks = collect {
-              for index in range(batch.len()) { if index > 0 { yield b" " }; yield c_string(batch[index].data) }
+              for index in range(batch.len()) { yield b" " when index > 0; yield c_string(batch[index].data) }
             }
             gnu.write_bytes(bytes.concat([@chunks, b"\n"]))
           } else {
@@ -542,7 +542,7 @@ proc main(...operands: List[Bytes]) {
       let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
       if command.is_empty() {
         let chunks = collect {
-          for index in range(batch.len()) { if index > 0 { yield b" " }; yield c_string(batch[index].data) }
+          for index in range(batch.len()) { yield b" " when index > 0; yield c_string(batch[index].data) }
         }
         gnu.write_bytes(bytes.concat([@chunks, b"\n"]))
       } else {

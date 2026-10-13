@@ -190,12 +190,12 @@ test test_gnu_cp_cp_mv_backup_log { |ctx|
               backing and numbered and "y.~1~" in initial
             }
             assert uu.exists(s, name)? == expected, f"{util} {initial.join(" ")} {option}: {name}"
-            if expected { yield name }
+            yield name when expected
           }
         }
         let actual_names = collect {
           for entry in fs.children(s.root)? {
-            if entry.name.starts_with("x") or entry.name.starts_with("y") { yield entry.name }
+            yield entry.name when entry.name.starts_with("x") or entry.name.starts_with("y")
           }
         }
         let sorted_expected = expected_names |> sort() |> collect()

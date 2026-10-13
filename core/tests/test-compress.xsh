@@ -1013,7 +1013,7 @@ proc seed(ctx: TestContext, label: Str) [fs, error] -> Result[Path] {
 proc files_under(root: Path) [fs, error] -> Result[List[Str]] {
   let found = collect {
     for entry in fs.walk(root, hidden: true)? |> sort-by .path {
-      if entry.kind == "file" { yield f"./{entry.path.relative_to(root)}" }
+      yield f"./{entry.path.relative_to(root)}" when entry.kind == "file"
     }
   }
   Ok(found)

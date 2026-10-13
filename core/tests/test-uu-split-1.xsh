@@ -18,7 +18,7 @@ proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
 proc matching(s: uu.Scene, pattern: Regex) [fs, error] -> Result[List[Str], Error] {
   let names = collect {
     for entry in fs.children(s.root, ordered: true)? {
-      if pattern.matches(entry.name) { yield entry.name }
+      yield entry.name when pattern.matches(entry.name)
     }
   }
   Ok(names)

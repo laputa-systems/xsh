@@ -196,7 +196,7 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
       }
 
       after_zero = false
-      if block.slice(257, 5) != b"ustar" { return Err(TarError.Invalid("invalid tar magic")) }
+      return Err(TarError.Invalid("invalid tar magic")) when block.slice(257, 5) != b"ustar"
       if octal_field(block, 148, 8)? != header_sum(block) {
         return Err(TarError.Invalid("invalid tar header checksum"))
       }
@@ -242,7 +242,7 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
       }
       let has_data = kind == "file" or kind == "unsupported"
       let body_size = if has_data { size } else { 0 }
-      if body_size > data.len() - position { return Err(TarError.Invalid("short read")) }
+      return Err(TarError.Invalid("short read")) when body_size > data.len() - position
       yield {
         name: name,
         kind: kind,
@@ -646,7 +646,7 @@ proc read_names(path_text: Str) [fs, error, process, env] -> List[Str] {
     Ok(lines) => {
       let names = collect {
         for line in lines {
-          if line != "" { yield line }
+          yield line when line != ""
         }
       }
       names

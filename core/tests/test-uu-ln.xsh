@@ -767,7 +767,7 @@ test test_uu_ln_force_replace_same_inode_leaves_no_temp_file { |ctx|
   uu.succeeds(uu.invoke(s, "ln", ["--force", "a", "b"])?)
   let leftovers = collect {
     for entry in fs.children(s.root)? {
-      if entry.name not in ["a", "b"] { yield entry.name }
+      yield entry.name when entry.name not in ["a", "b"]
     }
   }
   assert leftovers.is_empty()

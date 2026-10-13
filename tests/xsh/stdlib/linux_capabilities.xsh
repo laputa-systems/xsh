@@ -31,7 +31,7 @@ pure bits_of(mask: Int) -> List[Int] {
   var number = 0
   let found = collect {
     while rest > 0 {
-      if rest % 2 == 1 { yield number }
+      yield number when rest % 2 == 1
       rest = rest / 2
       number += 1
     }

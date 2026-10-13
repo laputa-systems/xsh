@@ -639,9 +639,9 @@ export proc lsblk_from_root(root: FsRoot, argv: List[Str]) {
       let device = devices[index]
       continue when "-a" not in args.flags and device.size_bytes == 0
       if ! args.operands.is_empty() {
-        if f"/dev/{device.name}" in args.operands { yield index }
+        yield index when f"/dev/{device.name}" in args.operands
       } else if "-d" in args.flags {
-        if device.parent_device_index == null and device.slave_indices.is_empty() { yield index }
+        yield index when device.parent_device_index == null and device.slave_indices.is_empty()
       } else if "-l" in args.flags or "-r" in args.flags or (device.parent_device_index == null and device.slave_indices.is_empty()) {
         yield index
       }

@@ -841,7 +841,7 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
         # matcher, with its few special characters escaped.
         let quoted = collect {
           for byte in text {
-            if byte in [92, 91, 93, 46, 42, 94, 36] { yield 92 }
+            yield 92 when byte in [92, 91, 93, 46, 42, 94, 36]
             yield byte
           }
         }
@@ -1228,7 +1228,7 @@ export pure alternation(programs: List[Program]) -> Str? {
     return null when literal == null or program.backrefs
     let quoted = collect {
       for byte in literal {
-        if byte in [92, 94, 36, 46, 91, 93, 124, 40, 41, 42, 43, 63, 123, 125] { yield 92 }
+        yield 92 when byte in [92, 94, 36, 46, 91, 93, 124, 40, 41, 42, 43, 63, 123, 125]
         yield byte
       }
     }

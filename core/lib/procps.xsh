@@ -59,7 +59,7 @@ export proc select(rows: List[ProcessEntry], options: Selector, self_pid: Int) [
           row.command
         },
       ))
-      if matches != options.inverse { yield row }
+      yield row when matches != options.inverse
     }
   }
   return out |> sort-by(desc: true) age_key(.) |> take(1) when options.newest

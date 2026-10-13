@@ -66,9 +66,7 @@ pure upsert(properties: List[Property], name: Str, value: Str) -> List[Property]
       }
     }
 
-    if ! replaced {
-      yield {name: name, value: value}
-    }
+    yield {name: name, value: value} unless replaced
   }
 
   updated
@@ -91,9 +89,7 @@ pure sorted_unique(values: List[Str]) -> List[Str] {
 pure path_parts(text: Str) -> List[Str] {
   let parts = collect {
     for part in text.split("/") {
-      if part != "" {
-        yield part
-      }
+      yield part when part != ""
     }
   }
 

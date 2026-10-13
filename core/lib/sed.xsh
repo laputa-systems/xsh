@@ -230,7 +230,7 @@ pure normalize(text: Bytes, kind: TextKind) -> Result[Bytes, Error] {
           continue
         }
         let produced = value % 256
-        if kind == .ReplacementText and produced in [38, 92] { yield b"\\" }
+        yield b"\\" when kind == .ReplacementText and produced in [38, 92]
         yield bytes.from_ints([produced])?
         at = cursor
         continue
@@ -1441,7 +1441,7 @@ pure split_records(data: Bytes, delim: Int) -> List[Bytes] {
         start = at + 1
       }
     }
-    if start < data.len() { yield data[start..] }
+    yield data[start..] when start < data.len()
   }
   records
 }

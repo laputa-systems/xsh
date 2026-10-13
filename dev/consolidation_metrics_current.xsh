@@ -779,7 +779,7 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
             let marker = lexed.tokens[marker_cursor]
             if marker.text == "EagerAtom" { contains_eager_marker = true }
             if marker.text in ["(", "[", "{"] { marker_cursor = lexed.mates[f"{marker_cursor}"] + 1; continue }
-            if marker.text == ";" { yield marker_cursor }
+            yield marker_cursor when marker.text == ";"
             marker_cursor += 1
           }
         }

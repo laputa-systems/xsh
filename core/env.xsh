@@ -199,7 +199,7 @@ proc environment_map(ignore_inherited: Bool, unset_names: List[Str], assignments
 pure signal_names(text: Str) -> List[Str] {
   let names = collect {
     for name in text.split(",") {
-      if ! name.is_empty() { yield name }
+      yield name unless name.is_empty()
     }
   }
   names

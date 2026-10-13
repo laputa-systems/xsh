@@ -122,7 +122,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   # Stored names are percent-encoded; restore them, deepest first.
   let encoded = collect {
     for entry in fs.walk(fp"{work}/w", hidden: true)? {
-      if entry.path.display().find("%") != null { yield entry.path.display() }
+      yield entry.path.display() when entry.path.display().find("%") != null
     }
   }
   let ascending = encoded |> sort
@@ -230,7 +230,7 @@ proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, err
   let corpus = fp"{ctx.core_dir}/tests/data/patch"
   let names = collect {
     for entry in fs.children(corpus, stat: true)? {
-      if entry.kind == "dir" { yield entry.name }
+      yield entry.name when entry.kind == "dir"
     }
   }
   let ordered = names |> sort

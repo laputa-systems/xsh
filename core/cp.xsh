@@ -544,7 +544,7 @@ proc option_value(value: Str, choices: List[Str], option: Str) -> Str {
   return value when value in choices
   let matches = collect {
     for choice in choices {
-      if value != "" and choice.starts_with(value) { yield choice }
+      yield choice when value != "" and choice.starts_with(value)
     }
   }
   return matches[0] when matches.len() == 1

@@ -725,14 +725,14 @@ export pure power_up_time(ms: Int) -> Str {
 ## Error-register mnemonic list for an ATA error.
 export pure error_flags(error: Int) -> List[Str] {
   let names = collect {
-    if bit_set(error, 7) { yield "ICRC" }
-    if bit_set(error, 6) { yield "UNC" }
-    if bit_set(error, 5) { yield "MC" }
-    if bit_set(error, 4) { yield "IDNF" }
-    if bit_set(error, 3) { yield "MCR" }
-    if bit_set(error, 2) { yield "ABRT" }
-    if bit_set(error, 1) { yield "TK0NF" }
-    if bit_set(error, 0) { yield "AMNF" }
+    yield "ICRC" when bit_set(error, 7)
+    yield "UNC" when bit_set(error, 6)
+    yield "MC" when bit_set(error, 5)
+    yield "IDNF" when bit_set(error, 4)
+    yield "MCR" when bit_set(error, 3)
+    yield "ABRT" when bit_set(error, 2)
+    yield "TK0NF" when bit_set(error, 1)
+    yield "AMNF" when bit_set(error, 0)
   }
   names
 }

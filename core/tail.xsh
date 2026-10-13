@@ -287,7 +287,7 @@ proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: 
   let chunks = collect {
     loop {
       match unix.read_fd(fd, tio.CHUNK) {
-        Ok(chunk) => { if ! chunk.is_empty() { yield chunk } }
+        Ok(chunk) => yield chunk unless chunk.is_empty()
         Err(failure) => {
           if gnu.errno(failure) not in [11, 35] {
             unix.close_fd(fd)
@@ -606,9 +606,7 @@ proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int
           reverted = true
         }
 
-        if step.keep {
-          yield step.file
-        }
+        yield step.file when step.keep
       }
     }
 

@@ -47,7 +47,7 @@ export pure validate(entries: List[Entry], allow_empty = false) -> Result[Unit, 
   }
   for default in [false, true] {
     let tags: List[Tag] = collect {
-      for entry in entries { if entry.default == default { yield entry.tag } }
+      for entry in entries { yield entry.tag when entry.default == default }
     }
     continue when default and tags.is_empty()
     return Err(AclError.Invalid("ACL requires owner, group and other entries")) when AclOwner not in tags or AclGroupOwner not in tags or AclOther not in tags
@@ -182,7 +182,7 @@ export proc read(target: Path) [fs, error] -> Result[List[Entry], Error] {
         yield @decode(payload, default:)?
       } else if let Err(failure) = found {
         if failure.errno == 61 or failure.errno == 93 {
-          if ! default { yield @from_mode(stat.mode) }
+          yield @from_mode(stat.mode) unless default
         } else {
           return Err(failure)
         }

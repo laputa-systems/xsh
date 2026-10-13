@@ -13,7 +13,7 @@ export pure reorder_candidates(message: Str) -> Str {
   let head = message.byte_slice(0, at + marker.byte_len())
   let names = collect {
     for part in message.byte_slice(at + marker.byte_len()).split(" ") {
-      if part != "" { yield part }
+      yield part when part != ""
     }
   }
   var ordered = [

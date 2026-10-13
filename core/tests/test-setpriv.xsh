@@ -67,7 +67,7 @@ pure list_after(text: Str, label: Str) -> List[Int] {
       if line.starts_with(label) {
         for word in line.byte_slice(label.byte_len()).trim().split("\t") {
           for piece in word.split(" ") {
-            if piece != "" { yield piece.parse_int() ?? -1 }
+            yield piece.parse_int() ?? -1 when piece != ""
           }
         }
       }

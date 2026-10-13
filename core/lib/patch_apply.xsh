@@ -37,7 +37,7 @@ export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
       if is_blank(byte) {
         in_blanks = true
       } else {
-        if in_blanks { yield 32 }
+        yield 32 when in_blanks
         in_blanks = false
         yield byte
       }
@@ -50,7 +50,7 @@ export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
 export pure pattern(hunk: patch_parse.Hunk) -> List[Bytes] {
   let output = collect {
     for index in range(hunk.kinds.len()) {
-      if hunk.kinds[index] != 2 { yield hunk.texts[index] }
+      yield hunk.texts[index] when hunk.kinds[index] != 2
     }
   }
   output

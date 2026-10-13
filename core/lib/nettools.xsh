@@ -514,7 +514,7 @@ export proc interfaces() [process, error] -> Result[List[Interface], Error] {
 pure flag_names(flags: Int) -> Str {
   let names = collect {
     for entry in FLAG_NAMES {
-      if flags.bit_and(entry.bit) != 0 { yield entry.name }
+      yield entry.name when flags.bit_and(entry.bit) != 0
     }
   }
   names.join(",")

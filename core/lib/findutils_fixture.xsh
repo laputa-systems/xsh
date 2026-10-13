@@ -246,7 +246,7 @@ proc listing(directory: Path, strip: Int) [fs, error] -> Result[List[Bytes]] {
     for entry in fs.children(directory)? {
       let full = entry.path.bytes()
       yield full[strip..]
-      if entry.kind == "dir" { yield @listing(entry.path, strip)? }
+      yield @listing(entry.path, strip)? when entry.kind == "dir"
     }
   }
   Ok(names)
@@ -365,7 +365,7 @@ export proc run_corpus(xsh_bin: Path, script: Path, corpus: Path, root: Path, wo
       let status = stored.status
       let expected_out = resolve_ids(stored.stdout, identity.uid, identity.gid) |> stored_bytes(_, stored.stdout_hex)
       let expected_err = stored_bytes(stored.stderr, stored.stderr_hex)
-      if seen.status != status { yield f"{c.name}: exit {seen.status}, expected {status}" }
+      yield f"{c.name}: exit {seen.status}, expected {status}" when seen.status != status
       if ! same_output(c, expected_out, seen.stdout) {
         yield f"{c.name}: stdout {show(seen.stdout)} expected {show(expected_out)}"
       }
