@@ -89,7 +89,7 @@ pure option_events(argv: List[Str]) -> List[Event] {
       } else if resolved == "bytes" or resolved == "ignore-initial" {
         var value = ""
         if equals != null {
-          value = body.byte_slice((equals) + 1)
+          value = body.byte_slice(equals + 1)
         } else {
           index += 1
           value = argv.get(index) ?? ""

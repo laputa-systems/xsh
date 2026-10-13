@@ -232,9 +232,9 @@ proc data_part(option: Str, value: Str, strip: Bool, files: Bool) [io, fs, error
 proc urlencoded_part(value: Str) [io, fs, error] -> Bytes {
   let equals = value.find("=")
   let at = value.find("@")
-  if equals != null and (at == null or (equals) < (at)) {
+  if equals != null and (at == null or equals < at) {
     let name = value.byte_slice(0, equals)
-    let content = bytes.from_text(value.byte_slice((equals) + 1))
+    let content = bytes.from_text(value.byte_slice(equals + 1))
     let encoded = http_transfer.percent_encode(content, true)
     return bytes.from_text(if name == "" { encoded } else { f"{name}={encoded}" })
   }

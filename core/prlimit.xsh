@@ -231,7 +231,7 @@ pure exceeds(left: Int?, right: Int?) -> Bool {
   return false when left != null and right == null
   return left != null or right != null when left == null or right == null
 
-  (left) > (right)
+  left > right
 }
 
 pure escaped(text: Str) -> Str {
@@ -395,7 +395,7 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
       let body = word.byte_slice(2)
       let equals = body.find("=")
       let given = if equals == null { body } else { body.byte_slice(0, equals) }
-      let attached: Str? = if equals == null { null } else { body.byte_slice((equals) + 1) }
+      let attached: Str? = if equals == null { null } else { body.byte_slice(equals + 1) }
       let found = matching_names(given)
 
       if found.is_empty() {
@@ -593,7 +593,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       for bound in [wanted_soft, wanted_hard] {
         if resource.rlimit == "nofile" {
-          let over = bound.kind == "unlimited" or bound.kind == "huge" or (bound.kind == "value" and ceiling != null and bound.value > (ceiling))
+          let over = bound.kind == "unlimited" or bound.kind == "huge" or (bound.kind == "value" and ceiling != null and bound.value > ceiling)
 
           if over {
             fail(f"the NOFILE resource limit is not allowed to exceed {ceiling ?? 0} (fs.nr_open)")

@@ -453,7 +453,7 @@ pure parse_colors(spec: Str, base: Colors) -> Colors {
     } else if value == null {
       name += ch
     } else if ch == ";" or (ch >= "0" and ch <= "9") {
-      value = (value) + ch
+      value = value + ch
     } else { return c }
   }
   c

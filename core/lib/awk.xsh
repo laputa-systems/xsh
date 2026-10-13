@@ -503,8 +503,8 @@ pure constant_value(program: Program, id: Int) -> Float? {
     Unary(op, child) => {
       let inner = constant_value(program, child)
       return null when inner == null
-      return 0.0 - (inner) when op == "-"
-      return if (inner) == 0.0 { 1.0 } else { 0.0 } when op == "!"
+      return 0.0 - inner when op == "-"
+      return if inner == 0.0 { 1.0 } else { 0.0 } when op == "!"
       null
     }
     Binary(op, left, right) => {
@@ -1298,7 +1298,7 @@ pure printf(format: Str, values: List[Scalar], conversion: Str) -> Result[Str] {
     argument = parsed.argument
     at = parsed.at
     var index = argument
-    if used.argument != null { index = (used.argument) - 1 }
+    if used.argument != null { index = used.argument - 1 }
     if index >= values.len() or index < 0 {
       let pad = padding(" ", begin + 1)
       return Err(runtime(f"not enough arguments to satisfy format string\n\t`{format}'\n\t{pad}^ ran out for this one"))
@@ -1387,14 +1387,14 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
       return Err(ere_error("Trailing backslash")) when at + 1 >= chars.len()
       # Escaped bytes of a multibyte character, or stray bytes, stand for the same characters as in the subject.
       let first = escape_byte(chars, at)
-      if first != null and (first).value >= 128 {
-        var raw: List[Int] = [(first).value]
-        var cursor = (first).at
+      if first != null and first.value >= 128 {
+        var raw: List[Int] = [first.value]
+        var cursor = first.at
         loop {
           let more = escape_byte(chars, cursor)
-          break when more == null or (more).value < 128
-          raw += [(more).value]
-          cursor = (more).at
+          break when more == null or more.value < 128
+          raw += [more.value]
+          cursor = more.at
         }
         for character in decode_lossy(bytes.from_ints(raw)?)?.split("") { out += [literal_char(character, alphabet)] }
         at = cursor
@@ -1622,7 +1622,7 @@ pure make_alphabet(pattern: Str, subject: Str) -> Alphabet {
   ]
   var chars: Map[Str] = {}
   var next = 0
-  for character in (pattern + subject) {
+  for character in pattern + subject {
     if (character.byte_len() > 1 or character == "\0") and ! (character in chars) {
       if next < free.len() { chars = chars.set(character, shown_char(free[next])); next += 1 } else { chars = chars.set(character, shown_char(free[0])) }
     }
@@ -1784,7 +1784,7 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
   if is_ascii_text(content) and is_ascii_text(pattern) {
     let translated = rx_translate(pattern, NO_ALPHABET)?
     let caps = regex.captures_bytes(translated, bytes.from_text(content), 0, extended: true, ignore_case:)?
-    return Ok([if item == null { null } else { {start: (item).start, end: (item).end} } for item in caps])
+    return Ok([if item == null { null } else { {start: item.start, end: item.end} } for item in caps])
   }
   let alphabet = make_alphabet(pattern, content)
   let translated = rx_translate(pattern, alphabet)?
@@ -1802,7 +1802,7 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
   }
   offsets += [position]
   let caps = regex.captures_bytes(translated, bytes.from_ints(mapped)?, 0, extended: true, ignore_case:)?
-  Ok([if item == null { null } else { {start: offsets[(item).start], end: offsets[(item).end]} } for item in caps])
+  Ok([if item == null { null } else { {start: offsets[item.start], end: offsets[item.end]} } for item in caps])
 }
 
 
@@ -2706,7 +2706,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       if keys == null { return Ok(site + [OpDeleteAll(if slot >= 0 { SpotLocal(slot, array) } else { SpotGlobal(array) })]) }
       var ops = site
       for key in keys { ops += compile_expression(x, names, key)? }
-      let count = (keys).len()
+      let count = keys.len()
       Ok(ops + [OpDelete(if slot >= 0 { SpotIndexLocal(slot, array, count) } else { SpotIndexGlobal(array, count) })])
     }
     Next => Ok(site + [OpNext])
@@ -2788,7 +2788,7 @@ pure reason_of(failure: Error) -> Str {
   loop {
     let at = tail.find(": ")
     break when at == null
-    tail = tail.byte_slice((at) + 2)
+    tail = tail.byte_slice(at + 2)
   }
   tail
 }

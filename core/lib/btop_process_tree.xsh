@@ -45,7 +45,7 @@ pure add_rate(left: rates.Rate, right: rates.Rate) -> rates.Rate {
   if left.state != .Observed or right.state != .Observed or left.value == null or right.value == null {
     return {state: rates.Unavailable, value: null}
   }
-  {state: rates.Observed, value: (left.value) + (right.value)}
+  {state: rates.Observed, value: left.value + right.value}
 }
 
 pure add_bytes(left: Int?, right: Int?) -> Int? {

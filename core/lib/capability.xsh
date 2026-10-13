@@ -129,7 +129,7 @@ export pure encode(record: FileCaps) -> Result[Bytes, Error] {
   }
   let rev = match record.revision { One => 1, Two => 2, Three => 3 }
   return Err(CapabilityError.Invalid("revision one cannot represent upper capability bits")) when rev == 1 and (record.permitted.high != 0 or record.inheritable.high != 0)
-  return Err(CapabilityError.Invalid("invalid root ID for capability revision")) when (rev == 3 and (record.rootid == null or (record.rootid ?? -1) < 0 or (record.rootid) > 4294967295)) or (rev != 3 and record.rootid != null)
+  return Err(CapabilityError.Invalid("invalid root ID for capability revision")) when (rev == 3 and (record.rootid == null or (record.rootid ?? -1) < 0 or record.rootid > 4294967295)) or (rev != 3 and record.rootid != null)
   var chunks = [bytes.pack_le(rev * 16777216 + (if record.effective { 1 } else { 0 }), 4)?, bytes.pack_le(record.permitted.low, 4)?, bytes.pack_le(record.inheritable.low, 4)?]
   if rev > 1 { chunks += [bytes.pack_le(record.permitted.high, 4)?, bytes.pack_le(record.inheritable.high, 4)?] }
   if rev == 3 { chunks += [bytes.pack_le(record.rootid ?? 0, 4)?] }

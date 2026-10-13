@@ -151,19 +151,19 @@ proc wait_until(
 }
 
 pure limited_observations(observations: List[model.Observation], count: Int?) -> List[model.Observation] {
-  return observations when count == null or (count) >= observations.len()
+  return observations when count == null or count >= observations.len()
   observations |> take(count)
 }
 
 pure limited_models(frames: List[model.Model], count: Int?) -> List[model.Model] {
-  return frames when count == null or (count) >= frames.len()
+  return frames when count == null or count >= frames.len()
   frames |> take(count)
 }
 
 proc parse_frame_limit(value: Str?) -> Result[Int?, Error] {
   return Ok(null) when value == null
   let parsed = src.parse_integer(value)
-  if parsed == null or (parsed) <= 0 {
+  if parsed == null or parsed <= 0 {
     return Err(error.failure("--frames requires a positive integer"))
   }
   Ok(parsed)
@@ -310,7 +310,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] {
   while true {
     committed = draw(current, view, rows, cols, committed, histories, session.capabilities, local_display)?
     sampled += 1
-    break when count != null and sampled >= (count)
+    break when count != null and sampled >= count
     let waited = wait_until(
       schedule.next_due_ns,
       current,

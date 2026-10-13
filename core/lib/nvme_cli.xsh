@@ -462,7 +462,7 @@ proc parse(cmd: Str, own: List[Str], argv: List[Str]) [process, env, io] -> Pars
       } else {
         var text = ""
         if split != null {
-          text = body.byte_slice((split) + 1)
+          text = body.byte_slice(split + 1)
         } else {
           if index >= argv.len() { usage_failure(cmd, f"option requires an argument: {long}") }
           text = argv[index]

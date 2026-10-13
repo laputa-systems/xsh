@@ -52,7 +52,7 @@ pure hex_value(text: Str) -> Int? {
   for digit in text.lower() {
     let number = "0123456789abcdef".find(digit)
     return null when number == null
-    value = value * 16 + (number)
+    value = value * 16 + number
   }
   value
 }
@@ -70,7 +70,7 @@ pure parse_delimiter(spec: Str) -> Int? {
     return if value != null and rest.byte_len() <= 3 { value } else { null }
   }
   let value = octal_value(rest)
-  if value != null and rest.byte_len() <= 3 and (value) < 256 { value } else { null }
+  if value != null and rest.byte_len() <= 3 and value < 256 { value } else { null }
 }
 
 # Split a chunk of input into items: blanks and newlines separate them, quotes
@@ -219,7 +219,7 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
       let body = arg.byte_slice(2)
       let eq = body.find("=")
       let name = if eq == null { body } else { body.byte_slice(0, eq) }
-      var value: Str? = if eq == null { null } else { body.byte_slice((eq) + 1) }
+      var value: Str? = if eq == null { null } else { body.byte_slice(eq + 1) }
       var matches: List[LongOption] = []
       for candidate in LONG_OPTIONS {
         if candidate.long == name { matches = [candidate]; break }

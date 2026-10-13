@@ -117,7 +117,7 @@ test test_gnu_wc_wc_parallel_log { |ctx|
   let cat_words = uu.argv(s, "cat", [])?
   let reader = [shell_word(word.display()) for word in cat_words].join(" ")
   let script = Path("\"$@\" | " + reader)
-  let input = bytes.from_text(([@names, @names, @names]).join("\n") + "\n")
+  let input = bytes.from_text([@names, @names, @names].join("\n") + "\n")
   let command = process.command_argv(p"/bin/sh", [p"sh", p"-c", script, p"wc-pipe", @xargs_words],
     s.root, {}, input, uu.at(s, "out"), uu.at(s, "err"), timeout: 30s)
   assert process.run(command)?.exit_code()? == 0

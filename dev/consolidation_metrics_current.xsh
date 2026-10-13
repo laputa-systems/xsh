@@ -1519,7 +1519,7 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
   }
   let active_pattern_owners = collect {
     for scan in scans {
-      if (active.get(scan.count.path) ?? false) and (scan.count.path in ["src/runtime/eval.rs", "src/runtime/eval/indexed/full/schema.rs"]) { yield scan.count.path }
+      if (active.get(scan.count.path) ?? false) and scan.count.path in ["src/runtime/eval.rs", "src/runtime/eval/indexed/full/schema.rs"] { yield scan.count.path }
     }
   }
   let has_pattern_owner = !active_pattern_owners.is_empty()

@@ -198,7 +198,7 @@ pure last_separator(line: Str) -> Separator? {
   while offset < line.byte_len() {
     let next = line.byte_slice(offset).find(")")
     break when next == null
-    let close = offset + (next)
+    let close = offset + next
     var after = close + 1
     while after < line.byte_len() and line.byte_slice(after, length: 1) == " " { after += 1 }
     if after < line.byte_len() and line.byte_slice(after, length: 1) == "=" {

@@ -414,7 +414,7 @@ export proc find_by_name(root: FsRoot, name: Str) [fs, error] -> Result[Str?, Er
       let uevent = root.read_result(fp"{entry}/uevent", max_bytes: 65536)?
       var matched = false
       if uevent.state == "observed" and uevent.data != null {
-        for line in (uevent.data).utf8() ?? "" |> lines() {
+        for line in uevent.data.utf8() ?? "" |> lines() {
           if line == f"DEVNAME={name}" or line == f"DEVNAME=/dev/{name}" {
             matched = true
           }
@@ -424,7 +424,7 @@ export proc find_by_name(root: FsRoot, name: Str) [fs, error] -> Result[Str?, Er
       if ! matched {
         let record = root.read_result(fp"run/udev/data/{kind_prefix(kind)}{entry.name()}", max_bytes: 1048576)?
         if record.state == "observed" and record.data != null {
-          for line in (record.data).utf8() ?? "" |> lines() {
+          for line in record.data.utf8() ?? "" |> lines() {
             if line == f"S:{name}" {
               matched = true
             }

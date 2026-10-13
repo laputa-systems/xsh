@@ -201,7 +201,7 @@ export pure url_scheme(url: Str) -> Str? {
 pure authority(url: Str) -> Str {
   let at = url.find("://")
   return "" when at == null
-  let rest = url.byte_slice((at) + 3)
+  let rest = url.byte_slice(at + 3)
   var end = rest.byte_len()
   for mark in ["/", "?", "#"] {
     let found = rest.find(mark)
@@ -215,7 +215,7 @@ pure authority(url: Str) -> Str {
 export pure url_authority(url: Str) -> Str {
   let full = authority(url)
   let at = full.find("@")
-  if at == null { full } else { full.byte_slice((at) + 1) }
+  if at == null { full } else { full.byte_slice(at + 1) }
 }
 
 ## The host of a URL without userinfo or port; bracketed IPv6 literals keep
@@ -223,7 +223,7 @@ export pure url_authority(url: Str) -> Str {
 export pure url_host(url: Str) -> Str {
   var host = authority(url)
   let at = host.find("@")
-  if at != null { host = host.byte_slice((at) + 1) }
+  if at != null { host = host.byte_slice(at + 1) }
   if host.starts_with("[") {
     let close = host.find("]")
     return host.byte_slice(1, (close ?? host.byte_len()) - 1)
@@ -238,12 +238,12 @@ export pure url_port(url: Str) -> Int {
   let host = authority(url)
   var tail = host
   let at = tail.find("@")
-  if at != null { tail = tail.byte_slice((at) + 1) }
+  if at != null { tail = tail.byte_slice(at + 1) }
   let close = tail.find("]")
-  if close != null { tail = tail.byte_slice((close) + 1) }
+  if close != null { tail = tail.byte_slice(close + 1) }
   let colon = tail.find(":")
   if colon != null {
-    let parsed = tail.byte_slice((colon) + 1).parse_int() ?? -1
+    let parsed = tail.byte_slice(colon + 1).parse_int() ?? -1
     return parsed when parsed >= 0
   }
   if url_scheme(url) == "https" { 443 } else { 80 }
@@ -253,7 +253,7 @@ export pure url_port(url: Str) -> Int {
 export pure url_path(url: Str) -> Str {
   let at = url.find("://")
   return "/" when at == null
-  let rest = url.byte_slice((at) + 3)
+  let rest = url.byte_slice(at + 3)
   let slash = rest.find("/")
   var full = if slash == null { "/" } else { rest.byte_slice(slash) }
   for mark in ["?", "#"] {

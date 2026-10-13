@@ -98,7 +98,7 @@ pure state_text(state: report.ObservationState) -> Str {
 
 pure rate_text(value: rates.Rate) -> Str {
   if value.state == .Observed and value.value != null {
-    return f"{(value.value).format(precision: 1)}%"
+    return f"{value.value.format(precision: 1)}%"
   }
 
   match value.state {
@@ -156,7 +156,7 @@ pure counter_text(value: rates.ByteValue) -> Str {
 
 pure uptime_text(value: syscpu.Uptime) -> Str {
   return state_text(value.state) when value.seconds == null
-  f"{(value.seconds).format(precision: 1)} s"
+  f"{value.seconds.format(precision: 1)} s"
 }
 
 pure load_text(value: syscpu.LoadAverage) -> Str {
@@ -203,7 +203,7 @@ pure frequency_text(value: sensors.CpuFrequency) -> Str {
 pure battery_text(value: sensors.Battery) -> Str {
   return f"Battery {state_text(value.state)}" when value.state != .Observed
   let percent = if value.capacity_percent == null { "?" } else { f"{value.capacity_percent}%" }
-  let power = if value.power_watts == null { "" } else { f" {(value.power_watts).format(precision: 2)} W" }
+  let power = if value.power_watts == null { "" } else { f" {value.power_watts.format(precision: 2)} W" }
   f"Battery {value.name ?? "?"} {percent} {value.status ?? "unknown"}{power}"
 }
 
@@ -238,8 +238,8 @@ pure process_text(
   let rss_bytes = if state.aggregate_children { entry.rss_total_bytes } else { row.rss_bytes }
   let rss = if state.process_memory_bytes {
     bytes_text(rss_bytes)
-  } else if rss_bytes != null and value.memory.total_bytes != null and (value.memory.total_bytes) > 0 {
-    f"{((rss_bytes).float() * 100.0 / (value.memory.total_bytes).float()).format(precision: 1)}%"
+  } else if rss_bytes != null and value.memory.total_bytes != null and value.memory.total_bytes > 0 {
+    f"{(rss_bytes.float() * 100.0 / value.memory.total_bytes.float()).format(precision: 1)}%"
   } else {
     "unavailable"
   }
@@ -257,8 +257,8 @@ pure process_text(
 }
 
 pure memory_percent_text(value: model.Model) -> Str {
-  if value.memory.total_bytes != null and (value.memory.total_bytes) > 0 and value.memory.used_bytes.value != null {
-    let percent = (value.memory.used_bytes.value).float() * 100.0 / (value.memory.total_bytes).float()
+  if value.memory.total_bytes != null and value.memory.total_bytes > 0 and value.memory.used_bytes.value != null {
+    let percent = value.memory.used_bytes.value.float() * 100.0 / value.memory.total_bytes.float()
     return f"{percent.format(precision: 1)}%"
   }
   match value.memory.used_bytes.state {
@@ -468,7 +468,7 @@ pure network_graph_maximum(history: graph.History) -> Float {
 
 pure compact_bytes(value: Int?) -> Str {
   return "?" when value == null
-  let amount = (value).float()
+  let amount = value.float()
   return f"{(amount / 1073741824.0).format(precision: 0)}G" when amount >= 1073741824.0
   return f"{(amount / 1048576.0).format(precision: 0)}M" when amount >= 1048576.0
   return f"{(amount / 1024.0).format(precision: 0)}K" when amount >= 1024.0

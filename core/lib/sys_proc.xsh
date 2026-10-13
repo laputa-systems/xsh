@@ -299,7 +299,7 @@ export proc collect(root: FsRoot, page_size_bytes: Int) [fs, error] -> ProcessSo
     let name = directory.name()
     continue when ! src.decimal_digits(name)
     let parsed_pid = src.parse_integer(name)
-    if parsed_pid == null or (parsed_pid) <= 0 {
+    if parsed_pid == null or parsed_pid <= 0 {
       issues += [src.issue(f"processes.{name}.pid", report.RangeFailure, "invalid_pid", null)]
       continue
     }

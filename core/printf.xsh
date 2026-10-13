@@ -199,7 +199,7 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
 
   while at < body.byte_len() {
     let digit = digit_value(body.byte_slice(at, length: 1))
-    break when digit == null or (digit) >= base
+    break when digit == null or digit >= base
     found = true
     let next_digit = digit
     if ! overflow {
@@ -417,7 +417,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
       while at < text.len() and count < 2 {
         let digit = digit_value(text[at..at + 1].utf8() ?? "")
         break when digit == null
-        value = value * 16 + (digit)
+        value = value * 16 + digit
         at += 1
         count += 1
       }
@@ -439,7 +439,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Resu
         var valid = true
         for at in range(digits) {
           let digit = digit_value(raw[at..at + 1].utf8() ?? "")
-          if digit == null { valid = false } else { value = value * 16 + (digit) }
+          if digit == null { valid = false } else { value = value * 16 + digit }
         }
         let invalid_scalar = value > 1114111 or (value >= 55296 and value <= 57343)
         if ! valid or invalid_scalar {

@@ -264,7 +264,7 @@ proc parse(argv: List[Str]) [io, error] -> Options {
     }
     if word.starts_with("--") {
       let equals = word.find("=")
-      let name = if equals == null { word.byte_slice(2) } else { word.byte_slice(2, (equals) - 2) }
+      let name = if equals == null { word.byte_slice(2) } else { word.byte_slice(2, equals - 2) }
       let found = lookup_long(name)
       if found == null {
         refuse(name, f"--{name}")
@@ -274,7 +274,7 @@ proc parse(argv: List[Str]) [io, error] -> Options {
       var value = ""
       if spec.value {
         if equals != null {
-          value = word.byte_slice((equals) + 1)
+          value = word.byte_slice(equals + 1)
         } else {
           if index >= argv.len() { usage_failure(f"option '--{spec.long}' requires an argument", EXIT_USAGE) }
           value = argv[index]
@@ -623,7 +623,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
         var total = length
         if ranged and reply.status == 206 {
           total = range_total(reply.headers)
-          if total == null and length != null { total = (length) + resume_from }
+          if total == null and length != null { total = length + resume_from }
         }
         if options.spider {
           log_verbose(options, spider_summary(length, kind))
@@ -690,7 +690,7 @@ pure range_total(headers: List[Header]) -> Int? {
   if let value = text {
     let slash = value.find("/")
     if slash != null {
-      let parsed = value.byte_slice((slash) + 1).trim().parse_int() ?? -1
+      let parsed = value.byte_slice(slash + 1).trim().parse_int() ?? -1
       return parsed when parsed >= 0
     }
   }

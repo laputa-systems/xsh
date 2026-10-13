@@ -590,7 +590,7 @@ test test_gnu_sort_sort_float_log { |ctx|
   var failures = []
   let negative = ["-" + value for value in limits]
   let positive = reversed(limits)
-  let canonical = ([@negative, "0", @positive]).join("\n") + "\n"
+  let canonical = [@negative, "0", @positive].join("\n") + "\n"
   let reverse_input = [@reversed(positive), "0", @reversed(negative)].join("\n") + "\n"
   # A French numeric locale stops a numeric prefix at a dot; limit strings
   # emitted with a comma retain the complete scientific value.

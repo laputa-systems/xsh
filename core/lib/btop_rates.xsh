@@ -82,7 +82,7 @@ pure aggregate_delta(current: syscpu.CpuCounters, previous: syscpu.CpuCounters, 
     return {state: .Invalid, total_ticks: null, busy_ticks: null, idle_ticks: null}
   }
   let total = add_checked(busy, idle)
-  if total == null or (total) == 0 {
+  if total == null or total == 0 {
     return {state: .Invalid, total_ticks: null, busy_ticks: null, idle_ticks: null}
   }
   {state: .Observed, total_ticks: total, busy_ticks: busy, idle_ticks: idle}
@@ -110,7 +110,7 @@ export pure process_percent(
   if previous_ticks == null or previous_cpu == null {
     return {state: .Warming, value: null}
   }
-  if current_ticks < 0 or (previous_ticks ?? -1) < 0 or current_ticks < (previous_ticks) {
+  if current_ticks < 0 or (previous_ticks ?? -1) < 0 or current_ticks < previous_ticks {
     return {state: .Reset, value: null}
   }
   return {state: .Invalid, value: null} when core_count <= 0
@@ -118,7 +118,7 @@ export pure process_percent(
   return {state: delta.state, value: null} when delta.state != .Observed
   let total = delta.total_ticks ?? 0
   return {state: .Invalid, value: null} when total <= 0
-  let ticks = current_ticks - (previous_ticks)
+  let ticks = current_ticks - previous_ticks
   let scale = if per_core { core_count.float() } else { 1.0 }
   let raw = ticks.float() * scale * 100.0 / total.float()
   let ceiling = 100.0 * core_count.float()

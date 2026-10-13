@@ -142,7 +142,7 @@ proc read_program(name: Str, kind: Str) [fs, io, env, error] -> Loaded {
       loop {
         let at = tail.find(": ")
         break when at == null
-        tail = tail.byte_slice((at) + 2)
+        tail = tail.byte_slice(at + 2)
       }
       eprint f"awk: fatal: cannot open {kind} `{name}' for reading: {tail}"
       exit 2
@@ -230,7 +230,7 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
         var value = null
         let equals = body.find("=")
         if equals != null {
-          value = body.byte_slice((equals) + 1)
+          value = body.byte_slice(equals + 1)
           body = body.byte_slice(0, length: equals)
         }
         let candidates = [name for name in LONG_OPTIONS if name.starts_with(body)]

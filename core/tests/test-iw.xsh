@@ -546,7 +546,7 @@ test test_scan_dump_prints_bss_blocks_in_iw_layout { |ctx|
 
   let unknown = run_iw(ctx, "scan-dump-u", lines, ["dev", "wlan0", "scan", "dump", "-u"])?
   assert unknown.success, unknown.stderr
-  assert unknown.stdout == ([@expected, "\tUnknown IE (45): ef 09 1b"]).join("\n") + "\n"
+  assert unknown.stdout == [@expected, "\tUnknown IE (45): ef 09 1b"].join("\n") + "\n"
 }
 
 test test_scan_dump_reports_both_element_sets_and_status { |ctx|

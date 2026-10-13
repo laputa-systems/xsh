@@ -231,8 +231,8 @@ export pure apply_captured_usage(table: MountTable, captured: List[CapturedUsage
     if item.usage_state == .Observed {
       if ! all_values or (item.usage_total_bytes ?? -1) < 0 or (item.usage_used_bytes ?? -1) < 0 or
           (item.usage_available_bytes ?? -1) < 0 or
-          (item.usage_used_bytes) > (item.usage_total_bytes ?? -1) or
-          (item.usage_available_bytes) > (item.usage_total_bytes ?? -1) {
+          item.usage_used_bytes > (item.usage_total_bytes ?? -1) or
+          item.usage_available_bytes > (item.usage_total_bytes ?? -1) {
         return Err(error.failure("observed captured mount capacity requires bounded byte values"))
       }
     } else if any_value {

@@ -162,7 +162,7 @@ pure drain(state: State) -> Step {
               scanning = false
             }
           } else {
-            let sequence = data[..(final_at) + 1]
+            let sequence = data[..final_at + 1]
             current = {...current, pending: b"", escape_deadline_ms: null}
             if sequence == PASTE_START {
               current = {...current, in_paste: true, paste_text: b"", paste_probe: b"", paste_truncated: false}
@@ -181,7 +181,7 @@ pure drain(state: State) -> Step {
               scanning = false
             }
           } else {
-            let sequence = data[..(final_at) + 1]
+            let sequence = data[..final_at + 1]
             current = {...current, pending: b"", escape_deadline_ms: null}
             if let key = key_from_ss3(sequence) { yield Pressed(key) }
           }
@@ -285,7 +285,7 @@ pure paste_text(data: Bytes) -> Str {
 }
 
 pure expire(state: State, now_ms: Int) -> Step {
-  if state.escape_deadline_ms == null or now_ms < (state.escape_deadline_ms) {
+  if state.escape_deadline_ms == null or now_ms < state.escape_deadline_ms {
     return {state: state, events: []}
   }
   if state.pending == b"\x1b" {

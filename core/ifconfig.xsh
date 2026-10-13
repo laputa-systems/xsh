@@ -113,8 +113,8 @@ proc change_inet6(name: Str, word: Str, add: Bool) [fs, process, net, env, error
   let slash = word.find("/")
   if slash != null {
     text = word.byte_slice(0, length: slash)
-    let parsed = nettools.decimal(word.byte_slice((slash) + 1))
-    if parsed == null or (parsed) > 128 { usage_error() }
+    let parsed = nettools.decimal(word.byte_slice(slash + 1))
+    if parsed == null or parsed > 128 { usage_error() }
     prefix = parsed ?? 128
   }
   let raw = nettools.ipv6_parse(text)
@@ -288,8 +288,8 @@ proc configure(name_in: Str, words: List[Str]) [fs, process, net, env, error] ->
         let slash = word.find("/")
         if slash != null {
           text = word.byte_slice(0, length: slash)
-          prefix = nettools.decimal(word.byte_slice((slash) + 1))
-          if prefix == null or (prefix) > 32 { bad_address(word) }
+          prefix = nettools.decimal(word.byte_slice(slash + 1))
+          if prefix == null or prefix > 32 { bad_address(word) }
         }
         let raw = resolve_inet(text)
         let result = interface_ioctl(fd, "SIOCSIFADDR", c.SIOCSIFADDR, name, sockaddr_in(raw))

@@ -867,7 +867,7 @@ pure format_events(argv: List[Str]) -> List[FormatEvent] {
       if resolved in FORMAT_LONGS {
         var value = ""
         if equals != null {
-          value = body.byte_slice((equals) + 1)
+          value = body.byte_slice(equals + 1)
         } else {
           index += 1
           value = argv.get(index) ?? ""
@@ -966,7 +966,7 @@ proc usage_trouble(message: Str) [process, env] -> Unit {
 # A count option, or the usage error GNU gives for a bad value.
 proc count_option(text: Str, what: Str, minimum: Int) [process, env] -> Int {
   let value = parse_count(text)
-  if value == null or (value) < minimum { usage_trouble(f"invalid {what} {locale_quote(text)}") }
+  if value == null or value < minimum { usage_trouble(f"invalid {what} {locale_quote(text)}") }
   value ?? 0
 }
 
@@ -1099,7 +1099,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
         continue
       }
       let key = item.byte_slice(0, length: equals)
-      let value = item.byte_slice((equals) + 1)
+      let value = item.byte_slice(equals + 1)
       var known = false
       for position in range(names.len()) {
         if names[position] == key {

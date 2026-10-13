@@ -332,7 +332,7 @@ pure active_collapses(state: State, value: model.Model) -> Set[Str] {
 pure active_network_interface(state: State, value: model.Model) -> Str? {
   if state.network_interface != null {
     for interface in value.network.interfaces {
-      return state.network_interface when interface.name == (state.network_interface)
+      return state.network_interface when interface.name == state.network_interface
     }
   }
   value.network.interface_name
@@ -350,8 +350,8 @@ export pure network_total_bytes(state: State, interface: model.NetworkMetric?, r
     if state.network_offset_interface != selected.name or state.network_offset_ifindex != selected.ifindex { return current }
     let offset = if receive { state.network_rx_offset } else { state.network_tx_offset }
     return current when offset == null
-    return null when current < (offset)
-    return current - (offset)
+    return null when current < offset
+    return current - offset
   }
   null
 }

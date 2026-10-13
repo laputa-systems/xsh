@@ -134,8 +134,8 @@ proc ipv6_listing(numeric: Bool, cache: Bool) [fs, process, env, io, error] {
 proc split_prefix(word: Str, limit: Int, family: Str) [process, error] -> Split {
   let slash = word.find("/")
   return {text: word, prefix: null} when slash == null
-  let parsed = nettools.decimal(word.byte_slice((slash) + 1))
-  if parsed == null or (parsed) > limit { modify_usage(family) }
+  let parsed = nettools.decimal(word.byte_slice(slash + 1))
+  if parsed == null or parsed > limit { modify_usage(family) }
   {text: word.byte_slice(0, length: slash), prefix: parsed}
 }
 
@@ -343,7 +343,7 @@ proc parse_modify(add: Bool, family: Str, words: List[Str]) [process, error] -> 
       "metric" => {
         if !has_value { modify_usage(family) }
         let value = nettools.decimal(words[at])
-        if value == null or (value) > 65535 { modify_usage(family) }
+        if value == null or value > 65535 { modify_usage(family) }
         request = {...request, metric: value}
         at += 1
       }
@@ -352,19 +352,19 @@ proc parse_modify(add: Bool, family: Str, words: List[Str]) [process, error] -> 
         let value = nettools.decimal(words[at])
         at += 1
         if word == "mss" {
-          if value == null or (value) < 64 or (value) > 32768 {
+          if value == null or value < 64 or value > 32768 {
             eprint "route: Invalid MSS/MTU."
             exit 3
           }
           request = {...request, mss: value}
         } else if word == "window" {
-          if value == null or (value) < 1 or (value) > 65535 {
+          if value == null or value < 1 or value > 65535 {
             eprint "route: Invalid window size."
             exit 3
           }
           request = {...request, window: value}
         } else {
-          if value == null or (value) < 1 or (value) > 65535 {
+          if value == null or value < 1 or value > 65535 {
             eprint "route: Invalid initial rtt."
             exit 3
           }

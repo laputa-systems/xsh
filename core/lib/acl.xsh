@@ -40,7 +40,7 @@ export pure validate(entries: List[Entry], allow_empty = false) -> Result[Unit, 
   for entry in entries {
     return Err(AclError.Invalid("permissions outside ACL range")) when entry.permissions < 0 or entry.permissions > 7
     let named = entry.tag == AclUser or entry.tag == AclGroup
-    return Err(AclError.Invalid("invalid ACL identity")) when (named and (entry.id == null or (entry.id ?? -1) < 0 or (entry.id) >= 4294967295)) or (! named and entry.id != null)
+    return Err(AclError.Invalid("invalid ACL identity")) when (named and (entry.id == null or (entry.id ?? -1) < 0 or entry.id >= 4294967295)) or (! named and entry.id != null)
     let key = f"{entry.default}:{tag_number(entry.tag)}:{entry.id ?? -1}"
     return Err(AclError.Invalid("duplicate ACL entry")) when key in keys
     keys += [key]

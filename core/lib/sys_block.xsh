@@ -229,7 +229,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     let disk_sequence_text = src.observed_text(disk_sequence_source)
     let disk_sequence = src.parse_integer(disk_sequence_text)
     var disk_sequence_state = disk_sequence_source.observation.state
-    if disk_sequence_state == .Observed and (disk_sequence == null or (disk_sequence) <= 0) {
+    if disk_sequence_state == .Observed and (disk_sequence == null or disk_sequence <= 0) {
       disk_sequence_state = if src.decimal_digits(disk_sequence_text ?? "") { report.RangeFailure } else { report.Malformed }
     }
     for field_number in [
@@ -472,7 +472,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
         size_bytes: sector_bytes,
         logical_sector_bytes: logical_number.value,
         physical_sector_bytes: physical_number.value,
-        disk_sequence: if disk_sequence != null and (disk_sequence) > 0 { disk_sequence } else { null },
+        disk_sequence: if disk_sequence != null and disk_sequence > 0 { disk_sequence } else { null },
         disk_sequence_state: disk_sequence_state,
         removable: if (removable_number.value ?? -1) in [
           0,

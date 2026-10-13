@@ -745,7 +745,7 @@ test test_gnu_cksum_md5sum_parallel_log { |ctx|
   # The shared pipe exercises record atomicity with three batches and two workers.
   # Every child command still uses the isolated applet launcher.
   let reader = ["'" + word.display().replace("'", with: "'\\''") + "'" for word in cat_argv].join(" ")
-  let payload = bytes.from_text(([@names, @names, @names]).join("\n") + "\n")
+  let payload = bytes.from_text([@names, @names, @names].join("\n") + "\n")
   let output = uu.at(s, "out")
   let diagnostic = uu.at(s, "err")
   let script = fp"{"\"$@\" | " + reader}"

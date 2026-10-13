@@ -244,7 +244,7 @@ pure cpu_temperature(sources: live.MonitorSources, logical_cpu_ids: List[Int]) -
 
 pure frequency_value_mhz(frequency_khz: Int?) -> Float? {
   return null when frequency_khz == null
-  let value = (frequency_khz).float() / 1000.0
+  let value = frequency_khz.float() / 1000.0
   return null when value <= 1.0 or value >= 999999999.0
   value
 }
@@ -321,7 +321,7 @@ export pure frequency(sources: live.MonitorSources, mode: FrequencyMode) -> CpuF
 
 pure battery_percent(battery: live.MonitorBattery) -> Int? {
   let reported = battery.capacity_percent
-  if reported != null and (reported ?? -1) >= 0 and (reported) <= 100 {
+  if reported != null and (reported ?? -1) >= 0 and reported <= 100 {
     return reported
   }
 
