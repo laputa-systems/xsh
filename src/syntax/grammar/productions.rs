@@ -800,7 +800,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Programs,
             "block_parameters",
-            seq([t(T::Pipe), list1(ident()), t(T::Pipe)]),
+            seq([t(T::Pipe), list(ident()), t(T::Pipe)]),
         ),
         rule(
             Programs,
@@ -1124,7 +1124,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 opt(r("effects")),
                 t(T::LBrace),
                 star(sep()),
-                opt(seq([t(T::Pipe), ident(), opt(t(T::Comma)), t(T::Pipe)])),
+                opt(seq([t(T::Pipe), opt(seq([ident(), opt(t(T::Comma))])), t(T::Pipe)])),
                 r("statements"),
                 t(T::RBrace),
             ]),
