@@ -83,7 +83,7 @@ pure octal_literal(text: Str) -> Bool {
 
 # A located diagnostic as gawk prints it: the source line, then a caret under
 # the offending column with the message.
-pure caret_error(piece: Piece, offset: Int, message: Str, reported_line_shift: Int = 0) -> Str {
+pure caret_error(piece: Piece, offset: Int, message: Str, reported_line_shift = 0) -> Str {
   let source = bytes.from_text(piece.text)
   let at = if offset > source.len() { source.len() } else { offset }
   var line = 1
@@ -4877,7 +4877,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
 ## Parse and execute a program; the pieces are the command-line text or -f files
 ## in order, and variable items (name=value, escapes undecoded) are applied
 ## before BEGIN. Returns the exit status.
-export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[Str] = [], sandbox: Bool = false, mode: Int = 0) -> Result[Int, Error] {
+export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[Str] = [], sandbox = false, mode = 0) -> Result[Int, Error] {
   let program = parse(pieces, sandbox, mode)?
   for item in variables {
     let equals = item.find("=") ?? 0
