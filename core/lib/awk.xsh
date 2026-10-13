@@ -631,7 +631,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
         let child = expression(p, 13)?
         if ! lvalue(child.parser.program, child.value) {
           # A prefix increment of a postfix one is rejected after both operators; of a non-place, at the operand.
-          let nested = match child.parser.program.expressions[child.value] { Increment(_, _, _) => true; else => false }
+          let nested = child.parser.program.expressions[child.value] is Increment(_, _, _)
           return Err(unexpected(if nested { child.parser } else { p }))
         }
         first = expression_node(child.parser, Increment(child.value, if op == "++" { 1.0 } else { -1.0 }, false))
