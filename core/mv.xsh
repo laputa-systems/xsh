@@ -115,7 +115,7 @@ proc remove_move_tree(entry_path: Path, verbose = false) {
     }
     entry_path.remove_dir()
     if verbose { print f"removed directory {gnu.quote(entry_path.display())}" }
-    return Ok()
+    return
   }
   entry_path.remove()
   if verbose { print f"removed {gnu.quote(entry_path.display())}" }

@@ -38,7 +38,7 @@ proc run_nc(ctx: TestContext, args: List[Str], stdin = b"") [fs, process, error]
 proc await_text(file: Path, needle: Str) [fs, time, error] {
   let started = time.now()
   while time.now() - started < 10000 {
-    return Ok() when (file.read_text() ?? "").find(needle) != null
+    return when (file.read_text() ?? "").find(needle) != null
     time.sleep(20ms)
   }
   Err(error.failure(f"{file} never showed {needle}"))

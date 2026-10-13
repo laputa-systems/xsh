@@ -35,7 +35,7 @@ export pure canonical(entries: List[Entry]) -> List[Entry] {
 
 ## Require complete, unique entries and a mask whenever a named identity occurs.
 export pure validate(entries: List[Entry], allow_empty = false) -> Result[Unit, Error] {
-  return Ok() when entries.is_empty() and allow_empty
+  return when entries.is_empty() and allow_empty
   var keys = []
   for entry in entries {
     return Err(AclError.Invalid("permissions outside ACL range")) when entry.permissions < 0 or entry.permissions > 7

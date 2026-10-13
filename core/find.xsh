@@ -180,7 +180,7 @@ proc stat_reference(name: Str, follow: Bool, raw: List[gnu.RawArgument]) [fs, pr
 # Create or truncate an output file when the expression is parsed, as GNU
 # find does, so a run that matches nothing still leaves an empty file.
 proc prepare_output(name: Str, raw: List[gnu.RawArgument]) [fs, process, env, error] {
-  return Ok() when name in ["/dev/stdout", "/dev/stderr"]
+  return when name in ["/dev/stdout", "/dev/stderr"]
   if let Err(failure) = Path.parse_bytes(gnu.argument_bytes(name, raw))?.write(b"") { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}") }
   Ok()
 }
@@ -540,8 +540,8 @@ pure replace_marker(word: Bytes, value: Bytes) -> Bytes {
 # names, and is appended to the file otherwise, which several actions may
 # share.
 proc write_output(name: Str, data: Bytes, raw: List[gnu.RawArgument]) [fs, io, process, env, error] {
-  if name == "/dev/stdout" { gnu.write_bytes(data); return Ok() }
-  if name == "/dev/stderr" { io.write_stderr(data.utf8() ?? ""); io.flush_stderr(); return Ok() }
+  if name == "/dev/stdout" { gnu.write_bytes(data); return }
+  if name == "/dev/stderr" { io.write_stderr(data.utf8() ?? ""); io.flush_stderr(); return }
   let target = gnu.argument_bytes(name, raw) as Path
   let size = if let Ok(found) = fs.stat(target) { found.size } else { 0 }
   let _ = bytes.write_at(target, size, data, create: true)?

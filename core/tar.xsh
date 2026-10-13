@@ -596,7 +596,7 @@ proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] {
     } else {
       fp"{opts.archive_path}".write(data)
     }
-    return Ok()
+    return
   }
   tempdir scratch {
     let raw = fp"{scratch}/archive.tar"

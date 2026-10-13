@@ -83,7 +83,7 @@ proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool,
     var access = []; var defaults = []
     for entry in acl.canonical(entries) { if entry.default { defaults += [acl.text(entry).replace("default:", with: "d:").replace("user:", with: "u:").replace("group:", with: "g:").replace("mask:", with: "m:").replace("other:", with: "o:")] } else { access += [acl.text(entry).replace("default:", with: "d:").replace("user:", with: "u:").replace("group:", with: "g:").replace("mask:", with: "m:").replace("other:", with: "o:")] } }
     gnu.write_text(target.display() + ": " + access.join(",") + "," + (if defaults.is_empty() { "*" } else { defaults.join(",") }) + "\n")
-    return Ok()
+    return
   }
   acl.store(target, entries)
   Ok()

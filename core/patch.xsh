@@ -916,7 +916,7 @@ proc backup_name(opts: Options, name: Str) [fs, env, error] -> Str {
 proc make_backup(opts: Options, name: Str, exists: Bool, original: Bytes, mode: Int, says_missing: Bool) [fs, io, process, env, error] -> Result[Unit, Error] {
   if !exists and !says_missing {
     say(f"Cannot stat file {name}, skipping backup\n")
-    return Ok()
+    return
   }
   let target = backup_name(opts, name)
   let parent = dirname_of(target)

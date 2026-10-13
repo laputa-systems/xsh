@@ -23,7 +23,7 @@ proc need_loopback(family: Str) [process, net, error] {
   let address = if family == "inet6" { "::1" } else { "127.0.0.1" }
   let probe = linux.socket(domain, c.SOCK_DGRAM) ?? { |failure|
     test.skip(f"UDP over {family} is not available ({failure.message})")
-    return Ok()
+    return
   }
   defer unix.close_fd(probe)
   if let Err(failure) = linux.bind(probe, {family: family, address: address, port: 0}) {

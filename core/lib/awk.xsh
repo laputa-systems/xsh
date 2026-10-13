@@ -3668,7 +3668,7 @@ pure array_of(spot: Spot, slots: List[Scalar], aliases: List[Str], globals: Map[
 
 # Writes the program's pending standard output to the host.
 proc emit_stdout(text: Str, lossy: Bool) -> Result[Unit] {
-  return Ok() when text.is_empty()
+  return when text.is_empty()
   match io.write_stdout_bytes(output_bytes(text, lossy)) {
     Ok(_) => {}
     Err(failure) => { return Err(fatal_error(f"print to \"standard output\" failed ({reason_of(failure)})")) }
