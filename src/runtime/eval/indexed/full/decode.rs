@@ -67,6 +67,7 @@ impl<'a> DecodeContext<'a> {
             local_immutable_let_initializers: RefCell::default(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
+            return_analysis: RefCell::default(),
             verified: self.verified,
         }
     }

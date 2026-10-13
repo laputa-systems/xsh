@@ -6784,6 +6784,46 @@ mod checked_constructor_fact_tests {
         assert_eq!(error.construct, "top_level_boundary_blocker");
         assert_eq!(error.span, Some(statement_span));
     }
+
+    #[test]
+    fn default_control_flow_facts_do_not_hide_captured_fallthrough() {
+        let name = "incomplete-control-flow-facts.xsh";
+        let source = "proc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = range(9223372036854775807).collect(); return values.len() } }\n";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            name,
+            crate::loader::entry_source_from_text(name, source.to_string()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = sources.files()[0].id();
+        let mut declarations = crate::sema::check::Checker::check_compact_declarations(
+            &parsed.arena,
+            &sources,
+            source_id,
+        );
+        assert!(
+            declarations
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code
+                    == Some(crate::diagnostic::DiagnosticCode::CheckMissingReturn)),
+            "{:?}",
+            declarations.diagnostics
+        );
+        declarations.bodies.checked_control_flow = Default::default();
+
+        let error = match super::super::FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            source,
+            std::sync::Arc::new(sources),
+            source_id,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("an incomplete checked-flow carrier cannot prove no fallthrough"),
+        };
+        assert_eq!(error.construct, "full_ir_function_blocker");
+    }
 }
 
 #[cfg(all(test, debug_assertions))]

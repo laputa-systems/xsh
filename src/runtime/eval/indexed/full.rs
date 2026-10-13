@@ -39,7 +39,7 @@ use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, NameText, QualifiedName, Symbol};
 use crate::syntax::arena::{ArenaProgram, StmtId};
 use crate::syntax::node::{
-    AssignOp, BinaryOp, FormatSpec, FormatSpecKind, RedirectionKind, RunKind,
+    AssignOp, BinaryOp, Effect, FormatSpec, FormatSpecKind, RedirectionKind, RunKind,
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -1275,6 +1275,7 @@ impl FullProgram {
             local_immutable_let_initializers: RefCell::default(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: Some(function_signature_index.clone()),
+            return_analysis: RefCell::default(),
             verified: false,
         };
         let location_words = [step.location];
@@ -1881,7 +1882,9 @@ impl FullBuilder {
             identities: std::sync::OnceLock::new(),
         };
         let verified = FullVerifier::verify(&program);
-        verified.map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
+        verified.map_err(|_| {
+            IrBuildError::format("full_ir_verification", None, 0, 0)
+        })?;
         Ok(program)
     }
 
@@ -3520,6 +3523,7 @@ impl<'p> FullExecution<'p> {
             local_immutable_let_initializers: RefCell::default(),
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
+            return_analysis: RefCell::default(),
             verified: self.verified,
         }
     }
@@ -3814,6 +3818,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     /// captures, fail-closed scalar statements) never enter it.
     proven_callable_writers: RefCell<BTreeSet<usize>>,
     function_signature_index: Option<Arc<FunctionSignatureIndex>>,
+    return_analysis: RefCell<Option<IndexedReturnAnalysis>>,
     verified: bool,
 }
 
@@ -4796,6 +4801,7 @@ impl<'a> FullDecoder<'a> {
                 local_immutable_let_initializers: RefCell::default(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: self.function_signature_index.clone(),
+                return_analysis: RefCell::default(),
                 verified: false,
             };
             let mut payload = decoder.cursor(self.store.payload(step.data.range())?);
@@ -5054,12 +5060,103 @@ impl<'a> FullDecoder<'a> {
             .map(|index| self.store.checked_expr_types[index].type_id))
     }
 
+    fn expression_is_result_unit(&self, instruction: usize) -> Result<bool, IrVerifyError> {
+        let Some(type_id) = self.checked_expression_type_id(instruction)? else {
+            return Ok(false);
+        };
+        Ok(self.store.semantic.to_type(type_id)?.is_result_unit())
+    }
+
+    fn expression_has_checked_result(&self, instruction: usize) -> Result<bool, IrVerifyError> {
+        let Some(type_id) = self.checked_expression_type_id(instruction)? else {
+            return Ok(false);
+        };
+        Ok(self.store.semantic.type_tag(type_id)? == super::semantic::TypeTag::Result)
+    }
+
+    fn expression_has_checked_error_effect(
+        &self,
+        instruction: usize,
+    ) -> Result<bool, IrVerifyError> {
+        let function_has_error_effect = |function: usize| {
+            let function = self
+                .store
+                .functions
+                .get(function)
+                .ok_or_else(|| IrVerifyError::new("checked call target is out of bounds"))?;
+            self.store
+                .semantic
+                .signature_has_error_effect(function.signature)
+        };
+        Ok(match self.expression_view(instruction)? {
+            schema::ExprView::Call { function, .. }
+            | schema::ExprView::DirectPureCall { function, .. } => {
+                function_has_error_effect(function.id.index())?
+            }
+            schema::ExprView::SelfCall { .. } => {
+                let function = IrFunctionId::from_raw(self.owner)
+                    .ok_or_else(|| IrVerifyError::new("self call has no function owner"))?;
+                function_has_error_effect(function.index())?
+            }
+            schema::ExprView::TypedCall { signature, .. } => match signature.materialize()? {
+                Type::Callable(callable) => callable
+                    .sig
+                    .effects
+                    .as_ref()
+                    .is_some_and(|effects| effects.contains(&Effect::Error)),
+                _ => false,
+            },
+            schema::ExprView::DynamicCall { callee, .. } => {
+                match self.derive_checked_expression_type(callee.raw() as usize)? {
+                    Some(Type::Callable(callable)) => callable
+                        .sig
+                        .effects
+                        .as_ref()
+                        .is_some_and(|effects| effects.contains(&Effect::Error)),
+                    _ => false,
+                }
+            }
+            _ => false,
+        })
+    }
+
     fn instruction_parent_of(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
         let proof = self
             .instruction_proof
             .as_ref()
             .ok_or_else(|| IrVerifyError::new("full IR instruction parent proof is missing"))?;
         Ok(proof.borrow().parent_of(instruction))
+    }
+
+    fn return_analysis(&self) -> Result<std::cell::Ref<'_, IndexedReturnAnalysis>, IrVerifyError> {
+        if self.return_analysis.borrow().is_none() {
+            let analysis = IndexedReturnAnalysis::build(self)?;
+            *self.return_analysis.borrow_mut() = Some(analysis);
+        }
+        Ok(std::cell::Ref::map(
+            self.return_analysis.borrow(),
+            |analysis| analysis.as_ref().expect("return analysis was initialized"),
+        ))
+    }
+
+    fn loop_has_reachable_break(&self, loop_instruction: usize) -> Result<bool, IrVerifyError> {
+        Ok(self
+            .return_analysis()?
+            .loop_transfers
+            .get(&loop_instruction)
+            .is_some_and(|transfers| transfers & RETURN_ANALYSIS_BREAK != 0))
+    }
+
+    fn loop_has_reachable_continue(&self, loop_instruction: usize) -> Result<bool, IrVerifyError> {
+        Ok(self
+            .return_analysis()?
+            .loop_transfers
+            .get(&loop_instruction)
+            .is_some_and(|transfers| transfers & RETURN_ANALYSIS_CONTINUE != 0))
+    }
+
+    fn subtree_has_uncaught_try(&self, root: usize) -> Result<bool, IrVerifyError> {
+        Ok(self.return_analysis()?.uncaught_try_roots.contains(&root))
     }
 
     fn checked_with_error_source_instructions(&self) -> Result<BTreeSet<usize>, IrVerifyError> {
@@ -9312,12 +9409,18 @@ fn indexed_block_can_return_with_decoder(
             "return-analysis block length is invalid",
         ));
     }
+    let mut completes = true;
     for instruction in instructions {
-        if indexed_stmt_can_return_with_decoder(store, *instruction as usize, decoder)? {
-            return Ok(true);
+        let statement_returns = if completes {
+            indexed_stmt_can_return_with_decoder(store, *instruction as usize, decoder)?
+        } else {
+            false
+        };
+        if statement_returns {
+            completes = false;
         }
     }
-    Ok(false)
+    Ok(!completes)
 }
 
 /// The literal truth value of a lowered branch condition instruction, when it
@@ -9348,6 +9451,1448 @@ fn indexed_condition_bool_literal(
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndexedCardinality {
+    Empty,
+    NonEmpty,
+    Maybe,
+}
+
+const RETURN_ANALYSIS_BREAK: u8 = 1 << 0;
+const RETURN_ANALYSIS_CONTINUE: u8 = 1 << 1;
+
+struct IndexedReturnAnalysis {
+    uncaught_try_roots: rustc_hash::FxHashSet<usize>,
+    loop_transfers: FxHashMap<usize, u8>,
+    #[cfg(test)]
+    node_visits: usize,
+    #[cfg(test)]
+    edge_visits: usize,
+    #[cfg(test)]
+    reachability_visits: usize,
+}
+
+impl IndexedReturnAnalysis {
+    fn build(decoder: &FullDecoder<'_>) -> Result<Self, IrVerifyError> {
+        let range = decoder.instruction_range.clone();
+        let node_count = range.len();
+        let mut children = vec![Vec::new(); node_count];
+        let mut child_reachability = vec![Vec::new(); node_count];
+        let mut roots = Vec::new();
+        let mut callback_loop_boundary_roots = rustc_hash::FxHashSet::default();
+        #[cfg(test)]
+        let mut node_visits = 0usize;
+        #[cfg(test)]
+        let mut edge_visits = 0usize;
+        #[cfg(test)]
+        let mut reachability_visits = 0usize;
+        for instruction in range.clone() {
+            #[cfg(test)]
+            {
+                node_visits += 1;
+            }
+            let parent = decoder.instruction_parent_of(instruction)?;
+            if let Some(parent) = parent {
+                let Some(parent_local) = parent.checked_sub(range.start) else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis parent is outside its instruction owner",
+                    ));
+                };
+                let Some(siblings) = children.get_mut(parent_local) else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis parent is outside its instruction owner",
+                    ));
+                };
+                siblings.push(instruction);
+            } else {
+                roots.push(instruction);
+            }
+            if decoder.store.tags[instruction] == FullTag::ExprPipeline {
+                indexed_pipeline_callback_roots(
+                    decoder,
+                    instruction,
+                    &mut callback_loop_boundary_roots,
+                )?;
+            }
+        }
+
+        for (local, siblings) in children.iter().enumerate() {
+            let instruction = range.start + local;
+            let (reachable, visits) = indexed_children_reachable_from_parent(
+                decoder,
+                instruction,
+                siblings,
+            )?;
+            child_reachability[local] = reachable;
+            #[cfg(test)]
+            {
+                reachability_visits += visits;
+            }
+            #[cfg(not(test))]
+            let _ = visits;
+        }
+
+        let mut uncaught_try_roots = rustc_hash::FxHashSet::default();
+        let mut subtree_state = vec![0u8; node_count];
+        let mut subtree_has_try = vec![false; node_count];
+        let mut stack = Vec::new();
+        for root in 0..node_count {
+            if subtree_state[root] != 0 {
+                continue;
+            }
+            stack.push((root, false));
+            while let Some((local, exiting)) = stack.pop() {
+                #[cfg(test)]
+                {
+                    node_visits += 1;
+                }
+                let Some(state) = subtree_state.get_mut(local) else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis instruction is outside its owner",
+                    ));
+                };
+                if exiting {
+                    *state = 2;
+                    let instruction = range.start + local;
+                    let tag = decoder.store.tags[instruction];
+                    let mut has_uncaught_try =
+                        !matches!(tag, FullTag::ExprCapture | FullTag::ExprRetry)
+                            && tag == FullTag::ExprTry;
+                    if !matches!(tag, FullTag::ExprCapture | FullTag::ExprRetry)
+                        && !has_uncaught_try
+                    {
+                        for (child_index, child) in children[local].iter().enumerate() {
+                            if child_reachability[local][child_index]
+                                && subtree_has_try[*child - range.start]
+                            {
+                                has_uncaught_try = true;
+                                break;
+                            }
+                        }
+                    }
+                    subtree_has_try[local] = has_uncaught_try;
+                    if has_uncaught_try {
+                        uncaught_try_roots.insert(instruction);
+                    }
+                    continue;
+                }
+                if *state == 2 {
+                    continue;
+                }
+                if *state == 1 {
+                    return Err(IrVerifyError::new("return-analysis instruction cycle"));
+                }
+                *state = 1;
+                stack.push((local, true));
+                for child in children[local].iter().rev() {
+                    #[cfg(test)]
+                    {
+                        edge_visits += 1;
+                    }
+                    let child_local = child - range.start;
+                    if subtree_state[child_local] == 1 {
+                        return Err(IrVerifyError::new("return-analysis instruction cycle"));
+                    }
+                    if subtree_state[child_local] == 0 {
+                        stack.push((child_local, false));
+                    }
+                }
+            }
+        }
+
+        let mut loop_transfers = FxHashMap::default();
+        let mut reached = vec![false; node_count];
+        let mut flow_stack = roots
+            .into_iter()
+            .map(|root| (root, None, true))
+            .collect::<Vec<_>>();
+        while let Some((instruction, enclosing_loop, reachable)) = flow_stack.pop() {
+            #[cfg(test)]
+            {
+                node_visits += 1;
+            }
+            let local = instruction - range.start;
+            if reached[local] {
+                continue;
+            }
+            reached[local] = true;
+            let tag = decoder.store.tags[instruction];
+            if matches!(tag, FullTag::StmtBreak | FullTag::StmtBreakValue) {
+                let Some(loop_instruction) = enclosing_loop else {
+                    return Err(IrVerifyError::new("break is not owned by a loop"));
+                };
+                if reachable {
+                    *loop_transfers.entry(loop_instruction).or_insert(0) |=
+                        RETURN_ANALYSIS_BREAK;
+                }
+            } else if tag == FullTag::StmtContinue {
+                let Some(loop_instruction) = enclosing_loop else {
+                    return Err(IrVerifyError::new("continue is not owned by a loop"));
+                };
+                if reachable {
+                    *loop_transfers.entry(loop_instruction).or_insert(0) |=
+                        RETURN_ANALYSIS_CONTINUE;
+                }
+            }
+
+            for (child_index, child) in children[local].iter().enumerate().rev() {
+                #[cfg(test)]
+                {
+                    edge_visits += 1;
+                }
+                let child = *child;
+                let child_reachable = reachable
+                    && child_reachability[local][child_index];
+                let next_loop = if callback_loop_boundary_roots.contains(&child) {
+                    None
+                } else if matches!(
+                    tag,
+                    FullTag::ExprLoop
+                        | FullTag::StmtLoop
+                        | FullTag::StmtWhile
+                        | FullTag::StmtWhileBool
+                        | FullTag::StmtPatternWhile
+                        | FullTag::StmtFor
+                        | FullTag::StmtForRecord
+                        | FullTag::StmtForStrLines
+                ) && !indexed_loop_child_is_before_body(decoder, instruction, child)?
+                {
+                    Some(instruction)
+                } else {
+                    enclosing_loop
+                };
+                flow_stack.push((child, next_loop, child_reachable));
+            }
+        }
+
+        Ok(Self {
+            uncaught_try_roots,
+            loop_transfers,
+            #[cfg(test)]
+            node_visits,
+            #[cfg(test)]
+            edge_visits,
+            #[cfg(test)]
+            reachability_visits,
+        })
+    }
+}
+
+/// Reconstructs only cardinality facts represented directly in checked IR.
+/// The verifier uses this to validate loop proofs without trusting checker
+/// metadata that is absent from raw programs.
+struct IndexedCardinalityQuery<'d, 'a> {
+    decoder: &'d FullDecoder<'a>,
+    memo: FxHashMap<usize, Option<IndexedCardinality>>,
+}
+
+impl<'d, 'a> IndexedCardinalityQuery<'d, 'a> {
+    fn new(decoder: &'d FullDecoder<'a>) -> Self {
+        Self {
+            decoder,
+            memo: FxHashMap::default(),
+        }
+    }
+
+    fn expression(&mut self, instruction: usize) -> Result<IndexedCardinality, IrVerifyError> {
+        if let Some(cardinality) = self.memo.get(&instruction) {
+            return Ok(cardinality.unwrap_or(IndexedCardinality::Maybe));
+        }
+        // A cycle is not evidence of nonemptiness. The structural verifier
+        // separately rejects malformed expression ownership.
+        self.memo.insert(instruction, None);
+        let cardinality = self.expression_uncached(instruction)?;
+        self.memo.insert(instruction, Some(cardinality));
+        Ok(cardinality)
+    }
+
+    fn expression_uncached(
+        &mut self,
+        instruction: usize,
+    ) -> Result<IndexedCardinality, IrVerifyError> {
+        use IndexedCardinality::{Empty, Maybe, NonEmpty};
+
+        match self.decoder.expression_view(instruction)? {
+            schema::ExprView::Str(value) => Ok(if value.is_empty() { Empty } else { NonEmpty }),
+            schema::ExprView::Bytes(value) => {
+                Ok(if value.is_empty() { Empty } else { NonEmpty })
+            }
+            schema::ExprView::List(values) => Ok(if values.len() == 0 { Empty } else { NonEmpty }),
+            schema::ExprView::ListBuild(mut values) => {
+                let mut has_value = false;
+                for entry in &mut values {
+                    let (splice, value, _) = entry?;
+                    if !splice {
+                        has_value = true;
+                    } else if self.expression(value.raw() as usize)? == NonEmpty {
+                        has_value = true;
+                    }
+                }
+                Ok(if has_value { NonEmpty } else { Maybe })
+            }
+            schema::ExprView::MapLiteral(mut entries) => {
+                let mut has_key = false;
+                for entry in &mut entries {
+                    let (key, _, _) = entry?;
+                    has_key |= key.is_some();
+                }
+                Ok(if has_key { NonEmpty } else { Maybe })
+            }
+            schema::ExprView::MatchExpr { .. } => {
+                match indexed_identity_match_subject(self.decoder, instruction)? {
+                    Some(subject) => self.expression(subject as usize),
+                    None => Ok(Maybe),
+                }
+            }
+            schema::ExprView::Range { start, end, .. } => {
+                let start = indexed_int_literal(self.decoder, start.raw())?;
+                let end = indexed_int_literal(self.decoder, end.raw())?;
+                Ok(match (start, end) {
+                    (Some(start), Some(end)) if start == end => Empty,
+                    (Some(_), Some(_)) => NonEmpty,
+                    _ => Maybe,
+                })
+            }
+            schema::ExprView::ListComp { mut qualifiers, .. }
+            | schema::ExprView::MapComp { mut qualifiers, .. } => {
+                let mut has_source = false;
+                for qualifier in &mut qualifiers {
+                    match qualifier? {
+                        decode::CompQualifierView::For { iter, .. } => {
+                            has_source = true;
+                            if self.expression(iter.raw() as usize)? != NonEmpty {
+                                return Ok(Maybe);
+                            }
+                        }
+                        decode::CompQualifierView::If { condition, .. } => {
+                            if indexed_condition_bool_literal(
+                                self.decoder.store,
+                                condition.raw(),
+                            )? != Some(true)
+                            {
+                                return Ok(Maybe);
+                            }
+                        }
+                    }
+                }
+                Ok(if has_source { NonEmpty } else { Maybe })
+            }
+            schema::ExprView::Method {
+                receiver,
+                name,
+                ..
+            } if matches!(name, "to_list" | "to_set" | "collect") => {
+                self.expression(receiver.raw() as usize)
+            }
+            schema::ExprView::ListPipeline {
+                input,
+                mut stages,
+                ..
+            } => {
+                let mut cardinality = self.expression(input.raw() as usize)?;
+                while let Some(stage) = stages.next_with_id() {
+                    let stage = stage?;
+                    cardinality = self.stage(cardinality, &stage.view)?;
+                }
+                Ok(cardinality)
+            }
+            schema::ExprView::Require { value, .. }
+            | schema::ExprView::CheckedValue { value, .. } => {
+                // These wrappers preserve the value's cardinality on success;
+                // failure exits before iteration.
+                self.expression(value.raw() as usize)
+            }
+            _ => Ok(Maybe),
+        }
+    }
+
+    fn stage(
+        &mut self,
+        input: IndexedCardinality,
+        stage: &StageView<'d>,
+    ) -> Result<IndexedCardinality, IrVerifyError> {
+        use IndexedCardinality::{Empty, Maybe, NonEmpty};
+
+        Ok(match stage {
+            StageView::Take(count) | StageView::Repeat { count } => {
+                match indexed_int_literal(self.decoder, count.raw())? {
+                    Some(0) => Empty,
+                    Some(count) if count > 0 => input,
+                    _ if input == Empty => Empty,
+                    _ => Maybe,
+                }
+            }
+            StageView::Range { start, end } => {
+                let bounds = if let (Some(start), Some(end)) = (
+                    indexed_int_literal(self.decoder, start.raw())?,
+                    indexed_int_literal(self.decoder, end.raw())?,
+                ) {
+                    (Some(start), Some(end))
+                } else if let Some((start, end)) = indexed_configured_range_bound_subjects(
+                        self.decoder,
+                        start.raw(),
+                        end.raw(),
+                    )? {
+                    (
+                        indexed_int_literal(self.decoder, start)?,
+                        indexed_int_literal(self.decoder, end)?,
+                    )
+                } else {
+                    return Ok(Maybe);
+                };
+                let (Some(start), Some(end)) = bounds else {
+                    return Ok(Maybe);
+                };
+                if start == end {
+                    Empty
+                } else {
+                    NonEmpty
+                }
+            }
+            StageView::Zip { other } => {
+                let other = self.expression(other.raw() as usize)?;
+                match (input, other) {
+                    (Empty, _) | (_, Empty) => Empty,
+                    (NonEmpty, NonEmpty) => NonEmpty,
+                    _ => Maybe,
+                }
+            }
+            StageView::Drop(count) => match (
+                input,
+                indexed_int_literal(self.decoder, count.raw())?,
+            ) {
+                (Empty, _) => Empty,
+                (cardinality, Some(0)) => cardinality,
+                _ => Maybe,
+            },
+            StageView::Where { .. }
+            | StageView::WhereBlock { .. }
+            | StageView::FlatMap { .. }
+            | StageView::FlatMapBlock { .. } => match input {
+                Empty => Empty,
+                _ => Maybe,
+            },
+            StageView::Map { .. }
+            | StageView::MapBlock { .. }
+            | StageView::ParMap { .. }
+            | StageView::ParMapBlock { .. }
+            | StageView::Tee { .. }
+            | StageView::BatchCount { .. }
+            | StageView::BatchMaxArgv { .. }
+            | StageView::BatchMaxBytes { .. }
+            | StageView::BatchLimits { .. }
+            | StageView::Sort { .. }
+            | StageView::SortBy { .. }
+            | StageView::UniqueBy { .. }
+            | StageView::Enumerate
+            | StageView::TextLines
+            | StageView::BytesChunks { .. }
+            | StageView::GroupBy { .. }
+            | StageView::CountBy { .. }
+            | StageView::Collect
+            | StageView::ReduceBy { .. }
+            | StageView::ReduceByConfigured { .. }
+            | StageView::Shuffle { .. } => input,
+            StageView::ParMapFlatMapReduceBy { flatten, .. } if !flatten => input,
+            StageView::ParMapFlatMapReduceBy { .. } => match input {
+                Empty => Empty,
+                _ => Maybe,
+            },
+            StageView::JsonLines => if input == Empty { Empty } else { Maybe },
+            StageView::Each { .. }
+            | StageView::Count
+            | StageView::Sum
+            | StageView::First
+            | StageView::Last
+            | StageView::Min
+            | StageView::Max
+            | StageView::Fold { .. }
+            | StageView::TablePrint { .. }
+            | StageView::TablePrintConfigured { .. }
+            | StageView::Any { .. }
+            | StageView::AnyBlock { .. }
+            | StageView::All { .. }
+            | StageView::AllBlock { .. } => Maybe,
+        })
+    }
+}
+
+fn indexed_int_literal(
+    decoder: &FullDecoder<'_>,
+    instruction: u32,
+) -> Result<Option<i64>, IrVerifyError> {
+    let mut instruction = instruction as usize;
+    let mut negate = false;
+    for _ in 0..=decoder.instruction_range.len() {
+        match decoder.expression_view(instruction)? {
+            schema::ExprView::Int(value) => {
+                return Ok(if negate { value.checked_neg() } else { Some(value) });
+            }
+            schema::ExprView::MatchExpr { .. } => {
+                if let Some(subject) = indexed_identity_match_subject(decoder, instruction)? {
+                    // Checked count conversions lower as a single unguarded
+                    // bind followed by the same value; other matches remain unknown.
+                    instruction = subject as usize;
+                } else {
+                    return Ok(None);
+                }
+            }
+            schema::ExprView::Binary {
+                op: BinaryOp::Sub,
+                left,
+                right,
+                ..
+            } if matches!(decoder.expression_view(left.raw() as usize)?, schema::ExprView::Int(0)) => {
+                negate = !negate;
+                instruction = right.raw() as usize;
+            }
+            _ => return Ok(None),
+        }
+    }
+    // A malformed cycle cannot establish a literal value.
+    Ok(None)
+}
+
+/// Peels only the transparent argument-binding match emitted for a single
+/// unguarded parameter binding. Other matches can select a different value.
+fn indexed_identity_match_subject(
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+) -> Result<Option<u32>, IrVerifyError> {
+    let schema::ExprView::MatchExpr {
+        value, mut arms, ..
+    } = decoder.expression_view(instruction)?
+    else {
+        return Ok(None);
+    };
+    let Some(arm) = arms.next() else {
+        return Ok(None);
+    };
+    let (pattern, guard, result) = arm?;
+    if let Some(second_arm) = arms.next() {
+        let _ = second_arm?;
+        return Ok(None);
+    }
+    if guard.is_some() {
+        return Ok(None);
+    }
+    let schema::PatternView::Bind { slot } = decoder.checked_pattern_view(pattern.raw())? else {
+        return Ok(None);
+    };
+    if matches!(
+        decoder.expression_view(result.raw() as usize)?,
+        schema::ExprView::Param(result_slot) if result_slot == slot
+    ) {
+        Ok(Some(value.raw()))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Resolves the ordered, checked argument bindings generated for a configured
+/// range stage. Other match shapes and unbound parameters provide no proof.
+fn indexed_configured_range_bound_subjects(
+    decoder: &FullDecoder<'_>,
+    start: u32,
+    end: u32,
+) -> Result<Option<(u32, u32)>, IrVerifyError> {
+    let mut bindings = FxHashMap::default();
+    let mut current = start as usize;
+    let mut seen_matches = rustc_hash::FxHashSet::default();
+    let mut seen_subjects = rustc_hash::FxHashSet::default();
+    let mut terminal_slot = None;
+    for _ in 0..decoder.instruction_range.len() {
+        if !decoder.instruction_range.contains(&current)
+            || !seen_matches.insert(current)
+            || seen_subjects.contains(&current)
+        {
+            return Ok(None);
+        }
+        let schema::ExprView::MatchExpr {
+            value, mut arms, ..
+        } = decoder.expression_view(current)?
+        else {
+            return Ok(None);
+        };
+        let Some(arm) = arms.next() else {
+            return Ok(None);
+        };
+        let (pattern, guard, result) = arm?;
+        if let Some(second_arm) = arms.next() {
+            let _ = second_arm?;
+            return Ok(None);
+        }
+        if guard.is_some() {
+            return Ok(None);
+        }
+        let subject = value.raw() as usize;
+        if !decoder.instruction_range.contains(&subject)
+            || subject == current
+            || seen_matches.contains(&subject)
+        {
+            return Ok(None);
+        }
+        seen_subjects.insert(subject);
+        let schema::PatternView::Bind { slot } = decoder.checked_pattern_view(pattern.raw())?
+        else {
+            return Ok(None);
+        };
+        if bindings.insert(slot, value.raw()).is_some() {
+            return Ok(None);
+        }
+        let result = result.raw() as usize;
+        if !decoder.instruction_range.contains(&result) {
+            return Ok(None);
+        }
+        match decoder.expression_view(result)? {
+            schema::ExprView::MatchExpr { .. } => current = result,
+            schema::ExprView::Param(slot) if bindings.contains_key(&slot) => {
+                terminal_slot = Some(slot);
+                break;
+            }
+            _ => return Ok(None),
+        }
+    }
+    let Some(terminal_slot) = terminal_slot else {
+        return Ok(None);
+    };
+    let Some(&start_subject) = bindings.get(&terminal_slot) else {
+        return Ok(None);
+    };
+    let end = end as usize;
+    if !decoder.instruction_range.contains(&end)
+        || seen_matches.contains(&end)
+        || seen_subjects.contains(&end)
+    {
+        return Ok(None);
+    }
+    let schema::ExprView::Param(end_slot) = decoder.expression_view(end)? else {
+        return Ok(None);
+    };
+    let Some(&end_subject) = bindings.get(&end_slot) else {
+        return Ok(None);
+    };
+    Ok(Some((start_subject, end_subject)))
+}
+
+/// Whether an expression has a path that produces its value normally. Unknown
+/// expression forms remain completing so the verifier never invents a return.
+fn indexed_expr_can_complete(
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+    depth: usize,
+) -> Result<bool, IrVerifyError> {
+    if depth > decoder.instruction_range.len() {
+        return Ok(true);
+    }
+    let child = |child_index: u32| {
+        indexed_expr_can_complete(decoder, child_index as usize, depth + 1)
+    };
+    let sequence = |children: Vec<u32>| -> Result<bool, IrVerifyError> {
+        for child_expr in children {
+            if !child(child_expr)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+
+    Ok(match decoder.expression_view(instruction)? {
+        schema::ExprView::Binary {
+            op,
+            left,
+            right,
+            ..
+        } => {
+            if !child(left.raw())? {
+                false
+            } else if matches!(op, BinaryOp::And | BinaryOp::Or) {
+                match indexed_condition_bool_literal(decoder.store, left.raw())? {
+                    Some(false) if op == BinaryOp::And => true,
+                    Some(true) if op == BinaryOp::Or => true,
+                    Some(_) => child(right.raw())?,
+                    None => true,
+                }
+            } else if op == BinaryOp::ResultFallback {
+                // A Result's success arm can skip the fallback expression.
+                true
+            } else {
+                child(right.raw())?
+            }
+        }
+        schema::ExprView::IfExpr {
+            mut branches,
+            else_value,
+            ..
+        } => {
+            let mut can_reach_next = true;
+            let mut can_complete = false;
+            for branch in &mut branches {
+                let (condition, value) = branch?;
+                let condition = condition.raw();
+                if !can_reach_next {
+                    break;
+                }
+                if !child(condition)? {
+                    can_reach_next = false;
+                    break;
+                }
+                match indexed_condition_bool_literal(decoder.store, condition)? {
+                    Some(false) => {}
+                    Some(true) => {
+                        can_complete |= child(value.raw())?;
+                        can_reach_next = false;
+                        break;
+                    }
+                    None => {
+                        can_complete |= child(value.raw())?;
+                    }
+                }
+            }
+            if can_reach_next {
+                can_complete |= child(else_value.raw())?;
+            }
+            can_complete
+        }
+        // Pattern selection is not reconstructed here. A later pattern or
+        // fallback may be the only completing path, so remain conservative.
+        schema::ExprView::PatternIf { .. } => true,
+        schema::ExprView::MatchExpr {
+            value,
+            mut arms,
+            ..
+        } => {
+            if !child(value.raw())? {
+                false
+            } else {
+                let mut can_complete = false;
+                for arm in &mut arms {
+                    let (_, guard, value) = arm?;
+                    let guard_can_complete = match guard {
+                        Some(guard) => child(guard.raw())?,
+                        None => true,
+                    };
+                    can_complete |= guard_can_complete && child(value.raw())?;
+                }
+                can_complete
+            }
+        }
+        schema::ExprView::StrMatchExpr {
+            value,
+            arms,
+            fallback,
+            ..
+        }
+        | schema::ExprView::TagMatchExpr {
+            value,
+            arms,
+            fallback,
+            ..
+        } => {
+            if !child(value.raw())? {
+                false
+            } else {
+                let mut can_complete = false;
+                for arm in arms {
+                    let (_, value) = arm?;
+                    can_complete |= child(value.raw())?;
+                }
+                can_complete
+                    || match fallback {
+                Some(fallback) => child(fallback.raw())?,
+                        None => false,
+                    }
+            }
+        }
+        schema::ExprView::ResultFallback { left, .. } => child(left.raw())?,
+        schema::ExprView::Try { value, .. }
+        | schema::ExprView::Require { value, .. }
+        | schema::ExprView::CheckedValue { value, .. }
+        | schema::ExprView::PathFrom { value, .. }
+        | schema::ExprView::ProcCallResult(value) => child(value.raw())?,
+        schema::ExprView::Capture { body, .. }
+        | schema::ExprView::ValueBlock { body, .. }
+        | schema::ExprView::ErrorContext { body, .. }
+        | schema::ExprView::Retry { body, .. } => {
+            let block = body.block_identity();
+            let body_cannot_complete = indexed_block_can_return_with_decoder(
+                decoder.store,
+                block,
+                Some(decoder),
+            )?;
+            if matches!(decoder.expression_view(instruction)?, schema::ExprView::Capture { .. }) {
+                !body_cannot_complete || indexed_block_may_propagate(decoder, block)?
+            } else {
+                !body_cannot_complete
+            }
+        }
+        schema::ExprView::Loop { .. } => {
+            indexed_loop_has_reachable_break(Some(decoder), instruction)?
+        }
+        schema::ExprView::Index { base, index, .. } => {
+            sequence(vec![base.raw(), index.raw()])?
+        }
+        schema::ExprView::IndexFromEnd { base, .. }
+        | schema::ExprView::Field { base, .. } => child(base.raw())?,
+        schema::ExprView::Slice {
+            base,
+            start,
+            end,
+            ..
+        } => {
+            let mut children = vec![base.raw()];
+            children.extend(start.map(|value| value.raw()));
+            children.extend(end.map(|value| value.raw()));
+            sequence(children)?
+        }
+        schema::ExprView::Method {
+            receiver, mut args, ..
+        } => {
+            if !child(receiver.raw())? {
+                false
+            } else {
+                let mut can_complete = true;
+                for arg in &mut args {
+                    if !child(arg?.raw())? {
+                        can_complete = false;
+                        break;
+                    }
+                }
+                can_complete
+            }
+        }
+        schema::ExprView::Call { mut args, .. }
+        | schema::ExprView::DirectPureCall { mut args, .. }
+        | schema::ExprView::ExternalCall { mut args, .. }
+        | schema::ExprView::SelfCall { mut args, .. } => {
+            let mut can_complete = true;
+            for arg in &mut args {
+                match arg? {
+                    decode::CallArgView::Single(value) | decode::CallArgView::Splice(value) => {
+                        if !child(value.raw())? {
+                            can_complete = false;
+                            break;
+                        }
+                    }
+                    decode::CallArgView::Default(_) => {}
+                }
+            }
+            can_complete
+        }
+        schema::ExprView::TypedCall {
+            callee,
+            mut args,
+            ..
+        }
+        | schema::ExprView::DynamicCall {
+            callee,
+            mut args,
+            ..
+        } => {
+            if !child(callee.raw())? {
+                false
+            } else {
+                let mut can_complete = true;
+                for arg in &mut args {
+                    match arg? {
+                        decode::CallArgView::Single(value) | decode::CallArgView::Splice(value) => {
+                            if !child(value.raw())? {
+                                can_complete = false;
+                                break;
+                            }
+                        }
+                        decode::CallArgView::Default(_) => {}
+                    }
+                }
+                can_complete
+            }
+        }
+        schema::ExprView::List(mut values)
+        | schema::ExprView::Tag { fields: mut values, .. } => {
+            let mut children = Vec::new();
+            for value in &mut values {
+                children.push(value?.raw());
+            }
+            sequence(children)?
+        }
+        schema::ExprView::ListBuild(mut values) => {
+            let mut children = Vec::new();
+            for value in &mut values {
+                let (_, value, _) = value?;
+                children.push(value.raw());
+            }
+            sequence(children)?
+        }
+        schema::ExprView::MapLiteral(mut entries) => {
+            let mut children = Vec::new();
+            for entry in &mut entries {
+                let (key, value, _) = entry?;
+                children.extend(key.map(|value| value.raw()));
+                children.push(value.raw());
+            }
+            sequence(children)?
+        }
+        schema::ExprView::ListComp {
+            value,
+            mut qualifiers,
+            ..
+        } => indexed_comprehension_can_complete(
+            decoder,
+            value.raw(),
+            &mut qualifiers,
+            None,
+        )?,
+        schema::ExprView::MapComp {
+            key,
+            value,
+            mut qualifiers,
+            ..
+        } => indexed_comprehension_can_complete(
+            decoder,
+            key.raw(),
+            &mut qualifiers,
+            Some(value.raw()),
+        )?,
+        schema::ExprView::Record(mut entries) => {
+            let mut children = Vec::new();
+            for entry in &mut entries {
+                match entry? {
+                    decode::RecordEntryView::Field(_, value)
+                    | decode::RecordEntryView::Spread(value) => children.push(value.raw()),
+                }
+            }
+            sequence(children)?
+        }
+        schema::ExprView::RecordUpdate { base, .. } => child(base.raw())?,
+        schema::ExprView::ListPipeline {
+            input,
+            mut stages,
+            ..
+        } => {
+            indexed_pipeline_can_complete(decoder, input.raw(), &mut stages)?
+        }
+        schema::ExprView::ComparisonChain { mut pairs } => {
+            if pairs.len() <= 1 {
+                let mut children = Vec::new();
+                for pair in &mut pairs {
+                    children.push(pair?.raw());
+                }
+                sequence(children)?
+            } else {
+                let mut first = true;
+                let mut can_complete = true;
+                for pair in &mut pairs {
+                    let pair = pair?;
+                    if !child(pair.raw())? {
+                        can_complete = false;
+                        break;
+                    }
+                    if !first {
+                        can_complete = true;
+                        break;
+                    }
+                    first = false;
+                }
+                can_complete
+            }
+        }
+        // These forms may hold a branch-local return, but their encoded
+        // payloads are not needed to prove a guaranteed return yet.
+        _ => true,
+    })
+}
+
+fn indexed_comprehension_can_complete(
+    decoder: &FullDecoder<'_>,
+    first_value: u32,
+    qualifiers: &mut decode::ListView<'_, LoweredCompQualifier>,
+    second_value: Option<u32>,
+) -> Result<bool, IrVerifyError> {
+    let mut cardinality_query = IndexedCardinalityQuery::new(decoder);
+    let mut has_source = false;
+    let mut may_skip_value = false;
+    for qualifier in qualifiers {
+        match qualifier? {
+            decode::CompQualifierView::For { iter, .. } => {
+                if !indexed_expr_can_complete(decoder, iter.raw() as usize, 0)? {
+                    if may_skip_value {
+                        return Ok(true);
+                    }
+                    return Ok(false);
+                }
+                has_source = true;
+                match cardinality_query.expression(iter.raw() as usize)? {
+                    IndexedCardinality::Empty => return Ok(true),
+                    IndexedCardinality::Maybe => may_skip_value = true,
+                    IndexedCardinality::NonEmpty => {}
+                }
+            }
+            decode::CompQualifierView::If { condition, .. } => {
+                if !indexed_expr_can_complete(decoder, condition.raw() as usize, 0)? {
+                    if may_skip_value {
+                        return Ok(true);
+                    }
+                    return Ok(false);
+                }
+                match indexed_condition_bool_literal(decoder.store, condition.raw())? {
+                    Some(false) => return Ok(true),
+                    Some(true) => {}
+                    None => may_skip_value = true,
+                }
+            }
+        }
+    }
+    if !has_source || may_skip_value {
+        return Ok(true);
+    }
+    if !indexed_expr_can_complete(decoder, first_value as usize, 0)? {
+        return Ok(false);
+    }
+    match second_value {
+        Some(value) => indexed_expr_can_complete(decoder, value as usize, 0),
+        None => Ok(true),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndexedStageInputPull {
+    Never,
+    Maybe,
+    Required,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct IndexedPullSummary {
+    never: bool,
+    may_skip: bool,
+}
+
+impl IndexedPullSummary {
+    const NEVER: Self = Self {
+        never: true,
+        may_skip: false,
+    };
+    const REQUIRED: Self = Self {
+        never: false,
+        may_skip: false,
+    };
+}
+
+fn indexed_pipeline_can_complete(
+    decoder: &FullDecoder<'_>,
+    input: u32,
+    stages: &mut decode::ListView<'_, LoweredPipelineStage>,
+) -> Result<bool, IrVerifyError> {
+    let mut stage_ids = Vec::with_capacity(stages.len());
+    while let Some(stage) = stages.next_with_id() {
+        stage_ids.push(stage?.id.raw());
+    }
+
+    let mut cardinality_query = IndexedCardinalityQuery::new(decoder);
+    let suffix_pulls =
+        indexed_pipeline_downstream_pulls(decoder, &stage_ids, &mut cardinality_query)?;
+    let input_completes = indexed_expr_can_complete(decoder, input as usize, 0)?;
+    if !input_completes {
+        return Ok(false);
+    }
+    let mut cardinality = cardinality_query.expression(input as usize)?;
+    for (index, &raw_stage) in stage_ids.iter().enumerate() {
+        let stage = StageView::decode(DecodeContext::from_decoder(decoder), raw_stage)?;
+        if !indexed_stage_setup_can_complete(decoder, &stage)? {
+            return Ok(false);
+        }
+        let demand = indexed_stage_callback_demand(suffix_pulls[index + 1], cardinality, &stage);
+        let callback_can_complete = indexed_stage_callback_can_complete(decoder, &stage)?;
+        if demand == IndexedCallbackDemand::Required && !callback_can_complete {
+            return Ok(false);
+        }
+        cardinality = cardinality_query.stage(cardinality, &stage)?;
+    }
+    Ok(true)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndexedCallbackDemand {
+    Never,
+    Maybe,
+    Required,
+}
+
+/// Builds one reverse demand summary per stage; materializers drain the
+/// preceding serial group even when their own output will be discarded.
+fn indexed_pipeline_downstream_pulls(
+    decoder: &FullDecoder<'_>,
+    stage_ids: &[u32],
+    cardinality_query: &mut IndexedCardinalityQuery<'_, '_>,
+) -> Result<Vec<IndexedPullSummary>, IrVerifyError> {
+    let mut summaries = vec![IndexedPullSummary::REQUIRED; stage_ids.len() + 1];
+    for index in (0..stage_ids.len()).rev() {
+        let stage = StageView::decode(
+            DecodeContext::from_decoder(decoder),
+            stage_ids[index],
+        )?;
+        let materializes = indexed_stage_materializes_input(&stage);
+        let input_pull = if index > 0 && materializes {
+            IndexedStageInputPull::Required
+        } else {
+            indexed_stage_input_pull(decoder, &stage, cardinality_query)?
+        };
+        let downstream = summaries[index + 1];
+        summaries[index] = match (input_pull, materializes) {
+            (IndexedStageInputPull::Never, _) => IndexedPullSummary::NEVER,
+            (IndexedStageInputPull::Maybe, true) => IndexedPullSummary {
+                never: false,
+                may_skip: true,
+            },
+            (IndexedStageInputPull::Maybe, false) if downstream.never => {
+                IndexedPullSummary::NEVER
+            }
+            (IndexedStageInputPull::Maybe, false) => IndexedPullSummary {
+                never: false,
+                may_skip: true,
+            },
+            (IndexedStageInputPull::Required, true) => IndexedPullSummary::REQUIRED,
+            (IndexedStageInputPull::Required, false) => downstream,
+        };
+    }
+    Ok(summaries)
+}
+
+fn indexed_stage_materializes_input(stage: &StageView<'_>) -> bool {
+    matches!(
+        stage,
+        StageView::BatchCount { .. }
+            | StageView::BatchMaxArgv { .. }
+            | StageView::BatchMaxBytes { .. }
+            | StageView::BatchLimits { .. }
+            | StageView::Count
+            | StageView::Collect
+            | StageView::First
+            | StageView::Last
+            | StageView::Max
+            | StageView::Min
+            | StageView::Sum
+            | StageView::Sort { .. }
+            | StageView::SortBy { .. }
+            | StageView::Shuffle { .. }
+            | StageView::Zip { .. }
+            | StageView::Range { .. }
+            | StageView::Repeat { .. }
+            | StageView::UniqueBy { .. }
+            | StageView::ParMap { .. }
+            | StageView::ParMapBlock { .. }
+            | StageView::ParMapFlatMapReduceBy { .. }
+            | StageView::TablePrint { .. }
+            | StageView::TablePrintConfigured { .. }
+            | StageView::GroupBy { .. }
+            | StageView::Fold { .. }
+            | StageView::ReduceBy { .. }
+            | StageView::ReduceByConfigured { .. }
+            | StageView::Any { .. }
+            | StageView::AnyBlock { .. }
+            | StageView::All { .. }
+            | StageView::AllBlock { .. }
+    )
+}
+
+fn indexed_stage_input_pull(
+    decoder: &FullDecoder<'_>,
+    stage: &StageView<'_>,
+    cardinality_query: &mut IndexedCardinalityQuery<'_, '_>,
+) -> Result<IndexedStageInputPull, IrVerifyError> {
+    use IndexedCardinality::{Empty, Maybe, NonEmpty};
+
+    Ok(match stage {
+        StageView::Take(count) | StageView::Repeat { count } => {
+            match indexed_int_literal(decoder, count.raw())? {
+                Some(0) => IndexedStageInputPull::Never,
+                Some(count) if count > 0 => IndexedStageInputPull::Required,
+                _ => IndexedStageInputPull::Maybe,
+            }
+        }
+        StageView::Zip { other } => match cardinality_query.expression(other.raw() as usize)? {
+            Empty => IndexedStageInputPull::Never,
+            NonEmpty => IndexedStageInputPull::Required,
+            Maybe => IndexedStageInputPull::Maybe,
+        },
+        StageView::Range { .. } => IndexedStageInputPull::Never,
+        _ => IndexedStageInputPull::Required,
+    })
+}
+
+fn indexed_stage_callback_demand(
+    downstream: IndexedPullSummary,
+    cardinality: IndexedCardinality,
+    stage: &StageView<'_>,
+) -> IndexedCallbackDemand {
+    if cardinality == IndexedCardinality::Empty {
+        return IndexedCallbackDemand::Never;
+    }
+    let may_skip = cardinality == IndexedCardinality::Maybe || downstream.may_skip;
+    if indexed_stage_materializes_input(stage) {
+        return if may_skip {
+            IndexedCallbackDemand::Maybe
+        } else {
+            IndexedCallbackDemand::Required
+        };
+    }
+    if downstream.never {
+        return IndexedCallbackDemand::Never;
+    }
+    if may_skip {
+        IndexedCallbackDemand::Maybe
+    } else {
+        IndexedCallbackDemand::Required
+    }
+}
+
+fn indexed_stage_setup_can_complete(
+    decoder: &FullDecoder<'_>,
+    stage: &StageView<'_>,
+) -> Result<bool, IrVerifyError> {
+    let child = |value: u32| indexed_expr_can_complete(decoder, value as usize, 0);
+    let sequence = |values: Vec<u32>| -> Result<bool, IrVerifyError> {
+        for value in values {
+            if !child(value)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+
+    match stage {
+        StageView::BytesChunks { size } => child(size.raw()),
+        StageView::BatchCount { count } => child(count.raw()),
+        StageView::BatchMaxArgv {
+            max_argv: Some(max_argv),
+        } => child(max_argv.raw()),
+        StageView::BatchMaxBytes { max_bytes } => child(max_bytes.raw()),
+        StageView::BatchLimits { configuration } => child(configuration.raw()),
+        StageView::Shuffle { seed: Some(seed) } => child(seed.raw()),
+        StageView::Fold { initial, .. } => child(initial.raw()),
+        StageView::ReduceBy {
+            jobs: Some(jobs), ..
+        } => child(jobs.raw()),
+        StageView::ReduceByConfigured { configuration, .. } => child(configuration.raw()),
+        StageView::ParMap {
+            jobs: Some(jobs), ..
+        }
+        | StageView::ParMapBlock {
+            jobs: Some(jobs), ..
+        } => child(jobs.raw()),
+        StageView::ParMapFlatMapReduceBy {
+            jobs: Some(jobs), ..
+        } => child(jobs.raw()),
+        StageView::TablePrintConfigured { columns } => child(columns.raw()),
+        StageView::Zip { other } => child(other.raw()),
+        StageView::Sort {
+            descending: Some(descending),
+        }
+        | StageView::SortBy {
+            descending: Some(descending), ..
+        } => child(descending.raw()),
+        StageView::Take(count)
+        | StageView::Drop(count)
+        | StageView::Repeat { count } => child(count.raw()),
+        StageView::Range { start, end } => sequence(vec![start.raw(), end.raw()]),
+        StageView::BatchMaxArgv { max_argv: None }
+        | StageView::Shuffle { seed: None }
+        | StageView::ReduceBy { jobs: None, .. }
+        | StageView::ParMap { jobs: None, .. }
+        | StageView::ParMapBlock { jobs: None, .. }
+        | StageView::ParMapFlatMapReduceBy { jobs: None, .. }
+        | StageView::Sort { descending: None }
+        | StageView::SortBy { descending: None, .. }
+        | StageView::TextLines
+        | StageView::JsonLines
+        | StageView::Where { .. }
+        | StageView::WhereBlock { .. }
+        | StageView::Map { .. }
+        | StageView::MapBlock { .. }
+        | StageView::FlatMap { .. }
+        | StageView::FlatMapBlock { .. }
+        | StageView::Tee { .. }
+        | StageView::Each { .. }
+        | StageView::TablePrint { .. }
+        | StageView::Enumerate
+        | StageView::GroupBy { .. }
+        | StageView::CountBy { .. }
+        | StageView::Any { .. }
+        | StageView::AnyBlock { .. }
+        | StageView::All { .. }
+        | StageView::AllBlock { .. }
+        | StageView::UniqueBy { .. }
+        | StageView::Count
+        | StageView::Sum
+        | StageView::Collect
+        | StageView::First
+        | StageView::Last
+        | StageView::Min
+        | StageView::Max => Ok(true),
+    }
+}
+
+fn indexed_stage_callback_can_complete(
+    decoder: &FullDecoder<'_>,
+    stage: &StageView<'_>,
+) -> Result<bool, IrVerifyError> {
+    let expression = |value: u32| indexed_expr_can_complete(decoder, value as usize, 0);
+    let block_and_value = |body: &decode::ListView<'_, BuildStmtId>, value: u32| {
+        if indexed_block_can_return_with_decoder(
+            decoder.store,
+            body.block_identity(),
+            Some(decoder),
+        )? {
+            Ok(false)
+        } else {
+            expression(value)
+        }
+    };
+    let block = |body: &decode::ListView<'_, BuildStmtId>| {
+        Ok(!indexed_block_can_return_with_decoder(
+            decoder.store,
+            body.block_identity(),
+            Some(decoder),
+        )?)
+    };
+
+    match stage {
+        StageView::Map { value, .. } => {
+            expression(value.raw())
+        }
+        StageView::Where { predicate, .. }
+        | StageView::FlatMap { value: predicate, .. }
+        | StageView::SortBy { key: predicate, .. }
+        | StageView::GroupBy { key: predicate, .. }
+        | StageView::CountBy { key: predicate, .. }
+        | StageView::Any { predicate, .. }
+        | StageView::All { predicate, .. }
+        | StageView::UniqueBy { key: predicate, .. }
+        | StageView::ParMap { value: predicate, .. } => expression(predicate.raw()),
+        StageView::WhereBlock { body, value, .. }
+        | StageView::MapBlock { body, value, .. }
+        | StageView::FlatMapBlock { body, value, .. }
+        | StageView::AnyBlock { body, value, .. }
+        | StageView::AllBlock { body, value, .. }
+        | StageView::ParMapBlock { body, value, .. } => {
+            block_and_value(body, value.raw())
+        }
+        StageView::Tee { body, .. } | StageView::Each { body, .. } => block(body),
+        StageView::Fold { body, value, .. }
+        | StageView::ReduceBy { body, value, .. }
+        | StageView::ReduceByConfigured { body, value, .. } => {
+            block_and_value(body, value.raw())
+        }
+        StageView::ParMapFlatMapReduceBy {
+            body,
+            value,
+            ..
+        } => {
+            let map_can_complete = if let Some(body) = body {
+                block_and_value(body, value.raw())?
+            } else {
+                expression(value.raw())?
+            };
+            // The reduction body can be skipped for a group with one item.
+            Ok(map_can_complete)
+        }
+        _ => Ok(true),
+    }
+}
+
+fn indexed_block_may_propagate(
+    decoder: &FullDecoder<'_>,
+    block: IrBlockId,
+) -> Result<bool, IrVerifyError> {
+    let block = decoder
+        .store
+        .blocks
+        .get(block.index())
+        .ok_or_else(|| IrVerifyError::new("return-analysis block is out of bounds"))?;
+    let words = decoder.store.payload(block.instructions)?;
+    let Some((&len, statements)) = words.split_first() else {
+        return Err(IrVerifyError::new("return-analysis block is empty"));
+    };
+    if statements.len() != len as usize {
+        return Err(IrVerifyError::new(
+            "return-analysis block length is invalid",
+        ));
+    }
+    let mut completes = true;
+    for statement in statements {
+        if !completes {
+            break;
+        }
+        let instruction = *statement as usize;
+        if indexed_statement_may_propagate(decoder, instruction)? {
+            return Ok(true);
+        }
+        if indexed_stmt_can_return_with_decoder(decoder.store, instruction, Some(decoder))? {
+            completes = false;
+        }
+    }
+    Ok(false)
+}
+
+fn indexed_statement_may_propagate(
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+) -> Result<bool, IrVerifyError> {
+    use schema::StmtView;
+
+    Ok(match decoder.statement_view(instruction)? {
+        StmtView::Assert { value, .. } => {
+            let literal_true = indexed_condition_bool_literal(decoder.store, value.raw())? == Some(true);
+            !literal_true || decoder.subtree_has_uncaught_try(value.raw() as usize)?
+        }
+        StmtView::Run {
+            propagate_result,
+            ..
+        }
+        | StmtView::Print {
+            propagate_result,
+            ..
+        } => propagate_result || decoder.subtree_has_uncaught_try(instruction)?,
+        StmtView::Cd { .. } => true,
+        StmtView::Expr { value, .. } => {
+            decoder.expression_is_result_unit(value.raw() as usize)?
+                || decoder.subtree_has_uncaught_try(value.raw() as usize)?
+                || decoder.expression_has_checked_error_effect(value.raw() as usize)?
+        }
+        StmtView::For { iter, .. } | StmtView::ForRecord { iter, .. } => {
+            decoder.expression_has_checked_result(iter.raw() as usize)?
+                || decoder.subtree_has_uncaught_try(iter.raw() as usize)?
+        }
+        StmtView::With {
+            bindings,
+            body,
+            else_body,
+            ..
+        } => {
+            let mut else_reachable = false;
+            for binding in bindings {
+                let (_, value) = binding?;
+                let value = value.raw() as usize;
+                else_reachable |= decoder.expression_has_checked_result(value)?
+                    || decoder.subtree_has_uncaught_try(value)?
+                    || decoder.expression_has_checked_error_effect(value)?;
+            }
+            indexed_block_may_propagate(decoder, body.block_identity())?
+                || (else_reachable
+                    && indexed_block_may_propagate(decoder, else_body.block_identity())?)
+        }
+        StmtView::Guard {
+            value, else_body, ..
+        } => {
+            decoder.subtree_has_uncaught_try(value.raw() as usize)?
+                || decoder.expression_has_checked_error_effect(value.raw() as usize)?
+                || indexed_block_may_propagate(decoder, else_body.block_identity())?
+        }
+        StmtView::Defer { .. } => true,
+        _ => decoder.subtree_has_uncaught_try(instruction)?,
+    })
+}
+
 #[cfg(test)]
 fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool, IrVerifyError> {
     indexed_stmt_can_return_with_decoder(store, instruction, None)
@@ -9372,8 +10917,15 @@ fn indexed_stmt_can_return_with_decoder(
         IrBlockId::from_raw(raw)
             .ok_or_else(|| IrVerifyError::new("return-analysis block id is invalid"))
     };
+    if let Some(decoder) = decoder {
+        let operand_cannot_complete = indexed_stmt_operand_cannot_complete(decoder, instruction)?;
+        if operand_cannot_complete {
+            return Ok(true);
+        }
+    }
     Ok(match tag {
         FullTag::StmtReturn => true,
+        FullTag::StmtBreak | FullTag::StmtContinue => true,
         FullTag::StmtCd => indexed_block_can_return_with_decoder(
             store,
             block(
@@ -9419,7 +10971,20 @@ fn indexed_stmt_can_return_with_decoder(
                     return Err(IrVerifyError::new("return-analysis if body is missing"));
                 };
                 if !chain_consumed {
-                    match indexed_condition_bool_literal(store, condition)? {
+                    let condition_can_complete = match decoder {
+                        Some(decoder) if tag != FullTag::StmtIfBool => {
+                            indexed_expr_can_complete(decoder, condition as usize, 0)?
+                        }
+                        None => true,
+                        Some(_) => true,
+                    };
+                    if !condition_can_complete {
+                        // The condition itself transfers control on every
+                        // reachable path, so neither this branch nor later
+                        // alternatives can produce a value for the if.
+                        chain_consumed = true;
+                    } else {
+                        match indexed_condition_bool_literal(store, condition)? {
                         Some(false) => {}
                         Some(true) => {
                             chain_can_return &= indexed_block_can_return_with_decoder(
@@ -9437,6 +11002,7 @@ fn indexed_stmt_can_return_with_decoder(
                             )? {
                                 chain_can_return = false;
                             }
+                        }
                         }
                     }
                 }
@@ -9479,23 +11045,39 @@ fn indexed_stmt_can_return_with_decoder(
             }
         }
         FullTag::StmtWith => {
-            let body = *payload
-                .get(1)
-                .ok_or_else(|| IrVerifyError::new("return-analysis with body is missing"))?;
-            let else_index = match payload.get(2) {
-                Some(0) => 3,
-                Some(1) => 4,
-                _ => {
-                    return Err(IrVerifyError::new(
-                        "return-analysis with parameter is invalid",
-                    ));
+            if let Some(decoder) = decoder {
+                let schema::StmtView::With {
+                    bindings,
+                    body,
+                    else_body,
+                    ..
+                } = decoder.statement_view(instruction)?
+                else {
+                    return Err(IrVerifyError::new("return-analysis with view is invalid"));
+                };
+                let mut else_reachable = false;
+                for binding in bindings {
+                    let (_, value) = binding?;
+                    let value = value.raw() as usize;
+                    else_reachable |= decoder.expression_has_checked_result(value)?
+                        || decoder.subtree_has_uncaught_try(value)?
+                        || decoder.expression_has_checked_error_effect(value)?;
                 }
-            };
-            let else_body = *payload
-                .get(else_index)
-                .ok_or_else(|| IrVerifyError::new("return-analysis with handler is missing"))?;
-            indexed_block_can_return_with_decoder(store, block(body)?, decoder)?
-                && indexed_block_can_return_with_decoder(store, block(else_body)?, decoder)?
+                let body_returns = indexed_block_can_return_with_decoder(
+                    store,
+                    body.block_identity(),
+                    Some(decoder),
+                )?;
+                !else_reachable
+                    || (body_returns
+                        && indexed_block_can_return_with_decoder(
+                            store,
+                            else_body.block_identity(),
+                            Some(decoder),
+                        )?)
+            } else {
+                false
+            }
         }
         FullTag::StmtMatch => {
             let arms =
@@ -9603,6 +11185,124 @@ fn indexed_stmt_can_return_with_decoder(
             }
             !indexed_loop_has_reachable_break(decoder, instruction)?
         }
+        FullTag::StmtFor => {
+            let Some(decoder) = decoder else {
+                return Ok(false);
+            };
+            let schema::StmtView::For { iter, body, .. } =
+                decoder.statement_view(instruction)?
+            else {
+                return Err(IrVerifyError::new(
+                    "return-analysis for tag has an invalid statement view",
+                ));
+            };
+            IndexedCardinalityQuery::new(decoder).expression(iter.raw() as usize)?
+                == IndexedCardinality::NonEmpty
+                && !indexed_loop_has_reachable_break(Some(decoder), instruction)?
+                && !indexed_loop_has_reachable_continue(Some(decoder), instruction)?
+                && indexed_block_can_return_with_decoder(store, body.block_identity(), Some(decoder))?
+        }
+        FullTag::StmtForRecord => {
+            let Some(decoder) = decoder else {
+                return Ok(false);
+            };
+            let schema::StmtView::ForRecord { iter, body, .. } =
+                decoder.statement_view(instruction)?
+            else {
+                return Err(IrVerifyError::new(
+                    "return-analysis record-for tag has an invalid statement view",
+                ));
+            };
+            IndexedCardinalityQuery::new(decoder).expression(iter.raw() as usize)?
+                == IndexedCardinality::NonEmpty
+                && !indexed_loop_has_reachable_break(Some(decoder), instruction)?
+                && !indexed_loop_has_reachable_continue(Some(decoder), instruction)?
+                && indexed_block_can_return_with_decoder(store, body.block_identity(), Some(decoder))?
+        }
+        FullTag::StmtForStrLines => {
+            let Some(decoder) = decoder else {
+                return Ok(false);
+            };
+            let schema::StmtView::ForStrLines { text, body, .. } =
+                decoder.statement_view(instruction)?
+            else {
+                return Err(IrVerifyError::new(
+                    "return-analysis for-lines tag has an invalid statement view",
+                ));
+            };
+            IndexedCardinalityQuery::new(decoder).expression(text.raw() as usize)?
+                == IndexedCardinality::NonEmpty
+                && !indexed_loop_has_reachable_break(Some(decoder), instruction)?
+                && !indexed_loop_has_reachable_continue(Some(decoder), instruction)?
+                && indexed_block_can_return_with_decoder(store, body.block_identity(), Some(decoder))?
+        }
+        _ => false,
+    })
+}
+
+/// Returns true only when an evaluated expression necessarily transfers
+/// control before its containing statement can continue.
+fn indexed_stmt_operand_cannot_complete(
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+) -> Result<bool, IrVerifyError> {
+    let expression_cannot_complete = |expression: u32| {
+        indexed_expr_can_complete(decoder, expression as usize, 0).map(|completes| !completes)
+    };
+    Ok(match decoder.statement_view(instruction)? {
+        schema::StmtView::Let { value, .. } => {
+            expression_cannot_complete(value.raw())?
+        }
+        schema::StmtView::Assign { value, .. }
+        | schema::StmtView::AssignField { value, .. }
+        | schema::StmtView::AssignPath { value, .. }
+        | schema::StmtView::Value { value }
+        | schema::StmtView::Expr { value, .. }
+        | schema::StmtView::Return { value }
+        | schema::StmtView::BreakValue { value }
+        | schema::StmtView::Yield { value }
+        | schema::StmtView::YieldDelegate { value, .. }
+        | schema::StmtView::LetRecord { source: value, .. }
+        | schema::StmtView::For { iter: value, .. }
+        | schema::StmtView::ForRecord { iter: value, .. }
+        | schema::StmtView::ForStrLines { text: value, .. }
+        | schema::StmtView::Cd { target: value, .. }
+        | schema::StmtView::Run { value, .. }
+        | schema::StmtView::Guard { value, .. } => expression_cannot_complete(value.raw())?,
+        schema::StmtView::Assert { value, .. } => {
+            expression_cannot_complete(value.raw())?
+                || indexed_condition_bool_literal(decoder.store, value.raw())? == Some(false)
+        }
+        schema::StmtView::Print { args, .. } => {
+            let mut cannot_complete = false;
+            for arg in args {
+                if expression_cannot_complete(arg?.raw())? {
+                    cannot_complete = true;
+                    break;
+                }
+            }
+            cannot_complete
+        }
+        schema::StmtView::With { bindings, .. } => {
+            let mut cannot_complete = false;
+            for binding in bindings {
+                let (_, value) = binding?;
+                if expression_cannot_complete(value.raw())?
+                    && !decoder.subtree_has_uncaught_try(value.raw() as usize)?
+                {
+                    cannot_complete = true;
+                    break;
+                }
+            }
+            cannot_complete
+        }
+        schema::StmtView::While { condition, .. }
+        | schema::StmtView::PatternWhile { condition, .. } => {
+            expression_cannot_complete(condition.raw())?
+        }
+        schema::StmtView::Match { value, .. }
+        | schema::StmtView::StrMatch { value, .. }
+        | schema::StmtView::TagMatch { value, .. } => expression_cannot_complete(value.raw())?,
         _ => false,
     })
 }
@@ -9615,67 +11315,174 @@ fn indexed_loop_has_reachable_break(
         // A raw loop cannot prove non-fallthrough without its verified parents.
         return Ok(true);
     };
-    for instruction in decoder.instruction_range.clone() {
-        if !matches!(
-            decoder.store.tags.get(instruction),
-            Some(FullTag::StmtBreak | FullTag::StmtBreakValue)
-        ) {
-            continue;
-        }
-        if indexed_break_reaches_loop(decoder, instruction, loop_instruction)? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    decoder.loop_has_reachable_break(loop_instruction)
 }
 
-fn indexed_break_reaches_loop(
-    decoder: &FullDecoder<'_>,
-    instruction: usize,
+fn indexed_loop_has_reachable_continue(
+    decoder: Option<&FullDecoder<'_>>,
     loop_instruction: usize,
 ) -> Result<bool, IrVerifyError> {
-    let mut child = instruction;
-    for _ in 0..=decoder.instruction_range.len() {
-        let Some(parent) = decoder.instruction_parent_of(child)? else {
-            return Ok(false);
-        };
-        if !indexed_child_reachable_from_parent(decoder, parent, child)? {
-            return Ok(false);
-        }
-        if parent == loop_instruction {
-            return Ok(true);
-        }
-        if matches!(
-            decoder.store.tags.get(parent),
-            Some(
-                FullTag::ExprLoop
-                    | FullTag::StmtLoop
-                    | FullTag::StmtWhile
-                    | FullTag::StmtWhileBool
-                    | FullTag::StmtPatternWhile
-                    | FullTag::StmtFor
-                    | FullTag::StmtForRecord
-                    | FullTag::StmtForStrLines
-            )
-        ) {
-            return Ok(false);
-        }
-        child = parent;
-    }
-    Err(IrVerifyError::new("return-analysis instruction parent cycle"))
+    let Some(decoder) = decoder else {
+        // A raw loop cannot prove non-fallthrough without its verified parents.
+        return Ok(true);
+    };
+    decoder.loop_has_reachable_continue(loop_instruction)
 }
 
-/// A break in a statically unreachable branch does not leave its enclosing loop.
-fn indexed_child_reachable_from_parent(
+fn indexed_loop_child_is_before_body(
     decoder: &FullDecoder<'_>,
-    parent: usize,
+    loop_instruction: usize,
     child: usize,
 ) -> Result<bool, IrVerifyError> {
+    if matches!(
+        decoder.store.tags.get(loop_instruction),
+        Some(FullTag::ExprLoop | FullTag::StmtLoop)
+    ) {
+        return Ok(false);
+    }
+    let child_is_source = match decoder.statement_view(loop_instruction)? {
+        schema::StmtView::While { condition, .. }
+        | schema::StmtView::PatternWhile { condition, .. } => condition.raw() as usize == child,
+        schema::StmtView::For { iter, .. } | schema::StmtView::ForRecord { iter, .. } => {
+            iter.raw() as usize == child
+        }
+        schema::StmtView::ForStrLines { text, .. } => text.raw() as usize == child,
+        _ => false,
+    };
+    Ok(child_is_source)
+}
+
+/// Pipeline callbacks have their own loop boundary. A malformed raw break in
+/// a callback must not borrow a target from the expression's surrounding loop.
+fn indexed_pipeline_callback_roots(
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+    roots: &mut rustc_hash::FxHashSet<usize>,
+) -> Result<(), IrVerifyError> {
+    let schema::ExprView::ListPipeline {
+        mut stages, ..
+    } = decoder.expression_view(instruction)?
+    else {
+        return Err(IrVerifyError::new(
+            "pipeline instruction tag and generated view disagree",
+        ));
+    };
+    while let Some(stage) = stages.next_with_id() {
+        let stage = stage?;
+        let stage = stage.view;
+        let expression = |value: u32, roots: &mut rustc_hash::FxHashSet<usize>| {
+            roots.insert(value as usize);
+        };
+        let block = |body: &decode::ListView<'_, BuildStmtId>,
+                     roots: &mut rustc_hash::FxHashSet<usize>|
+         -> Result<(), IrVerifyError> {
+            let block_id = body.block_identity();
+            let row = decoder
+                .store
+                .blocks
+                .get(block_id.index())
+                .ok_or_else(|| IrVerifyError::new("pipeline callback block is out of bounds"))?;
+            let words = decoder.store.payload(row.instructions)?;
+            let Some((&len, instructions)) = words.split_first() else {
+                return Err(IrVerifyError::new("pipeline callback block is empty"));
+            };
+            if instructions.len() != len as usize {
+                return Err(IrVerifyError::new(
+                    "pipeline callback block length is invalid",
+                ));
+            }
+            roots.extend(instructions.iter().map(|instruction| *instruction as usize));
+            Ok(())
+        };
+        match stage {
+            StageView::Where { predicate, .. }
+            | StageView::Map { value: predicate, .. }
+            | StageView::FlatMap { value: predicate, .. }
+            | StageView::SortBy { key: predicate, .. }
+            | StageView::GroupBy { key: predicate, .. }
+            | StageView::CountBy { key: predicate, .. }
+            | StageView::Any { predicate, .. }
+            | StageView::All { predicate, .. }
+            | StageView::UniqueBy { key: predicate, .. }
+            | StageView::ParMap { value: predicate, .. } => {
+                expression(predicate.raw(), roots);
+            }
+            StageView::WhereBlock { body, value, .. }
+            | StageView::MapBlock { body, value, .. }
+            | StageView::FlatMapBlock { body, value, .. }
+            | StageView::AnyBlock { body, value, .. }
+            | StageView::AllBlock { body, value, .. }
+            | StageView::ParMapBlock { body, value, .. } => {
+                block(&body, roots)?;
+                expression(value.raw(), roots);
+            }
+            StageView::Tee { body, .. } | StageView::Each { body, .. } => {
+                block(&body, roots)?;
+            }
+            StageView::Fold { body, value, .. }
+            | StageView::ReduceBy { body, value, .. }
+            | StageView::ReduceByConfigured { body, value, .. } => {
+                block(&body, roots)?;
+                expression(value.raw(), roots);
+            }
+            StageView::ParMapFlatMapReduceBy {
+                body,
+                value,
+                reduce_body,
+                reduce_value,
+                ..
+            } => {
+                if let Some(body) = body {
+                    block(&body, roots)?;
+                }
+                expression(value.raw(), roots);
+                block(&reduce_body, roots)?;
+                expression(reduce_value.raw(), roots);
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Summarizes branch reachability once per parent so branch chains stay linear.
+fn indexed_add_block_statements_to_reachable(
+    decoder: &FullDecoder<'_>,
+    block_id: IrBlockId,
+    reachable: &mut rustc_hash::FxHashSet<usize>,
+    visits: &mut usize,
+) -> Result<(), IrVerifyError> {
+    let block = decoder
+        .store
+        .blocks
+        .get(block_id.index())
+        .ok_or_else(|| IrVerifyError::new("return-analysis branch block is out of bounds"))?;
+    let words = decoder.store.payload(block.instructions)?;
+    let Some((&len, statements)) = words.split_first() else {
+        return Err(IrVerifyError::new("return-analysis branch block is invalid"));
+    };
+    if statements.len() != len as usize {
+        return Err(IrVerifyError::new(
+            "return-analysis branch block length is invalid",
+        ));
+    }
+    *visits += statements.len();
+    reachable.extend(statements.iter().map(|statement| *statement as usize));
+    Ok(())
+}
+
+fn indexed_children_reachable_from_parent(
+    decoder: &FullDecoder<'_>,
+    parent: usize,
+    children: &[usize],
+) -> Result<(Vec<bool>, usize), IrVerifyError> {
     let tag = *decoder
         .store
         .tags
         .get(parent)
         .ok_or_else(|| IrVerifyError::new("return-analysis parent is out of bounds"))?;
+    let mut reachable = rustc_hash::FxHashSet::default();
+    let mut visits = 0usize;
     if tag == FullTag::ExprIf {
         let schema::ExprView::IfExpr {
             mut branches,
@@ -9690,91 +11497,91 @@ fn indexed_child_reachable_from_parent(
             let (condition, value) = branch?;
             let condition = condition.raw();
             let value = value.raw();
-            if child == condition as usize {
-                return Ok(can_reach_next);
+            visits += 1;
+            if can_reach_next {
+                reachable.insert(condition as usize);
             }
             let condition_value = indexed_condition_bool_literal(decoder.store, condition)?;
-            if child == value as usize {
-                return Ok(can_reach_next && condition_value != Some(false));
+            if can_reach_next && condition_value != Some(false) {
+                reachable.insert(value as usize);
             }
             can_reach_next &= condition_value != Some(true);
         }
-        return Ok(child == else_value.raw() as usize && can_reach_next);
-    }
-    if !matches!(tag, FullTag::StmtIf | FullTag::StmtIfBool) {
-        return Ok(true);
-    }
-    let payload = decoder
-        .store
-        .payload(decoder.store.data[parent].range())?;
-    let branch_id = IrBlockId::from_raw(
-        *payload
-            .first()
-            .ok_or_else(|| IrVerifyError::new("return-analysis if payload is invalid"))?,
-    )
-    .ok_or_else(|| IrVerifyError::new("return-analysis if branches are invalid"))?;
-    let branch_words = decoder
-        .store
-        .payload(decoder.store.blocks[branch_id.index()].instructions)?;
-    let Some((&len, mut words)) = branch_words.split_first() else {
-        return Err(IrVerifyError::new("return-analysis if branches are invalid"));
-    };
-    let mut can_reach_next = true;
-    for _ in 0..len {
-        let Some((&condition, rest)) = words.split_first() else {
-            return Err(IrVerifyError::new("return-analysis if condition is missing"));
-        };
-        let Some((&body, rest)) = rest.split_first() else {
-            return Err(IrVerifyError::new("return-analysis if body is missing"));
-        };
-        if child == condition as usize {
-            return Ok(can_reach_next);
+        if can_reach_next {
+            reachable.insert(else_value.raw() as usize);
         }
-        let body_id = IrBlockId::from_raw(body)
-            .ok_or_else(|| IrVerifyError::new("return-analysis if body is invalid"))?;
-        let body = decoder
+    } else if matches!(tag, FullTag::StmtIf | FullTag::StmtIfBool) {
+        let payload = decoder
             .store
-            .blocks
-            .get(body_id.index())
-            .ok_or_else(|| IrVerifyError::new("return-analysis if body is out of bounds"))?;
-        let body_words = decoder.store.payload(body.instructions)?;
-        let Some((&body_len, statements)) = body_words.split_first() else {
-            return Err(IrVerifyError::new("return-analysis if body is invalid"));
+            .payload(decoder.store.data[parent].range())?;
+        let branch_id = IrBlockId::from_raw(
+            *payload
+                .first()
+                .ok_or_else(|| IrVerifyError::new("return-analysis if branches are missing"))?,
+        )
+        .ok_or_else(|| IrVerifyError::new("return-analysis if branches are invalid"))?;
+        let branch_words = decoder
+            .store
+            .payload(decoder.store.blocks[branch_id.index()].instructions)?;
+        let Some((&len, mut words)) = branch_words.split_first() else {
+            return Err(IrVerifyError::new("return-analysis if branches are invalid"));
         };
-        if statements.len() != body_len as usize {
-            return Err(IrVerifyError::new("return-analysis if body length is invalid"));
-        }
-        if statements.contains(&(child as u32)) {
-            let condition_value = indexed_condition_bool_literal(decoder.store, condition)?;
-            return Ok(can_reach_next && condition_value != Some(false));
-        }
-        can_reach_next &= indexed_condition_bool_literal(decoder.store, condition)? != Some(true);
-        words = rest;
-    }
-    if !words.is_empty() {
-        return Err(IrVerifyError::new("return-analysis if branches have trailing data"));
-    }
-    match payload.get(1..) {
-        Some([1, body]) => {
-            let body_id = IrBlockId::from_raw(*body)
-                .ok_or_else(|| IrVerifyError::new("return-analysis if else body is invalid"))?;
-            let body = decoder
-                .store
-                .blocks
-                .get(body_id.index())
-                .ok_or_else(|| IrVerifyError::new("return-analysis if else body is out of bounds"))?;
-            let body_words = decoder.store.payload(body.instructions)?;
-            let Some((&body_len, statements)) = body_words.split_first() else {
-                return Err(IrVerifyError::new("return-analysis if else body is invalid"));
+        let mut can_reach_next = true;
+        for _ in 0..len {
+            let Some((&condition, rest)) = words.split_first() else {
+                return Err(IrVerifyError::new("return-analysis if condition is missing"));
             };
-            if statements.len() != body_len as usize {
-                return Err(IrVerifyError::new("return-analysis if else body length is invalid"));
+            let Some((&body, rest)) = rest.split_first() else {
+                return Err(IrVerifyError::new("return-analysis if body is missing"));
+            };
+            visits += 1;
+            if can_reach_next {
+                reachable.insert(condition as usize);
+                if indexed_condition_bool_literal(decoder.store, condition)? != Some(false) {
+                    let body = IrBlockId::from_raw(body)
+                        .ok_or_else(|| IrVerifyError::new("return-analysis if body is invalid"))?;
+                    indexed_add_block_statements_to_reachable(
+                        decoder,
+                        body,
+                        &mut reachable,
+                        &mut visits,
+                    )?;
+                }
             }
-            Ok(statements.contains(&(child as u32)) && can_reach_next)
+            can_reach_next &= indexed_condition_bool_literal(decoder.store, condition)?
+                != Some(true);
+            words = rest;
         }
-        Some([0]) => Ok(false),
-        _ => Err(IrVerifyError::new("return-analysis else payload is invalid")),
+        if !words.is_empty() {
+            return Err(IrVerifyError::new(
+                "return-analysis if branches have trailing data",
+            ));
+        }
+        match payload.get(1..) {
+            Some([1, body]) if can_reach_next => {
+                let body = IrBlockId::from_raw(*body)
+                    .ok_or_else(|| IrVerifyError::new("return-analysis if else is invalid"))?;
+                indexed_add_block_statements_to_reachable(
+                    decoder,
+                    body,
+                    &mut reachable,
+                    &mut visits,
+                )?;
+            }
+            Some([1, _]) | Some([0]) => {}
+            _ => return Err(IrVerifyError::new("return-analysis else payload is invalid")),
+        }
+    } else {
+        return Ok((vec![true; children.len()], 0));
     }
+    visits += children.len();
+    Ok((
+        children
+            .iter()
+            .map(|child| reachable.contains(child))
+            .collect(),
+        visits,
+    ))
 }
 
 impl FullVerifier {
@@ -10141,6 +11948,7 @@ impl FullVerifier {
                 local_immutable_let_initializers: RefCell::default(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: Some(function_signature_index.clone()),
+                return_analysis: RefCell::default(),
                 verified: false,
             };
             let body_id = IrBlockId::from_raw(function.body)
@@ -10174,6 +11982,9 @@ impl FullVerifier {
                 }
             }
             decoder.finish_function()?;
+            // Reject malformed transfers even when no loop-return query in
+            // this function happens to request the cached analysis.
+            drop(decoder.return_analysis()?);
             decoder.verify_typed_calls_after_structure()?;
             decoder.verify_checked_expression_facts()?;
             decoder.verify_callable_slot_initializers()?;
@@ -10248,7 +12059,11 @@ impl FullVerifier {
                 )));
             }
             if !matches!(return_type, Type::Stream(_))
-                && !indexed_block_can_return_with_decoder(store, body_id, Some(&decoder))?
+                && {
+                    let body_can_return =
+                        indexed_block_can_return_with_decoder(store, body_id, Some(&decoder))?;
+                    !body_can_return
+                }
             {
                 return Err(IrVerifyError::new(format!(
                     "function {index} body does not terminate with a return"
@@ -12264,6 +14079,7 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         local_immutable_let_initializers: RefCell::default(),
         proven_callable_writers: RefCell::default(),
         function_signature_index: None,
+        return_analysis: RefCell::default(),
         verified: false,
     }
 }
@@ -13881,9 +15697,10 @@ assert results == [4]
             .collect()
     }
 
-    fn return_analysis_decoder<'a>(
+    fn return_analysis_decoder_with_verification<'a>(
         program: &'a FullProgram,
         function_name: &str,
+        verify: bool,
     ) -> FullDecoder<'a> {
         let function_index = program
             .store
@@ -13921,18 +15738,103 @@ assert results == [4]
                 FunctionSignatureIndex::build(&program.store)
                     .expect("fixture signatures are valid")
             }))),
+            return_analysis: RefCell::default(),
             verified: false,
         };
-        program.symbol_owner().with_current(|| {
-            let body = [function.body];
-            let mut cursor = FullCursor::new(&body);
-            Vec::<BuildStmtId>::verify(&decoder, &mut cursor).expect("fixture body verifies");
-            cursor.finish().expect("fixture body payload is consumed");
-            decoder
-                .finish_function()
-                .expect("fixture function proof is complete");
-        });
+        if verify {
+            program.symbol_owner().with_current(|| {
+                let body = [function.body];
+                let mut cursor = FullCursor::new(&body);
+                Vec::<BuildStmtId>::verify(&decoder, &mut cursor).expect("fixture body verifies");
+                cursor.finish().expect("fixture body payload is consumed");
+                decoder
+                    .finish_function()
+                    .expect("fixture function proof is complete");
+            });
+        }
         decoder
+    }
+
+    fn return_analysis_decoder<'a>(
+        program: &'a FullProgram,
+        function_name: &str,
+    ) -> FullDecoder<'a> {
+        return_analysis_decoder_with_verification(program, function_name, true)
+    }
+
+    fn unverified_return_analysis_decoder<'a>(
+        program: &'a FullProgram,
+        function_name: &str,
+    ) -> FullDecoder<'a> {
+        return_analysis_decoder_with_verification(program, function_name, false)
+    }
+
+    fn range_stage_args<'a>(
+        program: &'a FullProgram,
+        function_name: &str,
+    ) -> (FullDecoder<'a>, u32, u32) {
+        let decoder = return_analysis_decoder(program, function_name);
+        let pipeline = function_instruction_indices(program, function_name, FullTag::ExprPipeline)
+            .into_iter()
+            .next()
+            .expect("range pipeline exists");
+        let schema::ExprView::ListPipeline { mut stages, .. } =
+            decoder.expression_view(pipeline).expect("pipeline decodes")
+        else {
+            panic!("range expression is a pipeline");
+        };
+        let stage = stages
+            .next_with_id()
+            .expect("range stage exists")
+            .expect("range stage decodes");
+        let StageView::Range { start, end } =
+            StageView::decode(DecodeContext::from_decoder(&decoder), stage.id.raw())
+                .expect("range stage payload decodes")
+        else {
+            panic!("first pipeline stage is range");
+        };
+        (decoder, start.raw(), end.raw())
+    }
+
+    fn configured_range_match_chain(decoder: &FullDecoder<'_>, start: u32) -> Vec<usize> {
+        let mut matches = Vec::new();
+        let mut current = start as usize;
+        for _ in 0..decoder.instruction_range.len() {
+            if !decoder.instruction_range.contains(&current) || matches.contains(&current) {
+                break;
+            }
+            let Ok(schema::ExprView::MatchExpr { mut arms, .. }) =
+                decoder.expression_view(current)
+            else {
+                break;
+            };
+            matches.push(current);
+            let Some(Ok((_, _, result))) = arms.next() else {
+                break;
+            };
+            current = result.raw() as usize;
+        }
+        matches
+    }
+
+    fn configured_range_match_arm(
+        program: &FullProgram,
+        instruction: usize,
+    ) -> (usize, usize, u32, u32) {
+        let payload = program
+            .store
+            .payload(program.store.data[instruction].range())
+            .expect("match expression payload is valid");
+        let block = IrBlockId::from_raw(payload[1]).expect("match arms block exists");
+        let block_row = &program.store.blocks[block.index()];
+        let words = program
+            .store
+            .payload(block_row.instructions)
+            .expect("match arms payload is valid");
+        assert_eq!(words.len(), 4);
+        assert_eq!(words[0], 1);
+        assert_eq!(words[2], 0);
+        (block.index(), words[1] as usize, words[3], words.len() as u32)
     }
 
     #[test]
@@ -15519,6 +17421,7 @@ pure selected() -> Str {
                 local_immutable_let_initializers: RefCell::default(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: None,
+                return_analysis: RefCell::default(),
                 verified: false,
             };
             let mut words = vec![0];
@@ -15572,6 +17475,7 @@ pure selected() -> Str {
                 local_immutable_let_initializers: RefCell::default(),
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: None,
+                return_analysis: RefCell::default(),
                 verified: false,
             };
             let mut cursor = FullCursor::new(&words);
@@ -16582,7 +18486,7 @@ pure selected() -> Str {
         bad_terminator.store.tags[return_instruction] = FullTag::StmtBreakValue;
         let error = FullVerifier::verify(&bad_terminator).unwrap_err();
         assert!(
-            error.message.contains("does not terminate"),
+            error.message.contains("break is not owned by a loop"),
             "function {function}: {}",
             error.message
         );
@@ -17047,6 +18951,17 @@ pure selected() -> Str {
                  return identity(if false { break } else { 17 })\n\
                }\n\
                return 18\n\
+             }\n\
+             pure choose_range() -> Int {\n\
+               for item in range(-2, 5) { return item }\n\
+             }\n\
+             pure choose_pattern(value: Result[Int, Error]) -> Int {\n\
+               let ignored = if let Ok(number) = value { return number } else { 0 }\n\
+               return 19\n\
+             }\n\
+             pure choose_capture(values: Result[List[Int], Error]) -> Int {\n\
+               let ignored: Result[Int?, Error] = try { values?[if true { return 1 } else { 0 }] }\n\
+               return 20\n\
              }\n",
         );
         FullVerifier::verify(&program).unwrap();
@@ -17065,6 +18980,20 @@ pure selected() -> Str {
             Some(&decoder),
         )
         .unwrap());
+
+        let pattern_if = function_instruction_indices(&program, "choose_pattern", FullTag::ExprPatternIf)
+            .into_iter()
+            .next()
+            .expect("pattern expression exists");
+        let decoder = return_analysis_decoder(&program, "choose_pattern");
+        assert!(indexed_expr_can_complete(&decoder, pattern_if, 0).unwrap());
+
+        let capture = function_instruction_indices(&program, "choose_capture", FullTag::ExprCapture)
+            .into_iter()
+            .next()
+            .expect("captured expression exists");
+        let decoder = return_analysis_decoder(&program, "choose_capture");
+        assert!(indexed_expr_can_complete(&decoder, capture, 0).unwrap());
 
         let false_condition = function_instruction_indices(&program, "choose", FullTag::ExprBool)
             .into_iter()
@@ -17142,6 +19071,405 @@ pure selected() -> Str {
             Some(true)
         );
         assert!(!indexed_stmt_can_return(&program.store, conditional).unwrap());
+    }
+
+    #[test]
+    fn full_verifier_rejects_loop_control_without_an_owner() {
+        let program = fixture("unowned-break.xsh", "pure choose() -> Int { return 1 }\n");
+        let return_instruction = function_instruction_indices(&program, "choose", FullTag::StmtReturn)
+            .into_iter()
+            .next()
+            .expect("function return exists");
+        let mut forged = program;
+        // BreakValue has the same payload as Return, so the value expression
+        // remains owned while the forged transfer itself has no loop target.
+        forged.store.tags[return_instruction] = FullTag::StmtBreakValue;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("break is not owned by a loop"),
+            "unexpected verifier error: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn captured_assertion_errors_preserve_normal_completion() {
+        let program = fixture(
+            "capture-assert-error.xsh",
+            "pure choose(flag: Bool) -> Int { let ignored: Result[Int, Error] = try { assert flag; return 1 }; return 0 }\n\
+             pure choose_true() -> Int { let ignored: Result[Int, Error] = try { assert true; return 1 }; return 0 }\n\
+             pure choose_after_return() -> Int { let ignored: Result[Int, Error] = try { return 1; \"late\".parse_int()? }; return 0 }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        let capture = |name: &str| {
+            function_instruction_indices(&program, name, FullTag::ExprCapture)
+                .into_iter()
+                .next()
+                .expect("function has a capture")
+        };
+        for name in ["choose", "choose_true", "choose_after_return"] {
+            let decoder = return_analysis_decoder(&program, name);
+            let can_complete = indexed_expr_can_complete(&decoder, capture(name), 0).unwrap();
+            assert_eq!(can_complete, name == "choose", "{name}");
+        }
+    }
+
+    #[test]
+    fn pipeline_return_analysis_respects_callback_demand() {
+        let program = fixture(
+            "pipeline-callback-return.xsh",
+            "pure demanded() -> Int { let ignored = [1] |> map { |item| if true { return item }; item } |> collect() }\n\
+             pure collect_condition() -> Int { if ([1] |> map { |item| if true { return item }; item }).collect().len() > 0 { return 1 } else {} }\n\
+             pure positive_take() -> Int { let ignored = [1] |> take(1) |> map { |item| if true { return item }; item } }\n\
+             pure positive_repeat() -> Int { let ignored = [1] |> repeat(2) |> map { |item| if true { return item }; item } }\n\
+             pure positive_range() -> Int { let ignored = [1] |> range(0, 1) |> map { |item| if true { return item }; item } }\n\
+             pure reversed_named_range() -> Int { let ignored = [1] |> range(end: 1, start: 0) |> map { |item| if true { return item }; item } }\n\
+             pure zero_range() -> Int { let ignored = [1] |> range(0, 0) |> map { |item| if true { return item }; item }; return 0 }\n\
+             pure dynamic_range(start: Int, end: Int) -> Int { let ignored = [1] |> range(start, end) |> map { |item| if true { return item }; item }; return 0 }\n\
+             pure guarded_range(flag: Bool) -> Int { let ignored = [1] |> range(match 0 { value if flag => value, _ => 0 }, 1) |> map { |item| if true { return item }; item }; return 0 }\n\
+             pure reduce_by() -> Int { let ignored = [1] |> reduce-by(sum: true) { |item| if true { return item }; {key: \"n\", value: item} } }\n\
+             pure maybe_source(values: List[Int]) -> Int { let ignored = values |> map { |item| if true { return item }; item } |> collect(); return 0 }\n\
+             pure zero_take() -> Int { let ignored = [1] |> map { |item| if true { return item }; item } |> take(0) |> collect(); return 0 }\n\
+             pure dynamic_take(count: Int) -> Int { let ignored = [1] |> map { |item| if true { return item }; item } |> take(count) |> collect(); return 0 }\n\
+             pure filtered_source() -> Int { let ignored = [1] |> where { |item| false } |> map { |item| if true { return 1 }; 1 } |> collect(); return 0 }\n\
+             pure empty_zip_left() -> Int { let ignored = [] |> zip([1]) |> map { |pair| if true { return 1 }; 1 } |> collect(); return 0 }\n\
+             pure empty_zip_drains_map() -> Int { let ignored = [1] |> map { |item| if true { return item }; item } |> zip([]) |> collect(); return 0 }\n\
+             pure empty_range_drains_map() -> Int { let ignored = [1] |> map { |item| if true { return item }; item } |> range(0, 0) |> collect(); return 0 }\n\
+             pure unique_drains_map() -> Int { let ignored = [1] |> map { |item| if true { return item }; item } |> unique-by { |item| item } |> take(0) |> collect(); return 0 }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        let collect_condition_if = function_instruction_indices(
+            &program,
+            "collect_condition",
+            FullTag::StmtIf,
+        )
+        .into_iter()
+        .next()
+        .expect("if condition with a demanded callback exists");
+        let decoder = return_analysis_decoder(&program, "collect_condition");
+        assert!(indexed_stmt_can_return_with_decoder(
+            &program.store,
+            collect_condition_if,
+            Some(&decoder),
+        )
+        .unwrap());
+
+        for (name, expected_completion) in [
+            ("demanded", false),
+            ("positive_take", false),
+            ("positive_repeat", false),
+            ("positive_range", false),
+            ("reversed_named_range", false),
+            ("reduce_by", false),
+            ("maybe_source", true),
+            ("zero_take", true),
+            ("dynamic_take", true),
+            ("zero_range", true),
+            ("dynamic_range", true),
+            ("guarded_range", true),
+            ("filtered_source", true),
+            ("empty_zip_left", true),
+            ("empty_zip_drains_map", false),
+            ("empty_range_drains_map", false),
+            ("unique_drains_map", false),
+        ] {
+            let pipeline = function_instruction_indices(&program, name, FullTag::ExprPipeline)
+                .into_iter()
+                .next()
+                .expect("pipeline expression exists");
+            let decoder = return_analysis_decoder(&program, name);
+            assert_eq!(
+                indexed_expr_can_complete(&decoder, pipeline, 0).unwrap(),
+                expected_completion,
+                "{name}",
+            );
+        }
+
+        for (name, expected_cardinality) in [
+            ("positive_range", IndexedCardinality::NonEmpty),
+            ("reversed_named_range", IndexedCardinality::NonEmpty),
+            ("zero_range", IndexedCardinality::Empty),
+            ("dynamic_range", IndexedCardinality::Maybe),
+            ("guarded_range", IndexedCardinality::Maybe),
+        ] {
+            let pipeline = function_instruction_indices(&program, name, FullTag::ExprPipeline)
+                .into_iter()
+                .next()
+                .expect("range pipeline exists");
+            let decoder = return_analysis_decoder(&program, name);
+            assert_eq!(
+                IndexedCardinalityQuery::new(&decoder)
+                    .expression(pipeline)
+                    .unwrap(),
+                expected_cardinality,
+                "{name}",
+            );
+        }
+
+        let (decoder, start, end) = range_stage_args(&program, "positive_range");
+        let (start_subject, end_subject) = indexed_configured_range_bound_subjects(
+            &decoder, start, end,
+        )
+        .unwrap()
+        .expect("compiler-generated range argument chain is resolved");
+        assert_eq!(indexed_int_literal(&decoder, start_subject).unwrap(), Some(0));
+        assert_eq!(indexed_int_literal(&decoder, end_subject).unwrap(), Some(1));
+
+        let (guarded_decoder, guarded_start, guarded_end) =
+            range_stage_args(&program, "guarded_range");
+        let (guarded_subject, _) = indexed_configured_range_bound_subjects(
+            &guarded_decoder,
+            guarded_start,
+            guarded_end,
+        )
+        .unwrap()
+        .expect("outer checked argument chain remains valid");
+        assert_eq!(
+            guarded_decoder.store.tags[guarded_subject as usize],
+            FullTag::ExprMatch,
+        );
+        assert!(indexed_int_literal(&guarded_decoder, guarded_subject)
+            .unwrap()
+            .is_none());
+        assert!(indexed_configured_range_bound_subjects(
+            &guarded_decoder,
+            guarded_subject,
+            guarded_end,
+        )
+        .unwrap()
+        .is_none());
+
+        let pipeline = function_instruction_indices(&program, "positive_range", FullTag::ExprPipeline)
+            .into_iter()
+            .next()
+            .expect("positive range pipeline exists");
+        let schema::ExprView::ListPipeline { mut stages, .. } =
+            decoder.expression_view(pipeline).unwrap()
+        else {
+            panic!("range expression is a pipeline");
+        };
+        let _range = stages.next_with_id().unwrap().unwrap();
+        let map = stages.next_with_id().unwrap().unwrap();
+        let StageView::MapBlock { slot, .. } =
+            StageView::decode(DecodeContext::from_decoder(&decoder), map.id.raw()).unwrap()
+        else {
+            panic!("second pipeline stage is map");
+        };
+        let callback_parameter = function_instruction_indices(
+            &program,
+            "positive_range",
+            FullTag::ExprParam,
+        )
+        .into_iter()
+        .find(|instruction| {
+            matches!(
+                decoder.expression_view(*instruction).unwrap(),
+                schema::ExprView::Param(parameter_slot) if parameter_slot == slot
+            )
+        })
+        .expect("map callback parameter exists");
+        assert!(indexed_configured_range_bound_subjects(
+            &decoder,
+            start,
+            callback_parameter as u32,
+        )
+        .unwrap()
+        .is_none());
+
+        assert!(indexed_configured_range_bound_subjects(&decoder, u32::MAX, end)
+            .unwrap()
+            .is_none());
+        assert!(indexed_configured_range_bound_subjects(&decoder, start, u32::MAX)
+            .unwrap()
+            .is_none());
+
+        let chain = configured_range_match_chain(&decoder, start);
+        assert_eq!(chain.len(), 2, "start/end argument bindings are distinct");
+        let (first_block, first_pattern, _, _) =
+            configured_range_match_arm(&program, chain[0]);
+        let (_, second_pattern, _, _) =
+            configured_range_match_arm(&program, chain[1]);
+        assert_ne!(first_pattern, second_pattern);
+
+        let mut second_arm = program.clone();
+        let old_range = second_arm.store.blocks[first_block].instructions;
+        let old_words = second_arm.store.payload(old_range).unwrap().to_vec();
+        let mut expanded_words = old_words.clone();
+        expanded_words[0] = 2;
+        expanded_words.extend_from_slice(&old_words[1..]);
+        let expanded_start = u32::try_from(second_arm.store.extra.len()).unwrap();
+        second_arm.store.extra.extend_from_slice(&expanded_words);
+        second_arm.store.blocks[first_block].instructions =
+            IrRange::new(expanded_start, expanded_words.len() as u32);
+        let second_arm_decoder =
+            unverified_return_analysis_decoder(&second_arm, "positive_range");
+        assert!(indexed_configured_range_bound_subjects(
+            &second_arm_decoder,
+            start,
+            end,
+        )
+        .unwrap()
+        .is_none());
+
+        let mut non_bind = program.clone();
+        non_bind.store.patterns[first_pattern] = FullPatternTag::Wildcard;
+        let pattern_data = non_bind.store.pattern_data[first_pattern];
+        non_bind.store.pattern_data[first_pattern] =
+            IrData::new(pattern_data.range().start, 0);
+        let non_bind_decoder = unverified_return_analysis_decoder(&non_bind, "positive_range");
+        assert!(indexed_configured_range_bound_subjects(&non_bind_decoder, start, end)
+            .unwrap()
+            .is_none());
+
+        let mut duplicate_slot = program.clone();
+        let first_slot = {
+            let range = duplicate_slot.store.pattern_data[first_pattern]
+                .range()
+                .bounds(duplicate_slot.store.extra.len())
+                .unwrap();
+            duplicate_slot.store.extra[range.start]
+        };
+        let second_slot_range = duplicate_slot.store.pattern_data[second_pattern]
+            .range()
+            .bounds(duplicate_slot.store.extra.len())
+            .unwrap();
+        duplicate_slot.store.extra[second_slot_range.start] = first_slot;
+        let duplicate_slot_decoder =
+            unverified_return_analysis_decoder(&duplicate_slot, "positive_range");
+        assert!(indexed_configured_range_bound_subjects(
+            &duplicate_slot_decoder,
+            start,
+            end,
+        )
+        .unwrap()
+        .is_none());
+
+        let mut cycle = program.clone();
+        let (first_block, _, _, _) = configured_range_match_arm(&cycle, chain[0]);
+        let block_range = cycle.store.blocks[first_block].instructions;
+        let block_range = block_range.bounds(cycle.store.extra.len()).unwrap();
+        cycle.store.extra[block_range.start + 3] = chain[0] as u32;
+        let cycle_decoder = unverified_return_analysis_decoder(&cycle, "positive_range");
+        assert!(indexed_configured_range_bound_subjects(&cycle_decoder, start, end)
+            .unwrap()
+            .is_none());
+
+        let (reversed_decoder, reversed_start, reversed_end) =
+            range_stage_args(&program, "reversed_named_range");
+        let (reversed_start_subject, reversed_end_subject) =
+            indexed_configured_range_bound_subjects(
+                &reversed_decoder,
+                reversed_start,
+                reversed_end,
+            )
+            .unwrap()
+            .expect("reversed named arguments retain bound subjects");
+        assert_eq!(
+            indexed_int_literal(&reversed_decoder, reversed_start_subject).unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            indexed_int_literal(&reversed_decoder, reversed_end_subject).unwrap(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn cardinality_peels_only_identity_argument_matches() {
+        let program = fixture(
+            "pipeline-identity-argument-cardinality.xsh",
+            "pure identity_zip() -> Int { let ignored = [1] |> zip([2]) |> map { |pair| if true { return 1 }; 1 } }\n\
+             pure guarded_zip() -> Int { let ignored = [1] |> zip(match [2] { rows if true => rows, _ => [] }) |> map { |pair| pair }; return 0 }\n\
+             pure changed_value_zip() -> Int { let ignored = [1] |> zip(match [2] { rows => [] }) |> map { |pair| pair }; return 0 }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        for (name, expected_cardinality, expected_completion) in [
+            ("identity_zip", IndexedCardinality::NonEmpty, false),
+            ("guarded_zip", IndexedCardinality::Maybe, true),
+            ("changed_value_zip", IndexedCardinality::Maybe, true),
+        ] {
+            let decoder = return_analysis_decoder(&program, name);
+            let pipeline = function_instruction_indices(&program, name, FullTag::ExprPipeline)
+                .into_iter()
+                .next()
+                .expect("pipeline expression exists");
+            let schema::ExprView::ListPipeline { mut stages, .. } =
+                decoder.expression_view(pipeline).unwrap()
+            else {
+                panic!("pipeline instruction decodes as ListPipeline");
+            };
+            let zip = stages.next_with_id().unwrap().unwrap();
+            let StageView::Zip { other } =
+                StageView::decode(DecodeContext::from_decoder(&decoder), zip.id.raw()).unwrap()
+            else {
+                panic!("first pipeline stage is Zip");
+            };
+            assert_eq!(
+                IndexedCardinalityQuery::new(&decoder)
+                    .expression(other.raw() as usize)
+                    .unwrap(),
+                expected_cardinality,
+                "{name} zip argument",
+            );
+            assert_eq!(
+                indexed_expr_can_complete(&decoder, pipeline, 0).unwrap(),
+                expected_completion,
+                "{name} pipeline",
+            );
+        }
+    }
+
+    #[test]
+    fn pipeline_callback_break_cannot_target_an_enclosing_loop() {
+        let program = fixture(
+            "pipeline-callback-break-owner.xsh",
+            "pure choose() -> Int { loop { break; let ignored = [1] |> map { |item| if true { return item }; item } |> collect() }; return 0 }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let callback_return = function_instruction_indices(&program, "choose", FullTag::StmtReturn)
+            .into_iter()
+            .next()
+            .expect("pipeline callback return exists");
+        let mut forged = program;
+        forged.store.tags[callback_return] = FullTag::StmtBreakValue;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("break is not owned by a loop"),
+            "unexpected verifier error: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn return_analysis_walks_each_instruction_a_bounded_number_of_times() {
+        let mut source = String::from("pure choose(condition: Bool) -> Int {\n");
+        for _ in 0..64 {
+            source.push_str("loop { if condition { break }; continue }\n");
+        }
+        source.push_str("return 1\n}\n");
+        let program = fixture("return-analysis-work-count.xsh", &source);
+        let decoder = return_analysis_decoder(&program, "choose");
+        let analysis = decoder.return_analysis().unwrap();
+        let instruction_count = decoder.instruction_range.len();
+        assert!(analysis.node_visits <= instruction_count * 4);
+        assert!(analysis.edge_visits <= instruction_count * 2);
+
+        let mut branch_chain =
+            String::from("pure choose_chain(condition: Bool) -> Int { if condition { return 0 }");
+        for _ in 0..128 {
+            branch_chain.push_str(" else if condition { return 1 }");
+        }
+        branch_chain.push_str(" else { return 2 } }\n");
+        let program = fixture("return-analysis-branch-chain.xsh", &branch_chain);
+        let decoder = return_analysis_decoder(&program, "choose_chain");
+        let analysis = decoder.return_analysis().unwrap();
+        let instruction_count = decoder.instruction_range.len();
+        assert!(analysis.node_visits <= instruction_count * 4);
+        assert!(analysis.edge_visits <= instruction_count * 2);
+        assert!(analysis.reachability_visits <= instruction_count * 3);
     }
 
     #[test]

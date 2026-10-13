@@ -173,6 +173,18 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("signature return type id is invalid"))
     }
 
+    pub(super) fn signature_has_error_effect(
+        &self,
+        id: SignatureId,
+    ) -> Result<bool, IrVerifyError> {
+        let payload = self.signature_payload(id)?;
+        let effect_count = signature_effect_count(payload)?;
+        let effects = payload
+            .get(3..3 + effect_count)
+            .ok_or_else(|| IrVerifyError::new("signature effects are out of bounds"))?;
+        Ok(effects.contains(&(EffectCode::Error as u32)))
+    }
+
     pub(super) fn signature_matches_callable(
         &self,
         id: SignatureId,

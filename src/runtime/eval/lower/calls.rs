@@ -2198,6 +2198,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return Some(push_build_row!(self, expr, BuildExprRow::Ok(value)));
                 }
                 if name == "range"
+                    && self
+                        .bodies
+                        .checked_control_flow
+                        .builtin_range_calls
+                        .contains(&span)
                     && let Some(positional) = positional.as_ref()
                 {
                     let (start, end) = match positional.as_slice() {

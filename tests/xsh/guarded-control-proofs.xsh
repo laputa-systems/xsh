@@ -180,3 +180,33 @@ print ${choose_failure(FlowFailure.Changed())}
 2
 """
 }
+
+test guarded_user_defined_range_call_keeps_its_resolved_target { |ctx|
+  let source = r"""pure range(end: Int) -> List[Int] { [7] }
+print ${range(1)[0]}
+"""
+  let file = test.temp_file(ctx, name: "user-range-call.xsh", contents: bytes.from_text(source))?
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+  let result = test.run_script(ctx, source)?
+  let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
+  assert succeeded, diagnostics
+  assert output == """7
+"""
+}
+
+test guarded_materialized_pipeline_callback_return_runs { |ctx|
+  let source = r"""pure choose() -> Int {
+  let ignored = [17] |> map { |item| if true { return item }; item } |> collect()
+}
+print ${choose()}
+"""
+  let file = test.temp_file(ctx, name: "pipeline-callback-return.xsh", contents: bytes.from_text(source))?
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+  let result = test.run_script(ctx, source)?
+  let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
+  assert succeeded, diagnostics
+  assert output == """17
+"""
+}

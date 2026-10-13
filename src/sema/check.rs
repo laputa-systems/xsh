@@ -473,7 +473,9 @@ pub struct CheckedStreamStage {
 /// `..Default::default()` without allowing callers to forge individual proofs.
 #[derive(Clone, Debug, Default)]
 pub struct CheckedControlFlowFacts {
+    complete: bool,
     pub(crate) builtin_range_calls: BTreeSet<Span>,
+    pub(crate) cardinality_preserving_collection_calls: BTreeSet<Span>,
     pub(crate) propagating_error_spans: BTreeSet<Span>,
     pub(crate) latent_stream_error_spans: BTreeSet<Span>,
     pub(crate) fallible_pipeline_stage_spans: BTreeSet<Span>,
@@ -482,8 +484,15 @@ pub struct CheckedControlFlowFacts {
 }
 
 impl CheckedControlFlowFacts {
+    pub(crate) fn is_complete(&self) -> bool {
+        self.complete
+    }
+
     fn merge_from(&mut self, mut other: Self) {
+        self.complete &= other.complete;
         self.builtin_range_calls.append(&mut other.builtin_range_calls);
+        self.cardinality_preserving_collection_calls
+            .append(&mut other.cardinality_preserving_collection_calls);
         self.propagating_error_spans
             .append(&mut other.propagating_error_spans);
         self.latent_stream_error_spans
@@ -1347,6 +1356,7 @@ pub struct Checker {
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
     builtin_range_calls: BTreeSet<Span>,
+    cardinality_preserving_collection_calls: BTreeSet<Span>,
     propagating_error_spans: BTreeSet<Span>,
     latent_stream_error_spans: BTreeSet<Span>,
     fallible_pipeline_stage_spans: BTreeSet<Span>,
@@ -1607,7 +1617,9 @@ impl Checker {
             from_end_indexes: self.from_end_indexes,
             conversions: self.conversions,
             checked_control_flow: CheckedControlFlowFacts {
+                complete: true,
                 builtin_range_calls: self.builtin_range_calls,
+                cardinality_preserving_collection_calls: self.cardinality_preserving_collection_calls,
                 propagating_error_spans: self.propagating_error_spans,
                 latent_stream_error_spans: self.latent_stream_error_spans,
                 fallible_pipeline_stage_spans: self.fallible_pipeline_stage_spans,
@@ -1721,6 +1733,7 @@ impl Checker {
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
             builtin_range_calls: BTreeSet::new(),
+            cardinality_preserving_collection_calls: BTreeSet::new(),
             propagating_error_spans: BTreeSet::new(),
             latent_stream_error_spans: BTreeSet::new(),
             fallible_pipeline_stage_spans: BTreeSet::new(),

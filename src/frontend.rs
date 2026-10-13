@@ -12,8 +12,8 @@ pub mod check {
     };
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, BindingDeclaration, BindingId, BindingKind,
-        CheckBundleView, CheckSession,
-        CheckOptions, CheckOutput, CheckedControlFlowFacts, CheckedCommandArgument, CheckedModuleCommand,
+        CheckBundleView, CheckSession, CheckOptions, CheckOutput, CheckedControlFlowFacts,
+        CheckedCommandArgument, CheckedModuleCommand,
         CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
         CheckedFunctionKind, CheckedProjection, CheckedStreamStage, CheckedTypeDeclaration,
         Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,

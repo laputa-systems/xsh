@@ -566,6 +566,11 @@ impl Checker {
                 &method.sig,
                 &instance.signature,
             );
+            if matches!(name, "collect" | "to_list" | "to_set")
+                && self.api_calls.contains_key(&span)
+            {
+                self.cardinality_preserving_collection_calls.insert(span);
+            }
         }
         instance.signature.return_ty
     }

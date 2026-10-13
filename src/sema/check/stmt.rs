@@ -57,6 +57,9 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
         tag_variants: Some(tag_variants),
         conversions_by_id: Some(conversions),
         builtin_range_calls: Some(&checked_control_flow.builtin_range_calls),
+        cardinality_preserving_collection_calls: Some(
+            &checked_control_flow.cardinality_preserving_collection_calls,
+        ),
         argument_bindings: Some(argument_bindings),
         propagating_error_spans: Some(&checked_control_flow.propagating_error_spans),
         latent_stream_error_spans: Some(&checked_control_flow.latent_stream_error_spans),
@@ -68,7 +71,9 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
         cardinality_cache: Some(&cardinality_cache),
         ..FlowFacts::AST_ONLY
     };
-    tail_is_value || !block_control_flow(arena, block_id, &facts).completes
+    tail_is_value
+        || (checked_control_flow.is_complete()
+            && !block_control_flow(arena, block_id, &facts).completes)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -88,6 +93,7 @@ struct FlowFacts<'a> {
     conversions: Option<&'a BTreeMap<Span, super::Conversion>>,
     conversions_by_id: Option<&'a FxHashMap<ExprId, super::Conversion>>,
     builtin_range_calls: Option<&'a BTreeSet<Span>>,
+    cardinality_preserving_collection_calls: Option<&'a BTreeSet<Span>>,
     argument_bindings: Option<&'a BTreeMap<Span, super::CheckedArguments>>,
     propagating_error_spans: Option<&'a BTreeSet<Span>>,
     latent_stream_error_spans: Option<&'a BTreeSet<Span>>,
@@ -108,6 +114,7 @@ impl FlowFacts<'static> {
         conversions: None,
         conversions_by_id: None,
         builtin_range_calls: None,
+        cardinality_preserving_collection_calls: None,
         argument_bindings: None,
         propagating_error_spans: None,
         latent_stream_error_spans: None,
@@ -125,7 +132,7 @@ impl FlowFacts<'static> {
 struct StreamCardinalityCache {
     values: RefCell<FxHashMap<ExprId, StreamCardinality>>,
     #[cfg(test)]
-    hits: Cell<usize>,
+    flow_visits: Cell<usize>,
 }
 
 impl ControlFlow {
@@ -984,6 +991,29 @@ fn map_literal_cardinality(
     }
 }
 
+fn list_literal_cardinality(
+    arena: &ArenaProgram,
+    elements: crate::syntax::arena::ArenaListElementRange,
+    facts: &FlowFacts<'_>,
+) -> StreamCardinality {
+    let mut maybe_nonempty = false;
+    for element in arena.arena.list_elements(elements) {
+        if element.splice_span.is_none() {
+            return StreamCardinality::NonEmpty;
+        }
+        match expression_cardinality(arena, element.value, facts) {
+            StreamCardinality::NonEmpty => return StreamCardinality::NonEmpty,
+            StreamCardinality::Maybe => maybe_nonempty = true,
+            StreamCardinality::Empty => {}
+        }
+    }
+    if maybe_nonempty {
+        StreamCardinality::Maybe
+    } else {
+        StreamCardinality::Empty
+    }
+}
+
 fn comprehension_cardinality(
     arena: &ArenaProgram,
     qualifiers: ArenaRange,
@@ -1203,7 +1233,7 @@ fn materialized_pipeline_control_flow(
 ) -> ControlFlow {
     let mut flow = expr_control_flow(arena, input, facts);
     let pipeline_stages = pipeline_flow_stages(arena, stages, structured);
-    let downstream_pulls = pipeline_downstream_pulls(arena, &pipeline_stages);
+    let downstream_pulls = pipeline_downstream_pulls(arena, &pipeline_stages, facts);
     if flow.completes
         && !downstream_pulls[0].never
         && latent_stream_error_source(arena, input, facts)
@@ -1226,7 +1256,7 @@ fn materialized_pipeline_control_flow(
                 block,
                 span,
             } => {
-                flow = flow.then(stream_stage_args_control_flow(arena, args, span, facts));
+                flow = flow.then(stream_stage_args_control_flow(arena, kind, args, span, facts));
                 if !flow.completes {
                     break;
                 }
@@ -1246,11 +1276,9 @@ fn materialized_pipeline_control_flow(
                     .is_some_and(|spans| spans.contains(&span));
                 if block.is_some() || callback_may_propagate {
                     let demand = callback_demand(
-                        arena,
                         downstream_pulls[index + 1],
                         cardinality,
                         kind,
-                        args,
                     );
                     match demand {
                         CallbackDemand::Never => flow = flow.then(ControlFlow::NORMAL),
@@ -1274,7 +1302,7 @@ fn materialized_pipeline_control_flow(
                         }
                     }
                 }
-                cardinality = stage_output_cardinality(arena, cardinality, kind, args, facts);
+                cardinality = stage_output_cardinality(arena, cardinality, kind, args, block, facts);
             }
         }
     }
@@ -1355,6 +1383,7 @@ impl PullSummary {
 fn pipeline_downstream_pulls(
     arena: &ArenaProgram,
     stages: &[PipelineFlowStage],
+    facts: &FlowFacts<'_>,
 ) -> Vec<PullSummary> {
     let mut summaries = vec![PullSummary::REQUIRED; stages.len() + 1];
     for index in (0..stages.len()).rev() {
@@ -1362,8 +1391,15 @@ fn pipeline_downstream_pulls(
             summaries[index] = summaries[index + 1];
             continue;
         };
-        let pull = stage_input_pull(arena, kind, args);
-        let materializes = stage_materializes_input(arena, kind, args);
+        let materializes = stage_materializes_input(kind);
+        // A materialized stage drains the preceding serial group even when
+        // its own result is empty. At the pipeline head it may still avoid
+        // pulling the direct source altogether.
+        let pull = if index > 0 && materializes {
+            StageInputPull::Required
+        } else {
+            stage_input_pull(arena, kind, args, facts)
+        };
         let downstream = summaries[index + 1];
         summaries[index] = match (pull, materializes) {
             (StageInputPull::Never, _) => PullSummary::NEVER,
@@ -1384,17 +1420,15 @@ fn pipeline_downstream_pulls(
 }
 
 fn callback_demand(
-    arena: &ArenaProgram,
     downstream: PullSummary,
     cardinality: StreamCardinality,
     kind: StreamStageKind,
-    args: ArenaRange,
 ) -> CallbackDemand {
     if cardinality == StreamCardinality::Empty {
         return CallbackDemand::Never;
     }
     let mut may_skip = cardinality == StreamCardinality::Maybe || kind == StreamStageKind::Reduce;
-    if stage_materializes_input(arena, kind, args) {
+    if stage_materializes_input(kind) {
         return if may_skip {
             CallbackDemand::Maybe
         } else {
@@ -1421,7 +1455,8 @@ fn pipeline_stage_may_fail(
     match kind {
         StreamStageKind::Range => range_cardinality(arena, args) != StreamCardinality::Empty,
         StreamStageKind::Repeat => {
-            input != StreamCardinality::Empty && first_known_int_arg(arena, args) != Some(0)
+            input != StreamCardinality::Empty
+                && first_known_int_arg(arena, args).is_none_or(|count| count > 0)
         }
         _ => false,
     }
@@ -1431,6 +1466,7 @@ fn stage_input_pull(
     arena: &ArenaProgram,
     kind: StreamStageKind,
     args: ArenaRange,
+    facts: &FlowFacts<'_>,
 ) -> StageInputPull {
     match kind {
         StreamStageKind::Take | StreamStageKind::Repeat => match first_known_int_arg(arena, args) {
@@ -1438,11 +1474,14 @@ fn stage_input_pull(
             Some(count) if count > 0 => StageInputPull::Required,
             _ => StageInputPull::Maybe,
         },
-        // Zip stops when either source ends, so the other source bounds left
-        // pulls.
-        // Zip materializes the preceding group before it starts pairing rows,
-        // even when its right side is statically empty.
-        StreamStageKind::Zip => StageInputPull::Required,
+        // Zip drains its right source first; an empty right source means a
+        // direct left source is never pulled. A preceding serial group is
+        // handled separately in `pipeline_downstream_pulls`.
+        StreamStageKind::Zip => match zip_other_cardinality(arena, args, facts) {
+            StreamCardinality::Empty => StageInputPull::Never,
+            StreamCardinality::NonEmpty => StageInputPull::Required,
+            StreamCardinality::Maybe => StageInputPull::Maybe,
+        },
         // A range stage generates its own sequence and does not pull from its
         // preceding input.
         StreamStageKind::Range => StageInputPull::Never,
@@ -1450,14 +1489,7 @@ fn stage_input_pull(
     }
 }
 
-fn stage_materializes_input(
-    arena: &ArenaProgram,
-    kind: StreamStageKind,
-    args: ArenaRange,
-) -> bool {
-    // Unknown repeat counts may be positive, which drains input before later stages.
-    let repeat_materializes_input = kind == StreamStageKind::Repeat
-        && first_known_int_arg(arena, args).is_none_or(|count| count > 0);
+fn stage_materializes_input(kind: StreamStageKind) -> bool {
     matches!(
         kind,
         StreamStageKind::Batch
@@ -1472,6 +1504,8 @@ fn stage_materializes_input(
             | StreamStageKind::SortBy
             | StreamStageKind::Shuffle
             | StreamStageKind::Zip
+            | StreamStageKind::Range
+            | StreamStageKind::Repeat
             | StreamStageKind::UniqueBy
             | StreamStageKind::ParMap
             | StreamStageKind::TablePrint
@@ -1481,7 +1515,7 @@ fn stage_materializes_input(
             | StreamStageKind::ReduceBy
             | StreamStageKind::Any
             | StreamStageKind::All
-    ) || repeat_materializes_input
+    )
 }
 
 fn stage_output_cardinality(
@@ -1489,6 +1523,7 @@ fn stage_output_cardinality(
     input: StreamCardinality,
     kind: StreamStageKind,
     args: ArenaRange,
+    block: Option<BlockId>,
     facts: &FlowFacts<'_>,
 ) -> StreamCardinality {
     match kind {
@@ -1526,7 +1561,40 @@ fn stage_output_cardinality(
             (cardinality, Some(0)) => cardinality,
             (_, _) => StreamCardinality::Maybe,
         },
-        _ => input,
+        StreamStageKind::Map
+        | StreamStageKind::ParMap
+        | StreamStageKind::Batch
+        | StreamStageKind::Sort
+        | StreamStageKind::SortBy
+        | StreamStageKind::UniqueBy
+        | StreamStageKind::Enumerate
+        | StreamStageKind::Tee
+        | StreamStageKind::GroupBy
+        | StreamStageKind::Shuffle
+        | StreamStageKind::TextStreamLines
+        | StreamStageKind::BytesChunks
+        | StreamStageKind::Collect
+        | StreamStageKind::ReduceBy => input,
+        // Count with a block materializes a map, while count without a block
+        // produces a scalar. The scalar case is not an iteration proof.
+        StreamStageKind::Count if block.is_some() => input,
+        StreamStageKind::Each
+        | StreamStageKind::Count
+        | StreamStageKind::First
+        | StreamStageKind::Last
+        | StreamStageKind::Sum
+        | StreamStageKind::Min
+        | StreamStageKind::Max
+        | StreamStageKind::Fold
+        | StreamStageKind::Reduce
+        | StreamStageKind::Any
+        | StreamStageKind::All
+        | StreamStageKind::TablePrint
+        | StreamStageKind::JsonStream => StreamCardinality::Maybe,
+        StreamStageKind::JsonLines => match input {
+            StreamCardinality::Empty => StreamCardinality::Empty,
+            StreamCardinality::NonEmpty | StreamCardinality::Maybe => StreamCardinality::Maybe,
+        },
     }
 }
 
@@ -1540,7 +1608,7 @@ fn zip_right_consumed_flow(
         return ControlFlow::NORMAL;
     };
     let right = call_arg_expr(&arg.kind);
-    expr_control_flow_materialized_pipeline(arena, right, facts)
+    iteration_source_control_flow(arena, right, facts)
 }
 
 fn zip_other_cardinality(
@@ -1565,8 +1633,6 @@ fn expression_cardinality(
         return expression_cardinality_uncached(arena, expr, facts);
     };
     if let Some(cardinality) = cache.values.borrow().get(&expr).copied() {
-        #[cfg(test)]
-        cache.hits.set(cache.hits.get() + 1);
         return cardinality;
     }
     let cardinality = expression_cardinality_uncached(arena, expr, facts);
@@ -1580,6 +1646,7 @@ fn expression_cardinality_uncached(
     facts: &FlowFacts<'_>,
 ) -> StreamCardinality {
     match arena.arena.expr(expr).kind {
+        ArenaExprKind::List(elements) => list_literal_cardinality(arena, elements, facts),
         ArenaExprKind::ListComp { qualifiers, .. }
         | ArenaExprKind::SetComp { qualifiers, .. }
         | ArenaExprKind::MapComp { qualifiers, .. } => {
@@ -1605,7 +1672,12 @@ fn expression_cardinality_uncached(
         }
         ArenaExprKind::Call { callee, .. }
             if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
-                && name.as_str() == "collect" =>
+                && (name.as_str() == "collect"
+                    || name.as_str() == "to_list"
+                    || name.as_str() == "to_set")
+                && facts
+                    .cardinality_preserving_collection_calls
+                    .is_some_and(|calls| calls.contains(&arena.arena.expr(expr).span)) =>
         {
             expression_cardinality(arena, base, facts)
         }
@@ -1632,8 +1704,10 @@ fn pipeline_output_cardinality(
     for stage in pipeline_flow_stages(arena, stages, structured) {
         cardinality = match stage {
             PipelineFlowStage::Expression(_) => StreamCardinality::Maybe,
-            PipelineFlowStage::Stream { kind, args, .. } => {
-                stage_output_cardinality(arena, cardinality, kind, args, facts)
+            PipelineFlowStage::Stream {
+                kind, args, block, ..
+            } => {
+                stage_output_cardinality(arena, cardinality, kind, args, block, facts)
             }
         };
     }
@@ -1707,6 +1781,7 @@ fn callback_control_flow(
 
 fn stream_stage_args_control_flow(
     arena: &ArenaProgram,
+    kind: StreamStageKind,
     args: crate::syntax::arena::ArenaRange,
     stage_span: Span,
     facts: &FlowFacts<'_>,
@@ -1720,6 +1795,12 @@ fn stream_stage_args_control_flow(
         .and_then(|binding| binding.callable_entry);
     for (index, arg) in arena.arena.call_args(args).iter().enumerate() {
         if Some(index) == callable_entry {
+            continue;
+        }
+        // Zip consumes its right pipeline in a dedicated drain pass after
+        // eagerly evaluating the stage arguments. Analyzing it here as well
+        // recursively duplicates all nested Zip flow work.
+        if kind == StreamStageKind::Zip && index == 0 {
             continue;
         }
         let expr = match arg.kind {
@@ -1768,6 +1849,10 @@ fn expr_if_control_flow(
 }
 
 fn expr_control_flow(arena: &ArenaProgram, id: ExprId, facts: &FlowFacts<'_>) -> ControlFlow {
+    #[cfg(test)]
+    if let Some(cache) = facts.cardinality_cache {
+        cache.flow_visits.set(cache.flow_visits.get() + 1);
+    }
     let mut flow = expr_control_flow_inner(arena, id, facts);
     let expr = arena.arena.expr(id);
     let condition_propagates = facts
@@ -2098,6 +2183,9 @@ impl Checker {
             conversions: Some(&self.conversions),
             conversions_by_id: None,
             builtin_range_calls: Some(&self.builtin_range_calls),
+            cardinality_preserving_collection_calls: Some(
+                &self.cardinality_preserving_collection_calls,
+            ),
             argument_bindings: Some(&self.argument_bindings),
             propagating_error_spans: Some(&self.propagating_error_spans),
             latent_stream_error_spans: Some(&self.latent_stream_error_spans),
@@ -3712,6 +3800,26 @@ impl Checker {
         if reaching.is_empty() {
             return;
         }
+        for (name, initial) in &original {
+            let may_error = reaching.iter().any(|bindings| {
+                bindings
+                    .get(name)
+                    .filter(|binding| binding.proof.same_binding(&initial.proof))
+                    .map_or(initial.latent_stream_error, |binding| {
+                        binding.latent_stream_error
+                    })
+            });
+            if may_error {
+                for scope in self.scopes.iter_mut().rev() {
+                    if let Some(binding) = scope.get_mut(name) {
+                        if binding.proof.same_binding(&initial.proof) {
+                            binding.latent_stream_error = true;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
         let mut facts = Vec::new();
         for (name, initial) in original {
             let Some(current) = self.lookup(name) else {
@@ -4719,7 +4827,13 @@ impl Checker {
         };
         let latent_stream_error = matches!(final_ty.unvalidated(), Type::Stream(_))
             && matches!(initializer, ArenaExprOrRun::Expr(expr)
-                if self.latent_stream_error_spans.contains(&arena.arena.expr(expr).span));
+                if self.expression_may_have_latent_stream_error(arena, expr));
+        if latent_stream_error
+            && let ArenaExprOrRun::Expr(expression) = initializer
+        {
+            self.latent_stream_error_spans
+                .insert(arena.arena.expr(expression).span);
+        }
         if ty.is_none()
             && callable_alias.is_none()
             && should_record_binding_annotation_arena(
@@ -4782,6 +4896,84 @@ impl Checker {
             binding.latent_stream_error = latent_stream_error;
         }
         self.set_binding_schema_arena(arena, target, schema);
+    }
+
+    fn expression_may_have_latent_stream_error(
+        &self,
+        arena: &ArenaProgram,
+        expression: ExprId,
+    ) -> bool {
+        if self
+            .latent_stream_error_spans
+            .contains(&arena.arena.expr(expression).span)
+        {
+            return true;
+        }
+        match arena.arena.expr(expression).kind {
+            ArenaExprKind::If {
+                branches,
+                else_value,
+            } => {
+                arena
+                    .arena
+                    .if_expr_branches(branches)
+                    .iter()
+                    .any(|branch| {
+                        self.expression_may_have_latent_stream_error(arena, branch.value)
+                    }) || self.expression_may_have_latent_stream_error(arena, else_value)
+            }
+            ArenaExprKind::Match { arms, .. } => arena
+                .arena
+                .match_expr_arms(arms)
+                .iter()
+                .any(|arm| self.expression_may_have_latent_stream_error(arena, arm.value)),
+            ArenaExprKind::Binary { left, right, .. } => {
+                self.expression_may_have_latent_stream_error(arena, left)
+                    || self.expression_may_have_latent_stream_error(arena, right)
+            }
+            ArenaExprKind::ValueBlock(block) | ArenaExprKind::Capture(block) => {
+                self.block_tail_may_have_latent_stream_error(arena, block)
+            }
+            _ => false,
+        }
+    }
+
+    fn block_tail_may_have_latent_stream_error(
+        &self,
+        arena: &ArenaProgram,
+        block: BlockId,
+    ) -> bool {
+        let Some(tail) = arena
+            .arena
+            .stmt_ids(arena.arena.block(block).statements)
+            .last()
+            .map(|tail| arena.arena.core_stmt_id(tail))
+        else {
+            return false;
+        };
+        match arena.arena.stmt(tail).kind {
+            ArenaStmtKind::Expr(expression) => {
+                self.expression_may_have_latent_stream_error(arena, expression)
+            }
+            ArenaStmtKind::If {
+                branches,
+                else_block,
+            } => {
+                arena
+                    .arena
+                    .if_branches(branches)
+                    .iter()
+                    .any(|branch| self.block_tail_may_have_latent_stream_error(arena, branch.block))
+                    || else_block
+                        .is_some_and(|block| self.block_tail_may_have_latent_stream_error(arena, block))
+            }
+            ArenaStmtKind::Match { arms, .. } => arena
+                .arena
+                .match_arms(arms)
+                .iter()
+                .any(|arm| self.block_tail_may_have_latent_stream_error(arena, arm.block)),
+            _ => false,
+        }
     }
 
     fn set_binding_schema_arena(
@@ -4913,6 +5105,20 @@ impl Checker {
                 );
             }
             self.expect_type(&target_ty, &actual, value_span);
+            if binding.mutable && matches!(target_ty.unvalidated(), Type::Stream(_)) {
+                let may_error = matches!(value, ArenaExprOrRun::Expr(expression)
+                    if self.expression_may_have_latent_stream_error(arena, expression));
+                if may_error {
+                    for scope in self.scopes.iter_mut().rev() {
+                        if let Some(current) = scope.get_mut(&name) {
+                            if current.proof.same_binding(&binding.proof) {
+                                current.latent_stream_error = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
             self.invalidate_binding_projection_arena(arena, target, name);
             return;
         }
@@ -6836,1069 +7042,16 @@ fn copy_update_mistake(
 }
 
 #[cfg(test)]
-mod return_flow_tests {
-    use crate::diagnostic::DiagnosticCode;
-    use crate::sema::check::Checker;
+mod pipeline_flow_complexity_tests {
+    use super::{FlowFacts, StreamCardinalityCache, block_control_flow};
     use crate::source::SourceId;
     use crate::syntax::arena::ArenaStmtKind;
     use crate::syntax::parser::Parser;
-    use super::{block_control_flow, FlowFacts, StreamCardinalityCache};
 
-    fn diagnostics(source: &str) -> Vec<crate::diagnostic::Diagnostic> {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(
-            parsed.diagnostics.is_empty(),
-            "{source}\n{:?}",
-            parsed.diagnostics
-        );
-        parsed
-            .arena
-            .symbol_owner()
-            .with_current(|| Checker::check_arena(&parsed.arena, source).diagnostics)
-    }
-
-    #[test]
-    fn a_loop_without_a_break_cannot_fall_through_from_a_typed_function() {
-        let source = "pure choose() -> Int {\n  loop { return 1 }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_reachable_loop_break_still_requires_a_function_result() {
-        let source = "pure choose(stop: Bool) -> Int {\n  loop {\n    if stop { return 1 }\n    break\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_in_a_nested_loop_does_not_make_the_outer_loop_fall_through() {
-        let source = "pure choose() -> Int {\n  loop {\n    loop { break }\n    return 1\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_in_a_returned_if_value_makes_the_loop_reachable_afterward() {
-        let source = "pure choose(stop: Bool) -> Int {\n  while true {\n    return if stop { break } else { 1 }\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn static_false_expression_break_does_not_reach_the_loop() {
-        let source = "pure identity(value: Int) -> Int { value }\npure choose() -> Int {\n  while true {\n    return identity(if false { break } else { 17 })\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_in_a_call_argument_makes_the_loop_reachable_afterward() {
-        let source = "pure identity(value: Int) -> Int { value }\npure choose(stop: Bool) -> Int {\n  while true {\n    return identity(if stop { break } else { 1 })\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_in_a_binary_operand_makes_the_loop_reachable_afterward() {
-        let source = "pure choose(stop: Bool) -> Int {\n  while true {\n    return 1 + if stop { break } else { 2 }\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_comparison_chain_does_not_require_later_operands() {
-        let source = "pure choose(a: Int, b: Int) -> Int { let ignored = a < b < (if true { return 1 } else { 0 }) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_checked_conversion_can_fall_through_its_capture_on_failure() {
-        let source = "pure parse(value: Str) -> Int { let ignored: Result[Int, Error] = try { let n = value as Int; return n } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn an_assertion_can_fall_through_its_capture_on_failure() {
-        let source = "pure choose(flag: Bool) -> Int { let ignored: Result[Int, Error] = try { assert flag; return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn retry_captures_propagation_from_an_attempt_before_return() {
-        let source = "pure choose(value: Result[Int, Error]) -> Int { let ignored: Result[Int, Error] = retry [] { let parsed = value?; return parsed } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_materialized_pipeline_argument_includes_its_callbacks() {
-        let source = "pure consume(values: List[Int]) -> Unit {}\npure choose() -> Int { let ignored = consume([1] |> map { |item| return item }) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_materialized_pipeline_method_includes_its_callbacks() {
-        let source = "pure choose() -> Int { let ignored = ([1] |> map { |item| return item }).len() }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_tag_exhaustive_statement_match_does_not_fall_through() {
-        let source = "enum Choice { First, Second }\npure choose(value: Choice) -> Int { match value { First => { return 1 } Second => { return 2 } }; let ignored = 0 }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_non_result_with_does_not_reach_its_error_handler() {
-        let source = "pure choose() -> Int { with value = 1 { return value } else {} }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_captured_effect_call_adds_an_error_completion_path() {
-        let source = "proc fallible() [error] {}\nproc choose() -> Int { let ignored: Result[Int, Error] = try { fallible(); return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_deferred_result_unit_can_exit_a_loop_on_continue() {
-        let source = "proc fallible_unit() -> Result[Unit, Error] { return Ok() }\nproc spin() [error] { loop { defer fallible_unit(); continue } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_deferred_error_effect_call_can_exit_a_loop_on_continue() {
-        let source = "proc fallible() [error] {}\nproc spin() [error] { loop { defer fallible(); continue } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_checked_error_effect_call_can_exit_a_loop() {
-        let source = "proc fallible() [error] {}\nproc spin() [error] { loop { fallible() } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn unreachable_captured_error_does_not_create_a_function_fallthrough() {
-        let source = "proc fallible() [error] {}\nproc choose() -> Int { let ignored: Result[Int, Error] = try { return 1; fallible(); 2 } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn an_unreachable_assertion_does_not_create_a_captured_error_completion() {
-        let source = "pure choose() -> Int { let ignored: Result[Int, Error] = try { return 1; assert false; 2 } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn unreachable_retry_error_does_not_create_a_function_fallthrough() {
-        let source = "proc fallible() [error] {}\nproc choose() -> Int { let ignored: Result[Int, Error] = retry [] { return 1; fallible(); 2 } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_context_scope_setup_error_can_fall_through_its_body() {
-        let source = "proc choose(root_dir: Path) [env] -> Int { let ignored: Result[Int, Error] = try { cd (root_dir) { return 1 }? } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "unexpected diagnostics: {diagnostics:?}"
-        );
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_tempdir_setup_error_can_fall_through_its_body() {
-        let source = "proc choose() [fs, error] -> Int { let ignored: Result[Int, Error] = try { tempdir dir { return 1 }? } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "unexpected diagnostics: {diagnostics:?}"
-        );
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_result_map_for_source_is_a_propagating_loop_exit() {
-        let source = "proc spin(source: Result[Map[Str, Int], Error]) [error] { loop { for {key, value} in source {} } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn result_string_and_bytes_for_sources_are_propagating_loop_exits() {
-        let source = "proc spin_text(source: Result[Str, Error]) [error] { loop { for item in source {} } }\nproc spin_bytes(source: Result[Bytes, Error]) [error] { loop { for item in source {} } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_retry_failure_can_continue_to_a_later_loop_break() {
-        let source = "proc spin() { loop { let attempt = retry [] { assert false }; break } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_result_map_comprehension_source_is_a_propagating_loop_exit() {
-        let source = "proc spin(source: Result[Map[Str, Int], Error]) [error] { loop { let ignored = [value for {key, value} in source] } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn result_string_and_bytes_comprehension_sources_are_propagating_loop_exits() {
-        let source = "proc spin_text_comp(source: Result[Str, Error]) [error] { loop { let items = [item for item in source] } }\nproc spin_bytes_comp(source: Result[Bytes, Error]) [error] { loop { let items = [item for item in source] } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn result_list_set_and_stream_sources_are_propagating_loop_exits() {
-        let source = "proc spin_list(source: Result[List[Int], Error]) [error] { loop { for item in source { continue } } }\nproc spin_set(source: Result[Set[Int], Error]) [error] { loop { for item in source { continue } } }\nproc spin_stream(source: Result[Stream[Int], Error]) [error] { loop { for item in source { continue } } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn result_list_set_and_stream_comprehensions_are_propagating_loop_exits() {
-        let source = "proc spin_list(source: Result[List[Int], Error]) [error] { loop { let items = [item for item in source] } }\nproc spin_set(source: Result[Set[Int], Error]) [error] { loop { let items = {item for item in source} } }\nproc spin_stream(source: Result[Stream[Int], Error]) [error] { loop { let items = [item for item in source] } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn pulled_stream_errors_can_exit_loops_and_captured_materializations() {
-        let source = "stream failing_rows() [error] -> Stream[Int] { yield 1; let _ = \"late\".parse_int()? }\nproc spin() [error] { loop { for item in failing_rows() { continue } } }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = failing_rows().collect(); return values.len() } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_zero_take_suppresses_a_lazy_stream_producer_error() {
-        let source = "stream failing_rows() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = failing_rows() |> take(0); return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn delegated_stream_errors_are_loop_exit_points() {
-        let source = "stream child() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nstream parent() [error] -> Stream[Int] { loop { yield @child() } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn an_aliased_stream_keeps_its_latent_error_when_iterated() {
-        let source = "stream child() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nproc spin() [error] { loop { let rows = child(); for item in rows { continue } } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn an_aliased_stream_keeps_its_latent_error_when_collected() {
-        let source = "stream child() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let rows = child(); let values = rows.collect(); return values.len() } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].code, Some(DiagnosticCode::CheckMissingReturn), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn demanded_named_stage_callbacks_contribute_error_paths() {
-        let source = "proc fail_item(item: Int) [error] -> Int { return item }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map(fail_item); return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn zero_pull_suppresses_named_stage_callback_error_paths() {
-        let source = "proc fail_item(item: Int) [error] -> Int { return item }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map(fail_item) |> take(0); return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn result_unit_named_stage_callbacks_propagate_only_when_demanded() {
-        let source = "proc maybe_fail(item: Int) -> Result[Unit, Error] { return Ok() }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> tee(maybe_fail); return 1 } }\nproc choose_zero_pull() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> tee(maybe_fail) |> take(0); return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn range_and_repeat_capacity_errors_precede_downstream_returns() {
-        let source = "proc choose_range() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [] |> range(0, 9223372036854775807) |> map { |item| return 1 } } }\nproc choose_repeat() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> repeat(9223372036854775807) |> map { |item| return 1 } } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 2, "unexpected diagnostics: {diagnostics:?}");
-        assert!(diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)));
-    }
-
-    #[test]
-    fn builtin_range_collection_has_a_catchable_capacity_error_path() {
-        let source = "proc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = range(9223372036854775807).collect(); return values.len() } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].code, Some(DiagnosticCode::CheckMissingReturn), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn resource_scope_does_not_complete_after_its_body_returns() {
-        let source = "proc choose(root: FsRoot) [fs] -> Int { let ignored = with held = root { return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn list_set_and_map_comprehension_cardinality_is_known() {
-        let source = "pure choose_list() -> Int { for item in [item for item in [1]] { return item } }\npure choose_set() -> Int { for item in {item for item in [1]} { return item } }\npure choose_map() -> Int { for item in {key: key for key in [1]} { return item.value } }\npure choose_empty() -> Int { for item in [item for item in []] { return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn byte_literal_cardinality_distinguishes_empty_and_nonempty_sources() {
-        let source = "pure choose_nonempty() -> Int { for byte in b\"\\x01\" { return byte } }\npure choose_empty() -> Int { for byte in b\"\" { return byte } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn computed_key_map_literal_cardinality_is_known() {
-        let source = "pure choose() -> Int { for {key, value} in {[1]: 2} { return value } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn reduce_by_calls_its_callback_for_the_first_nonempty_item() {
-        let source = "pure choose() -> Int { let ignored = [1] |> reduce-by(sum: true) { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_result_null_safe_field_is_a_propagating_loop_exit() {
-        let source = "type Holder = { value: Int }\nproc spin(source: Result[Holder, Error]) [error] { loop { let ignored = source?.value } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_result_null_safe_method_is_a_propagating_loop_exit() {
-        let source = "proc spin(source: Result[List[Int], Error]) [error] { loop { let ignored = source?.len() } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_result_null_safe_method_receiver_can_propagate_before_argument_return() {
-        let source = "pure choose(source: Result[Map[Str, Int], Error]) -> Int { let ignored: Result[Unit, Error] = try { let _ = source?.get(if true { return 1 } else { \"key\" }) } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_result_null_safe_method_receiver_can_exit_a_loop_before_argument_continue() {
-        let source = "proc spin(source: Result[Map[Str, Int], Error]) [error] { loop { let _ = source?.get(if true { continue } else { \"key\" }) } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn an_optional_null_safe_method_can_skip_its_arguments() {
-        let source = "pure choose(source: Map[Str, Int]?) -> Int { let ignored = source?.get(if true { return 1 } else { \"key\" }) }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "unexpected diagnostics: {diagnostics:?}"
-        );
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_materialized_pipeline_in_a_conditional_value_includes_its_callbacks() {
-        let source = "pure choose(flag: Bool) -> Int { let ignored = if flag { [1] |> map { |item| return item } } else { [2] |> map { |item| return item } } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn an_empty_later_comprehension_source_still_evaluates_its_expression() {
-        let source = "pure choose() -> Int { let ignored = [value for outer in [1] for value in [] |> take(if true { return 1 } else { 0 })] }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn a_dynamic_prefix_filter_can_skip_later_comprehension_sources() {
-        let source = "pure choose(flag: Bool) -> Int { let ignored = [value for item in [1] if flag for value in if true { return 1 } else { [1] }] }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_user_defined_range_call_does_not_use_builtin_cardinality() {
-        let source = "pure range(start: Int, end: Int) -> List[Int] { return [] }\npure choose() -> Int { let ignored = range(0, 1) |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
-        assert_eq!(
-            diagnostics[0].code,
-            Some(DiagnosticCode::CheckMissingReturn),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn breaks_in_conditions_and_match_guards_are_reachable() {
-        let sources = [
-            "pure choose(stop: Bool) -> Int {\n  loop {\n    if (if stop { break } else { true }) { return 1 }\n  }\n}\n",
-            "pure choose(stop: Bool) -> Int {\n  loop {\n    match 0 {\n      0 if (if stop { break } else { true }) => { return 1 }\n      _ => { return 2 }\n    }\n  }\n}\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-                "{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_break_in_a_match_subject_is_reachable() {
-        let source = "pure choose(stop: Bool) -> Int {\n  loop {\n    match (if stop { break } else { 0 }) {\n      0 => { return 1 }\n      _ => { return 2 }\n    }\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_in_a_match_arm_targets_the_enclosing_loop() {
-        let source = "pure choose(stop: Bool) -> Int {\n  loop {\n    match stop {\n      true => { break }\n      false => { return 1 }\n    }\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_in_a_try_block_targets_the_enclosing_loop() {
-        let source = "pure choose() -> Int {\n  loop { try { break } }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_deferred_break_does_not_make_a_loop_fall_through() {
-        let source = "pure choose() -> Int {\n  loop { defer { break } }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_after_an_unconditional_return_is_unreachable() {
-        let source = "pure choose() -> Int {\n  loop {\n    if true { return 1 } else { break }\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_after_an_unconditional_continue_is_unreachable() {
-        let source = "pure choose() -> Int {\n  loop {\n    if true { continue }\n    break\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn boolean_short_circuit_and_negation_prune_unreachable_breaks() {
-        let sources = [
-            "pure side_effect() -> Bool { true }\nproc spin() [] { loop { if false and side_effect() { break } if !true { break } if false or false { break } if true or (if true { break } else { false }) {} } }\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-                "{source}\n{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn an_impossible_literal_match_arm_does_not_break_the_loop() {
-        let source = "proc spin() [] { loop { match 0 { 1 => { break } _ => {} } } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn an_unmatched_statement_match_keeps_a_normal_path() {
-        let source = "proc spin() [] { loop { match 0 { 1 => { break } } } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn exhaustive_boolean_match_arms_can_all_return() {
-        let source = "pure choose(value: Bool) -> Int {\n  match value {\n    true => { return 1 }\n    false => { return 2 }\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_null_guarded_index_does_not_count_a_return_in_its_operand() {
-        let sources = [
-            "pure choose() -> Int {\n  let values: List[Int]? = null\n  while true {\n    let ignored = values?[if true { return 1 } else { 0 }]\n    break\n  }\n}\n",
-            "pure choose() -> Int {\n  let values: List[Int]? = null\n  while true {\n    let ignored = values?[if true { return 1 } else { 0 }..]\n    break\n  }\n}\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-                "{source}\n{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_result_guarded_index_still_requires_its_operand_on_success() {
-        let source = "proc choose(values: Result[List[Int], Error]) [error] -> Int {\n  let ignored = values?[if true { return 1 } else { 0 }]\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_result_guarded_slice_still_requires_its_bounds_on_success() {
-        let source = "proc choose(values: Result[List[Int], Error]) [error] -> Int {\n  let ignored = values?[if true { return 1 } else { 0 }..]\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_result_guarded_index_error_is_captured_when_its_operand_returns() {
-        let source = "pure choose(values: Result[List[Int], Error]) -> Int {\n  let ignored: Result[Int?, Error] = try { values?[if true { return 1 } else { 0 }] }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_result_guarded_slice_error_is_captured_when_its_bound_returns() {
-        let source = "pure choose(values: Result[List[Int], Error]) -> Int {\n  let ignored: Result[List[Int]?, Error] = try { values?[if true { return 1 } else { 0 }..] }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn an_empty_comprehension_does_not_count_a_return_in_its_projection() {
-        let source = "pure choose() -> Int {\n  while true {\n    let ignored = [if true { return 1 } else { 0 } for item in []]\n    break\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn an_empty_range_comprehension_does_not_count_a_loop_break_in_its_projection() {
-        let source = "proc spin() [] { loop { let ignored = [if true { break } else { 0 } for item in range(0, 0)] } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_for_body_over_an_empty_source_does_not_exit_its_enclosing_loop() {
-        let sources = [
-            "proc spin() [] { loop { for item in [] { return } } }\n",
-            "proc spin() [] { loop { for item in range(0, 0) { return } } }\n",
-            "pure spin(result: Result[Int, Error]) -> Result[Int, Error] { loop { for item in [] { let value = result? } } }\n",
-            "pure spin(result: Result[Int, Error]) -> Result[Int, Error] { loop { for item in range(0, 0) { let value = result? } } }\n",
-        ];
-        let missing_loop_diagnostics: Vec<_> = sources
-            .into_iter()
-            .filter_map(|source| {
-                let diagnostics = diagnostics(source);
-                (!diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)))
-                .then_some((source, diagnostics))
-            })
-            .collect();
-        assert!(
-            missing_loop_diagnostics.is_empty(),
-            "{missing_loop_diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_for_body_return_over_a_nonempty_source_prevents_fallthrough() {
-        let source = "pure choose() -> Int { for item in [1] { return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_for_continue_keeps_a_normal_path_after_a_conditional_return() {
-        let source = "pure choose(flag: Bool) -> Int { for item in [1] { if flag { return item }; continue } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn an_empty_later_comprehension_source_does_not_count_its_projection() {
-        let source = "pure choose() -> Int { let ignored = [if true { return 1 } else { 0 } for outer in [1] for inner in []] }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_false_comprehension_filter_does_not_count_its_projection() {
-        let source = "pure choose() -> Int { let ignored = [if true { return 1 } else { 0 } for item in [1] if false] }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_dynamic_comprehension_filter_keeps_a_normal_path() {
-        let source = "pure choose(flag: Bool) -> Int { let ignored = [if true { return 1 } else { 0 } for item in [1] if flag] }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_nonempty_comprehension_keeps_its_projection_mandatory() {
-        let source = "pure choose() -> Int {\n  let ignored = [if true { return 1 } else { 0 } for item in [1]]\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_comprehension_consumes_its_pipeline_source_callbacks() {
-        let source = "pure choose() -> Int { let ignored = [item for item in [1] |> map { |item| return item }] }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_later_comprehension_source_keeps_its_evaluated_control_flow() {
-        let source = "proc spin(stop: Bool) [] { loop { let ignored = [item for outer in [1] for item in (if stop { break } else { [outer] })] } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_maybe_empty_materialized_pipeline_keeps_a_normal_path() {
-        let source = "pure choose(values: List[Int]) -> Int { let ignored = values |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_pipeline_filter_can_skip_later_callbacks() {
-        let source = "pure choose() -> Int { let ignored = [1] |> where { |item| false } |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_nonempty_materialized_pipeline_runs_its_callback() {
-        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        let body = parsed
-            .arena
-            .arena
-            .stmt_ids(parsed.arena.statements)
-            .find_map(|stmt| match parsed.arena.arena.stmt(stmt).kind {
-                ArenaStmtKind::PureDef(definition) => {
-                    Some(parsed.arena.arena.function_def(definition).body)
-                }
-                _ => None,
-            })
-            .expect("pure function body");
-        assert!(super::block_callable_body_cannot_fall_through_arena(
-            &parsed.arena,
-            body,
-            false,
-            &rustc_hash::FxHashMap::default(),
-            &rustc_hash::FxHashMap::default(),
-            &rustc_hash::FxHashMap::default(),
-            &std::collections::BTreeMap::new(),
-            &super::super::CheckedControlFlowFacts::default(),
-        ));
-    }
-
-    #[test]
-    fn a_zero_repeat_does_not_require_a_downstream_callback_return() {
-        let source = "pure choose() -> Int { let ignored = [1] |> repeat(0) |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_dynamic_zero_take_can_skip_an_upstream_callback() {
-        let source = "pure choose(count: Int) -> Int { let ignored = [1] |> map { |item| return item } |> take(count) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_literal_zero_take_does_not_require_an_upstream_callback_return() {
-        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> take(0) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn an_empty_range_stage_does_not_require_a_downstream_callback_return() {
-        let source = "pure choose() -> Int { let ignored = [1] |> range(0, 0) |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn an_empty_range_source_does_not_require_a_callback_return() {
-        let source = "pure choose() -> Int { let ignored = range(0, 0) |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_positive_take_preserves_known_nonempty_pipeline_cardinality() {
-        let source = "pure choose() -> Int { let ignored = [1] |> take(1) |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_positive_repeat_preserves_known_nonempty_pipeline_cardinality() {
-        let source = "pure choose() -> Int { let ignored = [1] |> repeat(2) |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_positive_range_stage_preserves_known_nonempty_pipeline_cardinality() {
-        let source = "pure choose() -> Int { let ignored = [1] |> range(0, 1) |> map { |item| return item } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn zip_with_an_empty_right_source_skips_upstream_callbacks() {
-        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> zip([]) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
-    #[test]
-    fn zip_with_a_dynamic_right_source_still_runs_upstream_callbacks() {
-        let source = "pure choose(other: List[Int]) -> Int { let ignored = [1] |> map { |item| return item } |> zip(other) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    }
-
+    // The native checker fixture observes diagnostics, but it cannot bound the
+    // expression visits required to analyze nested Zip sources.
     #[test]
-    fn nested_zip_cardinality_is_reused_within_one_flow_analysis() {
+    fn nested_zip_flow_visits_grow_linearly() {
         let depth = 16;
         let mut nested = "[1]".to_owned();
         for _ in 0..depth {
@@ -7928,486 +7081,10 @@ mod return_flow_tests {
             },
         );
         assert!(flow.completes, "{flow:?}");
-        assert!(cache.hits.get() >= depth, "{} cache hits", cache.hits.get());
-    }
-
-    #[test]
-    fn zip_of_nonempty_sources_preserves_nonempty_cardinality() {
-        let source = "pure choose() -> Int { let ignored = [1] |> zip([2]) |> map { |pair| return 1 } }\n";
-        let diagnostics = diagnostics(source);
+        let flow_visits = cache.flow_visits.get();
         assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_consumed_zip_includes_callbacks_in_its_right_pipeline() {
-        let source = "pure choose() -> Int { let ignored = [1] |> zip([2] |> map { |item| return item }).collect() }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn zip_drains_a_nonempty_right_pipeline_even_when_left_is_empty() {
-        let source = "pure choose() -> Int { let ignored = [] |> zip([2] |> map { |item| return item }) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn zip_drains_a_nonempty_right_pipeline_for_dynamic_left() {
-        let source = "pure choose(left: List[Int]) -> Int { let ignored = left |> zip([2] |> map { |item| return item }) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn zip_drains_right_materializers_before_an_empty_result() {
-        let source = "pure choose() -> Int { let ignored = [] |> zip([2] |> map { |item| return item } |> sort |> take(0)) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn an_empty_consumed_zip_source_skips_callbacks_in_its_right_pipeline() {
-        let source = "pure choose() -> Int { let ignored = [1] |> zip([] |> map { |item| return item }).collect() }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn zip_with_a_dynamic_right_source_may_skip_downstream_callbacks() {
-        let source = "pure choose(other: List[Int]) -> Int { let ignored = [1] |> zip(other) |> map { |pair| return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn zip_with_an_empty_right_source_has_empty_output() {
-        let source = "pure choose() -> Int { loop { let ignored = [1] |> zip([]) |> map { |pair| return 1 } } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn zip_with_an_empty_left_source_has_empty_output() {
-        let source = "pure choose() -> Int { loop { let ignored = [] |> zip([2]) |> map { |pair| return 1 } } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn unique_by_materializes_upstream_callbacks_before_a_zero_take() {
-        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> unique-by { |item| item } |> take(0) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn unique_by_runs_its_callback_before_a_zero_take() {
-        let source = "pure choose() -> Int { let ignored = [1] |> unique-by { |item| return 1 } |> take(0) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_dynamic_repeat_may_run_an_upstream_loop_exit_callback_before_zero_take() {
-        let source = "pure choose(count: Int) -> Int { loop { let ignored = [1] |> map { |item| return 1 } |> repeat(count) |> take(0) } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn group_by_preserves_nonempty_pipeline_cardinality() {
-        let source = "pure choose() -> Int { let ignored = [1] |> group-by . |> map { |group| return 1 } }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_materializing_sort_drains_callbacks_before_a_zero_take() {
-        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> sort |> take(0) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_materializing_sort_by_runs_its_callback_before_a_zero_take() {
-        let source = "pure choose() -> Int { let ignored = [1] |> sort-by { |item| if true { return item } else { item } } |> take(0) }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn collect_materializes_a_pipeline_nested_in_a_method_call() {
-        let source = "pure choose() -> Int { let ignored = ([1] |> map { |item| return item }).collect() }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn collect_materializes_a_pipeline_in_an_expression_statement() {
-        let source = "pure choose() -> Int { ([1] |> map { |item| return item }).collect(); let ignored = 0 }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn collect_materializes_a_pipeline_nested_in_a_method_call_argument() {
-        let source = "pure choose() -> Int { let ignored = ([1] |> map { |item| return item }).collect().len() }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn collect_materializes_a_pipeline_in_a_nested_if_condition() {
-        let source = "pure choose() -> Int { if ([1] |> map { |item| return item }).collect().len() > 0 { return 1 } else {} }\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_binding_pattern_is_a_catch_all_for_flow() {
-        let source = "pure choose(value: Int) -> Int { match value { result => { return result } } }\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let body = parsed
-            .arena
-            .arena
-            .stmt_ids(parsed.arena.statements)
-            .find_map(|stmt| match parsed.arena.arena.stmt(stmt).kind {
-                ArenaStmtKind::PureDef(definition) => {
-                    Some(parsed.arena.arena.function_def(definition).body)
-                }
-                _ => None,
-            })
-            .expect("pure function body");
-        let match_stmt = parsed
-            .arena
-            .arena
-            .stmt_ids(parsed.arena.arena.block(body).statements)
-            .next()
-            .expect("match statement");
-        let ArenaStmtKind::Match { value, .. } = parsed.arena.arena.stmt(match_stmt).kind else {
-            panic!("expected match statement");
-        };
-        let mut expression_types = rustc_hash::FxHashMap::default();
-        expression_types.insert(value, crate::sema::types::Type::Int);
-        let flow = block_control_flow(
-            &parsed.arena,
-            body,
-            &FlowFacts {
-                expression_types_by_id: Some(&expression_types),
-                ..FlowFacts::AST_ONLY
-            },
-        );
-        assert!(!flow.completes, "{flow:?}");
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn unreachable_breaks_do_not_suppress_loop_no_break() {
-        let sources = [
-            "proc spin() [] { loop { if false { break } } }\n",
-            "proc spin(value: Int) [] { loop { match value { _ if false => { break } _ => {} } } }\n",
-            "proc spin() [] { loop { continue; break } }\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-                "{source}\n{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_break_in_a_false_match_guard_is_unreachable() {
-        let source = "pure choose() -> Int {\n  while true {\n    match 0 {\n      _ if false => { break }\n      _ => {}\n    }\n    return 1\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_in_a_true_assert_message_is_unreachable() {
-        let source = "pure choose() -> Int {\n  while true {\n    assert true, if false { break } else { \"ok\" }\n    return 1\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn a_break_in_a_while_condition_targets_the_enclosing_loop() {
-        let source = "pure choose(result: Result[Bool, Error]) -> Int {\n  loop {\n    while result ?? { |failure| break } {\n      return 1\n    }\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn returns_in_evaluated_expressions_are_loop_exit_points() {
-        let sources = [
-            "pure choose(result: Result[Int, Error]) -> Int {\n  loop {\n    let value = result ?? { |_| return 1 }\n  }\n}\n",
-            "pure choose(result: Result[Bool, Error]) -> Int {\n  loop {\n    while result ?? { |_| return 1 } {}\n  }\n}\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                !diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-                "{diagnostics:?}"
-            );
-            assert!(
-                !diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-                "{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn unhandled_propagation_is_a_loop_exit_point() {
-        let sources = [
-            "pure choose(result: Result[Int, Error]) -> Result[Int, Error] {\n  loop {\n    let value = result?\n  }\n}\n",
-            "pure choose(result: Result[Bool, Error]) -> Result[Int, Error] {\n  loop {\n    while result? {}\n  }\n}\n",
-            "pure choose(result: Result[Int, Error]) -> Result[Int, Error] {\n  loop {\n    with value = result {} else { |_| let ignored = result? }\n  }\n}\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                !diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-                "{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn captured_propagation_does_not_make_a_loop_exit_point() {
-        let sources = [
-            "pure choose(result: Result[Int, Error]) -> Result[Int, Error] {\n  loop {\n    let value = try { result? }\n  }\n}\n",
-            "pure choose(result: Result[Int, Error]) -> Result[Int, Error] {\n  loop {\n    with value = result? {} else { |_| {} }\n  }\n}\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-                "{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn explicit_returns_remain_loop_exit_points_inside_error_boundaries() {
-        let sources = [
-            "pure choose() -> Int {\n  loop {\n    let value = try { return 1; 2 }\n  }\n}\n",
-            "pure choose(result: Result[Int, Error]) -> Int {\n  loop {\n    with value = result? { return value } else { |_| return 0 }\n  }\n}\n",
-            "proc choose() [] {\n  loop { exit 0 }\n}\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                !diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-                "{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn propagated_runs_and_result_unit_statements_are_loop_exit_points() {
-        let sources = [
-            "proc choose() [process, error] { loop { run true ? } }\n",
-            "proc choose() [process, error] { loop { let output = run.text printf \"ok\" } }\n",
-            "proc choose() [env, error] { loop { cd \".\" {} } }\n",
-            "proc unit_result() -> Result[Unit, Error] { Ok() }\nproc choose() [error] { loop { unit_result() } }\n",
-        ];
-        for source in sources {
-            let diagnostics = diagnostics(source);
-            assert!(
-                !diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-                "{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn evaluated_builder_fields_can_break_the_enclosing_loop() {
-        let source = "proc choose(stop: Bool) [process, error] {\n  loop {\n    let command = process.command {\n      timeout = if stop { break } else { 1s }\n      run true\n    }\n  }\n}\n";
-        let diagnostics = diagnostics(source);
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
-        );
-        assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopControl)),
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn builder_task_break_does_not_target_the_enclosing_loop() {
-        let source = "proc choose(stop: Bool) [process, error] {\n  loop {\n    let command = process.command {\n      task child { if stop { break } }\n      run true\n    }\n  }\n}\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        let proc_stmt = parsed
-            .arena
-            .arena
-            .stmt_ids(parsed.arena.statements)
-            .find(|id| matches!(parsed.arena.arena.stmt(*id).kind, ArenaStmtKind::ProcDef(_)))
-            .unwrap();
-        let ArenaStmtKind::ProcDef(def) = parsed.arena.arena.stmt(proc_stmt).kind else {
-            unreachable!()
-        };
-        let body = parsed.arena.arena.function_def(def).body;
-        let loop_block = parsed
-            .arena
-            .arena
-            .stmt_ids(parsed.arena.arena.block(body).statements)
-            .find_map(|id| match parsed.arena.arena.stmt(id).kind {
-                ArenaStmtKind::Loop { block } => Some(block),
-                _ => None,
-            })
-            .unwrap();
-        let flow = block_control_flow(&parsed.arena, loop_block, &FlowFacts::AST_ONLY);
-        assert!(!flow.breaks_target && !flow.exits && !flow.propagates, "{flow:?}");
-        let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
-            "{diagnostics:?}"
+            flow_visits <= depth * 24 + 32,
+            "{flow_visits} expression-flow visits at nested Zip depth {depth}"
         );
     }
 }
