@@ -727,7 +727,7 @@ proc describe_failure(failure: http_transfer.TransferFailure, request: Request, 
     http_transfer.TransferFailure.EmptyReply => {code: 52, message: "Empty reply from server", again: "empty reply"}
     http_transfer.TransferFailure.Redirects => {code: 47, message: f"Maximum ({request.redirects}) redirects followed", again: null}
     http_transfer.TransferFailure.Status {code} => {code: 22, message: f"The requested URL returned error: {code}", again: if code in TRANSIENT_STATUS { "HTTP error" } else { null }}
-    http_transfer.TransferFailure.Scheme {message} => {code: 4, message: f"{message}", again: null}
+    http_transfer.TransferFailure.Scheme {message} => {code: 4, message: message, again: null}
     http_transfer.TransferFailure.Write => {code: 23, message: "client returned ERROR on write", again: null}
     http_transfer.TransferFailure.TrustStore => {code: 77, message: "error adding trust anchors from file", again: null}
     http_transfer.TransferFailure.Other {message} => {code: 56, message: f"Failure with receiving network data: {message}", again: null}

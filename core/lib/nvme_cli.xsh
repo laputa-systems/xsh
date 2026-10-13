@@ -888,7 +888,7 @@ pure namespace_detail(name: Str, value: Int) -> List[Str] {
 # The hexdump nvme-cli prints for vendor-specific regions: a column header,
 # then sixteen bytes per row with their printable characters in quotes.
 pure hex_dump(data: Bytes) -> List[Str] {
-  var lines: List[Str] = ["     " + [f"{tui.left_pad(dec.hex_digits(column), 3)}" for column in range(16)].join("")]
+  var lines: List[Str] = ["     " + [tui.left_pad(dec.hex_digits(column), 3) for column in range(16)].join("")]
   let total = data.len()
   var row = 0
   while row < total {

@@ -87,7 +87,7 @@ proc normal_output(target: Path, name: Str, device = false, follow = false) [fs,
   let meta = fs.stat(target, follow_symlinks: follow)?
   let owner = user.by_uid(meta.uid)?.name
   let owners_group = group.by_gid(meta.gid)?.name
-  var values = [radix(meta.mode % 4096, 8)?, symbolic(meta), f"{meta.blocks_512}", "512", f"{unsigned(meta.dev)?}", radix(meta.dev, 16)?, radix(meta.mode, 16)?, file_kind(meta), f"{meta.gid}", owners_group, f"{meta.nlink}", f"{unsigned(meta.ino)?}", mount.mounted_on.display(), name, f"{meta.blksize}", f"{unsigned(meta.size)?}"]
+  var values = [radix(meta.mode % 4096, 8)?, symbolic(meta), f"{meta.blocks_512}", "512", unsigned(meta.dev)?, radix(meta.dev, 16)?, radix(meta.mode, 16)?, file_kind(meta), f"{meta.gid}", owners_group, f"{meta.nlink}", unsigned(meta.ino)?, mount.mounted_on.display(), name, f"{meta.blksize}", unsigned(meta.size)?]
   if device { values += [f"({radix(fs.dev_major(meta.rdev), 16)?}/{radix(fs.dev_minor(meta.rdev), 16)?})"] }
   values += [f"{meta.uid}", owner]
   if device {
@@ -280,7 +280,7 @@ test test_uu_stat_symlinks { |ctx|
 test test_uu_stat_terse_normal_format { |ctx|
   let s = uu.scene(ctx)?
   let meta = fs.stat(p"/")?
-  let expected = ["/", f"{unsigned(meta.size)?}", f"{meta.blocks_512}", radix(meta.mode, 16)?, f"{meta.uid}", f"{meta.gid}", radix(meta.dev, 16)?, f"{unsigned(meta.ino)?}", f"{meta.nlink}", radix(fs.dev_major(meta.rdev), 16)?, radix(fs.dev_minor(meta.rdev), 16)?, f"{meta.atime_ns / 1000000000}", f"{meta.mtime_ns / 1000000000}", f"{meta.ctime_ns / 1000000000}", f"{(meta.birth_ns ?? 0) / 1000000000}", f"{meta.blksize}"]
+  let expected = ["/", unsigned(meta.size)?, f"{meta.blocks_512}", radix(meta.mode, 16)?, f"{meta.uid}", f"{meta.gid}", radix(meta.dev, 16)?, unsigned(meta.ino)?, f"{meta.nlink}", radix(fs.dev_major(meta.rdev), 16)?, radix(fs.dev_minor(meta.rdev), 16)?, f"{meta.atime_ns / 1000000000}", f"{meta.mtime_ns / 1000000000}", f"{meta.ctime_ns / 1000000000}", f"{(meta.birth_ns ?? 0) / 1000000000}", f"{meta.blksize}"]
   let r = uu.invoke(s, "stat", ["-t", "/"])?
   uu.succeeds(r)
 
