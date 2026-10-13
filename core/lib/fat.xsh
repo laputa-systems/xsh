@@ -54,18 +54,18 @@ export proc mkfs(argv: List[Str]) {
   if opts.create and image.exists() { gnu.error("image already exists"); exit 1 }
   var size: UInt = 0
   if opts.operands.len() == 2 {
-    let blocks = match opts.operands[1].parse_int() { Ok(value) => value, Err(failure) => { gnu.error(failure.message); exit 1 } }
+    let blocks = opts.operands[1].parse_int() ?? { |failure| gnu.error(failure.message); exit 1 }
     if blocks <= 0 or blocks > 9007199254740991 { gnu.usage_error("invalid block count") }
     size = blocks as UInt * 1024
   }
   if ! opts.create {
-    let meta = match image.metadata() { Ok(value) => value, Err(failure) => { gnu.error(failure.message); exit 1 } }
+    let meta = image.metadata() ?? { |failure| gnu.error(failure.message); exit 1 }
     if meta.kind != "file" { gnu.error("currently requires a regular image file"); exit 1 }
     if size == 0 { size = meta.size as UInt }
     if size > meta.size as UInt { gnu.error("requested volume exceeds image size"); exit 1 }
   }
   var serial: UInt = 0
-  if let text = opts.serial { serial = match volume_id(text) { Ok(value) => value, Err(failure) => { gnu.error(failure.message); exit 1 } } } else if ! opts.invariant { serial = time.now() / 1000 as UInt % 4294967296 }
+  if let text = opts.serial { serial = volume_id(text) ?? { |failure| gnu.error(failure.message); exit 1 } } else if ! opts.invariant { serial = time.now() / 1000 as UInt % 4294967296 }
   match format(image, size, bits: opts.bits, sector: opts.sector, cluster: opts.cluster, reserved: opts.reserved, fats: opts.fats, label: opts.label, serial:, create: opts.create) {
     Ok(_) => { print "mkfs.fat (XSH)" }, Err(failure) => { gnu.error(failure.message); exit 1 },
   }
@@ -86,7 +86,7 @@ export proc fsck(argv: List[Str]) {
   if opts.operands.len() != 1 { gnu.usage_error("expected one DEVICE", status: 2) }
   let repair = opts.automatic or opts.preen or opts.yes
   if opts.readonly and repair { gnu.usage_error("-n conflicts with repair mode", status: 2) }
-  let report = match check(opts.operands[0] as Path, repair:) { Ok(value) => value, Err(failure) => { gnu.error(failure.message); exit 8 } }
+  let report = check(opts.operands[0] as Path, repair:) ?? { |failure| gnu.error(failure.message); exit 8 }
   for issue in report.issues { print $issue }
   if opts.verbose { print f"{report.repaired} repairs, {report.unresolved} unresolved problems" }
   if report.unresolved > 0 { exit 1 }
@@ -102,7 +102,7 @@ export proc fatlabel(argv: List[Str]) {
   if opts.version { gnu.version("fatlabel"); return }
   if opts.operands.len() < 1 or opts.operands.len() > 2 { gnu.usage_error("expected DEVICE and optional LABEL") }
   let name: Str? = if opts.operands.len() == 2 { opts.operands[1] } else { null }
-  let result = match label(opts.operands[0] as Path, label: name) { Ok(value) => value, Err(failure) => { gnu.error(failure.message); exit 1 } }
+  let result = label(opts.operands[0] as Path, label: name) ?? { |failure| gnu.error(failure.message); exit 1 }
   if name == null { print $result }
 }
 

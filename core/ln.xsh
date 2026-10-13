@@ -64,12 +64,9 @@ proc same_destination(source: Path, target: Path, symbolic: Bool) -> Result[Bool
 proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
   if ! opts.symbolic {
     # The source is statted before the destination changes, so a missing source is an access error that removes nothing.
-    let source_meta = match fs.stat(source, follow_symlinks: opts.logical) {
-      Ok(meta) => meta
-      Err(failure) => {
-        gnu.error(f"failed to access {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
-        return false
-      }
+    let source_meta = fs.stat(source, follow_symlinks: opts.logical) ?? { |failure|
+      gnu.error(f"failed to access {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
+      return false
     }
     if source_meta.kind == "dir" and ! opts.hard_dir { gnu.error(f"{gnu.quote_bytes(source.bytes(), always: false)}: hard link not allowed for directory"); return false }
   }

@@ -522,10 +522,7 @@ pure parse_address(chunk: Chunk, start: Int, options: Options) -> Result[Address
       if ignore_case or multiline { return Err(complain(chunk, at, "cannot specify modifiers on empty regexp")) }
       return Ok({found: true, address: .Pattern(.Previous), next: at})
     }
-    let spec = match compile_regex(normal, options.extended, ignore_case, multiline and !options.null_data) {
-      Ok(value) => value
-      Err(failure) => { return Err(complain(chunk, at, failure.message)) }
-    }
+    let spec = compile_regex(normal, options.extended, ignore_case, multiline and !options.null_data) ?? { |failure| return Err(complain(chunk, at, failure.message)) }
     return Ok({found: true, address: .Pattern(spec), next: at})
   }
   if is_digit(byte) {
@@ -946,10 +943,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       if pattern_text.is_empty() {
         if ignore_case or multiline { return Err(complain(chunk, at, "cannot specify modifiers on empty regexp")) }
       } else {
-        choice = match compile_regex(pattern_text, options.extended, ignore_case, multiline and !options.null_data) {
-          Ok(value) => value
-          Err(failure) => { return Err(complain(chunk, at, failure.message)) }
-        }
+        choice = compile_regex(pattern_text, options.extended, ignore_case, multiline and !options.null_data) ?? { |failure| return Err(complain(chunk, at, failure.message)) }
         match choice { Explicit(spec) => groups = spec.groups, else => {} }
       }
       let nodes = parse_replacement(replacement_text)
@@ -1913,12 +1907,9 @@ pure directory_of(name: Str) -> Str {
 # original to the backup name when a suffix was given.
 proc commit_in_place(target: Str, output: Bytes, mode: Int, suffix: Str) [fs, io, error, process, env] -> Unit {
   let destination = fp"{target}"
-  let temporary = match fs.temp_sibling(destination) {
-    Ok(made) => made
-    Err(failure) => {
-      gnu.error(f"couldn't open temporary file {directory_of(target)}sedXXXXXX: {gnu.strerror(failure)}")
-      exit 4
-    }
+  let temporary = fs.temp_sibling(destination) ?? { |failure|
+    gnu.error(f"couldn't open temporary file {directory_of(target)}sedXXXXXX: {gnu.strerror(failure)}")
+    exit 4
   }
   if let Err(failure) = temporary.write(output, mode) {
     gnu.error(f"couldn't open temporary file {directory_of(target)}sedXXXXXX: {gnu.strerror(failure)}")

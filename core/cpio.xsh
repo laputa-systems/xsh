@@ -1118,12 +1118,9 @@ proc long_line(header: Header, link_target: Bytes?, numeric: Bool, now_seconds: 
   } else {
     f"{header.size:>8}"
   }
-  let calendar = match time.to_calendar(header.mtime * 1000000000, utc: false) {
-    Ok(value) => value
-    Err(failure) => {
-      die(gnu.strerror(failure))
-      exit 2
-    }
+  let calendar = time.to_calendar(header.mtime * 1000000000, utc: false) ?? { |failure|
+    die(gnu.strerror(failure))
+    exit 2
   }
   let recent = header.mtime > now_seconds - HALF_YEAR_SECONDS and header.mtime < now_seconds
   let stamp = if recent {
@@ -1249,10 +1246,7 @@ proc create_parents(st: Run, opts: Options, file: Path) [fs, process, env] -> Cr
 
 # Hard-links `target` as `name`; under -d a missing parent directory is made.
 proc link_to_name(st: Run, opts: Options, name: Bytes, target: Path) [fs, process, env] -> Linked {
-  let file = match path_of(name) {
-    Ok(value) => value
-    Err(failure) => { return {linked: false, reason: gnu.strerror(failure), st: st} }
-  }
+  let file = path_of(name) ?? { |failure| return {linked: false, reason: gnu.strerror(failure), st: st} }
   var result = fs.link(target, file)
   var state = st
   if result is Err(_) and opts.make_dirs {
@@ -1774,10 +1768,7 @@ proc create_directory(st: Run, opts: Options, header: Header, existing: Bool, ch
   return {name: header.name, st: st} when opts.to_stdout
   let name = strip_trailing_slashes(header.name)
   return {name: name, st: st} when name == b"."
-  let file = match path_of(name) {
-    Ok(value) => value
-    Err(failure) => { return {name: name, st: call_error(st, "mkdir", name, failure)} }
-  }
+  let file = path_of(name) ?? { |failure| return {name: name, st: call_error(st, "mkdir", name, failure)} }
   var state = st
   if ! existing {
     var result = file.mkdir(parents: false)
@@ -1874,10 +1865,7 @@ proc extract_regular(st: Run, opts: Options, format: Str, header: Header, conten
     verify_checksum(format, header, content)
     return state
   }
-  let file = match path_of(name) {
-    Ok(value) => value
-    Err(failure) => { return call_error(state, "open", name, failure) }
-  }
+  let file = path_of(name) ?? { |failure| return call_error(state, "open", name, failure) }
   var result = write_file(file, output, opts.sparse)
   if result is Err(_) and opts.make_dirs {
     let made = create_parents(state, opts, file)
@@ -1905,10 +1893,7 @@ proc extract_device(st: Run, opts: Options, header: Header, chown_enabled: Bool)
     state = linked.st
     return state when linked.linked
   }
-  let file = match path_of(name) {
-    Ok(value) => value
-    Err(failure) => { return call_error(state, "mknod", name, failure) }
-  }
+  let file = path_of(name) ?? { |failure| return call_error(state, "mknod", name, failure) }
   let kind = kind_of_bits(kind_bits(header.mode))
   let permissions = header.mode.bit_and(511)
   let numbered = kind == "char" or kind == "block"
@@ -1931,10 +1916,7 @@ proc extract_link(st: Run, opts: Options, header: Header, target: Bytes, chown_e
   return st when opts.to_stdout
   var state = st
   let name = header.name
-  let file = match path_of(name) {
-    Ok(value) => value
-    Err(failure) => { return call_error(state, "open", name, failure) }
-  }
+  let file = path_of(name) ?? { |failure| return call_error(state, "open", name, failure) }
   if opts.no_abs {
     var made = file.write(b"", 0)
     if made is Err(_) and opts.make_dirs {
@@ -1954,10 +1936,7 @@ proc extract_link(st: Run, opts: Options, header: Header, target: Bytes, chown_e
       Err(failure) => { return call_error(state, "stat", name, failure) }
     }
   }
-  let destination = match path_of(target) {
-    Ok(value) => value
-    Err(failure) => { return call_error(state, "symlink", name, failure) }
-  }
+  let destination = path_of(target) ?? { |failure| return call_error(state, "symlink", name, failure) }
   var result = fs.symlink(destination, file)
   if result is Err(_) and opts.make_dirs {
     let parents = create_parents(state, opts, file)
@@ -1998,12 +1977,9 @@ proc replace_placeholders(st: Run, opts: Options, chown_enabled: Bool) [fs, proc
         continue
       }
     }
-    let destination = match path_of(holder.target) {
-      Ok(value) => value
-      Err(failure) => {
-        state = call_error(state, "symlink", holder.name, failure)
-        continue
-      }
+    let destination = path_of(holder.target) ?? { |failure|
+      state = call_error(state, "symlink", holder.name, failure)
+      continue
     }
     var result = fs.symlink(destination, holder.path)
     if result is Err(_) and opts.make_dirs {
@@ -2038,12 +2014,9 @@ proc create_final_deferred(st: Run, opts: Options, chown_enabled: Bool) [fs, pro
     let linked = link_to_inode(state, opts, waiting.name, waiting)
     state = linked.st
     continue when linked.linked
-    let file = match path_of(waiting.name) {
-      Ok(value) => value
-      Err(failure) => {
-        state = call_error(state, "open", waiting.name, failure)
-        continue
-      }
+    let file = path_of(waiting.name) ?? { |failure|
+      state = call_error(state, "open", waiting.name, failure)
+      continue
     }
     var result = file.write(b"", 384)
     if result is Err(_) and opts.make_dirs {
@@ -2136,12 +2109,9 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
   let copy_matching = ! opts.nonmatching
   while true {
     let attempt = read_header(data, position, format, st.warned_reverse)
-    let parsed = match attempt {
-      Ok(value) => value
-      Err(failure) => {
-        if ! listing.is_empty() { write_out(bytes.concat(listing)) }
-        return Err(failure)
-      }
+    let parsed = attempt ?? { |failure|
+      if ! listing.is_empty() { write_out(bytes.concat(listing)) }
+      return Err(failure)
     }
     if format == "" { peeked_to = parsed.at + 512 }
     format = parsed.format
@@ -2290,14 +2260,8 @@ proc sink_emit(sink: Sink, data: Bytes) [fs, io, error, process, env] -> Sink {
 # grew), and alignment padding.
 proc emit_regular(opts: Options, format: Str, sink: Sink, st: Run, header: Header, source: Bytes, atime_ns: Int, mtime_ns: Int) [fs, io, error, process, env] -> Emitted {
   var state = st
-  let file = match path_of(source) {
-    Ok(value) => value
-    Err(failure) => { return {sink: sink, st: call_error(state, "open", source, failure), written: false} }
-  }
-  let content = match file.read_bytes() {
-    Ok(value) => value
-    Err(failure) => { return {sink: sink, st: call_error(state, "open", source, failure), written: false} }
-  }
+  let file = path_of(source) ?? { |failure| return {sink: sink, st: call_error(state, "open", source, failure), written: false} }
+  let content = file.read_bytes() ?? { |failure| return {sink: sink, st: call_error(state, "open", source, failure), written: false} }
   let size = header.size
   var body = content
   if content.len() > size { body = content.slice(0, size) }
@@ -2350,19 +2314,13 @@ proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_sta
       gnu.error("blank line ignored")
       continue
     }
-    let file = match path_of(raw) {
-      Ok(value) => value
-      Err(failure) => {
-        st = call_error(st, "stat", raw, failure)
-        continue
-      }
+    let file = path_of(raw) ?? { |failure|
+      st = call_error(st, "stat", raw, failure)
+      continue
     }
-    let info = match fs.stat(file, follow_symlinks: opts.dereference) {
-      Ok(value) => value
-      Err(failure) => {
-        st = call_error(st, "stat", raw, failure)
-        continue
-      }
+    let info = fs.stat(file, follow_symlinks: opts.dereference) ?? { |failure|
+      st = call_error(st, "stat", raw, failure)
+      continue
     }
     let type_bits = type_bits_of(info.kind)
     var header: Header = Header(ino: info.ino, mode: type_bits + info.mode.bit_and(4095), uid: opts.owner ?? info.uid, gid: opts.group ?? info.gid, nlink: info.nlink, mtime: info.mtime_ns / 1000000000, size: info.size, dev_major: device_major(info.dev), dev_minor: device_minor(info.dev), rdev_major: 0, rdev_minor: 0, checksum: 0, name: b"")
@@ -2428,12 +2386,9 @@ proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_sta
       guard let head = encoded else { continue }
       sink = sink_emit(sink, head)
     } else if type_bits == TYPE_LINK {
-      let destination = match file.readlink() {
-        Ok(value) => value
-        Err(failure) => {
-          st = call_error(st, "readlink", raw, failure)
-          continue
-        }
+      let destination = file.readlink() ?? { |failure|
+        st = call_error(st, "readlink", raw, failure)
+        continue
       }
       let cleaned = safe_name(st, destination.bytes(), ! opts.no_abs, true)
       st = cleaned.st
@@ -2489,29 +2444,20 @@ proc copy_pass(opts: Options, destination: Bytes, chown_enabled: Bool) [fs, io, 
       continue
     }
     continue when raw == b"." or raw == b"./"
-    let source = match path_of(raw) {
-      Ok(value) => value
-      Err(failure) => {
-        st = call_error(st, "stat", raw, failure)
-        continue
-      }
+    let source = path_of(raw) ?? { |failure|
+      st = call_error(st, "stat", raw, failure)
+      continue
     }
-    let info = match fs.stat(source, follow_symlinks: opts.dereference) {
-      Ok(value) => value
-      Err(failure) => {
-        st = call_error(st, "stat", raw, failure)
-        continue
-      }
+    let info = fs.stat(source, follow_symlinks: opts.dereference) ?? { |failure|
+      st = call_error(st, "stat", raw, failure)
+      continue
     }
     var begin = 0
     while raw.byte_at(begin) == 47 { begin += 1 }
     let output = bytes.concat([destination, b"/", raw.slice(begin, raw.len() - begin)])
-    let target = match path_of(output) {
-      Ok(value) => value
-      Err(failure) => {
-        st = call_error(st, "open", output, failure)
-        continue
-      }
+    let target = path_of(output) ?? { |failure|
+      st = call_error(st, "open", output, failure)
+      continue
     }
     let type_bits = type_bits_of(info.kind)
     let header: Header = Header(ino: info.ino, mode: type_bits + info.mode.bit_and(4095), uid: info.uid, gid: info.gid, nlink: info.nlink, mtime: info.mtime_ns / 1000000000, size: info.size, dev_major: device_major(info.dev), dev_minor: device_minor(info.dev), rdev_major: device_major(info.rdev), rdev_minor: device_minor(info.rdev), checksum: 0, name: output)
@@ -2547,12 +2493,9 @@ proc copy_pass(opts: Options, destination: Bytes, chown_enabled: Bool) [fs, io, 
         linked = attempt.linked
       }
       if ! linked {
-        let content = match source.read_bytes() {
-          Ok(value) => value
-          Err(failure) => {
-            st = call_error(st, "open", raw, failure)
-            continue
-          }
+        let content = source.read_bytes() ?? { |failure|
+          st = call_error(st, "open", raw, failure)
+          continue
         }
         var written = write_file(target, content, opts.sparse)
         if written is Err(_) and opts.make_dirs {
@@ -2597,12 +2540,9 @@ proc copy_pass(opts: Options, destination: Bytes, chown_enabled: Bool) [fs, io, 
         st = extract_device(st, {...opts, link: false, to_stdout: false}, {...header, nlink: 1}, chown_enabled)
       }
     } else if info.kind == "symlink" {
-      let destination = match source.readlink() {
-        Ok(value) => value
-        Err(failure) => {
-          st = call_error(st, "readlink", raw, failure)
-          continue
-        }
+      let destination = source.readlink() ?? { |failure|
+        st = call_error(st, "readlink", raw, failure)
+        continue
       }
       st = extract_link(st, {...opts, no_abs: false, to_stdout: false}, header, destination.bytes(), chown_enabled)
     } else {
@@ -2727,12 +2667,9 @@ proc prepare_output(opts: Options, format: Str, plan: Plan) [fs, io, error, proc
     }
     return {...plan, target: location}
   }
-  let existing = match location.read_bytes() {
-    Ok(value) => value
-    Err(failure) => {
-      die(f"Cannot open {name}: {gnu.strerror(failure)}")
-      b""
-    }
+  let existing = location.read_bytes() ?? { |failure|
+    die(f"Cannot open {name}: {gnu.strerror(failure)}")
+    b""
   }
   var position = 0
   var start = 0
@@ -2796,12 +2733,9 @@ proc execute(opts: Options, plan: Plan, chown_enabled: Bool) [fs, io, error, pro
 proc main(...argv: List[Str]) [fs, io, error, process, env, time] {
   let parsed = parse_command_line(argv)
   let opts = validate_options(parsed)
-  let identity = match unix.id() {
-    Ok(value) => value
-    Err(failure) => {
-      gnu.error(gnu.strerror(failure))
-      exit 2
-    }
+  let identity = unix.id() ?? { |failure|
+    gnu.error(gnu.strerror(failure))
+    exit 2
   }
   let chown_enabled = ! opts.no_preserve_owner and (identity.euid == 0 or opts.owner != null or opts.group != null)
   let plan = prepare(opts)

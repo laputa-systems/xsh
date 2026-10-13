@@ -122,12 +122,9 @@ proc change_inet6(name: Str, word: Str, add: Bool) [fs, process, net, env, error
   let address = raw ?? b""
   let socket = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(socket)
-  let index_reply = match linux.ioctl(socket, c.SIOCGIFINDEX, nettools.ifreq(name, b"")?, 40) {
-    Ok(reply) => reply
-    Err(failure) => {
-      report(if add { "SIOCSIFADDR" } else { "SIOCDIFADDR" }, failure)
-      return 1
-    }
+  let index_reply = linux.ioctl(socket, c.SIOCGIFINDEX, nettools.ifreq(name, b"")?, 40) ?? { |failure|
+    report(if add { "SIOCSIFADDR" } else { "SIOCDIFADDR" }, failure)
+    return 1
   }
   let index = bytes.unpack_le(index_reply, 4, 16) ?? 0
   let message = bytes.concat(

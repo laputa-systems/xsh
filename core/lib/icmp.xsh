@@ -314,12 +314,9 @@ export proc receive(fd: Int, flags: Int = 0, max_bytes: Int = 65600) [process, n
 ## The datagram that caused the error is returned in `payload`.
 export proc read_error(fd: Int) [process, net, error] -> Result[QueuedError?, Error] {
   let c = linux.net_constants()
-  let got = match linux.recvfrom(fd, 65600, c.MSG_ERRQUEUE.bit_or(c.MSG_DONTWAIT)) {
-    Ok(value) => value
-    Err(failure) => {
-      return Ok(null) when failure.errno == 11
-      return Err(failure)
-    }
+  let got = linux.recvfrom(fd, 65600, c.MSG_ERRQUEUE.bit_or(c.MSG_DONTWAIT)) ?? { |failure|
+    return Ok(null) when failure.errno == 11
+    return Err(failure)
   }
   var found: QueuedError? = null
   var ttl = null

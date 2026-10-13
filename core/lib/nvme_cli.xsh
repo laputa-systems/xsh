@@ -1557,12 +1557,9 @@ proc identify_listed(node: Path, nsid: Int) [fs, process, error] -> List[Int]? {
 }
 
 proc listed_namespaces(sys_root: Path, dev_root: Path) [fs, process, env, io, error] -> List[ListedNamespace] {
-  let found = match linux.storage_candidates(sys_root:, dev_root:) {
-    Ok(items) => items
-    Err(failure) => {
-      fail(false, f"Failed to scan nvme subsystems: {gnu.strerror(failure)}")
-      []
-    }
+  let found = linux.storage_candidates(sys_root:, dev_root:) ?? { |failure|
+    fail(false, f"Failed to scan nvme subsystems: {gnu.strerror(failure)}")
+    []
   }
   let rows: List[ListedNamespace] = collect {
     for item in found {

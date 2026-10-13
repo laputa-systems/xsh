@@ -345,12 +345,9 @@ export proc execute(argv: List[Str]) {
     }
   }
   let setup: Setup = Setup(v6:, address: found[0].addr, base_port:, overhead:, numeric: opts.numeric, both: opts.both)
-  let fd = match open_probe_socket(v6) {
-    Ok(opened) => opened
-    Err(failure) => {
-      gnu.error(f"socket: {gnu.strerror(failure)}")
-      exit 1
-    }
+  let fd = open_probe_socket(v6) ?? { |failure|
+    gnu.error(f"socket: {gnu.strerror(failure)}")
+    exit 1
   }
   defer unix.close_fd(fd)
   let c = linux.net_constants()

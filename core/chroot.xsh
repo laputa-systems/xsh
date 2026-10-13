@@ -150,9 +150,8 @@ proc set_identity(opts: Options, outer: Result[Identity], outer_groups: Result[L
     let memberships = if let spec = opts.groups { additional_groups(spec) } else {
       if let name = ids.username { user.groups(name, primary_gid: ids.gid) } else { Ok([]) }
     }
-    let groups = match memberships {
-      Ok(found) => found
-      Err(failure) => if let Ok(before) = outer_groups {
+    let groups = memberships ?? { |failure|
+      if let Ok(before) = outer_groups {
         if before.is_empty() {
           gnu.error(failure.message)
           exit 125

@@ -398,12 +398,9 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
     gnu.error("btop: unexpected operand")
     exit 2
   }
-  let count = match parse_frame_limit(opts.frames) {
-    Ok(value) => value
-    Err(failure) => {
-      gnu.error(f"btop: {failure.message}")
-      exit 2
-    }
+  let count = parse_frame_limit(opts.frames) ?? { |failure|
+    gnu.error(f"btop: {failure.message}")
+    exit 2
   }
   if opts.headless and opts.replay == null {
     gnu.error("btop: --headless requires --replay")

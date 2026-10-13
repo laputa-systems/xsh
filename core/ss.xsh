@@ -1098,10 +1098,7 @@ proc render(rows: List[List[Str]], visible: List[Bool], config: Config) [process
 }
 
 proc print_summary() [fs, process, env, io, error] {
-  let counts = match sockets.summary() {
-    Ok(counts) => counts
-    Err(failure) => { fail(failure.message, 1); return }
-  }
+  let counts = sockets.summary() ?? { |failure| fail(failure.message, 1); return }
   let ip4 = counts.raw4 + counts.udp4 + counts.tcp4
   let ip6 = counts.raw6 + counts.udp6 + counts.tcp6
   let waiting = counts.time_wait

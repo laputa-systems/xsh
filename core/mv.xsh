@@ -54,11 +54,8 @@ pure same_entry_display(value: Path, destination = false) -> Str {
 proc preserve_move_metadata(source: Path, target: Path, metadata: MoveMetadata) {
   let follow = metadata.kind != "symlink"
   fs.set_owner(target, uid: metadata.uid, gid: metadata.gid, follow_symlinks: follow)
-  let names = match fs.xattr_list(source, follow_symlinks: follow) {
-    Ok(names) => names
-    Err(failure) => {
-      if failure.errno == 95 { [] } else { return Err(failure) }
-    }
+  let names = fs.xattr_list(source, follow_symlinks: follow) ?? { |failure|
+    if failure.errno == 95 { [] } else { return Err(failure) }
   }
   for name in names {
     let value = fs.xattr_get(source, name, follow_symlinks: follow)?

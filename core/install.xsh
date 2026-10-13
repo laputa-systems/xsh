@@ -108,25 +108,19 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
     exit 1
   }
   if opts.parents { make_ancestors(target.parent(), opts.verbose) }
-  let resolved_parent = match target.parent().resolve() {
-    Ok(parent) => parent
-    Err(failure) => {
-      if existing {
-        gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
-        return Failed
-      }
-      return Err(failure)
+  let resolved_parent = target.parent().resolve() ?? { |failure|
+    if existing {
+      gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
+      return Failed
     }
+    return Err(failure)
   }
-  let parent_root = match fs.open_root(resolved_parent) {
-    Ok(root) => root
-    Err(failure) => {
-      if existing {
-        gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
-        return Failed
-      }
-      return Err(failure)
+  let parent_root = fs.open_root(resolved_parent) ?? { |failure|
+    if existing {
+      gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
+      return Failed
     }
+    return Err(failure)
   }
   defer parent_root.close()
   # Publishing a prepared regular file replaces a symlink entry without
@@ -154,12 +148,9 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
         return Failed
       }
     }
-    let executable = match process.which(program) {
-      Ok(found) => found
-      Err(failure) => {
-        gnu.error(f"cannot run strip program {gnu.quote(program)}: {gnu.strerror(failure)}")
-        return Failed
-      }
+    let executable = process.which(program) ?? { |failure|
+      gnu.error(f"cannot run strip program {gnu.quote(program)}: {gnu.strerror(failure)}")
+      return Failed
     }
     let strip_path = if target.name().starts_with("-") { "./" + target.name() } else { target.name() }
     match process.run(process.command_argv(executable, [program, strip_path], cwd: staged_dir)) {

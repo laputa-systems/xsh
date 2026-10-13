@@ -1951,12 +1951,9 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
       exit 2
     }
   }
-  let number = match number_text.parse_int() {
-    Ok(number) => number
-    Err(_) => {
-      gnu.error(f"-S argument {gnu.quote(value)} too large")
-      exit 2
-    }
+  let number = number_text.parse_int() ?? { |_|
+    gnu.error(f"-S argument {gnu.quote(value)} too large")
+    exit 2
   }
   if suffix == "%" {
     let memory = linux.meminfo()?
@@ -2065,12 +2062,9 @@ proc startable_compress_program(program: Str?) [process, env] -> Str? {
 ## Runs the compression program with the bytes as stdin and the output file as stdout.
 ## A program that does not exit 0 leaves a truncated run behind, so it stops the sort.
 proc run_compress_program(program: Str, argv: List[Str], input: Bytes, output: Path) [process, env, error] {
-  let status = match process.run(process.command_argv(program, argv, stdin: input, stdout: output)) {
-    Ok(status) => status
-    Err(failure) => {
-      gnu.error(f"could not run compress program {gnu.quote(program)}: {gnu.strerror(failure)}")
-      exit 2
-    }
+  let status = process.run(process.command_argv(program, argv, stdin: input, stdout: output)) ?? { |failure|
+    gnu.error(f"could not run compress program {gnu.quote(program)}: {gnu.strerror(failure)}")
+    exit 2
   }
   if ! status.exited_with(0) {
     gnu.error(f"{gnu.quote(program)} terminated abnormally")

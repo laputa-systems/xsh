@@ -22,10 +22,7 @@ proc main(...argv: List[Str]) {
     ["/bin/sh", "-c", opts.operands[2]]
   } else { opts.operands[1..] }
   let command = control.command(child_argv)?
-  let lock = match fs.lock(fp"{opts.operands[0]}", shared: opts.shared, nonblocking: opts.nonblock) {
-    Ok(held) => held
-    Err(failure) => { if opts.nonblock and gnu.errno(failure) in [11, 35] { exit conflict }; return Err(failure) }
-  }
+  let lock = fs.lock(fp"{opts.operands[0]}", shared: opts.shared, nonblocking: opts.nonblock) ?? { |failure| if opts.nonblock and gnu.errno(failure) in [11, 35] { exit conflict }; return Err(failure) }
   defer fs.unlock(lock)
   exit control.status_code(process.run(command)?)?
 }

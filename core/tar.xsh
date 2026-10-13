@@ -389,10 +389,7 @@ proc archive_data(opts: Options) [fs, io, error, process, env] -> Result[Bytes] 
   }
   let name = opts.archive_path ?? ""
   let source = fp"{name}"
-  let raw = match source.read_bytes() {
-    Ok(value) => value
-    Err(failure) => { return Err(TarError.Invalid(message: f"{name}: Cannot open: {gnu.strerror(failure)}")) }
-  }
+  let raw = source.read_bytes() ?? { |failure| return Err(TarError.Invalid(message: f"{name}: Cannot open: {gnu.strerror(failure)}")) }
   let format = if opts.compression != "" { opts.compression } else { detected_format(raw) }
   return Ok(raw) when format == ""
   Ok(archive.decompress_bytes(source, format)?)
@@ -564,10 +561,7 @@ pure ustar_header(name: Str, flag: Str, mode: Int, uid: Int, gid: Int, size: Int
 # filesystem lists them, and excluded names are left out with their subtrees.
 proc member_chunks(name: Str, source: Path, opts: Options) [fs, error] -> Result[List[Bytes]] {
   return Ok([]) when excluded(canonical(name), opts.excludes)
-  let info = match fs.stat(source, follow_symlinks: false) {
-    Ok(value) => value
-    Err(failure) => { return Err(TarError.Invalid(message: f"{name}: Cannot stat: {gnu.strerror(failure)}")) }
-  }
+  let info = fs.stat(source, follow_symlinks: false) ?? { |failure| return Err(TarError.Invalid(message: f"{name}: Cannot stat: {gnu.strerror(failure)}")) }
   var chunks = []
   if info.kind == "dir" {
     let dir_name = if name.ends_with("/") { name } else { f"{name}/" }

@@ -500,27 +500,21 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
     exit 1
   }
   let v6 = target.family == "inet6"
-  let sock = match icmp.open_echo(target.family, plan.identifier != null) {
-    Ok(opened) => opened
-    Err(failure) => {
-      eprint f"{gnu.prog()}: socktype: SOCK_RAW"
-      gnu.error(f"socket: {gnu.strerror(failure)}")
-      if gnu.errno(failure) == 1 or gnu.errno(failure) == 13 {
-        eprint f"{gnu.prog()}: => missing cap_net_raw+p capability or setuid?"
-      }
-      exit 2
+  let sock = icmp.open_echo(target.family, plan.identifier != null) ?? { |failure|
+    eprint f"{gnu.prog()}: socktype: SOCK_RAW"
+    gnu.error(f"socket: {gnu.strerror(failure)}")
+    if gnu.errno(failure) == 1 or gnu.errno(failure) == 13 {
+      eprint f"{gnu.prog()}: => missing cap_net_raw+p capability or setuid?"
     }
+    exit 2
   }
   defer unix.close_fd(sock.fd)
   let c = linux.net_constants()
   icmp.enable_ancillary(sock)
   configure(sock, plan, opts, target)
-  let route = match probe_route(target, plan.interface, plan.source) {
-    Ok(found) => found
-    Err(failure) => {
-      gnu.error(f"connect: {gnu.strerror(failure)}")
-      exit 2
-    }
+  let route = probe_route(target, plan.interface, plan.source) ?? { |failure|
+    gnu.error(f"connect: {gnu.strerror(failure)}")
+    exit 2
   }
   if route.broadcast and ! opts.broadcast {
     gnu.error("Do you want to ping broadcast? Then -b. If not, check your local firewall rules")

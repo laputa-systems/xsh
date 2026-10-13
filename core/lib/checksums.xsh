@@ -485,10 +485,7 @@ pure raw_digest(hex: Str) -> Result[Bytes] {
 
 proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer: Bool) [fs, io, error, process, env] -> Bool {
   let content = if source == "-" { io.stdin_bytes() } else { fp"{source}".read_bytes() }
-  let data = match content {
-    Ok(value) => value
-    Err(failure) => { gnu.name_error(source, failure); return false }
-  }
+  let data = content ?? { |failure| gnu.name_error(source, failure); return false }
   var malformed = 0
   var mismatched = 0
   var unreadable = 0
@@ -598,14 +595,11 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
     version: {form: "--version", default: false, stop: true},
     files: {form: "...FILE"},
   })
-  var opts: Options = match parsed {
-    Ok(value) => value
-    Err(failure) => {
-      let prefix = f"{gnu.prog()}: "
-      let diagnostic = if failure.message.starts_with(prefix) { failure.message.byte_slice(prefix.byte_len()) } else { failure.message }
-      gnu.error(diagnostic)
-      exit 1
-    }
+  var opts: Options = parsed ?? { |failure|
+    let prefix = f"{gnu.prog()}: "
+    let diagnostic = if failure.message.starts_with(prefix) { failure.message.byte_slice(prefix.byte_len()) } else { failure.message }
+    gnu.error(diagnostic)
+    exit 1
   }
   opts = {...opts, warn: warning_mode(argv)}
   if opts.help {

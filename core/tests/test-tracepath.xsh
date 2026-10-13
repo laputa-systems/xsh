@@ -21,12 +21,9 @@ proc need_loopback(family: Str) [process, net, error] {
   let c = linux.net_constants()
   let domain = if family == "inet6" { c.AF_INET6 } else { c.AF_INET }
   let address = if family == "inet6" { "::1" } else { "127.0.0.1" }
-  let probe = match linux.socket(domain, c.SOCK_DGRAM) {
-    Ok(fd) => fd
-    Err(failure) => {
-      test.skip(f"UDP over {family} is not available ({failure.message})")
-      return Ok()
-    }
+  let probe = linux.socket(domain, c.SOCK_DGRAM) ?? { |failure|
+    test.skip(f"UDP over {family} is not available ({failure.message})")
+    return Ok()
   }
   defer unix.close_fd(probe)
   if let Err(failure) = linux.bind(probe, {family: family, address: address, port: 0}) {

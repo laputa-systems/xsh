@@ -258,19 +258,25 @@ test test_typed_callable_guard_failure_binding_keeps_its_checked_type {
 
 test test_typed_callable_with_failure_binding_keeps_its_checked_type {
   let result = recover_with_typed_with_failure(Ok(2), Ok(3))
-  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  let value = result ?? { |failure|
+    failure(4)
+  }
   assert value == 7
 }
 
 test test_typed_callable_with_propagated_failure_binding_keeps_its_checked_type {
   let result = recover_with_typed_with_failure(Ok(2), Err(double))
-  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  let value = result ?? { |failure|
+    failure(4)
+  }
   assert value == 8
 }
 
 test test_typed_callable_with_initial_failure_binding_keeps_its_checked_type {
   let result = recover_with_typed_with_failure(Err(double), Ok(3))
-  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  let value = result ?? { |failure|
+    failure(4)
+  }
   assert value == 8
 }
 

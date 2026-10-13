@@ -44,13 +44,10 @@ pure stable_fields(fields: List[Str]) -> List[Str] {
 # A missing utmp database means no sessions; other read errors remain failures.
 proc short_fields(option: Str) [fs, process, time, error] -> Result[List[Str], Error] {
   let entries = accounts()?
-  let records = match unix.read_utmp() {
-    Ok(found) => found,
-    Err(failure) => {
-      assert failure.errno == 2
-      let empty = []
-      empty
-    },
+  let records = unix.read_utmp() ?? { |failure|
+    assert failure.errno == 2
+    let empty = []
+    empty
   }
   var expected = if option == "-i" {
     ["Login", "TTY", "Idle", "When"]

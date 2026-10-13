@@ -404,10 +404,7 @@ proc announce(argv: List[Path], interactive: Bool) [io, process, env, error] -> 
 proc ask(command_line: Str) [io, process, env, error] -> Result[Bool, Error] {
   io.write_stderr(command_line)
   io.flush_stderr()
-  let descriptor = match unix.open_fd(p"/dev/tty") {
-    Ok(opened) => opened
-    Err(failure) => { gnu.error(f"failed to open /dev/tty for reading: {gnu.strerror(failure)}"); exit 1 }
-  }
+  let descriptor = unix.open_fd(p"/dev/tty") ?? { |failure| gnu.error(f"failed to open /dev/tty for reading: {gnu.strerror(failure)}"); exit 1 }
   io.write_stderr("?...")
   io.flush_stderr()
   var answer = ""

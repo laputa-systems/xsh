@@ -289,12 +289,9 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
     version: {form: "-v --version", default: false, stop: true},
     files: {form: "...FILE"},
   })
-  let opts: Options = match parsed {
-    Ok(record) => record
-    Err(failure) => {
-      usage_failure(failure.message)
-      exit 2
-    }
+  let opts: Options = parsed ?? { |failure|
+    usage_failure(failure.message)
+    exit 2
   }
   if opts.help { gnu.help(HELP); return }
   if opts.version { gnu.version("patch"); return }

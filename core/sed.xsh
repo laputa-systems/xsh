@@ -236,19 +236,13 @@ proc main(...argv: List[Str]) [fs, error, io, process, env] {
     operands = operands[1..]
   }
   let options: editing.Options = editing.Options(extended: settings.extended, sandbox: settings.sandbox, separate: settings.separate, null_data: settings.null_data, line_length: settings.line_length)
-  let parsed = match editing.compile(chunks, options) {
-    Ok(value) => value
-    Err(failure) => {
-      gnu.error(failure.message)
-      exit 1
-    }
+  let parsed = editing.compile(chunks, options) ?? { |failure|
+    gnu.error(failure.message)
+    exit 1
   }
-  var program = match editing.link(parsed) {
-    Ok(value) => value
-    Err(failure) => {
-      gnu.error(failure.message)
-      exit 4
-    }
+  var program = editing.link(parsed) ?? { |failure|
+    gnu.error(failure.message)
+    exit 4
   }
   if settings.quiet { program = {...program, quiet: true} }
   let status = editing.execute(program, options, {enabled: settings.in_place, suffix: settings.suffix, follow: settings.follow}, operands)
