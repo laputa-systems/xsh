@@ -127,7 +127,7 @@ proc apply(settings: Settings, code: Str, value: Str?) [fs, io, error, process, 
     }
     "f" => {
       let name = value ?? ""
-        let chunk: editing.Chunk = editing.Chunk(read_script_file(name), name, 0)
+      let chunk: editing.Chunk = editing.Chunk(read_script_file(name), name, 0)
       next = {...next, have_script: true, chunks: next.chunks + [chunk]}
     }
     else => {}
