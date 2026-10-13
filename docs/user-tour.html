@@ -1469,7 +1469,7 @@ executable: /usr/local/bin/xsh
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-comment"># file: bin/harden.xsh</span>
 <span class="hl-keyword">use</span> sshd
 
-<span class="hl-keyword">cli</span> <span class="hl-function">main</span><span class="hl-punctuation">(</span><span class="hl-property">config</span><span class="hl-punctuation">:</span> <span class="hl-type">Path</span> <span class="hl-operator">=</span> <span class="hl-path">/etc/ssh/sshd_config</span><span class="hl-punctuation">)</span> <span class="hl-punctuation">{</span>
+<span class="hl-keyword">cli</span> <span class="hl-function">main</span><span class="hl-punctuation">(</span>config <span class="hl-operator">=</span> <span class="hl-path">/etc/ssh/sshd_config</span><span class="hl-punctuation">)</span> <span class="hl-punctuation">{</span>
   <span class="hl-keyword">let</span> before <span class="hl-operator">=</span> config<span class="hl-punctuation">.</span><span class="hl-function">read_text</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
   <span class="hl-keyword">let</span> after <span class="hl-operator">=</span> sshd<span class="hl-punctuation">.</span><span class="hl-function">set_option</span><span class="hl-punctuation">(</span>before<span class="hl-punctuation">,</span> <span class="hl-string">"PermitRootLogin"</span><span class="hl-punctuation">,</span> <span class="hl-string">"no"</span><span class="hl-punctuation">)</span>
   <span class="hl-keyword">if</span> after <span class="hl-operator">!=</span> before <span class="hl-punctuation">{</span>

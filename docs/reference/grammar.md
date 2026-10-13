@@ -210,7 +210,7 @@ proc_declaration = "proc" NAME "(" parameters ")" effects? ( "->" type_expr )? b
 pure_declaration = "pure" IDENT "(" parameters ")" ( "->" type_expr )? block ;
 stream_declaration = "stream" IDENT "(" parameters ")" effects? "->" type_expr block ;
 cli_entry = "cli" ( "main" IDENT* | IDENT ) "(" parameters ")" effects? ( "->" type_expr )? block ;
-test_declaration = "test" IDENT effects? "{" separator* ( "|" IDENT ","? "|" )? statements "}" ;
+test_declaration = "test" IDENT effects? "{" separator* ( "|" ( IDENT ","? )? "|" )? statements "}" ;
 parameters = list(parameter) ;
 parameter = IDENT ":" type_expr ( "=" expression )? | IDENT "=" expression | "." ~"." ~"." IDENT ":" type_expr ;
 effects = "[" list("fs" | "net" | "process" | "env" | "time" | "error" | "io") "]" ;

@@ -1722,7 +1722,7 @@ export pure set_option(text: Str, key: Str, value: Str) -> Str {
 # file: bin/harden.xsh
 use sshd
 
-cli main(config: Path = /etc/ssh/sshd_config) {
+cli main(config = /etc/ssh/sshd_config) {
   let before = config.read_text()?
   let after = sshd.set_option(before, "PermitRootLogin", "no")
   if after != before {
