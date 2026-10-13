@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu chmod/c-option.log
 test test_gnu_chmod_c_option_log { |ctx|

@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 type DiskUsage = {blocks: Int, rows: Str, seen: List[Str]}
 

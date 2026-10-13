@@ -1,6 +1,6 @@
 ##! Transcribed checksum compatibility assertions from uutils.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_cksum::test_locale_aware_error_filename_escaping
 test test_uu_cksum_locale_aware_error_filename_escaping { |ctx|

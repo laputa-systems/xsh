@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration tests for pinky.
 
-use support.uu as uu
+use support.uu
 
 type Account = {name: Str, gecos: Str, directory: Str, shell: Str}
 

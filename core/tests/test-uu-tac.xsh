@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_tac.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_tac::test_before_empty_file
 test test_uu_tac_before_empty_file { |ctx|

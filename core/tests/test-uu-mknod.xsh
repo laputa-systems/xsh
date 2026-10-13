@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_mknod.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_mknod::test_mknod_overflow_major_minor
 test test_uu_mknod_mknod_overflow_major_minor { |ctx|

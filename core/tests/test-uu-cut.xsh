@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_cut.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_cut::diagnostics::test_plain_message_when_stderr_is_a_pipe
 test test_uu_cut_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|

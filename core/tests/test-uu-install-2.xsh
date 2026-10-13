@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils install integration tests.
 
-use support.uu as uu
+use support.uu
 
 # Scene symlinks have absolute targets unless the original used a relative link.
 proc absolute_link(s: uu.Scene, target: Str, name: Str) [fs, error] -> Result[Unit, Error] {

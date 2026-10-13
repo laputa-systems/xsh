@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils du integration tests.
-use support.uu as uu
+use support.uu
 
 # Capture files must be outside the walked scene so their sizes and inodes are not counted.
 proc invoke(s: uu.Scene, args: List[Str], stdin: Bytes = b"", vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran] {

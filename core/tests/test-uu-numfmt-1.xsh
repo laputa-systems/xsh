@@ -1,6 +1,6 @@
 ##! Transcribed numeric formatting tests from the uutils coreutils suite.
 
-use support.uu as uu
+use support.uu
 
 # Capture a real stderr pipe, including its EOF boundary, through an owned reader.
 proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {

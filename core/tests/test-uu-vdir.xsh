@@ -1,5 +1,5 @@
 ##! Native ports of the uutils vdir integration tests.
-use support.uu as uu
+use support.uu
 
 # Listing captures live outside the directory being listed.
 proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran, Error] {

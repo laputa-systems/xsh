@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_cksum.rs.
 
-use support.uu as uu
+use support.uu
 
 # Expected fixtures include NUL-delimited output and are compared as bytes.
 proc expected(ctx: TestContext, name: Str) [fs, error] -> Result[Bytes, Error] {

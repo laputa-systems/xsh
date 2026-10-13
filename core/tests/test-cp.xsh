@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 test test_cp_file_and_recursive_dir { |ctx|
   let root = test.temp_dir(ctx, name: "cp")?

@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_ls.rs.
 
-use support.uu as uu
+use support.uu
 
 # A bounded reader owns the pipe diagnostic bytes without placing capture paths in the listing.
 proc pipe_listing_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {

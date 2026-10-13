@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_test.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_test::diagnostics::test_dash_t_plain_message_is_unchanged
 test test_uu_test_diagnostics_dash_t_plain_message_is_unchanged { |ctx|

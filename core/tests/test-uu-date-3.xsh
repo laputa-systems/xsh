@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_date.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_date::test_non_utf8_operands_are_octal_escaped
 test test_uu_date_non_utf8_operands_are_octal_escaped { |ctx|

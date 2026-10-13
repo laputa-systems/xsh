@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils mv integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc absolute_link(s: uu.Scene, target: Str, name: Str) [fs, error] -> Result[Unit, Error] {
   uu.symlink(s, uu.at(s, target).display(), name)

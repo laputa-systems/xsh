@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils logname integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_logname::test_invalid_arg
 test test_uu_logname_invalid_arg { |ctx|

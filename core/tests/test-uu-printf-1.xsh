@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils printf integration tests.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_printf::basic_literal
 test test_uu_printf_basic_literal { |ctx|

@@ -1,6 +1,6 @@
 ##! Native ports of the uutils md5sum integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_md5sum::md5::test_single_file
 test test_uu_md5sum_md5_single_file { |ctx|

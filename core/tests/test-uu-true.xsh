@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_true.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_true::test_no_args
 test test_uu_true_no_args { |ctx|

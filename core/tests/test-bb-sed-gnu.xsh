@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox sed/sed NUL in command
 test test_bb_sed_sed_NUL_in_command_badc0c39 { |ctx|

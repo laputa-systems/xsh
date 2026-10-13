@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils cksum integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_cksum::test_algorithm_single_file::case_09_sha512
 test test_uu_cksum_test_algorithm_single_file_case_09_sha512 { |ctx|

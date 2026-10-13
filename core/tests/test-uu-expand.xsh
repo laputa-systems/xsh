@@ -1,5 +1,5 @@
 ##! Native ports of the uutils expand integration tests.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_expand::test_invalid_arg
 test test_uu_expand_invalid_arg { |ctx|

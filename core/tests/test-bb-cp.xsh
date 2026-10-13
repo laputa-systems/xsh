@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox cp/cp -R
 test test_bb_cp_cp_R_9402f971 { |ctx|

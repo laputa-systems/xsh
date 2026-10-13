@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox nl/nl numbers all lines
 test test_bb_nl_nl_numbers_all_lines_d8c243ca { |ctx|

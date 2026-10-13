@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_arch.rs.
 ##! Each test names its origin; expected values are the original assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_arch::test_arch
 test test_uu_arch_arch { |ctx|

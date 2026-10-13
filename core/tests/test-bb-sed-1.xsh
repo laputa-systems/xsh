@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox sed/sed 's///w FILE'
 test test_bb_sed_sed_s_w_FILE_d6d1b542 { |ctx|

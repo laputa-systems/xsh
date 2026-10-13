@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 let FILE_NAME = "foo"
 let SYMLINK_NAME = "symlink"

@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 proc paths(r: uu.Ran) [error] -> List[Str] {
   [line.split("\t")[1] for line in r.stdout.utf8()?.split("\n") if line != ""]

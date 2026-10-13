@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_yes.rs.
 
-use support.uu as uu
+use support.uu
 
 pure repeat_text(word: Str, count: Int) -> Str {
   let width = if count < 1024 { count } else { 1024 }

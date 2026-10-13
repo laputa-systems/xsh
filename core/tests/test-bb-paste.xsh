@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox paste/paste
 test test_bb_paste_paste_11f0d133 { |ctx|

@@ -1,6 +1,6 @@
 ##! Native ports of the uutils pr integration tests.
 
-use support.uu as uu
+use support.uu
 
 # File headers use that input's actual modification time in UTC.
 proc expected_file(s: uu.Scene, fixture: Str, input: Str) [fs, time, error] -> Result[Bytes, Error] {

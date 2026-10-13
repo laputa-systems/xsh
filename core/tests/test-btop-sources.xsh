@@ -1,7 +1,7 @@
 use core.lib.btop_model as model
 use core.lib.btop_rates as rates
 use core.lib.btop_render as renderer
-use core.lib.btop_source as btop_source
+use core.lib.btop_source
 use core.lib.sys_cpu as syscpu
 use core.lib.sys_mem as memory
 use core.lib.sys_net as network

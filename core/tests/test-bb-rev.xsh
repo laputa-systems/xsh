@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox rev/rev file with long line
 test test_bb_rev_rev_file_with_long_line_9bc052fb { |ctx|

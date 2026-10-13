@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox rmdir/rmdir-removes-parent-directories
 test test_bb_rmdir_rmdir_removes_parent_directories_61f3cf10 { |ctx|

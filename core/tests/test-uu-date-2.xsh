@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # Calendar fields carry leading zeroes that the strict integer parser rejects.
 pure decimal_field(value: Str) -> Result[Int, Error] {

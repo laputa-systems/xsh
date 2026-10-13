@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_test.rs.
 
-use support.uu as uu
+use support.uu
 
 # Each upstream command runs with the complete utility fixture snapshot.
 proc scene(ctx: TestContext) -> Result[uu.Scene, Error] {

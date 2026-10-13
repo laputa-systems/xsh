@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils mkdir integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_mkdir::test_invalid_arg
 test test_uu_mkdir_invalid_arg { |ctx|

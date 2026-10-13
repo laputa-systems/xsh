@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_tr.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_tr::alnum_expands_number_uppercase_lowercase
 test test_uu_tr_alnum_expands_number_uppercase_lowercase { |ctx|

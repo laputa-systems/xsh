@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils mv integration tests.
-use support.uu as uu
+use support.uu
 
 proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
   let s = uu.scene(ctx)?

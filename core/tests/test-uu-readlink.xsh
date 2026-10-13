@@ -1,6 +1,6 @@
 ##! Native readlink cases transcribed from the uutils integration suite.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_readlink::test_no_args
 test test_uu_readlink_no_args { |ctx|

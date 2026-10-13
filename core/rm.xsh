@@ -1,6 +1,6 @@
 #!/bin/xsh
 use lib.gnu
-use lib.search as search
+use lib.search
 
 type RmOptions = {recursive: Bool, force: Bool, directory: Bool, verbose: Bool, progress: Bool, one_file_system: Bool, preserve_root: Str, no_preserve_root: Bool, interactive_always: Bool, interactive_once: Bool, interactive: Str?, help: Bool, version: Bool, targets: List[Str]}
 type RawArgument = {marker: Str, value: Bytes}

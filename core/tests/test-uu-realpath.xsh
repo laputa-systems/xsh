@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_realpath::test_realpath_current_directory
 test test_uu_realpath_realpath_current_directory { |ctx|

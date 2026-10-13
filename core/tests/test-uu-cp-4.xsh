@@ -1,6 +1,6 @@
 ##! Native ports of the uutils cp integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc fixtures(s: uu.Scene) [fs, error] -> Result[Unit, Error] {
   for name in ["hello_world.txt", "how_are_you.txt", "existing_file.txt"] {

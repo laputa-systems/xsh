@@ -1,6 +1,6 @@
 ##! Native ports of the uutils sha384sum integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_sha384sum::sha384::test_check
 test test_uu_sha384sum_sha384_check { |ctx|

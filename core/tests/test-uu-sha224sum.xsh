@@ -1,6 +1,6 @@
 ##! Transcribed SHA224 checksum tests from the uutils coreutils suite.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_sha224sum::sha224::test_single_file
 test test_uu_sha224sum_sha224_single_file { |ctx|

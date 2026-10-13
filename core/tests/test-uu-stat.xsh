@@ -1,6 +1,6 @@
 ##! Transcribed file metadata and formatting tests from the uutils suite.
 
-use support.uu as uu
+use support.uu
 
 const NORMAL = "%a %A %b %B %d %D %f %F %g %G %h %i %m %n %o %s %u %U %x %X %y %Y %z %Z"
 const DEVICE = "%a %A %b %B %d %D %f %F %g %G %h %i %m %n %o %s (%t/%T) %u %U %w %W %x %X %y %Y %z %Z"

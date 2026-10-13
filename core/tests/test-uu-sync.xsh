@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils sync integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_sync::test_invalid_arg
 test test_uu_sync_invalid_arg { |ctx|

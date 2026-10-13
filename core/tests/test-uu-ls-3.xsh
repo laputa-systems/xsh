@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils ls integration tests.
 
-use support.uu as uu
+use support.uu
 
 # Capture files belong outside the listed directory, including hidden-file listings.
 proc ls_invoke(s: uu.Scene, args: List[Str], vars: Record = {}, stdout: Path? = null) [fs, process, env, error] -> Result[uu.Ran, Error] {

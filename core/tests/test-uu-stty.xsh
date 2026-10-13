@@ -1,6 +1,6 @@
 ##! Native ports of the uutils stty integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_stty::all_and_print_setting
 test test_uu_stty_all_and_print_setting { |ctx|

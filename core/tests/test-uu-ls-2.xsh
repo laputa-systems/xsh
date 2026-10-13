@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils ls integration tests.
 
-use support.uu as uu
+use support.uu
 
 # Captures live outside the listed scene, including when ls shows hidden files.
 proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}, terminal: Bool = false, stderr: Path? = null) [fs, process, net, env, error] -> Result[uu.Ran, Error] {

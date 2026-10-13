@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils stdbuf integration tests.
 
-use support.uu as uu
+use support.uu
 
 # A FIFO keeps stderr nonterminal and pipe-backed while stdout stays a separate stream.
 proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {

@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_sum.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_sum::test_bsd_multiple_files
 test test_uu_sum_bsd_multiple_files { |ctx|

@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox wc/wc-counts-all
 test test_bb_wc_wc_counts_all_b846225a { |ctx|

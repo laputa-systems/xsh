@@ -1,6 +1,6 @@
 ##! Transcribed line numbering tests from the uutils coreutils integration suite.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_nl::test_default_body_numbering
 test test_uu_nl_default_body_numbering { |ctx|

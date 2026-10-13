@@ -1,5 +1,5 @@
 ##! Transcribed behavior from the MIT-licensed uutils sort integration tests.
-use support.uu as uu
+use support.uu
 
 proc fixture_bytes(ctx: TestContext, name: Str) [fs, error] -> Result[Bytes, Error] {
   Ok(fp"{ctx.core_dir}/tests/data/uutils/sort/{name}".read_bytes()?)

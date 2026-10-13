@@ -1,6 +1,6 @@
 ##! Native coverage transcribed from the uutils nice integration tests.
 
-use support.uu as uu
+use support.uu
 
 # GNU diagnoses this usage error with a lowercase sentence and no final period.
 # origin: uutils test_nice::test_adjustment_with_no_command_should_error

@@ -1,6 +1,6 @@
 ##! Native ports of the uutils printf integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_printf::sub_float_hex_in
 test test_uu_printf_sub_float_hex_in { |ctx|

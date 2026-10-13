@@ -1,4 +1,4 @@
-use core.lib.nettools as nettools
+use core.lib.nettools
 
 # The expected text below was produced by the reference tool (net-tools 2.x)
 # for the same interface state; the counters are synthetic so that the layout

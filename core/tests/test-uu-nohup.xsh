@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils nohup integration tests.
 
-use support.uu as uu
+use support.uu
 
 # Each standard stream gets its own terminal, matching isolated stream capture.
 proc terminal() [process, error] -> Result[UnixPty, Error] {

@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration tests for tsort.
 
-use support.uu as uu
+use support.uu
 
 proc tsort_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?

@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu date/date-next-dow.log
 test test_gnu_date_date_next_dow_log { |ctx|

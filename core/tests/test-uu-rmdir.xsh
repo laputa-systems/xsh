@@ -1,6 +1,6 @@
 ##! Transcribed directory removal tests from the uutils coreutils suite.
 
-use support.uu as uu
+use support.uu
 
 # A removed directory yields ENOENT, which the upstream existence predicate
 # represents as false; other host failures remain errors.

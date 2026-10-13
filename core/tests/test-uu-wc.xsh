@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_wc.rs.
 
-use support.uu as uu
+use support.uu
 
 proc wc_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
   let s = uu.scene(ctx)?

@@ -1,6 +1,6 @@
 ##! Native ports of the uutils touch integration tests.
 
-use support.uu as uu
+use support.uu
 
 # The read-only descriptor must remain fd 1 across exec; a writable capture
 # would miss the contract for an existing file opened without write permission.

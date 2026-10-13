@@ -1,6 +1,6 @@
 ##! Native ports of the uutils df integration tests.
 
-use support.uu as uu
+use support.uu
 
 pure lines(r: uu.Ran) -> Result[List[Str], Error] {
   Ok(r.stdout.utf8()?.lines().collect())

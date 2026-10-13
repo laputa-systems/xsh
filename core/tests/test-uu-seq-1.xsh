@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils seq integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc usage_error(r: uu.Ran, message: Str) {
   uu.stderr_only(r, f"seq: {message}\nTry 'seq --help' for more information.\n")

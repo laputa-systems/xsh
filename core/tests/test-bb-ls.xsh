@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox ls/ls-1-works
 test test_bb_ls_ls_1_works_568f2b96 { |ctx|

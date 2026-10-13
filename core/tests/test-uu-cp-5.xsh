@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils cp integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_cp::test_cp_sparse_always_reflink_always
 test test_uu_cp_cp_sparse_always_reflink_always { |ctx|

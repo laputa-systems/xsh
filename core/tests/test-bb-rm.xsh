@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox rm/rm-removes-file
 test test_bb_rm_rm_removes_file_a4932268 { |ctx|

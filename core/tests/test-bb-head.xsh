@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox head/head (without args)
 test test_bb_head_head_without_args_d54e9d11 { |ctx|

@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration tests for numfmt.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_numfmt::test_invalid_arg_number_with_warn_returns_status_0
 test test_uu_numfmt_invalid_arg_number_with_warn_returns_status_0 { |ctx|

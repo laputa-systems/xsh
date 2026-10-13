@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_b2sum.rs.
 ##! Each test names its origin; expected values are the original assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_b2sum::b2sum::test_check
 test test_uu_b2sum_b2sum_check { |ctx|

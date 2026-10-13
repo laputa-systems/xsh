@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_tr.rs.
 ##! Each test keeps its frozen upstream arguments, input, and assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_tr::test_squeeze_multi
 test test_uu_tr_squeeze_multi { |ctx|

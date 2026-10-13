@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils ptx integration tests.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_ptx::gnu_ext_disabled_break_file
 test test_uu_ptx_gnu_ext_disabled_break_file { |ctx|

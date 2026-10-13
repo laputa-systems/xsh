@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 pure numbered_input(count: Int) -> Bytes {
   bytes.from_text([f"{i}\n" for i in range(1, count + 1)].join(""))

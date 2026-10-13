@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils cp integration tests.
 
-use support.uu as uu
+use support.uu
 
 # The upstream scene includes these text fixtures and the existing hello_dir.
 proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {

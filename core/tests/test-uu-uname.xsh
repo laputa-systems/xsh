@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_uname.rs.
 
-use support.uu as uu
+use support.uu
 
 # The flat class preserves the upstream Unicode symbol allowance while
 # avoiding nested classes and property escapes unsupported by the native regex.

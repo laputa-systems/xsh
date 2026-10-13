@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils factor integration tests.
 
-use support.uu as uu
+use support.uu
 
 pure integer_input(last: Int) -> Bytes {
   bytes.from_text([f"{n} " for n in range(last + 1)].join(""))

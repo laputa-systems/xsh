@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_link.rs.
 
-use support.uu as uu
+use support.uu
 
 # Missing paths have no metadata; check existence before requesting file kind.
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {

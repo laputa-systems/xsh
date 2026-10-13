@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration tests for whoami.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_whoami::test_invalid_arg
 test test_uu_whoami_invalid_arg { |ctx|

@@ -1,7 +1,7 @@
 use core.lib.btop_sensors as sensors
 use core.lib.btop_model as model
 use core.lib.btop_render as renderer
-use core.lib.btop_source as btop_source
+use core.lib.btop_source
 use core.lib.system_report as report
 use core.lib.system_report_live as live
 

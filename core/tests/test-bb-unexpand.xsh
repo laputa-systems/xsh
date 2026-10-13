@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox unexpand/unexpand case 1
 test test_bb_unexpand_unexpand_case_1_02827c99 { |ctx|

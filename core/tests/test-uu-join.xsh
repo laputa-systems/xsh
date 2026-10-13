@@ -1,6 +1,6 @@
 ##! Native join compatibility tests transcribed from the uutils integration suite.
 
-use support.uu as uu
+use support.uu
 
 proc fixtures(s: uu.Scene) {
   for name in [

@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils du integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?

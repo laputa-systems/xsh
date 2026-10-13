@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils sort integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc fixture_case(ctx: TestContext, name: Str, options: List[Str]) [fs, process, env, error] {
   let input = f"{name}.txt"

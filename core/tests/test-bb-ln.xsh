@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox ln/ln-creates-hard-links
 test test_bb_ln_ln_creates_hard_links_eb1c1963 { |ctx|

@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils install integration tests.
 
-use support.uu as uu
+use support.uu
 
 # Missing paths return false; metadata errors on existing paths remain errors.
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {

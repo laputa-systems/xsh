@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox basename/basename-does-not-remove-identical-extension
 test test_bb_basename_basename_does_not_remove_identical_extension_ece99a16 { |ctx|

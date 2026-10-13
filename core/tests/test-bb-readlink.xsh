@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox readlink/readlink -f on a file
 test test_bb_readlink_readlink_f_on_a_file_47d5bb7a { |ctx|

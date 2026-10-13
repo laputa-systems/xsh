@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox mkdir/mkdir-makes-a-directory
 test test_bb_mkdir_mkdir_makes_a_directory_8fc344dc { |ctx|

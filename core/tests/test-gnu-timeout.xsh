@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu timeout/timeout-blocked.log
 test test_gnu_timeout_timeout_blocked_log { |ctx|

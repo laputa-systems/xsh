@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_uniq.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_uniq::test_all_repeated_followed_by_filename
 test test_uu_uniq_all_repeated_followed_by_filename { |ctx|

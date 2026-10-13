@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_head::test_stdin_default
 test test_uu_head_stdin_default { |ctx|

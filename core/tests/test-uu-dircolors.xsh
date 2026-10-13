@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils dircolors integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc fixture_output(s: uu.Scene, r: uu.Ran, name: Str) [fs, error] {
   uu.remove(s, "expected")

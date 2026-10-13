@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu unexpand/unexpand.log
 test test_gnu_unexpand_unexpand_log { |ctx|

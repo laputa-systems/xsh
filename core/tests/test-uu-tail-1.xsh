@@ -1,5 +1,5 @@
 ##! Transcribed behavior from the MIT-licensed uutils tail integration tests.
-use support.uu as uu
+use support.uu
 type InputCase = {args: List[Str], input: Union[Bytes, Path], expected: Str}
 
 proc fixture_bytes(ctx: TestContext, name: Str) [fs, error] -> Result[Bytes, Error] {

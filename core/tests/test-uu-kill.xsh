@@ -1,6 +1,6 @@
 ##! Transcribed signal listing and delivery tests from the uutils coreutils suite.
 
-use support.uu as uu
+use support.uu
 
 # The owned handle kills and reaps a failed test's target; sleep's natural
 # thirty-second exit also bounds a missing delivery before the signal assertion.

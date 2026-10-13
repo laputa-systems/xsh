@@ -1,5 +1,5 @@
 ##! Native ports of the uutils dd integration tests.
-use support.uu as uu
+use support.uu
 
 proc fixture(s: uu.Scene, name: Str) [fs, error] -> Result[Bytes, Error] {
   Ok(fp"{s.ctx.core_dir}/tests/data/uutils/dd/{name}".read_bytes()?)

@@ -2,7 +2,7 @@
 ##! Each test names its origin; GNU diagnostics follow the reference command.
 ##! The uutils-only -D decode clause is omitted because GNU base32 rejects it.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_base32::test_base32_encode_file
 test test_uu_base32_base32_encode_file { |ctx|

@@ -1,5 +1,5 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_comm.rs.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_comm::a_empty
 test test_uu_comm_a_empty { |ctx|

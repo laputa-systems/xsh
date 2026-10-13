@@ -1,5 +1,5 @@
 ##! Native ports of the uutils unlink integration tests.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_unlink::test_invalid_arg
 test test_uu_unlink_invalid_arg { |ctx|

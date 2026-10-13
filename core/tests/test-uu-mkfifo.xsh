@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_mkfifo.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_mkfifo::test_invalid_arg
 test test_uu_mkfifo_invalid_arg { |ctx|

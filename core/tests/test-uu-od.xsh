@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration tests for od.
 
-use support.uu as uu
+use support.uu
 
 const ALPHA_OUT = "0000000 061141 062143 063145 064147 065151 066153 067155 070157\n0000020 071161 072163 073165 074167 075171 000012\n0000033\n"
 

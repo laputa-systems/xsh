@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_chown.rs.
 
-use support.uu as uu
+use support.uu
 
 proc identity(s: uu.Scene, util: Str, args: List[Str]) [fs, process, env, error] -> Result[Str, Error] {
   let r = uu.invoke(s, util, args)?

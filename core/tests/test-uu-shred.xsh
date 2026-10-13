@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration tests for shred.
 
-use support.uu as uu
+use support.uu
 
 # A missing file answers false; other metadata errors keep their cause.
 proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {

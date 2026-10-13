@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox sed/sed special char as s/// delimiter, in replacement 1
 test test_bb_sed_sed_special_char_as_s_delimiter_in_replacement_1_1ee3de3e { |ctx|

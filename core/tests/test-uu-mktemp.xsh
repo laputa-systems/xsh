@@ -1,5 +1,5 @@
 ##! Transcribed from the uutils coreutils mktemp integration suite.
-use support.uu as uu
+use support.uu
 
 # Only X characters are wildcards; every other byte and the length must match.
 proc matches_template(pattern: Str, filename: Str) {

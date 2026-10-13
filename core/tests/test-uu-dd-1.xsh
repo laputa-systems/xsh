@@ -1,6 +1,6 @@
 ##! Native ports of the uutils dd integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_dd::test_atoe_and_lcase_conv_spec_test
 test test_uu_dd_atoe_and_lcase_conv_spec_test { |ctx|

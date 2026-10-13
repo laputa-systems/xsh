@@ -1,6 +1,6 @@
 ##! Native ports of the uutils sleep integration tests.
 
-use support.uu as uu
+use support.uu
 
 # Process measurements use a monotonic elapsed counter and keep both streams.
 proc timed_sleep(s: uu.Scene, args: List[Str], minimum_ns: Int) [fs, process, env, time, error] {

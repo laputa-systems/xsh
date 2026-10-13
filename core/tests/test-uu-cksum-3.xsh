@@ -1,6 +1,6 @@
 ##! Transcribed checksum verification tests from the uutils integration suite.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_cksum::test_check_tagged_sha_single_file::algo_1___sha2__::len_1_224
 test test_uu_cksum_test_check_tagged_sha_single_file_algo_1___sha2___len_1_224 { |ctx|

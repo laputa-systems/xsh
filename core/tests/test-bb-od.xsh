@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox od/od -b
 test test_bb_od_od_b_11110155 { |ctx|

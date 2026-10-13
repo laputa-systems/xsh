@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_env.rs.
 
-use support.uu as uu
+use support.uu
 
 proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, process, env, error, time] -> Result[Unit, Error] {
   let command = uu.command(s, "env", args.extend(["sleep", "1000"]))?

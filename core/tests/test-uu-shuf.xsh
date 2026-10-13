@@ -1,6 +1,6 @@
 ##! Transcribed random sampling tests from the uutils coreutils suite.
 
-use support.uu as uu
+use support.uu
 
 proc numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[Int], Error] {
   let result = collect {

@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox diff/diff of stdin
 test test_bb_diff_diff_of_stdin_1ca9b4f3 { |ctx|

@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration tests for expr.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_expr::expr_arithmetic::test_double_dash_positive
 test test_uu_expr_expr_arithmetic_double_dash_positive { |ctx|

@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils chmod integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc make_file(s: uu.Scene, name: Str, mode: Int) [fs, error] -> Result[Unit, Error] {
   uu.touch(s, name)

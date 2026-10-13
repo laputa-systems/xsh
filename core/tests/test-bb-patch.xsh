@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox patch/patch with old_file == new_file
 test test_bb_patch_patch_with_old_file_new_file_f9d626ef { |ctx|

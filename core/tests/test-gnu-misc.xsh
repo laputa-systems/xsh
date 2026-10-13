@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 pure shell_words(words: List[Path]) -> Str {
   ["'" + word.display().replace("'", with: "'\\''") + "'" for word in words].join(" ")

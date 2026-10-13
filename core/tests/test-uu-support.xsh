@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 test test_uu_support_append_creates_and_preserves_exact_bytes { |ctx|
   let s = uu.scene(ctx)?

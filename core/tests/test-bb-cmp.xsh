@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox cmp/cmp-detects-difference
 test test_bb_cmp_cmp_detects_difference_5755da9f { |ctx|

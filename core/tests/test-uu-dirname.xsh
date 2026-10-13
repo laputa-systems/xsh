@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_dirname.rs.
 ##! Each test names its origin; expected values are the original assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_dirname::test_invalid_arg
 test test_uu_dirname_invalid_arg { |ctx|

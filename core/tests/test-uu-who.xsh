@@ -1,6 +1,6 @@
 ##! Native ports of the uutils who integration tests.
 
-use support.uu as uu
+use support.uu
 
 proc default_utmp() [process, error] -> Result[List[UnixUtmp], Error] {
   match unix.read_utmp() {

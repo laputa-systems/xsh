@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration tests for split.
 
-use support.uu as uu
+use support.uu
 
 proc split_scene(ctx: TestContext) [fs, error] -> Result[uu.Scene, Error] {
   let s = uu.scene(ctx)?

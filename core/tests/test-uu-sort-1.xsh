@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils sort integration tests.
-use support.uu as uu
+use support.uu
 
 # Apply both descriptor limits before the applet launcher starts; the oracle uses the same argv.
 proc limited(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran] {

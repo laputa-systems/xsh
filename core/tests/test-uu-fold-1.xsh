@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils fold integration tests.
-use support.uu as uu
+use support.uu
 
 # Unicode cases need a UTF-8 locale so fold measures decoded characters and columns.
 

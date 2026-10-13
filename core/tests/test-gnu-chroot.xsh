@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu chroot/chroot-fail.log
 test test_gnu_chroot_chroot_fail_log { |ctx|

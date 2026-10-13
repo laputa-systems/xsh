@@ -1,5 +1,5 @@
 ##! Native ports of the uutils paste integration tests.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_paste::test_invalid_arg
 test test_uu_paste_invalid_arg { |ctx|

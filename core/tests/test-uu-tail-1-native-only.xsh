@@ -1,5 +1,5 @@
 ##! Native-only timing coverage for the follow-by-name notification path.
-use support.uu as uu
+use support.uu
 
 proc follow(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Command, Error] {
   let argv = uu.argv(s, "tail", [fp"{word}" for word in args])?

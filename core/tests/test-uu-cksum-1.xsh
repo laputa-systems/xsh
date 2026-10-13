@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils checksum integration tests.
 
-use support.uu as uu
+use support.uu
 
 # CRC reports each candidate it tries and stops at the first supported implementation.
 proc crc_debug(disabled: Str = "") -> Str {

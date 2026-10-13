@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils csplit integration tests.
 
-use support.uu as uu
+use support.uu
 
 pure generate(from: Int, to: Int) -> Str {
   [f"{value}\n" for value in range(from, to)].join("")

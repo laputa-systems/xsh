@@ -1,6 +1,6 @@
 ##! Transcribed ownership tests from the uutils coreutils integration suite.
 
-use support.uu as uu
+use support.uu
 
 # Keep captures in the private scene while reproducing a child working at root.
 proc at_root(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {

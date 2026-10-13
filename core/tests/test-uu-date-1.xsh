@@ -1,6 +1,6 @@
 ##! Native ports of the frozen uutils date integration tests.
 
-use support.uu as uu
+use support.uu
 
 # The upstream locale guard checks the host locale utility's UTF-8 charmap.
 proc locale_available(name: Str) -> Result[Bool] {

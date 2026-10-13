@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox cat/cat -b
 test test_bb_cat_cat_b_ac843bd8 { |ctx|

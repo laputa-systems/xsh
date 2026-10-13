@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils rm integration tests.
 
-use support.uu as uu
+use support.uu
 
 # Dot operands may name two ancestors. Keep both ancestors inside this test's
 # owned scratch tree even if a guard regresses.

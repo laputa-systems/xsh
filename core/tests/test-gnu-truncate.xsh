@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu truncate/multiple-files.log
 test test_gnu_truncate_multiple_files_log { |ctx|

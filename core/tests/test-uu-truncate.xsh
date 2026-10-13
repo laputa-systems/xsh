@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_truncate.rs.
 
-use support.uu as uu
+use support.uu
 
 # A bounded reader owns the pipe diagnostic bytes and reaps the child process.
 proc pipe_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {

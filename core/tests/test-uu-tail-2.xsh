@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 type Live = {child: ProcessHandle, out: Path, err: Path, args: List[Str]}
 

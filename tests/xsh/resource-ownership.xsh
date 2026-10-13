@@ -1,4 +1,4 @@
-use tests.fixtures.runtime.resource_producers as resource_producers
+use tests.fixtures.runtime.resource_producers
 
 const resource_response: NetResponse = {
   status: 200,

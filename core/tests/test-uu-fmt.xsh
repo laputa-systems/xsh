@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils fmt integration suite.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_fmt::fmt_reflow_unicode
 test test_uu_fmt_fmt_reflow_unicode { |ctx|

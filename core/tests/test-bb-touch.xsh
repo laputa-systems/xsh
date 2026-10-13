@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox touch/touch-creates-file
 test test_bb_touch_touch_creates_file_cfefc9ca { |ctx|

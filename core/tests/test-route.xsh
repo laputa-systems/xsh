@@ -1,4 +1,4 @@
-use core.lib.nettools as nettools
+use core.lib.nettools
 
 # Expected tables were produced by the reference tool for the same routes.
 

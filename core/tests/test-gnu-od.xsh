@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 proc wrapped(s: uu.Scene, words: List[Path], input: Bytes = b"", stdin: Path? = null, timeout: Duration = 20s) [fs, process, env, error] -> uu.Ran {
   let out = uu.at(s, "wrapped-out")

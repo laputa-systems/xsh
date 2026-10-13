@@ -1,4 +1,4 @@
-use core.lib.icmp as icmp
+use core.lib.icmp
 
 # Every probe here goes to a loopback address. The output shapes below are
 # the ones iputils prints for the same command lines on loopback; time values

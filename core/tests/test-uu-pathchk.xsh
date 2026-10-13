@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_pathchk.rs.
 
-use support.uu as uu
+use support.uu
 
 # Linux musl defines both PATH_MAX and FILENAME_MAX as 4096.
 pure long_path() -> Str {

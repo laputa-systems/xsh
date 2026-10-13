@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils expr integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_expr::diagnostics::test_plain_message_is_the_default
 test test_uu_expr_diagnostics_plain_message_is_the_default { |ctx|

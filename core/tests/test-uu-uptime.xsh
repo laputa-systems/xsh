@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_uptime.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_uptime::test_invalid_arg
 test test_uu_uptime_invalid_arg { |ctx|

@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_base64.rs.
 ##! Each test names its origin; expectations follow the GNU command contract.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_base64::test_base64_encode_file
 test test_uu_base64_base64_encode_file { |ctx|

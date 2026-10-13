@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox realpath/realpath on link to non-existent file 1
 test test_bb_realpath_realpath_on_link_to_non_existent_file_1_2a3b13fa { |ctx|

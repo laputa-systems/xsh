@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox awk/awk -F case 0
 test test_bb_awk_awk_F_case_0_8eab4259{ |ctx|

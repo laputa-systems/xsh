@@ -1,6 +1,6 @@
 ##! Native ports of the uutils echo integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_echo::full_help_argument
 test test_uu_echo_full_help_argument { |ctx|

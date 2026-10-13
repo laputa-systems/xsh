@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: gnu rmdir/fail-perm.log
 test test_gnu_rmdir_fail_perm_log { |ctx|

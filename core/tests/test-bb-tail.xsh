@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox tail/tail-n-works
 test test_bb_tail_tail_n_works_e2be15cb { |ctx|

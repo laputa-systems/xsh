@@ -1,5 +1,5 @@
 ##! Native ports of the uutils timeout integration tests.
-use support.uu as uu
+use support.uu
 
 # timeout may terminate itself with KILL when it signals the entire process group.
 # Shell status preserves that observable result as 128 plus the signal number.

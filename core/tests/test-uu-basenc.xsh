@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_basenc.rs.
 ##! Each test names its origin; expected values are the original assertions.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_basenc::test_base16
 test test_uu_basenc_base16 { |ctx|

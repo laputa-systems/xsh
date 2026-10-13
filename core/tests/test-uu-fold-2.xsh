@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils fold integration tests.
 ##! Unicode width assertions require UTF-8 decoding, so those runs select C.UTF-8.
 
-use support.uu as uu
+use support.uu
 
 pure repeated(value: Str, count: Int) -> Str {
   [value for _ in range(count)].join("")

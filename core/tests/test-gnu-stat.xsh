@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 proc stat_text(s: uu.Scene, args: List[Str], vars: Record = {}) -> Result[Str] {
   let result = uu.invoke(s, "stat", args, vars:)?

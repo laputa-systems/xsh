@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_false.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_false::test_no_args
 test test_uu_false_no_args { |ctx|

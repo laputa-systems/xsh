@@ -1,5 +1,5 @@
 ##! Transcribed from the MIT-licensed uutils chroot integration tests.
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_chroot::test_invalid_arg
 test test_uu_chroot_invalid_arg { |ctx|

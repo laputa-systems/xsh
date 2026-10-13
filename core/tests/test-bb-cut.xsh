@@ -1,4 +1,4 @@
-use support.uu as uu
+use support.uu
 
 # origin: busybox cut/-b encapsulated
 test test_bb_cut_b_encapsulated_83c0e332 { |ctx|

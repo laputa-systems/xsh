@@ -1,6 +1,6 @@
 ##! Transcribed from the MIT-licensed uutils csplit integration tests.
 
-use support.uu as uu
+use support.uu
 
 pure numbers(from: Int, to: Int) -> Str {
   [f"{number}\n" for number in range(from, to)].join("")

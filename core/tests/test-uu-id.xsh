@@ -1,5 +1,5 @@
 ##! Transcribed from uutils tests/by-util/test_id.rs.
-use support.uu as uu
+use support.uu
 
 # Expected bytes come from the process credentials and account database,
 # independently of the applet being exercised.

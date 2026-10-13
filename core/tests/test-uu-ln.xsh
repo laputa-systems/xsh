@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_ln.rs.
 
-use support.uu as uu
+use support.uu
 
 # Scene setup symlinks name absolute targets, including dangling targets.
 proc scene_symlink(s: uu.Scene, target: Str, name: Str) -> Result[Unit, Error] {

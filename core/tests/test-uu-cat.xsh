@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils cat integration tests.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_cat::test_output_simple
 test test_uu_cat_output_simple { |ctx|

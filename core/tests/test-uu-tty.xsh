@@ -1,5 +1,5 @@
 ##! Native ports of the uutils tty integration tests.
-use support.uu as uu
+use support.uu
 
 type ClosedOutput = {status: Status, stderr: Bytes}
 

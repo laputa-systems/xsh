@@ -1,6 +1,6 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_expr.rs.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_expr::test_regex_range_quantifier
 test test_uu_expr_regex_range_quantifier { |ctx|

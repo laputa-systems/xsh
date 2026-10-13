@@ -1,7 +1,7 @@
 ##! Transcribed from the uutils coreutils integration suite, tests/by-util/test_printenv.rs.
 ##! Each test names its origin; assertions preserve the upstream observables.
 
-use support.uu as uu
+use support.uu
 
 # origin: uutils test_printenv::test_get_all
 test test_uu_printenv_get_all { |ctx|
