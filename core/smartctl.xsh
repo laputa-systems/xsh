@@ -2,9 +2,9 @@
 use lib.gnu
 use lib.smart
 use lib.smart_ata as ata
+use lib.smart_json as j
 use lib.smart_nvme as nvme
 use lib.smart_scsi as scsi
-use lib.smart_json as j
 
 # smartctl over the linux storage transport: ATA through SAT pass-through,
 # NVMe through the admin passthrough, and SCSI disks through SG_IO. Commands

@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.gnu
-use lib.textio_a1 as tio
 use lib.text_a2 as text
+use lib.textio_a1 as tio
 
 const USAGE = """Usage: csplit [OPTION]... FILE PATTERN...
 Output pieces of FILE separated by PATTERN(s) to files 'xx00', 'xx01', ...,

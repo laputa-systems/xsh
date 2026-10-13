@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.file_magic
+use lib.gnu
 
 type Options = {brief: Bool, mime: Bool, mime_type: Bool, mime_encoding: Bool, follow: Bool, no_follow: Bool, zero: Bool, separator: Str, list: Str?, error: Bool, help: Bool, version: Bool, files: List[Str]}
 type Identification = {description: Str, mime: Str, encoding: Str}

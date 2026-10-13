@@ -2,10 +2,10 @@
 ##!
 ##! Each model timestamp contributes one point per series; missing readings
 ##! remain explicit and rendering never advances this state.
+use btop_disks as disks
 use btop_graph as graph
 use btop_model as model
 use btop_rates as rates
-use btop_disks as disks
 use system_report as report
 
 ## Keeps the independent sample history for each default panel graph.

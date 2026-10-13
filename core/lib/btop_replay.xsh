@@ -2,8 +2,8 @@
 ##!
 ##! Frame directories are derived from their manifest order, while timestamps,
 ##! page size, tick rate, and source identity come from the bundle manifest.
-use btop_model as model
 use btop_loop as scheduler
+use btop_model as model
 use btop_source as source
 use btop_terminal as terminal
 use sys_mount as mounts

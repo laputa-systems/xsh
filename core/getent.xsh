@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.accounts
+use lib.gnu
 
 type Options = {service: Str?, help: Bool, version: Bool, arguments: List[Str]}
 

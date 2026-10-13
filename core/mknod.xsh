@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fs_misc
+use lib.gnu
 use lib.selinux
 
 type Options = {mode: Str?, help: Bool, version: Bool, operands: List[Str], context_flag: Bool, context: Str?}

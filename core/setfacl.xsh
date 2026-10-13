@@ -1,7 +1,7 @@
 #!/bin/xsh
-use lib.gnu
-use lib.fileattrs
 use lib.acl
+use lib.fileattrs
+use lib.gnu
 use lib.perm
 
 enum ActionKind { Modify, Remove, Replace, StripExtended, StripDefault }

@@ -1,9 +1,9 @@
 ##! FAT image creation, inspection, allocation checking and conventional applet presentation.
 
-use gnu
+use fat_check as verify
 use fat_geometry as geom
 use fat_image as image_io
-use fat_check as verify
+use gnu
 
 ## Validated FAT volume identity and geometry.
 export type Info = geom.Info

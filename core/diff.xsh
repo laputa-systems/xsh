@@ -1,8 +1,8 @@
 #!/bin/xsh
-use lib.gnu
-use lib.search
-use lib.gnudiff
 use lib.diffrender
+use lib.gnu
+use lib.gnudiff
+use lib.search
 use lib.textio_a1 as tio
 
 const HELP = """Usage: diff [OPTION]... FILES

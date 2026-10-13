@@ -1,6 +1,6 @@
 use core.lib.btop_model as model
-use core.lib.btop_replay as replay
 use core.lib.btop_rates as rates
+use core.lib.btop_replay as replay
 use core.lib.system_report as report
 use core.tests.support.btop as fixture
 

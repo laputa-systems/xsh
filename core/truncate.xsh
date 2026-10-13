@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fs_misc
+use lib.gnu
 
 type Options = {size: Str?, reference: Str?, no_create: Bool, blocks: Bool, help: Bool, version: Bool, paths: List[Str]}
 type RawArgument = {marker: Str, value: Bytes}

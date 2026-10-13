@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.disk_usage as disk
+use lib.gnu
 
 type DuOptions = {
   summarize: Bool, all: Bool, total: Bool, apparent: Bool, bytes: Bool,

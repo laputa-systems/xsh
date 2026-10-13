@@ -1,10 +1,10 @@
-use core.lib.btop_graphs as graphs
-use core.lib.btop_graph as graph
-use core.lib.btop_replay as replay
-use core.tests.support.btop as fixture
-use core.lib.btop_rates as rates
 use core.lib.btop_disks as disks
+use core.lib.btop_graph as graph
+use core.lib.btop_graphs as graphs
+use core.lib.btop_rates as rates
+use core.lib.btop_replay as replay
 use core.lib.system_report as report
+use core.tests.support.btop as fixture
 
 test test_btop_graphs_append_cpu_memory_network_and_temperature_at_sample_times {
   let bundle = fs.tempdir()?

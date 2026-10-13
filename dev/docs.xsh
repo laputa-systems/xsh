@@ -28,8 +28,8 @@
 ##! rendered `docs/user-tour.md`.
 use cargo_steps
 use context
-use test_workflows as tests
 use stage as stages
+use test_workflows as tests
 use tour_html
 
 ## A generated-documentation failure, rendered at the development command boundary.

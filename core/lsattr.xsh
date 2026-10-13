@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fileattrs
+use lib.gnu
 
 type Options = {recursive: Bool, all: Bool, directory: Bool, long: Bool, generation: Bool, project: Bool, verbose: Bool, help: Bool, files: List[Str]}
 enum ListingKind { Operand, Attributes, Recursive, End }

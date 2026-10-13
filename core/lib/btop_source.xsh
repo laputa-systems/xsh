@@ -2,13 +2,13 @@
 ##!
 ##! Page size, clock tick rate, source identity, and monotonic timestamp are
 ##! explicit inputs because a filesystem root cannot prove any of them.
-use btop_model as model
 use btop_disks as disks
+use btop_model as model
 use sys_cpu
 use sys_mem
+use sys_mount
 use sys_net
 use sys_proc
-use sys_mount
 use system_report_live as system_live
 
 ## Reads counter sources and collects or reuses gauge telemetry from one tree.

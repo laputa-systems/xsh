@@ -2,11 +2,11 @@
 ##!
 ##! Selection names a process lifetime, so sorting and new samples cannot
 ##! silently move the selection to a different PID reuse.
+use core.lib.btop_defaults as defaults
 use core.lib.btop_input as input
 use core.lib.btop_model as model
-use core.lib.btop_rates as rates
 use core.lib.btop_process_tree as process_tree
-use core.lib.btop_defaults as defaults
+use core.lib.btop_rates as rates
 use core.lib.sys_proc as processes
 
 const MAX_FILTER_CHARS = 128

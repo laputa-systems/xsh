@@ -1,8 +1,8 @@
 use core.lib.smart
 use core.lib.smart_ata as ata
+use core.lib.smart_json as j
 use core.lib.smart_nvme as nvme
 use core.lib.smart_scsi as scsi
-use core.lib.smart_json as j
 
 type Run = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}
 

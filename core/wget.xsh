@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.http_transfer
 use lib.gnu
+use lib.http_transfer
 
 const VERSION = "1.25.0"
 

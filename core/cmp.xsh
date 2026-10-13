@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.diffutils
+use lib.gnu
 use lib.textio_a1 as tio
 
 const HELP = """Usage: cmp [OPTION]... FILE1 [FILE2 [SKIP1 [SKIP2]]]

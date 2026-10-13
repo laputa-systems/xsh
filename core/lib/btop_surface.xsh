@@ -2,9 +2,9 @@
 ##!
 ##! Rows are sanitized and padded at construction, while the committed surface
 ##! changes only after the complete update has reached the output sink.
-use tui
 use btop_color as color
 use btop_terminal as terminal
+use tui
 
 const MAX_DIMENSION = 2000
 const MAX_CELLS = 200000

@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fileattrs
+use lib.gnu
 
 type Changes = {add: Int, remove: Int, assigned: Int?, generation: Int?, project: Int?, recursive: Bool, verbose: Bool, quiet: Bool}
 

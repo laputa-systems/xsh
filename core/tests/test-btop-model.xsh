@@ -1,10 +1,10 @@
 use core.lib.btop_model as model
-use core.lib.btop_source as source
-use core.lib.btop_render as renderer
-use core.lib.btop_ui as ui
-use core.tests.support.btop as fixture
 use core.lib.btop_rates as rates
+use core.lib.btop_render as renderer
+use core.lib.btop_source as source
+use core.lib.btop_ui as ui
 use core.lib.system_report as report
+use core.tests.support.btop as fixture
 
 pure default_processes() -> List[fixture.ProcessFixture] {
   [{pid: 42, start_ticks: 1000, cpu_ticks: 10, rss_pages: 16384, uid: 1000}]

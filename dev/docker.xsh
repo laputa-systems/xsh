@@ -1,7 +1,7 @@
 ##! Docker image, mount, platform, and direct internal-XSH invocation policy.
 use context
-use targets
 use stage as stages
+use targets
 
 ## Computes the Docker image name from the supported environment override.
 export proc image_name() [env, error] -> Result[Str, Error] {

@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.accounts
+use lib.gnu
 
 type Options = {preauthenticated: Bool, preserve: Bool, remote: Str, help: Bool, version: Bool, users: List[Str]}
 

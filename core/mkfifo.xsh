@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fs_misc
+use lib.gnu
 
 type Options = {mode: Str?, security_context: Bool, context: List[Str], help: Bool, version: Bool, paths: List[Str]}
 type ModeSource = {index: Int, start: Int}

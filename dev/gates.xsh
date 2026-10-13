@@ -1,7 +1,7 @@
 ##! Changed-path verification plans and the complete integration gate.
 use context
-use docs as documentation
 use docker
+use docs as documentation
 use stage as stages
 use stage_contract as contract
 use test_workflows as tests

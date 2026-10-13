@@ -1,7 +1,7 @@
 #!/bin/xsh
-use lib.gnu
-use lib.fileattrs
 use lib.acl
+use lib.fileattrs
+use lib.gnu
 
 type EntryKey = {tag: acl.Tag, id: Int?}
 type Options = {access: Bool, defaults: Bool, omit: Bool, all_effective: Bool, no_effective: Bool, skip: Bool, recursive: Bool, logical: Bool, physical: Bool, tabular: Bool, absolute: Bool, numeric: Bool, help: Bool, version: Bool, files: List[Str]}

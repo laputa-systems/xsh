@@ -1,10 +1,10 @@
 #!/bin/xsh
 use lib.gnu
-use lib.patch_parse
 use lib.patch_apply
-use lib.patch_reject
-use lib.patch_options
 use lib.patch_ed
+use lib.patch_options
+use lib.patch_parse
+use lib.patch_reject
 
 type Options = {
   backup: Bool,

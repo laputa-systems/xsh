@@ -1,7 +1,7 @@
 #!/bin/xsh
-use lib.gnu
-use lib.fileattrs
 use lib.capability
+use lib.fileattrs
+use lib.gnu
 
 type Options = {recursive: Bool, verbose: Bool, rootid: Bool, help: Bool, files: List[Str]}
 proc main(...argv: List[Str]) [fs, process, env, io, error] {

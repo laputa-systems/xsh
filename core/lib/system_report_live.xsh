@@ -1,7 +1,7 @@
 ##! Collects a bounded, process-visible Linux report from one rooted source tree.
 use sys_block
-use sys_mount
 use sys_mem as memory
+use sys_mount
 use sys_pci
 use sys_source as src
 use sys_usb

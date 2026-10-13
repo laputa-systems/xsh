@@ -2,6 +2,7 @@ use core.lib.btop_model as model
 use core.lib.btop_rates as rates
 use core.lib.btop_render as renderer
 use core.lib.btop_source
+use core.lib.btop_ui as ui
 use core.lib.sys_cpu as syscpu
 use core.lib.sys_mem as memory
 use core.lib.sys_net as network
@@ -9,7 +10,6 @@ use core.lib.sys_proc as processes
 use core.lib.sys_source as src
 use core.lib.system_report as report
 use core.lib.system_report_live as system_live
-use core.lib.btop_ui as ui
 use core.tests.support.btop as fixture
 
 proc write_proc_stat(root: FsRoot, aggregate: Str, cpu0: Str, cpu1: Str) [fs, error] {

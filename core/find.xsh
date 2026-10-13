@@ -1,9 +1,9 @@
 #!/bin/xsh
-use lib.gnu
-use lib.search
 use lib.date_parse as dates
 use lib.find_format as fmt
 use lib.find_match as match_name
+use lib.gnu
+use lib.search
 
 # One node of the parsed expression. Operators use `left` and `right`; every
 # other kind carries the fields its predicate needs: `text` the pattern or

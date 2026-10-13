@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fileattrs
+use lib.gnu
 
 type Options = {name: Str?, dump: Bool, encoding: Str, pattern: Str, values: Bool, nofollow: Bool, absolute: Bool, recursive: Bool, logical: Bool, physical: Bool, help: Bool, version: Bool, files: List[Str]}
 enum WalkMode { Hybrid, Logical, Physical }

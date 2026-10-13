@@ -1,19 +1,19 @@
 ##! Builds one complete semantic monitor frame without terminal side effects.
 ##!
 ##! G4a fixes the default panel geometry and buffers every row before output.
-use btop_model as model
 use btop_color as color
-use btop_rates as rates
+use btop_defaults as defaults
+use btop_disks as disks
 use btop_graph as graph
 use btop_graphs as graph_series
+use btop_model as model
+use btop_rates as rates
 use btop_sensors as sensors
 use btop_surface as surface
 use btop_terminal as terminal
 use btop_ui as ui
-use btop_defaults as defaults
-use btop_disks as disks
-use sys_proc as processes
 use sys_cpu as syscpu
+use sys_proc as processes
 use system_report as report
 use tui
 

@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.date_parse
+use lib.gnu
 
 error DateError = Invalid
 

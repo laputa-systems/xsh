@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fs_misc
+use lib.gnu
 
 type Options = {canonical: Bool, existing: Bool, missing: Bool, no_newline: Bool, quiet: Bool, verbose: Bool, zero: Bool, help: Bool, version: Bool, paths: List[Str]}
 type RawArgument = {marker: Str, value: Bytes}

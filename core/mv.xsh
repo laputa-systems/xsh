@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.file_publish as files
+use lib.gnu
 use lib.selinux
 
 type Options = {

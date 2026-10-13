@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.date_dircolors as colors
+use lib.gnu
 
 pure term_matches(pattern: Str, value: Str) -> Bool {
   var regex_text = "^"

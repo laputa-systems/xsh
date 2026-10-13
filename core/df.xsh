@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.disk_usage as disk
+use lib.gnu
 
 type DfOptions = {
   all: Bool, kilo: Bool, mega: Bool, human: Bool, si: Bool, block: List[Str],

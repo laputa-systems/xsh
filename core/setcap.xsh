@@ -1,7 +1,7 @@
 #!/bin/xsh
-use lib.gnu
-use lib.fileattrs
 use lib.capability
+use lib.fileattrs
+use lib.gnu
 
 type Operation = {name: Str, remove: Bool, record: capability.FileCaps?}
 proc main(...argv: List[Str]) [fs, process, env, io, error] {

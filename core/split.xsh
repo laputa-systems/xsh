@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.gnu
-use lib.textio_a1 as tio
 use lib.text_a2 as text
+use lib.textio_a1 as tio
 
 # Exiting through a signal hook runs deferred cleanup for active filter FIFOs.
 on INT [] {

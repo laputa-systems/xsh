@@ -2,8 +2,8 @@
 ##!
 ##! The model owns interval semantics and stable process ranking; neither the
 ##! renderer nor replay decides whether a counter represents a reset or rate.
-use btop_rates as rates
 use btop_disks as disks
+use btop_rates as rates
 use btop_sensors as sensors
 use sys_cpu as syscpu
 use sys_mem as memory

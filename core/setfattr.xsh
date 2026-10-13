@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.fileattrs
+use lib.gnu
 
 type Options = {name: Str?, remove: Str?, value: Str?, restore: Str?, raw: Bool, nofollow: Bool, help: Bool, version: Bool, files: List[Str]}
 

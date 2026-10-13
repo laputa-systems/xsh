@@ -1,10 +1,10 @@
 #!/bin/xsh
-use core.lib.btop_loop as scheduler
-use core.lib.btop_input as input
 use core.lib.btop_graphs as graph_series
+use core.lib.btop_input as input
+use core.lib.btop_loop as scheduler
 use core.lib.btop_model as model
-use core.lib.btop_replay as replay
 use core.lib.btop_render as renderer
+use core.lib.btop_replay as replay
 use core.lib.btop_schedule as collection_schedule
 use core.lib.btop_source as source
 use core.lib.btop_surface as surface

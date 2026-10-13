@@ -5,8 +5,8 @@
 ##! the Netid, State, Recv-Q, Send-Q, Local Address:Port and Peer Address:Port
 ##! columns padded to the widest cell. Unsupported options and tables fail
 ##! with a message instead of being ignored.
-use lib.gnu
 use lib.accounts
+use lib.gnu
 use lib.net_sockets as sockets
 use lib.selinux
 

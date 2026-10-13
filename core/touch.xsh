@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.date_parse
+use lib.gnu
 
 type TouchOptions = {
   obsolete_force: Bool, no_create: Bool, reference: Str?, access: Bool, modify: Bool,

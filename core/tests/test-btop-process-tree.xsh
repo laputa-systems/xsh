@@ -1,5 +1,5 @@
-use core.lib.btop_process_tree as tree
 use core.lib.btop_model as model
+use core.lib.btop_process_tree as tree
 use core.lib.btop_rates as rates
 
 pure process_row(pid: Int, parent_pid: Int, start_ticks: Int, cpu_rate: rates.Rate, rss_bytes: Int?) -> model.ProcessRow {

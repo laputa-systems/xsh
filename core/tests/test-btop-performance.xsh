@@ -3,10 +3,10 @@ use core.lib.btop_model as model
 use core.lib.btop_rates as rates
 use core.lib.btop_render as renderer
 use core.lib.btop_source as source
+use core.lib.btop_surface as surface
 use core.lib.sys_block as block
 use core.lib.sys_mount as mounts
 use core.lib.sys_proc as sysproc
-use core.lib.btop_surface as surface
 use core.lib.system_report as report
 use core.tests.support.btop as fixture
 

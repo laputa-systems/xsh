@@ -1,7 +1,7 @@
 #!/bin/xsh
-use lib.gnu
-use lib.fs_misc
 use lib.capability
+use lib.fs_misc
+use lib.gnu
 use lib.text_a2 as text
 
 const USAGE = """Usage: {prog} [OPTION]... [FILE]...
