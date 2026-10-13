@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
@@ -66,7 +68,7 @@ fn copy_corpus(from: &Path, to: &Path) {
         let name = name.to_string_lossy();
         let target = to.join(&*name);
         if entry.file_type().expect("corpus entry type").is_dir() {
-            if matches!(&*name, "target" | ".git" | ".claude") {
+            if matches!(&*name, "target" | ".git" | ".claude" | ".work") {
                 continue;
             }
             copy_corpus(&path, &target);
@@ -81,11 +83,55 @@ fn xsh_files(root: &Path, output: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(root).expect("read corpus directory") {
         let path = entry.expect("read corpus entry").path();
         if path.is_dir() {
+            if path.file_name().is_some_and(|name| name == ".work") {
+                continue;
+            }
             xsh_files(&path, output);
         } else if path.extension().is_some_and(|extension| extension == "xsh") {
             output.push(path);
         }
     }
+}
+
+#[cfg(unix)]
+struct RestoreDirectoryPermissions(PathBuf);
+
+#[cfg(unix)]
+impl Drop for RestoreDirectoryPermissions {
+    fn drop(&mut self) {
+        fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700))
+            .expect("restore scratch directory permissions");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn lint_corpus_copy_and_discovery_skip_work_tree() {
+    let scratch = TempDir::new().expect("scratch directory");
+    let source = scratch.path().join("corpus");
+    let copy = scratch.path().join("copy");
+    fs::create_dir_all(&source).expect("create fake corpus");
+    let corpus_source = source.join("source.xsh");
+    fs::write(&corpus_source, "print \"source\"\n").expect("write corpus source");
+    let blocked = source.join(".work/tmp/blocked");
+    fs::create_dir_all(&blocked).expect("create unreadable scratch child");
+    fs::write(blocked.join("scratch.xsh"), "print \"scratch\"\n")
+        .expect("write scratch source");
+    let _restore = RestoreDirectoryPermissions(blocked.clone());
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0))
+        .expect("make scratch child unreadable");
+
+    copy_corpus(&source, &copy);
+    assert!(!copy.join(".work").exists());
+    assert_eq!(
+        fs::read_to_string(copy.join("source.xsh")).expect("read copied corpus source"),
+        "print \"source\"\n"
+    );
+
+    let mut paths = Vec::new();
+    xsh_files(&source, &mut paths);
+    paths.sort();
+    assert_eq!(paths, vec![corpus_source]);
 }
 
 fn xsht(root: &Path, args: &[&str]) -> std::process::Output {

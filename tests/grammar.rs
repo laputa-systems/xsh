@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use xsh::diagnostic::DiagnosticCode;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::grammar::earley::{Recognizer, top_level_parts};
@@ -276,7 +278,7 @@ fn xsh_files(root: &Path, out: &mut Vec<PathBuf>) {
         if entry.file_type().expect("corpus entry type").is_dir() {
             if !matches!(
                 entry.file_name().to_str(),
-                Some("target" | ".git" | ".claude")
+                Some("target" | ".git" | ".claude" | ".work")
             ) {
                 xsh_files(&path, out);
             }
@@ -284,6 +286,38 @@ fn xsh_files(root: &Path, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+#[cfg(unix)]
+struct RestoreDirectoryPermissions(PathBuf);
+
+#[cfg(unix)]
+impl Drop for RestoreDirectoryPermissions {
+    fn drop(&mut self) {
+        std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700))
+            .expect("restore scratch directory permissions");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn grammar_corpus_discovery_skips_work_tree() {
+    let scratch = tempfile::tempdir().expect("scratch directory");
+    let root = scratch.path();
+    let source = root.join("source.xsh");
+    std::fs::write(&source, "print \"source\"\n").expect("write corpus source");
+    let blocked = root.join(".work/tmp/blocked");
+    std::fs::create_dir_all(&blocked).expect("create unreadable scratch child");
+    std::fs::write(blocked.join("scratch.xsh"), "print \"scratch\"\n")
+        .expect("write scratch source");
+    let _restore = RestoreDirectoryPermissions(blocked.clone());
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0))
+        .expect("make scratch child unreadable");
+
+    let mut paths = Vec::new();
+    xsh_files(root, &mut paths);
+    paths.sort();
+    assert_eq!(paths, vec![source]);
 }
 
 /// Every `.xsh` file in the repository that parses without diagnostics.

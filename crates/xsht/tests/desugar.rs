@@ -17,6 +17,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use tempfile::TempDir;
 use xsh::frontend::source::SourceId;
@@ -44,7 +46,7 @@ fn copy_workspace(from: &Path, to: &Path) {
         if kind.is_dir() {
             if matches!(
                 &*name.to_string_lossy(),
-                "target" | ".git" | ".claude" | "node_modules"
+                "target" | ".git" | ".claude" | ".work" | "node_modules"
             ) {
                 continue;
             }
@@ -59,11 +61,55 @@ fn xsh_files(root: &Path, output: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(root).expect("read corpus directory") {
         let path = entry.expect("read corpus entry").path();
         if path.is_dir() {
+            if path.file_name().is_some_and(|name| name == ".work") {
+                continue;
+            }
             xsh_files(&path, output);
         } else if path.extension().is_some_and(|extension| extension == "xsh") {
             output.push(path);
         }
     }
+}
+
+#[cfg(unix)]
+struct RestoreDirectoryPermissions(PathBuf);
+
+#[cfg(unix)]
+impl Drop for RestoreDirectoryPermissions {
+    fn drop(&mut self) {
+        fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700))
+            .expect("restore scratch directory permissions");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_corpus_skips_work_tree() {
+    let scratch = TempDir::new().expect("scratch directory");
+    let source = scratch.path().join("workspace");
+    let copy = scratch.path().join("copy");
+    fs::create_dir_all(&source).expect("create fake workspace");
+    let corpus_source = source.join("source.xsh");
+    fs::write(&corpus_source, "print \"source\"\n").expect("write corpus source");
+    let blocked = source.join(".work/tmp/blocked");
+    fs::create_dir_all(&blocked).expect("create unreadable scratch child");
+    fs::write(blocked.join("scratch.xsh"), "print \"scratch\"\n")
+        .expect("write scratch source");
+    let _restore = RestoreDirectoryPermissions(blocked.clone());
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0))
+        .expect("make scratch child unreadable");
+
+    copy_workspace(&source, &copy);
+    assert!(!copy.join(".work").exists());
+    assert_eq!(
+        fs::read_to_string(copy.join("source.xsh")).expect("read copied corpus source"),
+        "print \"source\"\n"
+    );
+
+    let mut paths = Vec::new();
+    xsh_files(&source, &mut paths);
+    paths.sort();
+    assert_eq!(paths, vec![corpus_source]);
 }
 
 /// Whether the file parses and holds at least one sugar statement.
