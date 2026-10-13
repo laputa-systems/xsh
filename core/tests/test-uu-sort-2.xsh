@@ -392,19 +392,38 @@ test test_uu_sort_merge_unique { |ctx|
   }
 }
 
-# origin: uutils test_sort::test_merge_write_error_does_not_panic
-test test_uu_sort_merge_write_error_does_not_panic { |ctx|
+proc merge_write_error_repetitions(ctx: TestContext, count: Int) [fs, process, env, error] {
   let s = uu.scene(ctx)?
-  let input = [padded(line, 6) for line in range(100000)].join("\n") + "\n"
+  # Each input exceeds one 64 KiB merge chunk while keeping the repeated error path small.
+  let input = [padded(line, 6) for line in range(10000)].join("\n") + "\n"
+  assert input.byte_len() > 65536, "merge error input must cross one output chunk"
   uu.write(s, "a.txt", input)
   uu.write(s, "b.txt", input)
-  repeat 20 times {
+  repeat count times {
     let r = uu.invoke(s, "sort", ["-m", "a.txt", "b.txt"], stdout: p"/dev/full", timeout: 30s)?
     uu.fails(r)
     uu.fails_with_code(r, 2)
     uu.stderr_contains(r, "No space left on device")
     assert !("panicked" in r.stderr as Str)
   }
+}
+
+# Keep all 20 no-panic repetitions while staying within one native test deadline.
+# origin: uutils test_sort::test_merge_write_error_does_not_panic
+test test_uu_sort_merge_write_error_does_not_panic { |ctx|
+  merge_write_error_repetitions(ctx, 5)
+}
+
+test test_uu_sort_merge_write_error_does_not_panic_repeated_2 { |ctx|
+  merge_write_error_repetitions(ctx, 5)
+}
+
+test test_uu_sort_merge_write_error_does_not_panic_repeated_3 { |ctx|
+  merge_write_error_repetitions(ctx, 5)
+}
+
+test test_uu_sort_merge_write_error_does_not_panic_repeated_4 { |ctx|
+  merge_write_error_repetitions(ctx, 5)
 }
 
 # origin: uutils test_sort::test_mixed_floats_ints_chars_numeric
