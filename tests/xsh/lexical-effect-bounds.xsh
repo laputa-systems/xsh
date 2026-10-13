@@ -8,7 +8,7 @@ stream delayed_file_marker(marker: Path) [fs, error] -> Stream[Int] {
 }
 
 stream delayed_process_marker(marker: Path) [process, error] -> Stream[Int] {
-  run sh -c "echo $$ > $1" sh $marker
+  run sh -c "echo $$ > \"$1\"" sh $marker
   yield 8
 }
 
