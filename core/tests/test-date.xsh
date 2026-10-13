@@ -133,6 +133,10 @@ test test_date_grammar_epoch_precision_and_boundaries {
   assert date_parse.parse("@-+1") is Err(_)
 }
 
+test test_date_parse_invalid_errors_keep_nominal_identity {
+  test.error_kind(date_parse.parse_instant("@1.1234567890", utc: true), "DateError.Invalid")
+}
+
 test test_date_grammar_relative_baseline_and_civil_overflow {
   assert date_parse.parse("+5 days", utc: true, base_ns: 0)? == 432000000000000
   assert date_parse.parse("2 hours 3 minutes ago", utc: true, base_ns: 0)? == -7380000000000

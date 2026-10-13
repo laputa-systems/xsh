@@ -233,6 +233,16 @@ test test_diff_recorded_devices { |ctx|
   run_group(ctx, "dev")
 }
 
+test test_diff_unbounded_device_is_reported { |ctx|
+  assert fs.stat(p"/dev/zero")?.kind == "char"
+  let root = test.temp_dir(ctx, name: "diff-unbounded-device")?
+  fp"{root}/small".write("x\n")
+  let result = invoke(ctx, ["/dev/zero", "small"], cwd: root)?
+  assert result.status == 2
+  assert result.stdout == b""
+  assert result.stderr as Str == "diff: /dev/zero: input is unbounded or too large to compare\n"
+}
+
 test test_diff_special_files_in_directories_are_not_read { |ctx|
   let root = test.temp_dir(ctx, name: "diff-special")?
   fp"{root}/f1".mkdir()
