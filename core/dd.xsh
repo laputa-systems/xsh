@@ -7,6 +7,16 @@ type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count
 type BlockOutput = {data: Bytes, padding: Int, pad_byte: Int}
 type Converted = {data: Bytes, blocks: List[BlockOutput], truncated: Int}
 
+# XSH allocates each transfer buffer eagerly, so a block size above this bound is
+# refused before the copy starts. It is the largest size the reference host gives
+# GNU dd a buffer for, and larger sizes end in the runtime's allocation failure.
+const BUFFER_LIMIT = 68719476736
+
+# O_DIRECT transfers whole sectors, so a transfer's partial last sector goes
+# through a descriptor opened without the flag, the way GNU dd drops it for
+# that one write.
+const DIRECT_SECTOR = 512
+
 pure amount(text: Str) -> Int? {
   let factors = text.split("x")
   var result = 1
@@ -220,11 +230,6 @@ pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
   Ok({data: encode_charset(mapped, opts)?, blocks: [], truncated: 0})
 }
 
-# XSH allocates each transfer buffer eagerly, so a block size above this bound is
-# refused before the copy starts. It is the largest size the reference host gives
-# GNU dd a buffer for, and larger sizes end in the runtime's allocation failure.
-const BUFFER_LIMIT = 68719476736
-
 # A buffer size in GNU's allocation-failure form: binary units, one decimal place
 # below ten units, rounded to nearest with ties to even. VALUE is at least one
 # kibibyte; the carry from a rounded 1023.x unit moves into the next unit.
@@ -370,11 +375,6 @@ proc discard_caches(opts: Options) [fs, process, env] -> Bool {
   }
   failed
 }
-
-# O_DIRECT transfers whole sectors, so a transfer's partial last sector goes
-# through a descriptor opened without the flag, the way GNU dd drops it for
-# that one write.
-const DIRECT_SECTOR = 512
 
 proc reopen_without_direct(fd: Int, dest: Path, offset: Int, flags: List[Str]) [process, error] -> Result[Int] {
   unix.close_fd(fd)
