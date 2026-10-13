@@ -2,7 +2,7 @@ pure normalize_df_mount(line: Str) -> Str {
   let fields = line.words()
   return fields.join(" ") when (fields.get(0) ?? "") == "Filesystem"
 
-  f"{fields.get(0) ?? ""} {fields.get(1) ?? ""} {fields.get(5) ?? ""}"
+  f"{fields.get(0) ?? ""} {fields.get(1) ?? ""}"
 }
 
 proc normalize_df_mounts(text: Str) [error] -> Str {
@@ -52,7 +52,38 @@ test test_df_matches_alpine_kp { |ctx|
   fp"{root}/payload.txt".write("abcdef")
   let alpine = run.text df -kP $root
   let ours = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -kP $root
+
+  # Alpine's BusyBox df can select a same-device bind alias; an XSH operand reports the deepest
+  # covering mount.
   assert normalize_df_mounts(ours) == normalize_df_mounts(alpine)
+
+  let alpine_fields = alpine.trim().lines().collect()[1].words()
+  let alpine_source = alpine_fields.get(0) ?? ""
+  let alpine_mounted_on = fp"{alpine_fields.get(5) ?? ""}"
+  let ours_fields = ours.trim().lines().collect()[1].words()
+  let ours_mounted_on = fp"{ours_fields.get(5) ?? ""}"
+  let resolved = root.resolve()?
+  let mounts = fs.mounts()?.collect()
+  var deepest_mounted_on = p"/"
+  var deepest_component_count = -1
+  var alpine_mount_is_listed = false
+
+  for mount in mounts {
+    if resolved.starts_with(mount.mounted_on) {
+      let component_count = mount.mounted_on.components().len()
+      if component_count > deepest_component_count {
+        deepest_mounted_on = mount.mounted_on
+        deepest_component_count = component_count
+      }
+    }
+    if mount.filesystem == alpine_source and mount.mounted_on == alpine_mounted_on {
+      alpine_mount_is_listed = true
+    }
+  }
+
+  assert deepest_component_count >= 0, f"fs.mounts() has no covering mount for {resolved}"
+  assert ours_mounted_on == deepest_mounted_on, f"{ours_mounted_on} != {deepest_mounted_on}"
+  assert alpine_mount_is_listed, f"BusyBox mount {alpine_source} at {alpine_mounted_on} is absent from fs.mounts()"
 }
 
 test test_df_k_and_portability_select_units_and_header { |ctx|
