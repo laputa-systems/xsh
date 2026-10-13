@@ -417,7 +417,8 @@ proc general_numeric_input(value: Bytes, opts: SortOptions) [error] -> GeneralNu
   var at = 0
   let source_ends = collect {
     while at < value.len() {
-      if ! decimal_point.is_empty() and value.slice(at, length: decimal_point.len()) == decimal_point {
+      if ! decimal_point.is_empty() and decimal_point.len() <= value.len() - at and
+        value[at..at + decimal_point.len()] == decimal_point {
         text_value += "."
         yield at + decimal_point.len()
         at += decimal_point.len()
