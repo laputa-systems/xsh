@@ -419,8 +419,7 @@ test test_feature_outcome_names_only_surprises {
     {index: 1, name: "tx-generic-segmentation", requested: true, active: true, fixed: false},
     {index: 2, name: "loopback", requested: false, active: false, fixed: true},
   ]
-  var asked: Map[Int, Bool] = {}
-  asked = asked.set(0, false)
+  var asked: Map[Int, Bool] = {[0]: false}
   let quiet: List[dec.Feature] = [
     {index: 0, name: "tx-scatter-gather", requested: false, active: false, fixed: false},
     {index: 1, name: "tx-generic-segmentation", requested: true, active: true, fixed: false},
@@ -432,8 +431,7 @@ test test_feature_outcome_names_only_surprises {
   chained[1] = {index: 1, name: "tx-generic-segmentation", requested: true, active: false, fixed: false}
   let surprise = dec.features_outcome(before, chained, asked)
   assert surprise.lines == ["tx-scatter-gather: off", "tx-generic-segmentation: off [not requested]"]
-  var refused: Map[Int, Bool] = {}
-  refused = refused.set(2, true)
+  var refused: Map[Int, Bool] = {[2]: true}
   let denied = dec.features_outcome(before, before, refused)
   assert denied.lines == ["loopback: off [requested on]"]
   assert ! denied.changed and denied.unsatisfied
@@ -522,8 +520,7 @@ test test_ring_pause_and_coalesce_text {
   let lines = dec.coalesce_lines("eth9", coalesce)?
   assert lines[1] == "Adaptive RX: on  TX: off"
   assert "rx-usecs:\t10" in lines and "tx-frames:\t40" in lines and "sample-interval:\t7" in lines
-  var changes: Map[Int, Int] = {}
-  changes = changes.set(0, 99)
+  var changes: Map[Int, Int] = {[0]: 99}
   assert dec.unwords(dec.coalesce_set_request(coalesce, changes)?, 3)? == [99, 20, 0]
   assert dec.COALESCE_FIELDS[0] == "rx-usecs" and dec.COALESCE_FIELDS[21] == "sample-interval"
 }
