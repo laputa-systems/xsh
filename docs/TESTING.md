@@ -247,6 +247,50 @@ The command builds `xsh`, `xsht`, and `xshi` under
 `cargo dev test linux` in the same pinned image; a build outside it is not
 evidence of Linux support.
 
+## Release product smoke
+
+`tools/copied-product-smoke.py` checks copied `xsh`, `xshi`, and `xsht`
+distribution binaries against the `core` archive without a source checkout.
+This is a release-packaging smoke and uses the `dist` profile reserved for that
+workflow. `cargo dev dist` writes the products under `target/$TARGET/dist`.
+Run the release script with that `xsh` to create `dist/core-TAG.tar.xz` and its
+checksum sidecar; it refuses to run while another `.xz` file is in `dist/`.
+The smoke verifies the archive contents and copied commands in an isolated
+temporary bundle. Linux runs the bundle in `xsh-test`; use the matching
+`linux/amd64` platform for the supported x86-64 Linux product target.
+
+On Apple Silicon macOS:
+
+```sh
+mkdir -p .work/tmp
+export TMPDIR="$PWD/.work/tmp"
+export TARGET=aarch64-apple-darwin
+export DIST_PROFILE=dist
+cargo dev dist --target "$TARGET"
+target/$TARGET/dist/xsh dev/main.xsh release core --tag local-smoke
+python3 tools/copied-product-smoke.py \
+  --bin-dir "target/$TARGET/dist" \
+  --core-archive dist/core-local-smoke.tar.xz \
+  --out .work/tmp/copied-products-macos.json
+```
+
+On x86-64 Linux, build in `Dockerfile.test` and run the copied products in the
+same image:
+
+```sh
+mkdir -p .work/tmp
+export TMPDIR="$PWD/.work/tmp"
+export TARGET=x86_64-unknown-linux-musl
+export DIST_PROFILE=dist
+cargo dev dist --target "$TARGET" --docker always
+target/$TARGET/dist/xsh dev/main.xsh release core --tag local-smoke
+python3 tools/copied-product-smoke.py \
+  --bin-dir "target/$TARGET/dist" \
+  --core-archive dist/core-local-smoke.tar.xz \
+  --linux --linux-platform linux/amd64 \
+  --out .work/tmp/copied-products-linux.json
+```
+
 ## Grammar proofs
 
 `syntax::grammar::` (in `tests/grammar.rs`) holds the productions of
@@ -443,6 +487,27 @@ settings, and treat single-run latency changes as inconclusive.
 - `bench/stdlib-port/run.py` and `bench/stdlib-port/tooling.py` measure
   end-to-end `xsh` and `xsht` latency; `bench/stdlib-port/README.md` records
   dispositions.
+- For paired `xsht` measurements, `tooling.py` runs `api summary`,
+  `check core/ls.xsh`, and `lint core/ls.xsh` against matching `release`-profile
+  `xsh`/`xsht` builds; `xsht` uses its checkout's sibling `xsh`, and both
+  `xsht` paths must be absolute. Set `REFERENCE_ROOT` to the other checkout and
+  use the same `TARGET` for both builds:
+
+  ```sh
+  mkdir -p .work/tmp
+  : "${TARGET:?set the target used by both release builds}"
+  : "${REFERENCE_ROOT:?set the absolute reference checkout path}"
+  python3 bench/stdlib-port/tooling.py \
+    --reference "$REFERENCE_ROOT/target/$TARGET/release/xsht" \
+    --candidate "$PWD/target/$TARGET/release/xsht" \
+    --rounds 3 --samples 30 --out .work/tmp/tooling.json
+  ```
+
+  For its Linux container route, set `TARGET=aarch64-unknown-linux-musl` and
+  build both checkouts inside `Dockerfile.test`; pass
+  `--linux --candidate-xsh "$PWD/target/aarch64-unknown-linux-musl/release/xsh"`.
+  The helper runs `linux/arm64`; this is an internal benchmark target, not
+  Linux product support.
 - `xsht runtime-stats --json REPORT SCRIPT` reports construction, controller,
   and `par-map` worker allocation; pair memory claims with a host RSS check.
   It and `xsht frontend-stats` are not listed in `xsht --help`.
