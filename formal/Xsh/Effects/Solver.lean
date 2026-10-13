@@ -498,9 +498,12 @@ theorem nodeEquation_reindex (graph : Graph declarations)
           (graph.node (relabel.backward (relabel.forward source)))).edges fact) =
     ((graph.node source).direct fact ||
       edgesContribution graph state (graph.node source).edges fact)
+  have contribution (edge : Edge declarations) :
+      edgeContribution (reindexGraph relabel graph) (reindexState relabel state)
+          (reindexEdge relabel edge) fact = edgeContribution graph state edge fact :=
+    congrFun (edgeContribution_reindex graph state relabel edge) fact
   rw [relabel.backward_forward]
-  simp only [reindexNode, edgesContribution, List.any_map]
-  simp only [edgeContribution_reindex]
+  simp only [reindexNode, edgesContribution, List.any_map, Function.comp_def, contribution]
 
 theorem step_reindex (graph : Graph declarations)
     (state : SolverState declarations) (relabel : NodeRenaming declarations) :
