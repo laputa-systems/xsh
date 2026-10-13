@@ -1187,7 +1187,7 @@ pure parse_format(format: Str, start: Int, values: List[Scalar], argument: Int) 
     at += 1
     if format.byte_at(at) == 42 {
       if arg >= values.len() { return Err(runtime("not enough arguments to satisfy format string")) }
-      let precision = integer(number(values[arg])?)?
+      let precision = number(values[arg])? |> integer(_)?
       spec.precision = if precision < 0 { null } else { precision }
       arg += 1
       at += 1
@@ -1426,7 +1426,7 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
           at += 1
           count += 1
         }
-        out += [if count == 0 { "x" } else { literal_char(shown_char(hex_value), alphabet) }]
+        out += [if count == 0 { "x" } else { shown_char(hex_value) |> literal_char(_, alphabet) }]
       } else if next == "`" {
         out += ["^"]
       } else if next == "'" {
@@ -3447,8 +3447,7 @@ proc make_time(spec: Str, utc: Bool) -> Result[Int] {
 # gensub: how is "g"/"G" for all matches or the number of the match to replace;
 # \\0 and & stand for the match, \\1 to \\9 for groups, \\\\ and \\& for literals.
 proc gensub(globals: Map[Scalar], pattern: Str, replacement: Str, how: Scalar, target: Str) -> Result[Str] {
-  let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
-  let mode = scalar_text(how, conversion)?
+  let mode = plain_text(globals.get("CONVFMT") ?? Empty)? |> scalar_text(how, _)?
   var global = false
   var which = 1
   if mode.starts_with("g") or mode.starts_with("G") { global = true } else {
@@ -3625,7 +3624,7 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
       Ok({kind: 3, name: variable_name, slot: slot, key: "", used: 0, current: slots[slot]})
     }
     SpotField => {
-      let index = integer(number(stack[top - 1])?)?
+        let index = number(stack[top - 1])? |> integer(_)?
       if index < 0 or index > 10000000 { return Err(fatal_error(f"attempt to access field {index}")) }
       let current = if index == 0 { Input(record, null) } else { fields.get(index - 1) ?? Input("", null) }
       Ok({kind: 4, name: "", slot: index, key: "", used: 1, current: current})
@@ -3764,7 +3763,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           produced = true
         }
         OpLoadField => {
-          let index = integer(number(stack[sp - 1])?)?
+            let index = number(stack[sp - 1])? |> integer(_)?
           sp -= 1
           if index < 0 or index > 10000000 { Err(fatal_error(f"attempt to access field {index}"))? }
           result = if index == 0 { input(record)? } else { fields.get(index - 1) ?? Input("", null) }
@@ -4397,12 +4396,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             if count < 2 or count > 3 { Err(fatal_error("substr: wrong number of arguments"))? }
             let content = scalar_text(values[0], conversion)?
             let pieces = content.split("")
-            let given = truncate(number(values[1])?)
+            let given = number(values[1])? |> truncate(_)
             let size = pieces.len()
             let first = if is_nan(given) or given < 1.0 { 0 } else if given > size.float() { size } else { integer(given - 1.0)? }
             var length = size
             if count == 3 {
-              let wanted = truncate(number(values[2])?)
+              let wanted = number(values[2])? |> truncate(_)
               length = if is_nan(wanted) or wanted < 0.0 { 0 } else if wanted > size.float() { size } else { integer(wanted)? }
             }
             let end = if first + length > size { size } else { first + length }
@@ -4519,7 +4518,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let b = number(values[1])?
             if a < 0.0 or b < 0.0 { Err(fatal_error(f"{builtin_name}({a.format_number("f", 6)?}, {b.format_number("f", 6)?}): negative values are not allowed"))? }
             # Counts wrap at 64 and results at 2^64, as the machine shift does.
-            let width = arith("%", truncate(b), 64.0)?
+            let width = truncate(b) |> arith("%", _, 64.0)?
             let moved = if a >= 18446744073709551616.0 { 0.0 } else { truncate(a) }
             result = Numeric(if builtin_name == "lshift" { arith("%", moved * 2.0.pow(width), 18446744073709551616.0)? } else { truncate(moved / 2.0.pow(width)) })
           } else if builtin_name == "compl" {
@@ -4836,7 +4835,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             arrays[pending_name].next += 1
           }
         } else if pending == 2 {
-          let count = integer(number(pending_value)?)?
+          let count = number(pending_value)? |> integer(_)?
           if count < 0 { Err(fatal_error("NF set to negative value"))? }
           if count > 10000000 { Err(fatal_error(f"NF set to too large a value {count}"))? }
           if count < fields.len() { fields = fields[..count] } else { while fields.len() < count { fields += [Input("", null)] } }
