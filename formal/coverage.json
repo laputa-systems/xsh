@@ -4003,6 +4003,195 @@
       "status": "fragment",
       "scope": "A captured edge with no contract retains the explicit unresolved fact in the finite solver graph.",
       "boundary": "Concrete graph witness only; no Rust contract propagation, solver completeness, or full EFF-CAPTURE semantics is proved."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.empty_component_preserves_depth",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.empty_component_preserves_depth",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An empty path component preserves the current lexical depth.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.dot_component_preserves_depth",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.dot_component_preserves_depth",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A `.` path component preserves the current lexical depth.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.parent_at_start_is_rejected",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.parent_at_start_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A `..` component cannot decrease depth below zero.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.parent_with_depth_decreases",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.parent_with_depth_decreases",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A `..` component at positive depth decreases lexical depth by one.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.ordinary_component_increases_depth",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.ordinary_component_increases_depth",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A nonempty component other than `.` or `..` increases depth by one.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.empty_path_is_rejected",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.empty_path_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The empty byte path fails the modeled relative-path predicate.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.absolute_path_is_rejected",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.absolute_path_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A leading slash fails the modeled relative-path predicate for any tail.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.dot_path_is_accepted",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.dot_path_is_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The single-dot byte path is accepted by the modeled predicate.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.empty_and_dot_components_are_accepted",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.empty_and_dot_components_are_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete path containing empty and dot components is accepted by the model.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.cancelling_parent_is_accepted",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.cancelling_parent_is_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A parent component that cancels a prior name is accepted when depth remains nonnegative.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.cancelling_parent_to_start_is_accepted",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.cancelling_parent_to_start_is_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A name followed by one parent component may return lexical depth to zero and remain accepted.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.escaping_parent_is_rejected",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.escaping_parent_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete path whose parent components escape above depth zero is rejected.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.non_utf8_name_is_accepted",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.non_utf8_name_is_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete non-UTF-8 name byte in a non-escaping path is accepted.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.nul_byte_is_rejected",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.nul_byte_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Any byte path containing NUL fails the modeled path predicate.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.introduce_erases_exactly",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.introduce_erases_exactly",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Introducing a value with a valid-path proof and erasing it returns the exact input bytes.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.require_accepts",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.require_accepts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The modeled `require` returns the introduced value when given a valid path proof.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.require_rejects",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.require_rejects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The modeled `require` returns none when given proof that the path is invalid.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.require_rejected_iff_invalid",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.require_rejected_iff_invalid",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The modeled `require` returns none exactly when the path fails the modeled predicate.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.require_success_preserves_bytes",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.require_success_preserves_bytes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Any successful modeled `require` result erases to the exact input bytes.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.require_success_establishes_boundary",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.require_success_establishes_boundary",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Any successful modeled `require` result carries the modeled relative-path property.",
+      "boundary": "Independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RelPath.treating_parent_as_name_is_detected",
+      "module": "Xsh.Validation.RelPath",
+      "declaration": "Xsh.Validation.RelPath.treating_parent_as_name_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A mutation that treats `..` as a name disagrees with the modeled rejection of a root-level parent component.",
+      "boundary": "Concrete mutation witness in the independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
     }
   ],
   "source_identity": null

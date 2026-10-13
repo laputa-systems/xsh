@@ -70,7 +70,15 @@ identities and mutations that collapse IDs or erase provenance. The fragment
 does not validate record schemas or `.require` inputs, prove union
 exhaustiveness, or establish source/Rust conformance or full G2.
 
-The inventory names 113 rooted Lean fragment declarations. Its 50 Python tests
+`Xsh.Validation.RelPath` models a byte-lexical relative-path boundary with a
+subtype that preserves the exact candidate bytes. Its 21 theorem roots cover
+lexical depth changes, empty and dot components, escaping parents, NUL
+rejection, non-UTF-8 names, and the modeled `require` introduction, erasure,
+acceptance, and rejection laws. This independent byte-list model does not
+establish Rust checker/runtime correspondence, symlink-aware filesystem
+confinement, or full G2 validation closure.
+
+The inventory names 134 rooted Lean fragment declarations. Its 50 Python tests
 check inventory shape, root reachability, mutation controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
 G1 closure or whole-language soundness claim is made.

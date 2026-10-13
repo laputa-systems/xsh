@@ -43,7 +43,7 @@ def isPathBytes (bytes : PathBytes) : Prop := nulByte ∉ bytes
 def isRelPath (bytes : PathBytes) : Prop := isPathBytes bytes ∧ scanPath bytes ≠ none
 
 instance (bytes : PathBytes) : Decidable (isRelPath bytes) := by
-  unfold isRelPath
+  unfold isRelPath isPathBytes
   infer_instance
 
 abbrev RelPathValue := { bytes : PathBytes // isRelPath bytes }

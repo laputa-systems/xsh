@@ -11,6 +11,7 @@ import Xsh.Proofs.BaseHostRunnerLaws
 import Xsh.Validation.Boundary
 import Xsh.Validation.Store
 import Xsh.Validation.Nominal
+import Xsh.Validation.RelPath
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
 import Xsh.Effects.Lexical

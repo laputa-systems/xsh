@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(113, len(result["fragment_roots"]))
+        self.assertEqual(134, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -314,6 +314,36 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Validation.Nominal.id_collapse_mutation_is_detected",
                 "Xsh.Validation.Nominal.provenance_erasure_mutation_is_detected",
             }.issubset(nominal_roots)
+        )
+        relpath_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Validation.RelPath"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Validation.RelPath.empty_component_preserves_depth",
+                "Xsh.Validation.RelPath.dot_component_preserves_depth",
+                "Xsh.Validation.RelPath.parent_at_start_is_rejected",
+                "Xsh.Validation.RelPath.parent_with_depth_decreases",
+                "Xsh.Validation.RelPath.ordinary_component_increases_depth",
+                "Xsh.Validation.RelPath.empty_path_is_rejected",
+                "Xsh.Validation.RelPath.absolute_path_is_rejected",
+                "Xsh.Validation.RelPath.dot_path_is_accepted",
+                "Xsh.Validation.RelPath.empty_and_dot_components_are_accepted",
+                "Xsh.Validation.RelPath.cancelling_parent_is_accepted",
+                "Xsh.Validation.RelPath.cancelling_parent_to_start_is_accepted",
+                "Xsh.Validation.RelPath.escaping_parent_is_rejected",
+                "Xsh.Validation.RelPath.non_utf8_name_is_accepted",
+                "Xsh.Validation.RelPath.nul_byte_is_rejected",
+                "Xsh.Validation.RelPath.introduce_erases_exactly",
+                "Xsh.Validation.RelPath.require_accepts",
+                "Xsh.Validation.RelPath.require_rejects",
+                "Xsh.Validation.RelPath.require_rejected_iff_invalid",
+                "Xsh.Validation.RelPath.require_success_preserves_bytes",
+                "Xsh.Validation.RelPath.require_success_establishes_boundary",
+                "Xsh.Validation.RelPath.treating_parent_as_name_is_detected",
+            },
+            relpath_roots,
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:
