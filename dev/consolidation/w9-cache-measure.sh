@@ -9,6 +9,9 @@ Run check and default lint in normal and traced modes for this checkout and
 Laputa. Create BUILD_RECEIPT with w9-cache-build.sh build using the pinned
 runner. The receipt must match this clean source tree and XSHT_BIN. OUTPUT_DIR
 must be fresh, under this checkout's .work/, and have an existing parent.
+Trace validation requires every resolved module and entry key request to have
+one prepare or reuse event and one check or cache-hit event. Repeated module
+keys across shared cache owners fail; private per-worker repeats are reported.
 USAGE
 }
 
@@ -127,83 +130,6 @@ compare_outputs() {
   fi
 }
 
-validate_trace() {
-  local trace_path=$1
-  awk -F '\t' '
-    function fail(message) {
-      print "invalid W9 cache trace: " message > "/dev/stderr"
-      failed = 1
-    }
-    {
-      if (NF != 13 || $1 != "W9CACHE" || $2 != "1") {
-        fail("malformed row " NR)
-        next
-      }
-      if (NR > 1 && $4 <= previous_sequence) fail("event sequence is not increasing")
-      previous_sequence = $4
-      owner = $3 SUBSEP $5
-      if ($6 != "shared" && $6 != "private") fail("unknown cache kind " $6)
-      if (owner_kind[owner] && owner_kind[owner] != $6) fail("owner kind changed")
-      owner_kind[owner] = $6
-      if ($7 == "cache") {
-        owner_rows[owner]++
-        next
-      }
-      if ($7 != "prepared" && $7 != "reuse" && $7 != "checked" && $7 != "check_hit") {
-        fail("unknown event " $7)
-        next
-      }
-      key = owner SUBSEP $8 SUBSEP $9 SUBSEP $10 SUBSEP $11 SUBSEP $12 SUBSEP $13
-      full_key = $8 SUBSEP $9 SUBSEP $10 SUBSEP $11 SUBSEP $12 SUBSEP $13
-      observed[key] = 1
-      owner_for_full_key[full_key SUBSEP owner] = 1
-      if ($7 == "prepared") {
-        prepared[key]++
-        if (prepared[key] > 1) fail("duplicate prepared record for one cache key")
-        prepared_by_kind[$6]++
-      } else if ($7 == "reuse") {
-        reused[key]++
-        reused_by_kind[$6]++
-      } else if ($7 == "checked") {
-        checked[key]++
-        if (checked[key] > 1) fail("duplicate check for one cache key")
-        checked_by_kind[$6]++
-      } else {
-        check_hits[key]++
-        check_hits_by_kind[$6]++
-      }
-    }
-    END {
-      if (NR == 0) fail("empty trace")
-      for (owner in owner_kind) {
-        if (owner_rows[owner] != 1) fail("cache owner must have one declaration row")
-        owner_counts[owner_kind[owner]]++
-      }
-      for (key in observed) {
-        if (prepared[key] != 1) fail("observed key must be prepared once in its owner")
-        if (checked[key] != 1) fail("observed key must be checked once in its owner")
-      }
-      for (identity in owner_for_full_key) {
-        split(identity, parts, SUBSEP)
-        full_identity = parts[1] SUBSEP parts[2] SUBSEP parts[3] SUBSEP parts[4] SUBSEP parts[5] SUBSEP parts[6]
-        full_key_owner_count[full_identity]++
-      }
-      for (full_identity in full_key_owner_count) {
-        if (full_key_owner_count[full_identity] > 1) repeated_full_keys++
-      }
-      for (kind in owner_counts) {
-        print kind " caches=" owner_counts[kind] \
-          " records=" prepared_by_kind[kind] + 0 \
-          " cache_reuses=" reused_by_kind[kind] + 0 \
-          " checks=" checked_by_kind[kind] + 0 \
-          " check_hits=" check_hits_by_kind[kind] + 0
-      }
-      print "identical full keys across cache owners=" repeated_full_keys + 0
-      if (failed) exit 1
-    }
-  ' "$trace_path"
-}
-
 for project_name in xsh laputa; do
   if [[ "$project_name" == xsh ]]; then
     project_root=$xsh_root
@@ -215,7 +141,8 @@ for project_name in xsh laputa; do
     run_command "$project_name" "$project_root" "$command_name" traced
     compare_outputs "$project_name" "$command_name"
     printf '%s %s\n' "$project_name" "$command_name" >> "$output_dir/summary.txt"
-    validate_trace "$output_dir/$project_name-$command_name-traced.tsv" \
+    awk -F '\t' -f "$script_dir/w9-cache-trace-validate.awk" \
+      "$output_dir/$project_name-$command_name-traced.tsv" \
       | tee -a "$output_dir/summary.txt"
   done
 done

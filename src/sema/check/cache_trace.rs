@@ -86,7 +86,7 @@ impl CacheTrace {
         };
         writeln!(
             sink.writer,
-            "W9CACHE\t1\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "W9CACHE\t2\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             std::process::id(),
             sequence,
             self.owner,
@@ -193,6 +193,15 @@ mod tests {
         let (second, second_bytes) = CacheTrace::capture(5, "shared");
         for trace in [&first, &second] {
             trace.event(
+                "requested",
+                "\"module\\tname\"",
+                "SourceId(7)",
+                11,
+                3,
+                "User",
+                "Bytes",
+            );
+            trace.event(
                 "prepared",
                 "\"module\\tname\"",
                 "SourceId(7)",
@@ -220,8 +229,11 @@ mod tests {
             second_bytes.lock().expect("capture buffer").clone(),
         )
         .expect("UTF-8 trace");
+        assert!(first_text.starts_with("W9CACHE\t2\t"));
+        assert!(first_text.contains("\t4\tprivate\trequested\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
         assert!(first_text.contains("\t4\tprivate\tprepared\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
         assert!(first_text.contains("\t4\tprivate\tchecked\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
+        assert!(second_text.contains("\t5\tshared\trequested\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
         assert!(second_text.contains("\t5\tshared\tprepared\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
         assert!(second_text.contains("\t5\tshared\tchecked\t\"module\\tname\"\tSourceId(7)\t11\t3\tUser\tBytes"));
     }

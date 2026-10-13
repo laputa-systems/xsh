@@ -148,6 +148,8 @@ impl ModuleRecords {
                 role,
                 args_domain,
             };
+            // Record the resolved module key before lookup so validation can detect missing cache events.
+            key.trace_event(trace, "requested");
             let mut cache = shared.lock().expect("module record cache poisoned");
             let (record, created) = match cache.entry(key.clone()) {
                 Entry::Occupied(entry) => (entry.get().clone(), false),
@@ -194,6 +196,7 @@ impl ModuleRecords {
             role: ModuleRecordRole::Entry,
             args_domain,
         };
+        root_key.trace_event(trace, "requested");
         let root = {
             let mut cache = shared.lock().expect("module record cache poisoned");
             let (record, created) = match cache.entry(root_key.clone()) {
@@ -596,6 +599,7 @@ mod tests {
         )
         .expect("second trace UTF-8");
         for (event, expected) in [
+            ("requested", 2),
             ("prepared", 1),
             ("reuse", 1),
             ("checked", 1),
@@ -610,6 +614,14 @@ mod tests {
                 "{event}: {first_rows}"
             );
         }
+        assert_eq!(
+            second_rows
+                .lines()
+                .filter(|line| line.split('\t').nth(6) == Some("requested"))
+                .count(),
+            1,
+            "{second_rows}"
+        );
         assert_eq!(
             second_rows
                 .lines()
@@ -753,10 +765,32 @@ mod tests {
         let program = builder.finish_with_statements(root.statements);
         let _symbol_owner = program.symbol_owner().enter();
         let view = CheckBundleView::new(&program, None, Some(SourceId::new(0)));
+        let (trace, trace_bytes) = CacheTrace::capture(20, "private");
         let mut cache = ModuleRecordCache::default();
+        cache.trace = Some(trace);
         let first_probe = cache.get_or_prepare(&view, ArgsDomain::Str);
         let next_probe = cache.get_or_prepare(&view, ArgsDomain::Str);
         let byte_probe = cache.get_or_prepare(&view, ArgsDomain::Bytes);
+        let trace_text = String::from_utf8(
+            trace_bytes.lock().expect("trace capture buffer").clone(),
+        )
+        .expect("trace capture UTF-8");
+        for (domain, expected) in [("Str", 2), ("Bytes", 1)] {
+            assert_eq!(
+                trace_text
+                    .lines()
+                    .filter(|line| {
+                        let fields = line.split('\t').collect::<Vec<_>>();
+                        fields[6] == "requested"
+                            && fields[7] == "\"shared\""
+                            && fields[11] == "User"
+                            && fields[12] == domain
+                    })
+                    .count(),
+                expected,
+                "{domain}: {trace_text}"
+            );
+        }
         let shared = first_probe.module("shared").unwrap();
         assert_eq!(first_probe.module_count(), 4);
         assert!(Arc::ptr_eq(first_probe.root(), next_probe.root()));
