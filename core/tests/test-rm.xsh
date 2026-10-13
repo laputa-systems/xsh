@@ -158,7 +158,7 @@ test test_rm_interactive_once_threshold { |ctx|
   assert declined.status.exited_with(0)
   assert declined.stderr == "rm: remove 4 arguments? "
   for file in files { assert file.exists()? }
-  let removed = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- -I ${files[0]} < $input
+  let removed = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- -I files[0] < $input
   assert removed.status.exited_with(0)
   assert removed.stderr == ""
   assert ! files[0].exists()?

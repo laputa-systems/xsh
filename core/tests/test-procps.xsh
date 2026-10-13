@@ -46,13 +46,13 @@ while ! release.exists()? { time.sleep(10ms) }
   let owned: List[ProcessEntry] = process.list()? |> where .pid == child.pid |> collect
   assert owned.len() == 1
   let parent = owned[0].parent_pid
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pgrep.xsh" -- -P $parent -x ${owned[0].command}
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pgrep.xsh" -- -P $parent -x owned[0].command
   assert f"{child.pid}" in output.split("\n")
-  let delivered = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/pkill.xsh" -- --signal 0 -P $parent -x ${owned[0].command}
+  let delivered = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/pkill.xsh" -- --signal 0 -P $parent -x owned[0].command
   assert delivered.exited_with(0)
   let ps = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ps.xsh" -- -p ${child.pid} -o pid=,comm=
   assert ps.trim() == f"{child.pid} {owned[0].command}"
-  let pidof = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pidof.xsh" -- ${owned[0].command}
+  let pidof = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pidof.xsh" -- owned[0].command
   assert f"{child.pid}" in pidof.trim().split(" ")
   release.write("done")
   let child_pid = child.pid
