@@ -212,6 +212,16 @@ fn an_atomically_replace_is_printed_as_its_block_under_a_fresh_name() {
     assert_eq!(desugar(&desugared), desugared);
 }
 
+/// A path argument of a command is printed with its `p"..."` quoting: bare
+/// `./a` and `/a` read back as words, which are a different tree. Neither the
+/// formatter nor `desugar` could print such a program before.
+#[test]
+fn a_rooted_path_argument_of_a_command_keeps_its_quoting() {
+    let source = "run.capture --text echo p\"./a\" p\"/tmp/b\" p\"../c\"\n";
+    assert_eq!(desugar(source), source);
+    assert_eq!(check(source), check(&desugar(source)));
+}
+
 /// None of these programs uses a form that binds a hidden local, so there is
 /// none to rename and every written name is printed as written.
 #[test]
