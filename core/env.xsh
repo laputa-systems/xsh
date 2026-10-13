@@ -184,8 +184,7 @@ proc print_environment(environment: Map[Str, Bytes], null_delimited: Bool) [proc
 # The inherited environment with its values as raw bytes: `env.list` rejects a
 # value that is not valid UTF-8, and env passes such values through unchanged.
 proc inherited_environment() [env, error] -> Result[Map[Str, Bytes]] {
-  var environment: Map[Str, Bytes] = {}
-  for item in env.entries()? { environment[item.name as Str] = item.value }
+  var environment: Map[Str, Bytes] = {[item.name as Str]: item.value for item in env.entries()?}
   Ok(environment)
 }
 
