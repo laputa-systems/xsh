@@ -9,6 +9,14 @@ pure matches_zero_pattern(value: Float) -> Bool {
   }
 }
 
+const constant_positive_zero = 0.0
+const constant_negative_zero = -0.0
+const constant_same_nan = 0.0 / 0.0
+const constant_signed_zero_equal = constant_positive_zero == constant_negative_zero
+const constant_same_nan_unequal = constant_same_nan != constant_same_nan
+const constant_nested_zero_equal = [[constant_positive_zero]] == [[constant_negative_zero]]
+const constant_nested_nan_unequal = [[constant_same_nan]] != [[constant_same_nan]]
+
 test test_float_runtime_equality_uses_ieee_values {
   let positive_zero = 0.0
   let negative_zero = -0.0
@@ -24,4 +32,11 @@ test test_float_runtime_equality_uses_ieee_values {
   assert nan not in [nan]
   test.eq(positive_zero, negative_zero)?
   test.ne(nan, nan)?
+}
+
+test test_float_constant_equality_uses_ieee_values {
+  assert constant_signed_zero_equal
+  assert constant_same_nan_unequal
+  assert constant_nested_zero_equal
+  assert constant_nested_nan_unequal
 }
