@@ -9,6 +9,12 @@ The source expression fields identify already-classified lexical sites in
 checker, runtime, or lowering conformance. A delayed item retains its origin
 and captured cells while suspended, but stores no effect permission. This is
 not a runtime sandbox or a consumer-side effect capability.
+
+Finite observations below pair supplied emission prefixes with creation-side
+charges. They do not prove that a producer executes, emits a complete prefix,
+or has complete latent-effect classification or semantics.
+Lexical sites in this fragment are structural expression labels, so distinct
+source occurrences with identical expression syntax are not distinguished.
 -/
 
 namespace Xsh.Semantics.Effects
@@ -293,6 +299,113 @@ theorem pull_sequence_charges_are_permitted (context : LexicalContext)
             exact permitted.1
           · exact ih remaining permitted.2 charge member
 
+/-- One delayed output retains the classified body obligation that supports it. -/
+structure DelayedEmission (α : Type) where
+  value : α
+  obligation : EffectObligation
+
+/-- A finite observation records output order beside its positional effect charges. -/
+structure PullObservation (α : Type) where
+  emissions : List α
+  charges : List EffectCharge
+
+/-- Pair each output with the charge at the same observation position. -/
+def PullObservation.pairs {α : Type} (observation : PullObservation α) :
+    List (α × EffectCharge) :=
+  observation.emissions.zip observation.charges
+
+/-- Observe a finite emission prefix, charging each supporting obligation at creation. -/
+def observePullPrefix {α : Type} (work : DelayedWork) (steps : Nat)
+    (emissions : List (DelayedEmission α)) : PullObservation α :=
+  let taken := emissions.take steps
+  { emissions := taken.map DelayedEmission.value
+    charges := taken.map fun emission => chargeAtCreation work emission.obligation }
+
+private theorem zip_emission_values_and_creation_charges {α : Type}
+    (work : DelayedWork) (emissions : List (DelayedEmission α)) :
+    (emissions.map DelayedEmission.value).zip
+        (emissions.map fun emission => chargeAtCreation work emission.obligation) =
+      emissions.map fun emission =>
+        (emission.value, chargeAtCreation work emission.obligation) := by
+  induction emissions with
+  | nil => rfl
+  | cons emission remaining ih => simp [ih]
+
+/-- The observation's positional pairs are exactly its ordered emission prefix. -/
+theorem pull_observation_pairs_preserve_emission_order {α : Type}
+    (work : DelayedWork) (steps : Nat) (emissions : List (DelayedEmission α)) :
+    (observePullPrefix work steps emissions).pairs =
+      (emissions.take steps).map fun emission =>
+        (emission.value, chargeAtCreation work emission.obligation) := by
+  let taken := emissions.take steps
+  change (taken.map DelayedEmission.value).zip
+      (taken.map fun emission => chargeAtCreation work emission.obligation) =
+    taken.map fun emission =>
+      (emission.value, chargeAtCreation work emission.obligation)
+  exact zip_emission_values_and_creation_charges work taken
+
+/-- An observed pair keeps the producer origin, body site, and required effect. -/
+theorem pull_observation_pair_keeps_origin_body_site_and_effect {α : Type}
+    (work : DelayedWork) (steps : Nat) (emissions : List (DelayedEmission α))
+    (pair : α × EffectCharge)
+    (member : pair ∈ (observePullPrefix work steps emissions).pairs) :
+    ∃ emission ∈ emissions.take steps,
+      pair = (emission.value, chargeAtCreation work emission.obligation) ∧
+        pair.2.lexicalSite = work.creation ∧
+        pair.2.causalBodySite = emission.obligation.source ∧
+        pair.2.required = emission.obligation.required := by
+  rw [pull_observation_pairs_preserve_emission_order] at member
+  rcases List.mem_map.mp member with ⟨emission, ⟨inPrefix, samePair⟩⟩
+  subst pair
+  exact ⟨emission, inPrefix, rfl,
+    charge_lexical_site_is_creation work emission.obligation, rfl, rfl⟩
+
+/-- A charge is permitted at creation only when its body obligation is explicitly aligned. -/
+theorem pull_observation_pair_is_permitted_when_aligned {α : Type}
+    (context : LexicalContext) (work : DelayedWork) (steps : Nat)
+    (emissions : List (DelayedEmission α)) (pair : α × EffectCharge)
+    (creationPermitted : permitsCreation context work)
+    (obligationsAligned : ∀ emission, emission ∈ emissions.take steps →
+      emission.obligation ∈ work.obligations)
+    (member : pair ∈ (observePullPrefix work steps emissions).pairs) :
+    permits context pair.2.required := by
+  obtain ⟨emission, inPrefix, samePair, _, _, _⟩ :=
+    pull_observation_pair_keeps_origin_body_site_and_effect
+      work steps emissions pair member
+  rw [samePair]
+  exact creation_permission_pays_body_obligation context work emission.obligation
+    (obligationsAligned emission inPrefix) creationPermitted
+
+/-- With explicit obligation alignment, observation charges match finite pulls. -/
+theorem pull_observation_charges_match_pull_sequence {α : Type}
+    (work : DelayedWork) (steps : Nat) (remaining : List EffectObligation)
+    (emissions : List (DelayedEmission α))
+    (obligationsAligned : (emissions.take steps).map DelayedEmission.obligation =
+      remaining.take steps) :
+    (observePullPrefix work steps emissions).charges =
+      (pullSequence steps ⟨work, remaining⟩).1 := by
+  change (emissions.take steps).map
+      (fun emission => chargeAtCreation work emission.obligation) =
+    (pullSequence steps ⟨work, remaining⟩).1
+  rw [pull_sequence_preserves_creation_and_body_order]
+  calc
+    (emissions.take steps).map
+        (fun emission => chargeAtCreation work emission.obligation) =
+      ((emissions.take steps).map DelayedEmission.obligation).map
+        (chargeAtCreation work) := by
+      rw [List.map_map]
+      rw [Function.comp_def]
+    _ = (remaining.take steps).map (chargeAtCreation work) := by
+      rw [obligationsAligned]
+
+/-- A consumer requirement is discharged by its own checked context. -/
+theorem checked_consumer_obligation_is_permitted_at_its_site
+    (consumer : CheckedConsumer) (obligation : EffectObligation)
+    (member : obligation ∈ consumer.obligations) :
+    permits consumer.context obligation.required :=
+  permits_obligation_at_member consumer.context consumer.obligations
+    obligation member consumer.permitted
+
 private def streamName : RawName := ⟨⟨1, by decide⟩⟩
 private def requestName : RawName := ⟨⟨2, by decide⟩⟩
 private def callbackName : RawName := ⟨⟨3, by decide⟩⟩
@@ -322,6 +435,16 @@ def exampleTwoSiteStream : DelayedWork := {
   obligations := [exampleNetworkObligation, exampleLaterNetworkObligation]
 }
 
+def exampleNetworkEmission : DelayedEmission String :=
+  ⟨"first", exampleNetworkObligation⟩
+
+def exampleLaterNetworkEmission : DelayedEmission String :=
+  ⟨"second", exampleLaterNetworkObligation⟩
+
+def exampleTwoEmissionObservation : PullObservation String :=
+  observePullPrefix exampleTwoSiteStream 2
+    [exampleNetworkEmission, exampleLaterNetworkEmission]
+
 def exampleCallback : DelayedWork := {
   kind := .callback
   creation := exampleCallbackCreation
@@ -331,6 +454,101 @@ def exampleCallback : DelayedWork := {
 
 def exampleOutsideContext : LexicalContext := ⟨[.net], []⟩
 def exampleInsideWithoutNet : LexicalContext := ⟨[.net], [.net]⟩
+
+def exampleConsumerContext : LexicalContext := ⟨[.fs, .net], [.net]⟩
+def exampleConsumerOperation : Expr := .call (.ident callbackName) []
+def exampleConsumerObligation : EffectObligation := ⟨exampleConsumerOperation, .fs⟩
+def exampleConsumerNetworkObligation : EffectObligation :=
+  ⟨exampleConsumerOperation, .net⟩
+
+def exampleConsumerWithLocalObligation : CheckedConsumer := {
+  context := exampleConsumerContext
+  obligations := [exampleConsumerObligation]
+  permitted := by
+    simp [permitsObligations, permits, clauseCovers, ioCovers, blockedBy,
+      withoutBlocks, exampleConsumerContext, exampleConsumerObligation,
+      exampleConsumerOperation]
+}
+
+def exampleStructurallyDistinctConsumerChargeObservation : PullObservation String := {
+  exampleTwoEmissionObservation with
+  charges := [chargeAtUse exampleConsumerNetworkObligation,
+    chargeAtUse exampleConsumerNetworkObligation]
+}
+
+def exampleOmittedChargeObservation : PullObservation String := {
+  exampleTwoEmissionObservation with
+  charges := [chargeAtCreation exampleTwoSiteStream exampleNetworkObligation]
+}
+
+def exampleReversedEmissionObservation : PullObservation String := {
+  exampleTwoEmissionObservation with
+  emissions := ["second", "first"]
+}
+
+theorem example_finite_pull_pairs_ordered_emissions_with_creation_charges :
+    exampleTwoEmissionObservation = {
+      emissions := ["first", "second"]
+      charges := [chargeAtCreation exampleTwoSiteStream exampleNetworkObligation,
+        chargeAtCreation exampleTwoSiteStream exampleLaterNetworkObligation]
+    } := by
+  rfl
+
+theorem example_observation_charges_match_the_finite_pull :
+    exampleTwoEmissionObservation.charges =
+      (pullSequence 2 ⟨exampleTwoSiteStream, exampleTwoSiteStream.obligations⟩).1 := by
+  exact pull_observation_charges_match_pull_sequence exampleTwoSiteStream 2
+    exampleTwoSiteStream.obligations
+    [exampleNetworkEmission, exampleLaterNetworkEmission] rfl
+
+theorem example_structurally_distinct_consumer_charge_is_detected :
+    exampleStructurallyDistinctConsumerChargeObservation ≠ exampleTwoEmissionObservation := by
+  intro same
+  have sites := congrArg
+    (fun observation : PullObservation String =>
+      (observation.charges.map EffectCharge.lexicalSite)) same
+  simp [exampleStructurallyDistinctConsumerChargeObservation,
+    exampleTwoEmissionObservation,
+    observePullPrefix, chargeAtUse, chargeAtCreation, exampleTwoSiteStream,
+    exampleStream, exampleNetworkObligation, exampleLaterNetworkObligation,
+    exampleNetworkEmission, exampleLaterNetworkEmission, exampleStreamCreation,
+    exampleNetworkBody, exampleLaterNetworkBody, exampleConsumerNetworkObligation,
+    exampleConsumerOperation, streamName, requestName, callbackName] at sites
+
+theorem example_omitted_charge_is_detected :
+    exampleOmittedChargeObservation ≠ exampleTwoEmissionObservation := by
+  intro same
+  have counts := congrArg
+    (fun observation : PullObservation String => observation.charges.length) same
+  simp [exampleOmittedChargeObservation, exampleTwoEmissionObservation,
+    observePullPrefix, chargeAtCreation, exampleTwoSiteStream, exampleStream,
+    exampleNetworkObligation, exampleLaterNetworkObligation,
+    exampleNetworkEmission, exampleLaterNetworkEmission] at counts
+
+theorem example_reversed_distinct_emissions_are_detected :
+    exampleReversedEmissionObservation ≠ exampleTwoEmissionObservation := by
+  intro same
+  have outputs := congrArg PullObservation.emissions same
+  simp [exampleReversedEmissionObservation, exampleTwoEmissionObservation,
+    observePullPrefix, exampleNetworkEmission, exampleLaterNetworkEmission] at outputs
+
+theorem example_consumer_site_effects_are_independent_of_the_pull_charge :
+    permitsCreation exampleOutsideContext exampleTwoSiteStream ∧
+      permitsObligations exampleConsumerWithLocalObligation.context
+        exampleConsumerWithLocalObligation.obligations ∧
+      ¬ permits exampleConsumerWithLocalObligation.context .net ∧
+      exampleTwoEmissionObservation.charges.map EffectCharge.required = [.net, .net] := by
+  constructor
+  · simp [permitsCreation, exampleTwoSiteStream, exampleStream,
+      exampleOutsideContext, permitsObligations, permits, clauseCovers,
+      ioCovers, blockedBy, exampleNetworkObligation,
+      exampleLaterNetworkObligation]
+  constructor
+  · exact exampleConsumerWithLocalObligation.permitted
+  constructor
+  · simp [permits, clauseCovers, ioCovers, blockedBy, withoutBlocks,
+      exampleConsumerWithLocalObligation, exampleConsumerContext]
+  · rfl
 
 def exampleRestrictedConsumer : CheckedConsumer := {
   context := exampleInsideWithoutNet
