@@ -150,7 +150,7 @@ type Names = {services: Map[Str, Str], protocols: Map[Str, Str], hosts: Map[Str,
 ## which is what the reference tool uses for every command-line error.
 proc usage_fail(message: Str) [process, io, error] {
   eprint f"ss: {message}"
-  eprint f"{USAGE}"
+  eprint $USAGE
   exit 255
 }
 
