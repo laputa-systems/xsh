@@ -9428,7 +9428,7 @@ fn indexed_stmt_can_return_with_decoder(
                     match indexed_condition_bool_literal(store, condition)? {
                         Some(false) => {}
                         Some(true) => {
-                            chain_can_return = indexed_block_can_return_with_decoder(
+                            chain_can_return &= indexed_block_can_return_with_decoder(
                                 store,
                                 block(body)?,
                                 decoder,
@@ -17086,6 +17086,53 @@ pure selected() -> Str {
             Some(&decoder),
         )
         .unwrap());
+    }
+
+    #[test]
+    fn return_analysis_preserves_unknown_branch_fallthrough_before_literal_true() {
+        let program = fixture(
+            "conditional-return-fallthrough.xsh",
+            "pure choose(condition: Bool) -> Int {\n\
+               if condition { let ignored = 1 } else if true { return 1 }\n\
+               return 0\n\
+             }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let conditional = [FullTag::StmtIf, FullTag::StmtIfBool]
+            .into_iter()
+            .find_map(|tag| {
+                function_instruction_indices(&program, "choose", tag)
+                    .into_iter()
+                    .next()
+            })
+            .expect("fixture conditional exists");
+        let payload = program.store.data[conditional]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
+        let branches = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+        let branch_words = program.store.blocks[branches.index()]
+            .instructions
+            .bounds(program.store.extra.len())
+            .unwrap();
+        assert_eq!(program.store.extra[branch_words.start], 2);
+        assert_eq!(
+            indexed_condition_bool_literal(
+                &program.store,
+                program.store.extra[branch_words.start + 1],
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            indexed_condition_bool_literal(
+                &program.store,
+                program.store.extra[branch_words.start + 3],
+            )
+            .unwrap(),
+            Some(true)
+        );
+        assert!(!indexed_stmt_can_return(&program.store, conditional).unwrap());
     }
 
     #[test]
