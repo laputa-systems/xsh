@@ -40,3 +40,7 @@ Tool configuration lives in `xsht-config.ini`; see
 - [`docs/SPEC.md`](docs/SPEC.md) is the language contract.
 - `xsht api summary` lists every standard module, method, and record;
   `xsht api api:fs.files` or `xsht api search:timeout` answers the rest.
+
+## License
+
+This repository does not currently include a license file.
