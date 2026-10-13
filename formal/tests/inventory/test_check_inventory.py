@@ -81,6 +81,18 @@ class InventoryCheckerTests(unittest.TestCase):
             },
             host_trace_roots,
         )
+        host_trace_proof_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Proofs.BaseHostTrace"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Proofs.BaseHostTrace.runBaseHostFuel_trace",
+                "Xsh.Proofs.BaseHostTrace.runBaseHostFuel_preserves_wellFormed",
+                "Xsh.Proofs.BaseHostTrace.omitted_response_event_is_not_a_trace",
+            },
+            host_trace_proof_roots,
+        )
 
     def test_missing_fragment_module_root_fails(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")

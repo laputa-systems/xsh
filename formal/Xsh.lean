@@ -6,6 +6,7 @@ import Xsh.Values.FloatEquality
 import Xsh.Semantics.Environments
 import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace
+import Xsh.Proofs.BaseHostTrace
 import Xsh.Validation.Boundary
 import Xsh.Validation.Store
 import Xsh.Effects.Lattice
