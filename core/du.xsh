@@ -232,7 +232,7 @@ proc emit_usage(name: Str, size: Int, latest: Int, policy: Policy) [process, env
   gnu.write_text(f"{amount}{timestamp}\t{name}{policy.ending}")
 }
 
-proc entry_metadata(root: FsRoot, entry: Path, name: Str, follow: Bool) [fs, error] -> Result[EntryMetadata, Error] {
+proc entry_metadata(root: FsRoot, entry: Path, follow: Bool) [fs, error] -> Result[EntryMetadata, Error] {
   match root.stat(entry, follow_symlinks: follow) {
     Ok(meta) => Ok({meta: meta, external_target: null})
     Err(failure) => {
@@ -288,7 +288,7 @@ proc disk_usage(root: FsRoot, entry: Path, name: Str, policy: Policy, depth: Int
     }
   }
   let follow = policy.follow_all or (policy.follow_args and depth == 0) or name.ends_with("/")
-  guard let found = entry_metadata(root, entry, name, follow) else { |failure|
+  guard let found = entry_metadata(root, entry, follow) else { |failure|
     gnu.cannot_access(name, failure)
     return {size: 0, accounted: 0, counted: false, links: links, latest: 0, failed: true, directory: false}
   }
