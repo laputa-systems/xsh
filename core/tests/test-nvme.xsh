@@ -303,6 +303,15 @@ test test_nvme_id_ctrl_vendor_json_and_binary_forms { |ctx|
   assert refused.stdout.starts_with("{\n  \"error\":\"id-ctrl: --vendor-specific is not available in json output\"")
 }
 
+test test_nvme_id_ctrl_rejects_short_vendor_response_before_output { |ctx|
+  let log = quiet_log(ctx)?
+  let short_page = controller_page()?.slice(0, length: 4095)
+  let ran = nvme(ctx, [identify_line(0, 1, short_page)], ["id-ctrl", "-V", "/dev/null"], log)?
+  assert ran.status == 1
+  assert ran.stdout == ""
+  assert ran.stderr == "identify controller: device returned 4095 of 4096 bytes\n"
+}
+
 test test_nvme_device_failures_are_reported_as_nvme_cli_reports_them { |ctx|
   let log = quiet_log(ctx)?
   # SC 0x02 (invalid field) with do-not-retry set, then an ioctl failure.
@@ -853,4 +862,15 @@ test test_nvme_id_ns_vendor_region_and_fw_log_json { |ctx|
   let decoded = json.decode(printed.stdout)?
   assert json.get(decoded, ["Firmware Log", "Active Slot"])? == 1
   assert json.get(decoded, ["Firmware Log", "frs1"])? == "5B2QGXA7"
+}
+
+test test_nvme_id_ns_rejects_short_vendor_response_before_output { |ctx|
+  let log = quiet_log(ctx)?
+  var page = ns_page()?
+  page = put(page, 384, b"NSVENDOR")?
+  let short_page = page.slice(0, length: 4095)
+  let ran = nvme(ctx, [identify_line(7, 0, short_page)], ["id-ns", "-n", "7", "-V", "/dev/null"], log)?
+  assert ran.status == 1
+  assert ran.stdout == ""
+  assert ran.stderr == "identify namespace: device returned 4095 of 4096 bytes\n"
 }
