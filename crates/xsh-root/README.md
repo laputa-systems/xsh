@@ -35,7 +35,17 @@ To inspect the pathname-opening calls in the example, build it and trace it:
 
 ```sh
 cargo build -p xsh-root --example open_bench
+```
+
+On Linux, trace it with:
+
+```sh
 strace -e trace=openat2 ./target/debug/examples/open_bench
+```
+
+On macOS, trace it with:
+
+```sh
 sudo dtruss -t openat ./target/debug/examples/open_bench
 ```
 

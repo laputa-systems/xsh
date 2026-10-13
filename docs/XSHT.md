@@ -171,6 +171,11 @@ The always-on notes have narrower evidence boundaries:
   same block with `== ""`, `!= ""`, or `.is_empty()`. It suggests
   `if let NAME = SOURCE` or `if let Ok(NAME) = SOURCE` for a `Result`, keeping
   a missing value distinct from a present empty string.
+- `lint.prefer-wait-until` reports a `while` loop whose body contains a
+  `time.sleep(...)` call and a local counter update. It offers a dangerous
+  manual `wait until` rewrite only for plain test/sleep/count loops that fail
+  on timeout; that uses elapsed time and returns `Timeout` instead of the
+  loop's count-based failure, so `--fix` never applies it.
 
 Per-rule summaries are in the generated
 [`docs/reference/lints.md`](reference/lints.md).
