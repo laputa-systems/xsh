@@ -14,7 +14,7 @@ use crate::syntax::arena::{
     ArenaFunctionDef, ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar,
     AssignTargetId, BindingTargetId, BlockId, BuilderBlockId, ExprId, StmtId, TypeExprId,
 };
-use crate::syntax::node::AssignOp;
+use crate::syntax::node::{AssignOp, StreamStageKind};
 use rustc_hash::FxHashMap;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -68,6 +68,7 @@ struct ControlFlow {
 struct FlowFacts<'a> {
     expression_types: Option<&'a BTreeMap<Span, Type>>,
     expression_types_by_id: Option<&'a FxHashMap<ExprId, Type>>,
+    tag_variants: Option<&'a FxHashMap<Name, TagVariantInfo>>,
     propagating_statements: Option<&'a BTreeSet<Span>>,
     propagating_conditions: Option<&'a BTreeSet<Span>>,
 }
@@ -76,6 +77,7 @@ impl FlowFacts<'static> {
     const AST_ONLY: Self = Self {
         expression_types: None,
         expression_types_by_id: None,
+        tag_variants: None,
         propagating_statements: None,
         propagating_conditions: None,
     };
@@ -335,7 +337,7 @@ fn stmt_control_flow_inner(
             }
         }
         ArenaStmtKind::For { iter, block, .. } => {
-            let iter = expr_control_flow(arena, iter, facts);
+            let iter = expr_control_flow_materialized_pipeline(arena, iter, facts);
             let body = block_control_flow(arena, block, facts);
             ControlFlow {
                 breaks_target: iter.breaks_target,
@@ -353,10 +355,10 @@ fn stmt_control_flow_inner(
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::Use(_)
         | ArenaStmtKind::TailBareIdent(_) => ControlFlow::NORMAL,
-        ArenaStmtKind::Const { .. }
-        | ArenaStmtKind::Let { .. }
-        | ArenaStmtKind::Var { .. }
-        | ArenaStmtKind::Assign { .. }
+        ArenaStmtKind::Const { .. } | ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } => {
+            stmt_binding_flow(arena, id, facts)
+        }
+        ArenaStmtKind::Assign { .. }
         | ArenaStmtKind::Export(_)
         | ArenaStmtKind::Yield(_)
         | ArenaStmtKind::YieldDelegate(_)
@@ -375,6 +377,21 @@ fn stmt_children_flow(arena: &ArenaProgram, id: StmtId, facts: &FlowFacts<'_>) -
             }
         });
     flow
+}
+
+/// Binding a stream pipeline materializes it, so pulled callback bodies affect
+/// the initializer's control flow.
+fn stmt_binding_flow(arena: &ArenaProgram, id: StmtId, facts: &FlowFacts<'_>) -> ControlFlow {
+    let initializer = match arena.arena.stmt(id).kind {
+        ArenaStmtKind::Const { initializer, .. }
+        | ArenaStmtKind::Let { initializer, .. }
+        | ArenaStmtKind::Var { initializer, .. } => initializer,
+        _ => unreachable!(),
+    };
+    match initializer {
+        ArenaExprOrRun::Expr(expr) => expr_control_flow_materialized_pipeline(arena, expr, facts),
+        ArenaExprOrRun::Run(_) => stmt_children_flow(arena, id, facts),
+    }
 }
 
 fn stmt_expression_children_flow(arena: &ArenaProgram, id: StmtId, facts: &FlowFacts<'_>) -> ControlFlow {
@@ -545,13 +562,28 @@ fn literal_pattern_match(
 fn pattern_matches_every_subject(
     arena: &ArenaProgram,
     pattern: crate::syntax::arena::PatternId,
+    subject: ExprId,
+    facts: &FlowFacts<'_>,
 ) -> bool {
     match arena.arena.pattern(pattern).kind {
         crate::syntax::arena::ArenaPatternKind::Wildcard => true,
         crate::syntax::arena::ArenaPatternKind::Group(inner)
         | crate::syntax::arena::ArenaPatternKind::Alias { pattern: inner, .. } => {
-            pattern_matches_every_subject(arena, inner)
+            pattern_matches_every_subject(arena, inner, subject, facts)
         }
+        crate::syntax::arena::ArenaPatternKind::Binding(name) => facts
+            .tag_variants
+            .map(|variants| !variants.contains_key(&name))
+            .unwrap_or_else(|| {
+                !matches!(
+                    expression_type(arena, subject, facts),
+                    Some(Type::Tag(_) | Type::Any | Type::Unknown | Type::Union(_)) | None
+                )
+            }),
+        crate::syntax::arena::ArenaPatternKind::Alternation(patterns) => arena
+            .arena
+            .pattern_ids(patterns)
+            .any(|pattern| pattern_matches_every_subject(arena, pattern, subject, facts)),
         _ => false,
     }
 }
@@ -593,8 +625,7 @@ fn match_arm_control_flow(
     let guard_flow = guard.map_or(ControlFlow::NORMAL, |guard| expr_control_flow(arena, guard, facts));
     let flow = guard_flow.then(body);
     let definitely_matches = pattern_match == Some(true)
-        || (known_literal(arena, subject).is_none()
-            && pattern_matches_every_subject(arena, pattern));
+        || pattern_matches_every_subject(arena, pattern, subject, facts);
     if definitely_matches && guard.is_none_or(|id| bool_literal(arena, id) == Some(true)) {
         *caught = true;
     }
@@ -739,6 +770,141 @@ fn pipeline_control_flow(
         }
     }
     flow
+}
+
+fn expr_control_flow_materialized_pipeline(
+    arena: &ArenaProgram,
+    id: ExprId,
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
+    match arena.arena.expr(id).kind {
+        ArenaExprKind::Pipeline { input, stages } => {
+            materialized_pipeline_control_flow(arena, input, stages, false, facts)
+        }
+        ArenaExprKind::StructuredPipeline { input, stages } => {
+            materialized_pipeline_control_flow(arena, input, stages, true, facts)
+        }
+        _ => expr_control_flow(arena, id, facts),
+    }
+}
+
+/// Includes callback transfers only when pipeline materialization can pull an
+/// item; sources and filters keep later callbacks optional when they may empty.
+fn materialized_pipeline_control_flow(
+    arena: &ArenaProgram,
+    input: ExprId,
+    stages: ArenaRange,
+    structured: bool,
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
+    let mut flow = expr_control_flow(arena, input, facts);
+    let mut may_be_empty = !definitely_nonempty_iterable(arena, input);
+    let callbacks_run = !pipeline_takes_zero_items(arena, stages, structured);
+    if structured {
+        for stage in arena.arena.stream_stages(stages) {
+            if !flow.completes {
+                break;
+            }
+            flow = flow.then(stream_stage_args_control_flow(arena, stage.args, facts));
+            if !flow.completes {
+                break;
+            }
+            if callbacks_run && let Some(block) = stage.block {
+                let may_skip_callback = may_be_empty
+                    || matches!(stage.kind, StreamStageKind::Reduce | StreamStageKind::ReduceBy);
+                flow = flow.then(callback_control_flow(arena, block, may_skip_callback, facts));
+            }
+            may_be_empty |= stage_may_empty(stage.kind);
+        }
+    } else {
+        for stage in arena.arena.pipe_stages(stages) {
+            if !flow.completes {
+                break;
+            }
+            match &stage.kind {
+                crate::syntax::arena::ArenaPipeStageKind::Expr(expr) => {
+                    flow = flow.then(expr_control_flow(arena, *expr, facts));
+                }
+                crate::syntax::arena::ArenaPipeStageKind::Stream(stage) => {
+                    flow = flow.then(stream_stage_args_control_flow(arena, stage.args, facts));
+                    if !flow.completes {
+                        break;
+                    }
+                    if callbacks_run && let Some(block) = stage.block {
+                        let may_skip_callback = may_be_empty
+                            || matches!(stage.kind, StreamStageKind::Reduce | StreamStageKind::ReduceBy);
+                        flow = flow.then(callback_control_flow(arena, block, may_skip_callback, facts));
+                    }
+                    may_be_empty |= stage_may_empty(stage.kind);
+                }
+            }
+        }
+    }
+    flow
+}
+
+fn pipeline_takes_zero_items(
+    arena: &ArenaProgram,
+    stages: ArenaRange,
+    structured: bool,
+) -> bool {
+    if structured {
+        arena
+            .arena
+            .stream_stages(stages)
+            .iter()
+            .any(|stage| stage_takes_zero(arena, stage.kind, stage.args))
+    } else {
+        arena.arena.pipe_stages(stages).iter().any(|stage| {
+            matches!(&stage.kind, crate::syntax::arena::ArenaPipeStageKind::Stream(stage)
+                if stage_takes_zero(arena, stage.kind, stage.args))
+        })
+    }
+}
+
+fn stage_takes_zero(arena: &ArenaProgram, kind: StreamStageKind, args: ArenaRange) -> bool {
+    kind == StreamStageKind::Take
+        && arena
+            .arena
+            .call_args(args)
+            .first()
+            .and_then(|arg| match arg.kind {
+                crate::syntax::arena::ArenaCallArgKind::Positional(expr)
+                | crate::syntax::arena::ArenaCallArgKind::Named { value: expr, .. }
+                | crate::syntax::arena::ArenaCallArgKind::Splice { value: expr, .. }
+                | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value: expr, .. } => {
+                    known_literal(arena, expr)
+                }
+            })
+        == Some(KnownLiteral::Int(0))
+}
+
+fn callback_control_flow(
+    arena: &ArenaProgram,
+    block: BlockId,
+    may_be_skipped: bool,
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
+    let mut callback = block_control_flow(arena, block, facts);
+    // Stage callbacks reset the loop target but retain enclosing function
+    // returns and error propagation.
+    callback.breaks_target = false;
+    if may_be_skipped {
+        ControlFlow::NORMAL.either(callback)
+    } else {
+        callback
+    }
+}
+
+fn stage_may_empty(kind: StreamStageKind) -> bool {
+    matches!(
+        kind,
+        StreamStageKind::Where
+            | StreamStageKind::FlatMap
+            | StreamStageKind::Drop
+            | StreamStageKind::Take
+            | StreamStageKind::Zip
+    )
 }
 
 fn stream_stage_args_control_flow(
@@ -1033,6 +1199,7 @@ impl Checker {
         FlowFacts {
             expression_types: Some(&self.expr_types),
             expression_types_by_id: None,
+            tag_variants: Some(&self.tag_variants),
             propagating_statements: Some(&self.propagating_statements),
             propagating_conditions: Some(&self.propagating_conditions),
         }
@@ -6022,6 +6189,18 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn a_result_guarded_slice_still_requires_its_bounds_on_success() {
+        let source = "proc choose(values: Result[List[Int], Error]) [error] -> Int {\n  let ignored = values?[if true { return 1 } else { 0 }..]\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn an_empty_comprehension_does_not_count_a_return_in_its_projection() {
         let source = "pure choose() -> Int {\n  while true {\n    let ignored = [if true { return 1 } else { 0 } for item in []]\n    break\n  }\n}\n";
         let diagnostics = diagnostics(source);
@@ -6058,6 +6237,18 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn a_dynamic_comprehension_filter_keeps_a_normal_path() {
+        let source = "pure choose(flag: Bool) -> Int { let ignored = [if true { return 1 } else { 0 } for item in [1] if flag] }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn a_nonempty_comprehension_keeps_its_projection_mandatory() {
         let source = "pure choose() -> Int {\n  let ignored = [if true { return 1 } else { 0 } for item in [1]]\n}\n";
         let diagnostics = diagnostics(source);
@@ -6082,11 +6273,98 @@ mod return_flow_tests {
     }
 
     #[test]
-    fn an_unconsumed_stream_callback_does_not_return_from_its_creator() {
-        let source = "pure choose() -> Int {\n  while true {\n    let ignored = [1] |> map { |item| return item }\n    break\n  }\n}\n";
+    fn a_maybe_empty_materialized_pipeline_keeps_a_normal_path() {
+        let source = "pure choose(values: List[Int]) -> Int { let ignored = values |> map { |item| return item } }\n";
         let diagnostics = diagnostics(source);
         assert!(
             diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_pipeline_filter_can_skip_later_callbacks() {
+        let source = "pure choose() -> Int { let ignored = [1] |> where { |item| false } |> map { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_nonempty_materialized_pipeline_runs_its_callback() {
+        let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let body = parsed
+            .arena
+            .arena
+            .stmt_ids(parsed.arena.statements)
+            .find_map(|stmt| match parsed.arena.arena.stmt(stmt).kind {
+                ArenaStmtKind::PureDef(definition) => {
+                    Some(parsed.arena.arena.function_def(definition).body)
+                }
+                _ => None,
+            })
+            .expect("pure function body");
+        assert!(super::block_callable_body_cannot_fall_through_arena(
+            &parsed.arena,
+            body,
+            false,
+            &rustc_hash::FxHashMap::default(),
+        ));
+    }
+
+    #[test]
+    fn a_binding_pattern_is_a_catch_all_for_flow() {
+        let source = "pure choose(value: Int) -> Int { match value { result => { return result } } }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let body = parsed
+            .arena
+            .arena
+            .stmt_ids(parsed.arena.statements)
+            .find_map(|stmt| match parsed.arena.arena.stmt(stmt).kind {
+                ArenaStmtKind::PureDef(definition) => {
+                    Some(parsed.arena.arena.function_def(definition).body)
+                }
+                _ => None,
+            })
+            .expect("pure function body");
+        let match_stmt = parsed
+            .arena
+            .arena
+            .stmt_ids(parsed.arena.arena.block(body).statements)
+            .next()
+            .expect("match statement");
+        let ArenaStmtKind::Match { value, .. } = parsed.arena.arena.stmt(match_stmt).kind else {
+            panic!("expected match statement");
+        };
+        let mut expression_types = rustc_hash::FxHashMap::default();
+        expression_types.insert(value, crate::sema::types::Type::Int);
+        let flow = block_control_flow(
+            &parsed.arena,
+            body,
+            &FlowFacts {
+                expression_types_by_id: Some(&expression_types),
+                ..FlowFacts::AST_ONLY
+            },
+        );
+        assert!(!flow.completes, "{flow:?}");
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
             "{diagnostics:?}"
