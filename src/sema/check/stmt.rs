@@ -61,6 +61,7 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
 #[derive(Clone, Copy, Debug, Default)]
 struct ControlFlow {
     breaks_target: bool,
+    continues_target: bool,
     exits: bool,
     propagates: bool,
     completes: bool,
@@ -88,12 +89,14 @@ impl FlowFacts<'static> {
 impl ControlFlow {
     const NONE: Self = Self {
         breaks_target: false,
+        continues_target: false,
         exits: false,
         propagates: false,
         completes: false,
     };
     const NORMAL: Self = Self {
         breaks_target: false,
+        continues_target: false,
         exits: false,
         propagates: false,
         completes: true,
@@ -102,6 +105,8 @@ impl ControlFlow {
     fn then(self, next: Self) -> Self {
         Self {
             breaks_target: self.breaks_target || (self.completes && next.breaks_target),
+            continues_target: self.continues_target
+                || (self.completes && next.continues_target),
             exits: self.exits || (self.completes && next.exits),
             propagates: self.propagates || (self.completes && next.propagates),
             completes: self.completes && next.completes,
@@ -111,6 +116,7 @@ impl ControlFlow {
     fn either(self, other: Self) -> Self {
         Self {
             breaks_target: self.breaks_target || other.breaks_target,
+            continues_target: self.continues_target || other.continues_target,
             exits: self.exits || other.exits,
             propagates: self.propagates || other.propagates,
             completes: self.completes || other.completes,
@@ -128,7 +134,7 @@ fn handle_propagation(mut flow: ControlFlow) -> ControlFlow {
 /// Summarizes reachable loop breaks, explicit exits, error propagation, and
 /// normal completion.
 /// Sequence flow prunes unreachable expressions, nested loops consume their
-/// own breaks, and deferred actions stay outside the current execution path.
+/// own transfers, and deferred actions stay outside the current execution path.
 fn block_control_flow(arena: &ArenaProgram, block_id: BlockId, facts: &FlowFacts<'_>) -> ControlFlow {
     let mut flow = ControlFlow::NORMAL;
     for id in arena.arena.stmt_ids(arena.arena.block(block_id).statements) {
@@ -200,6 +206,7 @@ fn stmt_control_flow_inner(
         ArenaStmtKind::Return(_) | ArenaStmtKind::Exit(_) => {
             stmt_children_flow(arena, id, facts).then(ControlFlow {
                 breaks_target: false,
+                continues_target: false,
                 exits: true,
                 propagates: false,
                 completes: false,
@@ -209,6 +216,7 @@ fn stmt_control_flow_inner(
             let value = stmt_children_flow(arena, id, facts);
             ControlFlow {
                 breaks_target: value.breaks_target || value.completes,
+                continues_target: false,
                 exits: value.exits,
                 propagates: value.propagates,
                 completes: false,
@@ -216,6 +224,7 @@ fn stmt_control_flow_inner(
         }
         ArenaStmtKind::Continue => ControlFlow {
             breaks_target: false,
+            continues_target: true,
             exits: false,
             propagates: false,
             completes: false,
@@ -314,6 +323,7 @@ fn stmt_control_flow_inner(
                     .map_or(ControlFlow::NORMAL, |message| expr_control_flow(arena, message, facts))
                     .then(ControlFlow {
                         breaks_target: false,
+                        continues_target: false,
                         exits: false,
                         propagates: false,
                         completes: false,
@@ -325,6 +335,7 @@ fn stmt_control_flow_inner(
             let body = block_control_flow(arena, block, facts);
             ControlFlow {
                 breaks_target: false,
+                continues_target: false,
                 exits: body.exits,
                 propagates: body.propagates,
                 completes: body.breaks_target,
@@ -336,6 +347,7 @@ fn stmt_control_flow_inner(
             let can_skip = bool_literal(arena, condition) != Some(true);
             ControlFlow {
                 breaks_target: condition_flow.breaks_target,
+                continues_target: condition_flow.continues_target,
                 exits: condition_flow.exits
                     || (condition_flow.completes
                         && bool_literal(arena, condition) != Some(false)
@@ -353,6 +365,7 @@ fn stmt_control_flow_inner(
             let body = block_control_flow(arena, block, facts);
             ControlFlow {
                 breaks_target: iter.breaks_target,
+                continues_target: iter.continues_target,
                 exits: iter.exits
                     || (iter.completes
                         && cardinality != StreamCardinality::Empty
@@ -361,7 +374,11 @@ fn stmt_control_flow_inner(
                     || (iter.completes
                         && cardinality != StreamCardinality::Empty
                         && body.propagates),
-                completes: iter.completes,
+                completes: iter.completes
+                    && (cardinality != StreamCardinality::NonEmpty
+                        || body.completes
+                        || body.breaks_target
+                        || body.continues_target),
             }
         }
         ArenaStmtKind::ProcDef(_)
@@ -691,7 +708,15 @@ fn comprehension_control_flow(
             break;
         }
         let expr = qualifier.expr();
-        flow = flow.then(expr_control_flow(arena, expr, facts));
+        let qualifier_flow = match qualifier {
+            crate::syntax::arena::ArenaCompQualifier::For { iter, .. } => {
+                expr_control_flow_materialized_pipeline(arena, *iter, facts)
+            }
+            crate::syntax::arena::ArenaCompQualifier::If { .. } => {
+                expr_control_flow(arena, expr, facts)
+            }
+        };
+        flow = flow.then(qualifier_flow);
         match qualifier {
             crate::syntax::arena::ArenaCompQualifier::For { iter, .. }
                 if expression_cardinality(arena, *iter) == StreamCardinality::Empty =>
@@ -722,7 +747,15 @@ fn comprehension_control_flow(
     for qualifier in &qualifiers[first_for + 1..] {
         let expr = qualifier.expr();
         if iteration.completes {
-            iteration = iteration.then(expr_control_flow(arena, expr, facts));
+            let qualifier_flow = match qualifier {
+                crate::syntax::arena::ArenaCompQualifier::For { iter, .. } => {
+                    expr_control_flow_materialized_pipeline(arena, *iter, facts)
+                }
+                crate::syntax::arena::ArenaCompQualifier::If { .. } => {
+                    expr_control_flow(arena, expr, facts)
+                }
+            };
+            iteration = iteration.then(qualifier_flow);
         }
         if matches!(qualifier, crate::syntax::arena::ArenaCompQualifier::If { .. })
             && bool_literal(arena, expr) == Some(false)
@@ -869,7 +902,7 @@ fn materialized_pipeline_control_flow(
                     break;
                 }
                 if kind == StreamStageKind::Zip {
-                    flow = flow.then(zip_right_callback_flow(arena, args, cardinality, facts));
+                    flow = flow.then(zip_right_consumed_flow(arena, args, facts));
                     if !flow.completes {
                         break;
                     }
@@ -1103,28 +1136,17 @@ fn stage_output_cardinality(
     }
 }
 
-/// A consumed zip pulls its right pipeline only when both sides can yield an item.
-fn zip_right_callback_flow(
+/// Zip drains its right pipeline completely before it starts pulling the left.
+fn zip_right_consumed_flow(
     arena: &ArenaProgram,
     args: ArenaRange,
-    left: StreamCardinality,
     facts: &FlowFacts<'_>,
 ) -> ControlFlow {
     let Some(arg) = arena.arena.call_args(args).first() else {
         return ControlFlow::NORMAL;
     };
     let right = call_arg_expr(&arg.kind);
-    let demand = match (left, expression_cardinality(arena, right)) {
-        (StreamCardinality::Empty, _) | (_, StreamCardinality::Empty) => CallbackDemand::Never,
-        (StreamCardinality::NonEmpty, StreamCardinality::NonEmpty) => CallbackDemand::Required,
-        _ => CallbackDemand::Maybe,
-    };
-    let callbacks = expr_control_flow_materialized_pipeline(arena, right, facts);
-    match demand {
-        CallbackDemand::Never => ControlFlow::NORMAL,
-        CallbackDemand::Maybe => ControlFlow::NORMAL.either(callbacks),
-        CallbackDemand::Required => callbacks,
-    }
+    expr_control_flow_materialized_pipeline(arena, right, facts)
 }
 
 fn zip_other_cardinality(arena: &ArenaProgram, args: ArenaRange) -> StreamCardinality {
@@ -1232,6 +1254,7 @@ fn callback_control_flow(
     // Stage callbacks reset the loop target but retain enclosing function
     // returns and error propagation.
     callback.breaks_target = false;
+    callback.continues_target = false;
     if may_be_skipped {
         ControlFlow::NORMAL.either(callback)
     } else {
@@ -1365,6 +1388,7 @@ fn expr_control_flow_inner(
             let body = block_control_flow(arena, block, facts);
             ControlFlow {
                 breaks_target: false,
+                continues_target: false,
                 exits: body.exits,
                 propagates: body.propagates,
                 completes: body.breaks_target,
@@ -1419,6 +1443,8 @@ fn expr_control_flow_inner(
             ControlFlow {
                 breaks_target: lhs.breaks_target
                     || (lhs.completes && rhs.breaks_target && may_run),
+                continues_target: lhs.continues_target
+                    || (lhs.completes && rhs.continues_target && may_run),
                 exits: lhs.exits || (lhs.completes && rhs.exits && may_run),
                 propagates: lhs.propagates
                     || (lhs.completes && rhs.propagates && may_run),
@@ -6609,6 +6635,30 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn a_for_body_return_over_a_nonempty_source_prevents_fallthrough() {
+        let source = "pure choose() -> Int { for item in [1] { return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_for_continue_keeps_a_normal_path_after_a_conditional_return() {
+        let source = "pure choose(flag: Bool) -> Int { for item in [1] { if flag { return item }; continue } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn an_empty_later_comprehension_source_does_not_count_its_projection() {
         let source = "pure choose() -> Int { let ignored = [if true { return 1 } else { 0 } for outer in [1] for inner in []] }\n";
         let diagnostics = diagnostics(source);
@@ -6647,6 +6697,18 @@ mod return_flow_tests {
     #[test]
     fn a_nonempty_comprehension_keeps_its_projection_mandatory() {
         let source = "pure choose() -> Int {\n  let ignored = [if true { return 1 } else { 0 } for item in [1]]\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_comprehension_consumes_its_pipeline_source_callbacks() {
+        let source = "pure choose() -> Int { let ignored = [item for item in [1] |> map { |item| return item }] }\n";
         let diagnostics = diagnostics(source);
         assert!(
             !diagnostics
@@ -6858,6 +6920,42 @@ mod return_flow_tests {
     #[test]
     fn a_consumed_zip_includes_callbacks_in_its_right_pipeline() {
         let source = "pure choose() -> Int { let ignored = [1] |> zip([2] |> map { |item| return item }).collect() }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zip_drains_a_nonempty_right_pipeline_even_when_left_is_empty() {
+        let source = "pure choose() -> Int { let ignored = [] |> zip([2] |> map { |item| return item }) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zip_drains_a_nonempty_right_pipeline_for_dynamic_left() {
+        let source = "pure choose(left: List[Int]) -> Int { let ignored = left |> zip([2] |> map { |item| return item }) }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zip_drains_right_materializers_before_an_empty_result() {
+        let source = "pure choose() -> Int { let ignored = [] |> zip([2] |> map { |item| return item } |> sort |> take(0)) }\n";
         let diagnostics = diagnostics(source);
         assert!(
             !diagnostics
