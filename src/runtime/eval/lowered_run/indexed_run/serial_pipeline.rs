@@ -400,7 +400,9 @@ impl IndexedKeyedStage {
         match self {
             Self::SortBy { values, .. } => values.push((key, item)),
             Self::GroupBy { groups, .. } => {
-                if let Some((_, values)) = groups.iter_mut().find(|(existing, _)| *existing == key) {
+                if let Some((_, values)) = groups.iter_mut().find(|(existing, _)| {
+                    crate::runtime::eval::lowered_values_semantically_equal(existing, &key)
+                }) {
                     values.push(item);
                 } else {
                     groups.push((key, vec![item]));
@@ -411,7 +413,9 @@ impl IndexedKeyedStage {
                 *counts.entry(key).or_default() += 1;
             }
             Self::UniqueBy { seen, values, .. } => {
-                if !seen.iter().any(|existing| existing == &key) {
+                if !seen.iter().any(|existing| {
+                    crate::runtime::eval::lowered_values_semantically_equal(existing, &key)
+                }) {
                     seen.push(key);
                     values.push(item);
                 }
