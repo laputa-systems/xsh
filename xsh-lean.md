@@ -4,8 +4,9 @@
 The pinned toolchain, finite private bridge fixtures, provisional inventory,
 scalar and base-machine fragments, validation, nominal identity/provenance,
 union-membership, byte-lexical RelPath, and recursive `.require` fragments,
-environment/store, effects, raw-IR, and transport codec/law fragments are
-integrated.
+bounded refinements, non-empty filtering, environment/store, effects including
+bounded failure witnesses and edge-order laws, raw-IR, and transport
+codec/law fragments are integrated.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
 runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
 and `Xsh.Values.FloatEquality` defines an executable comparator over raw
@@ -13,12 +14,13 @@ encodings with Lean laws for IEEE value equality. A source regression covers
 runtime and constant-folded signed-zero, NaN, and nested comparisons. Consolidation
 acceptance and the post-consolidation G0b source freeze remain pending gates.
 The owner requested wider staggered lanes; continue on disjoint domains with
-the coordinated build and memory limits. No source or Rust conformance claim or
-full G2 theorem is made, and all 72 inventoried full theorem obligations remain
-planned. The Raw decoder fragments prove successful word-read length, payload
-length and table bounds, plus rejection of one concrete out-of-bounds payload
+the coordinated build and memory limits. These independent fragments make no
+source or Rust conformance claim and close no full G2 or G3 obligation; all 72
+inventoried universal theorem obligations remain planned. The Raw decoder
+fragments prove successful word-read length, payload length and table bounds,
+plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 145 fragment roots; its 50 Python
+Rust conformance. The inventory now names 174 fragment roots; its 50 Python
 tests check inventory consistency, mutation controls, and finite-case evidence
 boundaries. The new RelPath roots cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,

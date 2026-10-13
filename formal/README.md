@@ -87,7 +87,23 @@ required optional-valued fields, exact erasure and provenance on success, and
 recoverable rejection that leaves the modeled store unchanged. This independent
 finite model establishes no Rust correspondence or full G2 validation claim.
 
-The inventory names 145 rooted Lean fragment declarations. Its 50 Python tests
+`Xsh.Validation.BoundedRefinements` proves interval inclusion, exact-payload
+widening and composition, narrowing rejection, and a mutation witness for a
+missing upper-bound check. `Xsh.Validation.NonEmptyFiltering` relates a
+nonempty filtered list to a surviving input, preserves the filtered sequence
+after successful validation, and rejects an all-false filter. These 14 roots
+cover selected operations in the independent validation model; they do not
+cover every validated-type operation or establish Rust correspondence or full
+G2.
+
+`Xsh.Effects.BoundFailureWitnesses` preserves the source expression, required
+effect, and rejection reason for a classified obligation.
+`Xsh.Effects.SolverEdgeOrder` proves that edge permutations preserve the finite
+recursive solver answer and detects a first-edge-only mutation. These 15 roots
+cover bounded failure classification and graph operations; they do not
+establish Rust checker or graph-construction correspondence or full G3.
+
+The inventory names 174 rooted Lean fragment declarations. Its 50 Python tests
 check inventory shape, root reachability, mutation controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
 G1 closure or whole-language soundness claim is made.

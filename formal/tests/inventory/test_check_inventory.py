@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(145, len(result["fragment_roots"]))
+        self.assertEqual(174, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -245,6 +245,8 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Effects.Lexical",
                 "Xsh.Effects.ExpressionBridge",
                 "Xsh.Effects.Capture",
+                "Xsh.Effects.BoundFailureWitnesses",
+                "Xsh.Effects.SolverEdgeOrder",
             }
         }
         self.assertEqual(
@@ -287,6 +289,21 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Semantics.Effects.capture_rejects_unresolved_under_empty_bound",
                 "Xsh.Semantics.Effects.mutation_dropping_unresolved_is_observable",
                 "Xsh.Semantics.Effects.capture_keeps_unknown_contract_unresolved",
+                "Xsh.Semantics.Effects.classified_failure_retains_site_and_effect",
+                "Xsh.Semantics.Effects.classified_failure_reason_is_sound",
+                "Xsh.Semantics.Effects.rejected_classified_obligation_retains_site_and_effect",
+                "Xsh.Semantics.Effects.missing_clause_network_witness_retains_obligation",
+                "Xsh.Semantics.Effects.without_net_network_witness_retains_obligation",
+                "Xsh.Semantics.Effects.mutation_dropping_failure_site_is_detected",
+                "Xsh.Semantics.Effects.mutation_dropping_failure_effect_is_detected",
+                "Xsh.Semantics.Effects.Solver.reorderGraph_preserves_direct",
+                "Xsh.Semantics.Effects.Solver.reorderGraph_preserves_declared_contract",
+                "Xsh.Semantics.Effects.Solver.edgesContribution_permutation_invariant",
+                "Xsh.Semantics.Effects.Solver.nodeEquation_edgePermutation",
+                "Xsh.Semantics.Effects.Solver.step_edgePermutation",
+                "Xsh.Semantics.Effects.Solver.solve_edgePermutation",
+                "Xsh.Semantics.Effects.Solver.reordered_edge_witness_preserves_solver_answer",
+                "Xsh.Semantics.Effects.Solver.first_edge_only_mutation_changes_answer",
             },
             effect_roots,
         )
@@ -364,6 +381,38 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Validation.RecursiveRequire.shallow_only_mutation_misses_nested_bad_item",
             },
             recursive_require_roots,
+        )
+        bounded_refinement_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Validation.BoundedRefinements"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Validation.BoundedRefinements.widen_preserves_exact_payload",
+                "Xsh.Validation.BoundedRefinements.widening_composes",
+                "Xsh.Validation.BoundedRefinements.widen_composition",
+                "Xsh.Validation.BoundedRefinements.narrow_rejects_outside_smaller",
+                "Xsh.Validation.BoundedRefinements.zero_to_ten_widens_to_byte",
+                "Xsh.Validation.BoundedRefinements.zero_to_ten_widening_witness_preserves_ten",
+                "Xsh.Validation.BoundedRefinements.byte_is_nested_in_zero_to_256",
+                "Xsh.Validation.BoundedRefinements.narrowing_256_to_byte_rejects",
+                "Xsh.Validation.BoundedRefinements.dropping_high_bound_mutation_is_detected",
+            },
+            bounded_refinement_roots,
+        )
+        nonempty_filtering_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Validation.NonEmptyFiltering"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Validation.NonEmptyFiltering.filter_is_nonempty_iff_survivor",
+                "Xsh.Validation.NonEmptyFiltering.filterThenRequire_accepts_iff_survivor",
+                "Xsh.Validation.NonEmptyFiltering.filterThenRequire_success_erases_exactly",
+                "Xsh.Validation.NonEmptyFiltering.all_false_filter_rejects",
+                "Xsh.Validation.NonEmptyFiltering.removing_nonempty_guard_is_detected",
+            },
+            nonempty_filtering_roots,
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:

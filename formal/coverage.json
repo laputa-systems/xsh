@@ -3717,7 +3717,7 @@
       "boundary": "This single rejection witness does not establish total decoder soundness, schema completeness, or Rust conformance."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.permitsCreationBool_correct",
+      "id": "fragment.Xsh.Semantics.Effects.permitsCreationBool_correct",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.permitsCreationBool_correct",
       "evidence_class": "SPEC_PROVED",
@@ -3726,7 +3726,7 @@
       "boundary": "Finite classified obligations only; no Rust checker classification, full-source conformance, EFF-LATENT, or EFF-SEMANTIC proof."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.checkProducerCall_success_implies_creation_permission",
+      "id": "fragment.Xsh.Semantics.Effects.checkProducerCall_success_implies_creation_permission",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.checkProducerCall_success_implies_creation_permission",
       "evidence_class": "SPEC_PROVED",
@@ -3735,7 +3735,7 @@
       "boundary": "Closed producer table and source-call form only; no Rust checker or parser connection, full-source conformance, EFF-LATENT, or EFF-SEMANTIC proof."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.checkProducerCall_success_records_its_lexical_site",
+      "id": "fragment.Xsh.Semantics.Effects.checkProducerCall_success_records_its_lexical_site",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.checkProducerCall_success_records_its_lexical_site",
       "evidence_class": "SPEC_PROVED",
@@ -3744,7 +3744,7 @@
       "boundary": "Closed producer call form only; no Rust source-site classification, full-source conformance, EFF-LATENT, or EFF-SEMANTIC proof."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.checked_producer_body_obligation_is_permitted_at_creation",
+      "id": "fragment.Xsh.Semantics.Effects.checked_producer_body_obligation_is_permitted_at_creation",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.checked_producer_body_obligation_is_permitted_at_creation",
       "evidence_class": "SPEC_PROVED",
@@ -3753,7 +3753,7 @@
       "boundary": "The checked handle is a static derivation, not a consumer permission; no runtime sandbox or Rust conformance is proved."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.outside_creation_accepts_the_classified_producer_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.outside_creation_accepts_the_classified_producer_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.outside_creation_accepts_the_classified_producer_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -3762,7 +3762,7 @@
       "boundary": "Concrete witness in the closed checker fragment only; no Rust checker classification or full-source conformance."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.alias_preserves_the_creation_handle_inside_without",
+      "id": "fragment.Xsh.Semantics.Effects.alias_preserves_the_creation_handle_inside_without",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.alias_preserves_the_creation_handle_inside_without",
       "evidence_class": "SPEC_PROVED",
@@ -3771,7 +3771,7 @@
       "boundary": "No consumer-side permission recharge is modeled; no Rust alias/runtime conformance, EFF-LATENT, or EFF-SEMANTIC proof."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.restricted_consumption_does_not_recharge_a_checked_alias_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.restricted_consumption_does_not_recharge_a_checked_alias_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.restricted_consumption_does_not_recharge_a_checked_alias_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -3780,7 +3780,7 @@
       "boundary": "Abstract finite pull only; no consumer permission API, Rust stream conformance, EFF-LATENT, or EFF-SEMANTIC proof."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.without_net_rejects_a_network_producer_creation_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.without_net_rejects_a_network_producer_creation_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.without_net_rejects_a_network_producer_creation_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -3789,7 +3789,7 @@
       "boundary": "Concrete witness in the closed checker fragment only; no runtime sandbox or Rust checker conformance."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.delegated_child_retains_outer_delegate_child_and_body_sites_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.delegated_child_retains_outer_delegate_child_and_body_sites_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.delegated_child_retains_outer_delegate_child_and_body_sites_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -3798,7 +3798,7 @@
       "boundary": "Closed delegation source form only; no stream alias/close/resource runtime semantics, Rust conformance, EFF-LATENT, or EFF-SEMANTIC proof."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.delegated_child_is_checked_at_its_own_call_context_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.delegated_child_is_checked_at_its_own_call_context_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.delegated_child_is_checked_at_its_own_call_context_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -3807,7 +3807,7 @@
       "boundary": "Concrete witness in the closed checker fragment only; no Rust source classification or full-source conformance."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.conditional_source_retains_both_tagged_producer_alternatives_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.conditional_source_retains_both_tagged_producer_alternatives_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.conditional_source_retains_both_tagged_producer_alternatives_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -3816,7 +3816,7 @@
       "boundary": "Both arms are feasible in this closed fragment; no condition evaluation, Rust checker conformance, EFF-LATENT, or EFF-SEMANTIC proof."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.conditional_blocked_arm_mutation_is_rejected_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.conditional_blocked_arm_mutation_is_rejected_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.conditional_blocked_arm_mutation_is_rejected_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -3825,7 +3825,7 @@
       "boundary": "Mutation witness in the closed checker fragment only; no Rust conditional typing or full-source conformance."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.missing_alias_binding_mutation_is_rejected_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.missing_alias_binding_mutation_is_rejected_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.missing_alias_binding_mutation_is_rejected_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -3834,7 +3834,7 @@
       "boundary": "Mutation witness in the closed alias table only; no Rust binding-resolution or full-source conformance."
     },
     {
-      "id": "fragment.Xsh.Semantics.Effects.ExpressionBridge.unknown_source_fails_closed_fragment",
+      "id": "fragment.Xsh.Semantics.Effects.unknown_source_fails_closed_fragment",
       "module": "Xsh.Effects.ExpressionBridge",
       "declaration": "Xsh.Semantics.Effects.unknown_source_fails_closed_fragment",
       "evidence_class": "SPEC_PROVED",
@@ -4291,6 +4291,267 @@
       "status": "fragment",
       "scope": "A mutation that skips nested field and list-item checks accepts a malformed value that recursive checking rejects.",
       "boundary": "Concrete mutation witness over the independent target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.widen_preserves_exact_payload",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.widen_preserves_exact_payload",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.widening_composes",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.widening_composes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.widen_composition",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.widen_composition",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.narrow_rejects_outside_smaller",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.narrow_rejects_outside_smaller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.zero_to_ten_widens_to_byte",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.zero_to_ten_widens_to_byte",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.zero_to_ten_widening_witness_preserves_ten",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.zero_to_ten_widening_witness_preserves_ten",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.byte_is_nested_in_zero_to_256",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.byte_is_nested_in_zero_to_256",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.narrowing_256_to_byte_rejects",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.narrowing_256_to_byte_rejects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.BoundedRefinements.dropping_high_bound_mutation_is_detected",
+      "module": "Xsh.Validation.BoundedRefinements",
+      "declaration": "Xsh.Validation.BoundedRefinements.dropping_high_bound_mutation_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.NonEmptyFiltering.filter_is_nonempty_iff_survivor",
+      "module": "Xsh.Validation.NonEmptyFiltering",
+      "declaration": "Xsh.Validation.NonEmptyFiltering.filter_is_nonempty_iff_survivor",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Filtering followed by the shared non-empty validation boundary, including all-false rejection and exact successful erasure.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.NonEmptyFiltering.filterThenRequire_accepts_iff_survivor",
+      "module": "Xsh.Validation.NonEmptyFiltering",
+      "declaration": "Xsh.Validation.NonEmptyFiltering.filterThenRequire_accepts_iff_survivor",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Filtering followed by the shared non-empty validation boundary, including all-false rejection and exact successful erasure.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.NonEmptyFiltering.filterThenRequire_success_erases_exactly",
+      "module": "Xsh.Validation.NonEmptyFiltering",
+      "declaration": "Xsh.Validation.NonEmptyFiltering.filterThenRequire_success_erases_exactly",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Filtering followed by the shared non-empty validation boundary, including all-false rejection and exact successful erasure.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.NonEmptyFiltering.all_false_filter_rejects",
+      "module": "Xsh.Validation.NonEmptyFiltering",
+      "declaration": "Xsh.Validation.NonEmptyFiltering.all_false_filter_rejects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Filtering followed by the shared non-empty validation boundary, including all-false rejection and exact successful erasure.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.NonEmptyFiltering.removing_nonempty_guard_is_detected",
+      "module": "Xsh.Validation.NonEmptyFiltering",
+      "declaration": "Xsh.Validation.NonEmptyFiltering.removing_nonempty_guard_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Filtering followed by the shared non-empty validation boundary, including all-false rejection and exact successful erasure.",
+      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.classified_failure_retains_site_and_effect",
+      "module": "Xsh.Effects.BoundFailureWitnesses",
+      "declaration": "Xsh.Semantics.Effects.classified_failure_retains_site_and_effect",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite effect-bound failure classification retaining the source expression, required effect, and reason for one rejected obligation.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.classified_failure_reason_is_sound",
+      "module": "Xsh.Effects.BoundFailureWitnesses",
+      "declaration": "Xsh.Semantics.Effects.classified_failure_reason_is_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite effect-bound failure classification retaining the source expression, required effect, and reason for one rejected obligation.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.rejected_classified_obligation_retains_site_and_effect",
+      "module": "Xsh.Effects.BoundFailureWitnesses",
+      "declaration": "Xsh.Semantics.Effects.rejected_classified_obligation_retains_site_and_effect",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite effect-bound failure classification retaining the source expression, required effect, and reason for one rejected obligation.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.missing_clause_network_witness_retains_obligation",
+      "module": "Xsh.Effects.BoundFailureWitnesses",
+      "declaration": "Xsh.Semantics.Effects.missing_clause_network_witness_retains_obligation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite effect-bound failure classification retaining the source expression, required effect, and reason for one rejected obligation.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.without_net_network_witness_retains_obligation",
+      "module": "Xsh.Effects.BoundFailureWitnesses",
+      "declaration": "Xsh.Semantics.Effects.without_net_network_witness_retains_obligation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite effect-bound failure classification retaining the source expression, required effect, and reason for one rejected obligation.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.mutation_dropping_failure_site_is_detected",
+      "module": "Xsh.Effects.BoundFailureWitnesses",
+      "declaration": "Xsh.Semantics.Effects.mutation_dropping_failure_site_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite effect-bound failure classification retaining the source expression, required effect, and reason for one rejected obligation.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.mutation_dropping_failure_effect_is_detected",
+      "module": "Xsh.Effects.BoundFailureWitnesses",
+      "declaration": "Xsh.Semantics.Effects.mutation_dropping_failure_effect_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite effect-bound failure classification retaining the source expression, required effect, and reason for one rejected obligation.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.reorderGraph_preserves_direct",
+      "module": "Xsh.Effects.SolverEdgeOrder",
+      "declaration": "Xsh.Semantics.Effects.Solver.reorderGraph_preserves_direct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.reorderGraph_preserves_declared_contract",
+      "module": "Xsh.Effects.SolverEdgeOrder",
+      "declaration": "Xsh.Semantics.Effects.Solver.reorderGraph_preserves_declared_contract",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.edgesContribution_permutation_invariant",
+      "module": "Xsh.Effects.SolverEdgeOrder",
+      "declaration": "Xsh.Semantics.Effects.Solver.edgesContribution_permutation_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.nodeEquation_edgePermutation",
+      "module": "Xsh.Effects.SolverEdgeOrder",
+      "declaration": "Xsh.Semantics.Effects.Solver.nodeEquation_edgePermutation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.step_edgePermutation",
+      "module": "Xsh.Effects.SolverEdgeOrder",
+      "declaration": "Xsh.Semantics.Effects.Solver.step_edgePermutation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.solve_edgePermutation",
+      "module": "Xsh.Effects.SolverEdgeOrder",
+      "declaration": "Xsh.Semantics.Effects.Solver.solve_edgePermutation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.reordered_edge_witness_preserves_solver_answer",
+      "module": "Xsh.Effects.SolverEdgeOrder",
+      "declaration": "Xsh.Semantics.Effects.Solver.reordered_edge_witness_preserves_solver_answer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.first_edge_only_mutation_changes_answer",
+      "module": "Xsh.Effects.SolverEdgeOrder",
+      "declaration": "Xsh.Semantics.Effects.Solver.first_edge_only_mutation_changes_answer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Edge-order invariance and a first-edge-only mutation witness for the modeled finite recursive summary solver.",
+      "boundary": "Independent finite Lean model only; no Rust graph/classification correspondence or full G3 effects closure."
     }
   ],
   "source_identity": null

@@ -13,11 +13,15 @@ import Xsh.Validation.Store
 import Xsh.Validation.Nominal
 import Xsh.Validation.RelPath
 import Xsh.Validation.RecursiveRequire
+import Xsh.Validation.BoundedRefinements
+import Xsh.Validation.NonEmptyFiltering
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
 import Xsh.Effects.ExpressionBridge
 import Xsh.Effects.Capture
+import Xsh.Effects.BoundFailureWitnesses
+import Xsh.Effects.SolverEdgeOrder
 import Xsh.IR.Raw.Witnesses
 import Xsh.Conformance.Transport.Codecs
 import Xsh.Conformance.Transport.Laws
