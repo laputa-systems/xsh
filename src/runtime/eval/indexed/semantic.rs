@@ -347,6 +347,20 @@ impl SemanticPools {
         Err(IrVerifyError::new("field type graph contains a cycle"))
     }
 
+    /// Exposes the payload so callers can prove a non-null branch before
+    /// traversing its fields.
+    pub(super) fn optional_payload_type(
+        &self,
+        id: TypeId,
+    ) -> Result<Option<TypeId>, IrVerifyError> {
+        if self.type_tag(id)? != TypeTag::Optional {
+            return Ok(None);
+        }
+        TypeId::from_raw(self.type_data[id.index()].lhs)
+            .map(Some)
+            .ok_or_else(|| IrVerifyError::new("optional payload type id is invalid"))
+    }
+
     /// The signature of a typed callable type.
     pub(super) fn typed_callable_signature(
         &self,

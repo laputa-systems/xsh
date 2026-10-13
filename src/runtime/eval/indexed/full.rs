@@ -1385,7 +1385,6 @@ impl FullProgram {
         // The temporary-slot proof reads which writers this pass proved.
         decoder.verify_callable_slot_initializers()?;
         decoder.verify_temporary_driver_slot_types()?;
-        decoder.verify_typed_calls_after_structure()?;
         decoder.copy_in_place_marks_into(in_place_marks)?;
         Ok(registered_import)
     }
@@ -1898,10 +1897,8 @@ impl FullBuilder {
             headers,
             identities: std::sync::OnceLock::new(),
         };
-        let verified = FullVerifier::verify(&program);
-        verified.map_err(|_| {
-            IrBuildError::format("full_ir_verification", None, 0, 0)
-        })?;
+        FullVerifier::verify(&program)
+            .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
         Ok(program)
     }
 
@@ -4337,12 +4334,29 @@ impl<'a> FullDecoder<'a> {
             }
             _ => "typed call signature differs from its checked callee type",
         };
-        if self.store.tags.get(callee) == Some(&FullTag::ExprField)
-            && let Some(receiver) = self.checked_field_receiver_type(callee)?
-        {
-            if matches!(receiver.into_unvalidated(), Type::Record(_) | Type::Optional(_)) {
-                // Structural derivation validates any optional receiver against
-                // its null-narrowed branch before comparing the callable type.
+        if self.store.tags.get(callee) == Some(&FullTag::ExprField) {
+            let schema::ExprView::Field { base, .. } = self.expression_view(callee)? else {
+                return Err(IrVerifyError::new(
+                    "field instruction tag and generated view disagree",
+                ));
+            };
+            let receiver = self.checked_field_receiver_type(callee);
+            if let Some(receiver) = receiver? {
+            let binding = self.checked_binding_path(base.raw() as usize)?;
+            let declared_receiver = if let Some(binding) = &binding {
+                self.checked_binding_path_type(callee, binding)?
+            } else {
+                None
+            };
+            let declared_receiver_is_optional = declared_receiver
+                .is_some_and(|ty| matches!(ty.into_unvalidated(), Type::Optional(_)));
+            let receiver_is_optional = matches!(
+                receiver.into_unvalidated(),
+                Type::Optional(_)
+            );
+            if receiver_is_optional || declared_receiver_is_optional {
+                // An optional binding can carry a record fact only after its
+                // null-narrowed branch has been checked independently.
                 let actual = self.derive_checked_field_type(callee)?;
                 if actual != self.store.semantic.to_type(signature)? {
                     return Err(IrVerifyError::new(reason));
@@ -4352,6 +4366,7 @@ impl<'a> FullDecoder<'a> {
                     .typed_callable_signature(signature)
                     .map_err(|_| IrVerifyError::new("typed call callee is not a typed callable"))?;
                 return Ok(());
+            }
             }
         }
         let actual = match self.derive_typed_callee_type(callee) {
@@ -4392,6 +4407,11 @@ impl<'a> FullDecoder<'a> {
             .tags
             .get(instruction)
             .ok_or_else(|| IrVerifyError::new("typed callee expression is out of bounds"))?;
+        if let Some(binding) = self.checked_binding_path(instruction)?
+            && let Some(type_id) = self.checked_binding_path_type_id(instruction, &binding)?
+        {
+            return Ok(type_id);
+        }
         if !matches!(
             tag,
             FullTag::ExprField
@@ -5685,13 +5705,15 @@ impl<'a> FullDecoder<'a> {
             } else {
                 match self.checked_slot_type(slot) {
                     Ok(Some(actual)) => Some(self.store.semantic.to_type(actual)?),
-                    Ok(None) => None,
+                    // Lowered immutable locals may lack a slot type fact even
+                    // though their initializer has a structurally derivable type.
+                    Ok(None) => self.derive_checked_expression_type(instruction)?,
                     Err(error)
                         if error
                             .message
                             .starts_with("typed callee slot has no checked type fact:") =>
                     {
-                        None
+                        self.derive_checked_expression_type(instruction)?
                     }
                     Err(error) => return Err(error),
                 }
@@ -7213,6 +7235,26 @@ impl<'a> FullDecoder<'a> {
                 let actual_type = self.store.semantic.to_type(actual)?;
                 if actual_type == ty {
                     return Ok(());
+                } else if self.checked_declared_type_matches_narrowed_fact(
+                    instruction,
+                    (slot, Vec::new()),
+                    &actual_type,
+                    &ty,
+                )? {
+                    return Ok(());
+                } else if let Type::Optional(payload) = &actual_type
+                    && payload.as_ref() == &ty
+                {
+                    if self.checked_optional_receiver_is_narrowed(
+                        instruction,
+                        instruction,
+                        payload,
+                    )? {
+                        return Ok(());
+                    }
+                    return Err(IrVerifyError::new(
+                        "checked optional field receiver has no non-null branch proof",
+                    ));
                 } else if let Type::Callable(callable) = &ty
                     && matches!(
                         (actual_type, callable.pure),
@@ -7227,7 +7269,23 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::Field { .. } => {
-                if self.derive_checked_field_type(instruction)? != ty {
+                let matches = if let Some(binding) = self.checked_binding_path(instruction)? {
+                    let Some(declared) = self.checked_binding_path_type(instruction, &binding)?
+                    else {
+                        return Err(IrVerifyError::new(
+                            "checked field fact disagrees with its structural receiver",
+                        ));
+                    };
+                    self.checked_declared_type_matches_narrowed_fact(
+                        instruction,
+                        binding,
+                        &declared,
+                        &ty,
+                    )?
+                } else {
+                    self.derive_checked_field_type(instruction)? == ty
+                };
+                if !matches {
                     return Err(IrVerifyError::new(
                         "checked field fact disagrees with its structural receiver",
                     ));
@@ -7973,17 +8031,6 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    fn verify_typed_calls_after_structure(&self) -> Result<(), IrVerifyError> {
-        for instruction in self.instruction_range.clone() {
-            if self.store.tags[instruction] != FullTag::ExprTypedCall {
-                continue;
-            }
-            let payload = self.store.payload(self.store.data[instruction].range())?;
-            self.verify_typed_call_shape(self.cursor(payload))?;
-        }
-        Ok(())
-    }
-
     fn verify_callable_slot_initializer(
         &self,
         slot: usize,
@@ -8210,6 +8257,49 @@ impl<'a> FullDecoder<'a> {
                 _ => return Ok(None),
             }
         }
+    }
+
+    /// Resolve declared path types, unwrapping optional prefixes only after a
+    /// branch proof so a narrowed expression fact cannot justify itself.
+    fn checked_binding_path_type(
+        &self,
+        use_site: usize,
+        binding: &(usize, Vec<Name>),
+    ) -> Result<Option<Type>, IrVerifyError> {
+        self.checked_binding_path_type_id(use_site, binding)?
+            .map(|type_id| self.store.semantic.to_type(type_id))
+            .transpose()
+    }
+
+    fn checked_binding_path_type_id(
+        &self,
+        use_site: usize,
+        binding: &(usize, Vec<Name>),
+    ) -> Result<Option<TypeId>, IrVerifyError> {
+        let Some(mut type_id) = self.checked_slot_type(binding.0)? else {
+            return Ok(None);
+        };
+        let mut prefix = Vec::new();
+        for field in &binding.1 {
+            while let Some(payload_id) = self.store.semantic.optional_payload_type(type_id)? {
+                let payload = self.store.semantic.to_type(payload_id)?;
+                let prefix_binding = (binding.0, prefix.clone());
+                if !self.checked_binding_path_is_narrowed(
+                    use_site,
+                    &prefix_binding,
+                    &payload,
+                )? {
+                    return Ok(None);
+                }
+                type_id = payload_id;
+            }
+            let Some(next) = self.store.semantic.field_type(type_id, *field)? else {
+                return Ok(None);
+            };
+            type_id = next;
+            prefix.push(*field);
+        }
+        Ok(Some(type_id))
     }
 
     fn checked_statement_ids(
@@ -8510,6 +8600,54 @@ impl<'a> FullDecoder<'a> {
         Ok(true)
     }
 
+    fn checked_short_circuit_path_for_child(
+        &self,
+        parent: usize,
+        child: usize,
+    ) -> Result<Option<(usize, bool, bool, usize)>, IrVerifyError> {
+        let tag = self.store.tags[parent];
+        if matches!(tag, FullTag::BoolAnd | FullTag::BoolOr) {
+            let payload = FullPayload {
+                store: self.store,
+                cursor: FullCursor::new(self.store.payload(self.store.data[parent].range())?),
+            };
+            return match schema::BoolView::decode_from_decoder(self, tag, payload)? {
+                schema::BoolView::And(left, right) if right.raw() as usize == child => Ok(Some((
+                    left.raw() as usize,
+                    true,
+                    true,
+                    right.raw() as usize,
+                ))),
+                schema::BoolView::Or(left, right) if right.raw() as usize == child => Ok(Some((
+                    left.raw() as usize,
+                    false,
+                    true,
+                    right.raw() as usize,
+                ))),
+                _ => Ok(None),
+            };
+        }
+        if tag != FullTag::ExprBinary {
+            return Ok(None);
+        }
+        if let schema::ExprView::Binary {
+            op: op @ (BinaryOp::And | BinaryOp::Or),
+            left,
+            right,
+            ..
+        } = self.expression_view(parent)?
+            && right.raw() as usize == child
+        {
+            return Ok(Some((
+                left.raw() as usize,
+                op == BinaryOp::And,
+                false,
+                right.raw() as usize,
+            )));
+        }
+        Ok(None)
+    }
+
     /// Collects the conditions active at a branch child and the roots whose
     /// earlier writes can invalidate those facts. A while condition applies
     /// only to the current iteration because the condition runs again next time.
@@ -8626,6 +8764,7 @@ impl<'a> FullDecoder<'a> {
     /// outcome carries the fact; facts from operands evaluated on one path combine.
     fn checked_condition_pair_proves_nonnull(
         &self,
+        use_site: usize,
         left: usize,
         right: usize,
         when_true: bool,
@@ -8639,6 +8778,7 @@ impl<'a> FullDecoder<'a> {
                 condition,
                 outcome,
                 is_boolean,
+                use_site,
                 target,
                 expected_payload,
             )
@@ -8672,6 +8812,7 @@ impl<'a> FullDecoder<'a> {
         condition: usize,
         when_true: bool,
         is_boolean: bool,
+        use_site: usize,
         target: &(usize, Vec<Name>),
         expected_payload: &Type,
     ) -> Result<bool, IrVerifyError> {
@@ -8688,11 +8829,13 @@ impl<'a> FullDecoder<'a> {
                     value.raw() as usize,
                     !when_true,
                     true,
+                    use_site,
                     target,
                     expected_payload,
                 ),
                 schema::BoolView::And(left, right) => self
                     .checked_condition_pair_proves_nonnull(
+                        use_site,
                         left.raw() as usize,
                         right.raw() as usize,
                         when_true,
@@ -8703,6 +8846,7 @@ impl<'a> FullDecoder<'a> {
                     ),
                 schema::BoolView::Or(left, right) => self
                     .checked_condition_pair_proves_nonnull(
+                        use_site,
                         left.raw() as usize,
                         right.raw() as usize,
                         when_true,
@@ -8727,8 +8871,7 @@ impl<'a> FullDecoder<'a> {
                     let Type::Optional(payload) = slot_type.into_unvalidated() else {
                         return Ok(false);
                     };
-                    Ok(payload.into_unvalidated()
-                        == expected_payload.clone().into_unvalidated()
+                    Ok(payload.as_ref() == expected_payload
                         && (op == BinaryOp::Ne) == when_true)
                 }
                 _ => Ok(false),
@@ -8762,16 +8905,17 @@ impl<'a> FullDecoder<'a> {
                 if self.checked_binding_path(subject)?.as_ref() != Some(target) {
                     return Ok(false);
                 }
-                let Some(subject_type) = self.derive_checked_expression_type(subject)? else {
+                let Some(subject_type) = self.checked_binding_path_type(use_site, target)? else {
                     return Ok(false);
                 };
                 let Type::Optional(payload) = subject_type.into_unvalidated() else {
                     return Ok(false);
                 };
-                Ok(payload.into_unvalidated() == expected_payload.clone().into_unvalidated()
+                Ok(payload.as_ref() == expected_payload
                     && (op == BinaryOp::Ne) == when_true)
             }
             BinaryOp::And | BinaryOp::Or => self.checked_condition_pair_proves_nonnull(
+                use_site,
                 left.raw() as usize,
                 right.raw() as usize,
                 when_true,
@@ -8780,6 +8924,53 @@ impl<'a> FullDecoder<'a> {
                 target,
                 expected_payload,
             ),
+            _ => Ok(false),
+        }
+    }
+
+    fn checked_declared_type_matches_narrowed_fact(
+        &self,
+        instruction: usize,
+        mut binding: (usize, Vec<Name>),
+        declared: &Type,
+        checked: &Type,
+    ) -> Result<bool, IrVerifyError> {
+        if declared == checked {
+            return Ok(true);
+        }
+        match (declared, checked) {
+            (Type::Record(declared_fields), Type::Record(checked_fields))
+                if declared_fields.len() == checked_fields.len() =>
+            {
+                for (field, declared_field) in declared_fields {
+                    let Some(checked_field) = checked_fields.get(field) else {
+                        return Ok(false);
+                    };
+                    binding.1.push(*field);
+                    let matches = self.checked_declared_type_matches_narrowed_fact(
+                        instruction,
+                        binding.clone(),
+                        declared_field,
+                        checked_field,
+                    )?;
+                    binding.1.pop();
+                    if !matches {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            (Type::Optional(payload), checked) => {
+                if !self.checked_binding_path_is_narrowed(instruction, &binding, payload)? {
+                    return Ok(false);
+                }
+                self.checked_declared_type_matches_narrowed_fact(
+                    instruction,
+                    binding,
+                    payload,
+                    checked,
+                )
+            }
             _ => Ok(false),
         }
     }
@@ -8796,11 +8987,37 @@ impl<'a> FullDecoder<'a> {
         let Some(target) = self.checked_binding_path(receiver_instruction)? else {
             return Ok(false);
         };
+        self.checked_binding_path_is_narrowed(field_instruction, &target, expected_payload)
+    }
+
+    fn checked_binding_path_is_narrowed(
+        &self,
+        field_instruction: usize,
+        target: &(usize, Vec<Name>),
+        expected_payload: &Type,
+    ) -> Result<bool, IrVerifyError> {
+        if self.instruction_proof.is_none() {
+            return Ok(false);
+        }
         let mut child = field_instruction;
         for _ in 0..=self.instruction_range.len() {
             let Some(parent) = self.instruction_parent_of(child)? else {
                 return Ok(false);
             };
+            let short_circuit = self.checked_short_circuit_path_for_child(parent, child)?;
+            if let Some((left, when_true, is_boolean, right)) = short_circuit
+                && self.checked_condition_proves_nonnull(
+                    left,
+                    when_true,
+                    is_boolean,
+                    field_instruction,
+                    target,
+                    expected_payload,
+                )?
+                && self.checked_expression_preserves_binding_path(right, target)?
+            {
+                return Ok(true);
+            }
             if let Some((conditions, body_roots)) =
                 self.checked_branch_conditions_for_child(parent, child)?
             {
@@ -8812,13 +9029,14 @@ impl<'a> FullDecoder<'a> {
                         condition,
                         when_true,
                         is_boolean,
-                        &target,
+                        field_instruction,
+                        target,
                         expected_payload,
                     )? && self.checked_branch_preserves_binding_path(
                         parent,
                         &body_roots,
                         field_instruction,
-                        &target,
+                        target,
                     )? {
                         return Ok(true);
                     }
@@ -8871,11 +9089,11 @@ impl<'a> FullDecoder<'a> {
             | schema::StmtView::AssignFieldInt { field, .. } => {
                 Ok(paths_overlap(&[Name::intern(field)]))
             }
-            schema::StmtView::AssignPath { path, .. } => {
+            schema::StmtView::AssignPath { mut path, .. } => {
                 let mut fields = Vec::new();
-                for step in path.0 {
-                    match step {
-                        LoweredAssignStep::Field(field) => {
+                for step in &mut path {
+                    match step? {
+                        decode::AssignStepView::Field(field) => {
                             if target
                                 .1
                                 .get(fields.len())
@@ -8888,7 +9106,7 @@ impl<'a> FullDecoder<'a> {
                             }
                             fields.push(field);
                         }
-                        LoweredAssignStep::Index(_) => return Ok(true),
+                        decode::AssignStepView::Index(_) => return Ok(true),
                     }
                 }
                 Ok(paths_overlap(&fields))
@@ -12961,7 +13179,6 @@ impl FullVerifier {
             // Reject malformed transfers even when no loop-return query in
             // this function happens to request the cached analysis.
             drop(decoder.return_analysis()?);
-            decoder.verify_typed_calls_after_structure()?;
             decoder.verify_checked_expression_facts()?;
             decoder.verify_callable_slot_initializers()?;
             decoder.copy_in_place_marks_into(&mut in_place_marks)?;
@@ -14654,9 +14871,6 @@ fn verify_node_metadata(
                 "filesystem list operation is not `fs.children`",
             ));
         }
-    }
-    if tag == FullTag::ExprTypedCall {
-        decoder.verify_typed_call_shape(payload)?;
     }
     if tag == FullTag::ExprTag {
         let mut metadata = payload;
@@ -16844,6 +17058,101 @@ assert results == [4]
             .expect("fixture function range exists")
             .filter(|instruction| program.store.tags[*instruction] == tag)
             .collect()
+    }
+
+    fn typed_call_receiver_slot(program: &FullProgram, function: &str) -> usize {
+        let call = function_instruction_indices(program, function, FullTag::ExprTypedCall)
+            .into_iter()
+            .next()
+            .expect("function has a typed call");
+        let call_payload = program
+            .store
+            .payload(program.store.data[call].range())
+            .expect("typed-call payload is valid");
+        let field = *call_payload.first().expect("typed call has a callee") as usize;
+        assert_eq!(program.store.tags[field], FullTag::ExprField);
+        let field_payload = program
+            .store
+            .payload(program.store.data[field].range())
+            .expect("field payload is valid");
+        let mut receiver = *field_payload.first().expect("field has a receiver") as usize;
+        while program.store.tags[receiver] == FullTag::ExprField {
+            let payload = program
+                .store
+                .payload(program.store.data[receiver].range())
+                .expect("nested field payload is valid");
+            receiver = *payload.first().expect("nested field has a base") as usize;
+        }
+        assert_eq!(program.store.tags[receiver], FullTag::ExprParam);
+        let payload = program
+            .store
+            .payload(program.store.data[receiver].range())
+            .expect("parameter payload is valid");
+        *payload.first().expect("parameter has a slot") as usize
+    }
+
+    fn first_if_body_block(program: &FullProgram, function: &str) -> IrBlockId {
+        let conditional = [FullTag::StmtIf, FullTag::StmtIfBool]
+            .into_iter()
+            .find_map(|tag| {
+                function_instruction_indices(program, function, tag)
+                    .into_iter()
+                    .next()
+            })
+            .expect("function has a conditional");
+        let payload = program
+            .store
+            .payload(program.store.data[conditional].range())
+            .expect("conditional payload is valid");
+        let branches = IrBlockId::from_raw(payload[0]).expect("conditional has branches");
+        let branch_words = program
+            .store
+            .payload(program.store.blocks[branches.index()].instructions)
+            .expect("conditional branch list is valid");
+        IrBlockId::from_raw(branch_words[2]).expect("first branch has a body")
+    }
+
+    fn first_while_body_block(program: &FullProgram, function: &str) -> IrBlockId {
+        let loop_instruction = [FullTag::StmtWhile, FullTag::StmtWhileBool]
+            .into_iter()
+            .find_map(|tag| {
+                function_instruction_indices(program, function, tag)
+                    .into_iter()
+                    .next()
+            })
+            .expect("function has a while loop");
+        let payload = program
+            .store
+            .payload(program.store.data[loop_instruction].range())
+            .expect("while payload is valid");
+        IrBlockId::from_raw(payload[1]).expect("while has a body")
+    }
+
+    fn block_statement_range(program: &FullProgram, block: IrBlockId) -> std::ops::Range<usize> {
+        let range = program.store.blocks[block.index()]
+            .instructions
+            .bounds(program.store.extra.len())
+            .expect("statement block is valid");
+        let count = program.store.extra[range.start] as usize;
+        range.start + 1..range.start + 1 + count
+    }
+
+    fn block_statement_containing_instruction(
+        program: &FullProgram,
+        block: IrBlockId,
+        child: usize,
+    ) -> usize {
+        let mut matches = block_statement_range(program, block)
+            .map(|index| program.store.extra[index] as usize)
+            .filter(|statement| {
+                program
+                    .store
+                    .payload(program.store.data[*statement].range())
+                    .is_ok_and(|payload| payload.contains(&(child as u32)))
+            });
+        let statement = matches.next().expect("block contains the child instruction");
+        assert!(matches.next().is_none(), "child has one statement owner");
+        statement
     }
 
     fn return_analysis_decoder_with_verification<'a>(
@@ -22369,6 +22678,90 @@ pure apply_optional_sibling_write(holder: Holder?, n: Int, flag: Bool) -> Int {
     }
 
     #[test]
+    fn typed_callable_fields_through_two_optional_path_guards_are_verified() {
+        let program = fixture(
+            "typed-callable-two-optional-record-paths.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+type Inner = {holder: Holder?}
+type Outer = {inner: Inner?}
+
+pure apply_nested(container: Outer, n: Int) -> Int {
+  return if container.inner != null and container.inner.holder != null {
+    container.inner.holder.callback(n)
+  } else { 0 }
+}
+
+pure apply_nested_write(container: Outer, n: Int) -> Int {
+  var current = container
+  if current.inner != null and current.inner.holder != null {
+    let _ = current.inner.holder.callback(n)
+    current.inner = null
+  }
+  0
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
+        assert_eq!(
+            function_instruction_indices(&program, "apply_nested", FullTag::ExprTypedCall).len(),
+            1,
+            "both optional path prefixes are narrowed before the callable read",
+        );
+
+        let comparisons = function_instruction_indices(
+            &program,
+            "apply_nested",
+            FullTag::ExprBinary,
+        )
+            .into_iter()
+            .filter(|instruction| {
+                let op = program.store.extra
+                    [program.store.data[*instruction].range().start as usize]
+                    as usize;
+                program.store.binary_ops.get(op) == Some(&BinaryOp::Ne)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(comparisons.len(), 2, "both path prefixes have null guards");
+        for comparison in comparisons {
+            let mut malformed = program.clone();
+            let op = malformed.store.extra
+                [malformed.store.data[comparison].range().start as usize]
+                as usize;
+            malformed.store.binary_ops[op] = BinaryOp::Eq;
+            assert!(FullVerifier::verify(&malformed).is_err());
+        }
+
+        let function = "apply_nested_write";
+        let mut malformed = program.clone();
+        let body = first_if_body_block(&malformed, function);
+        let typed_call =
+            function_instruction_indices(&malformed, function, FullTag::ExprTypedCall)[0];
+        let call_statement = block_statement_containing_instruction(&malformed, body, typed_call);
+        let assignment = function_instruction_indices(
+            &malformed,
+            function,
+            FullTag::StmtAssignField,
+        )
+        .into_iter()
+        .next()
+        .expect("the body writes the outer optional path after the call");
+        let range = block_statement_range(&malformed, body);
+        let statements = &mut malformed.store.extra[range];
+        assert_eq!(statements.len(), 2, "the body has one call and one write");
+        let assignment_position = statements
+            .iter()
+            .position(|instruction| *instruction as usize == assignment)
+            .expect("the outer optional write belongs to the guarded body");
+        let call_position = statements
+            .iter()
+            .position(|instruction| *instruction as usize == call_statement)
+            .expect("the nested callable read belongs to the guarded body");
+        statements.swap(assignment_position, call_position);
+        assert!(FullVerifier::verify(&malformed).is_err());
+    }
+
+    #[test]
     fn typed_callable_optional_field_rejects_a_flipped_null_guard() {
         let program = fixture(
             "typed-callable-optional-record-flipped-guard.xsh",
@@ -22392,14 +22785,118 @@ pure apply_optional_holder(holder: Holder?, n: Int) -> Int {
         let op = malformed.store.extra[op] as usize;
         malformed.store.binary_ops[op] = BinaryOp::Ne;
 
-        let error = FullVerifier::verify(&malformed).unwrap_err();
-        assert!(
-            error
-                .message
-                .contains("checked optional field receiver has no non-null branch proof"),
-            "{}",
-            error.message
+        assert!(FullVerifier::verify(&malformed).is_err());
+    }
+
+    #[test]
+    fn typed_callable_optional_field_rejects_a_forged_narrowed_parameter_type() {
+        let program = fixture(
+            "typed-callable-optional-record-forged-param.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type OtherScale = pure(value: Int) -> Int
+type Holder = {callback: Scale}
+type OtherHolder = {callback: OtherScale}
+pure double(n: Int) -> Int { n * 2 }
+pure identity(value: Int) -> Int { value }
+pure apply(holder: Holder?, n: Int) -> Int {
+  if holder != null { holder.callback(n) } else { 0 }
+}
+pure apply_unchecked(holder: Holder?) -> Int {
+  let _ = holder
+  0
+}
+pure apply_other(holder: OtherHolder, n: Int) -> Int {
+  let _ = holder
+  0
+}
+pure apply_nonoptional(holder: Holder) -> Int {
+  let _ = holder
+  0
+}
+"#,
         );
+        FullVerifier::verify(&program).unwrap();
+
+        let typed_call = function_instruction_indices(&program, "apply", FullTag::ExprTypedCall)
+            .into_iter()
+            .next()
+            .expect("the guarded optional callback has a typed call");
+        let call_payload = program
+            .store
+            .payload(program.store.data[typed_call].range())
+            .expect("typed-call payload is valid");
+        let field = *call_payload.first().expect("typed call has a callee") as usize;
+        let field_payload = program
+            .store
+            .payload(program.store.data[field].range())
+            .expect("field payload is valid");
+        let receiver = *field_payload.first().expect("field has a receiver") as usize;
+        let receiver_fact = program
+            .store
+            .checked_expr_types
+            .binary_search_by_key(&(receiver as u32), |fact| fact.instruction)
+            .expect("narrowed receiver has a checked type fact");
+
+        let other_receiver = function_instruction_indices(
+            &program,
+            "apply_other",
+            FullTag::ExprParam,
+        )
+        .into_iter()
+        .next()
+        .expect("other function reads its parameter");
+        let other_fact = program
+            .store
+            .checked_expr_types
+            .binary_search_by_key(&(other_receiver as u32), |fact| fact.instruction)
+            .expect("other receiver has a checked type fact");
+
+        let mut forged = program.clone();
+        forged.store.checked_expr_types[receiver_fact].type_id =
+            program.store.checked_expr_types[other_fact].type_id;
+        assert!(FullVerifier::verify(&forged).is_err());
+
+        let receiver_type = program
+            .store
+            .semantic
+            .to_type(program.store.checked_expr_types[receiver_fact].type_id)
+            .unwrap();
+        let stronger_type = Type::Validated(Box::new(
+            crate::sema::validated::ValidatedType::new(
+                crate::sema::validated::Validation::Nominal(program_name(&program, "OtherHolder")),
+                receiver_type,
+            )
+            .unwrap(),
+        ));
+        let mut strengthened = program.clone();
+        let mut semantic = SemanticPoolBuilder::default();
+        strengthened.store.checked_expr_types[receiver_fact].type_id = semantic
+            .intern_type(&mut strengthened.store.semantic, &stronger_type)
+            .unwrap();
+        assert!(FullVerifier::verify(&strengthened).is_err());
+
+        let unchecked = function_instruction_indices(&program, "apply_unchecked", FullTag::ExprParam)
+            .into_iter()
+            .next()
+            .expect("unchecked function reads its optional parameter");
+        let nonoptional = function_instruction_indices(&program, "apply_nonoptional", FullTag::ExprParam)
+            .into_iter()
+            .next()
+            .expect("nonoptional function reads its parameter");
+        let unchecked_fact = program
+            .store
+            .checked_expr_types
+            .binary_search_by_key(&(unchecked as u32), |fact| fact.instruction)
+            .expect("unchecked parameter has a checked type fact");
+        let nonoptional_fact = program
+            .store
+            .checked_expr_types
+            .binary_search_by_key(&(nonoptional as u32), |fact| fact.instruction)
+            .expect("nonoptional parameter has a checked type fact");
+        let mut forged = program;
+        forged.store.checked_expr_types[unchecked_fact].type_id =
+            forged.store.checked_expr_types[nonoptional_fact].type_id;
+        assert!(FullVerifier::verify(&forged).is_err());
     }
 
     #[test]
@@ -22408,52 +22905,87 @@ pure apply_optional_holder(holder: Holder?, n: Int) -> Int {
             "typed-callable-optional-record-overlapping-write.xsh",
             r#"type Scale = pure(n: Int) -> Int
 type Holder = {callback: Scale}
-type Container = {holder: Holder?}
-pure double(n: Int) -> Int { n * 2 }
 pure apply_direct_write(holder: Holder?, n: Int) -> Int {
-  var alternate: Holder? = null
+  var alternate: Int? = null
   if holder != null {
-    alternate = Holder(double)
-    holder.callback(n)
-  } else { 0 }
+    let _ = holder.callback(n)
+    alternate = null
+  }
+  0
 }
+type Container = {holder: Holder?}
 pure apply_nested_write(container: Container, n: Int) -> Int {
-  var alternate = Container(holder: null)
-  if container.holder != null {
-    alternate.holder = Holder(double)
-    container.holder.callback(n)
-  } else { 0 }
+  var current = container
+  if current.holder != null {
+    let _ = current.holder.callback(n)
+    current.holder = null
+  }
+  0
 }
 "#,
         );
         FullVerifier::verify(&program).unwrap();
 
-        for (function, assignment_tag) in [
-            ("apply_direct_write", FullTag::StmtAssign),
-            ("apply_nested_write", FullTag::StmtAssignField),
-        ] {
+        for (function, assignment_tag) in [("apply_direct_write", FullTag::StmtAssign)] {
             let mut malformed = program.clone();
-            let assignment = function_instruction_indices(&malformed, function, assignment_tag)
+            let body = first_if_body_block(&malformed, function);
+            let typed_call = function_instruction_indices(&malformed, function, FullTag::ExprTypedCall)
                 .into_iter()
                 .next()
-                .expect("the protected branch has one alternate binding write");
+                .expect("guard body has a typed call");
+            let call_statement = block_statement_containing_instruction(&malformed, body, typed_call);
+            let assignment = function_instruction_indices(&malformed, function, assignment_tag)
+                .into_iter()
+                .find(|instruction| *instruction != call_statement)
+                .expect("the guarded body has an alternate binding write");
             let payload = malformed.store.data[assignment].range();
-            assert_eq!(
-                malformed.store.extra[payload.start as usize],
-                2,
-                "the source assignment initially targets its alternate local",
+            let protected_slot = typed_call_receiver_slot(&program, function);
+            assert_ne!(
+                malformed.store.extra[payload.start as usize] as usize,
+                protected_slot,
+                "the source assignment initially targets an unrelated local",
             );
-            malformed.store.extra[payload.start as usize] = 0;
+            malformed.store.extra[payload.start as usize] = protected_slot as u32;
 
-            let error = FullVerifier::verify(&malformed).unwrap_err();
-            assert!(
-                error
-                    .message
-                    .contains("checked optional field receiver has no non-null branch proof"),
-                "{function}: {}",
-                error.message
-            );
+            let statement_range = block_statement_range(&malformed, body);
+            let statements = &mut malformed.store.extra[statement_range];
+            let assignment_position = statements
+                .iter()
+                .position(|instruction| *instruction as usize == assignment)
+                .expect("assignment belongs to the guarded body");
+            assert_eq!(statements.len(), 2, "guard body contains the call and write");
+            let read_position = statements
+                .iter()
+                .position(|instruction| *instruction as usize == call_statement)
+                .expect("field call belongs to the guarded body");
+            statements.swap(assignment_position, read_position);
+
+            assert!(FullVerifier::verify(&malformed).is_err(), "{function}");
         }
+
+        let function = "apply_nested_write";
+        let mut malformed = program.clone();
+        let body = first_if_body_block(&malformed, function);
+        let typed_call = function_instruction_indices(&malformed, function, FullTag::ExprTypedCall)[0];
+        let call_statement = block_statement_containing_instruction(&malformed, body, typed_call);
+        let assignment = function_instruction_indices(&malformed, function, FullTag::StmtAssignField)
+            .into_iter()
+            .next()
+            .expect("the guarded body writes the nested optional field");
+        let statement_range = block_statement_range(&malformed, body);
+        let statements = &mut malformed.store.extra[statement_range];
+        assert_eq!(statements.len(), 2, "guard body contains the call and field write");
+        let assignment_position = statements
+            .iter()
+            .position(|instruction| *instruction as usize == assignment)
+            .expect("field write belongs to the guarded body");
+        let call_position = statements
+            .iter()
+            .position(|instruction| *instruction as usize == call_statement)
+            .expect("nested field call belongs to the guarded body");
+        statements.swap(assignment_position, call_position);
+
+        assert!(FullVerifier::verify(&malformed).is_err(), "{function}");
     }
 
     #[test]
@@ -22466,9 +22998,10 @@ pure apply_outer_guard_loop(holder: Holder?, n: Int, repeat: Bool) -> Int {
   var current = holder
   var result = 0
   if current != null {
+    result = current.callback(n)
     while repeat {
-      result = current.callback(n)
       current = null
+      result = 0
     }
   }
   result
@@ -22485,7 +23018,31 @@ pure apply_outer_guard_loop(holder: Holder?, n: Int, repeat: Bool) -> Int {
             1,
             "the source checker carries its outer narrowing into the loop",
         );
-        let error = FullVerifier::verify(&program).unwrap_err();
+        FullVerifier::verify(&program).unwrap();
+
+        let mut malformed = program.clone();
+        let typed_call = function_instruction_indices(
+            &malformed,
+            "apply_outer_guard_loop",
+            FullTag::ExprTypedCall,
+        )[0];
+        let outer_body = first_if_body_block(&malformed, "apply_outer_guard_loop");
+        let loop_body = first_while_body_block(&malformed, "apply_outer_guard_loop");
+        let call_statement = block_statement_containing_instruction(&malformed, outer_body, typed_call);
+        let loop_literal_statement = block_statement_range(&malformed, loop_body)
+            .map(|index| malformed.store.extra[index] as usize)
+            .find(|statement| {
+                malformed.store.tags[*statement] == FullTag::StmtAssignInt
+            })
+            .expect("loop body has an unrelated integer assignment");
+        let call_position = block_statement_range(&malformed, outer_body)
+            .find(|index| malformed.store.extra[*index] as usize == call_statement)
+            .expect("call assignment belongs to guarded outer body");
+        let loop_write_position = block_statement_range(&malformed, loop_body)
+            .find(|index| malformed.store.extra[*index] as usize == loop_literal_statement)
+            .expect("integer assignment belongs to loop body");
+        malformed.store.extra.swap(call_position, loop_write_position);
+        let error = FullVerifier::verify(&malformed).unwrap_err();
         assert!(
             error
                 .message
@@ -22505,7 +23062,7 @@ pure double(n: Int) -> Int { n * 2 }
 pure apply_reordered_write(holder: Holder?, n: Int) -> Int {
   var alternate: Holder? = null
   if holder != null {
-    holder.callback(n)
+    let _ = holder.callback(n)
     alternate = Holder(double)
   }
   0
@@ -22524,41 +23081,27 @@ pure apply_reordered_write(holder: Holder?, n: Int) -> Int {
         .next()
         .expect("the branch assigns its alternate local");
         let assignment_payload = malformed.store.data[assignment].range();
-        assert_eq!(
-            malformed.store.extra[assignment_payload.start as usize],
-            2,
-            "the source assignment initially targets its alternate local",
-        );
-        malformed.store.extra[assignment_payload.start as usize] = 0;
-
-        let conditional = [FullTag::StmtIf, FullTag::StmtIfBool]
-            .into_iter()
-            .find_map(|tag| {
-                function_instruction_indices(&malformed, "apply_reordered_write", tag)
-                    .into_iter()
-                    .next()
-            })
-            .expect("the guarded body has a conditional");
-        let conditional_payload = malformed.store.payload(malformed.store.data[conditional].range())
-            .expect("conditional payload is valid");
-        let branches = IrBlockId::from_raw(conditional_payload[0]).unwrap();
-        let branch_words = malformed.store.payload(malformed.store.blocks[branches.index()].instructions)
-            .expect("branch list is valid");
-        let body = IrBlockId::from_raw(branch_words[2]).unwrap();
-        let body_words = malformed.store.blocks[body.index()]
-            .instructions
-            .bounds(malformed.store.extra.len())
-            .expect("guard body is valid");
-        let statement_count = malformed.store.extra[body_words.start] as usize;
-        let statements = &mut malformed.store.extra
-            [body_words.start + 1..body_words.start + 1 + statement_count];
+        let body = first_if_body_block(&malformed, "apply_reordered_write");
+        let protected_slot = typed_call_receiver_slot(&program, "apply_reordered_write");
+        assert_ne!(malformed.store.extra[assignment_payload.start as usize] as usize, protected_slot);
+        malformed.store.extra[assignment_payload.start as usize] = protected_slot as u32;
+        let typed_call = function_instruction_indices(
+            &malformed,
+            "apply_reordered_write",
+            FullTag::ExprTypedCall,
+        )[0];
+        let read_statement = block_statement_containing_instruction(&malformed, body, typed_call);
+        let range = block_statement_range(&malformed, body);
+        let statements = &mut malformed.store.extra[range];
+        let statement_count = statements.len();
         let assignment_position = statements
             .iter()
             .position(|instruction| *instruction as usize == assignment)
             .expect("assignment belongs to the guarded body");
         assert_eq!(statement_count, 2, "the body has a read and an assignment");
-        let read_position = (0..statement_count)
-            .find(|index| *index != assignment_position)
+        let read_position = statements
+            .iter()
+            .position(|instruction| *instruction as usize == read_statement)
             .expect("the guarded body has a field read");
         statements.swap(assignment_position, read_position);
 
@@ -22593,19 +23136,16 @@ pure apply_or_false(holder: Holder?, n: Int, flag: Bool) -> Int {
             ("apply_or_false", BinaryOp::Eq, BinaryOp::Ne),
         ] {
             let mut malformed = program.clone();
-            let comparison = function_instruction_indices(
-                &malformed,
-                function,
-                FullTag::BoolLiteralCompareSlot,
-            )
-            .into_iter()
-            .find(|instruction| {
-                let op = malformed.store.extra
-                    [malformed.store.data[*instruction].range().start as usize]
-                    as usize;
-                malformed.store.binary_ops.get(op) == Some(&original)
-            })
-            .expect("the null comparison is a checked boolean literal comparison");
+            let comparison = [FullTag::BoolLiteralCompareSlot, FullTag::ExprBinary]
+                .into_iter()
+                .flat_map(|tag| function_instruction_indices(&malformed, function, tag))
+                .find(|instruction| {
+                    let op = malformed.store.extra
+                        [malformed.store.data[*instruction].range().start as usize]
+                        as usize;
+                    malformed.store.binary_ops.get(op) == Some(&original)
+                })
+                .expect("the null comparison has a checked boolean operation");
             let op = malformed.store.extra
                 [malformed.store.data[comparison].range().start as usize]
                 as usize;
@@ -22671,12 +23211,9 @@ pure apply_or_write(holder: Holder?, n: Int, flag: Bool) -> Int {
                 .next()
                 .expect("the evaluated condition assigns its unrelated local");
             let payload = malformed.store.data[assignment].range();
-            assert_eq!(
-                malformed.store.extra[payload.start as usize],
-                4,
-                "the condition initially assigns its alternate local",
-            );
-            malformed.store.extra[payload.start as usize] = 3;
+            let protected_slot = typed_call_receiver_slot(&program, function);
+            assert_ne!(malformed.store.extra[payload.start as usize] as usize, protected_slot);
+            malformed.store.extra[payload.start as usize] = protected_slot as u32;
 
             let error = FullVerifier::verify(&malformed).unwrap_err();
             assert!(

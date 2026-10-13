@@ -20,6 +20,7 @@ type PathHolder = {path: Path}
 type CallbackCollection = {callbacks: List[Scale]}
 type Bundle = {nested: Holder}
 type OptionalHolder = {holder: Holder?}
+type OptionalNestedHolder = {inner: OptionalHolder?}
 type BroadcastAddress = {broadcast: Str?}
 type BroadcastInterface = {ipv4: BroadcastAddress?}
 
@@ -118,6 +119,12 @@ pure apply_optional_holder(holder: Holder?) -> Int {
 
 pure apply_optional_intermediate(container: OptionalHolder) -> Int {
   if container.holder == null { 0 } else { container.holder.callback(4) }
+}
+
+pure apply_optional_nested(container: OptionalNestedHolder) -> Int {
+  return if container.inner != null and container.inner.holder != null {
+    container.inner.holder.callback(4)
+  } else { 0 }
 }
 
 pure apply_optional_expr_if(holder: Holder?) -> Int {
@@ -406,6 +413,9 @@ test test_typed_callable_fields_on_narrowed_optional_records {
   assert apply_optional_holder(Holder(double)) == 8
   assert apply_optional_intermediate({holder: null}) == 0
   assert apply_optional_intermediate({holder: Holder(triple)}) == 12
+  assert apply_optional_nested({inner: null}) == 0
+  assert apply_optional_nested({inner: {holder: null}}) == 0
+  assert apply_optional_nested({inner: {holder: Holder(double)}}) == 8
   assert apply_optional_expr_if(null) == 0
   assert apply_optional_expr_if(Holder(double)) == 8
   assert apply_optional_intermediate_expr_if({holder: null}) == 0

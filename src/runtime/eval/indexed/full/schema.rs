@@ -24,6 +24,7 @@ macro_rules! ignore_field {
 macro_rules! instruction_decoder_method {
     (ExprView, $method:item) => { $method };
     (StmtView, $method:item) => { $method };
+    (BoolView, $method:item) => { $method };
     ($view:ident, $method:item) => {};
 }
 
@@ -700,6 +701,13 @@ macro_rules! instruction_schema {
                     }
                     if tag == FullTag::StmtWith {
                         decoder.verify_with_shape(instruction)?;
+                    }
+                    if tag == FullTag::ExprTypedCall {
+                        // Callee-field proof needs parent links for every child.
+                        let payload = decoder.cursor(
+                            decoder.store.payload(decoder.store.data[instruction].range())?,
+                        );
+                        decoder.verify_typed_call_shape(payload)?;
                     }
                     decoder.finish_instruction(instruction);
                     Ok(())
