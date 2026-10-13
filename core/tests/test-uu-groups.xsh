@@ -7,12 +7,12 @@ use support.uu
 type ExpectedGroups = {status: Int, stdout: Str, stderr: Str}
 
 proc account_groups(name: Str) -> ExpectedGroups {
-  for line in p"/etc/passwd".read_text()?.lines() {
+  for line in p"/etc/passwd".read_lines()? {
     let fields = line.split(":")
     continue when fields[0] != name
     let primary = fields[3] as Int
     var gids = [primary]
-    for row in p"/etc/group".read_text()?.lines() {
+    for row in p"/etc/group".read_lines()? {
       let group_fields = row.split(":")
       let gid = group_fields[2] as Int
       if name in group_fields[3].split(",") and gid not in gids { gids += [gid] }

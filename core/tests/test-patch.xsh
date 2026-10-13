@@ -139,16 +139,16 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   # recorded final tree is created up front: GNU patch makes missing parents
   # silently, so a directory that existed before and one that patch would have
   # made leave the same final tree and the same output.
-  for row in fp"{root}/out/manifest".read_text()?.lines() {
+  for row in fp"{root}/out/manifest".read_lines()? {
     if row.starts_with("d ") {
       let relative = row.byte_slice(4)
       if relative != "" and relative != "." and !fp"{work}/w/{relative}".exists() { fp"{work}/w/{relative}".mkdir() }
     }
   }
   var mtimes = []
-  if fp"{root}/mtimes".exists() { mtimes = fp"{root}/mtimes".read_text()?.lines().collect() }
+  if fp"{root}/mtimes".exists() { mtimes = fp"{root}/mtimes".read_lines()?.collect() }
   if fp"{root}/setup".exists() {
-    for line in fp"{root}/setup".read_text()?.lines() {
+    for line in fp"{root}/setup".read_lines()? {
       let words = line.split(" ")
       if words[0] == "chmod" { fp"{work}/w/{words[2]}".chmod(octal(words[1])) }
       if words[0] == "touch" {
@@ -158,7 +158,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     }
   }
   var arguments = []
-  if fp"{root}/args".exists() { arguments = fp"{root}/args".read_text()?.lines().collect() }
+  if fp"{root}/args".exists() { arguments = fp"{root}/args".read_lines()?.collect() }
   var input = b""
   if fp"{root}/stdin".exists() { input = fp"{root}/stdin".read_bytes()? }
   var recorded_env = ""
@@ -192,7 +192,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     problems += [f"{name}: stderr differs\n--- expected\n{expected_err.utf8() ?? "(binary)"}--- actual\n{err.read_bytes()?.utf8() ?? "(binary)"}"]
   }
   let manifest = tree.describe(fp"{work}/w", mtimes)?
-  let expected_manifest = fp"{root}/out/manifest".read_text()?.lines().collect()
+  let expected_manifest = fp"{root}/out/manifest".read_lines()?.collect()
   if manifest != expected_manifest {
     problems += [f"{name}: tree differs\n--- expected\n{expected_manifest.join("\n")}\n--- actual\n{manifest.join("\n")}"]
     return Ok(problems)

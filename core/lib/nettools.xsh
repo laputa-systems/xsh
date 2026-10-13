@@ -693,7 +693,7 @@ pure hex_int(text: Str) -> Int {
 ## Reads the IPv6 routing table from its procfs listing.
 export proc ipv6_routes() [fs, error] -> Result[List[Route6Row], Error] {
   let rows: List[Route6Row] = collect {
-    for line in fp"/proc/net/ipv6_route".read_text()?.lines() {
+    for line in fp"/proc/net/ipv6_route".read_lines()? {
       let f = line.fields()
       continue when f.len() < 10
       let metric = hex_int(f[5])

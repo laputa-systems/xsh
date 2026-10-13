@@ -652,7 +652,7 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
   }
   var header = true
   let expected = collect {
-    for line in table.read_text()?.lines() {
+    for line in table.read_lines()? {
       if header {
         header = false
         continue

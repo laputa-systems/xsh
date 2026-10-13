@@ -464,7 +464,7 @@ test test_nc_keep_open_serves_connections_in_turn { |ctx|
   }
   assert got == "one\ntwo\nthree\n", got
   handle.cancel(signal: "TERM", kill_after: 2s)
-  let lines = fp"{root}/server.err".read_text()?.lines()
+  let lines = fp"{root}/server.err".read_lines()?
   assert [l for l in lines if l.starts_with("Connection received on 127.0.0.1 ")].len() == 3
 }
 

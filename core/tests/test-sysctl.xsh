@@ -35,7 +35,7 @@ test test_sysctl_preserves_interleaved_operand_order { |ctx|
   let log = test.temp_path(ctx, name: "sysctl-order")
   let result = run_applet(ctx, ["kernel.pid_max=7", "kernel.pid_max"], log)
   assert result.success, result.stderr
-  let lines = log.read_text()?.lines().collect()
+  let lines = log.read_lines()?.collect()
   assert "sysctl_set" in lines[0]
   assert "sysctl_get" in lines[1]
 }

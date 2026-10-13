@@ -293,7 +293,7 @@ test test_uu_install_install_same_file { |ctx|
 # origin: uutils test_install::test_install_set_owner_nonexistent_uid_and_gid
 test test_uu_install_install_set_owner_nonexistent_uid_and_gid { |ctx|
   if user.current()?.uid != 0 { test.skip("requires root to set unused uid and gid") }
-  let records = p"/etc/passwd".read_text()?.lines()
+  let records = p"/etc/passwd".read_lines()?
   let used_uids = [fields[2] as Int for fields in [line.split(":") for line in records] if fields.len() >= 4]
   let used_gids = [fields[3] as Int for fields in [line.split(":") for line in records] if fields.len() >= 4]
   var uid = 60000

@@ -89,7 +89,7 @@ proc locale_available(s: uu.Scene, name: Str) [fs, process, error] -> Result[Boo
   let status = process.run(process.command_argv(executable?, ["locale", "-a"], s.root, stdout: out, stderr: err, timeout: 2s))?
   return Ok(false) unless status.exited_with(0)
   let wanted = name.replace("-", with: "").lower()
-  Ok(wanted in [line.replace("-", with: "").lower() for line in out.read_text()?.lines()])
+  Ok(wanted in [line.replace("-", with: "").lower() for line in out.read_lines()?])
 }
 
 # origin: uutils test_ls::test_ls_deref_command_line_dir

@@ -286,7 +286,7 @@ test test_du_dotdot_operand_is_its_own_anchor { |ctx|
     sub, {LC_ALL: "C"}, b"", out, err))?
   assert status.exited_with(0), err.read_text()?
   assert err.read_text()? == ""
-  let lines = out.read_text()?.lines().collect()
+  let lines = out.read_lines()?.collect()
   assert lines.len() == 1, out.read_text()?
   assert lines[0].ends_with("\t.."), lines[0]
 }

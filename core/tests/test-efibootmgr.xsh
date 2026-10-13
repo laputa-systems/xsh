@@ -412,7 +412,7 @@ test test_efibootmgr_clears_and_restores_the_immutable_flag_around_writes { |ctx
   test.linux_fake(ctx, {file_attrs_flags: 16, log: log})
   let written = invoke(ctx, dir, ["-t", "4"])
   assert written.status == 0, written.stderr
-  let entries = log.read_text()?.lines()
+  let entries = log.read_lines()?
   var flags = []
   for line in entries {
     if "set_file_attrs" in line {

@@ -66,7 +66,7 @@ test test_fixture_answers_family_lookups_and_requests { |ctx|
   assert linux.netlink_request(nl, 28, 5, b"\x05\x06\x07\x08")?.len() == 0
   unix.close_fd(nl)
 
-  let calls = log.read_text()?.lines()
+  let calls = log.read_lines()?
   assert "\"op\":\"genl_family_id\"" in calls[0] and "\"name\":\"nl80211\"" in calls[0]
   assert "\"op\":\"netlink_open\"" in calls[2] and "\"protocol\":\"16\"" in calls[2]
   assert "\"op\":\"netlink_request\"" in calls[3]

@@ -351,7 +351,7 @@ test test_ata_mutations_are_separate_named_functions { |ctx|
   test.error_kind(linux.ata_smart_start_self_test(fd, "selective"), "invalid-argument")
   # The fake logs each call by name, so the test can assert exactly which
   # mutations were requested; the refused kind is logged too.
-  let calls = log.read_text()?.lines()
+  let calls = log.read_lines()?
   assert calls.len() == 6
   assert "\"op\":\"ata_smart_enable\"" in calls[0]
   assert "\"op\":\"ata_smart_disable\"" in calls[1]

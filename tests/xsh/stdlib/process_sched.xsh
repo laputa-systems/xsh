@@ -71,7 +71,7 @@ test test_affinity_lists_the_cpus_the_kernel_allows { |ctx|
 
   var listed = ""
 
-  for line in fp"/proc/self/status".read_text()?.lines() {
+  for line in fp"/proc/self/status".read_lines()? {
     if line.starts_with("Cpus_allowed_list:") {
       listed = line.byte_slice("Cpus_allowed_list:".byte_len())
     }

@@ -58,7 +58,7 @@ test test_privileges_report_sorted_capability_numbers_and_the_kernel_limit { |ct
 test test_privileges_match_the_masks_in_proc_status { |ctx|
   let state = linux.privileges()?
   var lists: Map[Str, List[Int]] = {}
-  for line in p"/proc/self/status".read_text()?.lines() {
+  for line in p"/proc/self/status".read_lines()? {
     for label in ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"] {
       if line.starts_with(label + ":") {
         lists[label] = bits_of(hex_value(line.byte_slice(label.byte_len() + 1).trim()))

@@ -136,7 +136,7 @@ for route in linux.routes()? {
   # tunnel devices that loaded tunnel modules create in every namespace.
   let fallback = ["tunl0", "gre0", "gretap0", "erspan0", "ip_vti0", "ip6_vti0", "sit0", "ip6tnl0", "ip6gre0"]
   let inner = collect {
-    for line in out.read_text()?.lines() {
+    for line in out.read_lines()? {
       let fields = line.split(" ")
       assert fields[0] == "interface", line
       yield fields[1]

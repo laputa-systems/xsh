@@ -29,7 +29,7 @@ proc boot_stdout() [fs, process, time, error] -> Result[Str, Error] {
     if p"/var/run/utmp".exists() {
       seconds = [fs.stat(p"/var/run/utmp")?.mtime_ns / 1000000000]
     } else {
-      let lines = [line for line in p"/proc/stat".read_text()?.lines().collect() if line.starts_with("btime ")]
+      let lines = [line for line in p"/proc/stat".read_lines()?.collect() if line.starts_with("btime ")]
       assert lines.len() == 1, "expected one kernel boot epoch"
       seconds = [lines[0].split(" ").collect()[1] as Int]
     }

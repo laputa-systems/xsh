@@ -27,7 +27,7 @@ export pure assignment(text: Str, config: Bool = false) -> Result[Assignment, Er
 export proc load_assignments(files: List[Path]) -> Result[List[Assignment], Error] {
   var result: List[Assignment] = []
   for file in files {
-    for line in file.read_text()?.lines() {
+    for line in file.read_lines()? {
       let text = line.trim()
       continue when text == "" or text.starts_with("#") or text.starts_with(";")
       result += [assignment(text, true)?]

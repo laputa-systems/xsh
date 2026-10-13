@@ -7,7 +7,7 @@ type Account = {name: Str, gecos: Str, directory: Str, shell: Str}
 # Expected account fields come from the system database, independently of the applet.
 proc accounts() [fs, error] -> Result[List[Account], Error] {
   let entries: List[Account] = collect {
-    for line in p"/etc/passwd".read_text()?.lines() {
+    for line in p"/etc/passwd".read_lines()? {
       let fields = line.split(":")
       if fields.len() == 7 {
         yield {name: fields[0], gecos: fields[4], directory: fields[5], shell: fields[6]}
