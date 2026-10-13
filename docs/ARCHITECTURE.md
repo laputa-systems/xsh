@@ -78,8 +78,8 @@ order; the `xsh` executable does not read the rest of the `xsht` configuration.
 tables shared by the lexer and parser. The parser writes typed rows into
 `ArenaProgram`; the CST preserves source structure for tools and is not an
 execution representation. A sugar form keeps its source operands beside its
-core expansion: semantic passes use the expansion; source-preserving and
-structural tools use the operands.
+core expansion: semantic passes use the expansion; tools that preserve or
+search the written surface form use the operands.
 
 **Checking.** `Checker` owns type and signature decisions and validates import
 bindings. It publishes the facts required by lowering and tooling, including
@@ -151,11 +151,11 @@ to remain a core statement because declaration discovery does not inspect
 inside sugar.
 
 The parser stores both the source operands and the core expansion in the arena.
-Semantic passes follow the expansion; source-preserving and structural tools,
-including formatter, grep, and spelling-based lint, follow the written
-operands. Add one parser expansion, preserve source spans for diagnostics, and
-cover it with a hand-written core equivalent and the desugared-corpus parity
-check in `crates/xsht/`.
+Semantic passes follow the expansion; tools that preserve or search the written
+surface form, including formatter, grep, and spelling-based lint, follow the
+operands. `xsht desugar` renders the expansion. Add one parser expansion,
+preserve source spans for diagnostics, and cover it with a hand-written core
+equivalent and the desugared-corpus parity check in `crates/xsht/`.
 
 ## Adding a validated type
 
@@ -191,9 +191,10 @@ substrate (`src/runtime/signal.rs`) records signals in the handler; the
 evaluator interprets them at checkpoints. Script code never runs in a signal
 handler, and process groups are the unit of cancellation.
 
-Post-fork child setup is limited to async-signal-safe descriptor, signal, and
-group/session operations followed by `exec`; it performs no allocation or
-locking. Internal descriptors are close-on-exec.
+Post-fork setup applies a precomputed child plan using only async-signal-safe
+operations: descriptor and signal setup; process-group and session changes;
+namespace, mount, root/cwd, and credential setup; then `exec`. It performs no
+allocation or locking. Internal descriptors are close-on-exec.
 
 Process operations return structured outcomes. The evaluator decides status,
 `Result` propagation, and runtime errors. Trace events retain structured argv,
