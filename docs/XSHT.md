@@ -137,26 +137,10 @@ collision; `atomically replace` would overwrite that destination and is not an
 equivalent suggestion. Other differences in replacement sequences still carry
 a note explaining why no automatic rewrite is offered.
 
-A code's table severity is `error`, `warning`, `note`, or `mixed`. A lint that
-has no safe fix is a `note`: advice that is printed, counted apart in the
-closing `xsht lint: N findings, M notes` line (printed only when a note was
-reported), and selected by `--only`, but that leaves the exit status at 0.
-`lint_diagnostics_status` gives a file's status and never counts a note;
-`lint_files_timed` counts the printed notes and, under `--deny-notes`, turns
-a run that would exit 0 into status 1. The repository gates agree with the
-exit status: `cargo dev check` runs `xsht lint` and reads its status, and
-`lint_performance` requires status 0 and no finding other than a note. A
-note rule is on by default unless it reports too many sites to read
-(`lint.prefer-rel-path` and `lint.prefer-text-pattern`, each behind its
-`[lint]` key or `--only`). The notes that are always on:
-
-| Code | Reports |
-|---|---|
-| `lint.prefer-non-empty-argv` | a spliced command vector (`run @argv`, in any run form and pipeline segment) whose type is a plain `List[T]`, which may be empty and then fails only when it runs. The `NonEmpty[T]` type comes from the binding's annotation, the parameter and its callers, or a `.require(NonEmpty[T])?` |
-| `lint.prefer-typed-callable` | a `Proc` or `Pure` parameter of a private top-level function, with its callable type, when every call in the module passes a top-level function and those functions have one signature. A function whose name is also used as a value, or that is called with a splice or spread, is skipped. The body's `.call(...)` becomes a direct call |
-| `lint.prefer-within` | a block whose `run` forms all carry the same `--timeout`; one `within` scope states the limit once but bounds the commands together |
-| `lint.prefer-env-path-list` | a search-path environment value formatted as a `:`-separated string; the `List[Path]` rewrite is shown and never applied |
-| `lint.empty-sentinel` | a `let` or `var` whose initializer is `SOURCE ?? ""`, with `SOURCE` a `Str?` or a `Result[Str]`, when a later statement of the same block tests the binding with `== ""`, `!= ""`, or `.is_empty()`. The label names `if let NAME = SOURCE` (`if let Ok(NAME) = SOURCE` for a `Result`). A test in another block, and a fallback that is not bound, are not seen |
+When reported, a `note` leaves the exit status at 0 and is counted separately
+in the closing `xsht lint: N findings, M notes` line; `--deny-notes` makes an
+otherwise successful run with notes exit 1. Per-rule descriptions are in the generated
+[`docs/reference/lints.md`](reference/lints.md).
 A fix round is accepted when the rewritten file has no check diagnostic the
 file did not have before, whether or not `--only` selects its code. SIGINT or
 SIGTERM is observed between files and between fix rounds; fixed files are
@@ -189,13 +173,6 @@ measures the formatter's spelling. Shapes the formatter owns are not lint rules.
 `lint.prefer-guard` reports a postfix guard only when the guarded statement fits
 88 columns, because the formatter has no readable multiline layout for a longer
 one; a longer guard stays an `if` block.
-`check.redundant-parens` is the one diagnostic formatting removes: it never
-blocks `fmt` or hides lint diagnostics, and formatted output has none
-(`lint_format_invariance`). `check.mixed-logical` still blocks `fmt`, which
-never chooses a grouping silently.
-
-`lint.error-fallback-block` retains multiline error expressions inside the lazy
-handler block when replacing an identity-success `Result` match.
 
 ## Native tests
 
@@ -286,8 +263,6 @@ sugar and requires the same check diagnostics and test results.
 
 ## Source representations
 
-The AST (arena) is semantic: checkers, lints, lowering, and structural analysis
-use it. The CST is source-faithful: tokens, comments, whitespace, delimiters,
-and exact spans. Tools decide a change on the AST and express it as a CST-range
-edit validated after application. `xsht refactor` replacements operate on
-captured spans and do not format; run `xsht fmt` afterwards.
+`xsht grep` matches semantic AST structure. `xsht refactor` applies replacements
+to captured spans in the source-faithful CST and does not format; run `xsht fmt`
+afterwards. See `docs/ARCHITECTURE.md` for the AST and CST invariants.

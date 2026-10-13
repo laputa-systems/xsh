@@ -79,10 +79,8 @@ Run process and native suites with the optimized `verification` profile. It
 uses no LTO and 64 codegen units to shorten rebuilds. Debug `--lib` tests retain
 checks compiled only under debug assertions; release is reserved for final
 verification and performance measurements. `xsht` runs its sibling `xsh`.
-Development and final campaign verification use host-native
-`x86_64-unknown-linux-musl` inside `Dockerfile.test`; ARM64 and macOS are
-excluded from campaign acceptance. Set `TARGET` for direct commands, or use
-`cargo dev gate` to select target-correct commands:
+Set `TARGET` for direct commands, or use `cargo dev gate` to select
+target-correct commands:
 
 ```sh
 export TARGET=x86_64-unknown-linux-musl
@@ -102,8 +100,14 @@ also compiles the checks that exist only under debug assertions; the root
 package's unit-test target currently also crashes LLVM (unbounded
 `ScalarEvolution` recursion) when built with `--release`, so name the root
 integration targets with `--test` instead of a bare `cargo test --profile verification --target "$TARGET"`. Use
-debug builds for compile checks, and build only the package you need
-(`cargo build --profile verification --target "$TARGET" -p xsht --bin xsht`, not a bare workspace build).
+debug builds for compile checks.
+
+Build only the package and binary needed: the root `xsh` package owns `xsh` and
+`xsh-test-helper`; `crates/xshi` and `crates/xsht` own `xshi` and `xsht`.
+For example, build `xsht` with
+`cargo build --profile verification --target "$TARGET" -p xsht --bin xsht`, not
+the whole workspace. The `dist` profile is reserved for release packaging, not
+agent verification.
 
 On a musl host (Alpine) `rustc` allocates through musl's allocator and a
 thin-LTO build spends most of its time in the kernel. `cargo dev` therefore
@@ -220,6 +224,19 @@ repository baseline is linted once per run and shared, each baseline lint
 overlaps the rewritten copy's, and perturbation spreads files over a bounded
 thread pool; the largest file (`dev/system_report_check.xsh`) sets its floor
 of about 16 s.
+
+## Building from source
+
+On Apple Silicon macOS, build `xsh` and `xsht` from source with:
+
+```sh
+cargo build --release --target aarch64-apple-darwin -p xsh --bins -p xsht --bin xsht
+export PATH="$PWD/target/aarch64-apple-darwin/release:$PATH"
+```
+
+Linux build and test verification uses `cargo dev test linux` inside the pinned
+`Dockerfile.test` image for `x86_64-unknown-linux-musl`; an out-of-image build
+is not evidence of Linux support.
 
 ## Grammar proofs
 
@@ -363,7 +380,9 @@ its host name is also six characters (`docker run --hostname sentry`).
 - Debug `cargo test` of a target that spawns binaries: each such test fails
   with the `cargo test --profile verification --target "$TARGET"` instruction instead of running.
 - The `dist` profile, bare `cargo build --release`, and more than one full
-  native suite at a time. Never leave test processes running.
+  native suite at a time. Never leave test processes running. Put ad-hoc `xsh`
+  probes under a wall-clock limit and stop their child processes before the
+  lane finishes.
 
 ## Flakes and skips
 
