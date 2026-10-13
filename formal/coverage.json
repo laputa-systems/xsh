@@ -3499,6 +3499,33 @@
       "status": "fragment",
       "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
       "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.readWords_success_length",
+      "module": "Xsh.IR.Raw.Laws",
+      "declaration": "Xsh.IR.Raw.readWords_success_length",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Successful sequential raw-word reads return exactly the requested word count.",
+      "boundary": "No complete Raw IR decoder, schema completeness, or Rust decoder conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.readPayload_success_length_and_bounds",
+      "module": "Xsh.IR.Raw.Laws",
+      "declaration": "Xsh.IR.Raw.readPayload_success_length_and_bounds",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Successful Raw payload reads match the declared range length and remain within the extra-word table.",
+      "boundary": "No complete Raw IR decoder soundness, schema completeness, or Rust verifier conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.out_of_bounds_payload_read_is_rejected",
+      "module": "Xsh.IR.Raw.Laws",
+      "declaration": "Xsh.IR.Raw.out_of_bounds_payload_read_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete witness that an out-of-bounds Raw payload range is rejected.",
+      "boundary": "This single rejection witness does not establish total decoder soundness, schema completeness, or Rust conformance."
     }
   ]
 }

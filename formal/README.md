@@ -11,17 +11,21 @@ bounds, and delayed-work origins. Failed typed writes preserve the old store
 and produce an uncatchable type error; `.require(UInt)` remains recoverable.
 The effect fragments model lexical rules but do not establish Rust checker
 classification or diagnostics. The raw IR layer models typed pool IDs,
-optional IDs, ranges, tables, and row decoding. Transport modules define
-closed bridge codecs and prove re-encoding laws for accepted hexadecimal
-values and bridge IDs. These are independent Lean results about their stated
-definitions, not Rust conformance or full-language proofs.
+optional IDs, ranges, tables, and row decoding. Its decoder fragments prove
+successful sequential read length, successful payload length and table bounds,
+and rejection of one concrete out-of-bounds payload range. These independent
+fragments do not close G7a, establish full decoder soundness, or prove Rust
+verifier conformance. Transport modules define closed bridge codecs and prove
+re-encoding laws for accepted hexadecimal values and bridge IDs. These are
+independent Lean results about their stated definitions, not Rust conformance
+or full-language proofs.
 
 Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. The inventory names 57 rooted Lean
+72 complete theorem obligations planned. The inventory names 60 rooted Lean
 fragment declarations. Its 29 Python tests check inventory shape, root
 reachability, and mutation controls; they are not semantic or Rust conformance
 tests. No full G1 closure or whole-language soundness claim is made.

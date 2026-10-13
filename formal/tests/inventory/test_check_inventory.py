@@ -26,7 +26,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(57, len(result["fragment_roots"]))
+        self.assertEqual(60, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
@@ -106,6 +106,22 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Proofs.BaseHostRunnerLaws.response_order_changes_waiting_result",
             },
             runner_law_roots,
+        )
+        raw_roots = {
+            root["id"] for root in roots
+            if root["module"].startswith("Xsh.IR.Raw.")
+        }
+        self.assertEqual(
+            {
+                "fragment.Xsh.IR.Raw.decoded_row_preserves_raw_fields",
+                "fragment.Xsh.IR.Raw.RawRange.resolve_sound",
+                "fragment.Xsh.IR.Raw.tag_data_mismatch_row_read_fails",
+                "fragment.Xsh.IR.Raw.PoolId.decode_encode",
+                "fragment.Xsh.IR.Raw.readWords_success_length",
+                "fragment.Xsh.IR.Raw.readPayload_success_length_and_bounds",
+                "fragment.Xsh.IR.Raw.out_of_bounds_payload_read_is_rejected",
+            },
+            raw_roots,
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:
