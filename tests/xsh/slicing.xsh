@@ -127,6 +127,7 @@ test test_slice_brackets_preserve_distinct_offset_count_errors { |ctx|
   let equivalent = test.run_script(
     ctx,
     r"""assert b"abc"[..9223372036854775807] == b"abc".slice(0, 9223372036854775807)
+assert b"abc"[1..] == b"abc".slice(1, 9223372036854775807)
 """,
   )?
   let {success: equivalent_success, stderr: equivalent_message, ..} = equivalent

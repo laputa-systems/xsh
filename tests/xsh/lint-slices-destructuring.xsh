@@ -41,11 +41,13 @@ let prefix = data.slice(0, length: 3) # é retained
 let suffix = b"abcdef".slice(offset: 2)
 let whole = data.slice(0, data.len())
 let empty = data.slice(0, 0)
-print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()}
+let named = data.slice(length: 2, offset: 3)
+let saturated = data.slice(offset: 1, length: 9223372036854775807)
+print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()} ${named.base64()} ${saturated.base64()}
 """
   let report = reported(file, "lint.prefer-slice", source)?
-  assert report.split("warn[lint.prefer-slice]").len() == 5, report
-  assert report.split("help: rewrite equivalent byte slice -> ").len() == 5, report
+  assert report.split("warn[lint.prefer-slice]").len() == 7, report
+  assert report.split("help: rewrite equivalent byte slice -> ").len() == 7, report
   assert_checks(file)
   assert_formatted(file)
 
@@ -54,7 +56,9 @@ let prefix = data[..3] # é retained
 let suffix = b"abcdef"[2..]
 let whole = data[..]
 let empty = data[..0]
-print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()}
+let named = data[3..5]
+let saturated = data[1..6]
+print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()} ${named.base64()} ${saturated.base64()}
 """
   assert_checks(file)
   assert_formatted(file)
@@ -62,7 +66,7 @@ print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()}
   assert "lint.prefer-slice" not in again.stderr, again.stderr
 }
 
-test test_prefer_slice_retains_uncertain_offsets_counts_and_overflow { |ctx|
+test test_prefer_slice_silences_unproven_bounds_and_malformed_pages { |ctx|
   let root = test.temp_dir(ctx, name: "prefer-slice-retained")?
   let file = fp"{root}/slice.xsh"
   let source = """pure count() -> Int {
@@ -76,13 +80,35 @@ pure selected(data: Bytes) -> List[Bytes] {
   let overflow = data.slice(1, 9223372036854775807)
   [negative, uncertain, arithmetic, effect_count, overflow]
 }
+export pure exported_field(page: Bytes, offset: Int, length: Int) -> Bytes {
+  page.slice(offset, length)
+}
+export pure short_page(page: Bytes) -> Bytes {
+  page.slice(120, length: 8)
+}
+pure empty_name(data: Bytes) -> Bytes {
+  data.slice(0, data.len() - 1)
+}
+pure short_message(data: Bytes) -> Bytes {
+  data.slice(8, 4)
+}
+proc dynamic_offset() [env] -> Int {
+  let _ = env.get("HOME")
+  1
+}
+proc dynamic_length() [env] -> Int {
+  let _ = env.get("HOME")
+  2
+}
+proc named_effects(data: Bytes) [env] -> Bytes {
+  data.slice(length: dynamic_length(), offset: dynamic_offset())
+}
+pure produce() -> Bytes { b"abc" }
+let duplicated = produce().slice(1, produce().len() - 1)
 """
   let report = reported(file, "lint.prefer-slice", source)?
   assert_checks(file)
-  # Each of the five is reported with a note and without a fix.
-  assert report.split("warn[lint.prefer-slice]").len() == 6, report
-  assert report.split("\nnote: no automatic fix: ").len() == 6, report
-  assert "help: " not in report, report
+  assert "lint.prefer-slice" not in report, report
   assert fixed_by(file, "lint.prefer-slice")? == source
 }
 

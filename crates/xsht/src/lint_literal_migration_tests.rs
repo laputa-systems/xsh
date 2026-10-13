@@ -192,7 +192,7 @@ fn list_duration_literal_updates_preserve_the_checked_element_domain() {
 
 #[test]
 fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
-    let source = "let data = b\"a\\0\\xffbcd\"\nlet copied = data\nlet suffix = data.slice(3, data.len() - 3) # retained\nlet empty = copied.slice(6, length: copied.len() - 6)\nlet rest = copied.slice(2)\nlet bounded = data.slice(1, 2)\nlet whole = copied.slice(0, copied.len() - 0)\nlet saturated = data.slice(1, 9223372036854775807)\n";
+    let source = "let data = b\"a\\0\\xffbcd\"\nlet copied = data\nlet suffix = data.slice(3, data.len() - 3) # retained\nlet empty = copied.slice(6, length: copied.len() - 6)\nlet rest = copied.slice(2)\nlet bounded = data.slice(1, 2)\nlet named = data.slice(length: 2, offset: 3)\nlet whole = copied.slice(0, copied.len() - 0)\nlet saturated = data.slice(1, 9223372036854775807)\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
@@ -212,7 +212,7 @@ fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
         .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferSlice))
         .flat_map(|diagnostic| &diagnostic.fix_hints)
         .collect::<Vec<_>>();
-    assert_eq!(fixes.len(), 6);
+    assert_eq!(fixes.len(), 7);
     let mut fixed = source.to_owned();
     for fix in fixes.iter().rev() {
         fixed.replace_range(
@@ -224,6 +224,7 @@ fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
     assert!(fixed.contains("copied[6..]"));
     assert!(fixed.contains("copied[2..]"));
     assert!(fixed.contains("data[1..3]"));
+    assert!(fixed.contains("data[3..5]"));
     assert!(fixed.contains("copied[0..]"));
     assert!(fixed.contains("data[1..6]"));
     let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
@@ -256,15 +257,25 @@ fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
 }
 
 #[test]
-fn byte_suffix_migration_retains_unknown_mutable_and_distinct_receivers() {
+fn byte_slice_rule_is_silent_without_proven_equivalent_bounds() {
     for source in [
         "pure suffix(data: Bytes) -> Bytes { data.slice(1, data.len() - 1) }\n",
         "var data = b\"abc\"\nlet suffix = data.slice(1, data.len() - 1)\n",
         "let data = b\"abc\"\nlet suffix = data.slice(4, data.len() - 4)\n",
+        "let data = b\"abc\"\nlet suffix = data.slice(-1)\n",
         "let data = b\"abc\"\nlet other = b\"abcd\"\nlet suffix = data.slice(1, other.len() - 1)\n",
         "let data = b\"abc\"\nlet suffix = data.slice(1, # retain bounds explanation\n  data.len() - 1)\n",
         "let data = b\"abc\"\nlet suffix = data.slice(1, -1)\n",
         "pure produce() -> Bytes { b\"abc\" }\nlet suffix = produce().slice(1, produce().len() - 1)\n",
+        "pure suffix(data: Bytes, offset: Int, length: Int) -> Bytes { data.slice(offset, length) }\n",
+        "export pure field(page: Bytes) -> Bytes { page.slice(120, length: 8) }\n",
+        "export pure field(data: Bytes) -> Bytes { data.slice(12, 1) }\n",
+        "pure empty_name(data: Bytes) -> Bytes { data.slice(0, data.len() - 1) }\n",
+        "pure short_message(data: Bytes) -> Bytes { data.slice(8, 4) }\n",
+        "pure suffix(data: Bytes, size: Int) -> Bytes { data.slice(0, size) }\n",
+        "pure negative_header(data: Bytes, size: Int) -> Bytes { data.slice(0, size) }\n",
+        "proc dynamic_offset() [env] -> Int { let _ = env.get(\"HOME\"); 1 }\nproc dynamic_length() [env] -> Int { let _ = env.get(\"HOME\"); 2 }\nproc select(data: Bytes) [env] -> Bytes { data.slice(length: dynamic_length(), offset: dynamic_offset()) }\n",
+        "pure produce() -> Bytes { b\"abc\" }\nlet part = produce().slice(1, produce().len() - 1)\n",
     ] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -284,8 +295,7 @@ fn byte_suffix_migration_retains_unknown_mutable_and_distinct_receivers() {
             .iter()
             .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferSlice))
             .collect::<Vec<_>>();
-        assert_eq!(slices.len(), 1, "{source}");
-        assert!(slices[0].fix_hints.is_empty(), "{source}");
+        assert!(slices.is_empty(), "{source}: {slices:?}");
     }
 }
 

@@ -4371,6 +4371,12 @@ impl<'a> Linter<'a> {
         {
             return;
         }
+        // Method slicing rejects invalid bounds while range slicing clamps
+        // them. Report only when the replacement proof establishes equivalent
+        // bounds and evaluation, so the warning never promises an unsafe fix.
+        let Some(replacement) = self.byte_slice_replacement(callee, args, span) else {
+            return;
+        };
         let diagnostic = Diagnostic::new(
             Severity::Warning,
             "prefer half-open slicing where bounds are equivalent",
@@ -4379,17 +4385,12 @@ impl<'a> Linter<'a> {
         .with_label(Label::secondary(
             span,
             "offset/count methods have distinct bounds and error behavior",
+        ))
+        .with_fix_hint(FixHint::replacement(
+            span,
+            "rewrite equivalent byte slice",
+            replacement,
         ));
-        let diagnostic = if let Some(replacement) = self.byte_slice_replacement(callee, args, span)
-        {
-            diagnostic.with_fix_hint(FixHint::replacement(
-                span,
-                "rewrite equivalent byte slice",
-                replacement,
-            ))
-        } else {
-            diagnostic.with_note("no automatic fix: bounds, count arithmetic, evaluation order, or comment retention are not proven equivalent")
-        };
         self.diagnostics.push(diagnostic);
     }
 
