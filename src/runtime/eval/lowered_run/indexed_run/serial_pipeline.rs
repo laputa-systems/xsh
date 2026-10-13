@@ -1923,7 +1923,7 @@ pub(super) enum IndexedSerialStep {
 #[derive(Clone, Copy)]
 enum SerialExprKind {
     Where,
-    Map { flat: bool, wrap_error: bool },
+    Map { flat: bool },
     Any { all: bool },
 }
 
@@ -2004,10 +2004,10 @@ impl IndexedSerialPipeline {
 
     pub(super) fn pending_map_error_item(&self) -> Option<usize> {
         self.awaiting.as_ref().and_then(|awaiting| match &awaiting.phase {
-            SerialAwaitPhase::Expr(SerialExprKind::Map {
-                wrap_error: true,
-                ..
-            }) => Some(self.source_index.saturating_sub(1)),
+            SerialAwaitPhase::Block(SerialAfterBlock::Map { .. })
+            | SerialAwaitPhase::Expr(SerialExprKind::Map { .. }) => {
+                Some(self.source_index.saturating_sub(1))
+            }
             _ => None,
         })
     }
@@ -2090,10 +2090,7 @@ impl IndexedSerialPipeline {
                     }
                     SerialAfterBlock::Map { value, flat } => {
                         self.awaiting = Some(SerialAwait {
-                            phase: SerialAwaitPhase::Expr(SerialExprKind::Map {
-                                flat,
-                                wrap_error: false,
-                            }),
+                            phase: SerialAwaitPhase::Expr(SerialExprKind::Map { flat }),
                             ..awaiting
                         });
                         return Ok(IndexedSerialStep::Expr(value));
@@ -2128,7 +2125,7 @@ impl IndexedSerialPipeline {
                                 self.pending.push((awaiting.stage_index + 1, item));
                             }
                         }
-                        SerialExprKind::Map { flat, .. } => {
+                        SerialExprKind::Map { flat } => {
                             slots[awaiting.slot] = LoweredValue::Unit;
                             if flat {
                                 let rows = evaluator.lowered_flat_map_rows(value, self.span)?;
@@ -2272,7 +2269,6 @@ impl IndexedSerialPipeline {
                             item: input,
                             phase: SerialAwaitPhase::Expr(SerialExprKind::Map {
                                 flat,
-                                wrap_error: true,
                             }),
                         });
                         return Ok(IndexedSerialStep::Expr(value.raw()));

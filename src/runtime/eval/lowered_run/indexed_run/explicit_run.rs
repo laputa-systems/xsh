@@ -4037,12 +4037,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
         }
         if error.abort.is_none() && self.pending_error.is_none() {
-            let stage_item = self.calls.last().and_then(|call| match call.work.last() {
-                Some(FrameWork::ForPipeline { pipeline, .. }) => pipeline
-                    .pending_map_error_item()
-                    .map(|item_index| ("map", item_index)),
-                Some(FrameWork::StageValue { pipeline, .. }) => pipeline.pending_item_error(),
-                _ => None,
+            // A block callback leaves statement and function frames above the
+            // pipeline continuation while an item error unwinds.
+            let stage_item = self.calls.iter().rev().find_map(|call| {
+                call.work.iter().rev().find_map(|work| match work {
+                    FrameWork::ForPipeline { pipeline, .. } => pipeline
+                        .pending_map_error_item()
+                        .map(|item_index| ("map", item_index)),
+                    FrameWork::StageValue { pipeline, .. } => pipeline.pending_item_error(),
+                    _ => None,
+                })
             });
             if let Some((stage, item_index)) = stage_item {
                 error = self

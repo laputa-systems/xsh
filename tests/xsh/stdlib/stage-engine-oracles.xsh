@@ -306,6 +306,63 @@ let _ = [{rank: 0}] |> map 100 / .rank
   assert "division" in failure.stderr
 }
 
+test test_stage_engine_map_and_flat_map_block_failures_keep_item_context { |ctx|
+  let cases = [
+    {
+      label: "map list prefix",
+      source: r"""
+let _ = [1, 0] |> map { |item|
+  let quotient = 10 / item
+  quotient
+} |> collect()
+""",
+    },
+    {
+      label: "map stream tail",
+      source: r"""
+stream numbers() [] -> Stream[Int] {
+  yield 1
+  yield 2
+}
+let _ = numbers() |> map { |item|
+  let adjusted = item + 0
+  10 / (item - 2)
+} |> collect()
+""",
+    },
+    {
+      label: "flat-map list tail",
+      source: r"""
+let _ = [1, 2] |> flat-map { |item|
+  let adjusted = item + 0
+  [10 / (item - 2)]
+} |> collect()
+""",
+    },
+    {
+      label: "flat-map stream prefix",
+      source: r"""
+stream numbers() [] -> Stream[Int] {
+  yield 1
+  yield 0
+}
+let _ = numbers() |> flat-map { |item|
+  let quotient = 10 / item
+  [quotient]
+} |> collect()
+""",
+    },
+  ]
+
+  for case in cases {
+    let failure = test.run_xsht_trace(ctx, case.source, ["--trace", "--raw"])?
+    assert failure.status == 3, case.label + ": " + failure.stderr
+    assert "stream stage `map` item 1 failed" in failure.stderr, case.label + ": " + failure.stderr
+    assert "kind=stream.item.error" in failure.stderr, case.label + ": " + failure.stderr
+    assert "item_index=1" in failure.stderr, case.label + ": " + failure.stderr
+  }
+}
+
 test test_stage_engine_map_field_error_uses_field_span { |ctx|
   let root = test.temp_dir(ctx, name: "stage-map-field-span")?
   fp"{root}/entry.txt".write("payload")
