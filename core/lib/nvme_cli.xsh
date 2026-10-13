@@ -1006,7 +1006,7 @@ proc id_ctrl(argv: List[Str]) [fs, process, env, io, error] {
     if human { lines += controller_detail(item.name, item.value) }
   }
   lines += power_state_lines(states)
-  if vendor { lines += ["vs[]:", @hex_dump(data.slice(3072, length: 1024))] }
+  if vendor { lines += ["vs[]:", @hex_dump(data[3072..4096])] }
   gnu.write_text(lines.join("\n") + "\n")
 }
 
@@ -1058,7 +1058,7 @@ proc id_ns(argv: List[Str]) [fs, process, env, io, error] {
     let rank = if human { " " + performance[format.relative_performance] } else { "" }
     lines += [f"lbaf {tui.left_pad(f"{index}", 2)} : ms:{tui.right_pad(f"{format.metadata_size}", 3)} lbads:{tui.right_pad(f"{format.data_size_shift}", 2)} rp:{hex(format.relative_performance)}{rank} {marker}"]
   }
-  if vendor { lines += ["vs[]:", @hex_dump(data.slice(384, length: 3712))] }
+  if vendor { lines += ["vs[]:", @hex_dump(data[384..4096])] }
   gnu.write_text(lines.join("\n") + "\n")
 }
 
