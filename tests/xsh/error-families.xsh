@@ -12,6 +12,18 @@ error FetchError {
     Refused(message: Str, port: Int) : PermissionDenied, Timeout
 }
 
+error OptionalError = Failed(message: Str)
+
+type OptionalErrorSource = {load: proc() -> OptionalError?}
+
+proc load_optional_error() -> OptionalError? {
+  OptionalError.Failed("optional failure")
+}
+
+let optional_error_source: OptionalErrorSource = {
+  load: load_optional_error,
+}
+
 pure count_of(text: Str, needle: Str) -> Int {
   text.split(needle).len() - 1
 }
@@ -84,6 +96,30 @@ second=1 first=b
 3
 left=3 right=2
 """
+}
+
+test test_narrowed_optional_error_pattern_from_callable_field {
+  let possible = optional_error_source.load()
+  if possible != null {
+    assert possible is OptionalError.Failed
+  } else {
+    assert false, "expected the callable field to return an error"
+  }
+}
+
+test test_narrowed_optional_error_pattern_rejects_unrelated_family { |ctx|
+  let rejected = test.run_script(
+    ctx,
+    """error ExpectedError = Failed(message: Str)
+error OtherError = Failed(message: Str)
+let possible: ExpectedError? = ExpectedError.Failed("failure")
+if possible != null {
+  assert possible is OtherError.Failed
+}
+""",
+  )?
+  assert ! rejected.success, rejected.stderr
+  assert "err[check.pattern-type]" in rejected.stderr
 }
 
 test test_structured_error_runs_on_forced_frames { |ctx|

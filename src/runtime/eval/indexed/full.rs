@@ -8103,6 +8103,7 @@ impl<'a> FullDecoder<'a> {
                 family: actual_family,
                 variant: actual_variant,
             } => *actual_family == family && *actual_variant == variant,
+            Type::Optional(inner) => Self::error_pattern_may_match(inner, family, variant),
             Type::Union(members) => members
                 .iter()
                 .any(|member| Self::error_pattern_may_match(member, family, variant)),
@@ -21305,7 +21306,7 @@ pure apply() -> Int {
     }
 
     #[test]
-    fn error_pattern_subject_union_requires_a_member_that_can_hold_the_error() {
+    fn error_pattern_subject_optional_and_union_members_must_hold_the_error() {
         let owner = crate::symbol::SymbolOwner::new();
         let _guard = owner.enter();
         let family = Name::intern("FetchError");
@@ -21319,6 +21320,16 @@ pure apply() -> Int {
         ));
         assert!(!FullDecoder::error_pattern_may_match(
             &union(vec![Type::Str, Type::ErrorFamily(other)]),
+            family,
+            variant
+        ));
+        assert!(FullDecoder::error_pattern_may_match(
+            &Type::Optional(Box::new(Type::ErrorFamily(family))),
+            family,
+            variant
+        ));
+        assert!(!FullDecoder::error_pattern_may_match(
+            &Type::Optional(Box::new(Type::ErrorFamily(other))),
             family,
             variant
         ));
