@@ -169,12 +169,17 @@ for name in ["", "-v", "ok"] {
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
-  assert first.status.exited_with(1), first.stderr
+  assert first.status.exited_with(0), first.stderr
   assert "`StageError.Failed` only carries a message; report it with `fail`" in first.stderr, first.stderr
   # A message-only family still identifies the failure to callers and reports.
-  assert first.stderr.split("warn[lint.prefer-fail]").len() == 3, first.stderr
+  assert first.stderr.split("note[lint.prefer-fail]").len() == 3, first.stderr
+  assert "warn[lint.prefer-fail]" not in first.stderr, first.stderr
+  assert "xsht lint: 0 findings, 2 notes\n" in first.stderr, first.stderr
+  let denied = run.capture --text "xsht" lint --deny-notes --only lint.prefer-fail $candidate
+  assert denied.status.exited_with(1), denied.stderr
+  assert "note[lint.prefer-fail]" in denied.stderr, denied.stderr
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate
-  assert fixing.status.exited_with(1), fixing.stderr
+  assert fixing.status.exited_with(0), fixing.stderr
   assert "help:" not in fixing.stderr, fixing.stderr
   let fixed = candidate.read_text()?
   assert fixed == source, fixed
@@ -183,8 +188,8 @@ for name in ["", "-v", "ok"] {
   let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let second = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
-  assert second.status.exited_with(1), second.stderr
-  assert second.stderr.split("warn[lint.prefer-fail]").len() == 3, second.stderr
+  assert second.status.exited_with(0), second.stderr
+  assert second.stderr.split("note[lint.prefer-fail]").len() == 3, second.stderr
 }
 
 test test_prefer_fail_leaves_a_matched_family_alone { |ctx|
@@ -367,7 +372,8 @@ match validate(["a", "", "c"]) {
   assert "error AppError = Failed\n" in fixed, fixed
   assert "AppError.Failed(\"too many\")" in fixed, fixed
   let nominal = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
-  assert nominal.status.exited_with(1), nominal.stderr
+  assert nominal.status.exited_with(0), nominal.stderr
+  assert "note[lint.prefer-fail]" in nominal.stderr, nominal.stderr
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
 }
@@ -385,12 +391,14 @@ print ${stage("ok")?}
   let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate
   # Neither the nominal constructor nor the comment can be erased by a fix.
-  assert fixing.status.exited_with(1), fixing.stderr
+  assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert fixed == source, fixed
   let left = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
-  assert left.status.exited_with(1), left.stderr
+  assert left.status.exited_with(0), left.stderr
   assert "`StageError.Failed` only carries a message" in left.stderr, left.stderr
   assert "nominal error family" in left.stderr, left.stderr
+  assert "note[lint.prefer-fail]" in left.stderr, left.stderr
+  assert "warn[lint.prefer-fail]" not in left.stderr, left.stderr
   assert "help:" not in left.stderr, left.stderr
 }

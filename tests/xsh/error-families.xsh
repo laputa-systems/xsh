@@ -450,7 +450,7 @@ print ${StepError.Broken(code: 2).message}
   assert second.status.exited_with(0), second.stderr
 }
 
-# `lint.prefer-fail` reports when changing an error family would change its
+# `lint.prefer-fail` advises when changing an error family would change its
 # meaning. Safe message edits can still remove the sole payload while keeping
 # the nominal family.
 test test_prefer_implicit_message_keeps_nominal_families { |ctx|
@@ -491,7 +491,8 @@ match parse("") {
   assert "`LoadError.Unreadable` only carries a message; report it with `fail`" in both.stderr, both.stderr
   assert "`Failed` takes its message positionally" in both.stderr, both.stderr
   assert count_of(both.stderr, "warn[lint.prefer-implicit-message]") == 4, both.stderr
-  assert count_of(both.stderr, "warn[lint.prefer-fail]") == 1, both.stderr
+  assert count_of(both.stderr, "note[lint.prefer-fail]") == 1, both.stderr
+  assert "warn[lint.prefer-fail]" not in both.stderr, both.stderr
 
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate
   assert fixing.status.exited_with(0), fixing.stderr
@@ -503,6 +504,46 @@ match parse("") {
 
   let after = test.expect(ctx, fixed, status: 0, args: [])?
   assert after.stdout == before.stdout, after.stdout
+}
+
+test test_date_parse_keeps_its_nominal_invalid_error { |ctx|
+  let source = p"core/lib/date_parse.xsh".read_text()?
+  assert "error DateError = Invalid" in source, source
+  assert "DateError.Invalid(" in source, source
+
+  let candidate = test.temp_file(ctx, name: "date-parse.xsh", contents: bytes.from_text(source))?
+  let linted = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
+  assert linted.status.exited_with(0), linted.stderr
+  assert "note[lint.prefer-fail]" in linted.stderr, linted.stderr
+  assert "DateError.Invalid" in linted.stderr, linted.stderr
+  assert "warn[lint.prefer-fail]" not in linted.stderr, linted.stderr
+
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate
+  assert fixed.status.exited_with(0), fixed.stderr
+  assert candidate.read_text()? == source
+}
+
+test test_device_error_message_migration_keeps_the_nominal_family { |ctx|
+  let source = p"core/diff.xsh".read_text()?
+  assert "error DeviceError = TooLarge(message: Str)" in source, source
+  let candidate = test.temp_file(ctx, name: "diff.xsh", contents: bytes.from_text(source))?
+
+  let both = run.capture --text "xsht" lint --only lint.prefer-fail,lint.prefer-implicit-message $candidate
+  assert both.status.exited_with(1), both.stderr
+  assert "note[lint.prefer-fail]" in both.stderr, both.stderr
+  assert "warn[lint.prefer-implicit-message]" in both.stderr, both.stderr
+  assert "help: declare the variant without a payload" in both.stderr, both.stderr
+
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = candidate.read_text()?
+  assert "error DeviceError = TooLarge\n" in fixed, fixed
+  assert "DeviceError.TooLarge(\"input is unbounded or too large to compare\")" in fixed, fixed
+
+  let after = run.capture --text "xsht" lint --only lint.prefer-fail,lint.prefer-implicit-message $candidate
+  assert after.status.exited_with(0), after.stderr
+  assert "note[lint.prefer-fail]" in after.stderr, after.stderr
+  assert "warn[lint.prefer-implicit-message]" not in after.stderr, after.stderr
 }
 
 test test_positional_error_arguments_fix_names_the_fields_they_fill { |ctx|

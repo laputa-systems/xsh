@@ -226,7 +226,7 @@ impl Candidates {
             }
             for constructor in constructors {
                 let call = arena.expr(constructor.call).span;
-                let diagnostic = Diagnostic::warning(format!(
+                let diagnostic = Diagnostic::note(format!(
                     "`{qualified}` only carries a message; report it with `fail`"
                 ))
                 .with_code(DiagnosticCode::LintPreferFail)
@@ -480,7 +480,7 @@ impl KeptDeclaration {
 mod tests {
     use super::super::{LintOptions, Linter};
     use super::KeptDeclaration;
-    use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+    use xsh::diagnostic::{Diagnostic, DiagnosticCode, Severity};
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
@@ -542,6 +542,9 @@ mod tests {
             .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail))
             .collect::<Vec<_>>();
         assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+        assert!(diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == Severity::Note));
         assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
         assert!(diagnostics.iter().all(|diagnostic| diagnostic.notes.iter().any(|note| note.contains("nominal error family"))));
         assert_eq!(apply(&diagnostics, source), source);
@@ -605,6 +608,10 @@ mod tests {
         let grouped = "error LoadError = Failed(message: Str)\nerror Kept = Missing(path: Path) | Busy\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n\nprint ${Kept.Busy().message}\n";
         assert_eq!(converged(grouped), grouped);
         let unused = "error LoadError = Failed(message: Str)\n\nprint \"done\"\n";
+        let unused_diagnostics = lint(unused);
+        assert_eq!(unused_diagnostics.len(), 1, "{unused_diagnostics:?}");
+        assert_eq!(unused_diagnostics[0].severity, Severity::Warning);
+        assert_eq!(unused_diagnostics[0].fix_hints.len(), 1);
         assert_eq!(converged(unused), "print \"done\"\n");
         let unused_grouped = "error LoadError = Failed(message: Str)\nerror Kept = Missing(path: Path) | Busy\n\nprint ${Kept.Busy().message}\n";
         assert_eq!(converged(unused_grouped), "error Kept = Missing(path: Path) | Busy\n\nprint ${Kept.Busy().message}\n");
@@ -634,6 +641,11 @@ mod tests {
         let source = "export error LoadError = Failed(message: Str)\n\nexport proc load() -> Result[Int, LoadError] {\n  return Err(LoadError.Failed(\"no\"))\n}\n";
         let diagnostics = lint(source);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn prefer_fail_has_mixed_severity_for_notes_and_safe_rewrites() {
+        assert_eq!(DiagnosticCode::LintPreferFail.severity(), None);
     }
 
     #[test]
@@ -695,6 +707,12 @@ mod tests {
         let source = "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  return Err(.Busy()) when target == p\"/\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(.Missing(path: target), cause: problem)\n  }\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        assert!(diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == Severity::Warning));
+        assert!(diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.fix_hints.len() == 1));
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,

@@ -11,8 +11,9 @@ print load()?
   assert "LoadError.Failed" in before.stderr, before.stderr
   let file = test.temp_file(ctx, name: "nominal.xsh", contents: bytes.from_text(source))?
   let fixed = run.capture --text "xsht" lint --only lint.prefer-fail --fix $file
-  assert fixed.status.exited_with(1), fixed.stderr
-  assert "warn[lint.prefer-fail]" in fixed.stderr, fixed.stderr
+  assert fixed.status.exited_with(0), fixed.stderr
+  assert "note[lint.prefer-fail]" in fixed.stderr, fixed.stderr
+  assert "warn[lint.prefer-fail]" not in fixed.stderr, fixed.stderr
   assert "help:" not in fixed.stderr, fixed.stderr
   assert file.read_text()? == source
   let after = test.expect(ctx, file.read_text()?, status: 3)?
@@ -131,7 +132,8 @@ print load()?
   assert file.read_text()? == expected, file.read_text()?
   assert fixed.status.exited_with(0), fixed.stderr
   let nominal = run.capture --text "xsht" lint --only lint.prefer-fail $file
-  assert nominal.status.exited_with(1), nominal.stderr
+  assert nominal.status.exited_with(0), nominal.stderr
+  assert "note[lint.prefer-fail]" in nominal.stderr, nominal.stderr
   let remaining = run.capture --text "xsht" lint --only lint.prefer-implicit-message $file
   assert remaining.status.exited_with(0), remaining.stderr
   let after = test.expect(ctx, expected, status: 3)?
