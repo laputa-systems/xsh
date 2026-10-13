@@ -346,6 +346,131 @@ pure show(data: Bytes) -> Str {
 ## NUL and the matching `_hex` field holds anything else.
 export type Stored = {name: Str, flags: Str, args: List[Str], input: Str, input_hex: Str, status: Int, stdout: Str, stdout_hex: Str, stderr: Str, stderr_hex: Str}
 
+# Directory st_size is a property of the host filesystem, while regular-file
+# sizes remain part of the frozen GNU oracle and must still compare exactly.
+pure replace_expected_row(data: Bytes, case_name: Str, before: Str, after: Str) -> Result[Bytes, Error] {
+  let text = data.utf8()?
+  let at = text.find(before) ?? -1
+  return Err(error.failure(f"{case_name}: missing frozen directory-size row {hex(bytes.from_text(before))}")) when at < 0
+  let end = at + before.byte_len()
+  return Err(error.failure(f"{case_name}: repeated frozen directory-size row {hex(bytes.from_text(before))}")) when text.byte_slice(end).find(before) != null
+  Ok(bytes.from_text(text.byte_slice(0, length: at) + after + text.byte_slice(end)))
+}
+
+proc fixture_directory_size(root: Path, relative: Str) [fs, error] -> Result[Int, Error] {
+  let metadata = fs.stat(fp"{root}/{relative}", follow_symlinks: true)?
+  return Err(error.failure(f"expected fixture directory at {relative}")) when metadata.kind != "dir"
+  Ok(metadata.size)
+}
+
+proc update_ls_directory_sizes(data: Bytes, root: Path, case_name: Str) [fs, error] -> Result[Bytes, Error] {
+  return Err(error.failure(f"{case_name}: unterminated normalized -ls output")) when ! data.is_empty() and data.byte_at(data.len() - 1) != 10
+  var output: List[Bytes] = []
+  var start = 0
+  for at in range(data.len()) {
+    continue when data.byte_at(at) != 10
+    let line = data[start..at]
+    if line.is_empty() {
+      output += [line, b"\n"]
+      start = at + 1
+      continue
+    }
+
+    var fields: List[Bytes] = []
+    var begins: List[Int] = []
+    var ends: List[Int] = []
+    var cursor = 0
+    while fields.len() < 10 {
+      while cursor < line.len() and line.byte_at(cursor) == 32 { cursor += 1 }
+      let begin = cursor
+      while cursor < line.len() and line.byte_at(cursor) != 32 { cursor += 1 }
+      break when begin == cursor
+      begins += [begin]
+      ends += [cursor]
+      fields += [line[begin..cursor]]
+    }
+    if fields.len() != 10 or fields[0] != b"-" or fields[1] != b"-" or fields[4] != b"U" or fields[5] != b"G" {
+      return Err(error.failure(f"{case_name}: unsupported normalized -ls row {hex(line)}"))
+    }
+    while cursor < line.len() and line.byte_at(cursor) == 32 { cursor += 1 }
+    let listed_path = line[cursor..]
+    return Err(error.failure(f"{case_name}: missing path in normalized -ls row {hex(line)}")) when listed_path.is_empty()
+    if fields[2].starts_with(b"d") {
+      let full_path = if listed_path == b"tree" or listed_path.starts_with(b"tree/") {
+        bytes.concat([root.bytes(), b"/", listed_path]) as Path
+      } else if listed_path == b"/fixture" or listed_path.starts_with(b"/fixture/") {
+        bytes.concat([root.bytes(), listed_path[8..]]) as Path
+      } else {
+        return Err(error.failure(f"{case_name}: unsupported directory path in -ls row {hex(listed_path)}"))
+      }
+      let metadata = fs.stat(full_path, follow_symlinks: true)?
+      return Err(error.failure(f"{case_name}: -ls directory row resolves to {metadata.kind}")) when metadata.kind != "dir"
+      let replacement = bytes.from_text(f"{metadata.size}")
+      output += [bytes.concat([line[0..begins[6]], replacement, line[ends[6]..]]), b"\n"]
+    } else {
+      output += [line, b"\n"]
+    }
+    start = at + 1
+  }
+  if start < data.len() { output += [data[start..]] }
+  Ok(bytes.concat([@output]))
+}
+
+proc may_print_directory_size(c: Case, root: Path) [fs, error] -> Result[Bool, Error] {
+  var expects_format = false
+  var prints_size = false
+  var type_argument = false
+  var selects_only_files = false
+  var uses_or = false
+  for arg in c.args {
+    if expects_format {
+      prints_size = prints_size or arg.find("%s") != null
+      expects_format = false
+    }
+    if arg in ["-printf", "-fprintf"] { expects_format = true }
+    if type_argument {
+      selects_only_files = selects_only_files or arg == "f"
+      type_argument = false
+    }
+    if arg == "-type" { type_argument = true }
+    if arg in ["-o", "-or"] { uses_or = true }
+  }
+  return Ok(false) when ! prints_size or (selects_only_files and ! uses_or)
+
+  for arg in c.args {
+    continue when arg.starts_with("-")
+    let start = if arg.starts_with("/") { Path(arg) } else { fp"{root}/{arg}" }
+    return Ok(fs.stat(start, follow_symlinks: true)?.kind == "dir")
+  }
+  Err(error.failure(f"{c.name}: cannot locate find start path for a %s format"))
+}
+
+proc update_expected_directory_sizes(c: Case, expected: Bytes, root: Path) [fs, error] -> Result[Bytes, Error] {
+  if "-ls" in c.args { return update_ls_directory_sizes(expected, root, c.name) }
+  if c.name == "printf_s" {
+    let size = fixture_directory_size(root, "tree/sizes")?
+    return replace_expected_row(expected, c.name, "180 sizes\n", f"{size} sizes\n")
+  }
+  if c.name == "fprintf" {
+    var updated = expected
+    let sub_size = fixture_directory_size(root, "tree/sub")?
+    updated = replace_expected_row(updated, c.name, "sub:80\n", f"sub:{sub_size}\n")?
+    let deep_size = fixture_directory_size(root, "tree/sub/deep")?
+    updated = replace_expected_row(updated, c.name, "deep:100\n", f"deep:{deep_size}\n")?
+    let deeper_size = fixture_directory_size(root, "tree/sub/deep/deeper")?
+    updated = replace_expected_row(updated, c.name, "deeper:60\n", f"deeper:{deeper_size}\n")?
+    return Ok(updated)
+  }
+  if c.name == "printf_n_directive_names" {
+    let size = fixture_directory_size(root, "tree/times")?
+    return replace_expected_row(expected, c.name, "tree/times d 755 100\n", f"tree/times d 755 {size}\n")
+  }
+  if may_print_directory_size(c, root)? {
+    return Err(error.failure(f"{c.name}: unsupported directory-size output format"))
+  }
+  Ok(expected)
+}
+
 ## Run the cases of a JSON Lines corpus whose position leaves `part` when
 ## divided by `parts` (so several tests can share the work) and describe each
 ## difference from the recorded GNU output; an empty list means the applet
@@ -363,7 +488,7 @@ export proc run_corpus(xsh_bin: Path, script: Path, corpus: Path, root: Path, wo
       continue when "n" in c.flags and identity.euid == 0
       let seen = invoke(xsh_bin, script, root, work, c)?
       let status = stored.status
-      let expected_out = resolve_ids(stored.stdout, identity.uid, identity.gid) |> stored_bytes(_, stored.stdout_hex)
+      let expected_out = resolve_ids(stored.stdout, identity.uid, identity.gid) |> stored_bytes(_, stored.stdout_hex) |> update_expected_directory_sizes(c, _, root)?
       let expected_err = stored_bytes(stored.stderr, stored.stderr_hex)
       yield f"{c.name}: exit {seen.status}, expected {status}" when seen.status != status
       if ! same_output(c, expected_out, seen.stdout) {
