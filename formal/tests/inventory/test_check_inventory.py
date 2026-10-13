@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(134, len(result["fragment_roots"]))
+        self.assertEqual(145, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -344,6 +344,26 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Validation.RelPath.treating_parent_as_name_is_detected",
             },
             relpath_roots,
+        )
+        recursive_require_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Validation.RecursiveRequire"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Validation.RecursiveRequire.recursive_check_uses_predecessor_fuel",
+                "Xsh.Validation.RecursiveRequire.require_success_preserves_erased_data_and_provenance",
+                "Xsh.Validation.RecursiveRequire.rejected_require_is_recoverable_and_nonmutating",
+                "Xsh.Validation.RecursiveRequire.accepted_nested_record_list_and_optional_witness",
+                "Xsh.Validation.RecursiveRequire.optional_null_is_accepted",
+                "Xsh.Validation.RecursiveRequire.missing_optional_field_is_rejected",
+                "Xsh.Validation.RecursiveRequire.unique_record_keys_with_extra_field_are_accepted",
+                "Xsh.Validation.RecursiveRequire.duplicate_record_key_with_valid_first_value_is_rejected",
+                "Xsh.Validation.RecursiveRequire.require_rejects",
+                "Xsh.Validation.RecursiveRequire.duplicate_key_guard_detects_first_match_mutation",
+                "Xsh.Validation.RecursiveRequire.shallow_only_mutation_misses_nested_bad_item",
+            },
+            recursive_require_roots,
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:

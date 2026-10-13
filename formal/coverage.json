@@ -4192,6 +4192,105 @@
       "status": "fragment",
       "scope": "A mutation that treats `..` as a name disagrees with the modeled rejection of a root-level parent component.",
       "boundary": "Concrete mutation witness in the independent byte-list model only; no Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2 validation closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.recursive_check_uses_predecessor_fuel",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.recursive_check_uses_predecessor_fuel",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Each nested modeled schema check uses one predecessor unit of explicit natural-number fuel.",
+      "boundary": "Independent finite target grammar only; insufficient fuel rejects; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.require_success_preserves_erased_data_and_provenance",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.require_success_preserves_erased_data_and_provenance",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Successful recursive require preserves exact represented data through erasure and records target nominal identity and input provenance.",
+      "boundary": "Independent finite target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.rejected_require_is_recoverable_and_nonmutating",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.rejected_require_is_recoverable_and_nonmutating",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rejected recursive require retains the candidate and target details as recoverable data and leaves the modeled store unchanged.",
+      "boundary": "Independent immutable store and finite target model only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.accepted_nested_record_list_and_optional_witness",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.accepted_nested_record_list_and_optional_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete nested record, list, and optional witness passes and retains require-input provenance.",
+      "boundary": "Finite witness over the independent target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.optional_null_is_accepted",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.optional_null_is_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The modeled optional target accepts null.",
+      "boundary": "Finite witness over the independent target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.missing_optional_field_is_rejected",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.missing_optional_field_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record field remains required when its value target is optional, so omitting it is rejected.",
+      "boundary": "Finite witness over the independent target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.unique_record_keys_with_extra_field_are_accepted",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.unique_record_keys_with_extra_field_are_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A record with unique keys and an extra uniquely named field is accepted.",
+      "boundary": "Finite witness over the independent target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.duplicate_record_key_with_valid_first_value_is_rejected",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.duplicate_record_key_with_valid_first_value_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Duplicate record keys are rejected even when the first matching field value passes its target.",
+      "boundary": "Finite witness over the independent target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.require_rejects",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.require_rejects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Any failed modeled check returns a recoverable rejection carrying the original candidate.",
+      "boundary": "General law for the independent finite target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.duplicate_key_guard_detects_first_match_mutation",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.duplicate_key_guard_detects_first_match_mutation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A mutation that skips duplicate-key rejection accepts the malformed witness that the modeled checker rejects.",
+      "boundary": "Concrete mutation witness over the independent target grammar only; no Rust/source correspondence or full G2 proof."
+    },
+    {
+      "id": "fragment.Xsh.Validation.RecursiveRequire.shallow_only_mutation_misses_nested_bad_item",
+      "module": "Xsh.Validation.RecursiveRequire",
+      "declaration": "Xsh.Validation.RecursiveRequire.shallow_only_mutation_misses_nested_bad_item",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A mutation that skips nested field and list-item checks accepts a malformed value that recursive checking rejects.",
+      "boundary": "Concrete mutation witness over the independent target grammar only; no Rust/source correspondence or full G2 proof."
     }
   ],
   "source_identity": null

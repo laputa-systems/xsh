@@ -78,7 +78,16 @@ acceptance, and rejection laws. This independent byte-list model does not
 establish Rust checker/runtime correspondence, symlink-aware filesystem
 confinement, or full G2 validation closure.
 
-The inventory names 134 rooted Lean fragment declarations. Its 50 Python tests
+`Xsh.Validation.RecursiveRequire` models `.require` over a finite target
+grammar for integers, strings, optional values, lists, and required record
+fields, using explicit predecessor fuel for each recursive check. It rejects
+duplicate record keys while preserving extra uniquely named fields. Its 11
+theorem roots include nested success and failure witnesses, optional `null`,
+required optional-valued fields, exact erasure and provenance on success, and
+recoverable rejection that leaves the modeled store unchanged. This independent
+finite model establishes no Rust correspondence or full G2 validation claim.
+
+The inventory names 145 rooted Lean fragment declarations. Its 50 Python tests
 check inventory shape, root reachability, mutation controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
 G1 closure or whole-language soundness claim is made.

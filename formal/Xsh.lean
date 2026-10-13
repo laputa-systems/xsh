@@ -12,6 +12,7 @@ import Xsh.Validation.Boundary
 import Xsh.Validation.Store
 import Xsh.Validation.Nominal
 import Xsh.Validation.RelPath
+import Xsh.Validation.RecursiveRequire
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
