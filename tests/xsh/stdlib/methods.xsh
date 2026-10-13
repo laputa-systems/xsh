@@ -303,7 +303,7 @@ test test_error_message_field_can_be_matched_as_text {
   let nonempty = if let Err(failure) = "nope".parse_int() {
     match failure.message {
       "" => false
-      _ => true
+      else => true
     }
   } else {
     false

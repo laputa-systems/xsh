@@ -173,7 +173,7 @@ pure apply(options: Options, key: Str, value: Str) -> Applied {
     "g" => rejected(options, unsupported("-g", "device settings are read with commands the transport does not expose"))
     "set" => rejected(options, unsupported("--set", "device settings are changed with commands the transport does not expose"))
     "identify" => rejected(options, unsupported("--identify", "IDENTIFY DEVICE word dumps are not implemented"))
-    _ => rejected(options, {lines: [f"=======> UNRECOGNIZED OPTION: {key}"], native: true})
+    else => rejected(options, {lines: [f"=======> UNRECOGNIZED OPTION: {key}"], native: true})
   }
 }
 
@@ -496,7 +496,7 @@ proc ata_page(fd: Int, size: Int, command: Str, address: Int) [process] -> Fetch
     "identify" => linux.ata_identify(fd, size)
     "values" => linux.ata_smart_read_data(fd, size)
     "thresholds" => linux.ata_smart_read_thresholds(fd, size)
-    _ => linux.ata_smart_read_log(fd, address, 1, size)
+    else => linux.ata_smart_read_log(fd, address, 1, size)
   }
   match reply {
     Ok(result) => fetched(result.data)
@@ -518,7 +518,7 @@ proc ata_command(fd: Int, size: Int, command: Str) [process] -> Fetched {
   let reply = match command {
     "enable" => linux.ata_smart_enable(fd, size)
     "disable" => linux.ata_smart_disable(fd, size)
-    _ => linux.ata_smart_start_self_test(fd, command, size)
+    else => linux.ata_smart_start_self_test(fd, command, size)
   }
   match reply {
     Ok(result) => fetched(result.data)
@@ -531,7 +531,7 @@ proc nvme_page(fd: Int, command: Str, number: Int, length: Int) [process] -> Fet
   let reply = match command {
     "controller" => linux.nvme_identify_controller(fd)
     "namespace" => linux.nvme_identify_namespace(fd, number)
-    _ => linux.nvme_log_page(fd, number, length)
+    else => linux.nvme_log_page(fd, number, length)
   }
   match reply {
     Ok(result) => fetched(result.data)

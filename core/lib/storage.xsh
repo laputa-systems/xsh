@@ -452,7 +452,7 @@ pure mount_value(entry: mounts.MountEntry, column: Str) -> Str {
     "FSROOT" => entry.root,
     "ID" => f"{entry.mount_id}",
     "PARENT" => f"{entry.parent_id}",
-    _ => "",
+    else => "",
   }
 }
 
@@ -1457,7 +1457,7 @@ pure usage(command: Str) -> Str {
     "swapon" => "[-p PRIORITY] DEVICE...\n       swapon -a\nActivate named swap devices/files, or fstab swap entries. Swap listing and discard options are not supported.",
     "swapoff" => "DEVICE...\n       swapoff -a\nDeactivate named swap devices/files, or all active swap.",
     "mkswap" => "DEVICE\nInitialize an existing swap device or file. Label, UUID, page-size and creation options are not supported.",
-    _ => "[OPTIONS] [DEVICE...]",
+    else => "[OPTIONS] [DEVICE...]",
   }
   f"Usage: {command} {details}\n"
 }
@@ -1491,6 +1491,6 @@ proc execute(command: Str, argv: List[Str]) -> Result[Unit] {
     "sfdisk" => partition_command(command, argv),
     "fdisk" => partition_command(command, argv),
     "partx" => partition_command(command, argv),
-    _ => unsupported(f"{command} operation"),
+    else => unsupported(f"{command} operation"),
   }
 }

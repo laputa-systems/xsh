@@ -60,7 +60,7 @@ pure feature_aliases(feature: Str) -> List[Str] {
     "vpclmulqdq" => ["VPCLMULQDQ"]
     "pclmul" => ["PCLMULQDQ"]
     "vmull" => ["PMULL"]
-    _ => []
+    else => []
   }
 }
 
@@ -142,7 +142,7 @@ pure digest_length(algorithm: Str) -> Int {
     "sha384" => 96
     "sha512" => 128
     "sm3" => 64
-    _ => 0
+    else => 0
   }
 }
 
@@ -383,9 +383,9 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alterna
     }
     if infer and algorithm == "sha2" {
       selected = if is_hex(expected) {
-        match expected.byte_len() { 56 => "sha224", 64 => "sha256", 96 => "sha384", 128 => "sha512", _ => "" }
+        match expected.byte_len() { 56 => "sha224", 64 => "sha256", 96 => "sha384", 128 => "sha512", else => "" }
       } else {
-        match expected.byte_len() { 40 => "sha224", 44 => "sha256", 64 => "sha384", 88 => "sha512", _ => "" }
+        match expected.byte_len() { 40 => "sha224", 44 => "sha256", 64 => "sha384", 88 => "sha512", else => "" }
       }
     }
     if infer and algorithm == "sha3" {

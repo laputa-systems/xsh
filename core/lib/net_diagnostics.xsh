@@ -46,7 +46,7 @@ export proc dig_options(argv: List[Str]) [error] -> Result[DnsOptions, Error] {
         "t" => record = record_name(token.value)?
         "h" | "help" => help = true
         "v" | "version" => version = true
-        _ => return Err(DiagnosticError.Usage(f"unsupported option '{token.name}'"))
+        else => return Err(DiagnosticError.Usage(f"unsupported option '{token.name}'"))
       }
       continue
     }

@@ -210,7 +210,7 @@ pure tos_keyword(word: Str) -> Int? {
     "netcontrol" => 224
     "reliability" => 4
     "throughput" => 8
-    _ => null
+    else => null
   }
 }
 
@@ -314,7 +314,7 @@ proc parse_options(argv: List[Str]) [process, io] -> Parsed {
           opts.proxy_proto = value
         }
         "x" => opts.proxy_addr = value
-        _ => {
+        else => {
           say(f"unrecognized option: {letter}")
           usage()
         }
@@ -476,7 +476,7 @@ proc open_socket(family: Str, udp: Bool) [net, process, error] -> Result[Int] {
   let domain = match family {
     "inet6" => c.AF_INET6
     "unix" => c.AF_UNIX
-    _ => c.AF_INET
+    else => c.AF_INET
   }
   linux.socket(domain, if udp { c.SOCK_DGRAM } else { c.SOCK_STREAM })
 }

@@ -100,7 +100,7 @@ proc preserve_attributes(source: Path, target: Path, opts: Options, follow: Bool
   if let Err(failure) = applied {
     match failure {
       CopyError.Invalid {..} => return Err(failure)
-      _ => return Err(CopyError.Invalid(message: f"setting attributes for {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}"))
+      else => return Err(CopyError.Invalid(message: f"setting attributes for {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}"))
     }
   }
   applied
@@ -641,7 +641,7 @@ proc main(...raw_argv: List[Bytes]) {
               "links" | "link" => opts.links = enable
               "xattr" => opts.xattr = if enable { "required" } else { "none" }
               "context" => opts.context = if enable { "required" } else { "none" }
-              _ => gnu.usage_error(f"invalid argument {gnu.quote(attr)} for 'preserve'")
+              else => gnu.usage_error(f"invalid argument {gnu.quote(attr)} for 'preserve'")
             }
           }
         }
@@ -665,7 +665,7 @@ proc main(...raw_argv: List[Bytes]) {
         "keep-directory-symlink" => opts.keep_directory_symlink = true
         "debug" => { opts.debug = true; opts.verbose = true }
         "context" | "Z" => gnu.usage_error(f"option {gnu.quote(arg)} is not supported")
-        _ => gnu.usage_error(f"invalid option -- {gnu.quote(flag)}")
+        else => gnu.usage_error(f"invalid option -- {gnu.quote(flag)}")
       }
     }
   }

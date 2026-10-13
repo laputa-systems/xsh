@@ -89,7 +89,7 @@ export proc database_file(database: Str) [env] -> Result[Path, Error] {
     "hosts" => Ok(fp"{env.get_or("XSH_HOSTS_FILE", "/etc/hosts") ?? "/etc/hosts"}")
     "services" => Ok(fp"{env.get_or("XSH_SERVICES_FILE", "/etc/services") ?? "/etc/services"}")
     "protocols" => Ok(fp"{env.get_or("XSH_PROTOCOLS_FILE", "/etc/protocols") ?? "/etc/protocols"}")
-    _ => Err(AccountError.Database(message: f"unknown database {database}"))
+    else => Err(AccountError.Database(message: f"unknown database {database}"))
   }
 }
 

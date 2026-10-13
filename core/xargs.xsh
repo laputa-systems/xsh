@@ -63,7 +63,7 @@ pure parse_delimiter(spec: Str) -> Int? {
   return null when ! spec.starts_with("\\") or spec.byte_len() < 2
   let rest = spec.byte_slice(1)
   if rest.byte_len() == 1 {
-    return match rest { "a" => 7; "b" => 8; "f" => 12; "n" => 10; "r" => 13; "t" => 9; "v" => 11; "\\" => 92; "0" => 0; _ => null }
+    return match rest { "a" => 7; "b" => 8; "f" => 12; "n" => 10; "r" => 13; "t" => 9; "v" => 11; "\\" => 92; "0" => 0; else => null }
   }
   if rest.starts_with("x") {
     let value = hex_value(rest.byte_slice(1))
@@ -319,7 +319,7 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
         "show-limits" => cfg.show_limits = true
         "help" => { gnu.help(HELP); exit 0 }
         "version" => { gnu.version("xargs"); exit 0 }
-        _ => {}
+        else => {}
       }
     }
   }

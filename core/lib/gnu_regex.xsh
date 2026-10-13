@@ -223,7 +223,7 @@ pure class_has(name: Str, cp: Int, utf8: Bool) -> Bool {
     "graph" => if wide { cp > 160 and ! space_cp(cp) and cp != 8232 and cp != 8233 } else { cp > 32 and cp < 127 }
     "cntrl" => cp < 32 or cp == 127 or (wide and (cp <= 159 or cp == 8232 or cp == 8233))
     "xdigit" => (cp >= 48 and cp <= 57) or (cp >= 65 and cp <= 70) or (cp >= 97 and cp <= 102)
-    _ => false
+    else => false
   }
 }
 

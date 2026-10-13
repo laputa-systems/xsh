@@ -24,7 +24,7 @@ pure archive_of(format: Str) -> Bytes {
     "newc" => GNU_NEWC
     "crc" => GNU_CRC
     "odc" => GNU_ODC
-    _ => GNU_BIN
+    else => GNU_BIN
   }
 }
 

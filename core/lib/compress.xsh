@@ -80,7 +80,7 @@ pure option_tokens(argv: List[Str], format: Str) -> List[OptionToken] {
 }
 
 pure suffix(format: Str) -> Str {
-  match format { "gz" => ".gz", "bz2" => ".bz2", "xz" => ".xz", "zstd" => ".zst", _ => ".lzma" }
+  match format { "gz" => ".gz", "bz2" => ".bz2", "xz" => ".xz", "zstd" => ".zst", else => ".lzma" }
 }
 
 # The name a compressed file decodes to. A custom suffix (-S) is the only
@@ -235,7 +235,7 @@ pure xz_check_name(id: Int) -> Str {
     1 => "CRC32"
     4 => "CRC64"
     10 => "SHA-256"
-    _ => f"Unknown-{id}"
+    else => f"Unknown-{id}"
   }
 }
 
@@ -416,9 +416,9 @@ proc zstd_scan(file: Path, size: Int) [fs, error] -> Result[ZstdScan] {
     let single = descriptor / 32 % 2 == 1
     let has_checksum = descriptor / 4 % 2 == 1
     let dict_flag = descriptor % 4
-    let dict_bytes = match dict_flag { 0 => 0, 1 => 1, 2 => 2, _ => 4 }
+    let dict_bytes = match dict_flag { 0 => 0, 1 => 1, 2 => 2, else => 4 }
     var cursor = 1 + (if single { 0 } else { 1 }) + dict_bytes
-    let content_bytes = match size_flag { 0 => if single { 1 } else { 0 }, 1 => 2, 2 => 4, _ => 8 }
+    let content_bytes = match size_flag { 0 => if single { 1 } else { 0 }, 1 => 2, 2 => 4, else => 8 }
     return Ok(bad) when head.len() < cursor + content_bytes
     if content_bytes == 0 {
       known = false

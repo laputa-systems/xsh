@@ -206,7 +206,7 @@ proc apply(options: Options, spec: Spec, value: Str) [io, error] -> Options {
     }
     "version" => {...options, version: true}
     "help" => {...options, help: true}
-    _ => options
+    else => options
   }
 }
 

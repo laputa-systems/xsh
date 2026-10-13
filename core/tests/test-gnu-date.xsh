@@ -26,7 +26,7 @@ test test_gnu_date_date_sec_log { |ctx|
     "58" => time.sleep(3s),
     "59" => time.sleep(2s),
     "00" => time.sleep(1s),
-    _ => {},
+    else => {},
   }
   let result = uu.invoke(s, "date", ["--date=21:04 +0100", "+%S"])?
   uu.succeeds(result)

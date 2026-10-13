@@ -19,7 +19,7 @@ pure in_class(name: Str, byte: Int) -> Bool {
     "graph" => byte > 32 and byte < 127
     "cntrl" => byte < 32 or byte == 127
     "xdigit" => digit or (byte >= 65 and byte <= 70) or (byte >= 97 and byte <= 102)
-    _ => false
+    else => false
   }
 }
 

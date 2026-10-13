@@ -110,7 +110,7 @@ pure control_byte(letter: Int) -> Int {
     114 => 13
     116 => 9
     118 => 11
-    _ => -1
+    else => -1
   }
 }
 
@@ -375,7 +375,7 @@ pure regex_message(host: Str, pattern: Str, extended: Bool) -> Str {
     "Missing ']'" => "Unmatched [, [^, [:, [., or [="
     "Repetition not preceded by valid expression" => "Invalid preceding regular expression"
     "Unknown collating element" => "Invalid collation character"
-    _ => host
+    else => host
   }
 }
 
@@ -747,7 +747,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
         match address {
           Plus(_) => { return Err(complain(chunk, at, "invalid usage of +N or ~N as first address")) }
           Multiple(_) => { return Err(complain(chunk, at, "invalid usage of +N or ~N as first address")) }
-          _ => {}
+          else => {}
         }
       }
       command = {...command, first: first_scan.address}
@@ -761,7 +761,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       if command.first == .Line(0) {
         var regex_end = false
         if let last = command.last {
-          match last { Pattern(_) => regex_end = true, _ => {} }
+          match last { Pattern(_) => regex_end = true, else => {} }
         }
         if !regex_end { return Err(complain(chunk, consumed_through(text, at), "invalid usage of line address 0")) }
       }
@@ -950,7 +950,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
           Ok(value) => value
           Err(failure) => { return Err(complain(chunk, at, failure.message)) }
         }
-        match choice { Explicit(spec) => groups = spec.groups, _ => {} }
+        match choice { Explicit(spec) => groups = spec.groups, else => {} }
       }
       let nodes = parse_replacement(replacement_text)
       let highest = highest_group(nodes)
@@ -1251,7 +1251,7 @@ pure address_hit(address: Address, line_no: Int, is_last: Bool, text: Bytes, las
 pure after_range(first: Address) -> RangeState {
   match first {
     Line(_) => .Closed
-    _ => .Inactive
+    else => .Inactive
   }
 }
 
@@ -1278,7 +1278,7 @@ pure select(command: Instruction, state: RangeState, end: Int, line_no: Int, is_
       }
       Plus(_) => closes = line_no >= end
       Multiple(_) => closes = line_no >= end
-      _ => {
+      else => {
         let found = address_hit(last, line_no, is_last, text, saved, extended)?
         closes = found.matched
         saved = found.last_regex
@@ -1312,7 +1312,7 @@ pure select(command: Instruction, state: RangeState, end: Int, line_no: Int, is_
       stop = if value > 0 { (line_no / value + 1) * value } else { line_no }
       single = value <= 0
     }
-    _ => {}
+    else => {}
   }
   # A numeric start already passed (its line was consumed by n, N, or d) fires
   # once on the first line past it when the end line is also behind. GNU 4.10
@@ -1860,7 +1860,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
         }
         122 => line = {...line, text: b""}
         61 => m = {...m, out: emit_raw(m.out, MAIN, in_place, bytes.concat([bytes.from_text(f"{cursor.line}"), ctx.delim_bytes]), ctx.delim_bytes)}
-        _ => {}
+        else => {}
       }
     }
     if autoprint { m = {...m, out: emit(m.out, MAIN, in_place, line.text, line.chomped, ctx.delim_bytes)} }

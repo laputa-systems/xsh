@@ -258,7 +258,7 @@ pure unreachable_mark(code: Int, info: Int) -> Str {
     13 => "!X"
     14 => "!V"
     15 => "!C"
-    _ => f"!<{code}>"
+    else => f"!<{code}>"
   }
 }
 
@@ -268,7 +268,7 @@ pure unreachable_mark_v6(code: Int) -> Str {
     1 => "!X"
     2 => "!S"
     3 => "!H"
-    _ => f"!<{code}>"
+    else => f"!<{code}>"
   }
 }
 
@@ -928,7 +928,7 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
         "udp" => udp_probe(s, clock, udp_fd, ttl, port, limit_ms)?
         "udp-fixed" => udp_probe(s, clock, udp_fd, ttl, port, limit_ms)?
         "icmp" => if icmp_mode == "dgram" { icmp_dgram_probe(s, clock, ttl, seq, limit_ms)? } else { icmp_raw_probe(s, clock, raw_fd, ident, ttl, seq, limit_ms)? }
-        _ => tcp_probe(s, clock, raw_fd, ttl, port, limit_ms)?
+        else => tcp_probe(s, clock, raw_fd, ttl, port, limit_ms)?
       }
 
       # The hop number waits for the first probe to be sent, so a socket
@@ -993,7 +993,7 @@ pure module_name(method: Str) -> Str {
   match method {
     "udp-fixed" => "udp"
     "udp" => "default"
-    _ => method
+    else => method
   }
 }
 
@@ -1001,7 +1001,7 @@ pure method_help(method: Str) -> Str {
   match method {
     "icmp" => "  raw    use a raw ICMP socket only\n  dgram  use a datagram ICMP socket only\nOnly one of these may be specified: raw | dgram"
     "tcp" => "  syn    send a SYN (the default and only flag set)\n  reuse  allow reusing the local port (SO_REUSEADDR)"
-    _ => f"No options for module `{module_name(method)}'"
+    else => f"No options for module `{module_name(method)}'"
   }
 }
 
@@ -1104,7 +1104,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
       "icmp" => "icmp"
       "tcp" => "tcp"
       "udplite" | "dccp" | "raw" => ""
-      _ => "?"
+      else => "?"
     }
 
     if method == "" {
@@ -1256,7 +1256,7 @@ proc main(...argv: List[Str]) [process, env, io, time, net, error] {
     "icmp" => 1
     "tcp" => FIXED_TCP_PORT
     "udp-fixed" => FIXED_UDP_PORT
-    _ => FIRST_UDP_PORT
+    else => FIRST_UDP_PORT
   }
 
   if let text = opts.port {

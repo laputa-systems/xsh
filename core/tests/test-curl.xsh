@@ -215,7 +215,7 @@ pure net_failure(variant: Str, status: Int? = null) -> Error {
     "unsupported" => NetError.Unsupported(message: "m", status: null)
     "write" => NetError.Write(message: "m", status: null)
     "io" => NetError.Io(message: "m", status: null)
-    _ => NetError.Other(message: "m", status: null)
+    else => NetError.Other(message: "m", status: null)
   }
 }
 

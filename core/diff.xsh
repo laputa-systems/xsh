@@ -152,7 +152,7 @@ pure type_name(item: Probe) -> Str {
     "socket" => "socket"
     "block" => "block special file"
     "char" => "character special file"
-    _ => "weird file"
+    else => "weird file"
   }
 }
 
@@ -324,7 +324,7 @@ pure c_name(name: Str, utf8: Bool) -> Str {
         11 => "\\v"
         12 => "\\f"
         13 => "\\r"
-        _ => f"\\{value / 64}{value / 8 % 8}{value % 8}"
+        else => f"\\{value / 64}{value / 8 % 8}{value % 8}"
       }
     } else {
       piece = raw[at..at + 1].utf8() ?? ""

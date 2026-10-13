@@ -340,7 +340,7 @@ pure type_char(kind: Str) -> Str {
     "chardev" => "c"
     "blockdev" => "b"
     "fifo" => "p"
-    _ => "-"
+    else => "-"
   }
 }
 
@@ -474,7 +474,7 @@ proc extract_one(member: Member, target: Path, root: Path, data: Bytes, opts: Op
     }
     "symlink" => fs.symlink(fp"{member.link}", target)
     "hardlink" => fs.link(member_path(root, strip_components(canonical(member.link), opts.strip))?, target, follow_symlinks: false)
-    _ => {}
+    else => {}
   }
   Ok(null)
 }
@@ -634,7 +634,7 @@ proc execute(opts: Options) [fs, io, error, process, env, time] -> Result[Unit] 
   match opts.mode {
     "create" => create_archive(opts)
     "list" => list_members(opts)
-    _ => extract_members(opts)
+    else => extract_members(opts)
   }
 }
 
@@ -708,7 +708,7 @@ proc parse_options(argv: List[Str]) [fs, error, process, env] -> Options {
             gnu.usage_error(f"invalid number of strip components {gnu.quote_value(value)}")
           }
         }
-        _ => gnu.usage_error(f"unrecognized option '--{long_name}'")
+        else => gnu.usage_error(f"unrecognized option '--{long_name}'")
       }
       continue
     }
@@ -728,7 +728,7 @@ proc parse_options(argv: List[Str]) [fs, error, process, env] -> Options {
           "f" => opts.archive_path = if value == "-" { null } else { value }
           "C" => opts.root = value
           "X" => opts.excludes += read_names(value)
-          _ => opts.members += read_names(value)
+          else => opts.members += read_names(value)
         }
       } else {
         match letter {
@@ -743,7 +743,7 @@ proc parse_options(argv: List[Str]) [fs, error, process, env] -> Options {
           "j" => opts.compression = "bz2"
           "J" => opts.compression = "xz"
           "a" | "h" | "m" | "p" | "Z" => gnu.usage_error(f"unsupported option -- '{letter}'")
-          _ => gnu.usage_error(f"invalid option -- '{letter}'")
+          else => gnu.usage_error(f"invalid option -- '{letter}'")
         }
       }
     }

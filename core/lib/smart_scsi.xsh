@@ -56,7 +56,7 @@ export pure device_type_name(code: Int) -> Str {
     5 => "cd/dvd"
     7 => "optical"
     14 => "simplified disk"
-    _ => f"unknown (0x{smart.hex(code, 2)})"
+    else => f"unknown (0x{smart.hex(code, 2)})"
   }
 }
 
@@ -68,7 +68,7 @@ export pure compliance(version: Int) -> Str {
     5 => "SPC-3"
     6 => "SPC-4"
     7 => "SPC-5"
-    _ => "SCSI"
+    else => "SCSI"
   }
 }
 

@@ -746,7 +746,7 @@ export pure error_state_text(state: Int) -> Str {
     2 => "in standby mode"
     3 => "active or idle"
     4 => "doing SMART Offline or Self-test"
-    _ => if code < 11 { "in a reserved state" } else { "in a vendor specific state" }
+    else => if code < 11 { "in a reserved state" } else { "in a vendor specific state" }
   }
 }
 
@@ -872,7 +872,7 @@ export pure self_test_name(kind: Int) -> Str {
     130 => "Extended captive"
     131 => "Conveyance captive"
     132 => "Selective captive"
-    _ => if (kind >= 64 and kind <= 126) or kind >= 144 { f"Vendor (0x{hex(kind, 2)})" } else { f"Reserved (0x{hex(kind, 2)})" }
+    else => if (kind >= 64 and kind <= 126) or kind >= 144 { f"Vendor (0x{hex(kind, 2)})" } else { f"Reserved (0x{hex(kind, 2)})" }
   }
 }
 
@@ -889,7 +889,7 @@ export pure self_test_status_text(nibble: Int) -> Str {
     7 => "Completed: read failure"
     8 => "Completed: handling damage??"
     15 => "Self-test routine in progress"
-    _ => f"Unknown status (0x{hex(nibble, 1)})"
+    else => f"Unknown status (0x{hex(nibble, 1)})"
   }
 }
 
@@ -941,7 +941,7 @@ export pure offline_activity(status: Int) -> Str {
     4 => "was suspended by an interrupting command from host"
     5 => "was aborted by an interrupting command from host"
     6 => "was aborted by the device with a fatal error"
-    _ => if status % 128 >= 64 { "is in a Vendor Specific state" } else { "is in a Reserved state" }
+    else => if status % 128 >= 64 { "is in a Vendor Specific state" } else { "is in a Reserved state" }
   }
 }
 
@@ -966,7 +966,7 @@ export pure self_test_exec_text(status: Int) -> Str {
     7 => f"The previous self-test completed having{indent}the read element of the test failed."
     8 => f"The previous self-test completed having{indent}a test element that failed and the{indent}device is suspected of having handling{indent}damage."
     15 => if status % 16 == 0 { f"The previous self-test completed having{indent}with unknown result or self-test in{indent}progress with less than 10% remaining." } else { f"Self-test routine in progress...{indent}{status % 16}0% of test remaining." }
-    _ => "Reserved."
+    else => "Reserved."
   }
 }
 
@@ -983,7 +983,7 @@ export pure self_test_exec_name(status: Int) -> Str {
     7 => "completed having the read element of the test failed"
     8 => "completed having the handling element of the test failed"
     15 => f"in progress, {status % 16}0% remaining"
-    _ => "reserved"
+    else => "reserved"
   }
 }
 

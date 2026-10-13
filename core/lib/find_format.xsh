@@ -84,7 +84,7 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
       }
       let next = format.byte_at(at + 1) ?? 0
       at += 2
-      let simple = match next { 97 => 7; 98 => 8; 102 => 12; 110 => 10; 114 => 13; 116 => 9; 118 => 11; 92 => 92; _ => -1 }
+      let simple = match next { 97 => 7; 98 => 8; 102 => 12; 110 => 10; 114 => 13; 116 => 9; 118 => 11; 92 => 92; else => -1 }
       if simple >= 0 { text += [bytes.from_ints([simple]) ?? b""]; continue }
       if next == 99 {
         if ! text.is_empty() { out += [{kind: "text", text: bytes.concat(text), flags: "", width: 0, precision: -1, spec: "", sub: ""}]; text = [] }
@@ -179,12 +179,12 @@ pure relative_part(whole: Bytes, start: Bytes) -> Bytes {
 }
 
 pure type_letter(kind: Str) -> Str {
-  match kind { "file" => "f"; "dir" => "d"; "symlink" => "l"; "fifo" => "p"; "socket" => "s"; "block" => "b"; "char" => "c"; _ => "U" }
+  match kind { "file" => "f"; "dir" => "d"; "symlink" => "l"; "fifo" => "p"; "socket" => "s"; "block" => "b"; "char" => "c"; else => "U" }
 }
 
 ## The `ls -l` style permission string of a mode.
 export pure mode_text(kind: Str, mode: Int) -> Str {
-  let lead = match kind { "dir" => "d"; "symlink" => "l"; "fifo" => "p"; "socket" => "s"; "block" => "b"; "char" => "c"; _ => "-" }
+  let lead = match kind { "dir" => "d"; "symlink" => "l"; "fifo" => "p"; "socket" => "s"; "block" => "b"; "char" => "c"; else => "-" }
   var out = lead
   for shift in [6, 3, 0] {
     let bits = mode / (if shift == 6 { 64 } else if shift == 3 { 8 } else { 1 }) % 8
@@ -226,7 +226,7 @@ proc time_field(ns: Int, sub: Str) [time, error] -> Result[Str, Error] {
     "T" | "X" => Ok(f"{strftime(ns, "%H:%M:")?}{strftime(ns, "%S")?}.{fraction(ns)}")
     "+" => Ok(f"{strftime(ns, "%Y-%m-%d+%H:%M:")?}{strftime(ns, "%S")?}.{fraction(ns)}")
     "k" | "l" | "N" => { search.reject("memory exhausted"); Ok("") }
-    _ => strftime(ns, f"%{sub}")
+    else => strftime(ns, f"%{sub}")
   }
 }
 
@@ -312,7 +312,7 @@ proc directive_text(entry: Entry, segment: Segment) [fs, time, error] -> Result[
     "A" => Ok(pad_text(bytes.from_text(time_field(meta.atime_ns, segment.sub)?), flags, width, precision))
     "C" => Ok(pad_text(bytes.from_text(time_field(meta.ctime_ns, segment.sub)?), flags, width, precision))
     "B" => Ok(pad_text(if meta.birth_ns == null { b"" } else { bytes.from_text(time_field(meta.birth_ns, segment.sub)?) }, flags, width, precision))
-    _ => Ok(pad_text(bytes.from_text(time_field(meta.mtime_ns, segment.sub)?), flags, width, precision))
+    else => Ok(pad_text(bytes.from_text(time_field(meta.mtime_ns, segment.sub)?), flags, width, precision))
   }
 }
 
@@ -350,7 +350,7 @@ pure escape_name(raw: Bytes) -> Bytes {
         12 => "\\f",
         13 => "\\r",
         92 => "\\\\",
-        _ => "",
+        else => "",
       }
       if simple != "" {
         yield bytes.from_text(simple)

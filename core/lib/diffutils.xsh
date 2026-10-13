@@ -33,7 +33,7 @@ pure multiplier_steps(letter: Str) -> Int {
     "E" => 6
     "Z" => 7
     "Y" => 8
-    _ => 0
+    else => 0
   }
 }
 

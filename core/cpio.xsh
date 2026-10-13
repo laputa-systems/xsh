@@ -499,7 +499,7 @@ pure padding(format: Str, length: Int) -> Int {
   match format {
     "newc" | "crc" => (4 - length % 4) % 4
     "bin" | "hpbin" => length % 2
-    _ => 0
+    else => 0
   }
 }
 
@@ -528,7 +528,7 @@ pure magic_matches(data: Bytes, at: Int, format: Str) -> Bool {
     "newc" => data.slice(at, 6) == b"070701"
     "crc" => data.slice(at, 6) == b"070702"
     "odc" | "hpodc" => data.slice(at, 6) == b"070707"
-    _ => word_at(data, at, false) == 0o070707 or word_at(data, at, true) == 0o070707
+    else => word_at(data, at, false) == 0o070707 or word_at(data, at, true) == 0o070707
   }
 }
 
@@ -562,7 +562,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
   let width = match format {
     "newc" | "crc" => NEWC_HEADER
     "odc" | "hpodc" => ODC_HEADER
-    _ => BIN_HEADER
+    else => BIN_HEADER
   }
   if data.len() - position < width {
     return Err(.Fatal(message: "premature end of file"))
@@ -920,7 +920,7 @@ pure class_matches(class: Str, byte: Int) -> Bool {
     "graph" => byte >= 33 and byte <= 126
     "cntrl" => byte < 32 or byte == 127
     "xdigit" => hex_digit(byte) >= 0
-    _ => false
+    else => false
   }
 }
 
@@ -1186,7 +1186,7 @@ pure type_bits_of(kind: Str) -> Int {
     "char" => TYPE_CHAR
     "block" => TYPE_BLOCK
     "socket" => TYPE_SOCKET
-    _ => 0
+    else => 0
   }
 }
 
@@ -1486,7 +1486,7 @@ proc apply_warning(opts: Options, flag: Str) [process, env] -> Options {
     "truncate" => {...opts, warn_truncate: ! negate}
     "interdir" => {...opts, warn_interdir: ! negate}
     "all" => {...opts, warn_truncate: ! negate, warn_interdir: ! negate}
-    _ => {
+    else => {
       usage_failure(f"Invalid value for --warning option: {flag}", 2)
       opts
     }
@@ -1594,7 +1594,7 @@ proc apply_option(opts: Options, key: Str, value: Str) [fs, io, process, env] ->
       gnu.version("cpio")
       exit 0
     }
-    _ => opts
+    else => opts
   }
 }
 
@@ -2789,7 +2789,7 @@ proc execute(opts: Options, plan: Plan, chown_enabled: Bool) [fs, io, error, pro
   match opts.mode {
     "in" => copy_in(opts, plan.data, plan.patterns, chown_enabled, plan.batch, plan.tty, plan.tty_out)
     "out" => copy_out(opts, opts.format, plan.target, plan.start, plan.pad_start)
-    _ => copy_pass(opts, plan.destination, chown_enabled)
+    else => copy_pass(opts, plan.destination, chown_enabled)
   }
 }
 

@@ -428,7 +428,7 @@ export pure status_message(status: Int) -> Str {
       128 => return "LBA Out of Range"
       129 => return "Capacity Exceeded"
       130 => return "Namespace Not Ready"
-      _ => return "Unknown"
+      else => return "Unknown"
     }
   }
   if kind == 2 {
@@ -440,7 +440,7 @@ export pure status_message(status: Int) -> Str {
       132 => return "End-to-end Reference Tag Check Error"
       133 => return "Compare Failure"
       134 => return "Access Denied"
-      _ => return "Unknown"
+      else => return "Unknown"
     }
   }
   "Unknown"
@@ -468,7 +468,7 @@ pure self_test_name(code: Int) -> Str {
     1 => "Short"
     2 => "Extended"
     14 => "Vendor specific"
-    _ => f"Unknown (0x{smart.hex(code, 1)})"
+    else => f"Unknown (0x{smart.hex(code, 1)})"
   }
 }
 
@@ -484,7 +484,7 @@ pure self_test_result(result: Int) -> Str {
     7 => "Completed: failed segments"
     8 => "Aborted: unknown reason"
     9 => "Aborted: sanitize operation"
-    _ => f"Unknown result (0x{smart.hex(result, 1)})"
+    else => f"Unknown result (0x{smart.hex(result, 1)})"
   }
 }
 
@@ -515,7 +515,7 @@ pure self_test_progress(code: Int) -> Str {
     1 => "Short self-test in progress"
     2 => "Extended self-test in progress"
     14 => "Vendor specific self-test in progress"
-    _ => f"Unknown (0x{smart.hex(code, 1)}) self-test in progress"
+    else => f"Unknown (0x{smart.hex(code, 1)}) self-test in progress"
   }
 }
 

@@ -231,7 +231,7 @@ pure tex_field(data: Bytes) -> Bytes {
         b"_" => b"\\_"
         b"}" => b"$\\}$"
         b"{" => b"$\\{$"
-        _ => c
+        else => c
       }
     }
   })

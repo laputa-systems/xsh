@@ -1027,7 +1027,7 @@ test test_path_read_checks_each_inline_path_result { |ctx|
   var selected = ""
   with text = (match "selected" {
     "other" => fp"{root}/other"
-    _ => fp"{root}/note"
+    else => fp"{root}/note"
   }).read_text() {
     selected = text
   } else { |failure|

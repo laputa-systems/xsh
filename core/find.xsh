@@ -73,7 +73,7 @@ pure permission_mode(spec: Str, directory: Bool) -> Int? {
             "X" => { if directory or mode.bit_and(0o111) != 0 { ordinary = ordinary.bit_or(1) } }
             "s" => { if "u" in who { bits = bits.bit_or(0o4000) }; if "g" in who { bits = bits.bit_or(0o2000) } }
             "t" => { if "o" in who { bits = bits.bit_or(0o1000) } }
-            _ => return null
+            else => return null
           }
         }
       }
@@ -136,7 +136,7 @@ pure regex_flavor(kind: Str) -> Str {
   match kind {
     "emacs" | "findutils-default" => "emacs"
     "awk" | "gnu-awk" | "posix-awk" | "egrep" | "posix-egrep" | "posix-extended" => "extended"
-    _ => "basic"
+    else => "basic"
   }
 }
 
@@ -146,7 +146,7 @@ pure whole_pattern(pattern: Str, flavor: Str) -> Str {
   match flavor {
     "emacs" => f"^({match_name.emacs_to_extended(pattern)})$"
     "extended" => f"^({pattern})$"
-    _ => f"^\\({pattern}\\)$"
+    else => f"^\\({pattern}\\)$"
   }
 }
 
@@ -248,7 +248,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     } else {
       let found = stat_reference(reference, opts.follow == 2, opts.raw)?
       if right == "B" and found.birth_ns == null { search.reject(f"{gnu.quote(reference)}: the birth time is not available") }
-      node.number = match right { "a" => found.atime_ns; "c" => found.ctime_ns; "B" => found.birth_ns ?? 0; _ => found.mtime_ns }
+      node.number = match right { "a" => found.atime_ns; "c" => found.ctime_ns; "B" => found.birth_ns ?? 0; else => found.mtime_ns }
     }
     opts.last_token = token
     opts.last_test = token
@@ -322,7 +322,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       var expect_letter = true
       for char in value {
         if expect_letter {
-          let kind = match char { "f" => "file"; "d" => "dir"; "l" => "symlink"; "p" => "fifo"; "s" => "socket"; "b" => "block"; "c" => "char"; "D" => "door"; _ => "" }
+          let kind = match char { "f" => "file"; "d" => "dir"; "l" => "symlink"; "p" => "fifo"; "s" => "socket"; "b" => "block"; "c" => "char"; "D" => "door"; else => "" }
           if kind == "" { search.reject(f"Unknown argument to {token}: {char}") }
           if kind in kinds { search.reject(f"Duplicate file type '{char}' in the argument list to {token}.") }
           kinds += [kind]
@@ -341,7 +341,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       var unit = 512
       let last = value.byte_slice(value.byte_len() - 1)
       if last in ["b","c","w","k","M","G"] {
-        unit = match last { "b" => 512; "c" => 1; "w" => 2; "k" => 1024; "M" => 1048576; _ => 1073741824 }
+        unit = match last { "b" => 512; "c" => 1; "w" => 2; "k" => 1024; "M" => 1048576; else => 1073741824 }
         digits = value.byte_slice(0, value.byte_len() - 1)
       } else if (last.parse_int() ?? -1) < 0 { search.reject(f"invalid -size type `{last}'") }
       let counted = signed_number(digits)
@@ -363,7 +363,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     "-newer" | "-anewer" | "-cnewer" => {
       let found = stat_reference(value, opts.follow == 2, opts.raw)?
       node.kind = "newerxy"
-      node.text = match token { "-newer" => "mm"; "-anewer" => "am"; _ => "cm" }
+      node.text = match token { "-newer" => "mm"; "-anewer" => "am"; else => "cm" }
       node.number = found.mtime_ns
     }
     "-perm" => {
@@ -433,7 +433,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       if token == "-maxdepth" { opts.maximum = number ?? -1 } else { opts.minimum = number ?? 0 }
       node.kind = "true"
     }
-    _ => {}
+    else => {}
   }
   if opts.warn and token in GLOBAL_OPTIONS and opts.last_test != "" {
     eprint f"{gnu.prog()}: warning: you have specified the global option {token} after the argument {opts.last_test}, but global options are not positional, i.e., {token} affects tests specified before it as well as those specified after it.  Please specify global options before other arguments."
@@ -629,14 +629,14 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
       matched = kind in node.argv
     }
     "count" => {
-      let actual = match node.text { "uid" => meta.uid; "gid" => meta.gid; "inum" => meta.ino; _ => meta.nlink }
+      let actual = match node.text { "uid" => meta.uid; "gid" => meta.gid; "inum" => meta.ino; else => meta.nlink }
       matched = compare_number(actual, node.compare, node.number)
     }
     "size" => matched = compare_number((meta.size + node.bound - 1) / node.bound, node.compare, node.number)
     "time" => matched = time_test(node, meta)
     "newerxy" => {
       let side = node.text.byte_slice(0, 1)
-      let stamp = match side { "a" => meta.atime_ns; "c" => meta.ctime_ns; "B" => meta.birth_ns ?? -9223372036854775807; _ => meta.mtime_ns }
+      let stamp = match side { "a" => meta.atime_ns; "c" => meta.ctime_ns; "B" => meta.birth_ns ?? -9223372036854775807; else => meta.mtime_ns }
       matched = stamp > node.number and (side != "B" or meta.birth_ns != null)
     }
     "perm" => {
@@ -706,7 +706,7 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
         matched = command_succeeds(words, directory)?
       }
     }
-    _ => search.reject(f"unsupported predicate {node.kind}")
+    else => search.reject(f"unsupported predicate {node.kind}")
   }
   Ok({matched: matched, prune: prune, quit: quit, failed: failed, deferred: deferred})
 }

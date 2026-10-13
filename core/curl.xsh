@@ -307,7 +307,7 @@ proc apply(settings: Settings, spec: Spec, option: Str, value: Str) [io, fs, err
       {...settings, stderr_to_stdout: true}
     }
     "url" => {...settings, urls: settings.urls.extend([value])}
-    _ => settings
+    else => settings
   }
 }
 
@@ -432,7 +432,7 @@ pure negate(settings: Settings, spec: Spec) -> Settings {
     "no_progress" => {...settings, no_progress: false}
     "retry_connrefused" => {...settings, retry_connrefused: false}
     "retry_all_errors" => {...settings, retry_all_errors: false}
-    _ => settings
+    else => settings
   }
 }
 
@@ -669,7 +669,7 @@ proc write_out_value(name: Str, outcome: Outcome, method: Str) [io, error] -> St
     "speed_download" => f"{if outcome.millis < 1 { outcome.bytes * 1000 } else { outcome.bytes * 1000 / outcome.millis }}"
     "num_redirects" => f"{outcome.redirects}"
     "redirect_url" => redirect_url(outcome)
-    _ => unknown_variable(name)
+    else => unknown_variable(name)
   }
 }
 

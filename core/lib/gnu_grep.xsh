@@ -379,7 +379,7 @@ proc apply_option(opts: Options, key: Str, value: Bytes?, digits_context: Int?) 
     }
     "help" => o.show_help = true
     "V" => o.show_version = true
-    _ => usage_error()
+    else => usage_error()
   }
   o
 }
@@ -431,7 +431,7 @@ pure apply_capability(base: Colors, name: Str, value: Str?) -> Colors {
     "se" => { if value != null { c.separator = value } }
     "rv" => c.reversed = true
     "ne" => c.erase = false
-    _ => {}
+    else => {}
   }
   c
 }

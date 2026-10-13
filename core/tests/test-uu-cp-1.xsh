@@ -26,7 +26,7 @@ proc setup_link(s: uu.Scene, source: Str) [fs, error] -> Result[Unit, Error] {
     "file_link" => { uu.touch(s, "file"); absolute_link(s, "file", "file_link") },
     "dir_link" => { uu.mkdir(s, "dir"); absolute_link(s, "dir", "dir_link") },
     "dang_link" => absolute_link(s, "nowhere", "dang_link"),
-    _ => {},
+    else => {},
   }
   Ok()
 }

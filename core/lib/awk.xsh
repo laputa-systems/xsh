@@ -297,7 +297,7 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
   Ok({tokens: tokens + [TokEnd], starts: [@starts, size], lines: [@lines, line], notes: notes})
 }
 
-pure spelling(token: Token) -> Str { match token { TokWord(word) => word; TokCall(word) => word; TokOp(op) => op; _ => "" } }
+pure spelling(token: Token) -> Str { match token { TokWord(word) => word; TokCall(word) => word; TokOp(op) => op; else => "" } }
 pure peek(p: Parser) -> Token { p.tokens[p.at] }
 pure peek_at(p: Parser, offset: Int) -> Token { p.tokens.get(p.at + offset) ?? TokEnd }
 pure is_at(p: Parser, content: Str) -> Bool { spelling(peek(p)) == content }
@@ -361,7 +361,7 @@ pure end_of_source_error(p: Parser) -> Str {
     if text == "?" { pending_conditionals += 1 }
     if text == ":" { pending_conditionals -= 1 }
   }
-  let ends_operand = match previous { TokOp(op) => op in [")", "]", "++", "--"]; TokWord(word) => word != "in"; _ => true }
+  let ends_operand = match previous { TokOp(op) => op in [")", "]", "++", "--"]; TokWord(word) => word != "in"; else => true }
   let absorbed = symbol in [",", ";", "{", "}"] or (depth <= 0 and pending_conditionals <= 0 and ends_operand)
   let line = if absorbed { counted } else { counted + 1 }
   let shown = rows[counted - 1]
@@ -387,7 +387,7 @@ pure separators(parser: Parser) -> Parser {
   p
 }
 pure name(parser: Parser) -> Result[Parsed[Str]] {
-  match peek(parser) { TokWord(word) => Ok({parser: advance(parser), value: word}); TokCall(word) => Ok({parser: advance(parser), value: word}); _ => Err(unexpected(parser)) }
+  match peek(parser) { TokWord(word) => Ok({parser: advance(parser), value: word}); TokCall(word) => Ok({parser: advance(parser), value: word}); else => Err(unexpected(parser)) }
 }
 pure expression_node(parser: Parser, node: Expression) -> Parsed[Int] {
   var p = parser
@@ -428,7 +428,7 @@ pure starts_operand(p: Parser) -> Bool {
     TokWord(word) => word not in ["else", "in", "while", "BEGIN", "END", "function", "func", "if", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "print", "printf"] and word != "getline"
     TokCall(word) => true
     TokOp(symbol) => symbol in ["$", "(", "++", "--", "!", "-", "+"]
-    _ => false
+    else => false
   }
 }
 
@@ -467,7 +467,7 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
       }
     }
     if word in ["sub", "gsub"] and args.value.len() == 3 {
-      let changeable = match after.program.expressions[args.value[2]] { Variable(_) => true; Index(_, _) => true; Field(_) => true; Text(_) => true; Number(_) => true; _ => false }
+      let changeable = match after.program.expressions[args.value[2]] { Variable(_) => true; Index(_, _) => true; Field(_) => true; Text(_) => true; Number(_) => true; else => false }
       if ! changeable { return Err(syntax_error(caret_error(after.piece, after.starts[after.at - 1], f"{word} third parameter is not a changeable object"))) }
     }
     if word == "index" and args.value.len() == 2 and is_regex_literal(after.program, args.value[1]) {
@@ -491,7 +491,7 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
 # diagnosed by GNU awk and is recorded in grouped.
 pure is_regex_literal(program: Program, id: Int) -> Bool {
   return false when id in program.grouped
-  match program.expressions[id] { RegexLiteral(_) => true; _ => false }
+  match program.expressions[id] { RegexLiteral(_) => true; else => false }
 }
 # The value of an expression built only from numeric literals, which GNU awk
 # folds while parsing; null when it depends on anything else, including a
@@ -520,19 +520,19 @@ pure constant_value(program: Program, id: Int) -> Float? {
       return x.pow(y) when op == "^"
       null
     }
-    _ => null
+    else => null
   }
 }
 # A parenthesized variable is a value, not a place to assign.
 pure lvalue(program: Program, id: Int) -> Bool {
   return false when id in program.grouped
-  match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; _ => false }
+  match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; else => false }
 }
 pure is_field_post_increment(program: Program, id: Int) -> Bool {
   if let Increment(target, _, true) = program.expressions[id] {
     match program.expressions[target] {
       Field(_) => true
-      _ => false
+      else => false
     }
   } else {
     false
@@ -558,7 +558,7 @@ pure getline_target(parser: Parser) -> Result[Parsed[Int?]] {
       let node = expression_node(child.parser, Field(child.value))
       Ok({parser: node.parser, value: node.value})
     }
-    _ => Ok({parser: parser, value: null})
+    else => Ok({parser: parser, value: null})
   }
 }
 
@@ -631,13 +631,13 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
         let child = expression(p, 13)?
         if ! lvalue(child.parser.program, child.value) {
           # A prefix increment of a postfix one is rejected after both operators; of a non-place, at the operand.
-          let nested = match child.parser.program.expressions[child.value] { Increment(_, _, _) => true; _ => false }
+          let nested = match child.parser.program.expressions[child.value] { Increment(_, _, _) => true; else => false }
           return Err(unexpected(if nested { child.parser } else { p }))
         }
         first = expression_node(child.parser, Increment(child.value, if op == "++" { 1.0 } else { -1.0 }, false))
       } else { return Err(unexpected(begin)) }
     }
-    _ => { return Err(unexpected(begin)) }
+    else => { return Err(unexpected(begin)) }
   }
   p = first.parser
   var left = first.value
@@ -1094,10 +1094,10 @@ pure numeric_prefix(content: Str) -> Result[Float] {
 pure number(value: Scalar) -> Result[Float] {
   match value { Empty => Ok(0.0); Numeric(n) => Ok(n); Nan(_) => Ok(not_a_number()); String(content) => numeric_prefix(content); Input(content, n) => if n != null { Ok(n) } else { numeric_prefix(content) } }
 }
-pure numeric(value: Scalar) -> Bool { match value { Empty => true; Numeric(_) => true; Nan(_) => true; Input(_, n) => n != null; _ => false } }
+pure numeric(value: Scalar) -> Bool { match value { Empty => true; Numeric(_) => true; Nan(_) => true; Input(_, n) => n != null; else => false } }
 pure truth(value: Scalar) -> Result[Bool] {
   return Ok(number(value)? != 0.0) when numeric(value)
-  Ok(match value { String(content) => ! content.is_empty(); Input(content, _) => ! content.is_empty(); _ => false })
+  Ok(match value { String(content) => ! content.is_empty(); Input(content, _) => ! content.is_empty(); else => false })
 }
 # NaN equals itself in XSH, so it is recognized as the non-infinite special.
 pure is_nan(n: Float) -> Bool { n - n != 0.0 and ! (n > 0.0) and ! (n < 0.0) }
@@ -2359,7 +2359,7 @@ pure compile_place(x: List[Expression], names: List[Str], id: Int) -> Result[Pla
       let slot = slot_of(names, name)
       Ok({ops: ops, spot: if slot >= 0 { SpotIndexLocal(slot, name, keys.len()) } else { SpotIndexGlobal(name, keys.len()) }})
     }
-    _ => Err(syntax_error("assignment requires variable, field, or array element"))
+    else => Err(syntax_error("assignment requires variable, field, or array element"))
   }
 }
 pure is_dollar_zero(x: List[Expression], id: Int) -> Bool {
@@ -2469,7 +2469,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
         Variable(_) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
         Field(_) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
         Index(_, _) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
-        _ => { return Ok(ops + compile_expression(x, names, args[2])? + [OpArrayBuiltin(name, [SpotNone], 2)]) }
+        else => { return Ok(ops + compile_expression(x, names, args[2])? + [OpArrayBuiltin(name, [SpotNone], 2)]) }
       }
     }
     if name == "split" {
@@ -2478,7 +2478,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
       var literal = false
       if args.len() >= 3 {
         ops += compile_regex_source(x, names, args[2])?
-        match x[args[2]] { RegexLiteral(_) => { literal = true }; _ => {} }
+        match x[args[2]] { RegexLiteral(_) => { literal = true }; else => {} }
       }
       let array = if let Variable(variable) = x[args[1]] {
         array_spot(names, variable)
@@ -2536,7 +2536,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
               spots += [place.spot]
             } else { plain += [at] }
           }
-          _ => { plain += [at] }
+          else => { plain += [at] }
         }
       }
       if name == "length" and args.len() == 1 and ! spots.is_empty() { return Ok([OpArrayBuiltin("length", spots, 1)]) }
@@ -2579,7 +2579,7 @@ pure patch_markers(body: List[Op], break_to: Int, continue_to: Int) -> List[Op] 
       match body[at] {
         OpBreakMarker => { yield OpJump(break_to - (at + 1)) }
         OpContinueMarker => { yield OpJump(continue_to - (at + 1)) }
-        _ => { yield body[at] }
+        else => { yield body[at] }
       }
     }
   }
@@ -2635,7 +2635,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
             }
           }
         }
-        _ => {}
+        else => {}
       }
       Ok(site + compile_expression(x, names, child)? + [OpPop])
     }
@@ -3661,7 +3661,7 @@ pure array_of(spot: Spot, slots: List[Scalar], aliases: List[Str], globals: Map[
       return Err(scalar_as_array(name, true)) when aliases[slot] == "" or slots[slot] != Empty
       Ok(aliases[slot])
     }
-    _ => Err(fatal_error("an array name is required"))
+    else => Err(fatal_error("an array name is required"))
   }
 }
 
@@ -3931,7 +3931,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           sp -= 1
           match value {
             Nan(_) => { result = value }
-            _ => {
+            else => {
               let n = number(value)?
               result = if is_nan(n) { Nan(false) } else { Numeric(n) }
             }
@@ -4058,7 +4058,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               SpotGlobal(name) => { pending = 1; pending_name = name }
               SpotLocal(slot, name) => { pending = 3; pending_slot = slot; pending_name = name }
               SpotNF => { pending = 2 }
-              _ => {}
+              else => {}
             }
           }
         }
@@ -4073,7 +4073,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           for kind in kinds {
             match kind {
               ArgValue => { computed += 1 }
-              _ => {}
+              else => {}
             }
           }
           var taken = sp - computed
@@ -4613,7 +4613,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                   }
                 } else { result = Numeric((scalar_text(slots[slot], conversion)?).count_chars().float()) }
               }
-              _ => {}
+              else => {}
             }
             if size >= 0 { result = Numeric(size.float()) }
           } else if name == "typeof" or name == "isarray" {
@@ -4628,7 +4628,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                   if aliases[slot] in arrays { kind = "array"; is_array = true }
                 } else { kind = type_name(slots[slot]) }
               }
-              _ => {
+              else => {
                 let target = resolve_target(spots[0], stack, sp, globals, arrays, slots, aliases, fields, record)?
                 sp -= target.used
                 let present = target.name in arrays and target.key in arrays[target.name].cells
@@ -4647,7 +4647,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var current = target.current
             match spots[0] {
               SpotNone => { current = stack[sp - 1]; sp -= 1 }
-              _ => {}
+              else => {}
             }
             let replacement = scalar_text(stack[sp - 1], conversion)?
             let pattern = scalar_text(stack[sp - 2], conversion)?
@@ -4808,7 +4808,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
           produced = true
         }
-        _ => { Err(fatal_error("unimplemented operation"))? }
+        else => { Err(fatal_error("unimplemented operation"))? }
       }
       if produced {
         stack[sp] = result

@@ -72,7 +72,7 @@ proc quoting_directory(ctx: TestContext, dirname: Str, checks: List[QuotingCheck
     let here = match check.style {
       "shell-always" | "shell-escape-always" => "'.'",
       "c" => "\".\"",
-      _ => ".",
+      else => ".",
     }
     let expected = f"{here}:\n{check.regular}\n\n{check.directory}:\n"
     let r = ls_run(s, ["-R", f"--quoting-style={check.style}"].extend(extra_args))?
