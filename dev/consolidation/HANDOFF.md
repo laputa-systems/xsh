@@ -1,75 +1,82 @@
 # Consolidation restart handoff
 
-Status: winding down (2026-10-13). No new items or lanes start; in-flight work lands, then the handoff below is replaced.
+Status: paused 2026-10-13.
 
-## Paused for reboot; sealed work integrated — 2026-10-12
+## Paused after the final-gate pass — 2026-10-13
 
-The owner requested wind-down, integration and a handoff, then stop. The goal
-is paused. Do not resume implementation, builds or tests until the owner asks.
-This section supersedes the older private-integration status below.
+**Resume:** "Resume the XSH consolidation campaign from
+`dev/consolidation/HANDOFF.md`." First command:
+`git -C /home/josh/d/laputa-systems/xsh log --oneline -12 && sed -n 1,80p dev/consolidation/HANDOFF.md`.
+Then run the gates below in the pinned image through
+`.work/consolidation/infra/run-native.sh` (it accepts worktrees under
+`.work/wt/*`); builds are `cargo build --profile verification --target
+x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht`.
 
-Main `/home/josh/d/laputa-systems/xsh`, branch `master`, now contains the complete
-sealed integration at `b494c761a633b10d5857809d79717306c791dae1`. Root
-fast-forwarded the prepared integration branch without merging diagnostic WIP.
-The batch includes W4 producer/callee proofs through `31ddb470`, all eight
-exhaustive expression-query witnesses through `0749d6ac`, runtime dispatch and
-counter closure, W9 owner preparation and constructor publication, contextual
-loader/cancellation and selected-scope alias resolution, and annotated Error
-alias checks. Canonical architecture/SPEC prose is integrated; generated docs
-have not been regenerated. `git diff --check` passes. No new build or test was
-started during wind-down, and the combined master has not been verified.
+**State:** campaign branch `master` in `/home/josh/d/laputa-systems/xsh`
+carries everything below; nothing is pushed. Laputa `master` in
+`/home/josh/d/laputa-systems/laputa` is at `28af5e6` (27 lint commits, check
+clean, `xsht lint` at 1 warn plus 67 notes, pm/system/xinit/linux suites and
+`bash tests/system/asterinas_host.sh` and `make asterinas-test` passed on it).
 
-**First issue on resume:** a top-level direct `with` binding of `Result[Scale]`
-rejects a typed callback success value. Frozen `abdd589c` accepts it; the sealed
-W4 candidate rejects it. Function-local direct `with` works. The minimal native
-regression is `test_typed_callable_success_value_direct_with_in_program`, using
-`test.run_xsh` to compile the standalone root program. A temporary Rust trace
-reports `temporary driver slot has a statement writer`. Inspect the
-`DRIVER_SLOT_TEMPORARY` classification and top-level `StmtWith` writer proof;
-preserve the stricter ExprMatch/imported-module temporary provenance checks.
+Merged this session:
+- Verifier: top-level callable bindings are proven by their writers, pipeline
+  stage slots are proven by item type, refined receivers (null-narrowed
+  optional, record membership, union error pattern), exported callable aliases.
+  Independent review found no forgery; its completeness gaps are in TODO.md.
+- Checker performance: the resource analysis rescanned whole tables per
+  statement (introduced by `1f6c6db1`); check stage on `core/awk.xsh` is back
+  from 7.4 s to 0.4 s, whole-repo check thread time from 55,000 s to 323 s,
+  diagnostics byte-identical over 473 files.
+- Runtime: `return Err` in a `par-map` callback no longer panics on an unowned
+  block frame; `sort` evaluates its options after collecting its input;
+  `dd` sparse zero test is native.
+- Tooling and fixtures: stale constants, dead diagnostic code, required-label
+  count, rustix close, fuzz and desugar printer/fixture repairs, `as` effect
+  note, grammar accepts an empty parameter list on a test declaration,
+  vendored `third_party/regex-lite` (owner-approved).
+- The xsh-wide lint pass (`lane/lintfix`, about 70 per-rule commits, 733
+  files) and regenerated docs.
 
-The exact unfinished regression and temporary diagnostic are committed as
-`ba9cab12` on `lane/typed-callee-owned-master-port`, parent `31ddb470`, in the
-existing worktree
-`/home/josh/d/laputa-systems/xsh-consolidation-lanes/typed-callee-owned-master-port`.
-That worktree is clean. This is a red checkpoint, not a production fix. Do not
-merge it unchanged: retain the native regression, diagnose/fix the driver
-classification, and remove the temporary Rust test/trace before sealing.
-The next owner should work from current master and port this small checkpoint,
-then run the single regression and relevant existing corruption tests first.
+**Known red / unverified:** the lint pass landed without a test run on the
+merged tree. What did run on the pre-lint tree: debug lib 611/611, root
+integration 278/278, soundness 14/14, xsht integration all but the desugar
+gate (since fixed and passed alone), native 13,377/13,493 with every failure
+re-run alone passing except four slow or timing-bound tests listed in TODO.md.
+On the merged tree only `ambient_fs_policy`, `core_compat_boundaries` and
+`core_compat_extra` ran (green); the stopped run did not reach integration or
+native. Not run at all: release-profile comparisons, privileged Linux tests,
+`lint_performance` (cannot pass before lint reaches zero), `make docs-check`.
 
-Verified results retained from the sealed lanes: W9 diagnostic/publication
-parity for all 1,690 original inputs and 6,760 profile outcomes; W4 Rust
-corruption checks (20 typed-callable cases plus registered producer, cycle,
-layout and call-through checks); native callables 41/41 in both execution
-modes; Error alias CLI roots 3/3 and focused callable/resource/Error cases in
-both modes. W9's final controller invocation initially failed on `.receipt`
-versus `receipt.tsv` naming; an isolated adapter passed the unchanged strict
-verifier, independently rerun by Root, without rerunning cases. These results
-apply to their sealed sources, not the final combined master.
+**Open lanes:** none. Every `lane/*` branch of this session is merged
+(`git cherry` shows the g4 and g6 commits applied as cherry-picks). Lint-lane
+leftovers are TODO.md items, not branches.
 
-All campaign agents are stopped and no Docker container is running. Existing
-worktrees, baselines and artifacts were left intact. Optional supporting
-copies are under `.work/final-review-evidence/reboot-wind-down-20261012`; the
-failure and restart state above are durable in Git. Treat `.work` as disposable
-under the owner's updated working contract. Create future worktrees under
-`.work/wt`, scratch under `.work/tmp`, use Conventional Commit messages, and
-avoid additional bookkeeping unless a concrete reader or failure needs it.
+**Not started, in order:**
+1. On `master`: build, then run `xsht check` over the repository, the native
+   suite, and the Rust gates `rust` (integration, ambient_fs_policy,
+   core_compat_*), `xsht` integration (`desugar::`, `lint_format_invariance::`),
+   `-p xsh-fuzz --test soundness`, and the debug `-p xsh --lib` run. Bisect any
+   failure to its `chore(lint): apply ...` commit and revert that commit.
+2. Finish lint to zero (TODO.md "The xsh-wide lint pass"), then the same pass
+   in laputa for the one remaining warn.
+3. Release-profile performance comparison against
+   `.work/consolidation/infra/baseline-bin` (btop and awk startup, lint,
+   native wall time); startup on `core/awk.xsh` should be near 0.5 s CPU.
+4. Per-workspace module check counts to close W9.
 
-On resume, revalidate the pinned x86_64 Linux musl image and tools. Existing
-main `target/.../verification` binaries are frozen `abdd` artifacts and do not
-match the newly integrated source; preserve them as references, rebuild an
-exact candidate pair before using it. ARM64 and macOS remain out of scope.
-Continue with Luna xhigh agents, performance nonregression, advisory source
-budgets, and the aspirational (non-gating) fourfold suite speedup.
+**Decisions owed:** keep or revert `refactor(asterinas)` in laputa (message-only
+`return Err(X.Failed(...))` became `fail "..."`, four error declarations
+deleted); how lint candidate probes should share the import-graph check;
+whether the vendored `regex-lite` stays; the flaky-test follow-up in TODO.md.
 
-Remaining acceptance after the driver fix: independent review and the
-exhaustive-query port; focused combined verification and module check/preparation
-counts; generated documentation and TODO reconciliation; actual future-feature
-compiler probe, structural observer and semantic review bundle; final relevant
-correctness/fuzz/process/Linux gates; and release workload/profile/scheduler
-comparisons. Prepared correctness and performance launchers under
-`.work/final-review-evidence` have not run. The campaign is unfinished.
+**Verified at pause:** no campaign process, container or scheduled job runs;
+this session's worktrees are merged and removed; laputa's
+`.work/wt/lint-pass` directory still exists on disk with root-owned container
+output (7.9 GB, git no longer tracks it); remove it with
+`sudo rm -rf /home/josh/d/laputa-systems/laputa/.work/wt/lint-pass`.
+The older worktrees under `/home/josh/d/laputa-systems/xsh-consolidation-lanes`
+and `xsh-consolidation` belong to earlier campaign sessions, were left
+intact, and were not audited.
 
 ## Private integration, complete owner parity and alias fix — 2026-10-12
 
