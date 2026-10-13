@@ -1,12 +1,10 @@
 # Grammar
 
 The complete syntax of XSH, rendered from the one grammar definition in
-`src/syntax/grammar.rs` (`xsht grammar` prints the same productions). The
-parser reads its operator, keyword, quoted-literal, stream-stage, and
-run-form tables from that definition, and every test run checks the
-productions against the parser in both directions: sentences generated from
-them parse without diagnostics, and every checked-in source file and
-fuzz-generated program is recognized by them.
+`src/syntax/grammar.rs`; `xsht grammar` prints the same productions. The parser
+reads its operator, keyword, quoted-literal, stream-stage, and run-form tables
+from that definition. The [grammar tests](../TESTING.md#grammar-proofs) check
+that the parser and productions accept the same language.
 
 ## Token stream
 

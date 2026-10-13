@@ -15,7 +15,7 @@ A canonical candidate:
 1. solves a recurring operational problem;
 2. has intrinsic host interaction: remove processes, files, environment,
    network, and system state, and little of interest remains;
-3. crosses at least three effect domains (`fs`, `process`, `env`, `net`, `time`,
+3. uses at least three host-facing areas (`fs`, `process`, `env`, `net`, `time`,
    `archive`, `hash`, `linux`, `io`);
 4. is large enough to need durable internal types and multiple modules;
 5. has real partial-failure, cancellation, rollback, or cleanup behavior;
