@@ -853,9 +853,10 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     }
   }
 
-  var jar: List[Cookie] = []
-  for cookie in settings.cookies {
-    if cookie.find("=") == null { jar += load_jar(cookie) }
+  let jar: List[Cookie] = collect {
+    for cookie in settings.cookies {
+      if cookie.find("=") == null { yield @load_jar(cookie) }
+    }
   }
 
   var resume_from = 0

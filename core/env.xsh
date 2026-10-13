@@ -267,13 +267,14 @@ proc list_signal_actions(blocked: List[Str]) [process, error, io] {
 # The signal names a run of --block-signal options blocks: an option without a
 # list stands for every signal.
 proc blocked_signal_names(options: List[SignalActionOption]) [process] -> List[Str] {
-  var blocked = []
-  for option in options {
-    if let names = option.names {
-      blocked += names
-    } else {
-      for signal in process.signals() {
-        if signal.number != 0 { blocked += [signal.name] }
+  let blocked = collect {
+    for option in options {
+      if let names = option.names {
+        yield @names
+      } else {
+        for signal in process.signals() {
+          if signal.number != 0 { yield signal.name }
+        }
       }
     }
   }

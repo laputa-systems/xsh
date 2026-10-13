@@ -402,14 +402,19 @@ test test_gnu_mv_mv_special_1_log { |ctx|
   assert fs.stat(fp"{remote}/mv-null")?.kind == "fifo"
   assert fp"{remote}/mv-dir/a/b/c".is_dir()?
   assert fs.stat(fp"{remote}/mv-dir2/mv-null")?.kind == "fifo"
-  var actual = []
-  for line in r.stdout.utf8()?.lines() {
-    continue when line.starts_with("removed ")
-    let normalized = line.replace("renamed ", with: "").replace("copied ", with: "").replace(remote.display(), with: "XXX")
-    if normalized.starts_with("created directory 'XXX/") {
-      let name = normalized[23..normalized.byte_len() - 1]
-      actual += [f"'{name}' -> 'XXX/{name}'"]
-    } else { actual += [normalized] }
+  let actual = collect {
+    for line in r.stdout.utf8()?.lines() {
+      continue when line.starts_with("removed ")
+      let normalized = line.replace("renamed ", with: "")
+        .replace("copied ", with: "")
+        .replace(remote.display(), with: "XXX")
+      if normalized.starts_with("created directory 'XXX/") {
+        let name = normalized[23..normalized.byte_len() - 1]
+        yield f"'{name}' -> 'XXX/{name}'"
+      } else {
+        yield normalized
+      }
+    }
   }
   let entries = ["mv-null", "mv-dir", "mv-dir/a", "mv-dir/a/b", "mv-dir/a/b/c", "mv-dir/a/b/c/file1", "mv-dir/d", "mv-dir/d/e", "mv-dir/d/e/f", "mv-dir/d/e/f/file2", "mv-dir2", "mv-dir2/mv-null"]
   assert (actual |> sort) == ([f"'{name}' -> 'XXX/{name}'" for name in entries] |> sort)

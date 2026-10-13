@@ -260,81 +260,82 @@ pure heading_text(first: gnudiff.Source, at: Int, state: Heading, fmt: Format) -
 # Print a script as unified or context hunks. `header` is written before the
 # first hunk that is actually printed.
 pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[gnudiff.Change], fmt: Format, header: Bytes, unified: Bool) -> Bytes {
-  var out = []
   var wrote_header = false
   let flags = ignorable(first, second, script, fmt)
   var state: Heading = Heading(search_from: 0, line: -1)
   let n0 = first.lines.len()
   let n1 = second.lines.len()
-  for members in hunk_groups(script, flags, fmt.context) {
-    var chain: List[gnudiff.Change] = [script[member] for member in members]
-    let hunk = analyze(chain, first, second, fmt)
-    continue when hunk.changes == 0
-    var first0 = hunk.first0 - fmt.context
-    if first0 < 0 { first0 = 0 }
-    var first1 = hunk.first1 - fmt.context
-    if first1 < 0 { first1 = 0 }
-    let last0 = if hunk.last0 < n0 - fmt.context { hunk.last0 + fmt.context } else { n0 - 1 }
-    let last1 = if hunk.last1 < n1 - fmt.context { hunk.last1 + fmt.context } else { n1 - 1 }
-    let title = heading_text(first, first0, state, fmt)
-    state = title.state
-    if !wrote_header {
-      out += [header]
-      wrote_header = true
-    }
-    if unified {
-      let line = f"@@ -{unified_range(first0, last0)} +{unified_range(first1, last1)} @@"
-      out += [paint(fmt, 4, bytes.from_text(line))]
-      if !title.text.is_empty() { out += [b" ", title.text] }
-      out += [b"\n"]
-      var cursor = 0
-      var i = first0
-      var j = first1
-      while i <= last0 or j <= last1 {
-        if cursor >= chain.len() or i < chain[cursor].line0 {
-          let blank = fmt.suppress_blank_empty and first.lines[i].is_empty()
-          if !blank { out += [if fmt.initial_tab { b"\t" } else { b" " }] }
-          out += [render_line("", first.lines[i], !terminated(first, i), fmt, 0)]
-          i += 1
-          j += 1
-        } else {
-          let item = chain[cursor]
-          repeat item.deleted times {
-            out += [render_line("-", first.lines[i], !terminated(first, i), fmt, 3)]
+  let out = collect {
+    for members in hunk_groups(script, flags, fmt.context) {
+      var chain: List[gnudiff.Change] = [script[member] for member in members]
+      let hunk = analyze(chain, first, second, fmt)
+      continue when hunk.changes == 0
+      var first0 = hunk.first0 - fmt.context
+      if first0 < 0 { first0 = 0 }
+      var first1 = hunk.first1 - fmt.context
+      if first1 < 0 { first1 = 0 }
+      let last0 = if hunk.last0 < n0 - fmt.context { hunk.last0 + fmt.context } else { n0 - 1 }
+      let last1 = if hunk.last1 < n1 - fmt.context { hunk.last1 + fmt.context } else { n1 - 1 }
+      let title = heading_text(first, first0, state, fmt)
+      state = title.state
+      if !wrote_header {
+        yield header
+        wrote_header = true
+      }
+      if unified {
+        let line = f"@@ -{unified_range(first0, last0)} +{unified_range(first1, last1)} @@"
+        yield paint(fmt, 4, bytes.from_text(line))
+        if !title.text.is_empty() { yield @[b" ", title.text] }
+        yield b"\n"
+        var cursor = 0
+        var i = first0
+        var j = first1
+        while i <= last0 or j <= last1 {
+          if cursor >= chain.len() or i < chain[cursor].line0 {
+            let blank = fmt.suppress_blank_empty and first.lines[i].is_empty()
+            if !blank { yield if fmt.initial_tab { b"\t" } else { b" " } }
+            yield render_line("", first.lines[i], !terminated(first, i), fmt, 0)
             i += 1
-          }
-          repeat item.inserted times {
-            out += [render_line("+", second.lines[j], !terminated(second, j), fmt, 2)]
             j += 1
+          } else {
+            let item = chain[cursor]
+            repeat item.deleted times {
+              yield render_line("-", first.lines[i], !terminated(first, i), fmt, 3)
+              i += 1
+            }
+            repeat item.inserted times {
+              yield render_line("+", second.lines[j], !terminated(second, j), fmt, 2)
+              j += 1
+            }
+            cursor += 1
           }
-          cursor += 1
         }
-      }
-    } else {
-      out += [b"***************"]
-      if !title.text.is_empty() { out += [b" ", title.text] }
-      out += [b"\n", paint(fmt, 4, bytes.from_text(f"*** {range_pair(first0, last0)} ****")), b"\n"]
-      if hunk.changes.bit_and(OLD) != 0 {
-        var cursor = 0
-        for i in range(first0, last0 + 1) {
-          while cursor < chain.len() and chain[cursor].line0 + chain[cursor].deleted <= i { cursor += 1 }
-          var flag = " "
-          if cursor < chain.len() and chain[cursor].line0 <= i {
-            flag = if chain[cursor].inserted > 0 { "!" } else { "-" }
+      } else {
+        yield b"***************"
+        if !title.text.is_empty() { yield @[b" ", title.text] }
+        yield @[b"\n", paint(fmt, 4, bytes.from_text(f"*** {range_pair(first0, last0)} ****")), b"\n"]
+        if hunk.changes.bit_and(OLD) != 0 {
+          var cursor = 0
+          for i in range(first0, last0 + 1) {
+            while cursor < chain.len() and chain[cursor].line0 + chain[cursor].deleted <= i { cursor += 1 }
+            var flag = " "
+            if cursor < chain.len() and chain[cursor].line0 <= i {
+              flag = if chain[cursor].inserted > 0 { "!" } else { "-" }
+            }
+            yield render_line(flag, first.lines[i], !terminated(first, i), fmt, 3)
           }
-          out += [render_line(flag, first.lines[i], !terminated(first, i), fmt, 3)]
         }
-      }
-      out += [paint(fmt, 4, bytes.from_text(f"--- {range_pair(first1, last1)} ----")), b"\n"]
-      if hunk.changes.bit_and(NEW) != 0 {
-        var cursor = 0
-        for i in range(first1, last1 + 1) {
-          while cursor < chain.len() and chain[cursor].line1 + chain[cursor].inserted <= i { cursor += 1 }
-          var flag = " "
-          if cursor < chain.len() and chain[cursor].line1 <= i {
-            flag = if chain[cursor].deleted > 0 { "!" } else { "+" }
+        yield @[paint(fmt, 4, bytes.from_text(f"--- {range_pair(first1, last1)} ----")), b"\n"]
+        if hunk.changes.bit_and(NEW) != 0 {
+          var cursor = 0
+          for i in range(first1, last1 + 1) {
+            while cursor < chain.len() and chain[cursor].line1 + chain[cursor].inserted <= i { cursor += 1 }
+            var flag = " "
+            if cursor < chain.len() and chain[cursor].line1 <= i {
+              flag = if chain[cursor].deleted > 0 { "!" } else { "+" }
+            }
+            yield render_line(flag, second.lines[i], !terminated(second, i), fmt, 2)
           }
-          out += [render_line(flag, second.lines[i], !terminated(second, i), fmt, 2)]
         }
       }
     }

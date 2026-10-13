@@ -547,7 +547,6 @@ pure parse_hex_list(text: Str) -> Bytes? {
 # are not valid and the usage is shown.
 pure parse_scan(words: List[Str], trigger: Bool) -> nl.ScanRequest? {
   var ssids = []
-  var freqs = []
   var elements = b""
   var duration = null
   var mandatory = false
@@ -555,83 +554,85 @@ pure parse_scan(words: List[Str], trigger: Bool) -> nl.ScanRequest? {
   var passive = false
   var mode = "none"
   var index = 0
-  while index < words.len() {
-    let word = words[index]
-    if mode == "freq" {
-      let number = word.parse_int()
-      if let Ok(freq) = number {
-        freqs += [freq]
-        index += 1
-        continue
+  let freqs = collect {
+    while index < words.len() {
+      let word = words[index]
+      if mode == "freq" {
+        let number = word.parse_int()
+        if let Ok(freq) = number {
+          yield freq
+          index += 1
+          continue
+        }
+        mode = "none"
+      } else if mode == "ssid" {
+        guard word in scan_words() else {
+          ssids += [word]
+          index += 1
+          continue
+        }
+        mode = "none"
       }
-      mode = "none"
-    } else if mode == "ssid" {
-      guard word in scan_words() else {
-        ssids += [word]
-        index += 1
-        continue
-      }
-      mode = "none"
-    }
-    match word {
-      "freq" => {
-        mode = "freq"
-      }
-      "ssid" => {
-        mode = "ssid"
-      }
-      "passive" => {
-        passive = true
-      }
-      "lowpri" => {
-        flags = flags.bit_or(nl.SCAN_FLAGS.lowpri)
-      }
-      "flush" => {
-        flags = flags.bit_or(nl.SCAN_FLAGS.flush)
-      }
-      "ap-force" => {
-        flags = flags.bit_or(nl.SCAN_FLAGS.ap_force)
-      }
-      "coloc" => {
-        return null unless trigger
-        flags = flags.bit_or(nl.SCAN_FLAGS.coloc)
-      }
-      "duration-mandatory" => {
-        mandatory = true
-      }
-      "duration" => {
-        index += 1
-        return null when index >= words.len()
-        let value = words[index].parse_int()
-        if let Ok(number) = value {
-          duration = number
-        } else {
+      match word {
+        "freq" => {
+          mode = "freq"
+        }
+        "ssid" => {
+          mode = "ssid"
+        }
+        "passive" => {
+          passive = true
+        }
+        "lowpri" => {
+          flags = flags.bit_or(nl.SCAN_FLAGS.lowpri)
+        }
+        "flush" => {
+          flags = flags.bit_or(nl.SCAN_FLAGS.flush)
+        }
+        "ap-force" => {
+          flags = flags.bit_or(nl.SCAN_FLAGS.ap_force)
+        }
+        "coloc" => {
+          return null unless trigger
+          flags = flags.bit_or(nl.SCAN_FLAGS.coloc)
+        }
+        "duration-mandatory" => {
+          mandatory = true
+        }
+        "duration" => {
+          index += 1
+          return null when index >= words.len()
+          let value = words[index].parse_int()
+          if let Ok(number) = value {
+            duration = number
+          } else {
+            return null
+          }
+        }
+        "ies" => {
+          index += 1
+          return null when index >= words.len()
+          let parsed = parse_hex_list(words[index])
+          return null when parsed == null
+          elements = bytes.concat([elements, parsed])
+        }
+        "meshid" => {
+          index += 1
+          return null when index >= words.len()
+          let id = bytes.from_text(words[index])
+          return null when id.len() > 32
+          if let Ok(header) = bytes.from_ints([114, id.len()]) {
+            elements = bytes.concat([elements, header, id])
+          } else {
+            return null
+          }
+        }
+        else => {
           return null
         }
       }
-      "ies" => {
-        index += 1
-        return null when index >= words.len()
-        let parsed = parse_hex_list(words[index])
-        return null when parsed == null
-        elements = bytes.concat([elements, parsed])
-      }
-      "meshid" => {
-        index += 1
-        return null when index >= words.len()
-        let id = bytes.from_text(words[index])
-        return null when id.len() > 32
-        if let Ok(header) = bytes.from_ints([114, id.len()]) {
-          elements = bytes.concat([elements, header, id])
-        } else {
-          return null
-        }
-      }
-      else => {
-        return null
-      }
+      index += 1
     }
-    index += 1
   }
   return null when passive and ! ssids.is_empty()
   {ssids: ssids, freqs: freqs, elements: elements, duration: duration, mandatory: mandatory, flags: flags, passive: passive}

@@ -592,23 +592,28 @@ proc block_values(device: block.BlockDevice, table: mounts.MountTable, cols: Lis
 
 proc block_json_row(devices: List[block.BlockDevice], index: Int, table: mounts.MountTable, cols: List[Str], args: Arguments, ancestors: List[Int]) -> Str {
   let values = block_values(devices[index], table, cols, "-b" in args.flags, "-p" in args.flags)
-  var fields = []
-  for at in range(cols.len()) {
-    let key = json.encode(cols[at].lower())?
-    let value = values[at]
-    var encoded = if value == "" { "null" } else { json.encode(value)? }
-    if cols[at] in ["RM", "RO"] and value != "" { encoded = if value == "1" { "true" } else { "false" } }
-    if (cols[at] in ["LOG-SEC", "PHY-SEC"] or (cols[at] == "SIZE" and "-b" in args.flags)) and value != "" { encoded = value }
-    if cols[at] == "MOUNTPOINTS" { encoded = if value == "" { "[null]" } else { json.encode(value.split("\n"))? } }
-    fields += [key + ":" + encoded]
-  }
-  if "-d" not in args.flags and "-l" not in args.flags and "-r" not in args.flags {
-    var children = [
-      block_json_row(devices, child, table, cols, args, [@ancestors, index])
-      for child in block_children(devices, index)
-      if child not in ancestors and child != index
-    ]
-    if ! children.is_empty() { fields += ["\"children\":[" + children.join(",") + "]"] }
+  let fields = collect {
+    for at in range(cols.len()) {
+      let key = json.encode(cols[at].lower())?
+      let value = values[at]
+      var encoded = if value == "" { "null" } else { json.encode(value)? }
+      if cols[at] in ["RM", "RO"] and value != "" { encoded = if value == "1" { "true" } else { "false" } }
+      if (cols[at] in ["LOG-SEC", "PHY-SEC"] or (cols[at] == "SIZE" and "-b" in args.flags)) and value != "" {
+        encoded = value
+      }
+
+      if cols[at] == "MOUNTPOINTS" { encoded = if value == "" { "[null]" } else { json.encode(value.split("\n"))? } }
+      yield key + ":" + encoded
+    }
+
+    if "-d" not in args.flags and "-l" not in args.flags and "-r" not in args.flags {
+      var children = [
+        block_json_row(devices, child, table, cols, args, [@ancestors, index])
+        for child in block_children(devices, index)
+        if child not in ancestors and child != index
+      ]
+      if ! children.is_empty() { yield "\"children\":[" + children.join(",") + "]" }
+    }
   }
   "{" + fields.join(",") + "}"
 }

@@ -74,17 +74,22 @@ export pure clock(seconds: Int) -> Str {
 
 ## Parses the shared pgrep/pkill selector interface and renders or signals matches.
 export proc grep_main(argv: List[Str], send_signal: Bool) [process, env, error, io] {
-  var normalized = []
   var option_words = true
-  for word in argv {
-    if word == "--" { option_words = false }
-    let signal_name = word.split("") |> drop(1).join("")
-    if send_signal and option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(signal_name) is Ok(_) { normalized += [
-      "--signal",
-      signal_name,
-    ] } else { normalized += [
-      word,
-    ] }
+  let normalized = collect {
+    for word in argv {
+      if word == "--" { option_words = false }
+      let signal_name = word.split("") |> drop(1).join("")
+      if send_signal and option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(
+        signal_name,
+      ) is Ok(_) {
+        yield @[
+          "--signal",
+          signal_name,
+        ]
+      } else {
+        yield word
+      }
+    }
   }
   let opts: GrepOptions = cli.applet(normalized, {
     gnu: {status: 2},
