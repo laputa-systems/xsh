@@ -876,6 +876,18 @@ class PublicationRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PublicationError, "unexpected candidate receipt filename 'receipt.tsv'"):
             runner.discover_candidate_receipts(candidate_dir, 2)
 
+    def test_reference_receipt_input_digest_must_match_manifest(self):
+        reference_path = self.root / "receipt.tsv"
+        self.write_receipt(reference_path, 0, 2, reference=True)
+        valid_input = f"input\t1\ttwo.xsh\t{'b' * 64}"
+        changed_input = f"input\t1\ttwo.xsh\t{'f' * 64}"
+        receipt_text = reference_path.read_text(encoding="utf-8")
+        self.assertIn(valid_input, receipt_text)
+        reference_path.write_text(receipt_text.replace(valid_input, changed_input, 1), encoding="utf-8")
+
+        with self.assertRaisesRegex(runner.PublicationError, "approved reference input digest differs from manifest at index 1"):
+            runner.validate_reference_receipt(reference_path, self.paths(), "c" * 64)
+
     def test_incomplete_four_profile_outcomes_are_rejected(self):
         candidate_dir = self.root / "candidate"
         candidate_dir.mkdir()

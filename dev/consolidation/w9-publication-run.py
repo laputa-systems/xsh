@@ -685,6 +685,12 @@ def validate_reference_receipt(
         raise PublicationError(f"{path}: approved full-corpus receipt header differs")
     if set(receipt.inputs) != set(range(count)):
         raise PublicationError(f"{path}: approved reference input coverage is incomplete")
+    for index, (_relative, expected_digest) in expected_paths.items():
+        actual_digest = receipt.inputs[index][1]
+        if actual_digest != expected_digest:
+            raise PublicationError(
+                f"{path}: approved reference input digest differs from manifest at index {index}"
+            )
     expected_outcomes = {
         (index, relative, profile)
         for index, (relative, _digest) in expected_paths.items()
