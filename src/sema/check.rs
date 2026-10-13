@@ -317,6 +317,9 @@ impl<'a> CheckBundleView<'a> {
 mod args;
 #[path = "check/builder.rs"]
 mod builder;
+#[path = "check/cache_trace.rs"]
+mod cache_trace;
+use cache_trace::CacheTrace;
 #[path = "check/call.rs"]
 mod call;
 #[path = "check/callable_alias.rs"]

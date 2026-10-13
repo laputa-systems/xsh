@@ -1,5 +1,5 @@
 use super::{
-    CheckBundleView, CheckOutput, Checker, Diagnostic, RecordConstructors,
+    CacheTrace, CheckBundleView, CheckOutput, Checker, Diagnostic, RecordConstructors,
     ResolvedBindings, ResourceTransferFacts, UserModuleSig,
     infer_return::ReturnInferenceIndex, local_inference::LocalInference,
 };
@@ -7,6 +7,7 @@ use crate::sema::constants::PreparedConstants;
 use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaUserModule, StmtId};
 use rustc_hash::{FxHashMap, FxHashSet};
 use crate::source::SourceId;
+use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -30,6 +31,29 @@ pub(super) struct ModuleRecordKey {
     len: u32,
     role: ModuleRecordRole,
     args_domain: ArgsDomain,
+}
+
+impl ModuleRecordKey {
+    fn trace_event(&self, trace: Option<&CacheTrace>, event: &'static str) {
+        if let Some(trace) = trace {
+            trace.event(
+                event,
+                &format!("{:?}", self.module_key),
+                &format!("{:?}", self.source_id),
+                self.start,
+                self.len,
+                match self.role {
+                    ModuleRecordRole::Entry => "Entry",
+                    ModuleRecordRole::User => "User",
+                    ModuleRecordRole::Embedded => "Embedded",
+                },
+                match self.args_domain {
+                    ArgsDomain::Str => "Str",
+                    ArgsDomain::Bytes => "Bytes",
+                },
+            );
+        }
+    }
 }
 
 pub(super) struct ModuleRecord {
@@ -74,9 +98,20 @@ impl ModuleRecord {
 
     pub(super) fn check_once(
         &self,
+        trace: Option<&CacheTrace>,
         check: impl FnOnce() -> CheckedModuleFacts,
     ) -> Arc<CheckedModuleFacts> {
-        self.checked.get_or_init(|| Arc::new(check())).clone()
+        let mut initialized = false;
+        let checked = self.checked.get_or_init(|| {
+            let facts = check();
+            self.key.trace_event(trace, "checked");
+            initialized = true;
+            Arc::new(facts)
+        });
+        if !initialized {
+            self.key.trace_event(trace, "check_hit");
+        }
+        checked.clone()
     }
 
 }
@@ -84,6 +119,7 @@ impl ModuleRecord {
 pub(super) struct ModuleRecords {
     root: Arc<ModuleRecord>,
     modules: FxHashMap<Arc<str>, Arc<ModuleRecord>>,
+    trace: Option<CacheTrace>,
 }
 
 impl ModuleRecords {
@@ -91,6 +127,7 @@ impl ModuleRecords {
         view: &CheckBundleView<'_>,
         args_domain: ArgsDomain,
         shared: &Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>,
+        trace: Option<&CacheTrace>,
         #[cfg(test)] preparations: &Mutex<FxHashMap<ModuleRecordKey, usize>>,
     ) -> Self {
         let program = view.program;
@@ -112,9 +149,9 @@ impl ModuleRecords {
                 args_domain,
             };
             let mut cache = shared.lock().expect("module record cache poisoned");
-            let record = cache
-                .entry(key.clone())
-                .or_insert_with(|| {
+            let (record, created) = match cache.entry(key.clone()) {
+                Entry::Occupied(entry) => (entry.get().clone(), false),
+                Entry::Vacant(entry) => {
                     let dependency_facts = Self::module_dependency_facts(view, module, &prepared);
                     let module_view = CheckBundleView::for_module_owner(
                         program,
@@ -132,15 +169,19 @@ impl ModuleRecords {
                     {
                         record_test_preparation(preparations, key.clone());
                     }
-                    Arc::new(ModuleRecord {
+                    let record = Arc::new(ModuleRecord {
                         key: key.clone(),
                         statements: program.module_statements(module).collect::<Vec<_>>().into(),
                         owner_facts,
                         prepared_facts: Arc::new(visible_facts),
                         checked: OnceLock::new(),
-                    })
-                })
-                .clone();
+                    });
+                    entry.insert(record.clone());
+                    (record, true)
+                }
+            };
+            drop(cache);
+            key.trace_event(trace, if created { "prepared" } else { "reuse" });
             prepared.insert(Arc::clone(&module_key), record);
         }
 
@@ -155,9 +196,9 @@ impl ModuleRecords {
         };
         let root = {
             let mut cache = shared.lock().expect("module record cache poisoned");
-            cache
-                .entry(root_key.clone())
-                .or_insert_with(|| {
+            let (record, created) = match cache.entry(root_key.clone()) {
+                Entry::Occupied(entry) => (entry.get().clone(), false),
+                Entry::Vacant(entry) => {
                     let mut dependency_facts = PreparedModuleFacts::default();
                     for module in view.modules.iter().copied() {
                         let record = prepared
@@ -196,19 +237,25 @@ impl ModuleRecords {
                         .replace_instance_facts(&ordered_instances);
                     #[cfg(test)]
                     record_test_preparation(preparations, root_key.clone());
-                    Arc::new(ModuleRecord {
+                    let record = Arc::new(ModuleRecord {
                         key: root_key.clone(),
                         statements: view.statement_ids().collect::<Vec<_>>().into(),
                         owner_facts,
                         prepared_facts: Arc::new(visible_facts),
                         checked: OnceLock::new(),
-                    })
-                })
-                .clone()
+                    });
+                    entry.insert(record.clone());
+                    (record, true)
+                }
+            };
+            drop(cache);
+            root_key.trace_event(trace, if created { "prepared" } else { "reuse" });
+            record
         };
         Self {
             root,
             modules: prepared,
+            trace: trace.cloned(),
         }
     }
 
@@ -239,6 +286,10 @@ impl ModuleRecords {
 
     pub(super) fn root(&self) -> &Arc<ModuleRecord> {
         &self.root
+    }
+
+    pub(super) fn trace(&self) -> Option<&CacheTrace> {
+        self.trace.as_ref()
     }
 
     pub(super) fn install(&self, checker: &mut Checker, program: &ArenaProgram) {
@@ -320,19 +371,32 @@ fn record_test_preparation(
         .or_default() += 1;
 }
 
-#[derive(Default)]
 pub(super) struct ModuleRecordCache {
     shared: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
+    trace: Option<CacheTrace>,
     #[cfg(test)]
     preparations: Mutex<FxHashMap<ModuleRecordKey, usize>>,
+}
+
+impl Default for ModuleRecordCache {
+    fn default() -> Self {
+        Self {
+            shared: Arc::new(Mutex::new(FxHashMap::default())),
+            trace: CacheTrace::private(),
+            #[cfg(test)]
+            preparations: Mutex::new(FxHashMap::default()),
+        }
+    }
 }
 
 impl ModuleRecordCache {
     pub(super) fn with_shared(
         shared: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
+        trace: Option<CacheTrace>,
     ) -> Self {
         Self {
             shared,
+            trace,
             #[cfg(test)]
             preparations: Mutex::new(FxHashMap::default()),
         }
@@ -368,6 +432,7 @@ impl ModuleRecordCache {
             view,
             args_domain,
             &self.shared,
+            self.trace.as_ref(),
             #[cfg(test)]
             &self.preparations,
         )
@@ -491,6 +556,77 @@ mod tests {
     use crate::source::SourceId;
     use crate::syntax::arena::ArenaProgramBuilder;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn trace_counts_prepare_reuse_and_check_once_per_cache_owner() {
+        let source = "pure value() -> Int { 1 }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = parsed.arena;
+        let _symbol_owner = program.symbol_owner().enter();
+        let view = CheckBundleView::new(&program, None, Some(SourceId::new(0)));
+
+        let (first_trace, first_bytes) = CacheTrace::capture(10, "private");
+        let mut first_cache = ModuleRecordCache::default();
+        first_cache.trace = Some(first_trace.clone());
+        let first = first_cache.get_or_prepare(&view, ArgsDomain::Str);
+        let again = first_cache.get_or_prepare(&view, ArgsDomain::Str);
+        assert!(Arc::ptr_eq(first.root(), again.root()));
+        let checked = || CheckedModuleFacts {
+            signature: None,
+            output: CheckOutput::default(),
+            module_diagnostic_position: 0,
+            suppressed_body_transfers: ResourceTransferFacts::default(),
+        };
+        first.root().check_once(first.trace(), checked);
+        again.root().check_once(again.trace(), checked);
+
+        let (second_trace, second_bytes) = CacheTrace::capture(11, "private");
+        let mut second_cache = ModuleRecordCache::default();
+        second_cache.trace = Some(second_trace);
+        let second = second_cache.get_or_prepare(&view, ArgsDomain::Str);
+        second.root().check_once(second.trace(), checked);
+
+        let first_rows = String::from_utf8(
+            first_bytes.lock().expect("first trace buffer").clone(),
+        )
+        .expect("first trace UTF-8");
+        let second_rows = String::from_utf8(
+            second_bytes.lock().expect("second trace buffer").clone(),
+        )
+        .expect("second trace UTF-8");
+        for (event, expected) in [
+            ("prepared", 1),
+            ("reuse", 1),
+            ("checked", 1),
+            ("check_hit", 1),
+        ] {
+            assert_eq!(
+                first_rows
+                    .lines()
+                    .filter(|line| line.split('\t').nth(6) == Some(event))
+                    .count(),
+                expected,
+                "{event}: {first_rows}"
+            );
+        }
+        assert_eq!(
+            second_rows
+                .lines()
+                .filter(|line| line.split('\t').nth(6) == Some("prepared"))
+                .count(),
+            1,
+            "{second_rows}"
+        );
+        assert_eq!(
+            second_rows
+                .lines()
+                .filter(|line| line.split('\t').nth(6) == Some("checked"))
+                .count(),
+            1,
+            "{second_rows}"
+        );
+    }
 
     #[test]
     fn prepared_record_instances_follow_root_then_module_owner_order() {
@@ -671,7 +807,8 @@ mod tests {
             None,
             Some(SourceId::new(2)),
         );
-        let mut left_cache = ModuleRecordCache::with_shared(cache.shared.clone());
+        let mut left_cache =
+            ModuleRecordCache::with_shared(cache.shared.clone(), cache.trace.clone());
         let left_entry = left_cache.get_or_prepare(&left_view, ArgsDomain::Str);
         assert!(Arc::ptr_eq(shared, left_entry.module("shared").unwrap()));
         assert_eq!(left_cache.preparation_count(&shared_key), 0);
@@ -692,7 +829,8 @@ mod tests {
             None,
             Some(SourceId::new(3)),
         );
-        let mut right_cache = ModuleRecordCache::with_shared(cache.shared.clone());
+        let mut right_cache =
+            ModuleRecordCache::with_shared(cache.shared.clone(), cache.trace.clone());
         let right_entry = right_cache.get_or_prepare(&right_view, ArgsDomain::Str);
         assert!(Arc::ptr_eq(shared, right_entry.module("shared").unwrap()));
         assert_eq!(right_cache.preparation_count(&shared_key), 0);
@@ -703,7 +841,8 @@ mod tests {
             None,
             Some(SourceId::new(7)),
         );
-        let mut alias_cache = ModuleRecordCache::with_shared(cache.shared.clone());
+        let mut alias_cache =
+            ModuleRecordCache::with_shared(cache.shared.clone(), cache.trace.clone());
         let alias_entry = alias_cache.get_or_prepare(&alias_view, ArgsDomain::Str);
         let shared_alias = alias_entry.module("shared_alias").unwrap();
         assert!(!Arc::ptr_eq(shared, shared_alias));
@@ -738,7 +877,7 @@ mod tests {
         let other_program = other_builder.finish_with_statements(other_root.statements);
         let other_view = CheckBundleView::new(&other_program, None, Some(SourceId::new(4)));
         let other_module = other_program.symbol_owner().with_current(|| {
-            ModuleRecordCache::with_shared(cache.shared.clone())
+            ModuleRecordCache::with_shared(cache.shared.clone(), cache.trace.clone())
                 .get_or_prepare(&other_view, ArgsDomain::Str)
                 .module("shared")
                 .unwrap()

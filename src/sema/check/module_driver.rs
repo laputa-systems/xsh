@@ -1,5 +1,5 @@
 use super::{
-    ArgsDomain, CheckBundleView, CheckOptions, CheckOutput, Checker, EffectSummary,
+    ArgsDomain, CacheTrace, CheckBundleView, CheckOptions, CheckOutput, Checker, EffectSummary,
     FunctionEffectFact, RecordConstructors, ResourceTransferFacts, UserModuleSig,
 };
 use crate::source::{SourceId, SourceMap};
@@ -22,6 +22,7 @@ pub struct CheckSession {
     type_program: Arc<ArenaProgram>,
     sources: Arc<SourceMap>,
     records: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
+    cache_trace: Option<CacheTrace>,
     view_context: Arc<()>,
 }
 
@@ -42,6 +43,7 @@ impl CheckSession {
             type_program,
             sources,
             records: Arc::new(Mutex::new(FxHashMap::default())),
+            cache_trace: CacheTrace::shared(),
             view_context: Arc::new(()),
         }
     }
@@ -95,7 +97,7 @@ impl CheckSession {
         let mut records = if options.interactive_commands.is_some() {
             ModuleRecordCache::default()
         } else {
-            ModuleRecordCache::with_shared(self.records.clone())
+            ModuleRecordCache::with_shared(self.records.clone(), self.cache_trace.clone())
         };
         Checker::check_bundle_in_session(
             view,
@@ -154,7 +156,7 @@ impl Checker {
             );
 
             let byte_script_arguments = args_domain == ArgsDomain::Bytes;
-            let checked_entry = active_records.root().check_once(|| {
+            let checked_entry = active_records.root().check_once(active_records.trace(), || {
                 #[cfg(test)]
                 ENTRY_CHECKS.with(|checks| checks.set(checks.get() + 1));
                 let record_options = CheckOptions {
@@ -307,7 +309,7 @@ impl Checker {
                 .expect("reachable module has a prepared record")
                 .clone();
             debug_assert_eq!(record.args_domain(), args_domain);
-            let checked = record.check_once(|| {
+            let checked = record.check_once(records.trace(), || {
                 Self::check_module_record(
                     view,
                     module,
