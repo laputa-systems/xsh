@@ -2620,13 +2620,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 &self.bodies.expr_types,
                 &self.declarations.tag_variants_by_name,
                 &self.bodies.conversions,
-                &self.bodies.builtin_range_calls,
                 &self.bodies.argument_bindings,
-                &self.bodies.propagating_error_spans,
-                &self.bodies.latent_stream_error_spans,
-                &self.bodies.fallible_pipeline_stage_spans,
-                &self.bodies.propagating_stage_callback_spans,
-                &self.bodies.exhaustive_match_spans,
+                &self.bodies.checked_control_flow,
             );
         if !body_cannot_fall_through {
             if matches!(return_kind, LoweredReturnKind::Plain(LoweredType::Stream)) {

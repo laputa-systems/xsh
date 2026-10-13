@@ -17,6 +17,9 @@ use crate::syntax::arena::{
 };
 use crate::syntax::node::{AssignOp, StreamStageKind};
 use rustc_hash::FxHashMap;
+#[cfg(test)]
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) use super::proof::{ConditionNarrowings, Narrowing};
@@ -45,25 +48,24 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
     expression_types: &FxHashMap<ExprId, Type>,
     tag_variants: &FxHashMap<Name, TagVariantInfo>,
     conversions: &FxHashMap<ExprId, super::Conversion>,
-    builtin_range_calls: &FxHashSet<ExprId>,
     argument_bindings: &BTreeMap<Span, super::CheckedArguments>,
-    propagating_error_spans: &BTreeSet<Span>,
-    latent_stream_error_spans: &BTreeSet<Span>,
-    fallible_pipeline_stage_spans: &BTreeSet<Span>,
-    propagating_stage_callback_spans: &BTreeSet<Span>,
-    exhaustive_match_spans: &BTreeSet<Span>,
+    checked_control_flow: &super::CheckedControlFlowFacts,
 ) -> bool {
+    let cardinality_cache = StreamCardinalityCache::default();
     let facts = FlowFacts {
         expression_types_by_id: Some(expression_types),
         tag_variants: Some(tag_variants),
         conversions_by_id: Some(conversions),
-        builtin_range_calls_by_id: Some(builtin_range_calls),
+        builtin_range_calls: Some(&checked_control_flow.builtin_range_calls),
         argument_bindings: Some(argument_bindings),
-        propagating_error_spans: Some(propagating_error_spans),
-        latent_stream_error_spans: Some(latent_stream_error_spans),
-        fallible_pipeline_stage_spans: Some(fallible_pipeline_stage_spans),
-        propagating_stage_callback_spans: Some(propagating_stage_callback_spans),
-        exhaustive_match_spans: Some(exhaustive_match_spans),
+        propagating_error_spans: Some(&checked_control_flow.propagating_error_spans),
+        latent_stream_error_spans: Some(&checked_control_flow.latent_stream_error_spans),
+        fallible_pipeline_stage_spans: Some(&checked_control_flow.fallible_pipeline_stage_spans),
+        propagating_stage_callback_spans: Some(
+            &checked_control_flow.propagating_stage_callback_spans,
+        ),
+        exhaustive_match_spans: Some(&checked_control_flow.exhaustive_match_spans),
+        cardinality_cache: Some(&cardinality_cache),
         ..FlowFacts::AST_ONLY
     };
     tail_is_value || !block_control_flow(arena, block_id, &facts).completes
@@ -86,13 +88,13 @@ struct FlowFacts<'a> {
     conversions: Option<&'a BTreeMap<Span, super::Conversion>>,
     conversions_by_id: Option<&'a FxHashMap<ExprId, super::Conversion>>,
     builtin_range_calls: Option<&'a BTreeSet<Span>>,
-    builtin_range_calls_by_id: Option<&'a FxHashSet<ExprId>>,
     argument_bindings: Option<&'a BTreeMap<Span, super::CheckedArguments>>,
     propagating_error_spans: Option<&'a BTreeSet<Span>>,
     latent_stream_error_spans: Option<&'a BTreeSet<Span>>,
     fallible_pipeline_stage_spans: Option<&'a BTreeSet<Span>>,
     propagating_stage_callback_spans: Option<&'a BTreeSet<Span>>,
     exhaustive_match_spans: Option<&'a BTreeSet<Span>>,
+    cardinality_cache: Option<&'a StreamCardinalityCache>,
     exhaustiveness: Option<ExhaustivenessFacts<'a>>,
     propagating_statements: Option<&'a BTreeSet<Span>>,
     propagating_conditions: Option<&'a BTreeSet<Span>>,
@@ -106,17 +108,24 @@ impl FlowFacts<'static> {
         conversions: None,
         conversions_by_id: None,
         builtin_range_calls: None,
-        builtin_range_calls_by_id: None,
         argument_bindings: None,
         propagating_error_spans: None,
         latent_stream_error_spans: None,
         fallible_pipeline_stage_spans: None,
         propagating_stage_callback_spans: None,
         exhaustive_match_spans: None,
+        cardinality_cache: None,
         exhaustiveness: None,
         propagating_statements: None,
         propagating_conditions: None,
     };
+}
+
+#[derive(Default)]
+struct StreamCardinalityCache {
+    values: RefCell<FxHashMap<ExprId, StreamCardinality>>,
+    #[cfg(test)]
+    hits: Cell<usize>,
 }
 
 impl ControlFlow {
@@ -175,6 +184,22 @@ fn checked_error_site(facts: &FlowFacts<'_>, span: Span) -> bool {
 /// Sequence flow prunes unreachable expressions and nested loops consume
 /// their own transfers. Deferred actions run in reverse order on block exit.
 fn block_control_flow(arena: &ArenaProgram, block_id: BlockId, facts: &FlowFacts<'_>) -> ControlFlow {
+    if facts.cardinality_cache.is_none() {
+        let cache = StreamCardinalityCache::default();
+        let facts = FlowFacts {
+            cardinality_cache: Some(&cache),
+            ..*facts
+        };
+        return block_control_flow_inner(arena, block_id, &facts);
+    }
+    block_control_flow_inner(arena, block_id, facts)
+}
+
+fn block_control_flow_inner(
+    arena: &ArenaProgram,
+    block_id: BlockId,
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
     let mut flow = ControlFlow::NORMAL;
     let mut deferred = Vec::new();
     for id in arena.arena.stmt_ids(arena.arena.block(block_id).statements) {
@@ -498,10 +523,16 @@ fn stmt_control_flow_inner(
         ArenaStmtKind::Const { .. } | ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } => {
             stmt_binding_flow(arena, id, facts)
         }
+        ArenaStmtKind::YieldDelegate(value) => {
+            let mut flow = stmt_children_flow(arena, id, facts);
+            if flow.completes && latent_stream_error_source(arena, value, facts) {
+                flow.propagates = true;
+            }
+            flow
+        }
         ArenaStmtKind::Assign { .. }
         | ArenaStmtKind::Export(_)
         | ArenaStmtKind::Yield(_)
-        | ArenaStmtKind::YieldDelegate(_)
         | ArenaStmtKind::Command(_)
         | ArenaStmtKind::Expr(_) => stmt_children_flow(arena, id, facts),
     }
@@ -936,6 +967,23 @@ fn definitely_nonempty_iterable(arena: &ArenaProgram, expr: ExprId) -> bool {
     }
 }
 
+fn map_literal_cardinality(
+    arena: &ArenaProgram,
+    fields: ArenaRange,
+) -> StreamCardinality {
+    let fields = arena.arena.record_fields(fields);
+    if fields.is_empty() {
+        StreamCardinality::Empty
+    } else if fields
+        .iter()
+        .any(|field| !matches!(field.kind, crate::syntax::arena::ArenaRecordFieldKind::Spread { .. }))
+    {
+        StreamCardinality::NonEmpty
+    } else {
+        StreamCardinality::Maybe
+    }
+}
+
 fn comprehension_cardinality(
     arena: &ArenaProgram,
     qualifiers: ArenaRange,
@@ -1155,7 +1203,7 @@ fn materialized_pipeline_control_flow(
 ) -> ControlFlow {
     let mut flow = expr_control_flow(arena, input, facts);
     let pipeline_stages = pipeline_flow_stages(arena, stages, structured);
-    let downstream_pulls = pipeline_downstream_pulls(arena, &pipeline_stages, facts);
+    let downstream_pulls = pipeline_downstream_pulls(arena, &pipeline_stages);
     if flow.completes
         && !downstream_pulls[0].never
         && latent_stream_error_source(arena, input, facts)
@@ -1307,7 +1355,6 @@ impl PullSummary {
 fn pipeline_downstream_pulls(
     arena: &ArenaProgram,
     stages: &[PipelineFlowStage],
-    facts: &FlowFacts<'_>,
 ) -> Vec<PullSummary> {
     let mut summaries = vec![PullSummary::REQUIRED; stages.len() + 1];
     for index in (0..stages.len()).rev() {
@@ -1315,7 +1362,7 @@ fn pipeline_downstream_pulls(
             summaries[index] = summaries[index + 1];
             continue;
         };
-        let pull = stage_input_pull(arena, kind, args, facts);
+        let pull = stage_input_pull(arena, kind, args);
         let materializes = stage_materializes_input(arena, kind, args);
         let downstream = summaries[index + 1];
         summaries[index] = match (pull, materializes) {
@@ -1384,7 +1431,6 @@ fn stage_input_pull(
     arena: &ArenaProgram,
     kind: StreamStageKind,
     args: ArenaRange,
-    facts: &FlowFacts<'_>,
 ) -> StageInputPull {
     match kind {
         StreamStageKind::Take | StreamStageKind::Repeat => match first_known_int_arg(arena, args) {
@@ -1394,11 +1440,9 @@ fn stage_input_pull(
         },
         // Zip stops when either source ends, so the other source bounds left
         // pulls.
-        StreamStageKind::Zip => match zip_other_cardinality(arena, args, facts) {
-            StreamCardinality::Empty => StageInputPull::Never,
-            StreamCardinality::NonEmpty => StageInputPull::Required,
-            StreamCardinality::Maybe => StageInputPull::Maybe,
-        },
+        // Zip materializes the preceding group before it starts pairing rows,
+        // even when its right side is statically empty.
+        StreamStageKind::Zip => StageInputPull::Required,
         // A range stage generates its own sequence and does not pull from its
         // preceding input.
         StreamStageKind::Range => StageInputPull::Never,
@@ -1517,6 +1561,24 @@ fn expression_cardinality(
     expr: ExprId,
     facts: &FlowFacts<'_>,
 ) -> StreamCardinality {
+    let Some(cache) = facts.cardinality_cache else {
+        return expression_cardinality_uncached(arena, expr, facts);
+    };
+    if let Some(cardinality) = cache.values.borrow().get(&expr).copied() {
+        #[cfg(test)]
+        cache.hits.set(cache.hits.get() + 1);
+        return cardinality;
+    }
+    let cardinality = expression_cardinality_uncached(arena, expr, facts);
+    cache.values.borrow_mut().insert(expr, cardinality);
+    cardinality
+}
+
+fn expression_cardinality_uncached(
+    arena: &ArenaProgram,
+    expr: ExprId,
+    facts: &FlowFacts<'_>,
+) -> StreamCardinality {
     match arena.arena.expr(expr).kind {
         ArenaExprKind::ListComp { qualifiers, .. }
         | ArenaExprKind::SetComp { qualifiers, .. }
@@ -1527,10 +1589,7 @@ fn expression_cardinality(
             if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == "range") =>
         {
             if facts
-                .builtin_range_calls_by_id
-                .is_some_and(|calls| calls.contains(&expr))
-                || facts
-                    .builtin_range_calls
+                .builtin_range_calls
                     .is_some_and(|calls| calls.contains(&arena.arena.expr(expr).span))
             {
                 range_cardinality(arena, args)
@@ -1549,6 +1608,12 @@ fn expression_cardinality(
                 && name.as_str() == "collect" =>
         {
             expression_cardinality(arena, base, facts)
+        }
+        ArenaExprKind::Record(fields)
+            if expression_type(arena, expr, facts)
+                .is_some_and(|ty| matches!(ty.unvalidated(), Type::Map(_, _))) =>
+        {
+            map_literal_cardinality(arena, fields)
         }
         _ if definitely_empty_iterable(arena, expr) => StreamCardinality::Empty,
         _ if definitely_nonempty_iterable(arena, expr) => StreamCardinality::NonEmpty,
@@ -1709,8 +1774,20 @@ fn expr_control_flow(arena: &ArenaProgram, id: ExprId, facts: &FlowFacts<'_>) ->
         .propagating_conditions
         .is_some_and(|spans| spans.contains(&expr.span));
     let run_propagates = matches!(expr.kind, ArenaExprKind::Run(run) if arena.arena.run_form(run).propagate);
+    let builtin_range_can_fail = match expr.kind {
+        ArenaExprKind::Call { callee, args }
+            if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == "range")
+                && facts.builtin_range_calls.is_some_and(|calls| calls.contains(&expr.span)) =>
+        {
+            range_cardinality(arena, args) != StreamCardinality::Empty
+        }
+        _ => false,
+    };
     if flow.completes
-        && (condition_propagates || run_propagates || checked_error_site(facts, expr.span))
+        && (condition_propagates
+            || run_propagates
+            || builtin_range_can_fail
+            || checked_error_site(facts, expr.span))
     {
         flow.propagates = true;
     }
@@ -2021,13 +2098,13 @@ impl Checker {
             conversions: Some(&self.conversions),
             conversions_by_id: None,
             builtin_range_calls: Some(&self.builtin_range_calls),
-            builtin_range_calls_by_id: None,
             argument_bindings: Some(&self.argument_bindings),
             propagating_error_spans: Some(&self.propagating_error_spans),
             latent_stream_error_spans: Some(&self.latent_stream_error_spans),
             fallible_pipeline_stage_spans: Some(&self.fallible_pipeline_stage_spans),
             propagating_stage_callback_spans: Some(&self.propagating_stage_callback_spans),
             exhaustive_match_spans: Some(&self.exhaustive_match_spans),
+            cardinality_cache: None,
             exhaustiveness: Some(self.exhaustiveness_facts()),
             propagating_statements: Some(&self.propagating_statements),
             propagating_conditions: Some(&self.propagating_conditions),
@@ -4640,6 +4717,9 @@ impl Checker {
         } else {
             expected.unwrap_or(actual)
         };
+        let latent_stream_error = matches!(final_ty.unvalidated(), Type::Stream(_))
+            && matches!(initializer, ArenaExprOrRun::Expr(expr)
+                if self.latent_stream_error_spans.contains(&arena.arena.expr(expr).span));
         if ty.is_none()
             && callable_alias.is_none()
             && should_record_binding_annotation_arena(
@@ -4699,6 +4779,7 @@ impl Checker {
             && let Some(binding) = self.current_scope_mut().get_mut(&name)
         {
             binding.boolean_proof = boolean_proof;
+            binding.latent_stream_error = latent_stream_error;
         }
         self.set_binding_schema_arena(arena, target, schema);
     }
@@ -6761,7 +6842,7 @@ mod return_flow_tests {
     use crate::source::SourceId;
     use crate::syntax::arena::ArenaStmtKind;
     use crate::syntax::parser::Parser;
-    use super::{block_control_flow, FlowFacts};
+    use super::{block_control_flow, FlowFacts, StreamCardinalityCache};
 
     fn diagnostics(source: &str) -> Vec<crate::diagnostic::Diagnostic> {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -7091,6 +7172,28 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn delegated_stream_errors_are_loop_exit_points() {
+        let source = "stream child() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nstream parent() [error] -> Stream[Int] { loop { yield @child() } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn an_aliased_stream_keeps_its_latent_error_when_iterated() {
+        let source = "stream child() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nproc spin() [error] { loop { let rows = child(); for item in rows { continue } } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn an_aliased_stream_keeps_its_latent_error_when_collected() {
+        let source = "stream child() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let rows = child(); let values = rows.collect(); return values.len() } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].code, Some(DiagnosticCode::CheckMissingReturn), "{diagnostics:?}");
+    }
+
+    #[test]
     fn demanded_named_stage_callbacks_contribute_error_paths() {
         let source = "proc fail_item(item: Int) [error] -> Int { return item }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map(fail_item); return 1 } }\n";
         let diagnostics = diagnostics(source);
@@ -7132,6 +7235,14 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn builtin_range_collection_has_a_catchable_capacity_error_path() {
+        let source = "proc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = range(9223372036854775807).collect(); return values.len() } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].code, Some(DiagnosticCode::CheckMissingReturn), "{diagnostics:?}");
+    }
+
+    #[test]
     fn resource_scope_does_not_complete_after_its_body_returns() {
         let source = "proc choose(root: FsRoot) [fs] -> Int { let ignored = with held = root { return 1 } }\n";
         let diagnostics = diagnostics(source);
@@ -7160,6 +7271,13 @@ mod return_flow_tests {
             Some(DiagnosticCode::CheckMissingReturn),
             "{diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn computed_key_map_literal_cardinality_is_known() {
+        let source = "pure choose() -> Int { for {key, value} in {[1]: 2} { return value } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     #[test]
@@ -7664,13 +7782,8 @@ mod return_flow_tests {
             &rustc_hash::FxHashMap::default(),
             &rustc_hash::FxHashMap::default(),
             &rustc_hash::FxHashMap::default(),
-            &rustc_hash::FxHashSet::default(),
             &std::collections::BTreeMap::new(),
-            &std::collections::BTreeSet::new(),
-            &std::collections::BTreeSet::new(),
-            &std::collections::BTreeSet::new(),
-            &std::collections::BTreeSet::new(),
-            &std::collections::BTreeSet::new(),
+            &super::super::CheckedControlFlowFacts::default(),
         ));
     }
 
@@ -7774,24 +7887,48 @@ mod return_flow_tests {
     fn zip_with_an_empty_right_source_skips_upstream_callbacks() {
         let source = "pure choose() -> Int { let ignored = [1] |> map { |item| return item } |> zip([]) }\n";
         let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
-        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     #[test]
-    fn zip_with_a_dynamic_right_source_may_skip_upstream_callbacks() {
+    fn zip_with_a_dynamic_right_source_still_runs_upstream_callbacks() {
         let source = "pure choose(other: List[Int]) -> Int { let ignored = [1] |> map { |item| return item } |> zip(other) }\n";
         let diagnostics = diagnostics(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
-            "{diagnostics:?}"
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn nested_zip_cardinality_is_reused_within_one_flow_analysis() {
+        let depth = 16;
+        let mut nested = "[1]".to_owned();
+        for _ in 0..depth {
+            nested = format!("[1] |> zip({nested})");
+        }
+        let source = format!("pure choose() -> Int {{ let ignored = {nested} }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let body = parsed
+            .arena
+            .arena
+            .stmt_ids(parsed.arena.statements)
+            .find_map(|stmt| match parsed.arena.arena.stmt(stmt).kind {
+                ArenaStmtKind::PureDef(definition) => {
+                    Some(parsed.arena.arena.function_def(definition).body)
+                }
+                _ => None,
+            })
+            .expect("pure function body");
+        let cache = StreamCardinalityCache::default();
+        let flow = block_control_flow(
+            &parsed.arena,
+            body,
+            &FlowFacts {
+                cardinality_cache: Some(&cache),
+                ..FlowFacts::AST_ONLY
+            },
         );
+        assert!(flow.completes, "{flow:?}");
+        assert!(cache.hits.get() >= depth, "{} cache hits", cache.hits.get());
     }
 
     #[test]

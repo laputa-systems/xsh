@@ -468,6 +468,35 @@ pub struct CheckedStreamStage {
     pub output: Type,
 }
 
+/// Opaque checker proofs used by lowering to preserve checked control flow.
+/// The carrier stays public so output structs remain constructible with
+/// `..Default::default()` without allowing callers to forge individual proofs.
+#[derive(Clone, Debug, Default)]
+pub struct CheckedControlFlowFacts {
+    pub(crate) builtin_range_calls: BTreeSet<Span>,
+    pub(crate) propagating_error_spans: BTreeSet<Span>,
+    pub(crate) latent_stream_error_spans: BTreeSet<Span>,
+    pub(crate) fallible_pipeline_stage_spans: BTreeSet<Span>,
+    pub(crate) propagating_stage_callback_spans: BTreeSet<Span>,
+    pub(crate) exhaustive_match_spans: BTreeSet<Span>,
+}
+
+impl CheckedControlFlowFacts {
+    fn merge_from(&mut self, mut other: Self) {
+        self.builtin_range_calls.append(&mut other.builtin_range_calls);
+        self.propagating_error_spans
+            .append(&mut other.propagating_error_spans);
+        self.latent_stream_error_spans
+            .append(&mut other.latent_stream_error_spans);
+        self.fallible_pipeline_stage_spans
+            .append(&mut other.fallible_pipeline_stage_spans);
+        self.propagating_stage_callback_spans
+            .append(&mut other.propagating_stage_callback_spans);
+        self.exhaustive_match_spans
+            .append(&mut other.exhaustive_match_spans);
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
     pub checked_declarations: CheckedDeclarations,
@@ -573,17 +602,8 @@ pub struct CheckOutput {
     /// from the conversion table. Lowering builds the operation from this
     /// and never looks at the operand's type or the target again.
     pub conversions: BTreeMap<Span, Conversion>,
-    pub(crate) builtin_range_calls: BTreeSet<Span>,
-    /// Checked source sites where failure can leave the current block.
-    pub(crate) propagating_error_spans: BTreeSet<Span>,
-    /// Checked lazy stream producers that can fail when pulled.
-    pub(crate) latent_stream_error_spans: BTreeSet<Span>,
-    /// Pipeline stages that can fail while their pipeline is consumed.
-    pub(crate) fallible_pipeline_stage_spans: BTreeSet<Span>,
-    /// Named stage callbacks whose invocation can propagate an error.
-    pub(crate) propagating_stage_callback_spans: BTreeSet<Span>,
-    /// Match statements and expressions proven exhaustive by the checker.
-    pub(crate) exhaustive_match_spans: BTreeSet<Span>,
+    /// Opaque checker proofs used by lowerers for control-flow decisions.
+    pub checked_control_flow: CheckedControlFlowFacts,
     /// The resource kind of each binding of a managed `with` scope, in binding
     /// order, keyed by the scope. A scope with a rejected binding has none.
     pub resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
@@ -705,17 +725,7 @@ impl CheckOutput {
             .append(&mut module.record_require_migrations);
         self.error_constructors
             .append(&mut module.error_constructors);
-        self.builtin_range_calls.append(&mut module.builtin_range_calls);
-        self.propagating_error_spans
-            .append(&mut module.propagating_error_spans);
-        self.latent_stream_error_spans
-            .append(&mut module.latent_stream_error_spans);
-        self.fallible_pipeline_stage_spans
-            .append(&mut module.fallible_pipeline_stage_spans);
-        self.propagating_stage_callback_spans
-            .append(&mut module.propagating_stage_callback_spans);
-        self.exhaustive_match_spans
-            .append(&mut module.exhaustive_match_spans);
+        self.checked_control_flow.merge_from(module.checked_control_flow);
         self.optional_binding_spans
             .append(&mut module.optional_binding_spans);
         self.collect_yields.append(&mut module.collect_yields);
@@ -887,6 +897,7 @@ pub(super) struct Binding {
     static_namespace: bool,
     callable_alias: Option<CallableAlias>,
     ty: Type,
+    latent_stream_error: bool,
     mutable: bool,
     pure_local_mutation: bool,
     unrefined_ty: Option<Type>,
@@ -903,6 +914,7 @@ impl Binding {
             callable_alias: None,
             static_namespace: false,
             ty,
+            latent_stream_error: false,
             mutable,
             pure_local_mutation: false,
             unrefined_ty: None,
@@ -1594,12 +1606,14 @@ impl Checker {
             collect_yields: self.collect_yields,
             from_end_indexes: self.from_end_indexes,
             conversions: self.conversions,
-            builtin_range_calls: self.builtin_range_calls,
-            propagating_error_spans: self.propagating_error_spans,
-            latent_stream_error_spans: self.latent_stream_error_spans,
-            fallible_pipeline_stage_spans: self.fallible_pipeline_stage_spans,
-            propagating_stage_callback_spans: self.propagating_stage_callback_spans,
-            exhaustive_match_spans: self.exhaustive_match_spans,
+            checked_control_flow: CheckedControlFlowFacts {
+                builtin_range_calls: self.builtin_range_calls,
+                propagating_error_spans: self.propagating_error_spans,
+                latent_stream_error_spans: self.latent_stream_error_spans,
+                fallible_pipeline_stage_spans: self.fallible_pipeline_stage_spans,
+                propagating_stage_callback_spans: self.propagating_stage_callback_spans,
+                exhaustive_match_spans: self.exhaustive_match_spans,
+            },
             resource_scopes: self.resource_scopes,
             resource_transfers: self.resource_transfers,
             text_patterns: self.text_patterns,

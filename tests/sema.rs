@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use walkdir::WalkDir;
 use xsh::diagnostic::DiagnosticCode;
-use xsh::frontend::check::{AnnotationFactKind, CheckOptions, Checker, CompactDeclOutput};
+use xsh::frontend::check::{
+    AnnotationFactKind, CheckOptions, CheckOutput, CheckedControlFlowFacts, Checker,
+    CompactBodyFacts, CompactDeclOutput,
+};
 use xsh::frontend::source::{SourceId, SourceMap};
 use xsh::frontend::syntax::parser::Parser;
 
@@ -15,6 +18,17 @@ fn compact_check(
     let mut sources = SourceMap::new();
     let source_id = sources.add_file("compact-check.xsh", source.as_ref().to_string());
     Checker::check_compact_declarations(program, &sources, source_id)
+}
+
+#[test]
+fn checked_output_struct_update_literals_accept_default_control_flow_facts() {
+    let _: CheckedControlFlowFacts = CheckedControlFlowFacts::default();
+    let _: CheckOutput = CheckOutput {
+        ..Default::default()
+    };
+    let _: CompactBodyFacts = CompactBodyFacts {
+        ..Default::default()
+    };
 }
 
 fn repository_xsh_sources() -> Vec<PathBuf> {

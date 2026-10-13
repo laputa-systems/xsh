@@ -248,12 +248,16 @@ impl Checker {
         }
         if let Some(binding) = self.lookup_value_binding(name, span) {
             let alias = binding.callable_alias.clone();
+            let latent_stream_error = binding.latent_stream_error;
             let ty = self
                 .type_constraints
                 .resolve(&binding.ty)
                 .unwrap_or(Type::Invalid);
             if let Some(alias) = alias {
                 self.record_callable_alias(span, &alias);
+            }
+            if latent_stream_error {
+                self.latent_stream_error_spans.insert(span);
             }
             return ty;
         }
