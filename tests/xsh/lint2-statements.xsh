@@ -7,9 +7,8 @@ proc script(ctx: TestContext, source: Str) [fs, error] -> Result[Path] {
 
 # Runs `xsht lint` on `file` with `flags` and requires that the file parsed
 # and checked, so that an absent finding is a statement about the linter.
-# It runs in the directory of `file`, where no project configuration applies:
-# the runner's own directory is the repository, whose configuration turns
-# some default rules off.
+# It runs in the directory of `file`; `xsht` uses the nearest project config
+# for that source file.
 proc lint(file: Path, flags: List[Str]) [process, env, error] -> Result[Captured] {
   let linted = cd (file.parent()) {
     run.capture --text "xsht" lint @flags $file
@@ -19,7 +18,7 @@ proc lint(file: Path, flags: List[Str]) [process, env, error] -> Result[Captured
   Ok(linted)
 }
 
-# How many findings with `code` the default rule set reports for `file`.
+# How many findings with `code` the configured rules report for `file`.
 proc findings(file: Path, code: Str) [process, env, error] -> Result[Int] {
   let linted = lint(file, [])?
   Ok(linted.stderr.split(f"[{code}]").len() - 1)
@@ -272,6 +271,8 @@ let dir = env.Path.HOME ?? /
 print $home $login $named $nested $dashed $computed $fallback $dir
 """,
   )?
+  # The repository config holds this default-on rule off during migration.
+  fp"{file.parent()}/xsht-config.ini".write("[lint]\nprefer-env-string = true\n")
 
   # Only the four literal identifier reads; `env.get_or` fails on non-UTF-8
   # values where `??` would fall back, so it is not an equivalent rewrite.
