@@ -452,3 +452,24 @@ print f"{tool.path} {tool.mode} {config.path} {reordered.path} {pair.first}"
   let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
 }
+
+test test_prefer_positional_constructor_preserves_typed_callable_records { |ctx|
+  let source = r"""type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure double(n: Int) -> Int { n * 2 }
+let holder = Holder(callback: double)
+print holder.callback(4)
+"""
+  let before = test.expect(ctx, source, status: 0)?
+  let root = test.temp_dir(ctx, name: "positional-callable-constructor-lint")?
+  let candidate = fp"{root}/main.xsh"
+  candidate.write_atomic(source)
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-positional-constructor $candidate
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = candidate.read_text()?
+  assert "Holder(double)" in fixed, fixed
+  let checked = run.capture --text "xsht" check $candidate
+  assert checked.status.exited_with(0), checked.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
+  assert after.stdout == before.stdout
+}
