@@ -6066,14 +6066,44 @@ test test_system_report_process_reference_excludes_exits_and_new_arrivals_from_s
   assert resources.exact_scored
 }
 
-test test_system_report_traced_live_and_replay_paths_keep_host_effect_contract { |ctx|
+test test_system_report_traced_live_text_modes_keep_host_effect_contract { |ctx|
   guard system.uname()?.sysname == "Linux" else {
     test.skip("the production syscall audit requires Linux strace")
     return
   }
 
   let script = fp"{ctx.core_dir.parent()}/core/system-report.xsh"
-  report_checks.audit_no_subprocess(ctx.xsh_bin.display(), script.display())
+  report_checks.audit_no_subprocess_live_text_modes(ctx.xsh_bin.display(), script.display())
+}
+
+test test_system_report_traced_live_json_modes_keep_host_effect_contract { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("the production syscall audit requires Linux strace")
+    return
+  }
+
+  let script = fp"{ctx.core_dir.parent()}/core/system-report.xsh"
+  report_checks.audit_no_subprocess_live_json_modes(ctx.xsh_bin.display(), script.display())
+}
+
+test test_system_report_traced_replay_paths_keep_host_effect_contract { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("the production syscall audit requires Linux strace")
+    return
+  }
+
+  let script = fp"{ctx.core_dir.parent()}/core/system-report.xsh"
+  report_checks.audit_no_subprocess_replay_paths(ctx.xsh_bin.display(), script.display())
+}
+
+test test_system_report_traced_invalid_section_keeps_host_effect_contract { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("the production syscall audit requires Linux strace")
+    return
+  }
+
+  let script = fp"{ctx.core_dir.parent()}/core/system-report.xsh"
+  report_checks.audit_no_subprocess_invalid_section(ctx.xsh_bin.display(), script.display())
 }
 
 test test_system_report_process_resource_reference_scores_only_stable_fields {

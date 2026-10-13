@@ -21331,8 +21331,40 @@ proc audit_no_subprocess_case(
   }
 }
 
-## Traces live, saved-report, and failure paths with an unusable command search path.
-export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
+## Traces the successful live text modes with an unusable command search path.
+export proc audit_no_subprocess_live_text_modes(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
+  if ! xsh_bin.starts_with("/") or ! script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+
+  let scratch = fs.tempdir()?
+  defer scratch.close()
+
+  audit_no_subprocess_case(xsh_bin, script, [], true, "overview-text", scratch)
+  audit_no_subprocess_case(xsh_bin, script, ["--full"], true, "full-text", scratch)
+}
+
+## Traces the successful live JSON modes with an unusable command search path.
+export proc audit_no_subprocess_live_json_modes(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
+  if ! xsh_bin.starts_with("/") or ! script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+
+  let scratch = fs.tempdir()?
+  defer scratch.close()
+
+  audit_no_subprocess_case(xsh_bin, script, ["--section", "cpu", "--json"], true, "cpu-json", scratch)
+  audit_no_subprocess_case(xsh_bin, script, ["--sensitive", "--json"], true, "sensitive-json", scratch)
+}
+
+## Traces all successful live output modes with an unusable command search path.
+export proc audit_no_subprocess_live_modes(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
+  audit_no_subprocess_live_text_modes(xsh_bin, script)?
+  audit_no_subprocess_live_json_modes(xsh_bin, script)
+}
+
+## Traces saved-report replay and compares every replay trace with startup reads.
+export proc audit_no_subprocess_replay_paths(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
   if ! xsh_bin.starts_with("/") or ! script.starts_with("/") {
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
@@ -21349,10 +21381,6 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   let missing_path = fp"{scratch_path}/missing.json"
 
   audit_no_subprocess_case(xsh_bin, script, ["--json"], true, "live-json", scratch)
-  audit_no_subprocess_case(xsh_bin, script, [], true, "overview-text", scratch)
-  audit_no_subprocess_case(xsh_bin, script, ["--full"], true, "full-text", scratch)
-  audit_no_subprocess_case(xsh_bin, script, ["--section", "cpu", "--json"], true, "cpu-json", scratch)
-  audit_no_subprocess_case(xsh_bin, script, ["--sensitive", "--json"], true, "sensitive-json", scratch)
   let saved_path = fp"{scratch_path}/stdout-live-json"
   audit_no_subprocess_case(xsh_bin, script, ["--from", saved_path.display(), "--json"], true, "offline-replay", scratch)
   let live_json = scratch.read_text(p"stdout-live-json")?
@@ -21362,7 +21390,6 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   }
 
   audit_no_subprocess_case(xsh_bin, script, ["--version"], true, "version", scratch)
-  audit_no_subprocess_case(xsh_bin, script, ["--section", "invalid"], false, "invalid-section", scratch)
   audit_no_subprocess_case(xsh_bin, script, ["--from", malformed_path.display()], false, "malformed-replay", scratch)
   audit_no_subprocess_case(
     xsh_bin,
@@ -21390,6 +21417,24 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
       return Err(check_failure(f"{label}: {reasons}"))
     }
   }
+}
+
+## Traces the invalid-section failure path with an unusable command search path.
+export proc audit_no_subprocess_invalid_section(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
+  if ! xsh_bin.starts_with("/") or ! script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+
+  let scratch = fs.tempdir()?
+  defer scratch.close()
+  audit_no_subprocess_case(xsh_bin, script, ["--section", "invalid"], false, "invalid-section", scratch)
+}
+
+## Traces every production command path with an unusable command search path.
+export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
+  audit_no_subprocess_live_modes(xsh_bin, script)?
+  audit_no_subprocess_replay_paths(xsh_bin, script)?
+  audit_no_subprocess_invalid_section(xsh_bin, script)
 }
 
 proc read_reference_cpu_sets() [fs, error] -> Result[CpuSetReference] {
