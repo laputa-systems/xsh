@@ -180,12 +180,12 @@ impl Checker {
         return_ty: &Type,
         span: Span,
     ) {
-        if !return_ty.is_result()
-            && !matches!(return_ty, Type::Stream(_))
-            && effects
-                .as_ref()
-                .is_some_and(|effects| effects.contains(&Effect::Error))
-        {
+        let may_error = effects
+            .as_ref()
+            .is_some_and(|effects| effects.contains(&Effect::Error));
+        if may_error && matches!(return_ty.unvalidated(), Type::Stream(_)) {
+            self.latent_stream_error_spans.insert(span);
+        } else if may_error && !return_ty.is_result() {
             self.propagating_error_spans.insert(span);
             if self.boundary.retry_attempt_depth > 0
                 && let Some(errors) = self.boundary.error_boundary_errors.last_mut()

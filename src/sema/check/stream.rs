@@ -99,6 +99,9 @@ impl Checker {
             return Type::Unknown;
         };
         let item_ty = *item_ty;
+        if matches!(stage.kind, StreamStageKind::Range | StreamStageKind::Repeat) {
+            self.fallible_pipeline_stage_spans.insert(stage_span);
+        }
         for argument in arena.arena.call_args(stage.args) {
             if let ArenaCallArgKind::NamedSpread { value, .. } = argument.kind {
                 self.check_expr_arena(arena, source, value, None);
@@ -185,6 +188,9 @@ impl Checker {
                     item_span,
                     None,
                 );
+                let callback_returns_result_unit =
+                    matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee)
+                        && callback_ty.is_result_unit();
                 if matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee) {
                     self.statement_positions
                         .insert(item_span, super::StatementPosition::Value);
@@ -197,6 +203,11 @@ impl Checker {
                         None,
                         false,
                     );
+                }
+                if callback_returns_result_unit
+                    || self.propagating_error_spans.contains(&item_span)
+                {
+                    self.propagating_stage_callback_spans.insert(stage_span);
                 }
                 self.boundary.item_frames.pop();
                 self.leave_callback_boundary(enclosing_boundary);

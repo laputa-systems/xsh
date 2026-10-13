@@ -576,6 +576,14 @@ pub struct CheckOutput {
     pub(crate) builtin_range_calls: BTreeSet<Span>,
     /// Checked source sites where failure can leave the current block.
     pub(crate) propagating_error_spans: BTreeSet<Span>,
+    /// Checked lazy stream producers that can fail when pulled.
+    pub(crate) latent_stream_error_spans: BTreeSet<Span>,
+    /// Pipeline stages that can fail while their pipeline is consumed.
+    pub(crate) fallible_pipeline_stage_spans: BTreeSet<Span>,
+    /// Named stage callbacks whose invocation can propagate an error.
+    pub(crate) propagating_stage_callback_spans: BTreeSet<Span>,
+    /// Match statements and expressions proven exhaustive by the checker.
+    pub(crate) exhaustive_match_spans: BTreeSet<Span>,
     /// The resource kind of each binding of a managed `with` scope, in binding
     /// order, keyed by the scope. A scope with a rejected binding has none.
     pub resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
@@ -700,6 +708,14 @@ impl CheckOutput {
         self.builtin_range_calls.append(&mut module.builtin_range_calls);
         self.propagating_error_spans
             .append(&mut module.propagating_error_spans);
+        self.latent_stream_error_spans
+            .append(&mut module.latent_stream_error_spans);
+        self.fallible_pipeline_stage_spans
+            .append(&mut module.fallible_pipeline_stage_spans);
+        self.propagating_stage_callback_spans
+            .append(&mut module.propagating_stage_callback_spans);
+        self.exhaustive_match_spans
+            .append(&mut module.exhaustive_match_spans);
         self.optional_binding_spans
             .append(&mut module.optional_binding_spans);
         self.collect_yields.append(&mut module.collect_yields);
@@ -1320,6 +1336,10 @@ pub struct Checker {
     conversions: BTreeMap<Span, Conversion>,
     builtin_range_calls: BTreeSet<Span>,
     propagating_error_spans: BTreeSet<Span>,
+    latent_stream_error_spans: BTreeSet<Span>,
+    fallible_pipeline_stage_spans: BTreeSet<Span>,
+    propagating_stage_callback_spans: BTreeSet<Span>,
+    exhaustive_match_spans: BTreeSet<Span>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
     resource_transfers: ResourceTransferFacts,
     text_patterns: BTreeMap<Span, TextPattern>,
@@ -1576,6 +1596,10 @@ impl Checker {
             conversions: self.conversions,
             builtin_range_calls: self.builtin_range_calls,
             propagating_error_spans: self.propagating_error_spans,
+            latent_stream_error_spans: self.latent_stream_error_spans,
+            fallible_pipeline_stage_spans: self.fallible_pipeline_stage_spans,
+            propagating_stage_callback_spans: self.propagating_stage_callback_spans,
+            exhaustive_match_spans: self.exhaustive_match_spans,
             resource_scopes: self.resource_scopes,
             resource_transfers: self.resource_transfers,
             text_patterns: self.text_patterns,
@@ -1684,6 +1708,10 @@ impl Checker {
             conversions: BTreeMap::new(),
             builtin_range_calls: BTreeSet::new(),
             propagating_error_spans: BTreeSet::new(),
+            latent_stream_error_spans: BTreeSet::new(),
+            fallible_pipeline_stage_spans: BTreeSet::new(),
+            propagating_stage_callback_spans: BTreeSet::new(),
+            exhaustive_match_spans: BTreeSet::new(),
             resource_scopes: BTreeMap::new(),
             resource_transfers: ResourceTransferFacts::default(),
             text_patterns: BTreeMap::new(),

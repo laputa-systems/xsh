@@ -587,6 +587,11 @@ impl Type {
         }
     }
 
+    /// Whether iteration over this result can propagate before yielding items.
+    pub(crate) fn is_result_iteration_source(&self) -> bool {
+        matches!(self.unvalidated(), Self::Result(_, _)) && self.iteration_item_type().is_some()
+    }
+
     /// Conservative owned-heap estimate for one semantic type tree.
     pub fn retained_bytes(&self) -> usize {
         use std::mem::size_of;

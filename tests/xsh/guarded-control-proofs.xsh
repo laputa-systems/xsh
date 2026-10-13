@@ -148,3 +148,35 @@ print ${choose()}
   assert output == """17
 """
 }
+
+test guarded_exhaustive_result_and_error_family_returns_lower_and_run { |ctx|
+  let source = r"""error FlowFailure {
+  Missing
+  Changed
+}
+pure choose_result(value: Result[Int, Error]) -> Int {
+  match value {
+    Ok(number) => { return number }
+    Err(_) => { return 0 }
+  }
+}
+pure choose_failure(failure: FlowFailure) -> Int {
+  match failure {
+    FlowFailure.Missing => { return 1 }
+    FlowFailure.Changed => { return 2 }
+  }
+}
+print ${choose_result(Ok(17))}
+print ${choose_failure(FlowFailure.Changed())}
+"""
+  let file = test.temp_file(ctx, name: "guarded-match-flow.xsh", contents: bytes.from_text(source))?
+  let checked = run.capture --text "xsht" check $file
+  let {status: checked_status, stderr: checked_diagnostics, ..} = checked
+  assert checked_status.exited_with(0), checked_diagnostics
+  let result = test.run_script(ctx, source)?
+  let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
+  assert succeeded, diagnostics
+  assert output == """17
+2
+"""
+}

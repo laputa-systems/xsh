@@ -2093,8 +2093,7 @@ impl Checker {
             match *qualifier {
                 ArenaCompQualifier::For { target, iter, span } => {
                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
-                    if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
-                    {
+                    if iter_ty.is_result_iteration_source() {
                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
@@ -2555,13 +2554,16 @@ impl Checker {
             .filter(|arm| arm.guard.is_none())
             .map(|arm| (arm.pattern, arena.arena.span(arm.span)))
             .collect::<Vec<_>>();
-        if !super::stmt::patterns_are_exhaustive_arena(
+        let exhaustive = super::stmt::patterns_are_exhaustive_arena(
             arena,
             &value_ty,
             unguarded.iter().map(|(pattern, _)| *pattern),
             &self.exhaustiveness_facts(),
-        ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
-        {
+        );
+        if exhaustive {
+            self.exhaustive_match_spans.insert(span);
+        }
+        if !exhaustive && !self.match_scrutinee_definitely_exits_arena(arena, value) {
             self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, span);
         }
         self.check_list_match_coverage_arena(

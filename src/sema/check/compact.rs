@@ -130,6 +130,10 @@ pub struct CompactBodyFacts {
     pub builtin_range_calls: FxHashSet<ExprId>,
     /// Checked sites where failure can leave the current body or error scope.
     pub propagating_error_spans: std::collections::BTreeSet<Span>,
+    pub(crate) latent_stream_error_spans: std::collections::BTreeSet<Span>,
+    pub(crate) fallible_pipeline_stage_spans: std::collections::BTreeSet<Span>,
+    pub(crate) propagating_stage_callback_spans: std::collections::BTreeSet<Span>,
+    pub(crate) exhaustive_match_spans: std::collections::BTreeSet<Span>,
     /// The resource kind of each binding of a managed `with` scope.
     pub resource_scopes: FxHashMap<ExprId, Vec<crate::modules::ManagedResource>>,
     /// Explicit checked ownership transfers keyed by statement or block in
@@ -160,6 +164,12 @@ impl CompactBodyFacts {
             module_commands: checked.module_commands.clone(),
             resource_transfers: checked.resource_transfers.clone(),
             propagating_error_spans: checked.propagating_error_spans.clone(),
+            latent_stream_error_spans: checked.latent_stream_error_spans.clone(),
+            fallible_pipeline_stage_spans: checked.fallible_pipeline_stage_spans.clone(),
+            propagating_stage_callback_spans: checked
+                .propagating_stage_callback_spans
+                .clone(),
+            exhaustive_match_spans: checked.exhaustive_match_spans.clone(),
             ..Self::default()
         };
         facts.expr_types.reserve(checked.expr_types.len());

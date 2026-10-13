@@ -35,12 +35,6 @@ fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     )
 }
 
-/// Proves that a block has no reachable normal completion.
-#[allow(dead_code)]
-fn block_never_falls_through_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
-    !block_control_flow(arena, block_id, &FlowFacts::AST_ONLY).completes
-}
-
 /// Proves that a callable body cannot reach its end without returning. A
 /// value-position tail is lowered as an implicit return; checked expression
 /// types distinguish Result propagation from optional access.
@@ -52,14 +46,24 @@ pub(crate) fn block_callable_body_cannot_fall_through_arena(
     tag_variants: &FxHashMap<Name, TagVariantInfo>,
     conversions: &FxHashMap<ExprId, super::Conversion>,
     builtin_range_calls: &FxHashSet<ExprId>,
+    argument_bindings: &BTreeMap<Span, super::CheckedArguments>,
     propagating_error_spans: &BTreeSet<Span>,
+    latent_stream_error_spans: &BTreeSet<Span>,
+    fallible_pipeline_stage_spans: &BTreeSet<Span>,
+    propagating_stage_callback_spans: &BTreeSet<Span>,
+    exhaustive_match_spans: &BTreeSet<Span>,
 ) -> bool {
     let facts = FlowFacts {
         expression_types_by_id: Some(expression_types),
         tag_variants: Some(tag_variants),
         conversions_by_id: Some(conversions),
         builtin_range_calls_by_id: Some(builtin_range_calls),
+        argument_bindings: Some(argument_bindings),
         propagating_error_spans: Some(propagating_error_spans),
+        latent_stream_error_spans: Some(latent_stream_error_spans),
+        fallible_pipeline_stage_spans: Some(fallible_pipeline_stage_spans),
+        propagating_stage_callback_spans: Some(propagating_stage_callback_spans),
+        exhaustive_match_spans: Some(exhaustive_match_spans),
         ..FlowFacts::AST_ONLY
     };
     tail_is_value || !block_control_flow(arena, block_id, &facts).completes
@@ -83,7 +87,12 @@ struct FlowFacts<'a> {
     conversions_by_id: Option<&'a FxHashMap<ExprId, super::Conversion>>,
     builtin_range_calls: Option<&'a BTreeSet<Span>>,
     builtin_range_calls_by_id: Option<&'a FxHashSet<ExprId>>,
+    argument_bindings: Option<&'a BTreeMap<Span, super::CheckedArguments>>,
     propagating_error_spans: Option<&'a BTreeSet<Span>>,
+    latent_stream_error_spans: Option<&'a BTreeSet<Span>>,
+    fallible_pipeline_stage_spans: Option<&'a BTreeSet<Span>>,
+    propagating_stage_callback_spans: Option<&'a BTreeSet<Span>>,
+    exhaustive_match_spans: Option<&'a BTreeSet<Span>>,
     exhaustiveness: Option<ExhaustivenessFacts<'a>>,
     propagating_statements: Option<&'a BTreeSet<Span>>,
     propagating_conditions: Option<&'a BTreeSet<Span>>,
@@ -98,7 +107,12 @@ impl FlowFacts<'static> {
         conversions_by_id: None,
         builtin_range_calls: None,
         builtin_range_calls_by_id: None,
+        argument_bindings: None,
         propagating_error_spans: None,
+        latent_stream_error_spans: None,
+        fallible_pipeline_stage_spans: None,
+        propagating_stage_callback_spans: None,
+        exhaustive_match_spans: None,
         exhaustiveness: None,
         propagating_statements: None,
         propagating_conditions: None,
@@ -342,7 +356,11 @@ fn stmt_control_flow_inner(
                 );
                 arms_flow = arms_flow.either(arm_flow);
             }
+            let checked_exhaustive = facts.exhaustive_match_spans.is_some_and(|spans| {
+                spans.contains(&arena.arena.stmt(id).span)
+            });
             if !caught
+                && !checked_exhaustive
                 && !match_is_exhaustive_with_facts(
                     arena,
                     value,
@@ -693,8 +711,19 @@ fn has_checked_conversion(arena: &ArenaProgram, expr: ExprId, facts: &FlowFacts<
 }
 
 fn result_iteration_source(arena: &ArenaProgram, expr: ExprId, facts: &FlowFacts<'_>) -> bool {
-    matches!(expression_type(arena, expr, facts), Some(Type::Result(ok, _))
-        if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
+    expression_type(arena, expr, facts).is_some_and(Type::is_result_iteration_source)
+}
+
+fn latent_stream_error_source(
+    arena: &ArenaProgram,
+    expr: ExprId,
+    facts: &FlowFacts<'_>,
+) -> bool {
+    expression_type(arena, expr, facts)
+        .is_some_and(|ty| matches!(ty.unvalidated(), Type::Stream(_)))
+        && facts.latent_stream_error_spans.is_some_and(|spans| {
+            spans.contains(&arena.arena.expr(expr).span)
+        })
 }
 
 fn iteration_source_control_flow(
@@ -703,7 +732,10 @@ fn iteration_source_control_flow(
     facts: &FlowFacts<'_>,
 ) -> ControlFlow {
     let mut flow = expr_control_flow_materialized_pipeline(arena, expr, facts);
-    if flow.completes && result_iteration_source(arena, expr, facts) {
+    if flow.completes
+        && (result_iteration_source(arena, expr, facts)
+            || latent_stream_error_source(arena, expr, facts))
+    {
         flow.propagates = true;
     }
     flow
@@ -886,6 +918,7 @@ fn definitely_empty_iterable(arena: &ArenaProgram, expr: ExprId) -> bool {
         ArenaExprKind::List(elements) | ArenaExprKind::Set(elements) => {
             arena.arena.list_element_exprs(elements).next().is_none()
         }
+        ArenaExprKind::Bytes(bytes) => arena.arena.bytes_literal(bytes).is_empty(),
         _ => false,
     }
 }
@@ -898,7 +931,52 @@ fn definitely_nonempty_iterable(arena: &ArenaProgram, expr: ExprId) -> bool {
             .any(|element| element.splice_span.is_none()),
         ArenaExprKind::Set(elements) => arena.arena.list_element_exprs(elements).next().is_some(),
         ArenaExprKind::Str(value) => !arena.arena.string_literal(value).is_empty(),
+        ArenaExprKind::Bytes(value) => !arena.arena.bytes_literal(value).is_empty(),
         _ => false,
+    }
+}
+
+fn comprehension_cardinality(
+    arena: &ArenaProgram,
+    qualifiers: ArenaRange,
+    facts: &FlowFacts<'_>,
+) -> StreamCardinality {
+    use crate::syntax::arena::ArenaCompQualifier;
+    let mut cardinality = StreamCardinality::NonEmpty;
+    let mut has_source = false;
+    for qualifier in arena.arena.comp_qualifiers(qualifiers) {
+        match *qualifier {
+            ArenaCompQualifier::For { iter, .. } => {
+                let source = expression_cardinality(arena, iter, facts);
+                cardinality = if has_source {
+                    match (cardinality, source) {
+                        (StreamCardinality::Empty, _) | (_, StreamCardinality::Empty) => {
+                            StreamCardinality::Empty
+                        }
+                        (StreamCardinality::NonEmpty, StreamCardinality::NonEmpty) => {
+                            StreamCardinality::NonEmpty
+                        }
+                        _ => StreamCardinality::Maybe,
+                    }
+                } else {
+                    source
+                };
+                has_source = true;
+            }
+            ArenaCompQualifier::If { condition, .. } => {
+                cardinality = match bool_literal(arena, condition) {
+                    Some(false) => StreamCardinality::Empty,
+                    Some(true) => cardinality,
+                    None if cardinality == StreamCardinality::Empty => StreamCardinality::Empty,
+                    None => StreamCardinality::Maybe,
+                };
+            }
+        }
+    }
+    if has_source {
+        cardinality
+    } else {
+        StreamCardinality::Maybe
     }
 }
 
@@ -1033,6 +1111,9 @@ fn expr_control_flow_materialized_pipeline(
                 && name.as_str() == "collect" =>
         {
             let mut flow = expr_control_flow_materialized_pipeline(arena, base, facts);
+            if flow.completes && latent_stream_error_source(arena, base, facts) {
+                flow.propagates = true;
+            }
             for arg in arena.arena.call_args(args) {
                 let expr = call_arg_expr(&arg.kind);
                 if flow.completes {
@@ -1052,6 +1133,7 @@ enum PipelineFlowStage {
         kind: StreamStageKind,
         args: ArenaRange,
         block: Option<BlockId>,
+        span: Span,
     },
 }
 
@@ -1073,6 +1155,13 @@ fn materialized_pipeline_control_flow(
 ) -> ControlFlow {
     let mut flow = expr_control_flow(arena, input, facts);
     let pipeline_stages = pipeline_flow_stages(arena, stages, structured);
+    let downstream_pulls = pipeline_downstream_pulls(arena, &pipeline_stages, facts);
+    if flow.completes
+        && !downstream_pulls[0].never
+        && latent_stream_error_source(arena, input, facts)
+    {
+        flow.propagates = true;
+    }
     let mut cardinality = expression_cardinality(arena, input, facts);
     for (index, stage) in pipeline_stages.iter().copied().enumerate() {
         if !flow.completes {
@@ -1083,10 +1172,20 @@ fn materialized_pipeline_control_flow(
                 flow = flow.then(expr_control_flow(arena, expr, facts));
                 cardinality = StreamCardinality::Maybe;
             }
-            PipelineFlowStage::Stream { kind, args, block } => {
-                flow = flow.then(stream_stage_args_control_flow(arena, args, facts));
+            PipelineFlowStage::Stream {
+                kind,
+                args,
+                block,
+                span,
+            } => {
+                flow = flow.then(stream_stage_args_control_flow(arena, args, span, facts));
                 if !flow.completes {
                     break;
+                }
+                if facts.fallible_pipeline_stage_spans.is_some_and(|spans| spans.contains(&span))
+                    && pipeline_stage_may_fail(arena, kind, args, cardinality)
+                {
+                    flow.propagates = true;
                 }
                 if kind == StreamStageKind::Zip {
                     flow = flow.then(zip_right_consumed_flow(arena, args, facts));
@@ -1094,23 +1193,36 @@ fn materialized_pipeline_control_flow(
                         break;
                     }
                 }
-                if let Some(block) = block {
+                let callback_may_propagate = facts
+                    .propagating_stage_callback_spans
+                    .is_some_and(|spans| spans.contains(&span));
+                if block.is_some() || callback_may_propagate {
                     let demand = callback_demand(
                         arena,
-                        &pipeline_stages,
-                        index,
+                        downstream_pulls[index + 1],
                         cardinality,
                         kind,
                         args,
-                        facts,
                     );
                     match demand {
                         CallbackDemand::Never => flow = flow.then(ControlFlow::NORMAL),
                         CallbackDemand::Maybe => {
-                            flow = flow.then(callback_control_flow(arena, block, true, facts));
+                            flow = flow.then(callback_control_flow(
+                                arena,
+                                block,
+                                true,
+                                callback_may_propagate,
+                                facts,
+                            ));
                         }
                         CallbackDemand::Required => {
-                            flow = flow.then(callback_control_flow(arena, block, false, facts));
+                            flow = flow.then(callback_control_flow(
+                                arena,
+                                block,
+                                false,
+                                callback_may_propagate,
+                                facts,
+                            ));
                         }
                     }
                 }
@@ -1135,6 +1247,7 @@ fn pipeline_flow_stages(
                 kind: stage.kind,
                 args: stage.args,
                 block: stage.block,
+                span: arena.arena.span(stage.span),
             })
             .collect()
     } else {
@@ -1151,6 +1264,7 @@ fn pipeline_flow_stages(
                         kind: stage.kind,
                         args: stage.args,
                         block: stage.block,
+                        span: arena.arena.span(stage.span),
                     }
                 }
             })
@@ -1172,24 +1286,67 @@ enum StageInputPull {
     Required,
 }
 
-fn callback_demand(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PullSummary {
+    never: bool,
+    may_skip: bool,
+}
+
+impl PullSummary {
+    const NEVER: Self = Self {
+        never: true,
+        may_skip: false,
+    };
+    const REQUIRED: Self = Self {
+        never: false,
+        may_skip: false,
+    };
+}
+
+/// Summarizes each suffix once so callback demand stays linear in stage count.
+fn pipeline_downstream_pulls(
     arena: &ArenaProgram,
     stages: &[PipelineFlowStage],
-    callback_index: usize,
+    facts: &FlowFacts<'_>,
+) -> Vec<PullSummary> {
+    let mut summaries = vec![PullSummary::REQUIRED; stages.len() + 1];
+    for index in (0..stages.len()).rev() {
+        let PipelineFlowStage::Stream { kind, args, .. } = stages[index] else {
+            summaries[index] = summaries[index + 1];
+            continue;
+        };
+        let pull = stage_input_pull(arena, kind, args, facts);
+        let materializes = stage_materializes_input(arena, kind, args);
+        let downstream = summaries[index + 1];
+        summaries[index] = match (pull, materializes) {
+            (StageInputPull::Never, _) => PullSummary::NEVER,
+            (StageInputPull::Maybe, true) => PullSummary {
+                never: false,
+                may_skip: true,
+            },
+            (StageInputPull::Maybe, false) if downstream.never => PullSummary::NEVER,
+            (StageInputPull::Maybe, false) => PullSummary {
+                never: false,
+                may_skip: true,
+            },
+            (StageInputPull::Required, true) => PullSummary::REQUIRED,
+            (StageInputPull::Required, false) => downstream,
+        };
+    }
+    summaries
+}
+
+fn callback_demand(
+    arena: &ArenaProgram,
+    downstream: PullSummary,
     cardinality: StreamCardinality,
     kind: StreamStageKind,
     args: ArenaRange,
-    facts: &FlowFacts<'_>,
 ) -> CallbackDemand {
     if cardinality == StreamCardinality::Empty {
         return CallbackDemand::Never;
     }
-    let mut may_skip = false;
-    if cardinality == StreamCardinality::Maybe
-        || matches!(kind, StreamStageKind::Reduce | StreamStageKind::ReduceBy)
-    {
-        may_skip = true;
-    }
+    let mut may_skip = cardinality == StreamCardinality::Maybe || kind == StreamStageKind::Reduce;
     if stage_materializes_input(arena, kind, args) {
         return if may_skip {
             CallbackDemand::Maybe
@@ -1197,27 +1354,29 @@ fn callback_demand(
             CallbackDemand::Required
         };
     }
-    for stage in stages.iter().copied().skip(callback_index + 1) {
-        let PipelineFlowStage::Stream { kind, args, .. } = stage else {
-            continue;
-        };
-        match stage_input_pull(arena, kind, args, facts) {
-            StageInputPull::Never => return CallbackDemand::Never,
-            StageInputPull::Maybe => may_skip = true,
-            StageInputPull::Required => {}
-        }
-        if stage_materializes_input(arena, kind, args) {
-            return if may_skip {
-                CallbackDemand::Maybe
-            } else {
-                CallbackDemand::Required
-            };
-        }
+    if downstream.never {
+        return CallbackDemand::Never;
     }
+    may_skip |= downstream.may_skip;
     if may_skip {
         CallbackDemand::Maybe
     } else {
         CallbackDemand::Required
+    }
+}
+
+fn pipeline_stage_may_fail(
+    arena: &ArenaProgram,
+    kind: StreamStageKind,
+    args: ArenaRange,
+    input: StreamCardinality,
+) -> bool {
+    match kind {
+        StreamStageKind::Range => range_cardinality(arena, args) != StreamCardinality::Empty,
+        StreamStageKind::Repeat => {
+            input != StreamCardinality::Empty && first_known_int_arg(arena, args) != Some(0)
+        }
+        _ => false,
     }
 }
 
@@ -1359,6 +1518,11 @@ fn expression_cardinality(
     facts: &FlowFacts<'_>,
 ) -> StreamCardinality {
     match arena.arena.expr(expr).kind {
+        ArenaExprKind::ListComp { qualifiers, .. }
+        | ArenaExprKind::SetComp { qualifiers, .. }
+        | ArenaExprKind::MapComp { qualifiers, .. } => {
+            comprehension_cardinality(arena, qualifiers, facts)
+        }
         ArenaExprKind::Call { callee, args }
             if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == "range") =>
         {
@@ -1456,11 +1620,15 @@ fn call_arg_expr(kind: &crate::syntax::arena::ArenaCallArgKind) -> ExprId {
 
 fn callback_control_flow(
     arena: &ArenaProgram,
-    block: BlockId,
+    block: Option<BlockId>,
     may_be_skipped: bool,
+    may_propagate: bool,
     facts: &FlowFacts<'_>,
 ) -> ControlFlow {
-    let mut callback = block_control_flow(arena, block, facts);
+    let mut callback = block.map_or(ControlFlow::NORMAL, |block| {
+        block_control_flow(arena, block, facts)
+    });
+    callback.propagates |= may_propagate;
     // Stage callbacks reset the loop target but retain enclosing function
     // returns and error propagation.
     callback.breaks_target = false;
@@ -1475,12 +1643,20 @@ fn callback_control_flow(
 fn stream_stage_args_control_flow(
     arena: &ArenaProgram,
     args: crate::syntax::arena::ArenaRange,
+    stage_span: Span,
     facts: &FlowFacts<'_>,
 ) -> ControlFlow {
     // Stage blocks are callbacks: their control transfers stay in the
     // callback's callable scope, while stage arguments execute eagerly.
     let mut flow = ControlFlow::NORMAL;
-    for arg in arena.arena.call_args(args) {
+    let callable_entry = facts
+        .argument_bindings
+        .and_then(|bindings| bindings.get(&stage_span))
+        .and_then(|binding| binding.callable_entry);
+    for (index, arg) in arena.arena.call_args(args).iter().enumerate() {
+        if Some(index) == callable_entry {
+            continue;
+        }
         let expr = match arg.kind {
             crate::syntax::arena::ArenaCallArgKind::Positional(expr)
             | crate::syntax::arena::ArenaCallArgKind::Named { value: expr, .. }
@@ -1556,7 +1732,14 @@ fn expr_control_flow_inner(
         ArenaExprKind::Call { callee, args }
             if let ArenaExprKind::NullSafeField { base, .. } = arena.arena.expr(callee).kind =>
         {
-            let receiver = expr_control_flow(arena, base, facts);
+            let receiver_type = expression_type(arena, base, facts);
+            let mut receiver = expr_control_flow(arena, base, facts);
+            if receiver.completes
+                && receiver_type.is_some_and(|ty| matches!(ty.unvalidated(), Type::Result(_, _)))
+                && checked_error_site(facts, arena.arena.expr(id).span)
+            {
+                receiver.propagates = true;
+            }
             let mut arguments = ControlFlow::NORMAL;
             for arg in arena.arena.call_args(args) {
                 if !arguments.completes {
@@ -1568,7 +1751,6 @@ fn expr_control_flow_inner(
                     facts,
                 ));
             }
-            let receiver_type = expression_type(arena, base, facts);
             let may_skip_arguments = receiver_type
                 .is_none_or(|ty| matches!(ty, Type::Optional(_) | Type::Unknown));
             receiver.then(if may_skip_arguments {
@@ -1597,7 +1779,11 @@ fn expr_control_flow_inner(
                 ));
             }
             let arm_list = arena.arena.match_expr_arms(arms);
+            let checked_exhaustive = facts.exhaustive_match_spans.is_some_and(|spans| {
+                spans.contains(&arena.arena.expr(id).span)
+            });
             if !caught
+                && !checked_exhaustive
                 && !match_is_exhaustive_with_facts(
                     arena,
                     value,
@@ -1701,7 +1887,7 @@ fn expr_control_flow_inner(
                 }
                 setup = setup.then(expr_control_flow(arena, binding.initializer, facts));
             }
-            setup.then(block_control_flow(arena, block, facts).either(ControlFlow::NORMAL))
+            setup.then(block_control_flow(arena, block, facts))
         }
         ArenaExprKind::Binary { op, left, right }
             if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::ResultFallback) =>
@@ -1836,7 +2022,12 @@ impl Checker {
             conversions_by_id: None,
             builtin_range_calls: Some(&self.builtin_range_calls),
             builtin_range_calls_by_id: None,
+            argument_bindings: Some(&self.argument_bindings),
             propagating_error_spans: Some(&self.propagating_error_spans),
+            latent_stream_error_spans: Some(&self.latent_stream_error_spans),
+            fallible_pipeline_stage_spans: Some(&self.fallible_pipeline_stage_spans),
+            propagating_stage_callback_spans: Some(&self.propagating_stage_callback_spans),
+            exhaustive_match_spans: Some(&self.exhaustive_match_spans),
             exhaustiveness: Some(self.exhaustiveness_facts()),
             propagating_statements: Some(&self.propagating_statements),
             propagating_conditions: Some(&self.propagating_conditions),
@@ -2996,7 +3187,7 @@ impl Checker {
                 );
             }
             ArenaStmtKind::Match { value, arms } => {
-                self.check_match_arena(arena, source, value, arms);
+                self.check_match_arena(arena, source, value, arms, stmt.span);
             }
             ArenaStmtKind::Command(command_id) => {
                 self.check_command_stmt_arena(arena, source, command_id);
@@ -3520,8 +3711,7 @@ impl Checker {
         span: Span,
     ) {
         let iter_ty = self.check_expr_arena(arena, source, iter, None);
-        if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
-        {
+        if iter_ty.is_result_iteration_source() {
             self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
         }
         let item_ty = iter_ty
@@ -3559,6 +3749,7 @@ impl Checker {
         source: &str,
         value: ExprId,
         arms: ArenaRange,
+        span: Span,
     ) {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
@@ -3581,6 +3772,19 @@ impl Checker {
             }
             self.check_block_arena(arena, source, arm.block);
             self.pop_scope();
+        }
+        let unguarded = arm_list
+            .iter()
+            .filter(|arm| arm.guard.is_none())
+            .map(|arm| arm.pattern)
+            .collect::<Vec<_>>();
+        if super::stmt::patterns_are_exhaustive_arena(
+            arena,
+            &value_ty,
+            unguarded.iter().copied(),
+            &self.exhaustiveness_facts(),
+        ) {
+            self.exhaustive_match_spans.insert(span);
         }
         let value_span = arena.arena.expr(value).span;
         self.check_list_match_coverage_arena(
@@ -6854,6 +7058,123 @@ mod return_flow_tests {
     }
 
     #[test]
+    fn result_list_set_and_stream_sources_are_propagating_loop_exits() {
+        let source = "proc spin_list(source: Result[List[Int], Error]) [error] { loop { for item in source { continue } } }\nproc spin_set(source: Result[Set[Int], Error]) [error] { loop { for item in source { continue } } }\nproc spin_stream(source: Result[Stream[Int], Error]) [error] { loop { for item in source { continue } } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn result_list_set_and_stream_comprehensions_are_propagating_loop_exits() {
+        let source = "proc spin_list(source: Result[List[Int], Error]) [error] { loop { let items = [item for item in source] } }\nproc spin_set(source: Result[Set[Int], Error]) [error] { loop { let items = {item for item in source} } }\nproc spin_stream(source: Result[Stream[Int], Error]) [error] { loop { let items = [item for item in source] } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn pulled_stream_errors_can_exit_loops_and_captured_materializations() {
+        let source = "stream failing_rows() [error] -> Stream[Int] { yield 1; let _ = \"late\".parse_int()? }\nproc spin() [error] { loop { for item in failing_rows() { continue } } }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = failing_rows().collect(); return values.len() } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].code,
+            Some(DiagnosticCode::CheckMissingReturn),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_zero_take_suppresses_a_lazy_stream_producer_error() {
+        let source = "stream failing_rows() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = failing_rows() |> take(0); return 1 } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn demanded_named_stage_callbacks_contribute_error_paths() {
+        let source = "proc fail_item(item: Int) [error] -> Int { return item }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map(fail_item); return 1 } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].code,
+            Some(DiagnosticCode::CheckMissingReturn),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn zero_pull_suppresses_named_stage_callback_error_paths() {
+        let source = "proc fail_item(item: Int) [error] -> Int { return item }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map(fail_item) |> take(0); return 1 } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn result_unit_named_stage_callbacks_propagate_only_when_demanded() {
+        let source = "proc maybe_fail(item: Int) -> Result[Unit, Error] { return Ok() }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> tee(maybe_fail); return 1 } }\nproc choose_zero_pull() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> tee(maybe_fail) |> take(0); return 1 } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].code,
+            Some(DiagnosticCode::CheckMissingReturn),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn range_and_repeat_capacity_errors_precede_downstream_returns() {
+        let source = "proc choose_range() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [] |> range(0, 9223372036854775807) |> map { |item| return 1 } } }\nproc choose_repeat() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> repeat(9223372036854775807) |> map { |item| return 1 } } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 2, "unexpected diagnostics: {diagnostics:?}");
+        assert!(diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)));
+    }
+
+    #[test]
+    fn resource_scope_does_not_complete_after_its_body_returns() {
+        let source = "proc choose(root: FsRoot) [fs] -> Int { let ignored = with held = root { return 1 } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn list_set_and_map_comprehension_cardinality_is_known() {
+        let source = "pure choose_list() -> Int { for item in [item for item in [1]] { return item } }\npure choose_set() -> Int { for item in {item for item in [1]} { return item } }\npure choose_map() -> Int { for item in {key: key for key in [1]} { return item.value } }\npure choose_empty() -> Int { for item in [item for item in []] { return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].code,
+            Some(DiagnosticCode::CheckMissingReturn),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn byte_literal_cardinality_distinguishes_empty_and_nonempty_sources() {
+        let source = "pure choose_nonempty() -> Int { for byte in b\"\\x01\" { return byte } }\npure choose_empty() -> Int { for byte in b\"\" { return byte } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].code,
+            Some(DiagnosticCode::CheckMissingReturn),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn reduce_by_calls_its_callback_for_the_first_nonempty_item() {
+        let source = "pure choose() -> Int { let ignored = [1] |> reduce-by(sum: true) { |item| return item } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn a_result_null_safe_field_is_a_propagating_loop_exit() {
         let source = "type Holder = { value: Int }\nproc spin(source: Result[Holder, Error]) [error] { loop { let ignored = source?.value } }\n";
         let diagnostics = diagnostics(source);
@@ -6863,6 +7184,25 @@ mod return_flow_tests {
     #[test]
     fn a_result_null_safe_method_is_a_propagating_loop_exit() {
         let source = "proc spin(source: Result[List[Int], Error]) [error] { loop { let ignored = source?.len() } }\n";
+        let diagnostics = diagnostics(source);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn a_result_null_safe_method_receiver_can_propagate_before_argument_return() {
+        let source = "pure choose(source: Result[Map[Str, Int], Error]) -> Int { let ignored: Result[Unit, Error] = try { let _ = source?.get(if true { return 1 } else { \"key\" }) } }\n";
+        let diagnostics = diagnostics(source);
+        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].code,
+            Some(DiagnosticCode::CheckMissingReturn),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_result_null_safe_method_receiver_can_exit_a_loop_before_argument_continue() {
+        let source = "proc spin(source: Result[Map[Str, Int], Error]) [error] { loop { let _ = source?.get(if true { continue } else { \"key\" }) } }\n";
         let diagnostics = diagnostics(source);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
@@ -7325,6 +7665,11 @@ mod return_flow_tests {
             &rustc_hash::FxHashMap::default(),
             &rustc_hash::FxHashMap::default(),
             &rustc_hash::FxHashSet::default(),
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeSet::new(),
+            &std::collections::BTreeSet::new(),
+            &std::collections::BTreeSet::new(),
+            &std::collections::BTreeSet::new(),
             &std::collections::BTreeSet::new(),
         ));
     }
