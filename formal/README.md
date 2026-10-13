@@ -9,8 +9,14 @@ checked integer evaluator with typed scalar values; validated boundaries and
 atomic typed-store writes; and effect lattices, recursive summaries, lexical
 bounds, and delayed-work origins. Failed typed writes preserve the old store
 and produce an uncatchable type error; `.require(UInt)` remains recoverable.
-The effect fragments model lexical rules but do not establish Rust checker
-classification or diagnostics. The raw IR layer models typed pool IDs,
+The effect fragments also prove that an abstract finite pull prefix preserves
+creation-site charge order and its corresponding remainder, that each charge
+retains its creation and body sites, and that a supplied creation-context
+permission premise implies permission for every pulled charge. The
+`DelayedWork`/`pull` model uses that premise only in the permission result; it
+does not establish Rust checker classification or diagnostics, stream aliases,
+delegation, close semantics, or conformance, and it closes neither
+`EFF-LATENT` nor `EFF-SEMANTIC`. The raw IR layer models typed pool IDs,
 optional IDs, ranges, tables, and row decoding. Its decoder fragments prove
 successful sequential read length, successful payload length and table bounds,
 and rejection of one concrete out-of-bounds payload range. These independent
@@ -25,7 +31,7 @@ bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
-72 complete theorem obligations planned. The inventory names 60 rooted Lean
+72 complete theorem obligations planned. The inventory names 63 rooted Lean
 fragment declarations. Its 29 Python tests check inventory shape, root
 reachability, and mutation controls; they are not semantic or Rust conformance
 tests. No full G1 closure or whole-language soundness claim is made.

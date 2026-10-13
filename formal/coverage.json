@@ -3105,6 +3105,33 @@
       "boundary": "No Rust checker classification, stream execution, or conformance claim."
     },
     {
+      "id": "fragment.Xsh.Semantics.Effects.pull_sequence_preserves_creation_and_body_order",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.pull_sequence_preserves_creation_and_body_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An abstract delayed-work pull sequence emits the ordered finite prefix of creation-site charges and retains the corresponding obligation remainder.",
+      "boundary": "Abstract DelayedWork and pull model only; no Rust checker classification or diagnostics, stream alias, delegation, close semantics, or conformance is proved, and neither EFF-LATENT nor EFF-SEMANTIC is closed."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.pull_sequence_charge_keeps_origin_and_body_site",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.pull_sequence_charge_keeps_origin_and_body_site",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every charge in a finite abstract pull prefix retains its delayed-work creation site, causal body site, and required effect.",
+      "boundary": "Abstract DelayedWork and pull model only; no Rust checker classification or diagnostics, stream alias, delegation, close semantics, or conformance is proved, and neither EFF-LATENT nor EFF-SEMANTIC is closed."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.pull_sequence_charges_are_permitted",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.pull_sequence_charges_are_permitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "If every queued abstract delayed-work obligation is permitted in its creation context, each finite-prefix pull charge is permitted there.",
+      "boundary": "Abstract DelayedWork and pull model only. The creation-context permission premise is assumed; no Rust checker classification or diagnostics, stream alias, delegation, close semantics, or conformance is proved, and neither EFF-LATENT nor EFF-SEMANTIC is closed."
+    },
+    {
       "id": "fragment.Xsh.IR.Raw.decoded_row_preserves_raw_fields",
       "module": "Xsh.IR.Raw.Laws",
       "declaration": "Xsh.IR.Raw.decoded_row_preserves_raw_fields",

@@ -26,7 +26,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(60, len(result["fragment_roots"]))
+        self.assertEqual(63, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
@@ -122,6 +122,25 @@ class InventoryCheckerTests(unittest.TestCase):
                 "fragment.Xsh.IR.Raw.out_of_bounds_payload_read_is_rejected",
             },
             raw_roots,
+        )
+        effect_roots = {
+            root["declaration"] for root in roots
+            if root["module"] in {
+                "Xsh.Effects.Lattice",
+                "Xsh.Effects.Solver",
+                "Xsh.Effects.Lexical",
+            }
+        }
+        self.assertEqual(
+            {
+                "Xsh.Semantics.Effects.closure_is_least_closed",
+                "Xsh.Semantics.Effects.Solver.solve_least_closed",
+                "Xsh.Semantics.Effects.nested_without_only_restricts",
+                "Xsh.Semantics.Effects.pull_sequence_preserves_creation_and_body_order",
+                "Xsh.Semantics.Effects.pull_sequence_charge_keeps_origin_and_body_site",
+                "Xsh.Semantics.Effects.pull_sequence_charges_are_permitted",
+            },
+            effect_roots,
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:
