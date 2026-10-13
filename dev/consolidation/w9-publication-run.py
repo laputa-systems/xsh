@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
+import json
 import os
 import pathlib
 import re
+import secrets
 import shlex
 import signal
 import stat
@@ -15,6 +18,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -26,6 +30,24 @@ CORPUS_BLAKE3 = "a7b1f70466c4e978222af3d329e9c71b0a15030480e24b8d7f77a5fa4f57f17
 HELPER_SHA256 = "2ff5aaa74f8ae3d0597a3c14796d8643211a5b57b8b95147ba87205540ca95b0"
 WRAPPER_SHA256 = "f6a76b9bcb385e1e328332c9815ce48cb0e864d3ffe951578202a774d476f64e"
 PINNED_IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+APPROVED_HELPER_SOURCE = pathlib.Path(
+    "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
+    ".work/consolidation/w9-repository-parity.rs"
+)
+APPROVED_BUILD_RUNNER = pathlib.Path(
+    "/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/infra/run-native.sh"
+)
+HELPER_RELATIVE_PATH = pathlib.Path(".work/consolidation/w9-repository-parity.rs")
+BUILD_ARTIFACT_KIND = "repository-parity-integration-test"
+RUNNER_LOCK_NAME = ".w9-publication-run.lock"
+DOCKER_LOCAL_ENDPOINT = "unix:///var/run/docker.sock"
+DOCKER_OVERRIDE_VARIABLES = (
+    "DOCKER_HOST",
+    "DOCKER_CONTEXT",
+    "DOCKER_CONFIG",
+    "DOCKER_TLS_VERIFY",
+    "DOCKER_CERT_PATH",
+)
 REFERENCE_HEAD = "e240efad273fe35d66d91f4037b6a8193527da2e"
 REFERENCE_INPUT_ROOT = pathlib.Path(
     "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
@@ -45,6 +67,8 @@ RECEIPT_FIELDS = (
     "candidate_tree",
     "candidate_binary",
     "candidate_binary_sha256",
+    "build_receipt",
+    "build_receipt_sha256",
     "helper",
     "helper_sha256",
     "wrapper",
@@ -63,6 +87,20 @@ RECEIPT_FIELDS = (
     "runner",
     "runner_sha256",
 )
+BUILD_RECEIPT_FIELDS = (
+    "schema",
+    "artifact_kind",
+    "source_commit",
+    "source_tree",
+    "binary_path",
+    "binary_sha256",
+    "target",
+    "profile",
+    "builder_image",
+    "builder_path",
+    "builder_sha256",
+    "helper_sha256",
+)
 RECEIPT_NAME = re.compile(r"parallel-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-all\.receipt\Z")
 
 
@@ -76,6 +114,13 @@ class ParsedReceipt:
     inputs: dict[int, tuple[str, str]]
     outcomes: dict[tuple[int, str, str], tuple[str, str]]
     terminals: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class LockClaim:
+    path: pathlib.Path
+    descriptor: int
+    parent_descriptor: int
 
 
 def open_absolute_nofollow(path: pathlib.Path, *, directory: bool = False) -> int:
@@ -118,6 +163,106 @@ def read_regular_text(path: pathlib.Path) -> str:
         raise PublicationError(f"expected a regular non-symlink file: {path}")
     with os.fdopen(descriptor, "rb") as source:
         return source.read().decode("utf-8")
+
+
+def read_regular_bytes(path: pathlib.Path) -> bytes:
+    descriptor = open_absolute_nofollow(path)
+    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        raise PublicationError(f"expected a regular non-symlink file: {path}")
+    with os.fdopen(descriptor, "rb") as source:
+        return source.read()
+
+
+@lru_cache(maxsize=1)
+def w9_build_contract() -> dict[str, str]:
+    path = ROOT / "dev/consolidation/w9-cache-build-config.sh"
+    required = {
+        "W9_CACHE_BUILD_SCHEMA",
+        "W9_CACHE_BUILD_TARGET",
+        "W9_CACHE_BUILD_PROFILE",
+        "W9_CACHE_BUILD_IMAGE",
+        "W9_CACHE_BUILD_RUNNER_SHA256",
+    }
+    result: dict[str, str] = {}
+    for line in read_regular_text(path).splitlines():
+        match = re.fullmatch(r"readonly (W9_CACHE_BUILD_[A-Z0-9_]+)=(\S+)", line)
+        if match is None or match.group(1) not in required:
+            continue
+        key, value = match.groups()
+        if key in result:
+            raise PublicationError(f"W9 build config has duplicate {key}")
+        result[key] = value
+    if set(result) != required:
+        missing = sorted(required - set(result))
+        raise PublicationError(f"W9 build config is incomplete: missing={missing}")
+    if result["W9_CACHE_BUILD_IMAGE"] != PINNED_IMAGE:
+        raise PublicationError("W9 build image differs from the approved publication image")
+    return result
+
+
+def parse_build_receipt(path: pathlib.Path) -> dict[str, str]:
+    record: dict[str, str] = {}
+    for line_number, line in enumerate(read_regular_text(path).splitlines(), 1):
+        fields = line.split("\t")
+        if len(fields) != 2 or not fields[0] or not fields[1]:
+            raise PublicationError(f"{path}: malformed W9 build receipt row {line_number}")
+        key, value = fields
+        if key not in BUILD_RECEIPT_FIELDS:
+            raise PublicationError(f"{path}: unknown W9 build receipt field {key!r}")
+        if key in record:
+            raise PublicationError(f"{path}: duplicate W9 build receipt field {key}")
+        if any(char in value for char in "\r\n\t"):
+            raise PublicationError(f"{path}: invalid W9 build receipt field {key}")
+        record[key] = value
+    if set(record) != set(BUILD_RECEIPT_FIELDS):
+        missing = sorted(set(BUILD_RECEIPT_FIELDS) - set(record))
+        raise PublicationError(f"{path}: W9 build receipt fields differ: missing={missing}")
+    contract = w9_build_contract()
+    if record["schema"] != contract["W9_CACHE_BUILD_SCHEMA"]:
+        raise PublicationError(f"{path}: unsupported W9 build receipt schema {record['schema']!r}")
+    if record["artifact_kind"] != BUILD_ARTIFACT_KIND:
+        raise PublicationError(f"{path}: unsupported W9 build receipt artifact {record['artifact_kind']!r}")
+    for field in ("source_commit", "source_tree"):
+        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", record[field]):
+            raise PublicationError(f"{path}: malformed W9 build receipt {field}")
+    for field in ("binary_sha256", "builder_sha256", "helper_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", record[field]):
+            raise PublicationError(f"{path}: malformed W9 build receipt {field}")
+    for field in ("binary_path", "builder_path"):
+        if not pathlib.Path(record[field]).is_absolute():
+            raise PublicationError(f"{path}: W9 build receipt {field} is not absolute")
+    for field, key in (("target", "W9_CACHE_BUILD_TARGET"), ("profile", "W9_CACHE_BUILD_PROFILE"),
+                       ("builder_image", "W9_CACHE_BUILD_IMAGE")):
+        if record[field] != contract[key]:
+            raise PublicationError(f"{path}: W9 build receipt {field} differs from the pinned build contract")
+    return record
+
+
+def cargo_integration_executable(messages: str, candidate_root: pathlib.Path) -> pathlib.Path:
+    executables: list[pathlib.Path] = []
+    for line_number, line in enumerate(messages.splitlines(), 1):
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise PublicationError(f"cargo build output row {line_number} is not JSON") from error
+        if message.get("reason") != "compiler-artifact":
+            continue
+        target = message.get("target")
+        if not isinstance(target, dict) or target.get("name") != "integration" or "test" not in target.get("kind", []):
+            continue
+        executable = message.get("executable")
+        if not isinstance(executable, str) or not executable:
+            raise PublicationError("cargo did not report an executable for the integration test target")
+        path = regular_file(executable, "candidate integration test harness", executable=True)
+        if not under(path, candidate_root):
+            raise PublicationError(f"candidate integration test harness is outside its source root: {path}")
+        executables.append(path)
+    if len(executables) != 1:
+        raise PublicationError(f"cargo reported {len(executables)} integration test harness executables; expected one")
+    return executables[0]
 
 
 def require_sha256(path: pathlib.Path, expected: str, label: str) -> str:
@@ -169,6 +314,125 @@ def real_directory(value: str | pathlib.Path, kind: str) -> pathlib.Path:
     if not stat.S_ISDIR(mode):
         raise PublicationError(f"{kind}: expected a real directory: {path}")
     return path
+
+
+def open_or_create_child_directory(parent_descriptor: int, name: str, kind: str) -> int:
+    try:
+        os.mkdir(name, 0o700, dir_fd=parent_descriptor)
+    except FileExistsError:
+        pass
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(name, flags, dir_fd=parent_descriptor)
+    except OSError as error:
+        raise PublicationError(f"{kind}: cannot safely open directory: {error}") from error
+    if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        raise PublicationError(f"{kind}: expected a real directory")
+    return descriptor
+
+
+def stage_helper(
+    candidate_root: pathlib.Path,
+    source_path: pathlib.Path = APPROVED_HELPER_SOURCE,
+    expected_sha256: str = HELPER_SHA256,
+) -> pathlib.Path:
+    root = real_directory(candidate_root, "candidate source")
+    source = regular_file(source_path, "approved parity helper")
+    helper_bytes = read_regular_bytes(source)
+    actual_sha256 = hashlib.sha256(helper_bytes).hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise PublicationError(
+            f"approved parity helper: SHA-256 mismatch expected={expected_sha256} actual={actual_sha256}"
+        )
+
+    root_descriptor = open_absolute_nofollow(root, directory=True)
+    work_descriptor = -1
+    consolidation_descriptor = -1
+    descriptor = -1
+    temporary_name = f".{HELPER_RELATIVE_PATH.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+    temporary_created = False
+    destination_created = False
+    staged_complete = False
+    destination = root / HELPER_RELATIVE_PATH
+    try:
+        work_descriptor = open_or_create_child_directory(root_descriptor, ".work", "candidate .work")
+        consolidation_descriptor = open_or_create_child_directory(
+            work_descriptor, "consolidation", "candidate .work/consolidation"
+        )
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+        try:
+            descriptor = os.open(temporary_name, flags, 0o644, dir_fd=consolidation_descriptor)
+        except FileExistsError as error:
+            raise PublicationError(f"temporary parity helper path already exists: {temporary_name}") from error
+        temporary_created = True
+        output = os.fdopen(descriptor, "wb")
+        descriptor = -1
+        with output:
+            view = memoryview(helper_bytes)
+            while view:
+                written = output.write(view)
+                if written == 0:
+                    raise OSError("short write while staging parity helper")
+                view = view[written:]
+            output.flush()
+            os.fsync(output.fileno())
+        verify_descriptor = os.open(
+            temporary_name,
+            os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=consolidation_descriptor,
+        )
+        if not stat.S_ISREG(os.fstat(verify_descriptor).st_mode):
+            os.close(verify_descriptor)
+            raise PublicationError(f"staged parity helper is not a regular file: {destination}")
+        verified_digest = hashlib.sha256()
+        with os.fdopen(verify_descriptor, "rb") as staged:
+            for block in iter(lambda: staged.read(1024 * 1024), b""):
+                verified_digest.update(block)
+        if verified_digest.hexdigest() != expected_sha256:
+            raise PublicationError(f"staged parity helper verification failed: {destination}")
+        try:
+            os.link(
+                temporary_name,
+                HELPER_RELATIVE_PATH.name,
+                src_dir_fd=consolidation_descriptor,
+                dst_dir_fd=consolidation_descriptor,
+                follow_symlinks=False,
+            )
+        except FileExistsError as error:
+            raise PublicationError(f"refusing to overwrite staged parity helper: {destination}") from error
+        destination_created = True
+        os.fsync(consolidation_descriptor)
+        os.unlink(temporary_name, dir_fd=consolidation_descriptor)
+        temporary_created = False
+        os.fsync(consolidation_descriptor)
+        destination_created = False
+        staged_complete = True
+    finally:
+        if consolidation_descriptor >= 0:
+            if temporary_created:
+                try:
+                    os.unlink(temporary_name, dir_fd=consolidation_descriptor)
+                    os.fsync(consolidation_descriptor)
+                except FileNotFoundError:
+                    pass
+        if descriptor >= 0:
+            os.close(descriptor)
+            if destination_created:
+                try:
+                    os.unlink(HELPER_RELATIVE_PATH.name, dir_fd=consolidation_descriptor)
+                    os.fsync(consolidation_descriptor)
+                except FileNotFoundError:
+                    pass
+        if consolidation_descriptor >= 0:
+            os.close(consolidation_descriptor)
+        if work_descriptor >= 0:
+            os.close(work_descriptor)
+        os.close(root_descriptor)
+
+    if not staged_complete:
+        raise PublicationError(f"staged parity helper was not created: {destination}")
+    return regular_file(destination, "staged parity helper")
 
 
 def git_output(root: pathlib.Path, *args: str) -> str:
@@ -556,6 +820,170 @@ def validate_reference_inputs(
     return manifest_by_index, manifest_by_path, reference
 
 
+def validate_build_receipt_binding(
+    receipt_path: pathlib.Path,
+    candidate_root: pathlib.Path,
+    candidate_commit: str,
+    candidate_tree: str,
+    binary: pathlib.Path,
+    binary_sha256: str,
+    expected_receipt_sha256: str | None = None,
+) -> tuple[pathlib.Path, str]:
+    receipt = regular_file(receipt_path, "candidate verification build receipt")
+    if not under(receipt, candidate_root / ".work"):
+        raise PublicationError(f"candidate build receipt must be under candidate source .work/: {receipt}")
+    if expected_receipt_sha256 is not None:
+        require_sha256(receipt, expected_receipt_sha256, "candidate verification build receipt")
+    record = parse_build_receipt(receipt)
+    if record["source_commit"] != candidate_commit:
+        raise PublicationError(
+            f"candidate build receipt source commit mismatch: receipt={record['source_commit']} actual={candidate_commit}"
+        )
+    if record["source_tree"] != candidate_tree:
+        raise PublicationError(
+            f"candidate build receipt source tree mismatch: receipt={record['source_tree']} actual={candidate_tree}"
+        )
+    if record["binary_path"] != str(binary):
+        raise PublicationError(
+            f"candidate build receipt binary path mismatch: receipt={record['binary_path']} actual={binary}"
+        )
+    if record["binary_sha256"] != binary_sha256:
+        raise PublicationError("candidate build receipt binary hash mismatch")
+    if record["helper_sha256"] != HELPER_SHA256:
+        raise PublicationError("candidate build receipt helper hash is not pinned")
+    contract = w9_build_contract()
+    if record["builder_sha256"] != contract["W9_CACHE_BUILD_RUNNER_SHA256"]:
+        raise PublicationError("candidate build receipt builder hash is not pinned")
+    builder = regular_file(record["builder_path"], "pinned candidate build runner", executable=True)
+    if record["builder_path"] != str(builder):
+        raise PublicationError("candidate build receipt builder path is not canonical")
+    require_sha256(builder, contract["W9_CACHE_BUILD_RUNNER_SHA256"], "pinned candidate build runner")
+    if PINNED_IMAGE not in read_regular_text(builder):
+        raise PublicationError("pinned candidate build runner does not name the approved image")
+    return receipt, sha256_file(receipt)
+
+
+def new_work_file_path(value: str | pathlib.Path, candidate_root: pathlib.Path, kind: str) -> pathlib.Path:
+    raw = pathlib.Path(value).expanduser()
+    if not raw.is_absolute():
+        raw = pathlib.Path.cwd() / raw
+    absolute = pathlib.Path(os.path.abspath(raw))
+    parent = real_directory(absolute.parent, f"{kind} parent")
+    path = parent / absolute.name
+    if not under(path, candidate_root / ".work") or path.name in {"", ".", ".."}:
+        raise PublicationError(f"{kind} must name a new file under candidate source .work/: {path}")
+    if os.path.lexists(path):
+        raise PublicationError(f"{kind} already exists: {path}")
+    return path
+
+
+def write_new_receipt(path: pathlib.Path, record: dict[str, str], fields: tuple[str, ...], kind: str) -> None:
+    if set(record) != set(fields):
+        raise PublicationError(f"{kind} fields do not match its schema")
+    data = "".join(f"{key}\t{record[key]}\n" for key in fields).encode("utf-8")
+    parent_descriptor = open_absolute_nofollow(path.parent, directory=True)
+    descriptor = -1
+    created = False
+    try:
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+        descriptor = os.open(path.name, flags, 0o600, dir_fd=parent_descriptor)
+        created = True
+        view = memoryview(data)
+        while view:
+            written = os.write(descriptor, view)
+            if written == 0:
+                raise OSError(f"short write while recording {kind}")
+            view = view[written:]
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        os.fsync(parent_descriptor)
+    except FileExistsError as error:
+        raise PublicationError(f"{kind} appeared during creation: {path}") from error
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if created:
+            try:
+                os.unlink(path.name, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
+            except FileNotFoundError:
+                pass
+        raise
+    finally:
+        os.close(parent_descriptor)
+
+
+def build_harness(args: argparse.Namespace) -> None:
+    root = real_directory(args.candidate_root, "candidate source")
+    commit, tree = source_identity(root)
+    helper = regular_file(root / HELPER_RELATIVE_PATH, "staged parity helper")
+    helper_sha256 = require_sha256(helper, HELPER_SHA256, "staged parity helper")
+    builder = regular_file(APPROVED_BUILD_RUNNER, "pinned candidate build runner", executable=True)
+    contract = w9_build_contract()
+    builder_sha256 = require_sha256(builder, contract["W9_CACHE_BUILD_RUNNER_SHA256"], "pinned candidate build runner")
+    if PINNED_IMAGE not in read_regular_text(builder):
+        raise PublicationError("pinned candidate build runner does not name the approved image")
+    receipt_path = new_work_file_path(args.receipt, root, "candidate build receipt")
+    docker_environment = local_docker_environment()
+    command = [
+        str(builder),
+        str(root),
+        "build",
+        "cargo",
+        "test",
+        "--locked",
+        "--profile",
+        contract["W9_CACHE_BUILD_PROFILE"],
+        "--target",
+        contract["W9_CACHE_BUILD_TARGET"],
+        "-p",
+        "xsh",
+        "--test",
+        "integration",
+        "--no-run",
+        "--message-format=json-render-diagnostics",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=docker_environment,
+        )
+    except OSError as error:
+        raise PublicationError(f"could not start pinned integration harness build: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise PublicationError(f"pinned integration harness build failed with status {result.returncode}: {detail}")
+    binary = cargo_integration_executable(result.stdout, root)
+    if source_identity(root) != (commit, tree):
+        raise PublicationError("candidate source changed during integration harness build")
+    require_sha256(builder, builder_sha256, "pinned candidate build runner")
+    require_sha256(helper, helper_sha256, "staged parity helper")
+    binary_sha256 = sha256_file(binary)
+    record = {
+        "schema": contract["W9_CACHE_BUILD_SCHEMA"],
+        "artifact_kind": BUILD_ARTIFACT_KIND,
+        "source_commit": commit,
+        "source_tree": tree,
+        "binary_path": str(binary),
+        "binary_sha256": binary_sha256,
+        "target": contract["W9_CACHE_BUILD_TARGET"],
+        "profile": contract["W9_CACHE_BUILD_PROFILE"],
+        "builder_image": contract["W9_CACHE_BUILD_IMAGE"],
+        "builder_path": str(builder),
+        "builder_sha256": builder_sha256,
+        "helper_sha256": helper_sha256,
+    }
+    write_new_receipt(receipt_path, record, BUILD_RECEIPT_FIELDS, "candidate build receipt")
+    validate_build_receipt_binding(receipt_path, root, commit, tree, binary, binary_sha256)
+    print(f"candidate harness: {binary}")
+    print(f"candidate build receipt: {receipt_path}")
+
+
 def validate_candidate_files(record: dict[str, str]) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path]:
     root = real_directory(record["candidate_root"], "candidate source")
     commit, tree = source_identity(root)
@@ -572,7 +1000,20 @@ def validate_candidate_files(record: dict[str, str]) -> tuple[pathlib.Path, path
         raise PublicationError(f"candidate binary must be inside candidate source root: {binary}")
     if not under(helper, root):
         raise PublicationError(f"candidate parity helper must be inside candidate source root: {helper}")
+    if helper != root / HELPER_RELATIVE_PATH:
+        raise PublicationError(f"candidate parity helper was not staged at the approved path: {helper}")
     require_sha256(binary, record["candidate_binary_sha256"], "candidate test binary")
+    build_receipt, _build_receipt_sha256 = validate_build_receipt_binding(
+        pathlib.Path(record["build_receipt"]),
+        root,
+        commit,
+        tree,
+        binary,
+        record["candidate_binary_sha256"],
+        record["build_receipt_sha256"],
+    )
+    if record["build_receipt"] != str(build_receipt):
+        raise PublicationError("candidate build receipt path is not canonical")
     require_sha256(helper, record["helper_sha256"], "candidate parity helper")
     require_sha256(wrapper, WRAPPER_SHA256, "pinned native test wrapper")
     if PINNED_IMAGE not in read_regular_text(wrapper):
@@ -581,8 +1022,7 @@ def validate_candidate_files(record: dict[str, str]) -> tuple[pathlib.Path, path
         raise PublicationError(f"candidate parity helper is not the approved helper: {record['helper_sha256']}")
     if record["wrapper_sha256"] != WRAPPER_SHA256:
         raise PublicationError(f"candidate wrapper receipt hash differs from approved wrapper: {record['wrapper_sha256']}")
-    runner = regular_file(record["runner"], "publication runner")
-    require_sha256(runner, record["runner_sha256"], "publication runner")
+    runner = validate_runner_binding(record["runner"], record["runner_sha256"])
     for field, path in (
         ("candidate_root", root),
         ("candidate_binary", binary),
@@ -596,18 +1036,27 @@ def validate_candidate_files(record: dict[str, str]) -> tuple[pathlib.Path, path
     return root, binary, helper, wrapper
 
 
+def validate_runner_binding(value: str | pathlib.Path, digest: str) -> pathlib.Path:
+    current = pathlib.Path(__file__).resolve()
+    runner = regular_file(value, "publication runner")
+    if runner != current:
+        raise PublicationError(f"candidate receipt publication runner differs from current runner: {runner}")
+    require_sha256(current, digest, "publication runner")
+    return current
+
+
 def validate_receipt_shape(record: dict[str, str]) -> None:
     if set(record) != set(RECEIPT_FIELDS):
         missing = sorted(set(RECEIPT_FIELDS) - set(record))
         extra = sorted(set(record) - set(RECEIPT_FIELDS))
         raise PublicationError(f"candidate receipt fields differ: missing={missing} extra={extra}")
-    if record["schema"] != "1":
+    if record["schema"] != "2":
         raise PublicationError(f"unsupported candidate receipt schema {record['schema']!r}")
     for field in RECEIPT_FIELDS:
         value = record[field]
         if not value or any(char in value for char in "\r\n\t"):
             raise PublicationError(f"candidate receipt has invalid {field}")
-    for field in ("candidate_binary_sha256", "helper_sha256", "wrapper_sha256",
+    for field in ("candidate_binary_sha256", "build_receipt_sha256", "helper_sha256", "wrapper_sha256",
                   "reference_receipt_sha256", "reference_binary_sha256",
                   "reference_validation_sha256", "input_manifest_sha256", "runner_sha256"):
         if not re.fullmatch(r"[0-9a-f]{64}", record[field]):
@@ -649,7 +1098,10 @@ def seal_candidate(args: argparse.Namespace) -> None:
     commit, tree = source_identity(root)
     binary = regular_file(args.candidate_binary, "candidate test binary", executable=True)
     helper = regular_file(args.helper, "candidate parity helper")
+    if helper != root / HELPER_RELATIVE_PATH:
+        raise PublicationError(f"candidate parity helper must be staged at {root / HELPER_RELATIVE_PATH}")
     wrapper = regular_file(args.wrapper, "native test wrapper", executable=True)
+    build_receipt = regular_file(args.build_receipt, "candidate verification build receipt")
     reference_receipt = regular_file(args.reference_receipt, "approved reference receipt")
     reference_binary = regular_file(args.reference_binary, "approved reference binary", executable=True)
     validation = regular_file(args.reference_validation, "approved reference validation")
@@ -664,6 +1116,14 @@ def seal_candidate(args: argparse.Namespace) -> None:
     require_sha256(validation, REFERENCE_VALIDATION_SHA256, "approved reference validation")
     require_sha256(input_manifest, INPUT_MANIFEST_SHA256, "approved input manifest")
     helper_sha = require_sha256(helper, HELPER_SHA256, "candidate parity helper")
+    build_receipt, build_receipt_sha256 = validate_build_receipt_binding(
+        build_receipt,
+        root,
+        commit,
+        tree,
+        binary,
+        sha256_file(binary),
+    )
     wrapper_sha = require_sha256(wrapper, WRAPPER_SHA256, "pinned native test wrapper")
     if PINNED_IMAGE not in read_regular_text(wrapper):
         raise PublicationError("pinned native test wrapper does not name the approved image")
@@ -679,12 +1139,14 @@ def seal_candidate(args: argparse.Namespace) -> None:
     if not receipt_path.parent.is_dir():
         raise PublicationError(f"candidate receipt parent does not exist: {receipt_path.parent}")
     record = {
-        "schema": "1",
+        "schema": "2",
         "candidate_root": str(root),
         "candidate_commit": commit,
         "candidate_tree": tree,
         "candidate_binary": str(binary),
         "candidate_binary_sha256": sha256_file(binary),
+        "build_receipt": str(build_receipt),
+        "build_receipt_sha256": build_receipt_sha256,
         "helper": str(helper),
         "helper_sha256": helper_sha,
         "wrapper": str(wrapper),
@@ -761,6 +1223,15 @@ def output_lock_path(output: pathlib.Path) -> pathlib.Path:
     return output.parent / f".{output.name}.lock"
 
 
+def global_runner_lock_path(candidate_root: pathlib.Path) -> pathlib.Path:
+    common_git_directory = pathlib.Path(git_output(candidate_root, "rev-parse", "--git-common-dir"))
+    if not common_git_directory.is_absolute():
+        common_git_directory = candidate_root / common_git_directory
+    common_git_directory = real_directory(common_git_directory, "shared candidate git directory")
+    shared_work = real_directory(common_git_directory.parent / ".work", "shared publication .work")
+    return shared_work / RUNNER_LOCK_NAME
+
+
 def check_output_available(output: pathlib.Path) -> None:
     lock = output_lock_path(output)
     if output.exists() or output.is_symlink():
@@ -782,17 +1253,146 @@ def claim_output(output: pathlib.Path) -> tuple[pathlib.Path, int, int]:
     except BaseException:
         os.close(parent_descriptor)
         raise
+    output_created = False
     try:
         os.write(descriptor, f"pid={os.getpid()}\noutput={output}\n".encode())
         os.fsync(descriptor)
         os.mkdir(output.name, dir_fd=parent_descriptor)
+        output_created = True
         os.fsync(parent_descriptor)
     except BaseException:
         os.close(descriptor)
-        os.unlink(lock.name, dir_fd=parent_descriptor)
-        os.close(parent_descriptor)
+        if output_created:
+            os.rmdir(output.name, dir_fd=parent_descriptor)
+        try:
+            os.unlink(lock.name, dir_fd=parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
         raise
     return lock, descriptor, parent_descriptor
+
+
+def claim_global_runner_lock(candidate_root: pathlib.Path, output: pathlib.Path) -> LockClaim:
+    lock = global_runner_lock_path(candidate_root)
+    work_root = lock.parent
+    parent_descriptor = open_absolute_nofollow(work_root, directory=True)
+    descriptor = -1
+    created = False
+    try:
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+        descriptor = os.open(lock.name, flags, 0o600, dir_fd=parent_descriptor)
+        created = True
+        content = f"pid={os.getpid()}\noutput={output}\n".encode()
+        view = memoryview(content)
+        while view:
+            written = os.write(descriptor, view)
+            if written == 0:
+                raise OSError("short write while claiming W9 publication runner lock")
+            view = view[written:]
+        os.fsync(descriptor)
+        os.fsync(parent_descriptor)
+        return LockClaim(lock, descriptor, parent_descriptor)
+    except FileExistsError as error:
+        os.close(parent_descriptor)
+        raise PublicationError(f"another W9 publication run holds the shared lock: {lock}") from error
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if created:
+            try:
+                os.unlink(lock.name, dir_fd=parent_descriptor)
+                os.fsync(parent_descriptor)
+            except FileNotFoundError:
+                pass
+        os.close(parent_descriptor)
+        raise
+
+
+def release_lock_claim(claim: LockClaim) -> None:
+    errors: list[BaseException] = []
+    try:
+        os.unlink(claim.path.name, dir_fd=claim.parent_descriptor)
+    except FileNotFoundError:
+        pass
+    except BaseException as error:
+        errors.append(error)
+    try:
+        os.fsync(claim.parent_descriptor)
+    except BaseException as error:
+        errors.append(error)
+    for descriptor in (claim.descriptor, claim.parent_descriptor):
+        try:
+            os.close(descriptor)
+        except BaseException as error:
+            errors.append(error)
+    if errors:
+        raise PublicationError(f"could not fully release lock {claim.path}: {errors[0]}") from errors[0]
+
+
+@contextlib.contextmanager
+def claim_run_resources(
+    candidate_root: pathlib.Path,
+    output: pathlib.Path,
+    completed: list[tuple[int, int]],
+):
+    previous_sigterm = signal.signal(signal.SIGTERM, handle_termination)
+    previous_sigint = signal.signal(signal.SIGINT, handle_termination)
+    blocked_signals = {signal.SIGTERM, signal.SIGINT}
+    original_mask: set[signal.Signals] | None = None
+    global_claim: LockClaim | None = None
+    output_claim: LockClaim | None = None
+    primary_error: BaseException | None = None
+    try:
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+        try:
+            global_claim = claim_global_runner_lock(candidate_root, output)
+            lock_path, descriptor, parent_descriptor = claim_output(output)
+            output_claim = LockClaim(lock_path, descriptor, parent_descriptor)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+        yield
+    except BaseException as error:
+        primary_error = error
+        signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+        if output_claim is not None:
+            try:
+                write_status(
+                    output,
+                    "incomplete",
+                    completed,
+                    f"{type(error).__name__}: {error}",
+                )
+            except BaseException as status_error:
+                print(f"could not record incomplete publication status: {status_error}", file=sys.stderr)
+        raise
+    finally:
+        cleanup_interrupt: BaseException | None = None
+        try:
+            signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+        except BaseException as error:
+            cleanup_interrupt = error
+        cleanup_errors: list[BaseException] = []
+        for claim in (output_claim, global_claim):
+            if claim is None:
+                continue
+            try:
+                release_lock_claim(claim)
+            except BaseException as error:
+                cleanup_errors.append(error)
+        signal.signal(signal.SIGTERM, previous_sigterm)
+        signal.signal(signal.SIGINT, previous_sigint)
+        if original_mask is None:
+            original_mask = set()
+        signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+        if cleanup_errors:
+            detail = "; ".join(str(error) for error in cleanup_errors)
+            if primary_error is None and cleanup_interrupt is None:
+                raise PublicationError(f"publication lock cleanup failed: {detail}") from cleanup_errors[0]
+            print(f"publication lock cleanup failed: {detail}", file=sys.stderr)
+        if cleanup_interrupt is not None:
+            if primary_error is None:
+                raise cleanup_interrupt
+            print(f"termination arrived during publication lock cleanup: {cleanup_interrupt}", file=sys.stderr)
 
 
 def require_output_path(value: str, candidate_root: pathlib.Path) -> pathlib.Path:
@@ -805,6 +1405,8 @@ def require_output_path(value: str, candidate_root: pathlib.Path) -> pathlib.Pat
     work_root = candidate_root / ".work"
     if not under(output, work_root):
         raise PublicationError(f"output must be under candidate source .work/: {output}")
+    if ":" in str(output):
+        raise PublicationError(f"output path contains the PATH separator and cannot safely host the Docker shim: {output}")
     if output.name in {"", ".", ".."}:
         raise PublicationError("output path must name a new directory")
     check_output_available(output)
@@ -851,6 +1453,67 @@ def write_status(output: pathlib.Path, status: str, completed: list[tuple[int, i
         os.close(directory_descriptor)
 
 
+def validate_docker_target(
+    environment: dict[str, str],
+    context_name: str,
+    endpoint: str,
+) -> dict[str, str]:
+    overrides = sorted(name for name in DOCKER_OVERRIDE_VARIABLES if name in environment)
+    if overrides:
+        raise PublicationError(f"Docker endpoint overrides are not allowed: {overrides}")
+    if context_name != "default":
+        raise PublicationError(f"Docker context must be local 'default', found {context_name!r}")
+    if endpoint != DOCKER_LOCAL_ENDPOINT:
+        raise PublicationError(f"Docker endpoint must be local {DOCKER_LOCAL_ENDPOINT!r}, found {endpoint!r}")
+    pinned_environment = dict(environment)
+    pinned_environment["DOCKER_HOST"] = DOCKER_LOCAL_ENDPOINT
+    return pinned_environment
+
+
+def verify_unix_socket(socket_path: pathlib.Path) -> None:
+    try:
+        mode = os.stat(socket_path, follow_symlinks=False).st_mode
+    except OSError as error:
+        raise PublicationError(f"Unix socket is unavailable at {socket_path}: {error}") from error
+    if not stat.S_ISSOCK(mode):
+        raise PublicationError(f"endpoint is not a Unix socket: {socket_path}")
+
+
+def verify_local_docker_socket(endpoint: str) -> None:
+    if endpoint != DOCKER_LOCAL_ENDPOINT:
+        raise PublicationError(f"Docker endpoint must be local {DOCKER_LOCAL_ENDPOINT!r}, found {endpoint!r}")
+    verify_unix_socket(pathlib.Path(DOCKER_LOCAL_ENDPOINT.removeprefix("unix://")))
+
+
+def local_docker_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    overrides = sorted(name for name in DOCKER_OVERRIDE_VARIABLES if name in environment)
+    if overrides:
+        raise PublicationError(f"Docker endpoint overrides are not allowed: {overrides}")
+    try:
+        context = subprocess.run(
+            ["/usr/bin/docker", "context", "show"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+        ).stdout.strip()
+        endpoint = subprocess.run(
+            ["/usr/bin/docker", "context", "inspect", "default", "--format", "{{.Endpoints.docker.Host}}"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise PublicationError(f"cannot verify local Docker context and endpoint: {error}") from error
+    pinned_environment = validate_docker_target(environment, context, endpoint)
+    verify_local_docker_socket(endpoint)
+    return pinned_environment
+
+
 def docker_shim(job_dir: pathlib.Path, container: str, cpu: int, input_root: pathlib.Path) -> pathlib.Path:
     shim_dir = job_dir / "docker-shim"
     shim_dir.mkdir()
@@ -876,7 +1539,7 @@ def docker_shim(job_dir: pathlib.Path, container: str, cpu: int, input_root: pat
     return shim_dir
 
 
-def existing_container(name: str) -> bool:
+def existing_container(name: str, environment: dict[str, str]) -> bool:
     try:
         result = subprocess.run(
             ["/usr/bin/docker", "ps", "-a", "--filter", f"name=^{name}$", "--format", "{{.Names}}"],
@@ -884,10 +1547,121 @@ def existing_container(name: str) -> bool:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=environment,
         )
     except (OSError, subprocess.CalledProcessError) as error:
         raise PublicationError(f"cannot inspect Docker container {name}: {error}") from error
     return bool(result.stdout.strip())
+
+
+def stop_owned_job(job: dict[str, object], environment: dict[str, str]) -> list[str]:
+    errors: list[str] = []
+    container = str(job["container"])
+    try:
+        subprocess.run(
+            ["/usr/bin/docker", "stop", "--time", "5", container],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=environment,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        errors.append(f"timed out stopping Docker container {container}")
+    except OSError as error:
+        errors.append(f"could not stop Docker container {container}: {error}")
+    process = job.get("process")
+    if process is not None:
+        try:
+            os.killpg(process.pid, signal.SIGINT)
+        except ProcessLookupError:
+            pass
+        except OSError as error:
+            errors.append(f"could not interrupt worker process {process.pid}: {error}")
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                errors.append(f"could not terminate worker process {process.pid}: {error}")
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError as error:
+                    errors.append(f"could not kill worker process {process.pid}: {error}")
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    errors.append(f"worker process {process.pid} did not exit after SIGKILL")
+                except OSError as error:
+                    errors.append(f"could not reap worker process {process.pid}: {error}")
+            except OSError as error:
+                errors.append(f"could not wait for worker process {process.pid}: {error}")
+        except OSError as error:
+            errors.append(f"could not wait for worker process {process.pid}: {error}")
+    output_handle = job.get("output")
+    if output_handle is not None and not output_handle.closed:
+        try:
+            output_handle.close()
+        except OSError as error:
+            errors.append(f"could not close worker log: {error}")
+    try:
+        subprocess.run(
+            ["/usr/bin/docker", "stop", "--time", "1", container],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=environment,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        errors.append(f"timed out finishing stop for Docker container {container}")
+    except OSError as error:
+        errors.append(f"could not finish stopping Docker container {container}: {error}")
+    return errors
+
+
+def start_and_register_job(
+    job: dict[str, object],
+    active: list[dict[str, object]],
+    command: list[str],
+    cwd: str,
+    environment: dict[str, str],
+) -> subprocess.Popen[bytes]:
+    blocked_signals = {signal.SIGTERM, signal.SIGINT}
+    original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=environment,
+            stdout=job["output"],
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        job["process"] = process
+        active.append(job)
+        signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+        return process
+    except BaseException:
+        signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
+        if job in active:
+            active.remove(job)
+        if process is not None:
+            errors = stop_owned_job(job, environment)
+            for error in errors:
+                print(error, file=sys.stderr)
+        raise
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
 
 
 def launch_job(
@@ -896,6 +1670,8 @@ def launch_job(
     worker: str,
     start: int,
     end: int,
+    active: list[dict[str, object]],
+    docker_environment: dict[str, str],
 ) -> dict[str, object]:
     validate_candidate_files(record)
     cpu = {"A": 0, "B": 1, "C": 2, "D": 3}[worker]
@@ -907,20 +1683,24 @@ def launch_job(
     if any(path.exists() or path.is_symlink() for path in (receipt, timing, log)):
         raise PublicationError(f"refusing to overwrite shard artifact {worker}/{start}..{end}")
     container = f"w9pub-{os.getpid()}-{worker}-{start}"
-    if existing_container(container):
+    if existing_container(container, docker_environment):
         raise PublicationError(f"Docker container name already exists: {container}")
     shim_dir = docker_shim(job_dir, container, cpu, pathlib.Path(record["input_root"]))
     output_handle = log.open("xb")
-    output_handle.write(
-        (
-            f"worker={worker} cpu={cpu} memory_limit=1GiB range={start}..{end} profiles=all "
-            f"source_commit={record['candidate_commit']} source_tree={record['candidate_tree']} "
-            f"candidate_binary_sha256={record['candidate_binary_sha256']} helper_sha256={record['helper_sha256']} "
-            f"wrapper_sha256={record['wrapper_sha256']} corpus_blake3={record['corpus_blake3']}\n"
-        ).encode()
-    )
-    output_handle.flush()
-    environment = os.environ.copy()
+    try:
+        output_handle.write(
+            (
+                f"worker={worker} cpu={cpu} memory_limit=1GiB range={start}..{end} profiles=all "
+                f"source_commit={record['candidate_commit']} source_tree={record['candidate_tree']} "
+                f"candidate_binary_sha256={record['candidate_binary_sha256']} helper_sha256={record['helper_sha256']} "
+                f"wrapper_sha256={record['wrapper_sha256']} corpus_blake3={record['corpus_blake3']}\n"
+            ).encode()
+        )
+        output_handle.flush()
+    except BaseException:
+        output_handle.close()
+        raise
+    environment = dict(docker_environment)
     environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
     command = [
         "timeout", "900s", record["wrapper"], record["wrapper_root"], "run", "env",
@@ -934,19 +1714,7 @@ def launch_job(
         "taskset", "-c", str(cpu), record["candidate_binary"],
         "--exact", "sema::w9_repository_parity_receipt", "--nocapture",
     ]
-    try:
-        process = subprocess.Popen(
-            command,
-            cwd=record["wrapper_root"],
-            env=environment,
-            stdout=output_handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    except BaseException:
-        output_handle.close()
-        raise
-    return {
+    job = {
         "worker": worker,
         "cpu": cpu,
         "start": start,
@@ -955,54 +1723,27 @@ def launch_job(
         "receipt": receipt,
         "timing": timing,
         "log": log,
-        "process": process,
+        "process": None,
         "output": output_handle,
     }
-
-
-def stop_jobs(active: list[dict[str, object]]) -> None:
-    for job in active:
-        subprocess.run(
-            ["/usr/bin/docker", "stop", "--time", "5", str(job["container"])],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        process = job["process"]
-        try:
-            os.killpg(process.pid, signal.SIGINT)
-        except ProcessLookupError:
-            pass
-    deadline = time.monotonic() + 15
-    for job in active:
-        process = job["process"]
-        try:
-            process.wait(timeout=max(0.0, deadline - time.monotonic()))
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-    for job in active:
-        process = job["process"]
-        if process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        process.wait()
-        output_handle = job["output"]
+    try:
+        start_and_register_job(job, active, command, record["wrapper_root"], environment)
+    except BaseException:
         if not output_handle.closed:
             output_handle.close()
-        subprocess.run(
-            ["/usr/bin/docker", "stop", "--time", "1", str(job["container"])],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        raise
+    return job
+
+
+def stop_jobs(active: list[dict[str, object]], environment: dict[str, str]) -> None:
+    for job in list(active):
+        for error in stop_owned_job(job, environment):
+            print(error, file=sys.stderr)
+        active.remove(job)
 
 
 def handle_termination(signum: int, _frame: object) -> None:
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
     raise KeyboardInterrupt(f"received signal {signum}")
 
 
@@ -1012,6 +1753,7 @@ def execute_run(args: argparse.Namespace) -> None:
     paths_by_index, _paths_by_name, reference = validate_all_inputs(record)
     candidate_root = pathlib.Path(record["candidate_root"])
     output = require_output_path(args.output, candidate_root)
+    docker_environment = local_docker_environment()
     if args.dry_run:
         print(
             f"preflight ok: source={record['candidate_commit']} tree={record['candidate_tree']} "
@@ -1019,100 +1761,94 @@ def execute_run(args: argparse.Namespace) -> None:
             f"memory_per_worker=1GiB output={output}"
         )
         return
-    lock_path, lock_descriptor, parent_descriptor = claim_output(output)
     completed: list[tuple[int, int]] = []
     active: list[dict[str, object]] = []
-    output_created = True
-    previous_sigterm = signal.signal(signal.SIGTERM, handle_termination)
-    try:
-        (output / "candidate").mkdir()
-        (output / "jobs").mkdir()
-        write_status(output, "incomplete", completed)
-        ranges = expected_ranges(len(paths_by_index))
-        queues = {worker: list(ranges[index::4]) for index, worker in enumerate(("A", "B", "C", "D"))}
-        for worker in queues:
-            start, end = queues[worker].pop(0)
-            active.append(launch_job(record, output, worker, start, end))
-        while active:
-            changed = False
-            for job in list(active):
-                process = job["process"]
-                status = process.poll()
-                if status is None:
-                    continue
-                changed = True
-                output_handle = job["output"]
-                if not output_handle.closed:
-                    output_handle.close()
-                receipt_path = job["receipt"]
-                timing_path = job["timing"]
-                if status != 0:
-                    raise PublicationError(
-                        f"worker {job['worker']} range {job['start']}..{job['end']} failed "
-                        f"status={status}; log={job['log']}"
-                    )
-                try:
-                    regular_file(receipt_path, "candidate range receipt")
-                    regular_file(timing_path, "candidate range timing")
-                except PublicationError as error:
-                    raise PublicationError(
-                        f"worker {job['worker']} range {job['start']}..{job['end']} failed: {error}; log={job['log']}"
-                    ) from error
-                validate_candidate_files(record)
-                compare_shard(
-                    reference,
-                    receipt_path,
-                    paths_by_index,
-                    int(job["start"]),
-                    int(job["end"]),
-                    record["corpus_blake3"],
-                )
-                completed.append((int(job["start"]), int(job["end"])))
-                completed.sort()
-                write_status(output, "incomplete", completed)
-                active.remove(job)
-                worker = str(job["worker"])
-                if queues[worker]:
-                    start, end = queues[worker].pop(0)
-                    active.append(launch_job(record, output, worker, start, end))
-            if not changed:
-                time.sleep(1)
-        validate_candidate_files(record)
-        remaining = subprocess.run(
-            ["/usr/bin/docker", "ps", "-a", "--filter", f"name=^w9pub-{os.getpid()}-", "--format", "{{.Names}}"],
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        ).stdout.strip()
-        if remaining:
-            raise PublicationError(f"owned Docker containers remain after parity run: {remaining}")
-        summary = verify_receipt_bundle(reference, output / "candidate", paths_by_index, record["corpus_blake3"])
-        write_status(output, "complete", completed, summary)
-        print(summary)
-    except BaseException as error:
-        stop_jobs(active)
-        if output_created:
-            write_status(output, "incomplete", completed, f"{type(error).__name__}: {error}")
-        raise
-    finally:
-        signal.signal(signal.SIGTERM, previous_sigterm)
-        os.close(lock_descriptor)
+    with claim_run_resources(candidate_root, output, completed):
         try:
-            os.unlink(lock_path.name, dir_fd=parent_descriptor)
-        except FileNotFoundError:
-            pass
-        os.fsync(parent_descriptor)
-        os.close(parent_descriptor)
+            (output / "candidate").mkdir()
+            (output / "jobs").mkdir()
+            write_status(output, "incomplete", completed)
+            ranges = expected_ranges(len(paths_by_index))
+            queues = {worker: list(ranges[index::4]) for index, worker in enumerate(("A", "B", "C", "D"))}
+            for worker in queues:
+                start, end = queues[worker].pop(0)
+                launch_job(record, output, worker, start, end, active, docker_environment)
+            while active:
+                changed = False
+                for job in list(active):
+                    process = job["process"]
+                    status = process.poll()
+                    if status is None:
+                        continue
+                    changed = True
+                    output_handle = job["output"]
+                    if not output_handle.closed:
+                        output_handle.close()
+                    receipt_path = job["receipt"]
+                    timing_path = job["timing"]
+                    if status != 0:
+                        raise PublicationError(
+                            f"worker {job['worker']} range {job['start']}..{job['end']} failed "
+                            f"status={status}; log={job['log']}"
+                        )
+                    try:
+                        regular_file(receipt_path, "candidate range receipt")
+                        regular_file(timing_path, "candidate range timing")
+                    except PublicationError as error:
+                        raise PublicationError(
+                            f"worker {job['worker']} range {job['start']}..{job['end']} failed: {error}; log={job['log']}"
+                        ) from error
+                    validate_candidate_files(record)
+                    compare_shard(
+                        reference,
+                        receipt_path,
+                        paths_by_index,
+                        int(job["start"]),
+                        int(job["end"]),
+                        record["corpus_blake3"],
+                    )
+                    completed.append((int(job["start"]), int(job["end"])))
+                    completed.sort()
+                    write_status(output, "incomplete", completed)
+                    active.remove(job)
+                    worker = str(job["worker"])
+                    if queues[worker]:
+                        start, end = queues[worker].pop(0)
+                        launch_job(record, output, worker, start, end, active, docker_environment)
+                if not changed:
+                    time.sleep(1)
+            validate_candidate_files(record)
+            remaining = subprocess.run(
+                ["/usr/bin/docker", "ps", "-a", "--filter", f"name=^w9pub-{os.getpid()}-", "--format", "{{.Names}}"],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=docker_environment,
+            ).stdout.strip()
+            if remaining:
+                raise PublicationError(f"owned Docker containers remain after parity run: {remaining}")
+            summary = verify_receipt_bundle(reference, output / "candidate", paths_by_index, record["corpus_blake3"])
+            write_status(output, "complete", completed, summary)
+            print(summary)
+        except BaseException:
+            stop_jobs(active, docker_environment)
+            raise
 
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest="command", required=True)
-    seal = commands.add_parser("seal", help="write a current candidate source/binary receipt")
+    stage = commands.add_parser("stage-helper", help="stage the pinned parity helper into candidate .work")
+    stage.add_argument("--candidate-root", required=True)
+    build = commands.add_parser("build-harness", help="build and record the pinned integration test harness")
+    build.add_argument("--candidate-root", required=True)
+    build.add_argument("--receipt", required=True)
+    seal = commands.add_parser("seal", help="write the candidate source and binary receipt")
     seal.add_argument("--candidate-root", required=True)
     seal.add_argument("--candidate-binary", required=True)
     seal.add_argument("--helper", required=True)
+    seal.add_argument("--build-receipt", required=True)
     seal.add_argument("--wrapper", required=True)
     seal.add_argument("--reference-receipt", required=True)
     seal.add_argument("--reference-binary", required=True)
@@ -1130,7 +1866,11 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        if args.command == "seal":
+        if args.command == "stage-helper":
+            print(f"staged parity helper: {stage_helper(pathlib.Path(args.candidate_root))}")
+        elif args.command == "build-harness":
+            build_harness(args)
+        elif args.command == "seal":
             seal_candidate(args)
         elif args.command == "run":
             execute_run(args)
