@@ -16,9 +16,13 @@ theorem is claimed, and all 72 inventoried full theorem obligations remain
 planned. The Raw decoder fragments prove successful word-read length, payload
 length and table bounds, plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 77 fragment roots; its 29 Python
-tests check inventory consistency and root reachability. No `BASE-*`
-obligation is complete.
+Rust conformance. The inventory now names 82 fragment roots; its 29 Python
+tests check inventory consistency and root reachability. Five observation
+fragments pair caller-supplied emissions with classified obligations, require
+explicit alignment for permission and pull-sequence correspondence, and use
+structural `Expr` site labels that cannot distinguish identical occurrences.
+They do not execute producers or establish Rust conformance or full
+`EFF-LATENT`/`EFF-SEMANTIC` semantics. No `BASE-*` obligation is complete.
 **Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
 **Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and
 lowering obligations, and connect those independent statements to the Rust
@@ -400,6 +404,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | Raw decoder bounds | The proof source at `2aceba100` establishes successful `readWords?` length, successful payload length and extra-table bounds, and rejection of one concrete out-of-bounds payload range. The inventory records these as three `SPEC_PROVED` fragments, bringing the root count to 60; the checker still reports 89 owner sets and 72 planned obligations, with all 29 inventory tests retained. | These are independent Raw decoder fragments. G7a, complete decoder soundness, and Rust verifier conformance remain open. |
 | Finite delayed-effect pull sequences | Three `SPEC_PROVED` roots record that an abstract `DelayedWork` pull yields the ordered finite prefix and corresponding remainder, preserves each charge's creation and body sites, and preserves permission when the creation-context permission premise holds. The inventory names 63 roots; its 29 tests, 89 owner sets, and 72 planned obligations remain unchanged. | Only the permission result assumes the creation-context permission premise. These results establish no Rust checker or stream alias, delegation, or close conformance, and close neither EFF-LATENT nor EFF-SEMANTIC. |
 | Closed producer expression bridge | From base `9b200e3dd`, `ExpressionBridge` checks finite classified producer bodies at their own lexical call contexts, preserves checked handles through aliases, records delegated call/body paths, and retains tagged conditional alternatives. Concrete witnesses accept an outside-created producer, reject creation under `without net`, reject a missing alias, an unknown source form, and a restricted delegated/conditional arm, and show that a restricted consumer keeps the producer creation charge. `lake build Xsh.Effects.ExpressionBridge` and `lake build Xsh` pass; the inventory checker reports 89 owner sets, 77 fragment roots, and 72 planned obligations; all 29 inventory tests pass; the axiom allowlist passes for 5,329 project declarations, its negative controls pass, and `leanchecker --fresh Xsh` passes. | This is a closed checker/source fragment only. It does not prove Rust source classification, full stream execution, alias cursor runtime behavior, close/resource semantics, or conformance, and closes neither EFF-LATENT nor EFF-SEMANTIC. |
+| Finite delayed-effect observations | After bridge baseline `6d77ab06`, five `SPEC_PROVED` roots in `Xsh.Effects.Lexical` show that positional observation pairs preserve supplied emission order and retain creation site, body site, and required effect; creation permission and equality with a finite pull sequence require explicit obligation alignment; a listed checked-consumer obligation is permitted at its own context. The inventory names 82 fragment roots, 89 owner sets, and 72 planned obligations; all 29 inventory tests remain. | Emissions and classified obligations are caller-supplied. Structural `Expr` site labels cannot distinguish identical occurrences. These results do not execute producers, establish Rust conformance, or close full EFF-LATENT or EFF-SEMANTIC. |
 
 ## For the owner afterwards
 

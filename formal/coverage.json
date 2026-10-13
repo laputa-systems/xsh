@@ -3679,6 +3679,51 @@
       "status": "fragment",
       "scope": "The explicit unknown-source constructor is rejected by the finite checker fragment.",
       "boundary": "This does not model unknown producer summaries, Rust source classification, or full-source conformance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.pull_observation_pairs_preserve_emission_order",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.pull_observation_pairs_preserve_emission_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Positional observation pairs preserve the order of the supplied finite emission prefix and its creation-site charges.",
+      "boundary": "Uses caller-supplied emissions and classified obligations; structural Expr labels cannot distinguish identical source occurrences. No producer execution, Rust conformance, or full EFF-LATENT/EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.pull_observation_pair_keeps_origin_body_site_and_effect",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.pull_observation_pair_keeps_origin_body_site_and_effect",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Each observed pair retains the producer creation site, the obligation body site, and its required effect.",
+      "boundary": "Uses caller-supplied emissions and classified obligations; structural Expr labels cannot distinguish identical source occurrences. No producer execution, Rust conformance, or full EFF-LATENT/EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.pull_observation_pair_is_permitted_when_aligned",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.pull_observation_pair_is_permitted_when_aligned",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An observed charge is permitted when the producer creation context is permitted and its body obligation is explicitly aligned.",
+      "boundary": "Requires caller-supplied emissions, classified obligations, explicit obligation alignment, and creation permission. Structural Expr labels cannot distinguish identical source occurrences. No producer execution, Rust conformance, or full EFF-LATENT/EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.pull_observation_charges_match_pull_sequence",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.pull_observation_charges_match_pull_sequence",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Under explicit obligation-list alignment, observation charges equal the charges from the corresponding finite pull sequence.",
+      "boundary": "Uses caller-supplied emissions and classified obligations and assumes exact list alignment. Structural Expr labels cannot distinguish identical source occurrences. No producer execution, Rust conformance, or full EFF-LATENT/EFF-SEMANTIC proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.checked_consumer_obligation_is_permitted_at_its_site",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.checked_consumer_obligation_is_permitted_at_its_site",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A classified obligation listed on a checked consumer is permitted at the lexical context stored on that consumer.",
+      "boundary": "Uses a caller-supplied checked consumer and an obligation already in its classified list. Structural Expr labels cannot distinguish identical source occurrences. No producer execution, Rust conformance, or full EFF-LATENT/EFF-SEMANTIC proof."
     }
   ]
 }

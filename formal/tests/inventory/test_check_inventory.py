@@ -26,7 +26,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(77, len(result["fragment_roots"]))
+        self.assertEqual(82, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
@@ -140,6 +140,11 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Semantics.Effects.pull_sequence_preserves_creation_and_body_order",
                 "Xsh.Semantics.Effects.pull_sequence_charge_keeps_origin_and_body_site",
                 "Xsh.Semantics.Effects.pull_sequence_charges_are_permitted",
+                "Xsh.Semantics.Effects.pull_observation_pairs_preserve_emission_order",
+                "Xsh.Semantics.Effects.pull_observation_pair_keeps_origin_body_site_and_effect",
+                "Xsh.Semantics.Effects.pull_observation_pair_is_permitted_when_aligned",
+                "Xsh.Semantics.Effects.pull_observation_charges_match_pull_sequence",
+                "Xsh.Semantics.Effects.checked_consumer_obligation_is_permitted_at_its_site",
                 "Xsh.Semantics.Effects.permitsCreationBool_correct",
                 "Xsh.Semantics.Effects.checkProducerCall_success_implies_creation_permission",
                 "Xsh.Semantics.Effects.checkProducerCall_success_records_its_lexical_site",
