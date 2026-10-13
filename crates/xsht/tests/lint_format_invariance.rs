@@ -453,6 +453,11 @@ fn apply(source: &str, edits: &[Insertion]) -> String {
     let mut output = String::with_capacity(source.len() + edits.len() * 2);
     let mut cursor = 0;
     for edit in edits {
+        // A line join may consume bytes where a later layout edit was placed.
+        // Sorted order gives overlapping edits a deterministic winner.
+        if edit.offset < cursor {
+            continue;
+        }
         output.push_str(&source[cursor..edit.offset]);
         output.push_str(edit.text);
         cursor = edit.end;
@@ -575,6 +580,19 @@ fn perturb_layout(source: &str) -> Option<String> {
         );
     }
     (!accepted.is_empty()).then(|| apply(source, &accepted))
+}
+
+#[test]
+fn layout_perturbation_handles_blank_lines_inside_brackets() {
+    let source = "let rows = [\n  1,\n\n  2,\n]\n";
+    let canonical = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(canonical.diagnostics.is_empty(), "{:?}", canonical.diagnostics);
+
+    let perturbed = perturb_layout(source).expect("fixture accepts layout perturbations");
+    assert_ne!(perturbed, source);
+    let reformatted = Formatter::new().format_source(SourceId::new(0), &perturbed);
+    assert!(reformatted.diagnostics.is_empty(), "{:?}", reformatted.diagnostics);
+    assert_eq!(reformatted.formatted, canonical.formatted);
 }
 
 /// Keeps the edit groups whose application still formats to `canonical`,
