@@ -283,10 +283,38 @@ enum LintWorkspaceRootWork {
     Pending(LintWorkspaceRootPending),
 }
 
+enum LintWorkspaceRootCheckWork {
+    Complete(Vec<LintResult>),
+    Ready(LintWorkspaceRootReady),
+}
+
+struct LintWorkspaceRootReady {
+    reachable: FxHashSet<String>,
+    relevant_diagnostics: Vec<Diagnostic>,
+    checked: xsh::frontend::check::CheckOutput,
+}
+
 struct LintWorkspaceRootPending {
     source_ids: Vec<SourceId>,
     checked_diagnostics: Vec<Diagnostic>,
     modules: Vec<(String, crate::xsht::lint::LintOutput)>,
+}
+
+enum ImportedModuleOwnership<'a> {
+    Claimed(&'a Mutex<FxHashSet<String>>),
+    Planned(&'a FxHashSet<String>),
+}
+
+impl ImportedModuleOwnership<'_> {
+    fn includes(&self, key: &str) -> bool {
+        match self {
+            Self::Claimed(claimed) => claimed
+                .lock()
+                .expect("linted module set mutex poisoned")
+                .insert(key.to_string()),
+            Self::Planned(owned) => owned.contains(key),
+        }
+    }
 }
 
 struct RenderedDiagnostic {
@@ -543,39 +571,257 @@ fn lint_workspace_with_parallelism(
         index += 1;
     }
     let linted_modules = Mutex::new(FxHashSet::default());
-    let next_root = AtomicUsize::new(0);
-    let (tx, rx) = crossbeam_channel::unbounded();
     let workers = worker_count_for_parallelism(workspace.roots.len(), available);
+    if fix {
+        let next_root = AtomicUsize::new(0);
+        let (tx, rx) = crossbeam_channel::unbounded();
+        thread::scope(|scope| {
+            for _ in 0..workers {
+                let next_root = &next_root;
+                let tx = tx.clone();
+                let linted_modules = &linted_modules;
+                let callable_edge_facts = &callable_edge_facts;
+                let workspace = &workspace;
+                thread::Builder::new()
+                    .name("xsht-lint".to_string())
+                    .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
+                    .spawn_scoped(scope, move || {
+                        let type_program = timings.time(Stage::Load, || workspace.type_program());
+                        loop {
+                            if cancellation_output().is_some() {
+                                break;
+                            }
+                            let root_index = next_root.fetch_add(1, Ordering::Relaxed);
+                            let Some(root) = workspace.roots.get(root_index) else {
+                                break;
+                            };
+                            let root_work = lint_workspace_root(
+                                workspace,
+                                root,
+                                linted_modules,
+                                callable_edge_facts,
+                                &type_program,
+                                timings,
+                            );
+                            if tx.send((root_index, root_work)).is_err() {
+                                break;
+                            }
+                        }
+                    })
+                    .expect("spawn lint worker");
+            }
+        });
+        drop(tx);
+        let mut grouped = rx.into_iter().collect::<Vec<_>>();
+        grouped.sort_unstable_by_key(|(root_index, _)| *root_index);
+        for (root_index, root_work) in grouped {
+            append_lint_workspace_root_work(
+                &workspace,
+                root_index,
+                root_work,
+                true,
+                &callable_edge_facts,
+                timings,
+                &mut results,
+                &mut index,
+            );
+        }
+    } else {
+        lint_workspace_roots_in_ordered_batches(
+            &workspace,
+            workers,
+            &callable_edge_facts,
+            timings,
+            &mut results,
+            &mut index,
+        );
+    }
+    results
+}
+
+// Check each sorted root batch before assigning shared imported-module work.
+// A root with a blocking check error exits before linting, and retaining at
+// most one batch keeps its checked outputs bounded by the worker count.
+fn lint_workspace_roots_in_ordered_batches(
+    workspace: &LintWorkspace,
+    workers: usize,
+    callable_edge_facts: &CallableEdgeFactStore,
+    timings: &StageTimings,
+    results: &mut Vec<LintResult>,
+    index: &mut usize,
+) {
+    let mut owned_modules = FxHashSet::default();
+    let type_program = timings.time(Stage::Load, || workspace.type_program());
+    let mut batch_start = 0;
+    while batch_start < workspace.roots.len() && cancellation_output().is_none() {
+        let batch_end = (batch_start + workers).min(workspace.roots.len());
+        let checked = check_lint_workspace_root_batch(
+            workspace,
+            batch_start,
+            batch_end,
+            workers,
+            &type_program,
+            timings,
+        );
+        let owners = plan_imported_module_owners(
+            &workspace.roots,
+            checked.iter().filter_map(|(root_index, check)| match check {
+                LintWorkspaceRootCheckWork::Complete(_) => None,
+                LintWorkspaceRootCheckWork::Ready(ready) => {
+                    Some((*root_index, &ready.reachable))
+                }
+            }),
+            &mut owned_modules,
+        );
+        let mut linted = lint_checked_workspace_root_batch(
+            workspace,
+            checked,
+            owners,
+            workers,
+            callable_edge_facts,
+            timings,
+        );
+        linted.sort_unstable_by_key(|(root_index, _)| *root_index);
+        for (root_index, root_work) in linted {
+            append_lint_workspace_root_work(
+                workspace,
+                root_index,
+                root_work,
+                false,
+                callable_edge_facts,
+                timings,
+                results,
+                index,
+            );
+        }
+        batch_start = batch_end;
+    }
+}
+
+fn check_lint_workspace_root_batch(
+    workspace: &LintWorkspace,
+    batch_start: usize,
+    batch_end: usize,
+    workers: usize,
+    type_program: &Arc<ArenaProgram>,
+    timings: &StageTimings,
+) -> Vec<(usize, LintWorkspaceRootCheckWork)> {
+    let next_root = AtomicUsize::new(batch_start);
+    let (tx, rx) = crossbeam_channel::unbounded();
     thread::scope(|scope| {
-        for _ in 0..workers {
+        for _ in 0..workers.min(batch_end - batch_start) {
             let next_root = &next_root;
             let tx = tx.clone();
-            let linted_modules = &linted_modules;
-            let callable_edge_facts = &callable_edge_facts;
-            let workspace = &workspace;
+            let workspace = workspace;
+            let type_program = type_program;
+            thread::Builder::new()
+                .name("xsht-lint-check".to_string())
+                .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
+                .spawn_scoped(scope, move || loop {
+                    if cancellation_output().is_some() {
+                        break;
+                    }
+                    let root_index = next_root.fetch_add(1, Ordering::Relaxed);
+                    if root_index >= batch_end {
+                        break;
+                    }
+                    let root = &workspace.roots[root_index];
+                    let check = check_lint_workspace_root(
+                        workspace,
+                        root,
+                        false,
+                        type_program,
+                        timings,
+                    );
+                    if tx.send((root_index, check)).is_err() {
+                        break;
+                    }
+                })
+                .expect("spawn lint check worker");
+        }
+    });
+    drop(tx);
+    let mut checked = rx.into_iter().collect::<Vec<_>>();
+    checked.sort_unstable_by_key(|(root_index, _)| *root_index);
+    checked
+}
+
+// Only eligible roots are passed in; prior batches have already claimed their
+// modules, so the earliest checked root in this batch becomes the next owner.
+fn plan_imported_module_owners<'a>(
+    roots: &[String],
+    eligible_roots: impl IntoIterator<Item = (usize, &'a FxHashSet<String>)>,
+    previously_owned: &mut FxHashSet<String>,
+) -> FxHashMap<usize, FxHashSet<String>> {
+    let mut eligible_roots = eligible_roots.into_iter().collect::<Vec<_>>();
+    eligible_roots.sort_unstable_by_key(|(root_index, _)| *root_index);
+    let mut owners = FxHashMap::<usize, FxHashSet<String>>::default();
+    for (root_index, reachable) in eligible_roots {
+        let root = &roots[root_index];
+        for key in reachable {
+            if key != root && previously_owned.insert(key.clone()) {
+                owners.entry(root_index).or_default().insert(key.clone());
+            }
+        }
+    }
+    owners
+}
+
+fn lint_checked_workspace_root_batch(
+    workspace: &LintWorkspace,
+    checked: Vec<(usize, LintWorkspaceRootCheckWork)>,
+    owners: FxHashMap<usize, FxHashSet<String>>,
+    workers: usize,
+    callable_edge_facts: &CallableEdgeFactStore,
+    timings: &StageTimings,
+) -> Vec<(usize, LintWorkspaceRootWork)> {
+    let mut completed = Vec::new();
+    let mut ready_count = 0;
+    let (job_tx, job_rx) = crossbeam_channel::unbounded();
+    for (root_index, check) in checked {
+        match check {
+            LintWorkspaceRootCheckWork::Complete(results) => completed.push((
+                root_index,
+                LintWorkspaceRootWork::Complete(results),
+            )),
+            LintWorkspaceRootCheckWork::Ready(ready) => {
+                ready_count += 1;
+                let module_owners = owners.get(&root_index).cloned().unwrap_or_default();
+                job_tx
+                    .send((root_index, ready, module_owners))
+                    .expect("lint batch has active workers");
+            }
+        }
+    }
+    drop(job_tx);
+    if ready_count == 0 {
+        return completed;
+    }
+    let (result_tx, result_rx) = crossbeam_channel::unbounded();
+    thread::scope(|scope| {
+        for _ in 0..workers.min(ready_count) {
+            let job_rx = job_rx.clone();
+            let result_tx = result_tx.clone();
+            let workspace = workspace;
+            let callable_edge_facts = callable_edge_facts;
             thread::Builder::new()
                 .name("xsht-lint".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
                 .spawn_scoped(scope, move || {
-                    let type_program = timings.time(Stage::Load, || workspace.type_program());
-                    loop {
+                    while let Ok((root_index, ready, module_owners)) = job_rx.recv() {
                         if cancellation_output().is_some() {
                             break;
                         }
-                        let root_index = next_root.fetch_add(1, Ordering::Relaxed);
-                        let Some(root) = workspace.roots.get(root_index) else {
-                            break;
-                        };
-                        let root_work = lint_workspace_root(
+                        let root = &workspace.roots[root_index];
+                        let root_work = lint_checked_workspace_root(
                             workspace,
                             root,
-                            fix,
-                            linted_modules,
+                            ready,
+                            ImportedModuleOwnership::Planned(&module_owners),
                             callable_edge_facts,
-                            &type_program,
                             timings,
                         );
-                        if tx.send((root_index, root_work)).is_err() {
+                        if result_tx.send((root_index, root_work)).is_err() {
                             break;
                         }
                     }
@@ -583,49 +829,103 @@ fn lint_workspace_with_parallelism(
                 .expect("spawn lint worker");
         }
     });
-    drop(tx);
-    let mut grouped = rx.into_iter().collect::<Vec<_>>();
-    grouped.sort_unstable_by_key(|(root_index, _)| *root_index);
-    for (root_index, root_work) in grouped {
-        let root = &workspace.roots[root_index];
-        let root_results = match root_work {
-            LintWorkspaceRootWork::Complete(root_results) => root_results,
-            LintWorkspaceRootWork::Pending(mut pending) => {
-                if lint_unused_callable_enabled(
-                    &workspace.modules[root].config.lint_options,
-                ) && cancellation_output().is_none()
-                {
-                    let view = workspace.root_view(root);
-                    let source_facts =
-                        callable_edge_facts.facts_for(std::mem::take(&mut pending.source_ids));
-                    pending.modules[0].1.diagnostics.extend(
-                        finalize_callable_reachability(&view, &source_facts),
-                    );
-                }
-                finish_lint_workspace_root(&workspace, root, pending, fix, timings)
+    drop(result_tx);
+    completed.extend(result_rx);
+    completed
+}
+
+fn append_lint_workspace_root_work(
+    workspace: &LintWorkspace,
+    root_index: usize,
+    root_work: LintWorkspaceRootWork,
+    fix: bool,
+    callable_edge_facts: &CallableEdgeFactStore,
+    timings: &StageTimings,
+    results: &mut Vec<LintResult>,
+    index: &mut usize,
+) {
+    let root = &workspace.roots[root_index];
+    let root_results = match root_work {
+        LintWorkspaceRootWork::Complete(root_results) => root_results,
+        LintWorkspaceRootWork::Pending(mut pending) => {
+            if lint_unused_callable_enabled(&workspace.modules[root].config.lint_options)
+                && cancellation_output().is_none()
+            {
+                let view = workspace.root_view(root);
+                let source_facts =
+                    callable_edge_facts.facts_for(std::mem::take(&mut pending.source_ids));
+                pending.modules[0]
+                    .1
+                    .diagnostics
+                    .extend(finalize_callable_reachability(&view, &source_facts));
             }
-        };
-        for mut result in root_results {
-            result.index += index;
-            results.push(result);
-            index += 1;
+            finish_lint_workspace_root(workspace, root, pending, fix, timings)
         }
+    };
+    for mut result in root_results {
+        result.index += *index;
+        results.push(result);
+        *index += 1;
     }
-    results
 }
 
 fn lint_workspace_root(
     workspace: &LintWorkspace,
     root: &str,
-    fix: bool,
     linted_modules: &Mutex<FxHashSet<String>>,
     callable_edge_facts: &CallableEdgeFactStore,
     type_program: &Arc<ArenaProgram>,
     timings: &StageTimings,
 ) -> LintWorkspaceRootWork {
+    let ready = match check_lint_workspace_root(workspace, root, true, type_program, timings) {
+        LintWorkspaceRootCheckWork::Complete(results) => {
+            return LintWorkspaceRootWork::Complete(results);
+        }
+        LintWorkspaceRootCheckWork::Ready(ready) => ready,
+    };
+    if ready
+        .relevant_diagnostics
+        .iter()
+        .chain(&ready.checked.diagnostics)
+        .any(|diagnostic| {
+            migration_lint_code(diagnostic.code).is_some_and(|code| {
+                lint_code_selected(
+                    workspace.modules[root].config.lint_options.only.as_deref(),
+                    Some(code),
+                )
+            })
+        })
+    {
+        return LintWorkspaceRootWork::Complete(timings.time(Stage::Fix, || {
+            migrate_workspace_syntax(
+                workspace,
+                root,
+                &ready.reachable,
+                linted_modules,
+                &ready.checked.diagnostics,
+            )
+        }));
+    }
+    lint_checked_workspace_root(
+        workspace,
+        root,
+        ready,
+        ImportedModuleOwnership::Claimed(linted_modules),
+        callable_edge_facts,
+        timings,
+    )
+}
+
+fn check_lint_workspace_root(
+    workspace: &LintWorkspace,
+    root: &str,
+    fix: bool,
+    type_program: &Arc<ArenaProgram>,
+    timings: &StageTimings,
+) -> LintWorkspaceRootCheckWork {
     let reachable = workspace.reachable_modules(root);
     let Some(root_module) = workspace.modules.get(root) else {
-        return LintWorkspaceRootWork::Complete(Vec::new());
+        return LintWorkspaceRootCheckWork::Complete(Vec::new());
     };
     let mut relevant_diagnostics = Vec::new();
     for key in &reachable {
@@ -637,7 +937,7 @@ fn lint_workspace_root(
         .iter()
         .any(|diagnostic| migration_lint_code(diagnostic.code).is_none())
     {
-        return LintWorkspaceRootWork::Complete(vec![LintResult {
+        return LintWorkspaceRootCheckWork::Complete(vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
                 status: 2,
@@ -669,7 +969,7 @@ fn lint_workspace_root(
         && (!fix || !relevant_diagnostics.is_empty())
     {
         relevant_diagnostics.extend(checked.diagnostics.iter().cloned());
-        return LintWorkspaceRootWork::Complete(vec![LintResult {
+        return LintWorkspaceRootCheckWork::Complete(vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
                 status: 2,
@@ -681,27 +981,29 @@ fn lint_workspace_root(
         }]);
     }
 
-    let only = root_module.config.lint_options.only.as_deref();
-    if fix
-        && relevant_diagnostics
-            .iter()
-            .chain(&checked.diagnostics)
-            .any(|diagnostic| {
-                migration_lint_code(diagnostic.code)
-                    .is_some_and(|code| lint_code_selected(only, Some(code)))
-            })
-    {
-        return LintWorkspaceRootWork::Complete(timings.time(Stage::Fix, || {
-            migrate_workspace_syntax(
-                workspace,
-                root,
-                &reachable,
-                linted_modules,
-                &checked.diagnostics,
-            )
-        }));
-    }
+    LintWorkspaceRootCheckWork::Ready(LintWorkspaceRootReady {
+        reachable,
+        relevant_diagnostics,
+        checked,
+    })
+}
 
+fn lint_checked_workspace_root(
+    workspace: &LintWorkspace,
+    root: &str,
+    ready: LintWorkspaceRootReady,
+    imported_module_ownership: ImportedModuleOwnership<'_>,
+    callable_edge_facts: &CallableEdgeFactStore,
+    timings: &StageTimings,
+) -> LintWorkspaceRootWork {
+    let LintWorkspaceRootReady {
+        reachable,
+        checked,
+        ..
+    } = ready;
+    let Some(root_module) = workspace.modules.get(root) else {
+        return LintWorkspaceRootWork::Complete(Vec::new());
+    };
     let checked = Arc::new(checked);
     let mut keys = reachable
         .iter()
@@ -722,10 +1024,7 @@ fn lint_workspace_root(
         };
         let collect_callable_edges = callable_edge_facts.claim(module.source_id);
         if key != root {
-            let mut linted_modules = linted_modules
-                .lock()
-                .expect("linted module set mutex poisoned");
-            if !linted_modules.insert(key.clone()) {
+            if !imported_module_ownership.includes(&key) {
                 if collect_callable_edges {
                     let view = workspace.module_view(&key);
                     let facts = collect_workspace_module_callable_edges(
@@ -2198,6 +2497,43 @@ mod tests {
     }
 
     #[test]
+    fn lint_module_owner_planning_skips_failed_roots_and_retains_prior_owners() {
+        let roots = ["a_entry.xsh", "b_entry.xsh", "c_entry.xsh"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let later_reachable = ["b_entry.xsh", "helper.xsh"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<rustc_hash::FxHashSet<_>>();
+        let last_reachable = ["c_entry.xsh", "helper.xsh"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<rustc_hash::FxHashSet<_>>();
+        let mut previously_owned = rustc_hash::FxHashSet::default();
+
+        let owners = super::plan_imported_module_owners(
+            &roots,
+            [(1, &later_reachable), (2, &last_reachable)],
+            &mut previously_owned,
+        );
+        assert_eq!(
+            owners[&1],
+            ["helper.xsh".to_string()]
+                .into_iter()
+                .collect::<rustc_hash::FxHashSet<_>>()
+        );
+        assert!(!owners.contains_key(&2));
+
+        let later_batch = super::plan_imported_module_owners(
+            &roots,
+            [(2, &last_reachable)],
+            &mut previously_owned,
+        );
+        assert!(!later_batch.contains_key(&2));
+    }
+
+    #[test]
     fn callable_edge_fact_store_claims_each_source_walk_once() {
         let source_id = SourceId::new(7);
         let needed = [source_id].into_iter().collect();
@@ -2262,6 +2598,149 @@ mod tests {
         for path in paths {
             assert_eq!(fs::read_to_string(path).unwrap(), source);
         }
+    }
+
+    #[test]
+    fn lint_workspace_reports_shared_import_diagnostics_under_stable_root() {
+        let fixture = TempDir::new().unwrap();
+        let module = fixture.path().join("helper.xsh");
+        let module_source =
+            "##! Helper.\n## Returns one.\nexport pure value() -> Int { return 1 }\n";
+        fs::write(&module, module_source).unwrap();
+
+        let first = fixture.path().join("a_entry.xsh");
+        let mut first_source = String::from("use helper\n");
+        for _ in 0..256 {
+            first_source.push_str("print 1\n");
+        }
+        first_source.push_str("pure first() -> Int { return 1 }\nprint first()\nprint helper.value()\n");
+        fs::write(&first, &first_source).unwrap();
+
+        let second = fixture.path().join("b_entry.xsh");
+        let second_source = "use helper\npure second() -> Int { return 2 }\nprint second()\nprint helper.value()\n";
+        fs::write(&second, second_source).unwrap();
+
+        let paths = [
+            first.to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+        ];
+        let discovery = discover_lint_files(
+            &paths,
+            &crate::xsht::cli::XshConfig::default(),
+        )
+        .unwrap();
+        let run = |available| {
+            let results = super::lint_workspace_with_parallelism(
+                &discovery,
+                false,
+                false,
+                &ConfigCache::default(),
+                available,
+                &StageTimings::start(),
+            );
+            results
+                .into_iter()
+                .flat_map(|result| match result.kind {
+                    LintResultKind::Clean => Vec::new(),
+                    LintResultKind::Diagnostics { status, diagnostics } => {
+                        assert_eq!(status, 1);
+                        diagnostics
+                            .into_iter()
+                            .map(|diagnostic| (diagnostic.key, diagnostic.text))
+                            .collect()
+                    }
+                    _ => panic!("read-only valid workspace must only return lint diagnostics"),
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let serial = run(1);
+        let parallel = run(4);
+        let source_keys = serial
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(serial.len(), 3, "{serial:?}");
+        assert!(serial
+            .iter()
+            .all(|(_, text)| text.contains("lint.redundant-tail-return")));
+        assert!(source_keys[0].contains("a_entry.xsh"), "{source_keys:?}");
+        assert!(source_keys[1].contains("helper.xsh"), "{source_keys:?}");
+        assert!(source_keys[2].contains("b_entry.xsh"), "{source_keys:?}");
+        assert_eq!(parallel, serial);
+        assert_eq!(fs::read_to_string(&module).unwrap(), module_source);
+        assert_eq!(fs::read_to_string(first).unwrap(), first_source);
+        assert_eq!(fs::read_to_string(second).unwrap(), second_source);
+    }
+
+    #[test]
+    fn lint_workspace_falls_back_after_earlier_root_check_error() {
+        let fixture = TempDir::new().unwrap();
+        let module = fixture.path().join("helper.xsh");
+        let module_source =
+            "##! Helper.\n## Returns one.\nexport pure value() -> Int { return 1 }\n";
+        fs::write(&module, module_source).unwrap();
+
+        let first = fixture.path().join("a_entry.xsh");
+        let first_source = "use helper\nlet invalid: Int = \"not an integer\"\n";
+        fs::write(&first, first_source).unwrap();
+        let second = fixture.path().join("b_entry.xsh");
+        let second_source =
+            "use helper\npure second() -> Int { return 2 }\nprint second()\nprint helper.value()\n";
+        fs::write(&second, second_source).unwrap();
+
+        let paths = [
+            first.to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+        ];
+        let discovery = discover_lint_files(
+            &paths,
+            &crate::xsht::cli::XshConfig::default(),
+        )
+        .unwrap();
+        let run = |available| {
+            super::lint_workspace_with_parallelism(
+                &discovery,
+                false,
+                false,
+                &ConfigCache::default(),
+                available,
+                &StageTimings::start(),
+            )
+            .into_iter()
+            .flat_map(|result| match result.kind {
+                LintResultKind::Clean => Vec::new(),
+                LintResultKind::Diagnostics { status, diagnostics } => diagnostics
+                    .into_iter()
+                    .map(|diagnostic| (status, diagnostic.key, diagnostic.text))
+                    .collect(),
+                _ => panic!("read-only valid workspace must only return lint diagnostics"),
+            })
+            .collect::<Vec<_>>()
+        };
+
+        let serial = run(1);
+        let parallel = run(4);
+        assert_eq!(serial, parallel);
+        assert!(serial.iter().any(|(status, key, _)| {
+            *status == 2 && key.contains("a_entry.xsh")
+        }), "{serial:?}");
+        let helper_findings = serial
+            .iter()
+            .filter(|(_, key, text)| {
+                key.contains("helper.xsh") && text.contains("lint.redundant-tail-return")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(helper_findings.len(), 1, "{serial:?}");
+        assert_eq!(helper_findings[0].0, 1, "{serial:?}");
+        assert!(serial.iter().any(|(status, key, text)| {
+            *status == 1
+                && key.contains("b_entry.xsh")
+                && text.contains("lint.redundant-tail-return")
+        }), "{serial:?}");
+        assert_eq!(fs::read_to_string(&module).unwrap(), module_source);
+        assert_eq!(fs::read_to_string(first).unwrap(), first_source);
+        assert_eq!(fs::read_to_string(second).unwrap(), second_source);
     }
 
     #[test]
