@@ -113,6 +113,167 @@ class PublicationRunnerTests(unittest.TestCase):
             "helper_sha256": runner.HELPER_SHA256,
         }
 
+    def candidate_run_fixture(self, name):
+        candidate = self.root / name
+        candidate.mkdir()
+        subprocess.run(["git", "-C", str(candidate), "init", "--quiet"], check=True)
+        subprocess.run(["git", "-C", str(candidate), "config", "user.name", "synthetic"], check=True)
+        subprocess.run(
+            ["git", "-C", str(candidate), "config", "user.email", "synthetic@example.invalid"], check=True
+        )
+        source = candidate / "source.xsh"
+        source.write_text("synthetic source\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(candidate), "add", "source.xsh"], check=True)
+        subprocess.run(["git", "-C", str(candidate), "commit", "--quiet", "-m", "initial source"], check=True)
+
+        work = candidate / ".work"
+        (candidate / ".git/info/exclude").write_text(".work/\n", encoding="utf-8")
+        helper = candidate / runner.HELPER_RELATIVE_PATH
+        helper.parent.mkdir(parents=True)
+        helper.write_bytes(b"synthetic pinned helper\n")
+        binary = work / "candidate-bin"
+        binary.write_bytes(b"synthetic executable\n")
+        binary.chmod(0o755)
+        wrapper = work / "native-test-wrapper"
+        wrapper.write_text(f"#!/bin/sh\n{runner.PINNED_IMAGE}\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+        build_receipt = work / "build.receipt"
+        build_receipt.write_text("synthetic build receipt\n", encoding="utf-8")
+
+        commit, tree = runner.source_identity(candidate)
+        record = self.candidate_receipt_fields()
+        record.update(
+            {
+                "candidate_root": str(candidate),
+                "candidate_commit": commit,
+                "candidate_tree": tree,
+                "candidate_binary": str(binary),
+                "candidate_binary_sha256": runner.sha256_file(binary),
+                "build_receipt": str(build_receipt),
+                "helper": str(helper),
+                "helper_sha256": runner.sha256_file(helper),
+                "wrapper": str(wrapper),
+                "wrapper_sha256": runner.sha256_file(wrapper),
+                "wrapper_root": str(candidate),
+                "runner": str(pathlib.Path(runner.__file__).resolve()),
+                "runner_sha256": runner.sha256_file(pathlib.Path(runner.__file__).resolve()),
+            }
+        )
+        return record, source, binary, work
+
+    def test_publication_finalization_rejects_candidate_drift_after_workers(self):
+        mutations = {
+            "dirty source": ("dirty", "candidate source worktree is dirty"),
+            "committed tree": ("tree", "candidate commit mismatch"),
+            "pinned binary": ("binary", "candidate test binary: SHA-256 mismatch"),
+        }
+        for name, (mutation, expected_error) in mutations.items():
+            with self.subTest(mutation=name):
+                record, source, binary, work = self.candidate_run_fixture(f"candidate-{mutation}")
+                receipt = self.root / f"{mutation}.receipt"
+                receipt.write_text("synthetic candidate receipt\n", encoding="utf-8")
+                output = work / f"publication-{mutation}"
+                statuses = []
+                args = SimpleNamespace(
+                    candidate_receipt=str(receipt),
+                    output=str(output),
+                    dry_run=False,
+                )
+                paths = {index: (f"file-{index}.xsh", "a" * 64) for index in range(4)}
+                reference = runner.ParsedReceipt((), paths, {}, ())
+
+                def claim_resources(_candidate_root, output_path, _completed):
+                    output_path.mkdir()
+                    return contextlib.nullcontext()
+
+                def launch(_record, output_path, worker, start, end, active, _environment):
+                    candidate_receipt = runner.candidate_receipt_path(output_path / "candidate", start, end)
+                    candidate_receipt.write_text("synthetic worker receipt\n", encoding="utf-8")
+                    job_dir = output_path / "jobs" / worker / f"{start}-{end}"
+                    job_dir.mkdir(parents=True)
+                    timing = job_dir / "timing.txt"
+                    timing.write_text("synthetic timing\n", encoding="utf-8")
+                    job = {
+                        "worker": worker,
+                        "start": start,
+                        "end": end,
+                        "receipt": candidate_receipt,
+                        "timing": timing,
+                        "log": job_dir / "worker.log",
+                        "process": SimpleNamespace(poll=lambda: 0),
+                        "output": io.BytesIO(),
+                    }
+                    active.append(job)
+                    return job
+
+                def mutate_during_bundle(*_args):
+                    if mutation == "dirty":
+                        source.write_text(source.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
+                    elif mutation == "tree":
+                        source.write_text(source.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
+                        subprocess.run(
+                            ["git", "-C", record["candidate_root"], "add", "source.xsh"], check=True
+                        )
+                        subprocess.run(
+                            [
+                                "git",
+                                "-C",
+                                record["candidate_root"],
+                                "commit",
+                                "--quiet",
+                                "-m",
+                                "concurrent source change",
+                            ],
+                            check=True,
+                        )
+                    else:
+                        binary.write_bytes(b"changed pinned executable\n")
+                    return "synthetic complete bundle"
+
+                with contextlib.ExitStack() as patches:
+                    patches.enter_context(patch.object(runner, "HELPER_SHA256", record["helper_sha256"]))
+                    patches.enter_context(patch.object(runner, "WRAPPER_SHA256", record["wrapper_sha256"]))
+                    patches.enter_context(patch.object(runner, "validate_wrapper_root"))
+                    patches.enter_context(
+                        patch.object(
+                            runner,
+                            "validate_build_receipt_binding",
+                            return_value=(pathlib.Path(record["build_receipt"]), record["build_receipt_sha256"]),
+                        )
+                    )
+                    patches.enter_context(patch.object(runner, "parse_candidate_receipt", return_value=record))
+                    patches.enter_context(
+                        patch.object(runner, "validate_all_inputs", return_value=(paths, {}, reference))
+                    )
+                    patches.enter_context(patch.object(runner, "require_output_path", return_value=output))
+                    patches.enter_context(patch.object(runner, "local_docker_environment", return_value={}))
+                    patches.enter_context(patch.object(runner, "claim_run_resources", side_effect=claim_resources))
+                    patches.enter_context(
+                        patch.object(
+                            runner,
+                            "write_status",
+                            side_effect=lambda _o, status, *_args: statuses.append(status),
+                        )
+                    )
+                    patches.enter_context(
+                        patch.object(
+                            runner,
+                            "expected_ranges",
+                            return_value=[(index, index + 1) for index in range(4)],
+                        )
+                    )
+                    patches.enter_context(patch.object(runner, "launch_job", side_effect=launch))
+                    patches.enter_context(patch.object(runner, "compare_shard"))
+                    patches.enter_context(patch.object(runner, "inspect_owned_containers", return_value=[]))
+                    patches.enter_context(
+                        patch.object(runner, "verify_receipt_bundle", side_effect=mutate_during_bundle)
+                    )
+                    patches.enter_context(patch.object(runner, "stop_jobs"))
+                    with self.assertRaisesRegex(runner.PublicationError, expected_error):
+                        runner.execute_run(args)
+
+                self.assertNotIn("complete", statuses)
+
     def test_cargo_artifact_selection_requires_one_integration_test_harness(self):
         binary = self.root / "integration-harness"
         binary.write_bytes(b"synthetic executable")

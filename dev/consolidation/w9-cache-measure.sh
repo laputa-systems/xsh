@@ -33,16 +33,18 @@ case "$build_receipt" in
   *) build_receipt="$xsh_root/$build_receipt" ;;
 esac
 laputa_root=$(cd -- "$3" && pwd -P)
-if [[ -n "$(git -C "$xsh_root" status --porcelain)" ]]; then
+if [[ -n "$(git -C "$xsh_root" status --porcelain --untracked-files=all)" ]]; then
   printf 'XSH source checkout must be clean before measurement\n' >&2
   exit 2
 fi
-if [[ -n "$(git -C "$laputa_root" status --porcelain)" ]]; then
+if [[ -n "$(git -C "$laputa_root" status --porcelain --untracked-files=all)" ]]; then
   printf 'Laputa source checkout must be clean before measurement\n' >&2
   exit 2
 fi
 xsh_commit=$(git -C "$xsh_root" rev-parse HEAD)
+xsh_tree=$(git -C "$xsh_root" rev-parse 'HEAD^{tree}')
 laputa_commit=$(git -C "$laputa_root" rev-parse HEAD)
+laputa_tree=$(git -C "$laputa_root" rev-parse 'HEAD^{tree}')
 "$script_dir/w9-cache-build.sh" verify "$xsht_bin" "$build_receipt"
 if [[ $# -eq 4 ]]; then
   output_dir=$4
@@ -76,8 +78,10 @@ mkdir -p -- "$output_dir"
 {
   printf 'xsh_root=%s\n' "$xsh_root"
   printf 'xsh_commit=%s\n' "$xsh_commit"
+  printf 'xsh_tree=%s\n' "$xsh_tree"
   printf 'laputa_root=%s\n' "$laputa_root"
   printf 'laputa_commit=%s\n' "$laputa_commit"
+  printf 'laputa_tree=%s\n' "$laputa_tree"
   printf 'xsht_bin=%s\n' "$xsht_bin"
   printf 'build_receipt=%s\n' "$build_receipt"
   printf 'commands=check .; lint .\n'
@@ -105,6 +109,23 @@ run_command() {
     fi
   fi
   printf '%s\n' "$status" > "$prefix.status"
+}
+
+verify_source_identity() {
+  local project_name=$1 project_root=$2 expected_commit=$3 expected_tree=$4
+  local actual_commit actual_tree status
+
+  if ! actual_commit=$(git -C "$project_root" rev-parse HEAD) ||
+      ! actual_tree=$(git -C "$project_root" rev-parse 'HEAD^{tree}') ||
+      ! status=$(git -C "$project_root" status --porcelain --untracked-files=all); then
+    printf '%s source identity could not be revalidated after measurement\n' "$project_name" >&2
+    return 1
+  fi
+  if [[ "$actual_commit" != "$expected_commit" || "$actual_tree" != "$expected_tree" || -n "$status" ]]; then
+    printf '%s source changed during measurement: start_commit=%s actual_commit=%s start_tree=%s actual_tree=%s status=%s\n' \
+      "$project_name" "$expected_commit" "$actual_commit" "$expected_tree" "$actual_tree" "$status" >&2
+    return 1
+  fi
 }
 
 compare_outputs() {
@@ -146,5 +167,12 @@ for project_name in xsh laputa; do
       | tee -a "$output_dir/summary.txt"
   done
 done
+
+identity_status=0
+verify_source_identity xsh "$xsh_root" "$xsh_commit" "$xsh_tree" || identity_status=1
+verify_source_identity laputa "$laputa_root" "$laputa_commit" "$laputa_tree" || identity_status=1
+if (( identity_status != 0 )); then
+  exit 1
+fi
 
 printf 'W9 cache measurement complete: %s\n' "$output_dir"

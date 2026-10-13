@@ -1966,6 +1966,7 @@ def execute_run(args: argparse.Namespace) -> None:
                     "owned Docker containers remained after the parity workers exited: " + ", ".join(remaining)
                 )
             summary = verify_receipt_bundle(reference, output / "candidate", paths_by_index, record["corpus_blake3"])
+            validate_candidate_files(record)
             write_status(output, "complete", completed, summary)
             print(summary)
         except BaseException as primary_error:
