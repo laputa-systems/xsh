@@ -195,7 +195,7 @@ test test_gnu_rm_ext3_perf_log { |ctx|
   let stats = fs.statvfs(s.root)?
   if stats.type_magic != 61267 { test.skip("requires ext3 or ext4"); return }
   if stats.files_free <= 480000 { test.skip("requires more than 480000 free inodes"); return }
-  let r = shell_run(s, ["-rf", "d"], r"""start=$(date +%s); mkdir d || exit; i=1; while [ "$i" -le 400000 ]; do : > "d/$i" || exit; i=$((i+1)); done; test -f d/1 && test -f d/400000 || exit; elapsed=$(($(date +%s)-start)); limit=60; [ "$elapsed" -le "$limit" ] || limit=$elapsed; exec timeout "${limit}s" "$@""" )?
+  let r = shell_run(s, ["-rf", "d"], r"""start=$(date +%s); mkdir d || exit; i=1; while [ "$i" -le 400000 ]; do : > "d/$i" || exit; i=$((i+1)); done; test -f d/1 && test -f d/400000 || exit; elapsed=$(($(date +%s)-start)); limit=60; [ "$elapsed" -le "$limit" ] || limit=$elapsed; exec timeout "${limit}s" "$@";""" )?
   uu.succeeds(r)
 }
 
