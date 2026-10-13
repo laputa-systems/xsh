@@ -66,7 +66,7 @@ pure exact_plain_decimal(text: Str, clamped: Int) -> Int {
 }
 
 pure assignment_separator(arg: Bytes) -> Int? {
-  for at in range(arg.len()) { if arg.byte_at(at) == 61 { return at } }
+  for at in range(arg.len()) { return at when arg.byte_at(at) == 61 }
   null
 }
 
@@ -118,7 +118,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
           if flag in ["lcase", "ucase", "swab", "sync", "block", "unblock", "notrunc", "nocreat", "ascii", "ebcdic", "ibm", "sparse"] { opts = {...opts, conv: opts.conv.extend([flag])} } else if flag in ["excl", "noerror", "fdatasync", "fsync"] { gnu.usage_error(f"unsupported conversion {gnu.quote(flag)}: native descriptor support required") } else {
             var start = key.byte_len() + 1
             for list_flag in text.split(",") {
-              if list_flag == flag { break }
+              break when list_flag == flag
               start += list_flag.byte_len() + 1
             }
             render_operand_error(argv, arg_index, f"invalid conversion: {gnu.quote(flag)}", start, flag.byte_len(), "not a known conversion", "conv= is one of ascii, ebcdic, ibm, lcase, ucase, block, unblock, swab, sync, noerror, sparse, excl, nocreat, notrunc, fdatasync or fsync", true, 1)
@@ -127,7 +127,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
           if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "iflag" and flag == "directory" { opts = {...opts, input_directory: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if key == "oflag" and flag == "append" { opts = {...opts, output_flags: opts.output_flags.extend([flag])} } else if flag in ["direct", "noatime", "dsync", "sync", "nofollow"] { opts = if key == "iflag" { {...opts, input_flags: opts.input_flags.extend([flag])} } else { {...opts, output_flags: opts.output_flags.extend([flag])} } } else if flag == "nocache" { opts = if key == "iflag" { {...opts, input_nocache: true} } else { {...opts, output_nocache: true} } } else if flag in ["directory", "append", "nonblock", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
             var start = key.byte_len() + 1
             for list_flag in text.split(",") {
-              if list_flag == flag { break }
+              break when list_flag == flag
               start += list_flag.byte_len() + 1
             }
             let direction = if key == "iflag" { "input" } else { "output" }
@@ -196,7 +196,7 @@ pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
     var start = 0
     for at in range(mapped.len() + 1) {
       if at == mapped.len() or mapped.byte_at(at) == 10 {
-        if at == mapped.len() and start == at { break }
+        break when at == mapped.len() and start == at
         let length = at - start
         if length > opts.cbs { truncated += 1 }
         let width = if length < opts.cbs { length } else { opts.cbs }
@@ -278,7 +278,7 @@ proc write_fd_all(fd: Int, data: Bytes) [process, net] -> WriteOutcome {
     guard let written = unix.write_fd(fd, data[offset..]) else { |failure|
       return {written: offset, failure: gnu.strerror(failure)}
     }
-    if written == 0 { return {written: offset, failure: "descriptor write made no progress"} }
+    return {written: offset, failure: "descriptor write made no progress"} when written == 0
     offset += written
   }
   {written: offset, failure: null}
@@ -291,7 +291,7 @@ pure all_zero(data: Bytes) -> Result[Bool] {
 }
 
 proc write_output_chunk(fd: Int, data: Bytes, offset: Int, sparse: Bool) [error, process, net] -> Result[WriteOutcome] {
-  if sparse and all_zero(data) { return Ok({written: data.len(), failure: null}) }
+  return Ok({written: data.len(), failure: null}) when sparse and all_zero(data)
   if sparse { let _ = unix.seek_fd(fd, offset)? }
   Ok(write_fd_all(fd, data))
 }
@@ -300,14 +300,14 @@ proc write_path_chunk(dest: Path, offset: Int, data: Bytes, create: Bool) [fs, p
   guard let written = bytes.write_at(dest, offset, data, create:) else { |failure|
     return {written: 0, failure: gnu.strerror(failure)}
   }
-  if written < data.len() { return {written: written, failure: "short file write"} }
+  return {written: written, failure: "short file write"} when written < data.len()
   {written: written, failure: null}
 }
 
 # Seeking the inherited descriptor preserves existing output bytes and lets the
 # kernel reject pipes before any input record is consumed.
 proc prepare_stdout_seek(offset: Int) [process] -> Result[Int] {
-  if offset == 0 { return Ok(0) }
+  return Ok(0) when offset == 0
   unix.seek_fd(1, offset, whence: "current")
 }
 
