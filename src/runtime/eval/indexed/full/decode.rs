@@ -717,8 +717,40 @@ wrapped_list!(super::LoweredRecordUpdates, Vec<(Vec<Name>, BuildExprId, Span)>);
 wrapped_list!(super::LoweredAssignPath, Vec<super::LoweredAssignStep>);
 wrapped_list!(super::LoweredCompQualifiers, Vec<super::LoweredCompQualifier>);
 
+macro_rules! test_field_cursor {
+    ($ty:ident { $($field:ident: $field_ty:ty),* $(,)? }) => {
+        #[cfg(test)]
+        impl $ty {
+            pub(super) fn field_cursor<'a>(
+                context: DecodeContext<'a>, mut input: FullCursor<'a>, name: &str,
+            ) -> Result<FullCursor<'a>, IrVerifyError> {
+                $(
+                    if name == stringify!($field) { return Ok(input); }
+                    <$field_ty>::borrow(context, &mut input)?;
+                )*
+                Err(IrVerifyError::new("payload field does not exist"))
+            }
+        }
+    };
+}
+
 macro_rules! struct_schema {
     ($ty:ident => $view:ident { $($field:ident: $field_ty:ty),* $(,)? }
+     $(with { $($omitted_field:ident: $omitted_value:expr),* $(,)? })?
+     $(validate |$decoder:ident, $value:ident| $validation:block)?, field_cursor) => {
+        struct_schema!(@define $ty => $view { $($field: $field_ty),* }
+            $(with { $($omitted_field: $omitted_value),* })?
+            $(validate |$decoder, $value| $validation)?);
+        test_field_cursor!($ty { $($field: $field_ty),* });
+    };
+    ($ty:ident => $view:ident { $($field:ident: $field_ty:ty),* $(,)? }
+     $(with { $($omitted_field:ident: $omitted_value:expr),* $(,)? })?
+     $(validate |$decoder:ident, $value:ident| $validation:block)?) => {
+        struct_schema!(@define $ty => $view { $($field: $field_ty),* }
+            $(with { $($omitted_field: $omitted_value),* })?
+            $(validate |$decoder, $value| $validation)?);
+    };
+    (@define $ty:ident => $view:ident { $($field:ident: $field_ty:ty),* $(,)? }
      $(with { $($omitted_field:ident: $omitted_value:expr),* $(,)? })?
      $(validate |$decoder:ident, $value:ident| $validation:block)?) => {
         pub(in crate::runtime::eval) struct $view<'a> {
@@ -730,18 +762,6 @@ macro_rules! struct_schema {
             fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
             -> Result<Self::View<'a>, IrVerifyError> {
                 Ok($view { $($field: <$field_ty>::borrow(context, input)?,)* program: PhantomData })
-            }
-        }
-        impl $ty {
-            #[cfg(test)]
-            pub(super) fn field_cursor<'a>(
-                context: DecodeContext<'a>, mut input: FullCursor<'a>, name: &str,
-            ) -> Result<FullCursor<'a>, IrVerifyError> {
-                $(
-                    if name == stringify!($field) { return Ok(input); }
-                    <$field_ty>::borrow(context, &mut input)?;
-                )*
-                Err(IrVerifyError::new("payload field does not exist"))
             }
         }
         impl FullCodec for $ty {
@@ -878,18 +898,18 @@ struct_schema!(LoweredProcessCommandArgv => ProcessCommandArgvView {
     timeout: Option<BuildExprId>, detach: Option<BuildExprId>, new_session: Option<BuildExprId>,
     ignore_hup: Option<BuildExprId>, cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
     same_group: Option<BuildExprId>, span: Span,
-});
+}, field_cursor);
 struct_schema!(LoweredRunCapture => RunCaptureView {
     kind: RunKind, target: Box<LoweredRunArg>, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>, timeout: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>, propagate: bool,
     assert_success: bool, span: Span,
-});
+}, field_cursor);
 struct_schema!(LoweredSpawnRun => SpawnRunView {
     target: Box<LoweredRunArg>, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>, timeout: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>, span: Span,
-});
+}, field_cursor);
 struct_schema!(LoweredTypeCheck => TypeCheckView {
     ty: Type, name: Arc<str>, schema: Option<Arc<super::super::super::require::PreparedSchema>>,
 } validate |decoder, check| {

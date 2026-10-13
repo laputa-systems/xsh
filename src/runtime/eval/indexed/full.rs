@@ -787,15 +787,6 @@ impl FullStore {
                 .saturating_sub(size_of::<SemanticPools>())
     }
 
-    #[cfg(test)]
-    fn driver_retained_bytes(&self) -> usize {
-        self.driver_steps.capacity() * size_of::<FullDriverStep>()
-            + self.driver_slots.capacity() * size_of::<FullDriverSlot>()
-            + self.driver_sync.capacity() * size_of::<FullDriverSync>()
-            + self.driver_regions.capacity() * size_of::<FullDriverRegion>()
-            + self.driver_programs.capacity() * size_of::<FullDriverProgram>()
-    }
-
     fn shrink_to_fit(&mut self) {
         self.tags.shrink_to_fit();
         self.resource_transfers.shrink_to_fit();
@@ -1815,15 +1806,6 @@ impl FullBuilder {
             }
         }
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub(in crate::runtime::eval) fn build(
-        units: &[LoweredFunctionUnit],
-        sources: Arc<SourceMap>,
-        source_id: SourceId,
-    ) -> Result<FullProgram, IrBuildError> {
-        Self::build_with_driver(units, None, sources, source_id)
     }
 
     #[cfg(test)]
