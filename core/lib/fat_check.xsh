@@ -119,7 +119,7 @@ proc directories(image: Path, initial: State) -> Result[State] {
       let chunk = image_io.read_region(image, base, length)?
       for index in range(chunk.len() / 32) {
         let at = base + index * 32
-        var entry = chunk.slice(index * 32, length: 32)
+        var entry = chunk[index * 32..(index + 1) * 32]
         let first = geom.byte(entry, 0)?
         if first == 0 { ended = true; break }
         if first == 229 { if ! parts.is_empty() { state = bad_lfn(image, state, parts)?; parts = [] }; continue }
@@ -218,7 +218,7 @@ export proc check(image: Path, repair = false) -> Result[Report, Error] {
   let loaded = image_io.load(image)?
   let layout = loaded.layout
   var boot = loaded.boot
-  var state: State = {layout, table: image_io.table(image, layout)?, changes: {}, owners: {}, issues: [], repaired: 0, unresolved: 0, repair, labels: []}
+  var state: State = State(layout:, table: image_io.table(image, layout)?, changes: {}, owners: {}, issues: [], repaired: 0, unresolved: 0, repair:, labels: [])
   if value(state, 0)? % 256 != geom.byte(boot, 21)? { state = issue(state, "FAT media descriptor differs from BPB", true); if repair { state.changes[0] = geom.eoc(layout) - 255 + geom.byte(boot, 21)? } }
   let flags = value(state, 1)?
   let mask = if layout.bits == 16 { 49152 } else if layout.bits == 32 { 201326592 } else { 0 }
@@ -232,7 +232,7 @@ export proc check(image: Path, repair = false) -> Result[Report, Error] {
   state = directories(image, state)?
   let label_at = if layout.bits == 32 { 71 } else { 43 }
   let root_label = if state.labels.is_empty() { b"NO NAME    " } else { state.labels[0].data }
-  if boot.slice(label_at, length: 11) != root_label { state = issue(state, "boot and root directory volume labels differ", true); if repair { boot = geom.replace(boot, label_at, root_label); image_io.write_region(image, 0, boot) } }
+  if boot[label_at..label_at + 11] != root_label { state = issue(state, "boot and root directory volume labels differ", true); if repair { boot = geom.replace(boot, label_at, root_label); image_io.write_region(image, 0, boot) } }
   for index in range(state.labels.len()) { if index > 0 { let offset = state.labels[index].offset; state = issue(state, f"duplicate root volume label at byte {offset}", true); if repair { image_io.write_region(image, offset, b"\xe5") } } }
   var lost = 0
   var first_lost = 0

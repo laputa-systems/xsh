@@ -1,14 +1,7 @@
 #!/bin/xsh
 use lib.gnu
-error AppletError = Usage : Usage
 
-pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
-}
-
-pure usage_error(applet_name: Str, summary: Str) -> Error {
-  AppletError.Usage(usage(applet_name, summary))
-}
+const CACHED_MODES = ["default", "never", "always"]
 
 pure file_type_name(kind: Str) -> Str {
   match kind {
@@ -316,7 +309,7 @@ proc stat_terse(meta: FsStat, name: Bytes) [fs, env] -> Bytes {
   bytes.concat([stat_quote_bytes(name), bytes.from_text(f" {meta.size} {meta.blocks_512} {hex(meta.mode)} {meta.uid} {meta.gid} {hex(meta.dev)} {meta.ino} {meta.nlink} {hex(fs.dev_major(meta.rdev))} {hex(fs.dev_minor(meta.rdev))} {meta.atime_ns / 1000000000} {meta.mtime_ns / 1000000000} {meta.ctime_ns / 1000000000} {(meta.birth_ns ?? 0) / 1000000000} {meta.blksize}")])
 }
 
-proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, env, error] -> FormatResult {
+proc render_fs_format(fmt: Str, target: Path, name: Bytes) [fs, env, error] -> FormatResult {
   let stats = fs.statvfs(target)?
   let resolved = target.resolve()?
   let mount = fs.mount_for(resolved)?
@@ -411,8 +404,8 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       } else if escape == "\"" {
         output = bytes.concat([output, b"\""])
       } else if escape in ["a", "b", "f", "n", "r", "t", "v", "\\"] {
-        let byte = if escape == "a" { 7 } else if escape == "b" { 8 } else if escape == "f" { 12 } else if escape == "n" { 10 } else if escape == "r" { 13 } else if escape == "t" { 9 } else if escape == "v" { 11 } else { 92 }
-        output = bytes.concat([output, bytes.from_ints([byte])?])
+        let escaped_byte = if escape == "a" { 7 } else if escape == "b" { 8 } else if escape == "f" { 12 } else if escape == "n" { 10 } else if escape == "r" { 13 } else if escape == "t" { 9 } else if escape == "v" { 11 } else { 92 }
+        output = bytes.concat([output, bytes.from_ints([escaped_byte])?])
       } else if escape == "x" {
         var digits = 0
         var value = 0
@@ -556,8 +549,8 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       output = bytes.concat([output, bytes.from_text(value)])
     } else if specifier == "n" and precision != null {
       let size = precision
-      let length = if size < name.len() { size } else { name.len() }
-      output = bytes.concat([output, name[..length]])
+      let clipped_length = if size < name.len() { size } else { name.len() }
+      output = bytes.concat([output, name[..clipped_length]])
     } else if specifier == "n" {
       output = bytes.concat([output, pad_stat_bytes(name, width, left)])
     } else if specifier in ["N", "Qn"] {
@@ -573,8 +566,6 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
 }
 
 type StatOptions = {format: Str, printf: Str?, file_system: Bool, terse: Bool, dereference: Bool, cached: List[Str], help: Bool, version: Bool, paths: List[Str]}
-
-const CACHED_MODES = ["default", "never", "always"]
 
 pure valid_stat_quote_style(style: Str) -> Bool {
   style in ["literal", "shell", "shell-always", "shell-escape", "shell-escape-always", "c", "escape", "locale", "clocale"]
@@ -652,14 +643,14 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
       }
       let mount = fs.mount_for(target.resolve()?)?
       if terse {
-        let selected = if format != "" or printf != null { render_fs_format(fmt, target, item_bytes, printf != null) } else {
+        let selected = if format != "" or printf != null { render_fs_format(fmt, target, item_bytes) } else {
           {output: bytes.concat([stat_quote_bytes(item_bytes), bytes.from_text(f" {filesystem_id(stats.fsid)} {stats.name_max} {hex(stats.type_magic ?? 0)} {stats.block_size} {stats.fragment_size} {stats.blocks} {stats.blocks_free} {stats.blocks_available} {stats.files} {stats.files_free}")]), invalid: null, warnings: []}
         }
         gnu.write_bytes(selected.output)
         if printf == null and selected.invalid == null { gnu.write_bytes(b"\n") }
         if let invalid = selected.invalid { report_format_error(prepared.text, fmt, printf != null, invalid); exit 1 }
       } else if format != "" or printf != null {
-        let rendered = render_fs_format(fmt, target, item_bytes, printf != null)
+        let rendered = render_fs_format(fmt, target, item_bytes)
         gnu.write_bytes(rendered.output)
         if printf == null and rendered.invalid == null { gnu.write_bytes(b"\n") }
         if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, printf != null, invalid); exit 1 }

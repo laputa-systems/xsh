@@ -44,7 +44,7 @@ pure pattern_label(data: Bytes) -> Str {
 # every pass uses random data.
 pure pass_patterns(passes: Int) -> List[Bytes] {
   var sequence = []
-  if passes <= 3 { for _ in range(passes) { sequence += [b""] }; return sequence }
+  if passes <= 3 { repeat passes times { sequence += [b""] }; return sequence }
   let patterns = [b"\xff\xff\xff", b"\x92\x49\x24", b"\x88\x88\x88", b"\xdb\x6d\xb6", b"\x77\x77\x77", b"\x49\x24\x92", b"\xbb\xbb\xbb", b"\x55\x55\x55", b"\xaa\xaa\xaa", b"\x6d\xb6\xdb", b"\x24\x92\x49", b"\x99\x99\x99", b"\x11\x11\x11", b"\x00\x00\x00", b"\xb6\xdb\x6d", b"\xee\xee\xee", b"\x33\x33\x33", b"\x22\x22\x22", b"\x44\x44\x44", b"\x66\x66\x66", b"\xcc\xcc\xcc", b"\xdd\xdd\xdd"]
   let randoms = if passes / 10 > 3 { passes / 10 } else { 3 }
   let count = passes - randoms
@@ -52,7 +52,7 @@ pure pass_patterns(passes: Int) -> List[Bytes] {
   var added = 0
   for section in range(randoms - 1) {
     let length = count / (randoms - 1) + (if section < count % (randoms - 1) { 1 } else { 0 })
-    for _ in range(length) { sequence += [patterns[added % patterns.len()]]; added += 1 }
+    repeat length times { sequence += [patterns[added % patterns.len()]]; added += 1 }
     if section < randoms - 2 { sequence += [b""] }
   }
   sequence += [b""]

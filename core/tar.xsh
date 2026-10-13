@@ -83,7 +83,7 @@ pure field_end(block: Bytes, start: Int, length: Int) -> Int {
 
 pure text_field(block: Bytes, start: Int, length: Int) -> Result[Str] {
   let end = field_end(block, start, length)
-  block.slice(start, end - start).utf8()
+  block[start..end].utf8()
 }
 
 # Numeric fields are octal digits, optionally preceded by spaces and ended by NUL or a space.
@@ -160,7 +160,7 @@ pure join_prefix(prefix: Str, base: Str) -> Str {
 
 pure body_bytes(data: Bytes, start: Int, size: Int) -> Result[Bytes] {
   return Err(TarError.Invalid("short read")) when size > data.len() - start
-  Ok(data.slice(start, size))
+  Ok(data[start..start + size])
 }
 
 pure body_text(data: Bytes, start: Int, size: Int) -> Result[Str] {
@@ -187,7 +187,7 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
       }
 
       return Err(TarError.Invalid("short read")) when remaining < BLOCK
-      let block = data.slice(position, BLOCK)
+      let block = data[position..position + BLOCK]
       position += BLOCK
       if is_zero_block(block) {
         break when after_zero
@@ -196,7 +196,7 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
       }
 
       after_zero = false
-      return Err(TarError.Invalid("invalid tar magic")) when block.slice(257, 5) != b"ustar"
+      return Err(TarError.Invalid("invalid tar magic")) when block[257..262] != b"ustar"
       if octal_field(block, 148, 8)? != header_sum(block) {
         return Err(TarError.Invalid("invalid tar header checksum"))
       }
@@ -218,7 +218,7 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
         continue
       }
 
-      let prefix = if block.slice(257, 5) == b"ustar" { text_field(block, 345, PREFIX_FIELD)? } else { "" }
+      let prefix = if block[257..262] == b"ustar" { text_field(block, 345, PREFIX_FIELD)? } else { "" }
       let base = text_field(block, 0, NAME_FIELD)?
       let joined = if prefix == "" { base } else { join_prefix(prefix, base) }
       let name = overrides.path ?? long_name ?? joined
@@ -349,8 +349,8 @@ pure permission(mode: Int, bit: Int, letter: Str) -> Str {
 }
 
 # Execute bits also carry the setuid, setgid and sticky markers.
-pure execute_char(mode: Int, execute: Int, special: Int, special_set: Str, special_unset: Str) -> Str {
-  let executable = mode.bit_and(execute) != 0
+pure execute_char(mode: Int, execute_mask: Int, special: Int, special_set: Str, special_unset: Str) -> Str {
+  let executable = mode.bit_and(execute_mask) != 0
   if mode.bit_and(special) != 0 {
     if executable { special_set } else { special_unset }
   } else if executable {
@@ -465,7 +465,7 @@ proc extract_one(member: Member, target: Path, root: Path, data: Bytes, opts: Op
   return Ok(null) unless prepare_destination(target, opts)
   match member.kind {
     "file" => {
-      target.write(data.slice(member.data, member.size))
+      target.write(data[member.data..member.data + member.size])
       target.chmod(member.mode.bit_and(0o7777))
       fs.set_times(target, mtime_ns: member.mtime * NANOS, follow_symlinks: false)
     }
@@ -487,7 +487,7 @@ proc extract_members(opts: Options) [fs, io, error, process, env] {
       let stripped = strip_components(name, opts.strip)
       continue when stripped == ""
       if opts.to_stdout {
-        if member.kind == "file" { gnu.write_bytes(data.slice(member.data, member.size)) }
+        if member.kind == "file" { gnu.write_bytes(data[member.data..member.data + member.size]) }
         continue
       }
       if opts.verbose { print $member.name }

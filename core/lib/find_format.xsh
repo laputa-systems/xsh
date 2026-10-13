@@ -197,8 +197,6 @@ export pure mode_text(kind: Str, mode: Int) -> Str {
   out
 }
 
-pure two(value: Int) -> Str { if value < 10 { f"0{value}" } else { f"{value}" } }
-
 # Whole-second part of a nanosecond timestamp, rounding toward negative infinity.
 pure seconds_of(ns: Int) -> Int {
   if ns >= 0 { ns / NANOS } else { 0 - (0 - ns + NANOS - 1) / NANOS }

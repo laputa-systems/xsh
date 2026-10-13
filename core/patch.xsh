@@ -230,12 +230,6 @@ proc file_exists(name: Str) [fs] -> Bool {
   }
 }
 
-# The patched file's content as bytes, or empty when it does not exist.
-proc read_input(name: Str) [fs, error] -> Result[Bytes, Error] {
-  return Ok(b"") unless file_exists(name)
-  fp"{name}".read_bytes()
-}
-
 # GNU patch prints its own prefix before the usage hint, which the option
 # parser's message lacks.
 proc usage_failure(message: Str) [process, env, io] {
@@ -443,17 +437,14 @@ proc crosses_symlink(name: Str) [fs, error] -> Bool {
   for index in range(parts.len() - 1) {
     prefix = if prefix == "" { parts[index] } else { prefix + "/" + parts[index] }
     continue when prefix == ""
-    match fs.stat(fp"{prefix}", follow_symlinks: false) {
-      Ok(info) => {
-        if info.kind == "symlink" {
-          # A link that stays inside the tree is followed; one that points
-          # elsewhere makes the name invalid.
-          let destination = fp"{prefix}".readlink()?.display()
-          return true when destination.starts_with("/")
-          for part in destination.split("/") { return true when part == ".." }
-        }
+    if let Ok(info) = fs.stat(fp"{prefix}", follow_symlinks: false) {
+      if info.kind == "symlink" {
+        # A link that stays inside the tree is followed; one that points
+        # elsewhere makes the name invalid.
+        let destination = fp"{prefix}".readlink()?.display()
+        return true when destination.starts_with("/")
+        for part in destination.split("/") { return true when part == ".." }
       }
-      Err(_) => {}
     }
   }
   false
@@ -502,7 +493,7 @@ proc one_patch(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sca
     action = "copied"
     found = true
   } else if let given = named { chosen = given; found = true } else {
-    var best: Candidate = Candidate(name: "", exists: false)
+    var best: Candidate = Candidate("", false)
     var have = false
     for candidate in candidates {
       if !have or better(candidate, best) { best = candidate; have = true }
@@ -609,11 +600,11 @@ pure read_one(lines: List[Bytes], position: Int, kind: Str, strip_cr: Bool) -> p
 pure contains_word(content: Bytes, word: Str) -> Bool {
   let text = content.utf8() ?? ""
   let wanted = bytes.from_text(word)
+  let raw = bytes.from_text(text)
   var from = 0
-  loop {
+  while from <= raw.len() {
     let at = text.find(word, from) ?? -1
-    return false when at < 0
-    let raw = bytes.from_text(text)
+    break when at < 0
     let end = at + wanted.len()
     let before = if at == 0 { 32 } else { raw.byte_at(at - 1) ?? 32 }
     let after = if end >= raw.len() { 32 } else { raw.byte_at(end) ?? 32 }
@@ -1115,11 +1106,11 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
       if let name = opts.ifdef {
         # Merged output: the old text under #ifndef, the new under #else.
         if !removed.is_empty() and !added.is_empty() {
-          output += [bytes.from_text(f"#ifndef {name}\n")] + removed + [b"#else\n"] + added + [b"#endif\n"]
+          output += [bytes.from_text(f"#ifndef {name}\n"), @removed, b"#else\n", @added, b"#endif\n"]
         } else if !added.is_empty() {
-          output += [bytes.from_text(f"#ifdef {name}\n")] + added + [b"#endif\n"]
+          output += [bytes.from_text(f"#ifdef {name}\n"), @added, b"#endif\n"]
         } else {
-          output += [bytes.from_text(f"#ifndef {name}\n")] + removed + [b"#endif\n"]
+          output += [bytes.from_text(f"#ifndef {name}\n"), @removed, b"#endif\n"]
         }
       } else {
         output += added

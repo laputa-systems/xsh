@@ -23,6 +23,7 @@ const FS_IMMUTABLE = 16
 const VARIABLE_FILE = rx"^[^/-]+-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
 const VARIABLE_NAME = rx"^[A-Za-z0-9]+$"
 const HEX_DIGITS = rx"^[0-9A-Fa-f]+$"
+const KERNEL_STORE_DIR = "/sys/firmware/efi/efivars"
 
 ## A validated variable directory. Only `open_store` builds one, so every write
 ## below lands in a directory that was checked to be efivarfs-shaped.
@@ -79,9 +80,6 @@ export pure hex_bytes(data: Bytes) -> Str {
   words.join(" ")
 }
 
-# Where the kernel exposes firmware variables on a UEFI boot.
-const KERNEL_STORE_DIR = "/sys/firmware/efi/efivars"
-
 ## The directory holding the variables: `EFIVARFS_PATH` when set, so a fixture
 ## or an alternate mount can stand in, and the kernel's location otherwise.
 export proc store_dir() [env] -> Path {
@@ -134,7 +132,7 @@ export proc read_variable(store: Store, name: Str) [fs, error] -> Result[Variabl
 
   let raw = file.read_bytes()?
   guard raw.len() >= 4 else { return Err(error.failure(f"variable {name} is shorter than its attribute prefix")) }
-  Ok({name: name, attributes: bytes.unpack_le(raw, 4)?, data: raw.slice(4)})
+  Ok({name: name, attributes: bytes.unpack_le(raw, 4)?, data: raw[4..]})
 }
 
 # Filesystems without inode flags (a fixture directory) answer ENOTTY or
@@ -404,7 +402,7 @@ export pure parse_path(data: Bytes) -> Result[List[Node], Error] {
       guard length >= 4 and at + length <= data.len() else {
         return Err(error.failure("device path node length is invalid"))
       }
-      yield {kind: kind, subtype: subtype, data: data.slice(at + 4, length: length - 4)}
+      yield {kind: kind, subtype: subtype, data: data[at + 4..at + length]}
       at += length
       break when kind == 127 and subtype == 255
     }
@@ -477,8 +475,8 @@ export pure parse_load_option(data: Bytes) -> Result[LoadOption, Error] {
   Ok({
     attributes: attributes,
     description: text_from_units(described.units)?,
-    path: parse_path(data.slice(described.next, length: path_length))?,
-    data: data.slice(path_end),
+    path: parse_path(data[described.next..path_end])?,
+    data: data[path_end..],
   })
 }
 

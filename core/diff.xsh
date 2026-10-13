@@ -5,6 +5,9 @@ use lib.gnudiff
 use lib.search
 use lib.textio_a1 as tio
 
+const DEVICE_LIMIT = 67108864
+const FORMAT_LONGS = ["ifdef", "line-format", "old-line-format", "new-line-format", "unchanged-line-format", "old-group-format", "new-group-format", "changed-group-format", "unchanged-group-format"]
+
 const HELP = """Usage: diff [OPTION]... FILES
 Compare FILES line by line.
 
@@ -456,8 +459,6 @@ error DeviceError = TooLarge(message: Str)
 # The most a device operand may supply: comparing an endless device such as
 # /dev/zero cannot finish, so it stops with an error rather than exhausting
 # memory.
-const DEVICE_LIMIT = 67108864
-
 # Read a character or block device in chunks until it ends or passes the limit.
 proc read_device(name: Str) [fs, io, error] -> Result[Bytes, Error] {
   let source = tio.open_source(name)?
@@ -628,8 +629,8 @@ proc compare_known(cfg: Settings, left: Probe, right: Probe, entry: Bool, trail:
       gnu.write_text(f"{noun} special files {gnu.quote(left.name)} {device_numbers(left.rdev)} and {gnu.quote(right.name)} {device_numbers(right.rdev)} differ\n")
       return 1
     }
-    let first_kind: Probe = {...left, kind: left_kind}
-    let second_kind: Probe = {...right, kind: right_kind}
+    let first_kind: Probe = Probe(name: left.name, kind: left_kind, size: left.size, identity: left.identity, target: left.target, mtime_ns: left.mtime_ns, rdev: left.rdev)
+    let second_kind: Probe = Probe(name: right.name, kind: right_kind, size: right.size, identity: right.identity, target: right.target, mtime_ns: right.mtime_ns, rdev: right.rdev)
     gnu.write_text(f"File {left_shown} is a {type_name(first_kind)} while file {right_shown} is a {type_name(second_kind)}\n")
     return 1
   }
@@ -839,9 +840,6 @@ pure regex_problem(pattern: Str) -> Str? {
   return "Unmatched ( or \\(" when depth > 0
   null
 }
-
-# Every long option name, for resolving an abbreviation in the typed words.
-const FORMAT_LONGS = ["ifdef", "line-format", "old-line-format", "new-line-format", "unchanged-line-format", "old-group-format", "new-group-format", "changed-group-format", "unchanged-group-format"]
 
 # The merged-file options in the order they were typed: canonical name (`-D`
 # for the short and long forms of `--ifdef`) and value. Abbreviated long names

@@ -72,7 +72,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     } else if opts.canonical or opts.existing or opts.missing {
       match Path.parse_bytes(name)?.resolve() { Ok(resolved_path) => Ok(resolved_path.bytes()), Err(failure) => Err(failure) }
     } else { link_value(name) }
-    if let Ok(value) = value { gnu.write_bytes(bytes.concat([value, bytes.from_text(ending)])) } else if let Err(failure) = value { failed = true; if verbose { gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}") } }
+    if let Ok(output_bytes) = value { gnu.write_bytes(bytes.concat([output_bytes, bytes.from_text(ending)])) } else if let Err(failure) = value { failed = true; if verbose { gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}") } }
   }
   if failed { exit 1 }
 }

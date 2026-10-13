@@ -37,7 +37,7 @@ pure dirname_value(name: Bytes) -> Bytes {
   while end > 0 and name.byte_at(end - 1) != 47 { end -= 1 }
   return b"." when end == 0
   while end > 0 and name.byte_at(end - 1) == 47 { end -= 1 }
-  if end == 0 { b"/" } else { name.slice(0, length: end) }
+  if end == 0 { b"/" } else { name[..end] }
 }
 
 proc main(...argv: List[Bytes]) [process, env, error, io] {

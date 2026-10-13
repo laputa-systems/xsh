@@ -48,7 +48,7 @@ pure parent_operand(name: Bytes) -> Bytes? {
   return null when at == 0
   var slash = at - 1
   while slash > 0 and name.byte_at(slash) == 47 { slash -= 1 }
-  name.slice(0, length: slash + 1)
+  name[..slash + 1]
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {

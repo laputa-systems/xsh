@@ -119,7 +119,7 @@ export proc format(image: Path, size: UInt, bits: UInt = 0, sector: UInt = 512, 
   var offset = 0
   while offset < clear_length {
     let length = if clear_length - offset < 65536 { clear_length - offset } else { 65536 }
-    image_io.write_region(image, offset, zeroes.slice(0, length:))
+    image_io.write_region(image, offset, zeroes[..length])
     offset += length
   }
   var boot = bytes.zero(layout.sector)?
@@ -179,7 +179,7 @@ export proc inspect(image: Path) -> Result[Info, Error] {
     break when ended
     let chunk = image_io.read_region(image, offset, image_io.root_length(loaded.layout))?
     for index in range(chunk.len() / 32) {
-      let entry = chunk.slice(index * 32, length: 32)
+      let entry = chunk[index * 32..(index + 1) * 32]
       let first = geom.byte(entry, 0)?
       if first == 0 { ended = true; break }
       if first != 229 and geom.byte(entry, 11)? == 8 {
@@ -205,7 +205,7 @@ export proc label(image: Path, label: Str? = null) -> Result[Str, Error] {
   for offset in image_io.root_offsets(layout, table)? {
     let chunk = image_io.read_region(image, offset, image_io.root_length(layout))?
     for index in range(chunk.len() / 32) {
-      let entry = chunk.slice(index * 32, length: 32)
+      let entry = chunk[index * 32..(index + 1) * 32]
       let first = geom.byte(entry, 0)?
       if ended or first in [0, 229] { if slot == null { slot = offset + index * 32 }; if first == 0 { ended = true } } else if geom.byte(entry, 11)? == 8 { labels += [offset + index * 32] }
     }
@@ -213,7 +213,7 @@ export proc label(image: Path, label: Str? = null) -> Result[Str, Error] {
   var chosen = slot
   if ! labels.is_empty() { chosen = labels[0] }
   guard let offset = chosen else { return Err(error.failure("root directory has no free volume-label entry")) }
-  let entry = bytes.concat([if label == "" { bytes.concat([b"\xe5", name.slice(1)]) } else { name }, b"\x08", bytes.zero(20)?])
+  let entry = bytes.concat([if label == "" { bytes.concat([b"\xe5", name[1..]]) } else { name }, b"\x08", bytes.zero(20)?])
   image_io.write_region(image, offset, entry)
   for index in range(labels.len()) { if index > 0 { image_io.write_region(image, labels[index], b"\xe5") } }
   let boot = geom.replace(loaded.boot, if layout.bits == 32 { 71 } else { 43 }, if label == "" { b"NO NAME    " } else { name })

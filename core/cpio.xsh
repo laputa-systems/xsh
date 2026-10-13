@@ -406,7 +406,7 @@ proc ascii_number(data: Bytes, at: Int, digits: Int, bits: Int) [process, env] -
   while true {
     let digit = hex_digit(data.byte_at(position) ?? 0)
     if digit < 0 {
-      let field = data.slice(at, digits).utf8() ?? "?"
+      let field = data[at..at + digits].utf8() ?? "?"
       gnu.error(f"Malformed number {field}")
       break
     }
@@ -420,7 +420,7 @@ proc ascii_number(data: Bytes, at: Int, digits: Int, bits: Int) [process, env] -
 
 # The common case is a field of well-formed digits, parsed in one step.
 proc hex_field(data: Bytes, at: Int) [process, env] -> Int {
-  let text = data.slice(at, 8).utf8() ?? ""
+  let text = data[at..at + 8].utf8() ?? ""
   if rx"^[0-9A-Fa-f]{8}$".matches(text) {
     f"0x{text}".parse_int() ?? 0
   } else {
@@ -429,7 +429,7 @@ proc hex_field(data: Bytes, at: Int) [process, env] -> Int {
 }
 
 proc octal_field(data: Bytes, at: Int, digits: Int) [process, env] -> Int {
-  let text = data.slice(at, digits).utf8() ?? ""
+  let text = data[at..at + digits].utf8() ?? ""
   if rx"^[0-7]+$".matches(text) {
     f"0o{text}".parse_int() ?? 0
   } else {
@@ -509,7 +509,7 @@ pure kind_bits(mode: Int) -> Int {
 
 # The format named by the first bytes of an archive, or "" when none matches.
 pure detect_format(data: Bytes, at: Int) -> Str {
-  let head = data.slice(at, 6)
+  let head = data[at..at + 6]
   if head == b"070701" {
     "newc"
   } else if head == b"070707" {
@@ -525,9 +525,9 @@ pure detect_format(data: Bytes, at: Int) -> Str {
 
 pure magic_matches(data: Bytes, at: Int, format: Str) -> Bool {
   match format {
-    "newc" => data.slice(at, 6) == b"070701"
-    "crc" => data.slice(at, 6) == b"070702"
-    "odc" | "hpodc" => data.slice(at, 6) == b"070707"
+    "newc" => data[at..at + 6] == b"070701"
+    "crc" => data[at..at + 6] == b"070702"
+    "odc" | "hpodc" => data[at..at + 6] == b"070707"
     else => word_at(data, at, false) == 0o070707 or word_at(data, at, true) == 0o070707
   }
 }
@@ -544,7 +544,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
       let message = if known == "" { "premature end of archive" } else { "premature end of file" }
       fail .Fatal(message)
     }
-    if known == "" and data.len() - position >= 512 and data.slice(position + 257, 5) == b"ustar" and detect_format(data, position) == "" {
+    if known == "" and data.len() - position >= 512 and data[position + 257..position + 262] == b"ustar" and detect_format(data, position) == "" {
       fail .Fatal("tar and ustar archives are not supported")
     }
     if format == "" {
@@ -640,14 +640,14 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
     guard data.len() - cursor >= name_size else {
       fail .Fatal("premature end of file")
     }
-    let raw = data.slice(cursor, name_size)
+    let raw = data[cursor..cursor + name_size]
     cursor += name_size
     if raw.byte_at(name_size - 1) != 0 {
       gnu.error("malformed header: file name is not nul-terminated")
       usable = false
       name_size = 0
     } else {
-      name = raw.slice(0, name_size - 1)
+      name = raw[0..name_size - 1]
     }
   }
   if format == "newc" or format == "crc" {
@@ -713,7 +713,7 @@ proc encode_header(format: Str, header: Header, truncate_warnings: Bool) [proces
     let magic = if format == "crc" { "070702" } else { "070701" }
     let text = f"{magic}{hex_text(header.ino)}{hex_text(header.mode)}{hex_text(header.uid)}{hex_text(header.gid)}{hex_text(header.nlink)}{hex_text(header.mtime)}{hex_text(header.size)}{hex_text(header.dev_major)}{hex_text(header.dev_minor)}{hex_text(header.rdev_major)}{hex_text(header.rdev_minor)}{hex_text(name_size)}{hex_text(header.checksum)}"
     let pad = padding(format, NEWC_HEADER + name_size)
-    return bytes.concat([bytes.from_text(text), name, ZERO_PAD.slice(0, 1 + pad)])
+    return bytes.concat([bytes.from_text(text), name, ZERO_PAD[0..1 + pad]])
   }
   let dev = make_device(header.dev_major, header.dev_minor)
   let rdev = make_device(header.rdev_major, header.rdev_minor)
@@ -792,7 +792,7 @@ proc encode_header(format: Str, header: Header, truncate_warnings: Bool) [proces
     header.mtime / 65536, header.mtime % 65536, name_size, stored_size / 65536, stored_size % 65536,
   ]
   var chunks: List[Bytes] = [le_word(word) for word in words]
-  chunks += [name, ZERO_PAD.slice(0, 1 + name_size % 2)]
+  chunks += [name, ZERO_PAD[0..1 + name_size % 2]]
   bytes.concat(chunks)
 }
 
@@ -823,8 +823,8 @@ pure safer_name(name: Bytes, absolute: Bool, strip_dots: Bool) -> Safer {
     start = cut
     while start < total and name.byte_at(start) == 47 { start += 1 }
   }
-  let prefix = name.slice(0, start)
-  var rest = name.slice(start, name.len() - start)
+  let prefix = name[0..start]
+  var rest = name[start..]
   var substituted = false
   if rest.is_empty() {
     substituted = start == 0
@@ -834,7 +834,7 @@ pure safer_name(name: Bytes, absolute: Bool, strip_dots: Bool) -> Safer {
     while rest.byte_at(0) == 46 and rest.byte_at(1) == 47 {
       var skip = 1
       while rest.byte_at(skip) == 47 { skip += 1 }
-      rest = rest.slice(skip, rest.len() - skip)
+      rest = rest[skip..]
     }
   }
   {name: rest, prefix: prefix, substituted: substituted}
@@ -863,7 +863,7 @@ proc safe_name(st: Run, name: Bytes, absolute: Bool, strip_dots: Bool) [process,
 pure strip_trailing_slashes(name: Bytes) -> Bytes {
   var length = name.len()
   while length > 1 and name.byte_at(length - 1) == 47 { length -= 1 }
-  name.slice(0, length)
+  name[0..length]
 }
 
 # Splits a name list read from standard input; the last name needs no
@@ -884,12 +884,12 @@ pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
     let names = collect {
       for index in range(data.len()) {
         if data.byte_at(index) == terminator {
-          yield cut_at_nul(data.slice(begin, index - begin))
+          yield cut_at_nul(data[begin..index])
           begin = index + 1
         }
       }
   
-      yield cut_at_nul(data.slice(begin, data.len() - begin)) when begin < data.len()
+      yield cut_at_nul(data[begin..]) when begin < data.len()
     }
     names
   }
@@ -897,7 +897,7 @@ pure split_names(data: Bytes, terminator: Int) -> List[Bytes] {
 
 pure cut_at_nul(name: Bytes) -> Bytes {
   for index in range(name.len()) {
-    return name.slice(0, index) when name.byte_at(index) == 0
+    return name[0..index] when name.byte_at(index) == 0
   }
   name
 }
@@ -947,7 +947,7 @@ pure bracket_match(pattern: Bytes, start: Int, byte: Int) -> Bracket {
       var close = at + 2
       while close + 1 < pattern.len() and ! (pattern.byte_at(close) == 58 and pattern.byte_at(close + 1) == 93) { close += 1 }
       if close + 1 < pattern.len() {
-        let name = pattern.slice(at + 2, close - at - 2).utf8() ?? ""
+        let name = pattern[at + 2..close].utf8() ?? ""
         if class_matches(name, byte) { matched = true }
         at = close + 2
         continue
@@ -1063,10 +1063,10 @@ pure triad(mode: Int, shift: Int, special: Int, set_letter: Str, unset_letter: S
   let bits = mode / divisor % 8
   let read = if bits.bit_and(4) != 0 { "r" } else { "-" }
   let write = if bits.bit_and(2) != 0 { "w" } else { "-" }
-  let execute = bits.bit_and(1) != 0
+  let executable = bits.bit_and(1) != 0
   let last = if mode.bit_and(special) != 0 {
-    if execute { set_letter } else { unset_letter }
-  } else if execute {
+    if executable { set_letter } else { unset_letter }
+  } else if executable {
     "x"
   } else {
     "-"
@@ -1371,10 +1371,10 @@ proc write_file(file: Path, data: Bytes, sparse: Bool) [fs, error] {
   let total = data.len()
   while offset < total {
     let length = if total - offset < 512 { total - offset } else { 512 }
-    let hole = length == 512 and data.slice(offset, length) == zeros
+    let hole = length == 512 and data[offset..offset + length] == zeros
     if hole {
       if run_start >= 0 {
-        let _ = bytes.write_at(file, run_start, data.slice(run_start, offset - run_start))?
+        let _ = bytes.write_at(file, run_start, data[run_start..offset])?
         run_start = -1
       }
     } else if run_start < 0 {
@@ -1383,7 +1383,7 @@ proc write_file(file: Path, data: Bytes, sparse: Bool) [fs, error] {
     offset += length
   }
   if run_start >= 0 {
-    let _ = bytes.write_at(file, run_start, data.slice(run_start, total - run_start))?
+    let _ = bytes.write_at(file, run_start, data[run_start..total])?
   }
   file.truncate(total)
 }
@@ -2133,7 +2133,7 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
     let safe = safe_name(st, header.name, ! opts.no_abs, false)
     st = safe.st
     header = {...header, name: safe.name}
-    let content = data.slice(data_start, size)
+    let content = data[data_start..data_start + size]
     var skip = false
     if ! patterns.is_empty() {
       skip = copy_matching
@@ -2264,7 +2264,7 @@ proc emit_regular(opts: Options, format: Str, sink: Sink, st: Run, header: Heade
   let content = file.read_bytes() ?? { |failure| return {sink: sink, st: call_error(state, "open", source, failure), written: false} }
   let size = header.size
   var body = content
-  if content.len() > size { body = content.slice(0, size) }
+  if content.len() > size { body = content[0..size] }
   let checksum = if format == "crc" { byte_sum(body) } else { 0 }
   let encoded = encode_header(format, {...header, checksum: checksum}, opts.warn_truncate)
   guard let head = encoded else {
@@ -2281,7 +2281,7 @@ proc emit_regular(opts: Options, format: Str, sink: Sink, st: Run, header: Heade
     gnu.error(f"File {shown(source)} grew, {extra} new byte{if extra == 1 { "" } else { "s" }} not copied")
   }
   let pad = padding(format, size)
-  if pad > 0 { out = sink_emit(out, ZERO_PAD.slice(0, pad)) }
+  if pad > 0 { out = sink_emit(out, ZERO_PAD[0..pad]) }
   if opts.reset_time {
     match fs.set_times(file, atime_ns:, mtime_ns:) {
       Ok(_) => {}
@@ -2397,7 +2397,7 @@ proc copy_out(opts: Options, format: Str, target: Path?, start: Int, padding_sta
       sink = sink_emit(sink, head)
       sink = sink_emit(sink, cleaned.name)
       let pad = padding(format, cleaned.name.len())
-      if pad > 0 { sink = sink_emit(sink, ZERO_PAD.slice(0, pad)) }
+      if pad > 0 { sink = sink_emit(sink, ZERO_PAD[0..pad]) }
     } else {
       gnu.error(f"{shown(raw)}: unknown file type")
     }
@@ -2454,7 +2454,7 @@ proc copy_pass(opts: Options, destination: Bytes, chown_enabled: Bool) [fs, io, 
     }
     var begin = 0
     while raw.byte_at(begin) == 47 { begin += 1 }
-    let output = bytes.concat([destination, b"/", raw.slice(begin, raw.len() - begin)])
+    let output = bytes.concat([destination, b"/", raw[begin..]])
     let target = path_of(output) ?? { |failure|
       st = call_error(st, "open", output, failure)
       continue
@@ -2540,11 +2540,11 @@ proc copy_pass(opts: Options, destination: Bytes, chown_enabled: Bool) [fs, io, 
         st = extract_device(st, {...opts, link: false, to_stdout: false}, {...header, nlink: 1}, chown_enabled)
       }
     } else if info.kind == "symlink" {
-      let destination = source.readlink() ?? { |failure|
+      let link_target = source.readlink() ?? { |failure|
         st = call_error(st, "readlink", raw, failure)
         continue
       }
-      st = extract_link(st, {...opts, no_abs: false, to_stdout: false}, header, destination.bytes(), chown_enabled)
+      st = extract_link(st, {...opts, no_abs: false, to_stdout: false}, header, link_target.bytes(), chown_enabled)
     } else {
       gnu.error(f"{shown(raw)}: unknown file type")
     }

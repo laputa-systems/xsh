@@ -117,11 +117,11 @@ export proc parse(text: Str, remove = false, defaults = false) [fs, error] -> Re
     var default = defaults
     if parts[0] in ["d", "default"] { default = true; parts = parts[1..] }
     return Err(AclError.Invalid("invalid ACL text entry")) when parts.len() < 2 or parts.len() > 3 or (! remove and parts.len() != 3)
-    let identity = parts[1].trim()
+    let entry_identity = parts[1].trim()
     let kind = parts[0].trim()
     var tag: Tag = AclOther
     var id = null
-    if kind in ["u", "user"] { tag = if identity == "" { AclOwner } else { AclUser }; if identity != "" { id = perm.uid(identity)? } } else if kind in ["g", "group"] { tag = if identity == "" { AclGroupOwner } else { AclGroup }; if identity != "" { id = perm.gid(identity)? } } else if kind in ["m", "mask"] and identity == "" { tag = AclMask } else if kind in ["o", "other"] and identity == "" { tag = AclOther } else { return Err(AclError.Invalid("invalid ACL tag or identity")) }
+    if kind in ["u", "user"] { tag = if entry_identity == "" { AclOwner } else { AclUser }; if entry_identity != "" { id = perm.uid(entry_identity)? } } else if kind in ["g", "group"] { tag = if entry_identity == "" { AclGroupOwner } else { AclGroup }; if entry_identity != "" { id = perm.gid(entry_identity)? } } else if kind in ["m", "mask"] and entry_identity == "" { tag = AclMask } else if kind in ["o", "other"] and entry_identity == "" { tag = AclOther } else { return Err(AclError.Invalid("invalid ACL tag or identity")) }
     entries += [{tag: tag, id: id, permissions: if parts.len() == 3 { parse_permissions(parts[2].trim())? } else { 0 }, default: default, conditional_execute: parts.len() == 3 and "X" in parts[2]}]
   }
   entries

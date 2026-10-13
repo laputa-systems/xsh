@@ -23,6 +23,11 @@ export type Change = {line0: Int, line1: Int, deleted: Int, inserted: Int}
 const SNAKE_LIMIT = 20
 const OFFSET_MAX = 1152921504606846976
 
+# Ranges of code points that take no column (combining marks, joiners) and of
+# East Asian wide characters that take two.
+const NARROW = [[768, 879], [1155, 1161], [1425, 1469], [1471, 1471], [1473, 1474], [1476, 1477], [1479, 1479], [1552, 1562], [1611, 1631], [1648, 1648], [1750, 1756], [1759, 1764], [1767, 1768], [1770, 1773], [3633, 3633], [3636, 3642], [3655, 3662], [6832, 6911], [7616, 7679], [8203, 8207], [8400, 8447], [65024, 65039], [65056, 65071]]
+const WIDE = [[4352, 4447], [11904, 12350], [12353, 13311], [13312, 19903], [19968, 40959], [40960, 42191], [44032, 55203], [63744, 64255], [65072, 65135], [65280, 65376], [65504, 65510], [127744, 128591], [129280, 129535], [131072, 262141]]
+
 ## Whether a byte is white space for the comparison options (C locale).
 export pure is_space(value: Int) -> Bool {
   value == 32 or (value >= 9 and value <= 13)
@@ -44,7 +49,7 @@ export pure split(data: Bytes, strip_cr: Bool) -> Source {
     while index < count {
       let part = parts[index]
       if open and index == count - 1 {
-        yield data.slice(at)
+        yield data[at..]
         break
       }
       let end = at + part.len()
@@ -63,11 +68,6 @@ export pure split(data: Bytes, strip_cr: Bool) -> Source {
 
 ## One character: its length in bytes and its width in columns.
 export type Glyph = {bytes: Int, columns: Int}
-
-# Ranges of code points that take no column (combining marks, joiners) and of
-# East Asian wide characters that take two.
-const NARROW = [[768, 879], [1155, 1161], [1425, 1469], [1471, 1471], [1473, 1474], [1476, 1477], [1479, 1479], [1552, 1562], [1611, 1631], [1648, 1648], [1750, 1756], [1759, 1764], [1767, 1768], [1770, 1773], [3633, 3633], [3636, 3642], [3655, 3662], [6832, 6911], [7616, 7679], [8203, 8207], [8400, 8447], [65024, 65039], [65056, 65071]]
-const WIDE = [[4352, 4447], [11904, 12350], [12353, 13311], [13312, 19903], [19968, 40959], [40960, 42191], [44032, 55203], [63744, 64255], [65072, 65135], [65280, 65376], [65504, 65510], [127744, 128591], [129280, 129535], [131072, 262141]]
 
 pure in_ranges(value: Int, ranges: List[List[Int]]) -> Bool {
   for span in ranges {

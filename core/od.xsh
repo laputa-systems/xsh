@@ -281,8 +281,8 @@ pure legacy_offset_overflow(text: Str) -> Bool {
 pure byte_count_overflow(text: Str) -> Bool {
   let parts = rx"^([0-9]*)(.*)$".captures(text)
   return false when parts[1] == ""
-  let number = parts[1].parse_int() ?? -1
-  return true when number < 0
+  let parsed_number = parts[1].parse_int() ?? -1
+  return true when parsed_number < 0
   parts[2] != "" and byte_count(text) == 9223372036854775807
 }
 
@@ -549,7 +549,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           printed += 1
         }
         if fmt.ascii {
-          let text = [if byte >= 32 and byte <= 126 { bytes.from_ints([byte])?.utf8() ?? "." } else { "." } for byte in [block.byte_at(i) ?? 0 for i in range(block.len())]].join("")
+          let text = [if byte >= 32 and byte <= 126 { bytes.from_ints([byte])?.utf8() ?? "." } else { "." } for byte in [block.byte_at(block_index) ?? 0 for block_index in range(block.len())]].join("")
           let padding = block_width - column
 
           if padding > 1048576 {

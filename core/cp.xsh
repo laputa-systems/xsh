@@ -404,13 +404,13 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     if opts.backup != "none" {
       let backup = backup_path(target, opts)
       let backup_key = fp"{backup.parent().resolve()?}/{basename_path(backup)?}".normalize()
-      let source_key = fp"{source.parent().resolve()?}/{basename_path(source)?}".normalize()
-      if backup_key == source_key {
+      let backup_source_key = fp"{source.parent().resolve()?}/{basename_path(source)?}".normalize()
+      if backup_key == backup_source_key {
         invalid(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source;  {gnu.quote_bytes(source.bytes())} not copied")
       }
       target.rename(to: backup, overwrite: true)
       created = true
-      if source_key == target_key { input = backup }
+      if backup_source_key == target_key { input = backup }
     } else if remove_readonly or opts.remove or opts.symlink or (! follow and meta.kind == "symlink") or opts.hardlink or
       (! follow and meta.kind != "file" and ! opts.attributes) {
       # A special file cannot be created over an existing non-directory, so a
@@ -682,7 +682,7 @@ proc main(...raw_argv: List[Bytes]) {
   if opts.no_target and operands.len() > 2 { gnu.usage_error(f"extra operand {gnu.quote_bytes(gnu.argument_bytes(operands[2], prepared.raw))}") }
   let dest_arg = gnu.argument_bytes(opts.target ?? operands[-1], prepared.raw)
   if dest_arg == b"" { gnu.error("cannot create regular file '': No such file or directory"); exit 1 }
-  let dest = Path.parse_bytes(dest_arg)?
+  let dest = dest_arg as Path
   let sources = if opts.target == null { operands[..operands.len() - 1] } else { operands }
   let source_args = [gnu.argument_bytes(text, prepared.raw) for text in sources]
   var directory = false
@@ -690,7 +690,7 @@ proc main(...raw_argv: List[Bytes]) {
     if let Ok(meta) = fs.stat(dest, follow_symlinks: true) { directory = meta.kind == "dir" }
   }
   if dest.display().ends_with("/") and fs.stat(dest, follow_symlinks: true) is Err(_) and
-    (! opts.recursive or fs.stat(Path.parse_bytes(source_args[0])?, follow_symlinks: true)?.kind != "dir") {
+    (! opts.recursive or fs.stat(source_args[0] as Path, follow_symlinks: true)?.kind != "dir") {
     gnu.error(f"cannot create regular file {gnu.quote_bytes(dest.bytes())}: Not a directory")
     exit 1
   }
@@ -708,10 +708,10 @@ proc main(...raw_argv: List[Bytes]) {
     if text == b"" { gnu.error("cannot stat '': No such file or directory"); failed = true; continue }
     # GNU strips source slashes only when copying into a target directory;
     # a two-operand file copy still asks the kernel to resolve the original name.
-    let source = Path.parse_bytes(if opts.strip and directory { strip_end(text) } else { text })?
+    let source = (if opts.strip and directory { strip_end(text) } else { text }) as Path
     var target = if directory { child_path(dest, basename_path(source)?) } else { dest }
     if opts.parents {
-      target = Path.parse_bytes(bytes.concat([dest.bytes(), b"/", strip_start(text)]))?
+      target = bytes.concat([dest.bytes(), b"/", strip_start(text)]) as Path
     }
     var parent_pairs: List[ParentDirectory] = []
     if opts.parents {

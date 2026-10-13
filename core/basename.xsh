@@ -57,9 +57,9 @@ pure basename_value(name: Bytes, suffix: Bytes) -> Bytes {
 
   var begin = end
   while begin > 0 and name.byte_at(begin - 1) != 47 { begin -= 1 }
-  let base = name.slice(begin, length: end - begin)
+  let base = name[begin..end]
   return base when suffix == b"" or base == suffix or ! base.ends_with(suffix)
-  base.slice(0, length: base.len() - suffix.len())
+  base[..base.len() - suffix.len()]
 }
 
 proc main(...argv: List[Bytes]) [process, env, error, io] {

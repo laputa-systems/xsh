@@ -21,15 +21,15 @@ export pure parse_size(text: Str) -> Int? {
   if number.lower().starts_with("0b") or number.lower().starts_with("0x") {
     let base = if number.lower().starts_with("0b") { 2 } else { 16 }
     for digit in number.byte_slice(2).lower() {
-      let amount = "0123456789abcdef".find(digit) ?? -1
-      return null when amount < 0 or value > (9223372036854775807 - amount) / base
-      value = value * base + amount
+      let digit_value = "0123456789abcdef".find(digit) ?? -1
+      return null when digit_value < 0 or value > (9223372036854775807 - digit_value) / base
+      value = value * base + digit_value
     }
   } else if number.starts_with("0") and number.byte_len() > 1 {
     for digit in number {
-      let amount = "01234567".find(digit) ?? -1
-      return null when amount < 0 or value > (9223372036854775807 - amount) / 8
-      value = value * 8 + amount
+      let digit_value = "01234567".find(digit) ?? -1
+      return null when digit_value < 0 or value > (9223372036854775807 - digit_value) / 8
+      value = value * 8 + digit_value
     }
   } else if number != "" {
     let parsed = number.parse_int()

@@ -4,6 +4,8 @@ use lib.fs_misc
 use lib.gnu
 use lib.text_a2 as text
 
+const RAW_NAME_DIGITS = "0123456789abcdef"
+
 const USAGE = """Usage: {prog} [OPTION]... [FILE]...
 List information about the FILEs (the current directory by default).
 Sort entries alphabetically if none of -cftuvSUX nor --sort is specified.
@@ -2158,8 +2160,6 @@ pure file_time(ctx: Ctx, f: File) -> Int {
     else => f.st.mtime_ns
   }
 }
-
-const RAW_NAME_DIGITS = "0123456789abcdef"
 
 # Two hex digits per byte preserve bytewise order in a string sort key.
 pure raw_name_key(raw: Bytes) -> Str {

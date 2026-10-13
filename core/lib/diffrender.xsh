@@ -884,7 +884,7 @@ pure group_scan(raw: Bytes, start: Int, stop: Int, emit: Bool, span: Span) -> Sc
 
 # One line through a line format: `%L` the line with its newline, `%l` without,
 # `%n` (with printf flags) the line number, `%c'C'` and `%%`.
-pure line_text(raw: Bytes, line: Bytes, terminated: Bool, number: Int) -> Bytes {
+pure line_text(raw: Bytes, line: Bytes, has_terminator: Bool, line_number: Int) -> Bytes {
   var at = 0
   let size = raw.len()
   let out = collect {
@@ -908,7 +908,7 @@ pure line_text(raw: Bytes, line: Bytes, terminated: Bool, number: Int) -> Bytes 
         yield b"%"
         at += 2
       } else if letter == 76 {
-        yield @[line, if terminated { b"\n" } else { b"" }]
+        yield @[line, if has_terminator { b"\n" } else { b"" }]
         at += 2
       } else if letter == 108 {
         yield line
@@ -952,7 +952,7 @@ pure line_text(raw: Bytes, line: Bytes, terminated: Bool, number: Int) -> Bytes 
         let conversion = raw.byte_at(cursor) ?? 0
         if (conversion == 100 or conversion == 111 or conversion == 120 or conversion == 88) and raw.byte_at(cursor + 1) == 110 {
           let kind = raw[cursor..cursor + 1].utf8() ?? "d"
-          yield bytes.from_text(integer_text(number, kind, left, zero, width.value, precision))
+          yield bytes.from_text(integer_text(line_number, kind, left, zero, width.value, precision))
           at = cursor + 2
         } else {
           yield b"%"

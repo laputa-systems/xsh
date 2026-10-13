@@ -45,7 +45,7 @@ export pure bad(layout: Layout) -> Int { eoc(layout) - 8 }
 ## Reserved FAT markers never name a data cluster, including near type boundaries.
 export pure valid(layout: Layout, cluster: Int) -> Bool { cluster >= 2 and cluster < layout.clusters + 2 and cluster < bad(layout) - 7 }
 
-pure power_two(number: Int) -> Bool { number > 0 and number.bit_and(number - 1) == 0 }
+pure power_two(value: Int) -> Bool { value > 0 and value.bit_and(value - 1) == 0 }
 
 ## Select a representable FAT width and cluster size from explicit constraints.
 export pure geometry(size: Int, bits: Int, sector: Int, cluster: Int, reserved: Int, fats: Int) -> Result[Layout, Error] {
@@ -86,7 +86,7 @@ export pure geometry(size: Int, bits: Int, sector: Int, cluster: Int, reserved: 
 
 ## Validate the primary BPB before trusting any derived disk offset.
 export pure parse(boot: Bytes, size: Int) -> Result[Layout, Error] {
-  guard boot.len() >= 512 and boot.slice(510, length: 2) == b"\x55\xaa" else { return Err(error.failure("missing FAT boot signature")) }
+  guard boot.len() >= 512 and boot[510..512] == b"\x55\xaa" else { return Err(error.failure("missing FAT boot signature")) }
   let sector = number(boot, 11, 2)?
   let spc = byte(boot, 13)?
   guard sector in [512, 1024, 2048, 4096] and power_two(spc) and spc <= 128 and spc * sector <= 65536 else { return Err(error.failure("invalid FAT sector or cluster size")) }
@@ -165,5 +165,5 @@ export pure information(layout: Layout, boot: Bytes, label: Str) -> Result[Info,
 export pure label_text(data: Bytes) -> Result[Str, Error] {
   var end = data.len()
   while end > 0 and byte(data, end - 1)? == 32 { end -= 1 }
-  data.slice(0, length: end).utf8()
+  data[..end].utf8()
 }

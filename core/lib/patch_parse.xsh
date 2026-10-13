@@ -74,6 +74,7 @@ const CONTEXT_RANGE_RE = rx"^\*\*\* (\d+)(?:,(\d+))? \*\*\*\*"
 const CONTEXT_NEW_RANGE_RE = rx"^--- (\d+)(?:,(\d+))? ----"
 const NORMAL_RE = rx"^(\d+)(?:,(\d+))?([acd])(\d+)(?:,(\d+))?$"
 const ED_RE = rx"^(\d+)(?:,(\d+))?([acdi])$"
+const STAMP_RE = rx"^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?: ?([+-])(\d{2}):?(\d{2}))?"
 
 ## A header name that was not present.
 export const NO_NAME: HeaderName = HeaderName(name: "", stamp: "", present: false)
@@ -120,10 +121,6 @@ export pure strip_cr(line: Bytes) -> Bytes {
     return bytes.concat([line[0..size - 2], b"\n"])
   }
   line
-}
-
-pure starts(line: Bytes, prefix: Str) -> Bool {
-  line.starts_with(bytes.from_text(prefix))
 }
 
 pure number(text: Str) -> Int {
@@ -234,8 +231,6 @@ pure days_from_civil(year: Int, month: Int, day: Int) -> Int {
   let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
   era * 146097 + doe - 719468
 }
-
-const STAMP_RE = rx"^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?: ?([+-])(\d{2}):?(\d{2}))?"
 
 ## A parsed header timestamp: whole seconds since the epoch and nanoseconds.
 export type StampTime = {valid: Bool, seconds: Int, nanos: Int}
