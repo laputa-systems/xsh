@@ -277,7 +277,7 @@ pure git_names(text: Str) -> GitNames {
   if raw.len() % 2 == 1 and raw.byte_at(half) == 32 {
     return {old: raw[0..half].utf8() ?? "", new: raw[half + 1..].utf8() ?? ""}
   }
-  {old: words[0], new: words[words.len() - 1]}
+  {old: words[0], new: words[-1]}
 }
 
 # Whether a format is allowed. `allowed` is "any", "unified", "context",
@@ -484,12 +484,12 @@ export pure read_unified(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
     let lead = first_byte(line)
     if i == lines.len() - 1 and !lines[i].ends_with(b"\n") and (lead == 32 or lead == 45 or lead == 43) { return partial_read(i) }
     if lead == 32 { kinds += [0]; texts += [line[1..]]; old_seen += 1; new_seen += 1 } else if lead == 45 { kinds += [1]; texts += [line[1..]]; old_seen += 1 } else if lead == 43 { kinds += [2]; texts += [line[1..]]; new_seen += 1 } else if lead == 10 { kinds += [0]; texts += [line]; old_seen += 1; new_seen += 1 } else if lead == 92 {
-      if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[texts.len() - 1]) }
+      if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[-1]) }
     } else { return failed_read(i + 1, lines[i]) }
     i += 1
   }
   while i < lines.len() and first_byte(lines[i]) == 92 {
-    if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[texts.len() - 1]) }
+    if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[-1]) }
     i += 1
   }
   var hunk = EMPTY_HUNK
@@ -548,7 +548,7 @@ export pure read_context(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
     let lead = first_byte(line)
     let second = line.byte_at(1) ?? 32
     if lead == 92 {
-      if !old_lines.is_empty() { old_lines[old_lines.len() - 1].text = without_terminator(old_lines[old_lines.len() - 1].text) }
+      if !old_lines.is_empty() { old_lines[old_lines.len() - 1].text = without_terminator(old_lines[-1].text) }
     } else if line.len() >= 2 and (lead == 32 or lead == 45 or lead == 33) and second == 32 {
       old_lines += [{mark: lead, text: line[2..]}]
       old_listed = true
@@ -583,7 +583,7 @@ export pure read_context(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
     i += 1
   }
   while i < total and first_byte(lines[i]) == 92 {
-    if !new_lines.is_empty() { new_lines[new_lines.len() - 1].text = without_terminator(new_lines[new_lines.len() - 1].text) }
+    if !new_lines.is_empty() { new_lines[new_lines.len() - 1].text = without_terminator(new_lines[-1].text) }
     i += 1
   }
   # A half that diff left out holds only context, which the other half shows.
@@ -660,12 +660,12 @@ export pure read_normal(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
     var line = lines[i]
     if strip { line = strip_cr(line) }
     if line.starts_with(b"< ") { kinds += [1]; texts += [line[2..]]; removed += 1 } else if line.starts_with(b"<\n") { kinds += [1]; texts += [line[1..]]; removed += 1 } else if first_byte(line) == 92 {
-      if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[texts.len() - 1]) }
+      if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[-1]) }
     } else { return failed_read(i + 1, lines[i]) }
     i += 1
   }
   while i < total and first_byte(lines[i]) == 92 {
-    if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[texts.len() - 1]) }
+    if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[-1]) }
     i += 1
   }
   if action == "c" {
@@ -678,12 +678,12 @@ export pure read_normal(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
     var line = lines[i]
     if strip { line = strip_cr(line) }
     if line.starts_with(b"> ") { kinds += [2]; texts += [line[2..]]; added += 1 } else if line.starts_with(b">\n") { kinds += [2]; texts += [line[1..]]; added += 1 } else if first_byte(line) == 92 {
-      if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[texts.len() - 1]) }
+      if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[-1]) }
     } else { return failed_read(i + 1, lines[i]) }
     i += 1
   }
   while i < total and first_byte(lines[i]) == 92 {
-    if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[texts.len() - 1]) }
+    if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[-1]) }
     i += 1
   }
   var hunk = EMPTY_HUNK

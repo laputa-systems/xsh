@@ -349,7 +349,7 @@ pure end_of_source_error(p: Parser) -> Str {
     let line = rows.len() + 1 + (if trailing_newline { 0 } else { 1 })
     let before = bytes.from_text(p.piece.text)[0..p.starts[last]].utf8() ?? ""
     let pieces_before = before.split("\n")
-    let pad = [" " for _ in range(pieces_before[pieces_before.len() - 1].byte_len())].join("")
+    let pad = [" " for _ in range(pieces_before[-1].byte_len())].join("")
     return f"{label}:{line}: (END OF FILE)\nawk: {label}:{line}: {pad}^ {end_of_file}"
   }
   var depth = 0
@@ -4125,7 +4125,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         }
         OpReturn => {
           let value = stack[sp - 1]
-          let frame = frames[frames.len() - 1]
+          let frame = frames[-1]
           frames = frames[..frames.len() - 1]
           sp = frame.base
           slots = frame.slots
@@ -4137,7 +4137,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           produced = true
         }
         OpReturnEmpty => {
-          let frame = frames[frames.len() - 1]
+          let frame = frames[-1]
           frames = frames[..frames.len() - 1]
           sp = frame.base
           slots = frame.slots

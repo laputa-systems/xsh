@@ -195,7 +195,7 @@ pure plural(count: Int) -> Str {
 
 pure basename_of(name: Str) -> Str {
   let parts = name.split("/")
-  parts[parts.len() - 1]
+  parts[-1]
 }
 
 pure dirname_of(name: Str) -> Str {
@@ -403,7 +403,7 @@ pure shown_line(line: Bytes) -> Str {
 # directly after the last hunk, where it is looked at first as hunk text.
 proc report_partial_last_line(lines: List[Bytes], position: Int, after_hunk: Bool) [process, env, io, error] {
   return when lines.is_empty()
-  let last = lines[lines.len() - 1]
+  let last = lines[-1]
   return when last.ends_with(b"\n") or last.starts_with(b"\\")
   say("patch unexpectedly ends in middle of line\n")
   if after_hunk and position == lines.len() - 1 { say("patch unexpectedly ends in middle of line\n") }

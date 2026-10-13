@@ -174,7 +174,7 @@ pure decimal_of(digits: List[Int]) -> Str {
     current = quotient[start..]
   }
   return "0" when chunks.is_empty()
-  var out = f"{chunks[chunks.len() - 1]}"
+  var out = f"{chunks[-1]}"
   var index = chunks.len() - 2
   while index >= 0 {
     let text = f"{chunks[index]}"

@@ -155,7 +155,7 @@ export pure build(
   var stack: List[PendingNode] = [{pid: roots[roots.len() - index - 1], depth: 0} for index in range(roots.len())]
   var preorder = []
   while ! stack.is_empty() {
-    let pending = stack[stack.len() - 1]
+    let pending = stack[-1]
     stack = stack |> take(stack.len() - 1)
     preorder += [pending.pid]
     if let Ok(node) = nodes.get(pending.pid) {

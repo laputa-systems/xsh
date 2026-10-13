@@ -72,7 +72,7 @@ test test_btop_graph_history_retention_is_independent_of_viewport_size {
   assert narrow.visible_sample_times.len() == 2
   assert wide.visible_sample_times.len() == 40
   assert history.samples == before
-  assert history.samples[history.samples.len() - 1].at_ns == graph.HISTORY_LIMIT + 1
+  assert history.samples[-1].at_ns == graph.HISTORY_LIMIT + 1
 }
 
 test test_btop_graph_symbol_set_follows_captured_encoding_capabilities {

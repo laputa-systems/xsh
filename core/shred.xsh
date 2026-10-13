@@ -162,7 +162,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if remove != "unlink" {
       let parent_dir = target.parent()
       let components = target.components()
-      let leaf = components[components.len() - 1].bytes()
+      let leaf = components[-1].bytes()
       for index in range(leaf.len()) {
         let width = leaf.len() - index
         var digits: List[Int] = [0 for unused in range(width)]
@@ -188,7 +188,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
             continue
           }
           let next_components = next.components()
-          if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: renamed to {quote_maybe_bytes(next_components[next_components.len() - 1].bytes())}") }
+          if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: renamed to {quote_maybe_bytes(next_components[-1].bytes())}") }
           last = next
           if remove == "wipesync" {
             if let Err(failure) = fs.fsync(parent_dir) { name_error(name, failure); failed = true; complete = false }

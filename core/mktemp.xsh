@@ -71,7 +71,7 @@ pure contains_separator(value: Bytes) -> Bool {
 proc create_directory(target: Path) [fs, error] {
   let parent_root = fs.open_root(target.parent())?
   let components = target.components()
-  parent_root.mkdir(components[components.len() - 1], mode: 0o700.clear_bits(fs.umask()?))
+  parent_root.mkdir(components[-1], mode: 0o700.clear_bits(fs.umask()?))
 }
 
 # Creation is rolled back if its name cannot be delivered to the caller.

@@ -72,7 +72,7 @@ test test_fmt_width_and_goal_diagnostics { |ctx|
   for args in [["-g", "76"], ["-w", "8", "-g", "9"]] {
     let result = run.capture --text ${ctx.xsh_bin} $script -- @args
     assert result.status.exited_with(1)
-    assert result.stderr == f"fmt: invalid width: '{args[args.len() - 1]}': Value too large for defined data type\n", result.stderr
+    assert result.stderr == f"fmt: invalid width: '{args[-1]}': Value too large for defined data type\n", result.stderr
   }
 }
 

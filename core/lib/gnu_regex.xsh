@@ -362,7 +362,7 @@ pure parse_bracket(pc: List[Int], start: Int, icase: Bool, utf8: Bool) -> Bracke
     if pc[at] == 93 { at += 1; break }
   }
   var late = ""
-  if ! fancy and plain.len() >= 2 and plain[0] == 58 and plain[plain.len() - 1] == 58 {
+  if ! fancy and plain.len() >= 2 and plain[0] == 58 and plain[-1] == 58 {
     var other = false
     for cp in plain { if cp != 58 { other = true } }
     if other { late = "character class syntax is [[:space:]], not [:space:]" }
@@ -522,7 +522,7 @@ pure parse(pattern: Bytes, ere: Bool, icase: Bool, utf8: Bool) -> Parsed {
     }
 
     if repeat {
-      let atom = seq[seq.len() - 1]
+      let atom = seq[-1]
       nodes += [{kind: N_REPEAT, a: low, b: high, kids: [atom]}]
       seq[seq.len() - 1] = nodes.len() - 1
     } else if tok == T_LITERAL {
@@ -599,7 +599,7 @@ pure parse(pattern: Bytes, ere: Bool, icase: Bool, utf8: Bool) -> Parsed {
         completed = acc
         let gid = cur_group
         nodes += [{kind: N_GROUP, a: gid, b: 0, kids: [body]}]
-        let frame = frames[frames.len() - 1]
+        let frame = frames[-1]
         frames = frames[0..frames.len() - 1]
         seq = [@frame.seq, nodes.len() - 1]
         alts = frame.alts
@@ -721,7 +721,7 @@ pure first_set(ops: List[Int], xs: List[Int], ys: List[Int], sets: List[CharSet]
   var seen = [false for _ in range(ops.len() + 1)]
   var stack = [0]
   while ! stack.is_empty() {
-    let pc = stack[stack.len() - 1]
+    let pc = stack[-1]
     stack = stack[0..stack.len() - 1]
     continue when pc >= ops.len() or seen[pc]
     seen[pc] = true

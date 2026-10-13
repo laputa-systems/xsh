@@ -195,7 +195,7 @@ proc parse_exec(args: List[Str], parsed: Parsed, token: Str, opts: Options) [pro
     let word = args[at]
     at += 1
     if word == ";" { found = true; break }
-    if word == "+" and token in ["-exec","-execdir"] and ! argv.is_empty() and argv[argv.len() - 1] == "{}" { found = true; plus = true; break }
+    if word == "+" and token in ["-exec","-execdir"] and ! argv.is_empty() and argv[-1] == "{}" { found = true; plus = true; break }
     if word.find("{}") != null { braces += 1 }
     argv += [word]
   }

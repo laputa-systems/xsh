@@ -319,7 +319,7 @@ pure search(x: List[Int], y: List[Int], minimal: Bool, speed: Bool) -> Flags {
   var bd: List[Int] = [0 for _ in range(nx + ny + 3)]
   var work: List[Segment] = [{xoff: 0, xlim: nx, yoff: 0, ylim: ny, minimal: minimal}]
   while !work.is_empty() {
-    let item = work[work.len() - 1]
+    let item = work[-1]
     work = work[0..work.len() - 1]
     var xoff = item.xoff
     var xlim = item.xlim

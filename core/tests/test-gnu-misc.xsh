@@ -344,7 +344,7 @@ test test_gnu_misc_kill_log { |ctx|
   let term = uu.invoke(s, "kill", ["-l", "HUP", "TERM"])?.stdout.utf8()?.trim().split("\n")[1]
   uu.stdout_is(uu.invoke(s, "kill", ["-l", term])?, "TERM\n")
   uu.stdout_is(uu.invoke(s, "kill", ["-l", "143", "271"])?, "TERM\nTERM\n")
-  let last = uu.invoke(s, "kill", ["-l", "--", names[names.len() - 1]])?.stdout.utf8()?.trim() as Int
+  let last = uu.invoke(s, "kill", ["-l", "--", names[-1]])?.stdout.utf8()?.trim() as Int
   let numbers = [f"{i}" for i in range(last + 1)]
   for option in ["-l", "-t"] { uu.succeeds(uu.invoke(s, "kill", [option, "--"].extend(numbers))?) }
   uu.stdout_is(uu.invoke(s, "kill", ["-l", names[0]])?, "0\n")

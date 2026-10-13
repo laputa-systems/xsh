@@ -28,19 +28,19 @@ pure chain(initial: State, start: Int, owner: Int, safe_empty: Bool) -> Result[C
   while true {
     guard geom.valid(state.layout, current) else {
       state = issue(state, f"invalid cluster {current} in entry {owner}", ! clusters.is_empty() or safe_empty)
-      if state.repair and ! clusters.is_empty() { state.changes[clusters[clusters.len() - 1]] = geom.eoc(state.layout) }
+      if state.repair and ! clusters.is_empty() { state.changes[clusters[-1]] = geom.eoc(state.layout) }
       break
     }
     if current in state.owners {
       let kind = if state.owners[current] == owner { "loop" } else { "cross-link" }
       state = issue(state, f"cluster {current}: {kind} in entry {owner}", ! clusters.is_empty() or safe_empty)
-      if state.repair and ! clusters.is_empty() { state.changes[clusters[clusters.len() - 1]] = geom.eoc(state.layout) }
+      if state.repair and ! clusters.is_empty() { state.changes[clusters[-1]] = geom.eoc(state.layout) }
       break
     }
     let next = value(state, current)?
     if next == geom.bad(state.layout) {
       state = issue(state, f"bad cluster {current} in entry {owner}", ! clusters.is_empty() or safe_empty)
-      if state.repair and ! clusters.is_empty() { state.changes[clusters[clusters.len() - 1]] = geom.eoc(state.layout) }
+      if state.repair and ! clusters.is_empty() { state.changes[clusters[-1]] = geom.eoc(state.layout) }
       break
     }
     state.owners[current] = owner

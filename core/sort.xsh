@@ -554,7 +554,7 @@ pure separator_value(raw: Str) -> Str {
 
 ## The last separator given wins; `main` rejects a set of separators that disagree.
 pure sort_delimiter(opts: SortOptions) -> Str {
-  if opts.delimiter.is_empty() { "" } else { separator_value(opts.delimiter[opts.delimiter.len() - 1]) }
+  if opts.delimiter.is_empty() { "" } else { separator_value(opts.delimiter[-1]) }
 }
 
 pure key_character_offset(spec: Str) -> Int {
@@ -1192,7 +1192,7 @@ pure unique_sorted_records(records: List[SortRecord], opts: SortOptions, has_key
   return records unless opts.unique
   var unique: List[SortRecord] = []
   for record in records {
-    if unique.is_empty() or ! same_sort_record_key(unique[unique.len() - 1], record, opts, has_key) {
+    if unique.is_empty() or ! same_sort_record_key(unique[-1], record, opts, has_key) {
       unique += [record]
     }
   }

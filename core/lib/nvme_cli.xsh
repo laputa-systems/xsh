@@ -564,7 +564,7 @@ pure hex_field(field: dec.Field) -> Str {
 # The device node name nvme-cli prints: the path without its directory.
 pure device_name(node: Str) -> Str {
   let parts = node.split("/")
-  parts[parts.len() - 1]
+  parts[-1]
 }
 
 # nvme-cli prints the host's libc wording for ioctl errors, which can differ
@@ -1566,7 +1566,7 @@ proc listed_namespaces(sys_root: Path, dev_root: Path) [fs, process, env, io, er
       continue when item.kind != "nvme_namespace"
       let base = fp"{sys_root}/block/{item.name}"
       let pieces = item.name.split("n")
-      let nsid = sysfs_number(fp"{base}/nsid") ?? pieces[pieces.len() - 1].parse_int() ?? 0
+      let nsid = sysfs_number(fp"{base}/nsid") ?? pieces[-1].parse_int() ?? 0
       var block_size = sysfs_number(fp"{base}/queue/logical_block_size") ?? 512
       if block_size <= 0 { block_size = 512 }
       var block_count = (item.size_bytes ?? 0) / block_size

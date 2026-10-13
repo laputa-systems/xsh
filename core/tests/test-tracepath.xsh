@@ -81,7 +81,7 @@ test test_tracepath_discovers_the_ipv6_loopback_mtu { |ctx|
   # the MTU and the hop is probed again at that size.
   let reached = [line for line in lines if rx"^ 1:  ::1 +[0-9]+\.[0-9]{3}ms reached$".matches(line)]
   assert reached.len() >= 1, ran.stdout
-  assert rx"^     Resume: pmtu [0-9]+ hops 1 back 1 $".matches(lines[lines.len() - 2]), ran.stdout
+  assert rx"^     Resume: pmtu [0-9]+ hops 1 back 1 $".matches(lines[-2]), ran.stdout
   for line in lines {
     if line.starts_with(" 1?:") {
       assert rx"^ 1\?: \[LOCALHOST\] +[0-9]+\.[0-9]{3}ms pmtu [0-9]+$".matches(line), line

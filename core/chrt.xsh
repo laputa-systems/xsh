@@ -319,7 +319,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    pid = number_argument(operands[operands.len() - 1], "PID", int_min, int_max)
+    pid = number_argument(operands[-1], "PID", int_min, int_max)
   } else {
     if needs_priority or operands.len() > 1 {
       if DIGITS.matches(operands[0]) {

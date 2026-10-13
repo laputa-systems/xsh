@@ -798,7 +798,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
       return Err(complain(chunk, at, "unexpected '}'")) when blocks.is_empty()
       if command.first != null { return Err(complain(chunk, at, "'}' doesn't want any addresses")) }
       at = end_of_command(chunk, at)?
-      let opened = blocks[blocks.len() - 1]
+      let opened = blocks[-1]
       blocks = blocks[0..blocks.len() - 1]
       commands[opened.index] = {...commands[opened.index], number: commands.len()}
       commands += [command]

@@ -499,7 +499,7 @@ test test_uu_mktemp_mktemp_hidden_file_single_dot { |ctx|
   let r = uu.invoke(s, "mktemp", [fp"{dir}/.XXXXXX".display()])?
   uu.succeeds(r)
   let components = fp"{r.stdout.utf8()?.trim()}".components()
-  let filename = components[components.len() - 1].display()
+  let filename = components[-1].display()
   assert filename.starts_with(".")
   assert filename.byte_len() == 7
 }

@@ -339,7 +339,7 @@ test test_uu_df_total { |ctx|
   let r = uu.invoke(s, "df", ["--output=size,used,avail", "--total"])?
   uu.succeeds(r)
   let output = lines(r)?
-  let reported = output[output.len() - 1].words()
+  let reported = output[-1].words()
   var computed = [0, 0, 0]
   for i in range(1, output.len() - 1) {
     let columns = output[i].words()
@@ -355,7 +355,7 @@ test test_uu_df_total_label_in_correct_column { |ctx|
     let r = uu.invoke(s, "df", [f"--output={pair.arg}", "--total", "."])?
     uu.succeeds(r)
     let output = lines(r)?
-    assert output[output.len() - 1].words() == pair.expected
+    assert output[-1].words() == pair.expected
   }
 }
 

@@ -337,9 +337,9 @@ test test_gnu_mv_leak_fd_log { |ctx|
   }
   uu.write(s, ".dirs", f"{names.join("\n")}\n")
   for name in names { uu.mkdir(s, name); uu.touch(s, f"{name}/f") }
-  assert uu.file_exists(s, f"{names[names.len() - 1]}/f")?
+  assert uu.file_exists(s, f"{names[-1]}/f")?
   uu.succeeds(uu.invoke(s, "mv", (names |> sort).extend([remote.display()]), timeout: 300s)?)
-  assert ! uu.exists(s, f"{names[names.len() - 1]}/f/f")?
+  assert ! uu.exists(s, f"{names[-1]}/f/f")?
   uu.remove(s, ".dirs")
   assert (fs.files(s.root, hidden: true) |> count()) == 0
 }

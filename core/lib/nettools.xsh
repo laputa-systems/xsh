@@ -256,7 +256,7 @@ export pure ipv6_parse(text: Str) -> Bytes? {
   var tail = []
   # An embedded IPv4 tail takes the place of the last two groups.
   let last = body.split(":")
-  let final = last[last.len() - 1]
+  let final = last[-1]
   if final.find(".") != null {
     let quad = ipv4_parse(final)
     guard let raw = quad else { return null }

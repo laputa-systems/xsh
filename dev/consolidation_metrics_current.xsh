@@ -227,7 +227,7 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
     if ! item.literal and item.text in ["(", "[", "{"] { stack += [index] }
     if ! item.literal and item.text in [")", "]", "}"] {
       if stack.is_empty() { invalid(source_path, item.line, "unmatched closing delimiter") }
-      let opening = stack[stack.len() - 1]
+      let opening = stack[-1]
       let expected = if item.text == ")" { "(" } else if item.text == "]" { "[" } else { "{" }
       if tokens[opening].text != expected { invalid(source_path, item.line, "mismatched Rust delimiters") }
       mates[f"{opening}"] = index
@@ -595,10 +595,10 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
   var cursor = 0
   let edges: List[RustModule] = collect {
     while cursor < lexed.tokens.len() {
-      while ! inline.is_empty() and cursor > inline[inline.len() - 1].end { inline = inline |> take(inline.len() - 1) |> collect }
+      while ! inline.is_empty() and cursor > inline[-1].end { inline = inline |> take(inline.len() - 1) |> collect }
       if (lexed.tokens.get(cursor) ?? end_token).text == "mod" and ident_start(first((lexed.tokens.get(cursor + 1) ?? end_token).text)) {
         let name = (lexed.tokens.get(cursor + 1) ?? end_token).text
-        let parent = if inline.is_empty() { directory } else { inline[inline.len() - 1].directory }
+        let parent = if inline.is_empty() { directory } else { inline[-1].directory }
         var explicit: Str? = null
         var previous = cursor - 1
         if (lexed.tokens.get(previous) ?? end_token).text == ")" { previous = lexed.mates[f"{previous}"] - 1 }
