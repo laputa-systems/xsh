@@ -28,7 +28,7 @@ test test_insmod_missing_file_reports_error_without_kernel_insert { |ctx|
   guard system.uname()?.sysname == "Linux" else { test.skip("module insertion requires Linux"); return }
   let root = test.temp_dir(ctx, name: "insmod-missing")?
   let source = fp"{ctx.core_dir}/insmod.xsh".read_text()?
-  let _ = test.expect(
+  test.expect(
     ctx,
     source,
     status: 1,

@@ -203,7 +203,7 @@ test test_unix_poll_fd_validates_requests {
 
 test test_unix_poll_fd_regular_file_ready_and_closed { |ctx|
   let file = test.temp_file(ctx, contents: b"payload")?
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 let fd = unix.open_fd(Path(args[0]))?
@@ -236,7 +236,7 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   assert "readable" in ready and "hangup" in ready
   unix.close_fd(reader)
   reader_open = false
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 let fifo = Path(args[0])
@@ -258,7 +258,7 @@ test test_unix_read_fd_validates_fd_and_count { |ctx|
   test.error_kind(unix.read_fd(0, -1), "unix-read-fd")
   assert unix.read_fd(2147483647, 1) is Err(is HostIo)
   let file = test.temp_file(ctx, contents: b"payload")?
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 unix.redirect_fd(100, Path(args[0]), write: true)?
@@ -324,7 +324,7 @@ test test_unix_seek_fd_relative_and_end_positions { |ctx|
 
 test test_unix_read_fd_preserves_byte_cursor_and_eof { |ctx|
   let file = test.temp_file(ctx, contents: b"\0\xffabc")?
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 let reader = unix.open_fd(Path(args[0]))?
@@ -341,7 +341,7 @@ assert unix.read_fd(reader, 1) is Err(is HostIo)
 }
 
 test test_unix_read_fd_and_stdin_read_share_descriptor_cursor { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 assert unix.read_fd(0, 1)? == b"a"

@@ -1146,7 +1146,7 @@ test test_nvme_namespace_id_is_hexadecimal { |ctx|
     stdin: b"",
     name: "smartctl",
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     source,
     status: 1,

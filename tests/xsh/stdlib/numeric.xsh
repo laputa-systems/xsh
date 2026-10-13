@@ -52,7 +52,7 @@ test test_numeric_and_locale_remain_ordinary_binding_names {
 }
 
 test test_numeric_and_locale_remain_ordinary_procedure_names { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 proc numeric() -> Bool { return true }

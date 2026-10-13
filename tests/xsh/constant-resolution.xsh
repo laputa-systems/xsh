@@ -109,7 +109,7 @@ test test_global_imports_resolve_in_forward_constant_initializers { |ctx|
 ## A prepared size.
 export const size = 3
 """)
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""const count = c.size + 1
 use config as c

@@ -4,7 +4,7 @@ test test_setsid_fork_wait_returns_command_status_and_creates_session { |ctx|
   child.write("assert process.session_id(process.current_pid()?)? == process.current_pid()?\nassert process.group_id(process.current_pid()?)? == process.current_pid()?\nexit 7\n")
   for flags in [["-f", "-w"], ["-w"]] {
     let argv: List[Union[Str, Path]] = collect { for flag in flags { yield flag }; yield ctx.xsh_bin; yield child }
-    let _ = test.expect(
+    test.expect(
       ctx,
       fp"{ctx.core_dir}/setsid.xsh".read_text()?,
       status: 7,
@@ -17,7 +17,7 @@ test test_setsid_fork_wait_returns_command_status_and_creates_session { |ctx|
 }
 
 test test_setsid_wait_preserves_signal_exit_status { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     fp"{ctx.core_dir}/setsid.xsh".read_text()?,
     status: 143,

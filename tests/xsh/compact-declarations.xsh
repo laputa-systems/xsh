@@ -43,7 +43,7 @@ export type Envelope = {value: Scalar}
 ## Name extraction.
 export pure extract(input: Envelope) -> Scalar { input.value }
 """)
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""use counts as c
 use names as n
@@ -63,5 +63,5 @@ test test_null_storage_keeps_explicit_boundary_type { |ctx|
 
   test.expect(ctx, "let exact: Null = null\nassert exact == null\n", status: 0)?
 
-  let _ = test.expect(ctx, "let raw: Any = \"not null\"\ntest.error_kind(raw.require(Null), \"schema\")\n", status: 0)?
+  test.expect(ctx, "let raw: Any = \"not null\"\ntest.error_kind(raw.require(Null), \"schema\")\n", status: 0)?
 }

@@ -133,7 +133,7 @@ print \${helper.value()}
 }
 
 test frame_routed_run_script_child_selects_eager_values { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let seed = [
   {value: [3, 5]},

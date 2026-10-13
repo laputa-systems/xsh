@@ -53,7 +53,7 @@ test resource_lock_rejects_structural_and_json_forgery { |ctx|
     "let lock: FsLock = {id: 1, path: p\"nowhere\", shared: false}\n",
     "proc release(lock: FsLock) [fs] { fs.unlock(lock) }\nrelease({id: 1, path: p\"nowhere\", shared: false})\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["check.type-mismatch"])?
+    test.expect(ctx, source, status: 2, stderr: ["check.type-mismatch"])?
   }
 
   let decoded: Any = json.decode("{\"id\":1,\"path\":\"nowhere\",\"shared\":false}")?
@@ -76,7 +76,7 @@ test resource_lock_keeps_metadata_and_hides_identity { |ctx|
     "var alias = lock\nalias.path = p\"forged\"",
     "var alias = lock\nalias.shared = false",
   ] {
-    let _ = test.expect(ctx, f"proc inspect(lock: FsLock) {{ {statement} }}\n", status: 2)?
+    test.expect(ctx, f"proc inspect(lock: FsLock) {{ {statement} }}\n", status: 2)?
   }
 }
 
@@ -228,7 +228,7 @@ cli main(observed: Path) {
     test.fail("expected a delegated resource-bearing error")
   }
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""error ChildError = Owned(child: ProcessHandle)
 stream child() [process, error] -> Stream[Int] {
@@ -282,7 +282,7 @@ test resource_root_return_block_break_and_borrow_survive {
 }
 
 test resource_factory_returned_stream_keeps_its_captured_root { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 stream root_exists(root: FsRoot) [fs, error] -> Stream[Bool] {
@@ -300,7 +300,7 @@ assert (make_root_stream()? |> collect()) == [true]
 }
 
 test resource_factory_returned_stream_keeps_its_captured_process_handle { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 stream child_is_live(child: ProcessHandle) [process] -> Stream[Bool] {
@@ -317,7 +317,7 @@ assert (make_child_stream()? |> collect()) == [true]
 }
 
 test resource_nested_producer_return_keeps_its_captured_root { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 stream root_exists(root: FsRoot) [fs, error] -> Stream[Bool] {
@@ -463,7 +463,7 @@ test resource_worker_teardown_closes_its_roots_and_owned_children {
 }
 
 test resource_worker_rejects_foreign_script_stream { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 use tests.fixtures.runtime.resource_producers as resource_producers
@@ -509,7 +509,7 @@ assert results.len() == 2
       args: [dir],
     },
   ] {
-    let _ = test.expect(ctx, source, status: 3, stderr: ["stream-owner"], args: args)?
+    test.expect(ctx, source, status: 3, stderr: ["stream-owner"], args: args)?
   }
 }
 
@@ -520,7 +520,7 @@ test resource_worker_rejects_foreign_materialized_and_live_streams { |ctx|
     "let parent = fs.children(Path(args[0]), ordered: true)?\nlet _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }\n",
     "let parent = fs.walk(Path(args[0]))?\nlet _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }\n",
   ] {
-    let _ = test.expect(ctx, source, status: 3, stderr: ["stream-owner"], args: [dir])?
+    test.expect(ctx, source, status: 3, stderr: ["stream-owner"], args: [dir])?
   }
 }
 
@@ -584,7 +584,7 @@ test resource_use_after_release_is_checked_for_exact_locals { |ctx|
     "let root = fs.tempdir()?\nassert root.close() == Ok()\nlet _ = root.exists(p\".\")\n",
     "proc make_root() [fs, error] -> Result[FsRoot] { fs.tempdir() }\nlet root = make_root()?\nroot.close()\nlet _ = root.exists(p\".\")\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["check.use-after-release"])?
+    test.expect(ctx, source, status: 2, stderr: ["check.use-after-release"])?
   }
 }
 

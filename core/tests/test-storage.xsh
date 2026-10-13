@@ -77,7 +77,7 @@ test test_storage_lsblk_rooted_json_preserves_partition_identity { |ctx|
   root.mkdir(p"proc/self", parents: true)
   root.write(p"proc/self/mountinfo", "1 0 8:1 / /owned/mount rw - ext4 /dev/alias rw\n")
   let source = "use lib.storage\nproc main(...argv: List[Str]) { let root = fs.open_root(fp\"{argv[0]}\")?; defer root.close(); storage.lsblk_from_root(root, [\"-Jb\", \"-o\", \"NAME,SIZE,TYPE,MOUNTPOINT\"]) }"
-  let _ = test.expect(
+  test.expect(
     ctx,
     source,
     status: 0,

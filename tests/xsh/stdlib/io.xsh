@@ -59,7 +59,7 @@ print "read all bytes"
 }
 
 test test_io_stdin_read_rejects_invalid_counts_without_consuming_input { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 for count in [0, -1, 9223372036854775807] {
@@ -77,7 +77,7 @@ assert io.stdin_text()? == "bc"
 }
 
 test test_io_stdin_read_line_and_text_share_one_cursor { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 assert io.stdin_read(2)? == b"ab"
@@ -92,7 +92,7 @@ assert io.stdin_line()? == ""
 }
 
 test test_io_stdin_line_invalid_utf8_preserves_following_line { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 match io.stdin_line() {
@@ -173,7 +173,7 @@ io.write_stdout(text)?
 }
 
 test test_io_stdin_read_preserves_input_for_inherited_child { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 assert io.stdin_read(1)? == b"a"
@@ -202,7 +202,7 @@ match io.flush_stdout() {
   Ok(_) => { exit 0 }
 }
 """)
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 let xsh = applet.current_exe()?

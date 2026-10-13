@@ -139,7 +139,7 @@ test test_byte_at_reads_bytes_and_text_through_typed_receivers {
 }
 
 test test_byte_at_rejects_an_opaque_receiver { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let dynamic: Any = b\"a\\xffc\"\nassert dynamic.byte_at(1) == 255",
     status: 2,
