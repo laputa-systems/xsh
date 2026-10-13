@@ -1,4 +1,4 @@
-//! Private wire-format probes for the verified scalar-literal projection.
+//! Private wire-format probes for the Rust verifier-checked scalar-literal fixture.
 
 use super::{FullProgram, FullTag, FullVerifier, IR_NONE};
 use crate::runtime::value::{DurationValue, FloatValue, PathValue};
@@ -156,6 +156,9 @@ struct ScalarInstruction {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RawIrDocument {
     source_id: IrId,
+    instruction_count: u32,
+    driver_program_count: u32,
+    // FullStore stores driver-program references one-based and uses IR_NONE for no root.
     driver_root: OptionalIrId,
     binders: Vec<BinderProjection>,
     instructions: Vec<ScalarInstruction>,
@@ -163,6 +166,7 @@ struct RawIrDocument {
     integer_output_bits: Vec<u64>,
     float_output_bits: Vec<u64>,
     native_path_inputs: Vec<Vec<u8>>,
+    // These NaN samples test encoding only; they have no scalar instruction row.
     serialization_only_float_bits: Vec<u64>,
 }
 
@@ -443,6 +447,9 @@ fn validate_raw_document(document: &RawIrDocument) -> Result<(), String> {
 
     let mut previous = None;
     for instruction in &document.instructions {
+        if instruction.id.raw() > document.instruction_count {
+            return Err("literal instruction ID is outside the instruction table".to_string());
+        }
         if previous.is_some_and(|id: IrId| id >= instruction.id) {
             return Err("literal instruction IDs must preserve table order".to_string());
         }
@@ -452,6 +459,13 @@ fn validate_raw_document(document: &RawIrDocument) -> Result<(), String> {
         {
             return Err("typed scalar bits disagree with low/high raw words".to_string());
         }
+    }
+
+    match document.driver_root.0 {
+        Some(root) if root.raw() <= document.driver_program_count => {}
+        Some(_) => return Err("driver root ID is outside the driver program table".to_string()),
+        None if document.driver_program_count == 0 => {}
+        None => return Err("driver program table has no root".to_string()),
     }
 
     for bytes in &document.native_path_inputs {
@@ -467,6 +481,10 @@ fn encode_raw_ir_document(document: &RawIrDocument) -> Result<String, String> {
     json_string(RAW_IR_SCHEMA, &mut output);
     output.push_str(",\"sourceId\":");
     json_string(&hex_u32(document.source_id.raw()), &mut output);
+    output.push_str(",\"instructionCount\":");
+    json_string(&hex_u32(document.instruction_count), &mut output);
+    output.push_str(",\"driverProgramCount\":");
+    json_string(&hex_u32(document.driver_program_count), &mut output);
     output.push_str(",\"scope\":");
     json_string(RAW_IR_SCOPE, &mut output);
     output.push_str(",\"driverRoot\":");
@@ -547,6 +565,8 @@ fn decode_raw_ir_document(input: &str) -> Result<RawIrDocument, String> {
         &[
             "schema",
             "sourceId",
+            "instructionCount",
+            "driverProgramCount",
             "scope",
             "driverRoot",
             "binderProjection",
@@ -561,6 +581,9 @@ fn decode_raw_ir_document(input: &str) -> Result<RawIrDocument, String> {
         return Err("unknown raw-IR document version".to_string());
     }
     let source_id = IrId::from_raw(parse_hex_u32(&take_string(&mut fields, "sourceId")?)?)?;
+    let instruction_count = parse_hex_u32(&take_string(&mut fields, "instructionCount")?)?;
+    let driver_program_count =
+        parse_hex_u32(&take_string(&mut fields, "driverProgramCount")?)?;
     if take_string(&mut fields, "scope")? != RAW_IR_SCOPE {
         return Err("unsupported raw-IR projection scope".to_string());
     }
@@ -608,6 +631,8 @@ fn decode_raw_ir_document(input: &str) -> Result<RawIrDocument, String> {
         .collect::<Result<Vec<_>, _>>()?;
     let document = RawIrDocument {
         source_id,
+        instruction_count,
+        driver_program_count,
         driver_root,
         binders,
         instructions,
@@ -803,6 +828,10 @@ fn export_raw_ir_document(
 
     let document = RawIrDocument {
         source_id,
+        instruction_count: u32::try_from(program.store.tags.len())
+            .map_err(|_| "instruction table exceeds the u32 wire count".to_string())?,
+        driver_program_count: u32::try_from(program.store.driver_programs.len())
+            .map_err(|_| "driver program table exceeds the u32 wire count".to_string())?,
         driver_root: OptionalIrId::from_raw(program.store.driver_root)?,
         binders,
         instructions,
@@ -1096,6 +1125,11 @@ pure path_echo(input: Path) -> Path {
         assert_eq!(decoded, raw);
         assert_eq!(encode_raw_ir_document(&decoded).unwrap(), raw_encoded);
         assert_eq!(decoded.source_id, source.id);
+        assert_eq!(decoded.instruction_count, program.store.tags.len() as u32);
+        assert_eq!(
+            decoded.driver_program_count,
+            program.store.driver_programs.len() as u32
+        );
         assert_eq!(
             decoded.driver_root,
             OptionalIrId::from_raw(program.store.driver_root).unwrap()
@@ -1258,6 +1292,43 @@ pure path_echo(input: Path) -> Path {
             set_field(&mut rows[1], "id", Json::String(first));
         });
         assert!(decode_raw_ir_document(&duplicate_id).is_err());
+
+        let ghost_instruction = parsed_raw_mutation(&raw_encoded, |value| {
+            set_nested_field(
+                value,
+                "instructions",
+                0,
+                "id",
+                Json::String(hex_u32(raw.instruction_count + 1)),
+            );
+        });
+        assert!(decode_raw_ir_document(&ghost_instruction).is_err());
+
+        let dangling_driver = parsed_raw_mutation(&raw_encoded, |value| {
+            set_field(
+                value,
+                "driverRoot",
+                Json::String(hex_u32(raw.driver_program_count + 1)),
+            );
+        });
+        assert!(decode_raw_ir_document(&dangling_driver).is_err());
+
+        let parameter_index = raw
+            .binders
+            .iter()
+            .position(|binder| binder.role == BinderRole::Parameter)
+            .expect("fixture has a parameter binder");
+        let dangling_owner_id = IrId::from_index(raw.binders.len()).unwrap();
+        let dangling_owner = parsed_raw_mutation(&raw_encoded, |value| {
+            set_nested_field(
+                value,
+                "binderProjection",
+                parameter_index,
+                "owner",
+                Json::String(hex_u32(dangling_owner_id.raw())),
+            );
+        });
+        assert!(decode_raw_ir_document(&dangling_owner).is_err());
 
         let wrong_word_width = parsed_raw_mutation(&raw_encoded, |value| {
             set_nested_field(value, "instructions", 0, "value", Json::String("1".to_string()));
