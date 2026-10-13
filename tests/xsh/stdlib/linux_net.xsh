@@ -52,7 +52,7 @@ proc interface_names(replies: List[LinuxNetlinkMessage]) [error] -> Result[List[
   let names = collect {
     for reply in replies {
       for attribute in attributes(reply.payload, 16)? {
-        yield attribute.data.slice(0, attribute.data.len() - 1) as Str when attribute.kind == 3
+        yield attribute.data[0..attribute.data.len() - 1] as Str when attribute.kind == 3
       }
     }
   }
@@ -431,7 +431,7 @@ test test_sock_diag_finds_a_tcp_listener {
   let message = ours[0].payload
   assert message.byte_at(0) == c.AF_INET
   assert message.byte_at(1) == c.TCP_LISTEN
-  assert message.slice(8, 4) == bytes.from_ints([127, 0, 0, 1])?
+  assert message[8..12] == bytes.from_ints([127, 0, 0, 1])?
 }
 
 test test_generic_netlink_resolves_family_ids {

@@ -113,7 +113,7 @@ proc pattern(length: Int) [error] -> Result[Bytes] {
       made += 256
     }
   }
-  Ok(bytes.concat(chunks).slice(0, length))
+  Ok(bytes.concat(chunks)[..length])
 }
 
 test test_nc_help_and_usage_match_the_utility { |ctx|
