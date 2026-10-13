@@ -210,7 +210,7 @@ pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
         let length = at - start
         if length > opts.cbs { truncated += 1 }
         let width = if length < opts.cbs { length } else { opts.cbs }
-        let data = encode_charset(mapped.slice(start, length: width), opts)?
+        let data = encode_charset(mapped[start..start + width], opts)?
         let pad_byte = if "ebcdic" in opts.conv or "ibm" in opts.conv { charset.character(32, if "ibm" in opts.conv { "ibm" } else { "ebcdic" }) } else { 32 }
         block_outputs += [{data: data, padding: opts.cbs - width, pad_byte: pad_byte}]
         start = at + 1
@@ -470,7 +470,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       block = unix.read_fd(fd, want)?
     } else if let file = source {
       block = if file.mode == "device" { bytes.read_at(file.path, 0, want)? } else { tio.read_chunk(file, skip + total, want)? }
-      block = block.slice(0, length: want)
+      block = block[0..want]
     } else {
       block = io.stdin_read(want)?
     }
@@ -508,7 +508,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
         let chunk_limit = if sparse_output or record_remaining < 65536 { record_remaining } else { 65536 }
         let needed = chunk_limit - output_length
         let width = if rest.len() < needed { rest.len() } else { needed }
-        output_chunks += [rest.slice(0, length: width)]
+        output_chunks += [rest[0..width]]
         output_length += width
         output_position += width
         rest = rest[width..]
@@ -680,7 +680,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
         break when width == 0
         guard let block = tio.read_chunk(source, at, width) else { |failure| gnu.error(f"error reading {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
         break when block.is_empty()
-        let part = block.slice(0, length: remaining)
+        let part = block[0..remaining]
         chunks += [part]
         at += part.len()
         remaining -= part.len()

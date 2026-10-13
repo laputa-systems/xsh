@@ -274,7 +274,7 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
       operand = word in ["print", "printf", "return", "exit", "in", "delete", "else", "do", "if", "while", "for"]
       continue
     }
-    let pair = source.slice(at, length: if at + 1 < source.len() { 2 } else { 1 }).utf8() ?? "\u{1}"
+    let pair = source[at..at + (if at + 1 < source.len() { 2 } else { 1 })].utf8() ?? "\u{1}"
     var op = pair
     if pair in ["++", "--", "==", "!=", "<=", ">=", "&&", "||", "!~", "+=", "-=", "*=", "/=", "%=", "^=", ">>", "|&"] or (pair == "**" and mode != 2) {
       at += 2
@@ -1880,8 +1880,8 @@ pure decode_chunk(carry: Bytes, fresh: Bytes) -> Result[Chunk] {
     Ok({text: text, tail: b"", lossy: false})
   } else {
     let keep = incomplete_tail(data)
-    let head = if keep > 0 { data.slice(0, length: data.len() - keep) } else { data }
-    let rest = if keep > 0 { data.slice(data.len() - keep, length: keep) } else { b"" }
+    let head = if keep > 0 { data[0..data.len() - keep] } else { data }
+    let rest = if keep > 0 { data[data.len() - keep..] } else { b"" }
     if let Ok(text) = head.utf8() {
       Ok({text: text, tail: rest, lossy: false})
     } else {
@@ -2796,7 +2796,7 @@ proc write_all(fd: Int, data: Bytes) {
   while ! rest.is_empty() {
     let count = unix.write_fd(fd, rest)?
     return error.fail("write failed") when count <= 0
-    rest = rest.slice(count, length: rest.len() - count)
+    rest = rest[count..]
   }
 }
 proc warn_plain(text: Str) {
