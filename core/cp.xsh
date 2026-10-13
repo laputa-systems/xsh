@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 
-error CopyError = Invalid(message: Str)
+error CopyError = Invalid
 
 type Options = {
   recursive: Bool, dereference: Str, overwrite: Str, force: Bool,
@@ -42,13 +42,13 @@ pure mode_octal(mode: Int) -> Str {
 }
 
 proc invalid(message: Str) {
-  Err(CopyError.Invalid(message:))
+  Err(CopyError.Invalid(message))
 }
 
 proc source_stat(source: Path, follow: Bool) {
   match fs.stat(source, follow_symlinks: follow) {
     Ok(meta) => Ok(meta)
-    Err(failure) => Err(CopyError.Invalid(message: f"cannot stat {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}"))
+    Err(failure) => Err(CopyError.Invalid(f"cannot stat {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}"))
   }
 }
 
@@ -100,7 +100,7 @@ proc preserve_attributes(source: Path, target: Path, opts: Options, follow: Bool
   if let Err(failure) = applied {
     match failure {
       CopyError.Invalid {..} => return Err(failure)
-      else => return Err(CopyError.Invalid(message: f"setting attributes for {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}"))
+      else => return Err(CopyError.Invalid(f"setting attributes for {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}"))
     }
   }
   applied

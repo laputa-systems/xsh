@@ -18,7 +18,7 @@ use lib.gnu
 # A fatal failure ends the run at once with status 2. Failures GNU cpio counts as
 # errors but survives (a file that cannot be created, a missing input name) only
 # set `Run.failed`, which decides the final status after the block count.
-error CpioError = Fatal(message: Str)
+error CpioError = Fatal
 
 const USAGE = """Usage: cpio [OPTION...] [destination-directory]
 GNU `cpio' copies files to and from archives
@@ -542,10 +542,10 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
   while true {
     guard data.len() - position >= 6 else {
       let message = if known == "" { "premature end of archive" } else { "premature end of file" }
-      return Err(.Fatal(message:))
+      return Err(.Fatal(message))
     }
     if known == "" and data.len() - position >= 512 and data.slice(position + 257, 5) == b"ustar" and detect_format(data, position) == "" {
-      return Err(.Fatal(message: "tar and ustar archives are not supported"))
+      return Err(.Fatal("tar and ustar archives are not supported"))
     }
     if format == "" {
       format = detect_format(data, position)
@@ -565,7 +565,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
     else => BIN_HEADER
   }
   if data.len() - position < width {
-    return Err(.Fatal(message: "premature end of file"))
+    return Err(.Fatal("premature end of file"))
   }
   var header: Header = Header(ino: 0, mode: 0, uid: 0, gid: 0, nlink: 0, mtime: 0, size: 0, dev_major: 0, dev_minor: 0, rdev_major: 0, rdev_minor: 0, checksum: 0, name: b"")
   var name_size = 0
@@ -638,7 +638,7 @@ proc read_header(data: Bytes, start: Int, known: Str, warned_reverse: Bool) [pro
     usable = false
   } else {
     guard data.len() - cursor >= name_size else {
-      return Err(.Fatal(message: "premature end of file"))
+      return Err(.Fatal("premature end of file"))
     }
     let raw = data.slice(cursor, name_size)
     cursor += name_size
@@ -2122,7 +2122,7 @@ proc copy_in(opts: Options, data: Bytes, patterns: List[Bytes], chown_enabled: B
     let after = data_start + size + padding(format, size)
     if after > data.len() {
       if ! listing.is_empty() { write_out(bytes.concat(listing)) }
-      return Err(.Fatal(message: "premature end of file"))
+      return Err(.Fatal("premature end of file"))
     }
     if parsed.usable and header.name == TRAILER {
       consumed = data_start

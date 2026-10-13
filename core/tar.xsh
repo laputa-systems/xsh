@@ -2,7 +2,7 @@
 use lib.gnu
 
 # Every tar failure ends the applet with status 1.
-error TarError = Invalid(message: Str)
+error TarError = Invalid
 
 const BLOCK = 512
 const NAME_FIELD = 100
@@ -95,7 +95,7 @@ pure octal_field(block: Bytes, start: Int, length: Int) -> Result[Int] {
   while position < end {
     let digit = block.byte_at(position) ?? 0
     break when digit == 0 or digit == 32
-    if digit < 48 or digit > 55 { return Err(TarError.Invalid(message: "corrupted octal value in tar header")) }
+    if digit < 48 or digit > 55 { return Err(TarError.Invalid("corrupted octal value in tar header")) }
     value = value * 8 + digit - 48
     position += 1
   }
@@ -131,13 +131,13 @@ pure pax_overrides(body: Bytes) -> Result[PaxOverrides] {
   var position = 0
   while position < text.byte_len() {
     let space = text.find(" ", position) ?? -1
-    return Err(TarError.Invalid(message: "malformed extended header")) when space < 0
+    return Err(TarError.Invalid("malformed extended header")) when space < 0
     let length = text.byte_slice(position, length: space - position).parse_int_decimal()?
-    if length <= 0 or position + length > text.byte_len() { return Err(TarError.Invalid(message: "malformed extended header")) }
+    if length <= 0 or position + length > text.byte_len() { return Err(TarError.Invalid("malformed extended header")) }
     let record = text.byte_slice(position, length:)
     let assignment = record.byte_slice(space + 1 - position, length: length - (space + 1 - position) - 1)
     let equals = assignment.find("=") ?? -1
-    return Err(TarError.Invalid(message: "malformed extended header")) when equals < 0
+    return Err(TarError.Invalid("malformed extended header")) when equals < 0
     let key = assignment.byte_slice(0, length: equals)
     let value = assignment.byte_slice(equals + 1)
     if key == "path" {
@@ -159,7 +159,7 @@ pure join_prefix(prefix: Str, base: Str) -> Str {
 }
 
 pure body_bytes(data: Bytes, start: Int, size: Int) -> Result[Bytes] {
-  return Err(TarError.Invalid(message: "short read")) when size > data.len() - start
+  return Err(TarError.Invalid("short read")) when size > data.len() - start
   Ok(data.slice(start, size))
 }
 
@@ -182,11 +182,11 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
       let remaining = data.len() - position
       break when remaining < 0
       if remaining == 0 {
-        return Err(TarError.Invalid(message: "short read")) when position == 0
+        return Err(TarError.Invalid("short read")) when position == 0
         break
       }
 
-      return Err(TarError.Invalid(message: "short read")) when remaining < BLOCK
+      return Err(TarError.Invalid("short read")) when remaining < BLOCK
       let block = data.slice(position, BLOCK)
       position += BLOCK
       if is_zero_block(block) {
@@ -196,9 +196,9 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
       }
 
       after_zero = false
-      if block.slice(257, 5) != b"ustar" { return Err(TarError.Invalid(message: "invalid tar magic")) }
+      if block.slice(257, 5) != b"ustar" { return Err(TarError.Invalid("invalid tar magic")) }
       if octal_field(block, 148, 8)? != header_sum(block) {
-        return Err(TarError.Invalid(message: "invalid tar header checksum"))
+        return Err(TarError.Invalid("invalid tar header checksum"))
       }
 
       var flag = block.byte_at(156) ?? 0
@@ -242,7 +242,7 @@ pure read_members(data: Bytes) -> Result[List[Member]] {
       }
       let has_data = kind == "file" or kind == "unsupported"
       let body_size = if has_data { size } else { 0 }
-      if body_size > data.len() - position { return Err(TarError.Invalid(message: "short read")) }
+      if body_size > data.len() - position { return Err(TarError.Invalid("short read")) }
       yield {
         name: name,
         kind: kind,
@@ -328,7 +328,7 @@ pure strip_components(name: Str, count: Int) -> Str {
 
 pure member_path(root: Path, name: Str) -> Result[Path] {
   for part in name.split("/") {
-    if part == ".." { return Err(TarError.Invalid(message: f"{name}: refusing to extract a member with '..' in its name")) }
+    if part == ".." { return Err(TarError.Invalid(f"{name}: refusing to extract a member with '..' in its name")) }
   }
   if name == "" { Ok(root) } else { Ok(fp"{root}/{name}") }
 }
@@ -389,7 +389,7 @@ proc archive_data(opts: Options) [fs, io, error, process, env] -> Result[Bytes] 
   }
   let name = opts.archive_path ?? ""
   let source = fp"{name}"
-  let raw = source.read_bytes() ?? { |failure| return Err(TarError.Invalid(message: f"{name}: Cannot open: {gnu.strerror(failure)}")) }
+  let raw = source.read_bytes() ?? { |failure| return Err(TarError.Invalid(f"{name}: Cannot open: {gnu.strerror(failure)}")) }
   let format = if opts.compression != "" { opts.compression } else { detected_format(raw) }
   return Ok(raw) when format == ""
   Ok(archive.decompress_bytes(source, format)?)
@@ -410,7 +410,7 @@ proc list_members(opts: Options) [fs, io, error, process, env, time] {
     }
   }
   if let missing = first_missing(members, opts.members) {
-    return Err(TarError.Invalid(message: f"{missing}: Not found in archive"))
+    return Err(TarError.Invalid(f"{missing}: Not found in archive"))
   }
   Ok()
 }
@@ -437,7 +437,7 @@ proc prepare_destination(target: Path, opts: Options) [fs, error] -> Result[Bool
     Ok(_) => {}
     Err(failure) => {
       return Ok(true) when gnu.errno(failure) == 2
-      return Err(TarError.Invalid(message: f"{target.display()}: Cannot stat: {gnu.strerror(failure)}"))
+      return Err(TarError.Invalid(f"{target.display()}: Cannot stat: {gnu.strerror(failure)}"))
     }
   }
   return Ok(false) when opts.keep
@@ -445,7 +445,7 @@ proc prepare_destination(target: Path, opts: Options) [fs, error] -> Result[Bool
     target.remove()
     return Ok(true)
   }
-  Err(TarError.Invalid(message: f"{target.display()}: destination exists"))
+  Err(TarError.Invalid(f"{target.display()}: destination exists"))
 }
 
 # Creates one member below the destination. A directory returns a fixup so its
@@ -498,7 +498,7 @@ proc extract_members(opts: Options) [fs, io, error, process, env] {
     }
   }
   if let missing = first_missing(members, opts.members) {
-    return Err(TarError.Invalid(message: f"{missing}: Not found in archive"))
+    return Err(TarError.Invalid(f"{missing}: Not found in archive"))
   }
   for index in range(fixups.len()) {
     let fixup = fixups[fixups.len() - 1 - index]
@@ -519,7 +519,7 @@ pure split_name(name: Str) -> Result[SplitName] {
     }
     position -= 1
   }
-  Err(TarError.Invalid(message: "names longer than 100 chars not supported"))
+  Err(TarError.Invalid("names longer than 100 chars not supported"))
 }
 
 # A numeric field holds width - 1 octal digits and a NUL.
@@ -531,7 +531,7 @@ pure octal_text(value: Int, width: Int) -> Result[Str] {
     left = left / 8
     break when left == 0
   }
-  if digits.byte_len() > width - 1 { return Err(TarError.Invalid(message: "value too large for tar header")) }
+  if digits.byte_len() > width - 1 { return Err(TarError.Invalid("value too large for tar header")) }
   var padded_digits = digits
   while padded_digits.byte_len() < width - 1 { padded_digits = f"0{padded_digits}" }
   Ok(f"{padded_digits}\0")
@@ -561,7 +561,7 @@ pure ustar_header(name: Str, flag: Str, mode: Int, uid: Int, gid: Int, size: Int
 # filesystem lists them, and excluded names are left out with their subtrees.
 proc member_chunks(name: Str, source: Path, opts: Options) [fs, error] -> Result[List[Bytes]] {
   return Ok([]) when excluded(canonical(name), opts.excludes)
-  let info = fs.stat(source, follow_symlinks: false) ?? { |failure| return Err(TarError.Invalid(message: f"{name}: Cannot stat: {gnu.strerror(failure)}")) }
+  let info = fs.stat(source, follow_symlinks: false) ?? { |failure| return Err(TarError.Invalid(f"{name}: Cannot stat: {gnu.strerror(failure)}")) }
   var chunks = []
   if info.kind == "dir" {
     let dir_name = if name.ends_with("/") { name } else { f"{name}/" }
@@ -582,7 +582,7 @@ proc member_chunks(name: Str, source: Path, opts: Options) [fs, error] -> Result
     let target = source.readlink()?
     chunks += [ustar_header(name, "2", info.mode.bit_and(0o7777), info.uid, info.gid, 0, info.mtime_ns / NANOS, target.display())?]
   } else {
-    return Err(TarError.Invalid(message: f"{name}: unknown file type"))
+    return Err(TarError.Invalid(f"{name}: unknown file type"))
   }
   Ok(chunks)
 }
@@ -613,7 +613,7 @@ proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] {
 }
 
 proc create_archive(opts: Options) [fs, io, error, process, env] {
-  if opts.members.is_empty() { return Err(TarError.Invalid(message: "Cowardly refusing to create an empty archive")) }
+  if opts.members.is_empty() { return Err(TarError.Invalid("Cowardly refusing to create an empty archive")) }
   let root = fp"{opts.root}"
   let chunks = collect {
     for operand in opts.members {

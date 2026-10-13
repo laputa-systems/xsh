@@ -53,7 +53,7 @@ export pure lookup_rows(database: Str, text: Str) -> Result[List[LookupRow], Err
     return Ok(rows)
   }
   if database != "hosts" and database != "services" and database != "protocols" {
-    return Err(AccountError.Database(message: f"unknown database {database}"))
+    return Err(AccountError.Database(f"unknown database {database}"))
   }
   for line in text.lines() {
     let body = line.split("#", maxsplit: 1)[0].trim()
@@ -89,7 +89,7 @@ export proc database_file(database: Str) [env] -> Result[Path, Error] {
     "hosts" => Ok(fp"{env.get_or("XSH_HOSTS_FILE", "/etc/hosts") ?? "/etc/hosts"}")
     "services" => Ok(fp"{env.get_or("XSH_SERVICES_FILE", "/etc/services") ?? "/etc/services"}")
     "protocols" => Ok(fp"{env.get_or("XSH_PROTOCOLS_FILE", "/etc/protocols") ?? "/etc/protocols"}")
-    else => Err(AccountError.Database(message: f"unknown database {database}"))
+    else => Err(AccountError.Database(f"unknown database {database}"))
   }
 }
 
@@ -125,11 +125,11 @@ export proc login_user(name: Str, identity: UnixId) [fs, env, process, error] ->
     env XSH_PASSWD_FILE=/etc/passwd { entry = auth.lookup_user(name)? }
   } else { entry = auth.lookup_user(name)? }
   if applet.current_euid() != 0 and (entry.uid != identity.uid or entry.uid != applet.current_euid() or entry.gid != identity.gid) {
-    return Err(AccountError.Policy(message: "fixture identity must match the caller"))
+    return Err(AccountError.Policy("fixture identity must match the caller"))
   }
-  if !id_valid(entry.uid) or !id_valid(entry.gid) { return Err(AccountError.Policy(message: "invalid account identity")) }
-  if entry.shell == "" or !entry.shell.starts_with("/") { return Err(AccountError.Policy(message: "account requires an absolute login shell")) }
-  if !entry.home.display().starts_with("/") { return Err(AccountError.Policy(message: "account requires an absolute home directory")) }
+  if !id_valid(entry.uid) or !id_valid(entry.gid) { return Err(AccountError.Policy("invalid account identity")) }
+  if entry.shell == "" or !entry.shell.starts_with("/") { return Err(AccountError.Policy("account requires an absolute login shell")) }
+  if !entry.home.display().starts_with("/") { return Err(AccountError.Policy("account requires an absolute home directory")) }
   Ok(entry)
 }
 
@@ -146,7 +146,7 @@ export proc authenticate(entry: auth.PasswdEntry) [fs, env, process, error, io] 
 pure age_field(text: Str) -> Result[Int] {
   return Ok(-1) when text == "" or text == "-1"
   let value = text as Int
-  return Err(AccountError.Policy(message: "invalid shadow age field")) when value < 0
+  return Err(AccountError.Policy("invalid shadow age field")) when value < 0
   Ok(value)
 }
 
@@ -160,11 +160,11 @@ export proc check_expiration(entry: auth.PasswdEntry) [fs, env, process, time, e
   for item in records {
     continue when item.raw or item.username != entry.name
     let expiration = age_field(item.rest.get(5) ?? "")?
-    if expiration >= 0 and today >= expiration { return Err(AccountError.Policy(message: "account has expired")) }
+    if expiration >= 0 and today >= expiration { return Err(AccountError.Policy("account has expired")) }
     let changed = age_field(item.rest.get(0) ?? "")?
     let maximum = age_field(item.rest.get(2) ?? "")?
     if changed == 0 or (changed > 0 and maximum >= 0 and today - changed > maximum) {
-      return Err(AccountError.Policy(message: "password has expired; password changes during login are unsupported"))
+      return Err(AccountError.Policy("password has expired; password changes during login are unsupported"))
     }
   }
   Ok()
