@@ -2,16 +2,27 @@
 
 This is the Lean foundation for the XSH soundness campaign. It is pinned to
 Lean 4.34.1 and uses only Lean's bundled libraries; no XSH runtime or product
-build depends on it. Current independent fragments cover exact word and
-identity round trips; bounded scalar values and raw Float bits with the XSH
-language's IEEE Float equality (`+0 == -0`; every NaN is unequal to every
-Float, including itself) and total ordering; `NonEmpty` and bounded-integer
-validation boundaries; lexical binders, captured cells, and typed-store
-writes; and the effect lattice, recursive summary equations, lexical bounds,
-and delayed-work origins. The effect models do not establish Rust checker
-classification, diagnostics, or conformance. The provisional inventory still
-marks all 72 complete theorem obligations planned. No Rust conformance or
-whole-language soundness claim is made.
+build depends on it. The current `Xsh` root imports every module under
+`formal/Xsh/`. These modules define and prove fragments for exact scalar and
+word representations; lexical environments, activations, and captured cells; a
+checked integer evaluator with typed scalar values; validated boundaries and
+atomic typed-store writes; and effect lattices, recursive summaries, lexical
+bounds, and delayed-work origins. Failed typed writes preserve the old store
+and produce an uncatchable type error; `.require(UInt)` remains recoverable.
+The effect fragments model lexical rules but do not establish Rust checker
+classification or diagnostics. The raw IR layer models typed pool IDs,
+optional IDs, ranges, tables, and row decoding. Transport modules define
+closed bridge codecs and prove re-encoding laws for accepted hexadecimal
+values and bridge IDs. These are independent Lean results about their stated
+definitions, not Rust conformance or full-language proofs.
+
+Finite private Rust bridge fixtures exercise selected JSON limits, table
+bounds, and ghost-reference rejection. They are empirical tests of that
+private bridge; they are separate from the Lean theorems and do not establish
+general Rust conformance. Consolidation acceptance and the post-consolidation
+G0b source freeze remain pending. The provisional inventory still marks all
+72 complete theorem obligations planned. No full G1 closure or whole-language
+soundness claim is made.
 
 From this directory, keep Lake's metadata, manifest, cache, build outputs, and
 temporary files under the repository's ignored `.work/` directory. Add that

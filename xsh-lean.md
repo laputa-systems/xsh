@@ -1,18 +1,26 @@
 # XSH semantic soundness campaign
 
 **Status:** Active staggered foundations, authorized 2026-10-13 after preflight.
-The pinned toolchain, private bridge fixtures, provisional inventory, and
-scalar, validation, environment/store, and effects fragments are integrated.
+The pinned toolchain, finite private bridge fixtures, provisional inventory,
+scalar and base-machine fragments, validation, environment/store, effects,
+raw-IR, and transport codec/law fragments are integrated.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
 runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
 and the Lean scalar model states it over raw Float bits. Consolidation
-acceptance and G0b source freezing remain independent gates. The owner
-requested wider staggered lanes; continue on disjoint domains with the
-coordinated build and memory limits. No Rust conformance or full-language
+acceptance and the post-consolidation G0b source freeze remain pending gates.
+The owner requested wider staggered lanes; continue on disjoint domains with
+the coordinated build and memory limits. No Rust conformance or full-language
 theorem is claimed, and all 72 inventoried full theorem obligations remain
 planned.
 **Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
-**Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and lowering obligations, and connect those independent statements to the Rust implementation with conformance and certified artifacts. The current word, scalar, validation, environment/store, and effect modules are partial foundations only. They do not close a full-language obligation or establish Rust conformance.
+**Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and
+lowering obligations, and connect those independent statements to the Rust
+implementation with conformance and certified artifacts. The current scalar,
+syntax, environment/store, validation, effects, base-machine, raw-IR, and
+transport modules are partial foundations only. `formal/Xsh.lean` imports
+every current module under `formal/Xsh/`, but root reachability does not
+establish adequacy or close any full-language obligation. These fragments do
+not establish Rust conformance.
 
 ## Deliverables
 
@@ -378,6 +386,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | Preflight | Lean 4.34.1 fresh `Init.Prelude` recheck; pinned release hello execution/JSONL trace; private typed-callable verifier regression passed. `mdtool check --untracked xsh-lean.md`: zero errors; planned-path/symbol warnings and known dangling-fixture notes. Independent review found no P1/P2 blocker. | Exporter and project do not yet exist; G0a proves those foundations before dependent work. |
 | G0a | Pinned project, module-wide axiom audit, guarded fresh-check runner, and exact scalar foundation merged. Private Rust bridge and provisional inventory have focused checks and independent review; integration fixes remain. | Include every theorem module in the fresh-check root. Finish reference and inventory mutation controls; G0b waits for consolidation close. |
 | Staggered foundations | Scalar bit/key round trips, lexical lookup and scope restoration, cell-reference captures, membership-guarded store laws, `NonEmpty` and bounded-integer validation boundaries, finite effect-lattice and recursive-summary fragments, and lexical bounds with delayed-work origins are integrated. The provisional inventory contains 89 owner rows and leaves all 72 complete theorem obligations planned; its 13 mutation tests pass. The private bridge has strict JSON limits, table bounds, and ghost-reference rejection tests. | These fragments do not close G2 or G3, establish Rust conformance, or supply the shared whole-language invariant. Whole syntax, typing, operational semantics, and artifact certification remain open. |
+| Rooted machine, raw IR, and transport foundations | Commits `9d475279b`, `7de4804c4`, `7e2e91947`, `1e434d815`, `d8b24f16e`, `9bc73a8a2`, and `0107c8158` add the validated store, integer base machine, raw IR word/table/range/row fragments, and strict transport codecs with accepted-value re-encoding laws; each module is imported by `formal/Xsh.lean`. Follow-ups `8a6b70d42` and `2aa2069c8` preserve exact typed scalar values in the base-machine fragment and constrain controls under pending integer frames, with witnesses for rejected non-integer frame mutations. Arithmetic in that machine remains integer-only. No `BASE-*` obligation is complete; all 72 full theorem obligations remain planned. | Root reachability is recorded, but these fragments do not establish parser/exporter or Rust conformance, whole-language adequacy, artifact certification, G0b source freeze, or full G1 closure. Begin G0b only after consolidation acceptance and freeze the post-consolidation source. |
 
 ## For the owner afterwards
 
