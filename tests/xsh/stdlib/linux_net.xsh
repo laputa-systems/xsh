@@ -704,14 +704,14 @@ test test_interfaces_and_routes_agree_with_the_netlink_snapshot {
       } else {
         f"{route.destination ?? unspecified}/{route.destination_prefix_length}"
       }
-      let hops = if route.nexthops.len() == 0 {
+      let hops = if route.nexthops.is_empty() {
         [{gateway: route.gateway, ifindex: route.output_ifindex}]
       } else {
         [{gateway: hop.gateway, ifindex: hop.ifindex} for hop in route.nexthops]
       }
       for hop in hops {
         let named = [link.name ?? "" for link in dump.links if link.ifindex == (hop.ifindex ?? -1)]
-        let dev = if named.len() == 0 { "*" } else { named[0] }
+        let dev = if named.is_empty() { "*" } else { named[0] }
         yield f"{route.family} {dst} {hop.gateway ?? unspecified} {dev}"
       }
     }

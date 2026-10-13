@@ -8,7 +8,7 @@ test test_gnu_truncate_multiple_files_log { |ctx|
   assert uu.file_exists(s, "a")?
   assert uu.file_exists(s, "b")?
   uu.no_stdout(r)
-  assert r.stderr.len() > 0
+  assert ! r.stderr.is_empty()
 }
 
 # origin: gnu truncate/truncate-dangling-symlink.log

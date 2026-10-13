@@ -10,7 +10,7 @@ proc identify(name: Str, follow: Bool) [fs, io, error] -> Result[Identification]
     var sample = b""
     while sample.len() < 8192 {
       let chunk = io.stdin_read(8192 - sample.len())?
-      break when chunk.len() == 0
+      break when chunk.is_empty()
       sample = bytes.concat([sample, chunk])
     }
     return Ok(file_magic.classify(sample))

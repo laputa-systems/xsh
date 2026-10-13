@@ -562,7 +562,7 @@ test test_uu_ln_symlink_overwrite_dir_fail { |ctx|
   uu.mkdir(s, path_b)
   let run1 = uu.invoke(s, "ln", ["-s", "-T", path_a, path_b])?
   uu.fails(run1)
-  assert run1.stderr.len() > 0
+  assert ! run1.stderr.is_empty()
 }
 
 # origin: uutils test_ln::test_symlink_overwrite_force
@@ -724,7 +724,7 @@ test test_uu_ln_symlink_target_only { |ctx|
   uu.mkdir(s, dir)
   let run1 = uu.invoke(s, "ln", ["-s", "-t", dir])?
   uu.fails(run1)
-  assert run1.stderr.len() > 0
+  assert ! run1.stderr.is_empty()
 }
 
 # origin: uutils test_ln::test_symlink_to_dir_2args

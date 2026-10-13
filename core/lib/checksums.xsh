@@ -114,7 +114,7 @@ pure has_length_option(argv: List[Str]) -> Bool {
 }
 
 pure decimal_text(value: Str) -> Bool {
-  value.byte_len() > 0 and value.translate("0123456789", "") == ""
+  ! value.is_empty() and value.translate("0123456789", "") == ""
 }
 
 pure padded(value: Int, width: Int, fill: Str) -> Str {
@@ -153,7 +153,7 @@ pure digest_width(algorithm: Str, length: Int) -> Int {
 }
 
 pure is_hex(value: Str) -> Bool {
-  value.byte_len() > 0 and value.lower().translate("0123456789abcdef", "") == ""
+  ! value.is_empty() and value.lower().translate("0123456789abcdef", "") == ""
 }
 
 pure valid_base64(value: Str, digest_bytes: Int) -> Bool {
@@ -257,7 +257,7 @@ pure byte_lines(data: Bytes) -> List[Bytes] {
 # in that mode indentation before the digest is allowed and a leading star
 # is part of a filename, not a binary marker.
 pure bsd_alternate_format(line: Bytes) -> Bool {
-  if line.len() == 0 or line.byte_at(0) == 92 or last_byte_separator(line) != null { return false }
+  if line.is_empty() or line.byte_at(0) == 92 or last_byte_separator(line) != null { return false }
   let separator = byte_index(line, 32, 0) ?? -1
   separator > 0 and separator + 1 < line.len() and line.byte_at(separator + 1) != 32 and line.byte_at(separator + 1) != 42
 }
@@ -416,7 +416,7 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
     while start < line.len() and (line.byte_at(start) ?? -1) in [9, 32] { start += 1 }
     line = line[start..]
   }
-  if line.len() > 0 and line.byte_at(line.len() - 1) == 13 { line = line[..line.len() - 1] }
+  if ! line.is_empty() and line.byte_at(line.len() - 1) == 13 { line = line[..line.len() - 1] }
   let escape = line.byte_at(0) == 92
   let content = if escape { line[1..] } else { line }
   let open = byte_index(content, 40, 0) ?? -1
@@ -500,7 +500,7 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
   var alternate_format = false
   for line in byte_lines(data) {
     line_number += 1
-    continue when line.len() == 0 or (line.len() == 1 and line.byte_at(0) == 13)
+    continue when line.is_empty() or (line.len() == 1 and line.byte_at(0) == 13)
     continue when line.byte_at(0) == 35
     if !format_decided {
       let valid_record = if let Ok(value) = line.utf8() {

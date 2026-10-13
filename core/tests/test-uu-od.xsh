@@ -576,7 +576,7 @@ test test_uu_od_skip_bytes_prints_after_consuming_multiple_inputs { |ctx|
 test test_uu_od_skip_bytes_proc_file_without_seeking { |ctx|
   let s = od_scene(ctx)?
   let contents = p"/proc/version".read_bytes()?
-  assert contents.len() > 0
+  assert ! contents.is_empty()
   uu.write(s, "after", "e")
   let r = uu.invoke(s, "od", ["-An", "-c", "-j", f"{contents.len()}", "/proc/version", "after"])?
   uu.succeeds(r)

@@ -196,7 +196,7 @@ export pure destination(directory: Path, source: Path) -> Path {
   let components = source.components()
   let basename = if source.name() == "" { p"" } else { components[-1] }
   let directory_bytes = directory.bytes()
-  if directory_bytes.len() > 0 and directory_bytes.byte_at(directory_bytes.len() - 1) == 47 {
+  if ! directory_bytes.is_empty() and directory_bytes.byte_at(directory_bytes.len() - 1) == 47 {
     fp"{directory}{basename}"
   } else {
     fp"{directory}/{basename}"

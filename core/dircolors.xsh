@@ -128,7 +128,7 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
       let found = long_candidates(arg)
       if found.is_empty() { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") }
       let action = long_action(found[0])
-      if [name for name in found if long_action(name) != action].len() > 0 {
+      if ! [name for name in found if long_action(name) != action].is_empty() {
         gnu.usage_error(f"option '{arg}' is ambiguous; possibilities: {[f"'{name}'" for name in found].join(" ")}")
       }
       match action {

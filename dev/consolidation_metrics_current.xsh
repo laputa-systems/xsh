@@ -1523,7 +1523,7 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
     }
   }
   let has_pattern_owner = !active_pattern_owners.is_empty()
-  if pattern_schema_rows.len() > 0 and legacy_pattern_rows.len() > 0 {
+  if ! pattern_schema_rows.is_empty() and ! legacy_pattern_rows.is_empty() {
     return Err(MetricError.Invalid(path: pattern_schema_rows[0].path, line: pattern_schema_rows[0].line, detail: "pattern schema overlaps the handwritten BuildPatternRow enum"))
   }
   if pattern_schema_rows.len() > PATTERN_SCHEMA_VARIANTS.len() {

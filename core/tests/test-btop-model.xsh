@@ -278,7 +278,7 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   let expired = model.step_cached(expired_input, missing_uid, stale.metadata)
   assert expired.value.processes[0].uid == null
   assert expired.value.processes[0].uid_state == .Unavailable
-  assert expired.metadata.by_pid.len() == 0
+  assert expired.metadata.by_pid.is_empty()
 
   let changed_command: model.Observation = {
     ...missing_uid,
@@ -291,7 +291,7 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   let after_exec = model.step_cached(changed_command, missing_uid, seeded.metadata)
   assert after_exec.value.processes[0].uid == null
   assert after_exec.value.processes[0].uid_state == .Unavailable
-  assert after_exec.metadata.by_pid.len() == 0
+  assert after_exec.metadata.by_pid.is_empty()
 
   let changed_credentials: model.Observation = {
     ...second,
@@ -325,12 +325,12 @@ test test_btop_process_uid_cache_evicts_exits_and_pid_reuse {
   let reused_step = model.step_cached(reused, first, seeded.metadata)
   assert reused_step.value.processes[0].uid == null
   assert reused_step.value.processes[0].uid_state == .Unavailable
-  assert reused_step.metadata.by_pid.len() == 0
+  assert reused_step.metadata.by_pid.is_empty()
 
   let exited: model.Observation = {...first, at_ns: 3000000000, processes: {...first.processes, processes: []}}
   let exited_step = model.step_cached(exited, first, seeded.metadata)
   assert exited_step.value.processes == []
-  assert exited_step.metadata.by_pid.len() == 0
+  assert exited_step.metadata.by_pid.is_empty()
 
   var churn_cache = model.empty_metadata_cache("uid-churn")
   var churn_previous: model.Observation? = null

@@ -205,7 +205,7 @@ test test_traceroute_packet_length_sets_the_payload { |ctx|
 
   let minimum = traceroute(ctx, target.extend(["20"]))?
   assert minimum.stdout.lines()[0] == "traceroute to 127.0.0.1 (127.0.0.1), 1 hops max, 28 byte packets"
-  assert drain(listener)?[0].len() == 0
+  assert drain(listener)?[0].is_empty()
 }
 
 test test_traceroute_udp_port_advances_per_probe_unless_fixed { |ctx|

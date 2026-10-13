@@ -248,7 +248,7 @@ proc main(...argv: List[Bytes]) {
     gnu.usage_error("options --compare (-C) and --strip are mutually exclusive")
     exit 1
   }
-  if b"-T" in argv and argv.len() > 0 and argv[-1] in [b"-t", b"--target-directory"] {
+  if b"-T" in argv and ! argv.is_empty() and argv[-1] in [b"-t", b"--target-directory"] {
     gnu.usage_error("option requires an argument -- 't'")
     exit 1
   }

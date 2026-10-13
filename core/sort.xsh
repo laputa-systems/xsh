@@ -424,7 +424,7 @@ proc general_numeric_input(value: Bytes, opts: SortOptions) [error] -> GeneralNu
   var at = 0
   let source_ends = collect {
     while at < value.len() {
-      if decimal_point.len() > 0 and value.slice(at, length: decimal_point.len()) == decimal_point {
+      if ! decimal_point.is_empty() and value.slice(at, length: decimal_point.len()) == decimal_point {
         text_value += "."
         yield at + decimal_point.len()
         at += decimal_point.len()
@@ -671,7 +671,7 @@ pure key_text_boundary(line: Str, offset: Int) -> Bool {
 }
 
 pure key_byte_field_count(line: Bytes, delimiter: Bytes) -> Int {
-  if delimiter.len() > 0 {
+  if ! delimiter.is_empty() {
     var count = 1
     var at = 0
     while at + delimiter.len() <= line.len() {
@@ -697,7 +697,7 @@ pure key_byte_field_count(line: Bytes, delimiter: Bytes) -> Int {
 }
 
 pure key_byte_field_start(line: Bytes, delimiter: Bytes, field: Int) -> Int {
-  if delimiter.len() > 0 {
+  if ! delimiter.is_empty() {
     var at = 0
     var current = 0
     while at + delimiter.len() <= line.len() {
@@ -724,7 +724,7 @@ pure key_byte_field_start(line: Bytes, delimiter: Bytes, field: Int) -> Int {
 pure key_byte_field_end(line: Bytes, delimiter: Bytes, field: Int) -> Int? {
   return null when field >= key_byte_field_count(line, delimiter)
   var at = key_byte_field_start(line, delimiter, field)
-  if delimiter.len() > 0 {
+  if ! delimiter.is_empty() {
     while at + delimiter.len() <= line.len() {
       return at when line[at..at + delimiter.len()] == delimiter
       at += 1
@@ -751,7 +751,7 @@ pure key_start_byte_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: SortOpti
   return line.len() when key_index(spec) >= key_byte_field_count(line, delimiter)
   var at = key_byte_field_start(line, delimiter, key_index(spec))
   let start_spec = spec.split(",").get(0) ?? ""
-  if delimiter.len() == 0 and (opts.blank or "b" in key_flags(start_spec) or is_numeric_sort(opts) or
+  if delimiter.is_empty() and (opts.blank or "b" in key_flags(start_spec) or is_numeric_sort(opts) or
     is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_month_sort(opts)) {
     while at < line.len() and (line.byte_at(at) ?? 0) in [32, 9] { at += 1 }
   }
@@ -768,7 +768,7 @@ pure key_range_end_byte_raw(line: Bytes, delimiter: Bytes, spec: Str, opts: Sort
       if end_count > 0 {
         var end_start = key_byte_field_start(line, delimiter, end_field)
         let end_spec = spec.split(",").get(1) ?? ""
-        if delimiter.len() == 0 and (opts.blank or "b" in key_flags(end_spec)) {
+        if delimiter.is_empty() and (opts.blank or "b" in key_flags(end_spec)) {
           while end_start < line.len() and (line.byte_at(end_start) ?? 0) in [32, 9] { end_start += 1 }
         }
         let remaining = field_end - end_start
@@ -1321,7 +1321,7 @@ pure debug_key_annotation(line: Str, opts: SortOptions, spec: Str) -> Str {
     debug_annotation(debug_key_text(line, opts, spec), opts)
   } else {
     let range = key_range_bytes(line, sort_delimiter(opts), spec, key_opts)
-    if range.len() == 0 { "^ no match for key" } else { text.padding(debug_column_count(range, opts), "_") }
+    if range.is_empty() { "^ no match for key" } else { text.padding(debug_column_count(range, opts), "_") }
   }
 }
 
@@ -1866,7 +1866,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
 ## GNU sort reserves three descriptors for standard streams and signal handling.
 proc validate_batch_size(value: Str) [process, env, error] -> Unit {
   let raw = bytes.from_text(value)
-  var valid = raw.len() > 0
+  var valid = ! raw.is_empty()
   for at in range(raw.len()) {
     if ! is_ascii_digit(raw.byte_at(at) ?? 0) { valid = false }
   }

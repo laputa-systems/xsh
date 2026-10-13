@@ -322,7 +322,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       }
     }
 
-    if elide and source.mode == "stdin" and held.len() > 0 and tio.standard_file(0) != "" {
+    if elide and source.mode == "stdin" and ! held.is_empty() and tio.standard_file(0) != "" {
       let _ = unix.seek_fd(0, tio.stdin_offset()? - held.len())?
     }
   }

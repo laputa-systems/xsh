@@ -519,7 +519,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         if option == "0" { null_delimited = true; continue }
         if option in ["u", "C", "S", "a"] {
           var argument = raw_word[cursor..]
-          if argument.len() == 0 {
+          if argument.is_empty() {
             if option_index + 1 >= argv.len() { gnu.error(f"option '-{option}' requires an argument"); exit 125 }
             argument = argv[option_index + 1]
             consume_word = true

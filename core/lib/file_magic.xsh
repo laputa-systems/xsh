@@ -8,7 +8,7 @@ pure identified(description: Str, media_type: Str, encoding = "binary") -> Ident
 
 ## Classify a bounded content sample by signatures and text encoding.
 export pure classify(data: Bytes) -> Identification {
-  return identified("empty", "inode/x-empty") when data.len() == 0
+  return identified("empty", "inode/x-empty") when data.is_empty()
   for magic in [
     {prefix: b"\x89PNG\r\n\x1a\n", description: "PNG image data", mime: "image/png"},
     {prefix: b"\xff\xd8\xff", description: "JPEG image data", mime: "image/jpeg"},

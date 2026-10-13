@@ -230,7 +230,7 @@ test test_gnu_chmod_usage_log { |ctx|
   ]
   let all_files = ["--", "-w", "f"]
   for row in matrix {
-    if row.files.len() == 0 {
+    if row.files.is_empty() {
       for name in all_files { uu.touch(s, name) }
       uu.fails_with_code(uu.invoke(s, "chmod", row.args)?, 1)
     } else {

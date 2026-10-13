@@ -373,8 +373,8 @@ proc apply_option(opts: Options, key: Str, value: Bytes?, digits_context: Int?) 
       let contents = read_pattern_file(value ?? b"")
       for record in search.records(contents, 10) {
         var line = record
-        while line.len() > 0 and (line.byte_at(line.len() - 1) ?? 0) in [32, 9, 13, 11, 12] { line = line[0..line.len() - 1] }
-        if line.len() > 0 { o.excludes += [{pattern: text_of(line), include: false}] }
+        while ! line.is_empty() and (line.byte_at(line.len() - 1) ?? 0) in [32, 9, 13, 11, 12] { line = line[0..line.len() - 1] }
+        if ! line.is_empty() { o.excludes += [{pattern: text_of(line), include: false}] }
       }
     }
     "help" => o.show_help = true

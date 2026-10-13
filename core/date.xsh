@@ -623,7 +623,7 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
     return
   }
   if setting {
-    if date_operand and date.len() == 0 { gnu.error(f"invalid date {gnu.quote_bytes(date)}"); exit 1 }
+    if date_operand and date.is_empty() { gnu.error(f"invalid date {gnu.quote_bytes(date)}"); exit 1 }
     var text = ""
     if let Ok(value) = date.utf8() {
       text = value

@@ -1313,7 +1313,7 @@ type ByteRendered = {text: Bytes, err: Str}
 # A delimiter that is not UTF-8 can only be matched on bytes, so fields are
 # split and rejoined as raw bytes; unselected fields are copied unchanged.
 pure split_bytes(line: Bytes, delimiter: Bytes) -> List[Bytes] {
-  return [line] when delimiter.len() == 0
+  return [line] when delimiter.is_empty()
 
   var start = 0
   var at = 0

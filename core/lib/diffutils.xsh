@@ -101,7 +101,7 @@ export proc skip_stdin(count: Int) [io, error] -> Result[Unit, Error] {
   var remaining = count
   while remaining > 0 {
     let chunk = io.stdin_read(if remaining < 65536 { remaining } else { 65536 })?
-    break when chunk.len() == 0
+    break when chunk.is_empty()
     remaining -= chunk.len()
   }
   Ok()
@@ -109,7 +109,7 @@ export proc skip_stdin(count: Int) [io, error] -> Result[Unit, Error] {
 
 ## Count LF bytes: the number of completed lines.
 export pure newline_count(data: Bytes) -> Int {
-  data.count_lines() - (if data.len() > 0 and !data.ends_with(b"\n") { 1 } else { 0 })
+  data.count_lines() - (if ! data.is_empty() and !data.ends_with(b"\n") { 1 } else { 0 })
 }
 
 ## Display bytes with caret control notation and a meta prefix for the high bit.

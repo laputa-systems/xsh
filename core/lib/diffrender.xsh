@@ -50,7 +50,7 @@ pure trivial_line(line: Bytes, fmt: Format) -> Bool {
   }
   for pattern in fmt.patterns {
     let found = regex.find_bytes(pattern, line)
-    return true when found is Ok(_) and (found ?? []).len() > 0
+    return true when found is Ok(_) and ! (found ?? []).is_empty()
   }
   false
 }
@@ -194,7 +194,7 @@ pure function_heading(first: gnudiff.Source, from: Int, floor: Int, last_match: 
   while index >= floor {
     for pattern in patterns {
       let found = regex.find_bytes(pattern, first.lines[index])
-      return {line: index, search_from: from} when found is Ok(_) and (found ?? []).len() > 0
+      return {line: index, search_from: from} when found is Ok(_) and ! (found ?? []).is_empty()
     }
     index -= 1
   }

@@ -59,7 +59,7 @@ test test_gnu_nice_nice_log { |ctx|
   if lowering.stdout == b"0\n" {
     let advisory = nested(s, ["-n", "-1"], "true")?
     uu.succeeds(advisory)
-    assert advisory.stderr.len() > 0
+    assert ! advisory.stderr.is_empty()
     for options in [["--1"], ["--adj", "-1"]] {
       let r = nested(s, options, "true")?
       uu.succeeds(r)

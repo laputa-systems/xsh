@@ -590,7 +590,7 @@ test test_uu_stty_columns_env_wrapping { |ctx|
   }
   let wide = uu.invoke(s, "stty", ["--all", "--file", tty.name], vars: {COLUMNS: "200"})?
   uu.succeeds(wide)
-  assert [line for line in wide.stdout.utf8()?.lines().collect() if line.byte_len() > 80].len() > 0
+  assert ! [line for line in wide.stdout.utf8()?.lines().collect() if line.byte_len() > 80].is_empty()
   for invalid in ["invalid", "0", "-10"] {
     uu.succeeds(uu.invoke(s, "stty", ["--all", "--file", tty.name], vars: {COLUMNS: invalid})?)
   }

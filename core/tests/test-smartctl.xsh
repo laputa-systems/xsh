@@ -235,8 +235,8 @@ pure sg_line(cdb: Bytes, data: Bytes, sense: Bytes, direction: Str) -> Record {
     cdb: cdb.base64(),
     direction: direction,
     data_len: data.len(),
-    status: if sense.len() > 0 { 2 } else { 0 },
-    driver_status: if sense.len() > 0 { 8 } else { 0 },
+    status: if ! sense.is_empty() { 2 } else { 0 },
+    driver_status: if ! sense.is_empty() { 8 } else { 0 },
     sense: sense.base64(),
     data: data.base64(),
   }
@@ -377,7 +377,7 @@ pure nvme_self_test_page() -> Bytes {
 }
 
 pure nvme_line(opcode: Int, nsid: Int, cdw10: Int, data: Bytes) -> Record {
-  {op: "nvme_admin", opcode: opcode, nsid: nsid, cdw10: cdw10, direction: if data.len() > 0 { "from_device" } else { "none" }, data_len: data.len(), data: data.base64()}
+  {op: "nvme_admin", opcode: opcode, nsid: nsid, cdw10: cdw10, direction: if ! data.is_empty() { "from_device" } else { "none" }, data_len: data.len(), data: data.base64()}
 }
 
 pure nvme_fixture() -> List[Any] {

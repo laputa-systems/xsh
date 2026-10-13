@@ -737,7 +737,7 @@ test test_gnu_ls_stat_vs_dirent_log { |ctx|
   var entry_path = s.root
   while true {
     let listing = uu.invoke(s, "ls", ["-i1", entry_path.display()])?
-    if listing.status == 0 and listing.stdout.len() > 0 {
+    if listing.status == 0 and ! listing.stdout.is_empty() {
       let first = listing.stdout.utf8()?.lines()[0].trim()
       let fields = first.split(" ", maxsplit: 1)
       assert fields.len() == 2

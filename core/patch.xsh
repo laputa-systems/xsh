@@ -363,7 +363,7 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
   return when lines.is_empty()
   let allowed = patch_options.chosen_format(opts_argv)
   var named = null
-  if opts.files.len() > 0 { named = opts.files[0] }
+  if ! opts.files.is_empty() { named = opts.files[0] }
   var position = 0
   var status = 0
   var seen = 0
@@ -706,7 +706,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
     say(blocked)
   } else if !exists and deleting {
     prompt = f"{lead} delete the file {q(opts, name)},\nwhich does not exist!  "
-  } else if exists and original.len() > 0 and old_missing and creating {
+  } else if exists and ! original.is_empty() and old_missing and creating {
     prompt = f"{lead} create the file {q(opts, name)},\nwhich already exists!  "
   }
   var skip_all = false
@@ -765,7 +765,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
     eprint f"{gnu.prog()}: **** malformed patch at line {outcome.fatal_line}: {outcome.fatal_text.utf8() ?? ""}"
     exit 2
   }
-  if opts.merge != null and outcome.rejected.len() > 0 {
+  if opts.merge != null and ! outcome.rejected.is_empty() {
     fatal("--merge cannot write conflict markers; hunks that do not apply are not merged")
   }
   let failed = outcome.rejected.len()
@@ -797,14 +797,14 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
           make_backup(opts, name, exists, original, original_mode, says_missing)
         }
       }
-      if content.len() == 0 and (opts.remove_empty or removes) {
+      if content.is_empty() and (opts.remove_empty or removes) {
         if exists and opts.output == null { remove_file(name) }
       } else {
         if removes {
           note(opts, f"Not deleting file {q(opts, name)} as content differs from patch\n")
           status = 1
         }
-        if opts.output != null or (exists and (content != original or target.write != target.read)) or (!exists and (content.len() > 0 or failed == 0)) {
+        if opts.output != null or (exists and (content != original or target.write != target.read)) or (!exists and (! content.is_empty() or failed == 0)) {
           let parent = dirname_of(outname)
           if opts.output == null and parent != "" and !file_exists(parent) { fp"{parent}".mkdir(true) }
           if symlink {

@@ -791,7 +791,7 @@ test test_uu_mv_mv_interactive_error { |ctx|
   uu.touch(s, "test_mv_errors_file_a")
   let r = uu.invoke(s, "mv", ["-i", "test_mv_errors_dir", "test_mv_errors_file_a"], stdin: b"y")?
   uu.fails(r)
-  assert r.stderr.len() != 0
+  assert ! r.stderr.is_empty()
 }
 
 # origin: uutils test_mv::test_mv_mixed_hardlinks_and_regular_files

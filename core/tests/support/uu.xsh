@@ -405,12 +405,12 @@ export proc stdout_str_starts_with(r: Ran, prefix: Str) {
 
 ## Asserts empty standard output.
 export proc no_stdout(r: Ran) {
-  assert r.stdout.len() == 0, f"{shown(r)}: unexpected stdout {text(r.stdout)}"
+  assert r.stdout.is_empty(), f"{shown(r)}: unexpected stdout {text(r.stdout)}"
 }
 
 ## Asserts empty standard error.
 export proc no_stderr(r: Ran) {
-  assert r.stderr.len() == 0, f"{shown(r)}: unexpected stderr {text(r.stderr)}"
+  assert r.stderr.is_empty(), f"{shown(r)}: unexpected stderr {text(r.stderr)}"
 }
 
 ## Asserts both streams are empty.

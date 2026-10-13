@@ -84,7 +84,7 @@ export pure empty_history() -> History {
 ## Replay timestamps may start at zero because they use a virtual time origin.
 export pure append(history: History, sample: Sample) -> Result[History, Error] {
   return Err(error.failure("graph sample time cannot be negative")) when sample.at_ns < 0
-  if history.samples.len() > 0 and sample.at_ns <= history.samples[history.samples.len() - 1].at_ns {
+  if ! history.samples.is_empty() and sample.at_ns <= history.samples[history.samples.len() - 1].at_ns {
     return Err(error.failure("graph sample times must increase"))
   }
   if sample.state == .Observed and sample.value == null {

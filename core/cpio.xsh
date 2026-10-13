@@ -844,7 +844,7 @@ pure safer_name(name: Bytes, absolute: Bool, strip_dots: Bool) -> Safer {
 proc safe_name(st: Run, name: Bytes, absolute: Bool, strip_dots: Bool) [process, env] -> Named {
   let result = safer_name(name, absolute, strip_dots)
   var updated = st
-  if result.prefix.len() > 0 {
+  if ! result.prefix.is_empty() {
     var seen = false
     for known in st.prefixes {
       if known == result.prefix { seen = true }

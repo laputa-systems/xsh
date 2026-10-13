@@ -366,7 +366,7 @@ pure end_of_source_error(p: Parser) -> Str {
   let line = if absorbed { counted } else { counted + 1 }
   let shown = rows[counted - 1]
   if in_file {
-    let column = if trailing_newline or shown.byte_len() == 0 { 0 } else { shown.byte_len() - 1 }
+    let column = if trailing_newline or shown.is_empty() { 0 } else { shown.byte_len() - 1 }
     let pad = [" " for _ in range(column)].join("")
     return f"{label}:{line}: (END OF FILE)\nawk: {label}:{line}: {pad}^ {end_of_file}"
   }

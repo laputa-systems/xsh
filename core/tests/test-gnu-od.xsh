@@ -20,7 +20,7 @@ test test_gnu_od_big_w_log { |ctx|
     let command_words = uu.argv(s, "od", [Path(f"-w{width}"), p"-tcz"])?
     let normalized = [p"/bin/sh", p"-c", Path(r""""$@" | tr -s ' ' ' '; """), p"od-wide"].extend(command_words)
     let r = wrapped(s, normalized, input: b"x", timeout: 240s)
-    if r.stderr.len() > 0 {
+    if ! r.stderr.is_empty() {
       uu.no_stdout(r)
     } else {
       uu.stdout_is(r, "0000000 x >x<\n0000001\n")

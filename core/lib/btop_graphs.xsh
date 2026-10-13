@@ -95,7 +95,7 @@ export pure observe(
   let selected_name = if interface_name == null { value.network.interface_name } else { interface_name }
   let selected = model.network_metric(value.network, selected_name)
   let network_changed = histories.network_interface != selected_name
-  let same_sample = histories.cpu.samples.len() > 0 and
+  let same_sample = ! histories.cpu.samples.is_empty() and
     histories.cpu.samples[histories.cpu.samples.len() - 1].at_ns == value.at_ns
   let disk = first_disk(value.storage.devices)
   let disk_identity = if let current = disk { current.identity } else { null }

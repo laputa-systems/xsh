@@ -582,7 +582,7 @@ test test_gnu_cp_proc_zero_len_log { |ctx|
   let s = uu.scene(ctx)?
   let reference = p"/proc/cpuinfo".read_bytes()?
   copied(s, ["/proc/cpuinfo", "exp"])
-  assert (uu.size(s, "exp")? > 0) == (reference.len() > 0)
+  assert (uu.size(s, "exp")? > 0) == ! reference.is_empty()
 }
 
 # origin: gnu cp/r-vs-symlink.log

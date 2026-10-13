@@ -23,7 +23,7 @@ test test_base32_uppercase_decode_alias { |ctx|
 }
 
 test test_base32_wrap_and_invalid_prefix { |ctx|
-  assert invoke(ctx, ["-w", "0"], b"foobar")?.stdout.len() > 0
+  assert ! invoke(ctx, ["-w", "0"], b"foobar")?.stdout.is_empty()
   assert ! invoke(ctx, ["-w", "0"], b"foobar")?.stdout.ends_with(b"\n")
   let bad = invoke(ctx, ["-d"], b"MZXW6===!")?
   assert bad.status == 1

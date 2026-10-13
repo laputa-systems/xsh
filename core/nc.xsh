@@ -1051,11 +1051,11 @@ proc main(...argv: List[Str]) [net, fs, process, time, env, io, error] {
   var host = null
   var port_specs = []
   if opts.family == "unix" {
-    if operands.len() == 0 { usage() }
+    if operands.is_empty() { usage() }
     if operands.len() > 1 { fatal("cannot use port with -U") }
     if opts.srcport != null { usage() }
     host = operands[0]
-  } else if operands.len() == 0 {
+  } else if operands.is_empty() {
     if ! opts.listen { usage() }
     if let given = opts.srcport {
       port_specs = [given]

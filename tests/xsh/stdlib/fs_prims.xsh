@@ -633,7 +633,7 @@ test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
   let proc_root = fs.open_root(/proc)?
   let expected = proc_root.read_bytes(p"version")?
   assert fs.stat(source)?.size == 0
-  assert expected.len() > 0
+  assert ! expected.is_empty()
   for sparse in ["auto", "always", "never"] {
     let dest = fp"{root}/{sparse}"
     let report = fs.copy_file(source, dest, sparse:, reflink: "auto")?
@@ -661,7 +661,7 @@ test test_copy_file_does_not_pad_sysfs_files_to_their_reported_size { |ctx|
     let report = fs.copy_file(source, dest, sparse:)?
     let content = dest.read_bytes()?
     assert report.bytes == content.len()
-    assert content.len() > 0
+    assert ! content.is_empty()
     assert content.len() < fs.stat(source)?.size
     assert dest.read_text()?.ends_with("\n")
     assert ! (b"\0" in content)

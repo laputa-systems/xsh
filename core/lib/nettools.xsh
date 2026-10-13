@@ -639,7 +639,7 @@ export proc ipv4_routes() [process, error] -> Result[List[RouteRow], Error] {
     continue when route.route_type == 3 or route.route_type == 5
     var gateway = route.gateway ?? "0.0.0.0"
     var ifindex = route.output_ifindex ?? 0
-    if route.nexthops.len() > 0 and ifindex == 0 {
+    if ! route.nexthops.is_empty() and ifindex == 0 {
       ifindex = route.nexthops[0].ifindex
       gateway = route.nexthops[0].gateway ?? gateway
     }

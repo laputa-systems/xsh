@@ -582,7 +582,7 @@ test test_uu_dd_locale_aware_case_conversion { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "dd", ["conv=lcase", "status=none"], stdin: b"\xd0\x0a" , vars: {LC_ALL: "tr_TR.iso8859-9"})?
   uu.succeeds(r)
-  assert r.stdout.len() > 0
+  assert ! r.stdout.is_empty()
 }
 
 # origin: uutils test_dd::test_french_locale_case_conversion
@@ -591,7 +591,7 @@ test test_uu_dd_french_locale_case_conversion { |ctx|
   for pair in [{input: 192, conv: "lcase"}, {input: 224, conv: "ucase"}, {input: 199, conv: "lcase"}] {
     let r = uu.invoke(s, "dd", [f"conv={pair.conv}", "status=none"], stdin: bytes.from_ints([pair.input, 10])?, vars: {LC_ALL: "fr_FR.iso8859-1"})?
     uu.succeeds(r)
-    assert r.stdout.len() > 0
+    assert ! r.stdout.is_empty()
   }
 }
 

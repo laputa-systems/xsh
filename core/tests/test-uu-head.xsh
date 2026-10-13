@@ -449,7 +449,7 @@ test test_uu_head_read_backwards_bytes_proc_fs_version { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "head", ["-c", "-1", "/proc/version"], stdin: b"")?
   uu.succeeds(r)
-  assert r.stdout.len() > 0
+  assert ! r.stdout.is_empty()
 }
 
 # origin: uutils test_head::test_read_backwards_bytes_proc_fs_modules
@@ -457,7 +457,7 @@ test test_uu_head_read_backwards_bytes_proc_fs_modules { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "head", ["-c", "-1", "/proc/modules"], stdin: b"")?
   uu.succeeds(r)
-  if p"/proc/modules".read_bytes()?.len() > 0 { assert r.stdout.len() > 0 }
+  if p"/proc/modules".read_bytes()?.len() > 0 { assert ! r.stdout.is_empty() }
 }
 
 # origin: uutils test_head::test_read_backwards_lines_proc_fs_modules
@@ -465,7 +465,7 @@ test test_uu_head_read_backwards_lines_proc_fs_modules { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "head", ["--lines", "-1", "/proc/modules"], stdin: b"")?
   uu.succeeds(r)
-  if p"/proc/modules".read_bytes()?.len() > 0 { assert r.stdout.len() > 0 }
+  if p"/proc/modules".read_bytes()?.len() > 0 { assert ! r.stdout.is_empty() }
 }
 
 # origin: uutils test_head::test_read_backwards_bytes_sys_kernel_profiling

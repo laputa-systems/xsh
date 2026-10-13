@@ -106,7 +106,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
       # GNU bounds them below SSIZE_MAX, so the exact value is an overflow for them.
       if n == 9223372036854775807 and (key in ["ibs", "obs", "bs"] or ! rx"^9223372036854775807$".matches(text)) { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}: Value too large for defined data type", number_start, text.byte_len(), null, number_help, false, 1) }
       if n == 0 and key in ["ibs", "obs", "bs", "cbs"] { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}", number_start, text.byte_len(), null, number_help, false, 1) }
-      let byte_count = [factor for factor in text.split("x") if rx"^[0-9]+B$".matches(factor)].len() > 0
+      let byte_count = ! [factor for factor in text.split("x") if rx"^[0-9]+B$".matches(factor)].is_empty()
       if key == "bs" { opts = {...opts, ibs: n, obs: n, bs: n} } else if key == "ibs" { opts = {...opts, ibs: n} } else if key == "obs" { opts = {...opts, obs: n} } else if key == "cbs" { opts = {...opts, cbs: n} } else if key == "count" { opts = {...opts, count: n, count_bytes: byte_count} } else if key in ["skip", "iseek"] { opts = {...opts, skip: n, skip_bytes: byte_count} } else { opts = {...opts, seek: n, seek_bytes: byte_count} }
     } else if key == "status" {
       if ! (text in ["none", "noxfer", "progress"]) { gnu.usage_error(f"invalid status level: {gnu.quote(text)}") }

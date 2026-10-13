@@ -223,7 +223,7 @@ test test_uu_ls_ls_subdired_complex { |ctx|
   uu.succeeds(r)
   let output = r.stdout as Str
   let lines = [line for line in output.split("\n") if line.starts_with("//SUBDIRED//")]
-  assert lines.len() > 0
+  assert ! lines.is_empty()
   let positions = [word as Int for word in lines[0].split(" ")[1..] if word != ""]
   assert positions.len() % 2 == 0
   let names = [r.stdout[positions[i * 2]..positions[i * 2 + 1]] as Str for i in range(positions.len() / 2)]

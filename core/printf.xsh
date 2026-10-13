@@ -161,7 +161,7 @@ pure character_constant(data: Bytes, utf8: Bool) -> IntegerParse {
     if let Ok(character) = data[at..at + width].utf8() { value = codepoint_value(character) } else { width = 1 }
   } else { width = 1 }
   let rest = data[at + width..]
-  {value: value, issue: null, warning: if rest.len() == 0 { null } else { rest }}
+  {value: value, issue: null, warning: if rest.is_empty() { null } else { rest }}
 }
 
 pure argument_integer(argument: PrintfArgument, auto_base: Bool, utf8: Bool) -> IntegerParse {
@@ -582,7 +582,7 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
 
   if spec.conversion == "c" {
     # The operand is text even when it looks numeric: GNU prints its first byte, or NUL when it is empty.
-    let character: Bytes = if argument.data.len() == 0 { b"\0" } else { argument.data[0..1] }
+    let character: Bytes = if argument.data.is_empty() { b"\0" } else { argument.data[0..1] }
     let padding_count = field_width - 1
     if field_width > 1000000 {
       write_field(previous_output, b"", character, b"", padding_count, b" ", left)

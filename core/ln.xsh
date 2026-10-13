@@ -48,7 +48,7 @@ proc relative_link(target: Path, base: Path) -> Result[Path] {
   }
   var parts = [b".." for _ in range(from.len() - common)]
   for index in range(common, to.len()) { parts += [to[index].bytes()] }
-  if parts.len() == 0 { parts = [b"."] }
+  if parts.is_empty() { parts = [b"."] }
   var text = parts[0]
   for index in range(1, parts.len()) { text = bytes.concat([text, b"/", parts[index]]) }
   Path.parse_bytes(text)

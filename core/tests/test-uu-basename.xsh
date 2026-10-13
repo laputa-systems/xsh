@@ -121,7 +121,7 @@ test test_uu_basename_invalid_option { |ctx|
   let r = uu.invoke(s, "basename", ["-q", "/foo/bar/baz"])?
   uu.fails(r)
   uu.no_stdout(r)
-  assert r.stderr.len() > 0
+  assert ! r.stderr.is_empty()
 }
 
 # origin: uutils test_basename::test_no_args
@@ -130,7 +130,7 @@ test test_uu_basename_no_args { |ctx|
   let r = uu.invoke(s, "basename", [])?
   uu.fails(r)
   uu.no_stdout(r)
-  assert r.stderr.len() > 0
+  assert ! r.stderr.is_empty()
 }
 
 # origin: uutils test_basename::test_too_many_args
@@ -139,7 +139,7 @@ test test_uu_basename_too_many_args { |ctx|
   let r = uu.invoke(s, "basename", ["a", "b", "c"])?
   uu.fails(r)
   uu.no_stdout(r)
-  assert r.stderr.len() > 0
+  assert ! r.stderr.is_empty()
 }
 
 # origin: uutils test_basename::test_no_args_output
