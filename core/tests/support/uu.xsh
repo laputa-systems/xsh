@@ -282,7 +282,7 @@ export proc append(s: Scene, name: Str, content: Str) [fs, process, io, error] -
   let data = bytes.from_text(content)
   var offset = 0
   while offset < data.len() {
-    let written = unix.write_fd(fd, data.slice(offset))?
+    let written = unix.write_fd(fd, data[offset..])?
     assert written > 0, "append made no progress"
     offset += written
   }
