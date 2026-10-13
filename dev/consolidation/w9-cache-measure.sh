@@ -87,6 +87,34 @@ mkdir -p -- "$output_dir"
   printf 'commands=check .; lint .\n'
 } > "$output_dir/run.txt"
 
+result_path="$output_dir/result.txt"
+xsh_end_commit=pending
+xsh_end_tree=pending
+xsh_end_clean=pending
+laputa_end_commit=pending
+laputa_end_tree=pending
+laputa_end_clean=pending
+measurement_terminal=0
+
+write_result() {
+  local status=$1 exit_status=$2 temporary="$output_dir/.result.txt.tmp.$$"
+  {
+    printf 'status=%s\n' "$status"
+    printf 'exit_status=%s\n' "$exit_status"
+    printf 'xsh_start_commit=%s\n' "$xsh_commit"
+    printf 'xsh_start_tree=%s\n' "$xsh_tree"
+    printf 'xsh_end_commit=%s\n' "$xsh_end_commit"
+    printf 'xsh_end_tree=%s\n' "$xsh_end_tree"
+    printf 'xsh_end_clean=%s\n' "$xsh_end_clean"
+    printf 'laputa_start_commit=%s\n' "$laputa_commit"
+    printf 'laputa_start_tree=%s\n' "$laputa_tree"
+    printf 'laputa_end_commit=%s\n' "$laputa_end_commit"
+    printf 'laputa_end_tree=%s\n' "$laputa_end_tree"
+    printf 'laputa_end_clean=%s\n' "$laputa_end_clean"
+  } > "$temporary"
+  mv -- "$temporary" "$result_path"
+}
+
 run_command() {
   local project_name=$1
   local project_root=$2
@@ -111,22 +139,56 @@ run_command() {
   printf '%s\n' "$status" > "$prefix.status"
 }
 
-verify_source_identity() {
+capture_source_identity() {
   local project_name=$1 project_root=$2 expected_commit=$3 expected_tree=$4
-  local actual_commit actual_tree status
+  local actual_commit=unavailable actual_tree=unavailable status=unavailable end_clean=unavailable
+  local identity_status=0
 
-  if ! actual_commit=$(git -C "$project_root" rev-parse HEAD) ||
-      ! actual_tree=$(git -C "$project_root" rev-parse 'HEAD^{tree}') ||
-      ! status=$(git -C "$project_root" status --porcelain --untracked-files=all); then
-    printf '%s source identity could not be revalidated after measurement\n' "$project_name" >&2
-    return 1
+  if ! actual_commit=$(git -C "$project_root" rev-parse HEAD); then
+    identity_status=1
   fi
-  if [[ "$actual_commit" != "$expected_commit" || "$actual_tree" != "$expected_tree" || -n "$status" ]]; then
+  if ! actual_tree=$(git -C "$project_root" rev-parse 'HEAD^{tree}'); then
+    identity_status=1
+  fi
+  if ! status=$(git -C "$project_root" status --porcelain --untracked-files=all); then
+    identity_status=1
+  elif [[ -z "$status" ]]; then
+    end_clean=clean
+  else
+    end_clean=dirty
+  fi
+
+  printf -v "${project_name}_end_commit" '%s' "$actual_commit"
+  printf -v "${project_name}_end_tree" '%s' "$actual_tree"
+  printf -v "${project_name}_end_clean" '%s' "$end_clean"
+  if (( identity_status != 0 )) ||
+      [[ "$actual_commit" != "$expected_commit" || "$actual_tree" != "$expected_tree" || "$end_clean" != clean ]]; then
     printf '%s source changed during measurement: start_commit=%s actual_commit=%s start_tree=%s actual_tree=%s status=%s\n' \
       "$project_name" "$expected_commit" "$actual_commit" "$expected_tree" "$actual_tree" "$status" >&2
     return 1
   fi
 }
+
+record_failed_result() {
+  local exit_status=$1
+  capture_source_identity xsh "$xsh_root" "$xsh_commit" "$xsh_tree" >/dev/null 2>&1 || true
+  capture_source_identity laputa "$laputa_root" "$laputa_commit" "$laputa_tree" >/dev/null 2>&1 || true
+  write_result failed "$exit_status"
+}
+
+on_exit() {
+  local exit_status=$?
+  trap - EXIT
+  if (( measurement_terminal == 0 )); then
+    if ! record_failed_result "$exit_status"; then
+      exit_status=1
+    fi
+  fi
+  exit "$exit_status"
+}
+
+trap on_exit EXIT
+write_result incomplete 0
 
 compare_outputs() {
   local project_name=$1
@@ -169,10 +231,14 @@ for project_name in xsh laputa; do
 done
 
 identity_status=0
-verify_source_identity xsh "$xsh_root" "$xsh_commit" "$xsh_tree" || identity_status=1
-verify_source_identity laputa "$laputa_root" "$laputa_commit" "$laputa_tree" || identity_status=1
+capture_source_identity xsh "$xsh_root" "$xsh_commit" "$xsh_tree" || identity_status=1
+capture_source_identity laputa "$laputa_root" "$laputa_commit" "$laputa_tree" || identity_status=1
 if (( identity_status != 0 )); then
+  write_result failed 1
+  measurement_terminal=1
   exit 1
 fi
 
+write_result complete 0
+measurement_terminal=1
 printf 'W9 cache measurement complete: %s\n' "$output_dir"

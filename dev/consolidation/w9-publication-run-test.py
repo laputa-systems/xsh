@@ -67,6 +67,23 @@ class PublicationRunnerTests(unittest.TestCase):
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return corpus
 
+    def write_reference_receipt(self, path, expected_paths, corpus_digest):
+        count = len(expected_paths)
+        lines = [
+            f"corpus={count}",
+            "shard=0/1",
+            f"range=0..{count}",
+            f"shard_size={count}",
+            f"input_digest={corpus_digest}",
+            runner.OPTION_HEADER,
+        ]
+        for index, (relative, source_hash) in expected_paths.items():
+            lines.append(f"input\t{index}\t{relative}\t{source_hash}")
+            for profile in runner.PROFILES:
+                lines.append(f"output\t{index}\t{relative}\t{profile}\t{'d' * 64}\t{'e' * 64}")
+        lines.append(f"terminal\tshard=0\tcompleted={count}")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     def candidate_receipt_fields(self):
         return {
             "schema": "2",
@@ -131,6 +148,10 @@ class PublicationRunnerTests(unittest.TestCase):
         helper = candidate / runner.HELPER_RELATIVE_PATH
         helper.parent.mkdir(parents=True)
         helper.write_bytes(b"synthetic pinned helper\n")
+        subprocess.run(["git", "-C", str(candidate), "add", "-f", str(helper.relative_to(candidate))], check=True)
+        subprocess.run(
+            ["git", "-C", str(candidate), "commit", "--quiet", "-m", "stage synthetic helper"], check=True
+        )
         binary = work / "candidate-bin"
         binary.write_bytes(b"synthetic executable\n")
         binary.chmod(0o755)
@@ -139,9 +160,53 @@ class PublicationRunnerTests(unittest.TestCase):
         wrapper.chmod(0o755)
         build_receipt = work / "build.receipt"
         build_receipt.write_text("synthetic build receipt\n", encoding="utf-8")
+        reference_receipt = work / "reference.receipt"
+        reference_binary = work / "reference-bin"
+        reference_binary.write_bytes(b"synthetic reference executable\n")
+        reference_binary.chmod(0o755)
+        reference_validation = work / "reference-validation"
+        input_manifest = work / "input-manifest.tsv"
+        input_root = work / "reference-corpus"
+        input_root.mkdir()
+        corpus_source = input_root / "one.xsh"
+        corpus_source.write_bytes(b"synthetic corpus source\n")
+        corpus_source.chmod(0o444)
+        input_root.chmod(0o555)
+        self.addCleanup(input_root.chmod, 0o755)
+
+        source_hash = runner.sha256_file(corpus_source)
+        helper_hash = runner.sha256_file(helper)
+        corpus_digest = runner.CORPUS_BLAKE3
+        paths_by_index = {0: ("one.xsh", source_hash)}
+        paths_by_path = {"one.xsh": source_hash}
+        input_manifest.write_text(f"0\tone.xsh\t{source_hash}\t100644\n", encoding="utf-8")
+        self.write_reference_receipt(reference_receipt, paths_by_index, corpus_digest)
+        reference_validation.write_text(
+            "\n".join(
+                (
+                    "status=validated",
+                    f"reference_head={runner.REFERENCE_HEAD}",
+                    f"reference_binary_sha256={runner.sha256_file(reference_binary)}",
+                    f"helper_sha256={helper_hash}",
+                    f"receipt_sha256={runner.sha256_file(reference_receipt)}",
+                    f"input_root={input_root}",
+                    f"input_blake3_manifest_digest={corpus_digest}",
+                    f"input_file_manifest_sha256={runner.sha256_file(input_manifest)}",
+                    "input_sources=1690 input_rows=1690 output_rows=6760 profiles=default,reveal,execution,check-cli",
+                    f"options_header={runner.OPTION_HEADER}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
 
         commit, tree = runner.source_identity(candidate)
         record = self.candidate_receipt_fields()
+        record["reference_receipt_sha256"] = runner.sha256_file(reference_receipt)
+        record["reference_binary_sha256"] = runner.sha256_file(reference_binary)
+        record["reference_validation_sha256"] = runner.sha256_file(reference_validation)
+        record["input_manifest_sha256"] = runner.sha256_file(input_manifest)
+        record["corpus_blake3"] = corpus_digest
         record.update(
             {
                 "candidate_root": str(candidate),
@@ -155,21 +220,59 @@ class PublicationRunnerTests(unittest.TestCase):
                 "wrapper": str(wrapper),
                 "wrapper_sha256": runner.sha256_file(wrapper),
                 "wrapper_root": str(candidate),
+                "reference_receipt": str(reference_receipt),
+                "reference_binary": str(reference_binary),
+                "reference_validation": str(reference_validation),
+                "input_root": str(input_root),
+                "input_manifest": str(input_manifest),
                 "runner": str(pathlib.Path(runner.__file__).resolve()),
                 "runner_sha256": runner.sha256_file(pathlib.Path(runner.__file__).resolve()),
             }
         )
-        return record, source, binary, work
+        supporting_files = {
+            "reference receipt": (reference_receipt, record["reference_receipt_sha256"]),
+            "reference binary": (reference_binary, record["reference_binary_sha256"]),
+            "reference validation": (reference_validation, record["reference_validation_sha256"]),
+            "input manifest": (input_manifest, record["input_manifest_sha256"]),
+        }
+        return (
+            record,
+            source,
+            binary,
+            work,
+            supporting_files,
+            input_root,
+            corpus_source,
+            paths_by_index,
+            paths_by_path,
+        )
 
     def test_publication_finalization_rejects_candidate_drift_after_workers(self):
         mutations = {
             "dirty source": ("dirty", "candidate source worktree is dirty"),
             "committed tree": ("tree", "candidate commit mismatch"),
             "pinned binary": ("binary", "candidate test binary: SHA-256 mismatch"),
+            "reference receipt": ("reference receipt", "approved reference receipt: SHA-256 mismatch"),
+            "reference binary": ("reference binary", "approved reference binary: SHA-256 mismatch"),
+            "reference validation": ("reference validation", "approved reference validation: SHA-256 mismatch"),
+            "input manifest": ("input manifest", "approved input manifest: SHA-256 mismatch"),
+            "corpus source": ("corpus", "input corpus source changed at one.xsh"),
         }
         for name, (mutation, expected_error) in mutations.items():
             with self.subTest(mutation=name):
-                record, source, binary, work = self.candidate_run_fixture(f"candidate-{mutation}")
+                (
+                    record,
+                    source,
+                    binary,
+                    work,
+                    supporting_files,
+                    input_root,
+                    corpus_source,
+                    paths,
+                    paths_by_path,
+                ) = self.candidate_run_fixture(
+                    f"candidate-{mutation.replace(' ', '-')}"
+                )
                 receipt = self.root / f"{mutation}.receipt"
                 receipt.write_text("synthetic candidate receipt\n", encoding="utf-8")
                 output = work / f"publication-{mutation}"
@@ -179,9 +282,6 @@ class PublicationRunnerTests(unittest.TestCase):
                     output=str(output),
                     dry_run=False,
                 )
-                paths = {index: (f"file-{index}.xsh", "a" * 64) for index in range(4)}
-                reference = runner.ParsedReceipt((), paths, {}, ())
-
                 def claim_resources(_candidate_root, output_path, _completed):
                     output_path.mkdir()
                     return contextlib.nullcontext()
@@ -226,13 +326,36 @@ class PublicationRunnerTests(unittest.TestCase):
                             ],
                             check=True,
                         )
-                    else:
+                    elif mutation == "binary":
                         binary.write_bytes(b"changed pinned executable\n")
+                    elif mutation == "corpus":
+                        corpus_source.chmod(0o644)
+                        corpus_source.write_bytes(b"changed corpus source\n")
+                        corpus_source.chmod(0o444)
+                    else:
+                        path, _digest = supporting_files[mutation]
+                        path.write_bytes(path.read_bytes() + b"changed\n")
                     return "synthetic complete bundle"
 
                 with contextlib.ExitStack() as patches:
                     patches.enter_context(patch.object(runner, "HELPER_SHA256", record["helper_sha256"]))
                     patches.enter_context(patch.object(runner, "WRAPPER_SHA256", record["wrapper_sha256"]))
+                    patches.enter_context(
+                        patch.object(runner, "REFERENCE_RECEIPT_SHA256", record["reference_receipt_sha256"])
+                    )
+                    patches.enter_context(
+                        patch.object(runner, "REFERENCE_BINARY_SHA256", record["reference_binary_sha256"])
+                    )
+                    patches.enter_context(
+                        patch.object(runner, "REFERENCE_VALIDATION_SHA256", record["reference_validation_sha256"])
+                    )
+                    patches.enter_context(
+                        patch.object(runner, "INPUT_MANIFEST_SHA256", record["input_manifest_sha256"])
+                    )
+                    patches.enter_context(patch.object(runner, "CORPUS_BLAKE3", record["corpus_blake3"]))
+                    patches.enter_context(
+                        patch.object(runner, "REFERENCE_INPUT_ROOT", pathlib.Path(record["input_root"]))
+                    )
                     patches.enter_context(patch.object(runner, "validate_wrapper_root"))
                     patches.enter_context(
                         patch.object(
@@ -243,7 +366,10 @@ class PublicationRunnerTests(unittest.TestCase):
                     )
                     patches.enter_context(patch.object(runner, "parse_candidate_receipt", return_value=record))
                     patches.enter_context(
-                        patch.object(runner, "validate_all_inputs", return_value=(paths, {}, reference))
+                        patch.object(runner, "parse_input_manifest", return_value=(paths, paths_by_path))
+                    )
+                    validate_all_inputs = patches.enter_context(
+                        patch.object(runner, "validate_all_inputs", wraps=runner.validate_all_inputs)
                     )
                     patches.enter_context(patch.object(runner, "require_output_path", return_value=output))
                     patches.enter_context(patch.object(runner, "local_docker_environment", return_value={}))
@@ -273,6 +399,7 @@ class PublicationRunnerTests(unittest.TestCase):
                         runner.execute_run(args)
 
                 self.assertNotIn("complete", statuses)
+                self.assertEqual(validate_all_inputs.call_count, 2)
 
     def test_cargo_artifact_selection_requires_one_integration_test_harness(self):
         binary = self.root / "integration-harness"

@@ -94,15 +94,38 @@ rg -F -q "xsh_commit=$xsh_commit" "$baseline_output/run.txt"
 rg -F -q "xsh_tree=$xsh_tree" "$baseline_output/run.txt"
 rg -F -q "laputa_commit=$laputa_commit" "$baseline_output/run.txt"
 rg -F -q "laputa_tree=$laputa_tree" "$baseline_output/run.txt"
+rg -F -q 'status=complete' "$baseline_output/result.txt"
+rg -F -q 'exit_status=0' "$baseline_output/result.txt"
+rg -F -q "xsh_end_commit=$xsh_commit" "$baseline_output/result.txt"
+rg -F -q "xsh_end_tree=$xsh_tree" "$baseline_output/result.txt"
+rg -F -q "laputa_end_commit=$laputa_commit" "$baseline_output/result.txt"
+rg -F -q "laputa_end_tree=$laputa_tree" "$baseline_output/result.txt"
 
 for mutation in xsh-dirty xsh-tree laputa-dirty laputa-tree; do
   make_fixture "$mutation"
+  mutation_root="$test_root/$mutation/${mutation%%-*}"
+  start_commit=$(git -C "$mutation_root" rev-parse HEAD)
+  start_tree=$(git -C "$mutation_root" rev-parse 'HEAD^{tree}')
   if run_measurement "$mutation" "$mutation"; then
     printf 'expected rejection of concurrent source drift: %s\n' "$mutation" >&2
     exit 1
   fi
   rg -F -q 'source changed during measurement:' "$test_root/$mutation/measurement.log"
   rg -F -q "${mutation%%-*} source changed during measurement:" "$test_root/$mutation/measurement.log"
+  result="$test_root/$mutation/xsh/.work/measurement/result.txt"
+  rg -F -q 'status=failed' "$result"
+  rg -F -q 'exit_status=1' "$result"
+  rg -F -q "${mutation%%-*}_start_commit=$start_commit" "$result"
+  rg -F -q "${mutation%%-*}_start_tree=$start_tree" "$result"
+  end_commit=$(git -C "$mutation_root" rev-parse HEAD)
+  end_tree=$(git -C "$mutation_root" rev-parse 'HEAD^{tree}')
+  rg -F -q "${mutation%%-*}_end_commit=$end_commit" "$result"
+  rg -F -q "${mutation%%-*}_end_tree=$end_tree" "$result"
+  if [[ "$mutation" == *-dirty ]]; then
+    rg -F -q "${mutation%%-*}_end_clean=dirty" "$result"
+  else
+    rg -F -q "${mutation%%-*}_end_clean=clean" "$result"
+  fi
 done
 
 printf 'W9 cache measurement source-freeze checks passed\n'
