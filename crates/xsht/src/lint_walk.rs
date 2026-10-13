@@ -491,7 +491,11 @@ impl LintExprVisitor<'_, '_> {
                 let part_list: Vec<ArenaWordPart> = self.linter.arena.word_parts(parts).collect();
                 if allow_bare_refs
                     && let Some(text) =
-                        bare_command_word_parts(self.linter.arena, self.linter.source, &part_list)
+                        bare_command_word_parts(
+                            self.linter.source_id,
+                            self.linter.source,
+                            &part_list,
+                        )
                     && let Some((root, _)) = parse_command_word_reference(&text)
                 {
                     self.linter.mark_used(root);
@@ -2021,6 +2025,71 @@ mod unused_local_resource_tests {
     #[test]
     fn cd_path_expression_marks_local_as_used() {
         let source = "test cd_path_expression_marks_local_as_used { |ctx|\n  let root = test.temp_dir(ctx)?\n  cd root {\n    assert true\n  }\n  let unused = 1\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(1), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut program = parsed.arena;
+        let checked = Checker::check_arena(&program, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        // Workspace modules share one arena, whose primary source ID differs
+        // from the source ID attached to a later module's command words.
+        let test_statement = program.arena.stmt_ids(program.statements).next().unwrap();
+        let xsh::frontend::syntax::arena::ArenaStmtKind::ProcDef(test_function) =
+            program.arena.stmt(test_statement).kind
+        else {
+            panic!("test declaration should lower to a procedure");
+        };
+        let body = program.arena.function_def(test_function).body;
+        let cd_argument_span = program
+            .arena
+            .stmt_ids(program.arena.block(body).statements)
+            .find_map(|statement| {
+                let xsh::frontend::syntax::arena::ArenaStmtKind::Command(command) =
+                    program.arena.stmt(statement).kind
+                else {
+                    return None;
+                };
+                let xsh::frontend::syntax::arena::ArenaCommand::Core {
+                    name: xsh::frontend::syntax::node::CoreCommand::Cd,
+                    args,
+                    ..
+                } = program.arena.command_stmt(command).command.clone()
+                else {
+                    return None;
+                };
+                program.arena.command_args(args).first().map(|arg| arg.span)
+            })
+            .expect("the test body should have a cd path argument");
+        program.arena.span_source_id = Some(SourceId::new(0));
+        program
+            .arena
+            .stmt_span_source_overrides
+            .push(xsh::frontend::syntax::arena::ArenaSpanSource {
+                span: test_statement.index() as u32,
+                source_id: SourceId::new(1),
+            });
+        program
+            .arena
+            .span_source_overrides
+            .push(xsh::frontend::syntax::arena::ArenaSpanSource {
+                span: cd_argument_span.index() as u32,
+                source_id: SourceId::new(1),
+            });
+
+        let mut options = LintOptions {
+            only: Some(vec![DiagnosticCode::LintUnusedLocal]),
+            ..LintOptions::default()
+        };
+        options.checked_output = lint_requires_check_output(&options)
+            .then(|| std::sync::Arc::new(checked));
+        let diagnostics = Linter::lint(&program, source, options).diagnostics;
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].message, "unused local variable `unused`");
+    }
+
+    #[test]
+    fn literal_cd_path_does_not_mark_an_unrelated_local_as_used() {
+        let source = "test literal_cd_path_does_not_mark_an_unrelated_local_as_used {\n  let root = 1\n  cd p\".\" {\n    assert true\n  }\n}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
@@ -2034,7 +2103,7 @@ mod unused_local_resource_tests {
             .then(|| std::sync::Arc::new(checked));
         let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert_eq!(diagnostics[0].message, "unused local variable `unused`");
+        assert_eq!(diagnostics[0].message, "unused local variable `root`");
     }
 
     #[test]

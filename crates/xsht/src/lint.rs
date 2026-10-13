@@ -201,7 +201,8 @@ use xsh::frontend::syntax::arena::{
     ArenaPatternKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgram, ArenaRange,
     ArenaRecordField, ArenaRecordFieldKind, ArenaRedirection, ArenaRedirectionTarget,
     ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaSugarOperand,
-    ArenaTypeDefBody, ArenaTypeExprTag, ArenaWordPart, AssignTargetId, AstArena, BindingTargetId,
+    ArenaText, ArenaTypeDefBody, ArenaTypeExprTag, ArenaWordPart, AssignTargetId, AstArena,
+    BindingTargetId,
     BlockId, BuilderBlockId, CommandStmtId, DeferTrigger, ExprId, FunctionDefId, PatternId,
     RunFormId, StmtId, SugarForm, TypeExprId,
 };
@@ -6056,12 +6057,19 @@ fn literal_command_word_parts(
 }
 
 fn bare_command_word_parts(
-    arena: &AstArena,
+    source_id: Option<SourceId>,
     source: &str,
     parts: &[ArenaWordPart],
 ) -> Option<String> {
     match parts {
-        [ArenaWordPart::Bare(value)] => arena.text_value(value, source).map(str::to_string),
+        [ArenaWordPart::Bare(ArenaText::Source(value))]
+            if source_id == Some(value.source_id) =>
+        {
+            let start = value.bytes.start as usize;
+            let end = start.checked_add(value.bytes.len as usize)?;
+            source.get(start..end).map(str::to_string)
+        }
+        [ArenaWordPart::Bare(ArenaText::Cooked(value))] => Some(value.to_string()),
         _ => None,
     }
 }
