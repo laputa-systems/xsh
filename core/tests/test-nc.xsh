@@ -412,8 +412,7 @@ test test_nc_connect_timeout_is_reported_by_name { |ctx|
       let filler = linux.socket(c.AF_INET, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK))?
       yield filler
       match linux.connect(filler, {family: "inet", address: "127.0.0.1", port: port}) {
-        Ok(_) => { }
-        Err(_) => { }
+        Ok(_) | Err(_) => { }
       }
       if unix.poll_fd(filler, ["writable"], 300)?.is_empty() {
         full = true

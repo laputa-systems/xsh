@@ -24,8 +24,7 @@ pure scale(value: Int, factor: Int) -> Int {
 # letter is not a multiplier.
 pure multiplier_steps(letter: Str) -> Int {
   match letter {
-    "k" => 1
-    "K" => 1
+    "k" | "K" => 1
     "M" => 2
     "G" => 3
     "T" => 4
