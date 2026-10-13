@@ -75,9 +75,14 @@ pub(super) fn propagated_conversion(
         return Some(diagnostic);
     }
     let receiver = match operation.conversion {
-        // The operand is an argument: its own grouping, if any, is its text.
         Conversion::BytesToPath | Conversion::TextToPath => {
-            source[super::widen_over_grouping(source, operand.span).range()].to_owned()
+            // The argument can be a conditional or operator expression, so
+            // keep its extent explicit until the common pass proves the
+            // grouping redundant in this context.
+            format!(
+                "({})",
+                &source[super::widen_over_grouping(source, operand.span).range()]
+            )
         }
         // The operand is a receiver: everything before the `.` of the call.
         _ => {

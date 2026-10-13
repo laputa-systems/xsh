@@ -331,3 +331,26 @@ show("x:8080: 1.5 :4", b"etc", 2)?
   assert after.stdout == before.stdout
   assert after.stdout == "8080 3 -2 etc etc 7 true 4\n"
 }
+
+test test_lint_keeps_conditional_path_conversion_grouped { |ctx|
+  let source = r"""pure select_path(flag: Bool, left: Bytes, right: Bytes) -> Result[Path] {
+  Ok(Path.parse_bytes(if flag { left } else { right })?)
+}
+
+print select_path(true, b"left", b"right")?.display()
+print select_path(false, b"left", b"right")?.display()
+"""
+  let before = test.expect(ctx, source, status: 0)?
+  let candidate = test.temp_file(ctx, name: "conditional-path.xsh", contents: bytes.from_text(source))?
+
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-as-conversion $candidate
+  assert fixed.status.exited_with(0), fixed.stderr
+  let rewritten = candidate.read_text()?
+  assert "Ok((if flag { left } else { right }) as Path)" in rewritten, rewritten
+
+  let clean = run.capture --text "xsht" lint --only lint.prefer-as-conversion $candidate
+  assert clean.status.exited_with(0), clean.stdout + clean.stderr
+  let after = test.expect(ctx, rewritten, status: 0)?
+  assert after.stdout == before.stdout
+  assert after.stdout == "left\nright\n"
+}
