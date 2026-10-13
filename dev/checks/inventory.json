@@ -1637,7 +1637,7 @@
         "optional": false,
         "xsh_implementation": "core/top.xsh",
         "present": true,
-        "native_tests": "core/tests/test-cp.xsh"
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "watch",

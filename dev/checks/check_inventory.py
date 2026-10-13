@@ -88,6 +88,38 @@ def xsh_implementation(util: str, aliases: dict[str, str]) -> str | None:
     return None
 
 
+def invokes_native_command(util: str, source: str) -> bool:
+    """Whether source passes this name to a native command runner."""
+    quoted = re.escape(util)
+    if any(
+        re.search(pattern, source)
+        for pattern in (
+            rf"\b(?:run_storage|invoke)\(\s*\w+\s*,\s*\"{quoted}\"(?=\s*[,\)])",
+            rf"\bname\s*:\s*\"{quoted}\"(?=\s*[,\}}])",
+            rf"\{{\s*ctx\.core_dir\s*\}}\s*/\s*{quoted}\.xsh\b",
+        )
+    ):
+        return True
+
+    for loop in re.finditer(r"\bfor\s+(\w+)\s+in\s*\[([^\]]*)\]", source):
+        variable, values = loop.groups()
+        if not re.search(rf"\"{quoted}\"", values):
+            continue
+        if re.search(
+            rf"\b(?:run_storage|invoke)\(\s*\w+\s*,\s*{re.escape(variable)}\b",
+            source,
+        ) or re.search(
+            rf"\{{\s*ctx\.core_dir\s*\}}\s*/\s*\{{\s*{re.escape(variable)}\s*\}}\.xsh\b",
+            source,
+        ):
+            return True
+
+    return bool(
+        re.search(rf"\b(?:encode|decode)\s*:\s*\"{quoted}\"", source)
+        and re.search(r"\binvoke\(\s*\w+\s*,\s*family\.(?:encode|decode)\b", source)
+    )
+
+
 def native_tests(util: str, impl: str | None) -> str | None:
     test = CORE / "tests" / f"test-{util}.xsh"
     if test.exists():
@@ -97,15 +129,25 @@ def native_tests(util: str, impl: str | None) -> str | None:
         shared = CORE / "tests" / f"test-{base}.xsh"
         if shared.exists():
             return f"core/tests/test-{base}.xsh"
-    # A family test file (test-procps, test-compress, test-storage) covers its
-    # commands by name; take the file that mentions the command most, with at
-    # least two uses so a passing mention in an unrelated test does not count.
+    # Runner arguments are the strongest family ownership signal. For old
+    # family tests without a recognizable runner call, retain word-count
+    # inference as a fallback.
     word = re.compile(r"(?<![\w-])" + re.escape(util) + r"(?![\w-])")
     best: tuple[int, str] | None = None
+    invoked: tuple[int, str] | None = None
     for path in sorted((CORE / "tests").glob("test-*.xsh")):
-        hits = len(word.findall(path.read_text(errors="replace")))
+        source = path.read_text(errors="replace")
+        hits = len(word.findall(source))
+        if invokes_native_command(util, source) and (
+            invoked is None or hits > invoked[0]
+        ):
+            invoked = (hits, path.name)
         if hits >= 2 and (best is None or hits > best[0]):
             best = (hits, path.name)
+    # Runner arguments identify command ownership more reliably than mentions
+    # such as the `mount` field returned by fs.mounts().
+    if invoked is not None:
+        return f"core/tests/{invoked[1]}"
     return f"core/tests/{best[1]}" if best else None
 
 
