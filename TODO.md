@@ -3,6 +3,9 @@
 What is left after the hardening and ergonomics work: items that are designed
 and not built, known defects, and ideas that were turned down. `docs/SPEC.md`
 is the contract for everything that is built; nothing here describes it.
+The current consolidation acceptance snapshot is in
+[`dev/consolidation/HANDOFF.md`](dev/consolidation/HANDOFF.md); failure counts
+below are historical unless they name a later targeted run.
 
 ## Needs a design
 
@@ -62,11 +65,12 @@ tracing at that revision counted one preparation and check per full
 module-record key in each shared session: XSH check 1,661 / default lint
 1,518; Laputa check 379 / default lint 316. Default lint also created 288
 fresh candidate-probe caches in XSH (905 records) and 77 in Laputa (347
-records). Source-matched tracing and its build/measurement harness are now
-implemented in `0f6e50aad` and `ce5eb64fd`; the final frozen-source measurement
-is pending. Shared-module diagnostic ordering was made deterministic in
-`60f127126`, with retained fallback coverage. W9 remains open until its final
-measurement and acceptance are complete.
+records). The hardened W9 publication runner is now integrated through
+`e7fee0e7c`; all 35 synthetic tests pass. Its real pinned build, 1,690-input
+four-profile publication/corpus run, and final source-matched cache
+measurement remain pending. Shared-module diagnostic ordering was made
+deterministic in `60f127126`, with retained fallback coverage. W9 remains open
+until its final-source run and acceptance are complete.
 
 ### The xsh-wide lint pass is landed but unverified
 
@@ -91,7 +95,7 @@ excludes, conditional `as` conversions, multiline record-constructor fixes,
 redundant-close indentation, and positional callable constructors have merged
 fixes; their evidence is recorded in the consolidation handoff.
 
-### Host-load flakes and slow tests in the full native suite
+### Historical host-load failures and current targeted shards
 
 One full `xsht test` on the merged tree under host load 35 to 75 (other jobs
 on the machine, 1.5 h) ended `13377 passed; 116 failed; 138 skipped`.
@@ -107,9 +111,11 @@ build:
 The system-report test has since been split into live-text, live-JSON,
 replay-path, and invalid-section groups (`30fff44de`); all four groups were run
 and passed under the native test timeout, so the old combined timeout ID is
-stale. The GNU cut shards have also been run: 15/15 passed, with the longest
-taking 33.7 seconds. Factor and sort were split into shorter cases, but their
-current pass status remains pending.
+stale. The GNU cut shards passed 15/15, with the longest taking 33.7 seconds.
+The pinned targeted factor filters passed 60/60 on a rebuilt verification
+pair at `0107c8158`. The split sort gate passed 321 cases with 4
+locale-dependent skips and no failures on source snapshot `f4c93f7d8`. These
+targeted passes do not replace the still-pending full native acceptance run.
 Which of the other 111 are test pollution and which are timing-gated is not
 settled. Known pollution: a test that closes a descriptor and asserts the
 error from the same number races any concurrent test that opens a file
@@ -153,6 +159,10 @@ toolchain and a Laputa tree from before this work:
 and
 `tests/pm/pm_execute.xsh::test_execute_parallel_builds_log_per_package_and_failures_name_their_log`,
 whose failure message no longer carries the proof's own error text.
+
+The owner-selected restoration of Laputa's four nominal Asterinas error
+families is confirmed at `ca658ce` and has a red-to-green diagnostic-type
+regression. Preserve those original error identities; this decision is closed.
 
 A lint migration that rewrites a checksummed local source must update the
 `sha256` its `PKGBUILD.xsh` declares (`packages/flex`, `packages/bison`,

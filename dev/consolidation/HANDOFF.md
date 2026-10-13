@@ -2,43 +2,61 @@
 
 Status: active 2026-10-13.
 
-## Merged status reconciliation — 2026-10-13
+## Current checkpoint — 2026-10-13 (`f894695cf`)
 
-This update reconciles the defect inventory against merged history. The
-needless-annotation contract (`fb86547ec`), directory-argument excludes
+This is the current acceptance snapshot; the dated sections below preserve
+earlier evidence and plans. Nothing has been pushed. Consolidation remains
+active and is not accepted or complete.
+
+The needless-annotation contract (`fb86547ec`), directory-argument excludes
 (`65ea15b36`), tag patterns on union subjects (`2e641d157`), malformed
 list-pattern error fixtures (`969d2408f`), optional error patterns
 (`99c34c274`), conditional `as` conversion fixes (`d3fc9d03b`), multiline
 record-constructor fixes (`f40052856`), redundant-close indentation
 (`87926c482`), and the positional callable-constructor verifier gap
-(`bf11aa0c4`, covered by `cb2f444a3`) are fixed and merged. These are retired
-from the active defect list; their earlier reports remain below as history.
+(`bf11aa0c4`, covered by `cb2f444a3`) are fixed and merged. The old
+system-report timeout was split into four groups and all four passed under the
+native test timeout. The GNU cut shards passed 15/15.
 
-The old system-report timeout test was split into live-text, live-JSON,
-replay-path, and invalid-section groups (`30fff44de`); all four groups were run
-and passed under the native test timeout. The GNU cut shards (`8790eab49`,
-`7dc1c7c73`) passed 15/15, with the longest taking 33.7 seconds. Factor and
-sort were split into smaller cases (`f0706e8a5`, `25cbed070`), but their current
-pass status remains pending. The old aggregate timeout evidence does not
-establish the current factor/sort status.
+Pinned targeted factor checks passed 60/60 across the core, GNU, uutils, and
+BusyBox filters on the rebuilt `0107c8158` verification pair. The split sort
+gate passed 321 cases with 4 locale-dependent skips and no failures on source
+snapshot `f4c93f7d8`. These results cover the targeted shards only; the full
+native suite remains a final acceptance gate.
 
-W9 source-matched cache tracing and its build/measurement harness are
-implemented (`0f6e50aad`, `ce5eb64fd`). The counts measured at `59a6dfbc` are
-historical; final frozen-source measurement is pending, so W9 remains open.
-Shared-module diagnostic ordering has since been made deterministic
-(`60f127126`).
+The W9 publication runner and its hardening are integrated through
+`e7fee0e7c`. Its 35 synthetic tests pass. The real pinned build and the
+1,690-input, four-profile publication/corpus run, including final source-matched
+cache measurements, have not run. The earlier 1,690-input / 6,760-outcome
+parity result belongs to an older source snapshot and does not close W9.
+Shared-module diagnostic ordering is deterministic (`60f127126`).
 
-The stage-attribution series `588d1a9f3..99fff71d5` is merged and independently
-reviewed. Merged-source focused verification is running; full acceptance is
-pending. Control-flow final `23756bd255` is not merged; review found a
-checker/lowerer tag-catch-all issue, and the lane is back in follow-up.
-Dead-tail cleanup remains unmerged and unaccepted. Generated SPEC, tour, and
-reference docs still need regeneration. Final correctness, structural and
-reliability verification and comparative performance work remain open; the
-last perf readiness check reported `perf gate deferred: host busy`, and no
-final comparative timings are recorded. The campaign is not complete.
+The owner-selected restoration of the four nominal Asterinas error families is
+present in Laputa at `ca658ce`, with a red-to-green diagnostic-type regression.
 
-## Resumed verification and documentation refresh — 2026-10-13
+The Lean inventory names 50 fragment roots, its 29 mutation tests pass, and all
+72 complete theorem obligations remain planned. At exact commit
+`71103196374480822599499e8add51a6d0abfeae`, `lake build Xsh`, the 4,728-
+declaration transitive axiom audit, its three negative controls, and the guarded
+fresh checker passed; all 23 production Lean modules were reachable, with 47
+fragment roots at that revision. The later labeled host-trace root build passed
+at `cea6b2e7f`; the fresh checker and axiom audit have not yet been rerun on
+that later root. The host trace is a finite scripted witness, not generic
+runner soundness or clock/Rust conformance.
+
+The control-flow checker/lowerer lane remains unmerged and in follow-up after
+reviews found unresolved flow cases. The dead-tail AWK/sort cleanup is blocked
+on that work: its pinned gate currently reports missing-return diagnostics in
+four AWK functions. The stage-attribution series is merged and independently
+reviewed; its focused stage oracles passed 18/18, and the pinned strict Rust
+library build plus selected tests passed at `0107c8158`. Full correctness,
+structural, reliability, Linux, and comparative-performance acceptance remain
+open. Generated docs reflect the integrated Float equality contract; the
+latest checker, harness, and Lean changes do not alter the language contract,
+so this checkpoint requires no regeneration. No final comparative timings are
+recorded, and the campaign is not complete.
+
+## Historical resume checkpoint at `59a6dfbc` — 2026-10-13 (superseded)
 
 Resume began at `59a6dfbc`. Main through `2495fee8` includes the stream
 comprehension repair, shared annotation/resource proofs, `.work` corpus
@@ -120,7 +138,7 @@ perf gate deferred: host busy. The snapshot verification binaries are
 and timing gates remain. Lean source freezing, Float semantic repair,
 conformance, and dependent proof closure wait for consolidation acceptance.
 
-## Paused after the final-gate pass — 2026-10-13
+## Earlier pause checkpoint — 2026-10-13 (superseded)
 
 **Resume:** "Resume the XSH consolidation campaign from
 `dev/consolidation/HANDOFF.md`." First command:
