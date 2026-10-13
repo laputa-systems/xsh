@@ -20,7 +20,8 @@ pure stage_parity_duplicate(item: Int) -> List[Int] {
 }
 
 test test_scalar_text_json_and_bytes_adapters_are_not_list_stream_sources {
-  # These adapters consume scalar Str or Bytes values, not List/Stream sources.
+  # These adapters consume scalar Str, Bytes, or JSON values, not List/Stream sources.
+  # json.stream creates a stream from one JSON value and has no List source pair.
   let lines = "alpha\nbeta\n" |> text.lines
   let parsed_rows = "{\"n\":1}\n{\"n\":2}\n" |> json.lines
   let chunks = b"abcdef" |> bytes.chunks(2)
@@ -135,6 +136,10 @@ test test_stage_terminals_and_keyed_aggregates_match_list_and_live_stream_source
   let folded_list = values |> fold(0) { |total, item| total + item }
   let folded_stream = stage_parity_values() |> fold(0) { |total, item| total + item }
   assert folded_stream == folded_list
+
+  let reduced_stage_list = values |> reduce(0) { |total, item| total + item }
+  let reduced_stage_stream = stage_parity_values() |> reduce(0) { |total, item| total + item }
+  assert reduced_stage_stream == reduced_stage_list
 
   let grouped_list = values |> group-by .
   let grouped_stream = stage_parity_values() |> group-by .
