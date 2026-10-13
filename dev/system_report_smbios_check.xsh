@@ -1135,8 +1135,7 @@ export proc corroborate_smbios_bundle(
   let entry_point = validated.entry_point
   let dump = craft_dmidecode_dump(entry_point, validated.data)?
   let scratch = fs.tempdir()?
-  defer scratch.close()
-  scratch.write(p"dump.bin", dump)
+    scratch.write(p"dump.bin", dump)
   scratch.write(p"version", "")
   scratch.write(p"version-error", "")
   scratch.write(p"output", "")

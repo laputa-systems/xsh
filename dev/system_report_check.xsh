@@ -22459,8 +22459,7 @@ proc read_vulnerability_reference(
   label: Str,
 ) [fs, process, time, error] -> Result[VulnerabilityObservation] {
   let source_root = fs.open_root(/sys/devices/system/cpu)?
-  defer source_root.close()
-  let started = time.now()
+    let started = time.now()
   let listing = source_root.children(p"vulnerabilities", max_entries: 256)?
   if listing.state == "absent" {
     return Ok({descriptions: [], started: started, ended: time.now()})
@@ -25185,8 +25184,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()
-  for name in ["lscpu-before", "lscpu-after", "candidate", "lscpu-version"] {
+    for name in ["lscpu-before", "lscpu-after", "candidate", "lscpu-version"] {
     scratch.write(fp"{name}", "")
   }
 
@@ -25477,8 +25475,7 @@ proc run_fixture_cases(
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()
-  let scratch_path = scratch.host_path()?
+    let scratch_path = scratch.host_path()?
   let stdout_path = fp"{scratch_path}/stdout"
   let stderr_path = fp"{scratch_path}/stderr"
   var passed_cases = 0
@@ -26138,8 +26135,7 @@ export proc validate_and_run(
   if options.capture_cpu_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpu_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("CPU set capture destination already exists"))
     }
@@ -26178,8 +26174,7 @@ export proc validate_and_run(
   if options.capture_cpufreq_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpufreq_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("CPUFreq capture destination already exists"))
     }
@@ -26225,8 +26220,7 @@ export proc validate_and_run(
   if options.capture_cpu_topology_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpu_topology_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("CPU topology capture destination already exists"))
     }
@@ -26258,8 +26252,7 @@ export proc validate_and_run(
   if options.capture_memory_bundle != "" {
     let destination = path.absolute(fp"{options.capture_memory_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("memory capture destination already exists"))
     }
@@ -26301,8 +26294,7 @@ export proc validate_and_run(
   if options.capture_cgroup2_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cgroup2_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("cgroup2 capture destination already exists"))
     }
@@ -26335,8 +26327,7 @@ export proc validate_and_run(
   if options.capture_process_bundle != "" {
     let destination = path.absolute(fp"{options.capture_process_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("process capture destination already exists"))
     }
@@ -26370,8 +26361,7 @@ export proc validate_and_run(
   if options.capture_power_supply_bundle != "" {
     let destination = path.absolute(fp"{options.capture_power_supply_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("power supply capture destination already exists"))
     }
@@ -26408,8 +26398,7 @@ export proc validate_and_run(
   if options.capture_pressure_bundle != "" {
     let destination = path.absolute(fp"{options.capture_pressure_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("pressure capture destination already exists"))
     }
@@ -26444,8 +26433,7 @@ export proc validate_and_run(
   if options.capture_swaps_bundle != "" {
     let destination = path.absolute(fp"{options.capture_swaps_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("swap capture destination already exists"))
     }
@@ -26480,8 +26468,7 @@ export proc validate_and_run(
   if options.capture_os_release_bundle != "" {
     let destination = path.absolute(fp"{options.capture_os_release_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("os-release capture destination already exists"))
     }
@@ -26516,8 +26503,7 @@ export proc validate_and_run(
   if options.capture_uptime_bundle != "" {
     let destination = path.absolute(fp"{options.capture_uptime_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("uptime capture destination already exists"))
     }
@@ -26553,8 +26539,7 @@ export proc validate_and_run(
   if options.capture_dmi_identity_bundle != "" {
     let destination = path.absolute(fp"{options.capture_dmi_identity_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("DMI identity capture destination already exists"))
     }
@@ -26589,8 +26574,7 @@ export proc validate_and_run(
   if options.capture_device_tree_bundle != "" {
     let destination = path.absolute(fp"{options.capture_device_tree_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("device-tree capture destination already exists"))
     }
@@ -26625,8 +26609,7 @@ export proc validate_and_run(
   if options.capture_kernel_command_line_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_command_line_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("kernel command-line capture destination already exists"))
     }
@@ -26661,8 +26644,7 @@ export proc validate_and_run(
   if options.capture_kernel_modules_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_modules_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("kernel module capture destination already exists"))
     }
@@ -26697,8 +26679,7 @@ export proc validate_and_run(
   if options.capture_vulnerabilities_bundle != "" {
     let destination = path.absolute(fp"{options.capture_vulnerabilities_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("vulnerability capture destination already exists"))
     }
@@ -26733,8 +26714,7 @@ export proc validate_and_run(
   if options.capture_mountinfo_bundle != "" {
     let destination = path.absolute(fp"{options.capture_mountinfo_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("mountinfo capture destination already exists"))
     }
@@ -26769,8 +26749,7 @@ export proc validate_and_run(
   if options.capture_kernel_parameters_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_parameters_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("kernel parameter capture destination already exists"))
     }
@@ -26805,8 +26784,7 @@ export proc validate_and_run(
   if options.capture_thermal_bundle != "" {
     let destination = path.absolute(fp"{options.capture_thermal_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("thermal capture destination already exists"))
     }
@@ -26839,8 +26817,7 @@ export proc validate_and_run(
   if options.capture_hwmon_bundle != "" {
     let destination = path.absolute(fp"{options.capture_hwmon_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("hwmon capture destination already exists"))
     }
@@ -26882,8 +26859,7 @@ export proc validate_and_run(
   if options.capture_block_bundle != "" {
     let destination = path.absolute(fp"{options.capture_block_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("block capture destination already exists"))
     }
@@ -26918,8 +26894,7 @@ export proc validate_and_run(
   if options.capture_powercap_bundle != "" {
     let destination = path.absolute(fp"{options.capture_powercap_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("powercap capture destination already exists"))
     }
@@ -26952,8 +26927,7 @@ export proc validate_and_run(
   if options.capture_pci_bundle != "" {
     let destination = path.absolute(fp"{options.capture_pci_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("PCI capture destination already exists"))
     }
@@ -26994,8 +26968,7 @@ export proc validate_and_run(
   if options.capture_usb_bundle != "" {
     let destination = path.absolute(fp"{options.capture_usb_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("USB capture destination already exists"))
     }
@@ -27037,8 +27010,7 @@ export proc validate_and_run(
   if options.capture_smbios_bundle != "" {
     let destination = path.absolute(fp"{options.capture_smbios_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()
-    let leaf = fp"{destination.name()}"
+        let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("SMBIOS capture destination already exists"))
     }

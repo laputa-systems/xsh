@@ -949,6 +949,5 @@ proc page_html(hl: Highlighter, blocks: List[Block]) [fs, process, error] -> Res
 export proc render(markdown: Str, xsht: Path) [fs, process, error] -> Result[Str, Error] {
   let blocks = parse_blocks(markdown.lines())?
   let scratch = fs.tempdir()?
-  defer scratch.close()
-  page_html(Highlighter(xsht:, scratch: scratch.host_path()?), blocks)?
+    page_html(Highlighter(xsht:, scratch: scratch.host_path()?), blocks)?
 }

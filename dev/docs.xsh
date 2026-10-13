@@ -249,10 +249,8 @@ pure shown_source(name: Str, source: Str) -> Result[Str] {
 # `cd` scope, which would serialize the `par-map` workers.
 proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -> Result[Str] {
   let sandbox = fs.tempdir()?
-  defer sandbox.close()
-  let capture = fs.tempdir()?
-  defer capture.close()
-  let stdout = fp"{capture.host_path()?}/stdout"
+    let capture = fs.tempdir()?
+    let stdout = fp"{capture.host_path()?}/stdout"
   let stderr = fp"{capture.host_path()?}/stderr"
   let argv = ["-i", f"PATH={search_path}", xsh.display(), file.display()]
   let plan = process.command_argv(/usr/bin/env, argv, cwd: sandbox.host_path()?, stdout:, stderr:, timeout: 60s)

@@ -58,8 +58,7 @@ test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_reading
 
 test test_system_report_sensors_json_live_reference_runs_only_explicit_tools {
   let tools_root = fs.tempdir()?
-  defer tools_root.close()
-  tools_root.write(
+    tools_root.write(
     p"sensors",
     """#!/bin/sh
 if [ "$1" = "-v" ]; then
@@ -94,8 +93,7 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
 
 test test_system_report_sensors_json_cli_dispatch_requires_explicit_utility { |ctx|
   let tools_root = fs.tempdir()?
-  defer tools_root.close()
-  tools_root.write(
+    tools_root.write(
     p"sensors",
     """#!/bin/sh
 if [ "$1" = "-v" ]; then

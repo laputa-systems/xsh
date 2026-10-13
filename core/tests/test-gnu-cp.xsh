@@ -614,8 +614,7 @@ test test_gnu_cp_readonly_dir_log { |ctx|
 test test_gnu_cp_reflink_auto_log { |ctx|
   let s = uu.scene(ctx)?
   let other_root = fs.tempdir_in(p"/dev/shm")?
-  defer other_root.close()
-  let other = other_root.host_path()?
+    let other = other_root.host_path()?
   let source = fp"{other}/a"
   source.write("non_zero_size\n")
   assert fs.stat(source)?.dev != fs.stat(s.root)?.dev
@@ -724,8 +723,7 @@ test test_gnu_cp_sparse_extents_log { |ctx|
 test test_gnu_cp_sparse_perf_log { |ctx|
   let s = uu.scene(ctx)?
   let other_root = fs.tempdir_in(p"/dev/shm")?
-  defer other_root.close()
-  let other = other_root.host_path()?
+    let other = other_root.host_path()?
   let source = fp"{other}/k"
   source.write("x")
   source.truncate(1024 * 1024)

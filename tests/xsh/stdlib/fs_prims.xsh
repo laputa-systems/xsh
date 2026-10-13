@@ -847,8 +847,7 @@ test test_copy_file_reports_cross_device_fallback_without_replacing_or_losing_by
   }
   let root = test.temp_dir(ctx, name: "copy-cross-device")?
   let remote = fs.tempdir_in(/dev/shm)?
-  defer remote.close()
-  let remote_path = remote.host_path()?
+    let remote_path = remote.host_path()?
   if fs.stat(root)?.dev == fs.stat(remote_path)?.dev {
     test.skip("test root and tmpfs share a device")
     return

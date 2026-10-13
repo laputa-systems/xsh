@@ -951,8 +951,7 @@ test test_uu_mv_mv_verbose_directory_recursive { |ctx|
   uu.touch(s, "mv-dir/a/b/c/file1")
   uu.touch(s, "mv-dir/d/e/f/file2")
   let target_root = fs.tempdir_in(p"/dev/shm")?
-  defer target_root.close()
-  let target = target_root.host_path()?
+    let target = target_root.host_path()?
   assert fs.stat(s.root)?.dev != fs.stat(target)?.dev
   let r = uu.invoke(s, "mv", ["--verbose", "mv-dir", target.display()])?
   uu.succeeds(r)

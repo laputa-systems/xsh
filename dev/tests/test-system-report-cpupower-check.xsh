@@ -70,8 +70,7 @@ Available idle states: C1
 
 test test_system_report_cpupower_live_reference_runs_only_selected_forms {
   let tools_root = fs.tempdir()?
-  defer tools_root.close()
-  tools_root.write(
+    tools_root.write(
     p"cpupower",
     """#!/bin/sh
 case "$*" in

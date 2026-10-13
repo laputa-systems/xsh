@@ -2,8 +2,7 @@ test fs_root_methods_keep_child_independent_after_parent_close { |ctx|
   let root = fs.open_root(test.temp_dir(ctx, name: "root-methods")?)?
   root.mkdir(p"child")
   let child = root.open_root(p"child")?
-  defer child.close()
-  let erased: Any = root
+    let erased: Any = root
   let validated = erased.require(FsRoot)?
   validated.close()
   child.write(p"data", "payload")

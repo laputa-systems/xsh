@@ -105,8 +105,7 @@ test test_procps_sampling_tools_render_bounded_samples { |ctx|
 
 test test_procps_sampling_native_fixture_retains_units {
   let root = fs.tempdir()?
-  defer root.close()
-  root.write(p"stat", "cpu 20 5 10 50 5 4 4 2\nbtime 1000\nctxt 100\nprocesses 30\nprocs_running 2\nprocs_blocked 1\nintr 50 0 0\n")
+    root.write(p"stat", "cpu 20 5 10 50 5 4 4 2\nbtime 1000\nctxt 100\nprocesses 30\nprocs_running 2\nprocs_blocked 1\nintr 50 0 0\n")
   root.write(p"vmstat", "pgpgin 10\npgpgout 20\npswpin 3\npswpout 4\n")
   root.write(p"uptime", "20.25 10.00\n")
   root.write(p"meminfo", "MemTotal: 1000 kB\nMemFree: 100 kB\nMemAvailable: 300 kB\nBuffers: 40 kB\nCached: 80 kB\nShmem: 10 kB\nSReclaimable: 20 kB\nSwapTotal: 400 kB\nSwapFree: 200 kB\n")
@@ -121,8 +120,7 @@ test test_procps_sampling_native_fixture_retains_units {
 
 test test_procps_inspection_finds_owned_directory_descriptor { |ctx|
   let root = fs.tempdir()?
-  defer root.close()
-  let directory = root.host_path()?
+    let directory = root.host_path()?
   let pid = process.current_pid()?
   let listing = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/lsof.xsh" -- -p $pid $directory
   assert "DIR" in listing and f"{pid}" in listing
