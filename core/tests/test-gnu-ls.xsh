@@ -1,7 +1,13 @@
 use support.uu
 
 pure has_bytes(data: Bytes, needle: Bytes) -> Bool {
-  for i in range(data.len()) { return true when data.slice(i, needle.len()) == needle }
+  let data_len = data.len()
+  let needle_len = needle.len()
+  for i in range(data_len) {
+    let remaining = data_len - i
+    let end = if needle_len >= remaining { data_len } else { i + needle_len }
+    return true when data[i..end] == needle
+  }
   false
 }
 

@@ -100,7 +100,7 @@ test test_cpio_creates_archives_byte_identical_to_gnu { |ctx|
     assert ran.stderr == "", format
     # GNU pads to 512-byte blocks; the fixture keeps only the part up to the trailer.
     let expected = archive_of(format)
-    assert ran.stdout.slice(0, expected.len()) == expected, format
+    assert ran.stdout[0..expected.len()] == expected, format
     assert ran.stdout.len() % 512 == 0, format
     assert is_zero_tail(ran.stdout, expected.len()), format
   }
