@@ -95,6 +95,16 @@ fn products_whose_type_is_inferred_are_reported_without_a_fix() {
 }
 
 #[test]
+fn iteration_counts_are_not_byte_sizes() {
+    let count = "let indexes = range(0, 5 * 1024 * 1024)\n";
+    let diagnostics = lint(count);
+    assert!(diagnostics.is_empty(), "{count}: {diagnostics:?}");
+
+    let bytes = "let size: Int = 20 * 1024 * 1024\nimage.truncate(size)\n";
+    assert_eq!(lint(bytes).len(), 1, "{bytes}");
+}
+
+#[test]
 fn other_products_are_left_alone() {
     for source in [
         // A factor that is not a literal.

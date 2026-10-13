@@ -5,7 +5,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{ArenaExprKind, AstArena, ExprId};
+use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, AstArena, ExprId};
 use xsh::frontend::syntax::node::BinaryOp;
 
 /// The binary unit for a product with this many factors of 1024.
@@ -22,6 +22,8 @@ pub(super) struct SizeProducts {
     operator_above: FxHashMap<ExprId, BinaryOp>,
     /// Products that initialize a binding with a written type.
     typed_initializers: FxHashSet<ExprId>,
+    /// Products passed directly as bounds to the integer `range` producer.
+    range_bounds: FxHashSet<ExprId>,
 }
 
 impl SizeProducts {
@@ -42,6 +44,22 @@ impl SizeProducts {
         id: ExprId,
     ) -> Option<Diagnostic> {
         let expr = arena.expr(id);
+        if let ArenaExprKind::Call { callee, args } = expr.kind {
+            // Range arguments bound an integer sequence and carry no byte unit.
+            if matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "range") {
+                self.range_bounds.extend(arena.call_args(args).iter().filter_map(|arg| {
+                    let value = match arg.kind {
+                        ArenaCallArgKind::Positional(value)
+                        | ArenaCallArgKind::Named { value, .. } => value,
+                        ArenaCallArgKind::NamedSpread { .. } | ArenaCallArgKind::Splice { .. } => {
+                            return None;
+                        }
+                    };
+                    is_product(arena, value).then_some(value)
+                }));
+            }
+            return None;
+        }
         let ArenaExprKind::Binary { op, left, right } = expr.kind else {
             return None;
         };
@@ -55,6 +73,9 @@ impl SizeProducts {
         }
         let above = self.operator_above.remove(&id);
         let typed_initializer = self.typed_initializers.remove(&id);
+        if self.range_bounds.remove(&id) {
+            return None;
+        }
         // Only a whole product: `mb * 1024 * 1024` has a factor that is not
         // a literal, and its literal part is not a size on its own.
         if above == Some(BinaryOp::Mul) {
