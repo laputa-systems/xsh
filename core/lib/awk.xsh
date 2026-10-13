@@ -33,6 +33,38 @@ type Parser = {tokens: List[Token], starts: List[Int], lines: List[Int], at: Int
 type Parsed[T] = {parser: Parser, value: T}
 type Escaped = {content: Str, at: Int, notes: List[Str]}
 
+# Names that mean nothing special under --traditional and --posix; they are
+# renamed behind a control character so that a program's variables and
+# functions of those names are ordinary ones.
+const GNU_VARIABLES = ["IGNORECASE", "FIELDWIDTHS", "FPAT", "RT", "ERRNO", "PROCINFO"]
+const GNU_FUNCTIONS = ["gensub", "asort", "asorti", "patsplit", "strtonum", "systime", "strftime", "mktime", "and", "or", "xor", "lshift", "rshift", "compl", "typeof", "isarray"]
+const BUILTINS = ["length", "substr", "index", "split", "sub", "gsub", "match", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int", "rand", "srand", "tolower", "toupper", "system", "close", "fflush", "and", "or", "xor", "lshift", "rshift", "compl", "strtonum", "systime", "strftime", "mktime", "gensub", "asort", "asorti", "patsplit", "typeof", "isarray"]
+# Names no function parameter may take: the POSIX built-in functions. GNU
+# extension functions are accepted as parameter names.
+const POSIX_BUILTINS = ["length", "substr", "index", "split", "sub", "gsub", "match", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int", "rand", "srand", "tolower", "toupper", "system", "close", "fflush"]
+const SPECIAL_VARIABLES = ["ARGC", "ARGIND", "ARGV", "BINMODE", "CONVFMT", "ENVIRON", "ERRNO", "FIELDWIDTHS", "FILENAME", "FNR", "FPAT", "FS", "IGNORECASE", "LINT", "NF", "NR", "OFMT", "OFS", "ORS", "PREC", "PROCINFO", "RLENGTH", "ROUNDMODE", "RS", "RSTART", "RT", "SUBSEP", "TEXTDOMAIN"]
+# The fewest and most arguments each built-in function accepts; sprintf and
+# the bitwise functions that take any number are not listed.
+const BUILTIN_ARITY: Map[List[Int]] = {
+  length: [0, 1], substr: [2, 3], index: [2, 2], split: [2, 4], sub: [2, 3], gsub: [2, 3], match: [2, 3],
+  sin: [1, 1], cos: [1, 1], atan2: [2, 2], exp: [1, 1], log: [1, 1], sqrt: [1, 1], int: [1, 1],
+  rand: [0, 0], srand: [0, 1], tolower: [1, 1], toupper: [1, 1], system: [1, 1], close: [1, 2], fflush: [0, 1],
+  lshift: [2, 2], rshift: [2, 2], compl: [1, 1], strtonum: [1, 1], systime: [0, 0], strftime: [0, 3],
+  mktime: [1, 2], gensub: [3, 4], asort: [1, 3], asorti: [1, 3], patsplit: [2, 4], typeof: [1, 2], isarray: [1, 1],
+}
+const KEYWORDS = ["BEGIN", "END", "function", "func", "if", "else", "while", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "in", "getline", "print", "printf"]
+const PRECEDENCE: Map[Int] = {"=": 1, "+=": 1, "-=": 1, "*=": 1, "/=": 1, "%=": 1, "^=": 1, "||": 3, "&&": 4, "~": 6, "!~": 6, "==": 7, "!=": 7, "<": 7, ">": 7, "<=": 7, ">=": 7, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10, "^": 12}
+const REGEX_SPECIAL = [".", "[", "]", "(", ")", "*", "+", "?", "{", "}", "|", "^", "$", "\\"]
+const SIMPLE_ESCAPES: Map[Int] = {a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11}
+# GNU awk visits an array's subscripts in the order of its internal hash tables.
+# The order is reproduced here from each element's insertion sequence number:
+# a string-keyed array is a chained hash table that grows by fixed steps, a
+# negative-integer-keyed array hashes integers into small buckets, and
+# non-negative integer subscripts list in ascending order ahead of anything
+# that does not fit them.
+const TABLE_SIZES = [13, 127, 1021, 8191, 131071, 1048573, 8388593, 16777213, 33554393, 67108859, 134217689, 268435399, 536870909, 1073741789, 2147483647]
+const MODULUS = 4294967296
+
 pure syntax_error(message: Str) -> Error { AwkError.Syntax(message) }
 pure runtime(message: Str) -> Error { AwkError.Fatal(message: f"fatal: {message}", pending: "") }
 pure unsupported(message: Str) -> Error { AwkError.Fatal(message: f"fatal: unsupported: {message}", pending: "") }
@@ -159,12 +191,6 @@ pure regex_body(source: Bytes, start: Int) -> Result[Body] {
   }
   Ok({content: "", at: -1})
 }
-
-# Names that mean nothing special under --traditional and --posix; they are
-# renamed behind a control character so that a program's variables and
-# functions of those names are ordinary ones.
-const GNU_VARIABLES = ["IGNORECASE", "FIELDWIDTHS", "FPAT", "RT", "ERRNO", "PROCINFO"]
-const GNU_FUNCTIONS = ["gensub", "asort", "asorti", "patsplit", "strtonum", "systime", "strftime", "mktime", "and", "or", "xor", "lshift", "rshift", "compl", "typeof", "isarray"]
 
 # mode: 0 for GNU awk's own dialect, 1 for --traditional, 2 for --posix.
 pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
@@ -403,22 +429,6 @@ pure statement_node(parser: Parser, node: Statement) -> Parsed[Int] {
   {parser: p, value: id}
 }
 
-const BUILTINS = ["length", "substr", "index", "split", "sub", "gsub", "match", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int", "rand", "srand", "tolower", "toupper", "system", "close", "fflush", "and", "or", "xor", "lshift", "rshift", "compl", "strtonum", "systime", "strftime", "mktime", "gensub", "asort", "asorti", "patsplit", "typeof", "isarray"]
-# Names no function parameter may take: the POSIX built-in functions. GNU
-# extension functions are accepted as parameter names.
-const POSIX_BUILTINS = ["length", "substr", "index", "split", "sub", "gsub", "match", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int", "rand", "srand", "tolower", "toupper", "system", "close", "fflush"]
-const SPECIAL_VARIABLES = ["ARGC", "ARGIND", "ARGV", "BINMODE", "CONVFMT", "ENVIRON", "ERRNO", "FIELDWIDTHS", "FILENAME", "FNR", "FPAT", "FS", "IGNORECASE", "LINT", "NF", "NR", "OFMT", "OFS", "ORS", "PREC", "PROCINFO", "RLENGTH", "ROUNDMODE", "RS", "RSTART", "RT", "SUBSEP", "TEXTDOMAIN"]
-# The fewest and most arguments each built-in function accepts; sprintf and
-# the bitwise functions that take any number are not listed.
-const BUILTIN_ARITY: Map[List[Int]] = {
-  length: [0, 1], substr: [2, 3], index: [2, 2], split: [2, 4], sub: [2, 3], gsub: [2, 3], match: [2, 3],
-  sin: [1, 1], cos: [1, 1], atan2: [2, 2], exp: [1, 1], log: [1, 1], sqrt: [1, 1], int: [1, 1],
-  rand: [0, 0], srand: [0, 1], tolower: [1, 1], toupper: [1, 1], system: [1, 1], close: [1, 2], fflush: [0, 1],
-  lshift: [2, 2], rshift: [2, 2], compl: [1, 1], strtonum: [1, 1], systime: [0, 0], strftime: [0, 3],
-  mktime: [1, 2], gensub: [3, 4], asort: [1, 3], asorti: [1, 3], patsplit: [2, 4], typeof: [1, 2], isarray: [1, 1],
-}
-const KEYWORDS = ["BEGIN", "END", "function", "func", "if", "else", "while", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "in", "getline", "print", "printf"]
-
 # The tokens that can start an operand of an implicit concatenation.
 pure starts_operand(p: Parser) -> Bool {
   match peek(p) {
@@ -444,8 +454,6 @@ pure expression_list(parser: Parser, end: Str) -> Result[Parsed[List[Int]]] {
   }
   Err(unexpected(p))
 }
-
-const PRECEDENCE: Map[Int] = {"=": 1, "+=": 1, "-=": 1, "*=": 1, "/=": 1, "%=": 1, "^=": 1, "||": 3, "&&": 4, "~": 6, "!~": 6, "==": 7, "!=": 7, "<": 7, ">": 7, "<=": 7, ">=": 7, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10, "^": 12}
 
 # Builtins may be written with a space before "(" (GNU awk); user functions may not.
 pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
@@ -1329,9 +1337,6 @@ pure shown_char(code: Int) -> Str {
   let one = bytes.from_ints([code]) ?? b"?"
   one.utf8() ?? "?"
 }
-const REGEX_SPECIAL = [".", "[", "]", "(", ")", "*", "+", "?", "{", "}", "|", "^", "$", "\\"]
-const SIMPLE_ESCAPES: Map[Int] = {a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11}
-
 # The replacement for a pattern character: ASCII text passes through, other
 # characters take their alphabet byte. Escaped when the byte is a metacharacter.
 pure literal_char(character: Str, alphabet: Alphabet) -> Str {
@@ -2004,16 +2009,6 @@ proc read_record(source: Reader, separator: Str, ignore_case: Bool) -> Result[Re
 }
 
 #
-# GNU awk visits an array's subscripts in the order of its internal hash tables.
-# The order is reproduced here from each element's insertion sequence number:
-# a string-keyed array is a chained hash table that grows by fixed steps, a
-# negative-integer-keyed array hashes integers into small buckets, and
-# non-negative integer subscripts list in ascending order ahead of anything
-# that does not fit them.
-
-const TABLE_SIZES = [13, 127, 1021, 8191, 131071, 1048573, 8388593, 16777213, 33554393, 67108859, 134217689, 268435399, 536870909, 1073741789, 2147483647]
-const MODULUS = 4294967296
-
 pure next_table_size(size: Int) -> Int {
   for candidate in TABLE_SIZES { return candidate when candidate > size }
   size

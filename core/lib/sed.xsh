@@ -53,6 +53,12 @@ const MODE_LOWER = 1
 const MODE_UPPER = 2
 const FIRST_UPPER = 4
 const FIRST_LOWER = 8
+# Output targets: the main output (stdout, or the in-place file), the real
+# stdout and stderr named by `/dev/stdout` and `/dev/stderr`, and `w` files.
+const MAIN = 0
+const STDOUT_FILE = 1
+const STDERR_FILE = 2
+const FIRST_FILE = 3
 
 pure is_blank(c: Int) -> Bool { c == 32 or c == 9 }
 pure is_space(c: Int) -> Bool { c == 32 or (c >= 9 and c <= 13) }
@@ -1031,13 +1037,6 @@ type Loaded = {cursor: Cursor, records: List[Bytes]}
 type Machine = {hold: Space, out: Outputs, last_regex: RegexSpec?, status: Int, quit: Bool, bad: Int, rdata: Map[Bytes], roffset: Map[Int]}
 # FILE_TARGETS maps each command to its w-file output target (-1 if none).
 type Context = {program: Program, options: Options, in_place: Bool, delim: Int, delim_bytes: Bytes, targets: List[Int], file_names: List[Str]}
-
-# Output targets: the main output (stdout, or the in-place file), the real
-# stdout and stderr named by `/dev/stdout` and `/dev/stderr`, and `w` files.
-const MAIN = 0
-const STDOUT_FILE = 1
-const STDERR_FILE = 2
-const FIRST_FILE = 3
 
 pure buffer_of(target: Int, in_place: Bool) -> Int {
   return if in_place { 1 } else { 0 } when target == MAIN
