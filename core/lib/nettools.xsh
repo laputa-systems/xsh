@@ -723,10 +723,7 @@ pure ipv6_from_hex(text: Str) -> Str {
 
 ## The canonical text of an IPv6 address given as eight hexadecimal groups.
 export pure compress_ipv6(text: Str) -> Str {
-  var values = []
-  for piece in text.split(":") {
-    values += [hex_int(piece)]
-  }
+  var values = [hex_int(piece) for piece in text.split(":")]
   var best_at = -1
   var best_len = 0
   var at = 0

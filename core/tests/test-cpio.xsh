@@ -445,10 +445,7 @@ test test_cpio_reports_bad_archives { |ctx|
 
 # Swaps the bytes of each 16-bit word in data[from, from + length).
 pure swap_words(data: Bytes, from: Int, length: Int) -> Bytes {
-  var out = []
-  for index in range(data.len()) {
-    out += [data.byte_at(index) ?? 0]
-  }
+  var out = [data.byte_at(index) ?? 0 for index in range(data.len())]
   var word = from
   while word < from + length {
     out[word] = data.byte_at(word + 1) ?? 0

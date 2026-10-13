@@ -332,8 +332,7 @@ proc main(...argv: List[Bytes]) {
     }
   }
   if opts.compare and mode.bit_and(0o7000) != 0 { gnu.error("the --compare (-C) option is ignored when you specify a mode with non-permission bits") }
-  var operands = []
-  for operand in opts.operands { operands += [gnu.argument_bytes(operand, prepared.raw) as Path] }
+  var operands = [gnu.argument_bytes(operand, prepared.raw) as Path for operand in opts.operands]
   let target_directory: Path? = if let target_text = opts.target {
     gnu.argument_bytes(target_text, prepared.raw) as Path
   } else { null }

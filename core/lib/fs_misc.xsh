@@ -276,8 +276,7 @@ export pure relative(target: Str, base: Str) -> Str {
   let b = components(base)
   var common = 0
   while common < a.len() and common < b.len() and a[common] == b[common] { common += 1 }
-  var out = []
-  for unused in range(b.len() - common) { out += [".."] }
+  var out = [".." for unused in range(b.len() - common)]
   out = out.extend(a[common..])
   if out.is_empty() { "." } else { out.join("/") }
 }

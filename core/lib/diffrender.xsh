@@ -267,8 +267,7 @@ pure render_context(first: gnudiff.Source, second: gnudiff.Source, script: List[
   let n0 = first.lines.len()
   let n1 = second.lines.len()
   for members in hunk_groups(script, flags, fmt.context) {
-    var chain: List[gnudiff.Change] = []
-    for member in members { chain += [script[member]] }
+    var chain: List[gnudiff.Change] = [script[member] for member in members]
     let hunk = analyze(chain, first, second, fmt)
     continue when hunk.changes == 0
     var first0 = hunk.first0 - fmt.context

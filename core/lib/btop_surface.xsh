@@ -136,10 +136,10 @@ export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Erro
   )
   return blank(0, 0) when clipped == null
   let area = clipped
-  var lines = []
-  for y in range(area.y, area.y + area.height) {
-    lines += [tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)]
-  }
+  var lines = [
+    tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)
+    for y in range(area.y, area.y + area.height)
+  ]
   var roles: List[color.Role?] = []
   for y in range(area.y, area.y + area.height) {
     roles += [if y < surface.roles.len() { surface.roles[y] } else { null }]

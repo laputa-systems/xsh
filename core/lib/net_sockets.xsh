@@ -604,10 +604,7 @@ export pure ipv6_text(data: Bytes) -> Str {
     return f"::ffff:{ipv4_text(data.slice(12, 4))}"
   }
 
-  var groups = []
-  for index in range(8) {
-    groups += [(data.byte_at(index * 2) ?? 0) * 256 + (data.byte_at(index * 2 + 1) ?? 0)]
-  }
+  var groups = [(data.byte_at(index * 2) ?? 0) * 256 + (data.byte_at(index * 2 + 1) ?? 0) for index in range(8)]
   # The first longest run of two or more zero groups becomes "::".
   var best_start = -1
   var best_length = 1

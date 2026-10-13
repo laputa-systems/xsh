@@ -16,10 +16,12 @@ export pure reorder_candidates(message: Str) -> Str {
       if part != "" { yield part }
     }
   }
-  var ordered = []
-  for known in LONG_OPTION_ORDER {
-    for name in names { if name == f"'--{known}'" { ordered += [name] } }
-  }
+  var ordered = [
+    name
+    for known in LONG_OPTION_ORDER
+    for name in names
+    if name == f"'--{known}'"
+  ]
   for name in names { if !(name in ordered) { ordered += [name] } }
   head + ordered.join(" ")
 }

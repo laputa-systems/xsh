@@ -688,8 +688,7 @@ test test_smart_enable_and_disable_commands { |ctx|
 
 test test_disabled_smart_stops_read_commands { |ctx|
   var page = identify_page().base64().base64_decode()?
-  var cells_in: List[Int] = []
-  for index in range(page.len()) { cells_in += [page.byte_at(index) ?? 0] }
+  var cells_in: List[Int] = [page.byte_at(index) ?? 0 for index in range(page.len())]
   cells_in[170] = 0
   var lines = ata_fixture(smart_data_page(200))
   lines[0] = identify_line(sealed(cells_in))
@@ -967,8 +966,7 @@ test test_quiet_modes { |ctx|
 
 test test_checksum_options { |ctx|
   var broken = smart_data_page(200)
-  var cells_in: List[Int] = []
-  for index in range(broken.len()) { cells_in += [broken.byte_at(index) ?? 0] }
+  var cells_in: List[Int] = [broken.byte_at(index) ?? 0 for index in range(broken.len())]
   cells_in[511] = (cells_in[511] + 1) % 256
   var lines = ata_fixture(smart_data_page(200))
   lines[1] = ata_data(smart_cdb(h("d0"), 1, 0, true), raw_page(cells_in))

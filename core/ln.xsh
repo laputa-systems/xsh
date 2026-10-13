@@ -46,8 +46,7 @@ proc relative_link(target: Path, base: Path) -> Result[Path] {
   while common < to.len() and common < from.len() and to[common].bytes() == from[common].bytes() {
     common += 1
   }
-  var parts = []
-  for _ in range(from.len() - common) { parts += [b".."] }
+  var parts = [b".." for _ in range(from.len() - common)]
   for index in range(common, to.len()) { parts += [to[index].bytes()] }
   if parts.len() == 0 { parts = [b"."] }
   var text = parts[0]
@@ -155,8 +154,7 @@ proc main(...argv: List[Bytes]) {
     gnu.error("cannot do --relative without --symbolic")
     exit 1
   }
-  var paths = []
-  for raw_path in opts.paths { paths += [gnu.argument_bytes(raw_path, prepared.raw) as Path] }
+  var paths = [gnu.argument_bytes(raw_path, prepared.raw) as Path for raw_path in opts.paths]
   let target_directory: Path? = if let target_text = opts.target {
     gnu.argument_bytes(target_text, prepared.raw) as Path
   } else { null }

@@ -1020,8 +1020,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
       }
       if let jar_name = settings.cookie_jar {
         let now = time.now() / 1000
-        var all: List[Cookie] = []
-        for cookie in jar { if cookie.expires == 0 or cookie.expires >= now { all += [cookie] } }
+        var all: List[Cookie] = [cookie for cookie in jar if cookie.expires == 0 or cookie.expires >= now]
         for header in reply.headers {
           if header.name.lower() == "set-cookie" {
             if let made = cookie_from(header.value, host, cookie_dir(http_transfer.url_path(request.url))) {

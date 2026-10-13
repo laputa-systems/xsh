@@ -102,8 +102,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
     option_at += 1
   }
-  var pending: List[Visit] = []
-  for name in opts.files { pending += [{name: name, ancestors: [], operand: true}] }
+  var pending: List[Visit] = [{name: name, ancestors: [], operand: true} for name in opts.files]
   var success = true
   var warned = false
   while ! pending.is_empty() {

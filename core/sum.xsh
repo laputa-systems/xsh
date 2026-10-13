@@ -63,8 +63,7 @@ proc main(...argv: List[Bytes]) [fs, io, error, process, env] {
     }
   }
   let algorithm = if sysv { "sysv" } else { "bsd" }
-  var files = []
-  for file in opts.files { files += [argument_bytes(file, prepared.raw)] }
+  var files = [argument_bytes(file, prepared.raw) for file in opts.files]
   if files.is_empty() { files = [b"-"] }
   var failed = false
   for name in files {

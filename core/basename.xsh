@@ -87,8 +87,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
     return
   }
 
-  var names = []
-  for name in opts.names { names += [argument_bytes(name, prepared.raw)] }
+  var names = [argument_bytes(name, prepared.raw) for name in opts.names]
   var suffix = argument_bytes(opts.suffix ?? "", prepared.raw)
 
   if names.is_empty() {

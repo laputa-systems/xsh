@@ -17,8 +17,11 @@ export pure canonical(entries: List[Entry]) -> List[Entry] {
   var result: List[Entry] = []
   for default in [false, true] {
     for number in [1, 2, 4, 8, 16, 32] {
-      var selected: List[Entry] = []
-      for entry in entries { if entry.default == default and tag_number(entry.tag) == number { selected += [entry] } }
+      var selected: List[Entry] = [
+        entry
+        for entry in entries
+        if entry.default == default and tag_number(entry.tag) == number
+      ]
       while ! selected.is_empty() {
         var best = 0
         for index in range(selected.len()) { if (selected[index].id ?? -1) < (selected[best].id ?? -1) { best = index } }

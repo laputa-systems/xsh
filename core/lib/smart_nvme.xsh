@@ -558,8 +558,7 @@ export pure info_json(ctrl: Controller, ns: Namespace?, nsid: Int, serials: Bool
 
 ## JSON members for the health log and the summaries derived from it.
 export pure health_json(log: Health) -> List[j.Member] {
-  var sensors = []
-  for temperature in log.sensors { if temperature != 0 { sensors += [temperature] } }
+  var sensors = [temperature for temperature in log.sensors if temperature != 0]
   var members: List[j.Member] = [
     j.m("critical_warning", log.critical_warning),
     j.m("temperature", log.temperature),

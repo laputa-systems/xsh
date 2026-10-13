@@ -603,10 +603,11 @@ proc block_json_row(devices: List[block.BlockDevice], index: Int, table: mounts.
     fields += [key + ":" + encoded]
   }
   if "-d" not in args.flags and "-l" not in args.flags and "-r" not in args.flags {
-    var children = []
-    for child in block_children(devices, index) {
-      if child not in ancestors and child != index { children += [block_json_row(devices, child, table, cols, args, [@ancestors, index])] }
-    }
+    var children = [
+      block_json_row(devices, child, table, cols, args, [@ancestors, index])
+      for child in block_children(devices, index)
+      if child not in ancestors and child != index
+    ]
     if ! children.is_empty() { fields += ["\"children\":[" + children.join(",") + "]"] }
   }
   "{" + fields.join(",") + "}"

@@ -1615,8 +1615,11 @@ pure make_alphabet(pattern: Str, subject: Str) -> Alphabet {
     let byte = source.byte_at(index) ?? 0
     if byte < 128 { present[byte] = true }
   }
-  var free = []
-  for code in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127] { if ! present[code] { free += [code] } }
+  var free = [
+    code
+    for code in [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127]
+    if ! present[code]
+  ]
   var chars: Map[Str] = {}
   var next = 0
   for character in (pattern + subject).split("") {
@@ -2055,8 +2058,7 @@ pure integer_code(value: Int) -> Int {
 # sequence numbers at which the table grew; null simulates growth from counts.
 pure string_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[Str] {
   return [] when keys.is_empty()
-  var codes = []
-  for key in keys { codes += [string_code(key)] }
+  var codes = [string_code(key) for key in keys]
   var size = 13
   var chains: List[List[Int]] = [[] for _ in range(size)]
   var pointer = 0

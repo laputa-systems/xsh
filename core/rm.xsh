@@ -191,8 +191,7 @@ proc dash_filename_hint(argv: List[Str]) [fs, process, env, error] {
     break when raw in ["--", "--help", "--version"]
     if raw.starts_with("--") {
       let name = raw.byte_slice(2).split("=")[0]
-      var matches = []
-      for candidate in long_names { if candidate.starts_with(name) { matches += [candidate] } }
+      var matches = [candidate for candidate in long_names if candidate.starts_with(name)]
       if name in long_names { matches = [name] }
       break when matches.len() != 1
       let option = matches[0]

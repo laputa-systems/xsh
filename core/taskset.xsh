@@ -149,12 +149,7 @@ pure parse_mask(text: Str) -> List[Int]? {
 pure format_mask(cpus: List[Int]) -> Str {
   return "0" when cpus.is_empty()
 
-  var nibbles = []
-
-  for _ in range(cpus[-1] / 4 + 1) {
-    nibbles += [0]
-  }
-
+  var nibbles = [0 for _ in range(cpus[-1] / 4 + 1)]
   for id in cpus {
     nibbles[id / 4] = nibbles[id / 4] + [1, 2, 4, 8][id % 4]
   }

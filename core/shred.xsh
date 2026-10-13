@@ -165,8 +165,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       let leaf = components[components.len() - 1].bytes()
       for index in range(leaf.len()) {
         let width = leaf.len() - index
-        var digits: List[Int] = []
-        for unused in range(width) { digits += [0] }
+        var digits: List[Int] = [0 for unused in range(width)]
         let alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         while true {
           var renamed_name = ""

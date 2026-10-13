@@ -54,8 +54,7 @@ pure relative_path(target: Bytes, base: Bytes) -> Bytes {
   let base_parts = path_components(base)
   var common = 0
   while common < target_parts.len() and common < base_parts.len() and target_parts[common] == base_parts[common] { common += 1 }
-  var parts = []
-  for unused in range(base_parts.len() - common) { parts += [b".."] }
+  var parts = [b".." for unused in range(base_parts.len() - common)]
   for index in range(common, target_parts.len()) { parts += [target_parts[index]] }
   return b"." when parts.is_empty()
   var output = parts[0]

@@ -607,8 +607,7 @@ export pure render_view_with_graphs(
     process_content(value, view, process_capacity(height), process_width - 2, local_display),
   )
   var lines = cpu_rows
-  var row_roles: List[color.Role?] = []
-  for _ in range(cpu_height) { row_roles += [color.Cpu] }
+  var row_roles: List[color.Role?] = [color.Cpu for _ in range(cpu_height)]
   for index in range(lower_height) {
     let left = if index < memory_height {
       memory_rows[index]

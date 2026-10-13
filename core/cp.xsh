@@ -579,8 +579,7 @@ proc main(...raw_argv: List[Bytes]) {
     if arg.starts_with("--") {
       let parts = arg.byte_slice(2).split("=")
       let requested = parts[0]
-      var matches = []
-      for name in names { if name.starts_with(requested) { matches += [name] } }
+      var matches = [name for name in names if name.starts_with(requested)]
       if requested in names { flags = [requested] } else if matches.len() == 1 { flags = matches } else if matches.len() > 1 { gnu.usage_error(f"option {gnu.quote(arg)} is ambiguous") } else { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") }
       if parts.len() > 1 {
         value = parts[1..].join("=")
