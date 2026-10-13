@@ -181,49 +181,52 @@ pure encode_charset(data: Bytes, opts: Options) -> Result[Bytes] {
 }
 
 pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
-  var pieces = []
-  for block in records {
-    var values = [block.byte_at(i) ?? 0 for i in range(block.len())]
-    if "sync" in opts.conv and block.len() < opts.ibs {
-      values += [if "block" in opts.conv or "unblock" in opts.conv { 32 } else { 0 } for _ in range(opts.ibs - block.len())]
-    }
-    if "swab" in opts.conv {
-      for pair in range(values.len() / 2) {
-        let first = values[pair * 2]
-        values[pair * 2] = values[pair * 2 + 1]
-        values[pair * 2 + 1] = first
+  let pieces = collect {
+    for block in records {
+      var values = [block.byte_at(i) ?? 0 for i in range(block.len())]
+      if "sync" in opts.conv and block.len() < opts.ibs {
+        values += [if "block" in opts.conv or "unblock" in opts.conv { 32 } else { 0 } for _ in range(opts.ibs - block.len())]
       }
+      if "swab" in opts.conv {
+        for pair in range(values.len() / 2) {
+          let first = values[pair * 2]
+          values[pair * 2] = values[pair * 2 + 1]
+          values[pair * 2 + 1] = first
+        }
+      }
+      if "ascii" in opts.conv { values = [charset.character(value, "ascii") for value in values] }
+      if "lcase" in opts.conv { values = [if value >= 65 and value <= 90 { value + 32 } else { value } for value in values] }
+      if "ucase" in opts.conv { values = [if value >= 97 and value <= 122 { value - 32 } else { value } for value in values] }
+      yield bytes.from_ints(values)?
     }
-    if "ascii" in opts.conv { values = [charset.character(value, "ascii") for value in values] }
-    if "lcase" in opts.conv { values = [if value >= 65 and value <= 90 { value + 32 } else { value } for value in values] }
-    if "ucase" in opts.conv { values = [if value >= 97 and value <= 122 { value - 32 } else { value } for value in values] }
-    pieces += [bytes.from_ints(values)?]
   }
   let mapped = bytes.concat(pieces)
   if "block" in opts.conv {
     var truncated = 0
-    var block_outputs: List[BlockOutput] = []
     var start = 0
-    for at in range(mapped.len() + 1) {
-      if at == mapped.len() or mapped.byte_at(at) == 10 {
-        break when at == mapped.len() and start == at
-        let length = at - start
-        if length > opts.cbs { truncated += 1 }
-        let width = if length < opts.cbs { length } else { opts.cbs }
-        let data = encode_charset(mapped[start..start + width], opts)?
-        let pad_byte = if "ebcdic" in opts.conv or "ibm" in opts.conv { charset.character(32, if "ibm" in opts.conv { "ibm" } else { "ebcdic" }) } else { 32 }
-        block_outputs += [{data: data, padding: opts.cbs - width, pad_byte: pad_byte}]
-        start = at + 1
+    let block_outputs: List[BlockOutput] = collect {
+      for at in range(mapped.len() + 1) {
+        if at == mapped.len() or mapped.byte_at(at) == 10 {
+          break when at == mapped.len() and start == at
+          let length = at - start
+          if length > opts.cbs { truncated += 1 }
+          let width = if length < opts.cbs { length } else { opts.cbs }
+          let data = encode_charset(mapped[start..start + width], opts)?
+          let pad_byte = if "ebcdic" in opts.conv or "ibm" in opts.conv { charset.character(32, if "ibm" in opts.conv { "ibm" } else { "ebcdic" }) } else { 32 }
+          yield {data: data, padding: opts.cbs - width, pad_byte: pad_byte}
+          start = at + 1
+        }
       }
     }
     return Ok({data: b"", blocks: block_outputs, truncated: truncated})
   }
   if "unblock" in opts.conv {
-    var out = []
-    for block in mapped.chunks(opts.cbs) {
-      var end = block.len()
-      while end > 0 and block.byte_at(end - 1) == 32 { end -= 1 }
-      out += [block[0..end], b"\n"]
+    let out = collect {
+      for block in mapped.chunks(opts.cbs) {
+        var end = block.len()
+        while end > 0 and block.byte_at(end - 1) == 32 { end -= 1 }
+        yield @[block[0..end], b"\n"]
+      }
     }
     return Ok({data: encode_charset(bytes.concat(out), opts)?, blocks: [], truncated: 0})
   }
@@ -576,9 +579,10 @@ proc require_directory_input(input: Path?) [fs, process, env, error, io] {
 
 ## The records of a block conversion with their padding, joined for one write.
 proc joined_records(blocks: List[BlockOutput]) [error] -> Result[Bytes] {
-  var pieces = []
-  for record in blocks {
-    pieces += [record.data, bytes.from_ints([record.pad_byte for _ in range(record.padding)])?]
+  let pieces = collect {
+    for record in blocks {
+      yield @[record.data, bytes.from_ints([record.pad_byte for _ in range(record.padding)])?]
+    }
   }
   Ok(bytes.concat(pieces))
 }
@@ -672,18 +676,19 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   } else if limit > 0 {
     if let input = opts.input {
       guard let source = open_dd_source(input) else { |failure| gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
-        var chunks = []
       var at = skip
       var remaining = limit
-      loop {
-        let width = if remaining < opts.ibs { remaining } else { opts.ibs }
-        break when width == 0
-        guard let block = tio.read_chunk(source, at, width) else { |failure| gnu.error(f"error reading {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
-        break when block.is_empty()
-        let part = block[0..remaining]
-        chunks += [part]
-        at += part.len()
-        remaining -= part.len()
+      let chunks = collect {
+        loop {
+          let width = if remaining < opts.ibs { remaining } else { opts.ibs }
+          break when width == 0
+          guard let block = tio.read_chunk(source, at, width) else { |failure| gnu.error(f"error reading {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
+          break when block.is_empty()
+          let part = block[0..remaining]
+          yield part
+          at += part.len()
+          remaining -= part.len()
+        }
       }
       records = chunks
     } else {
