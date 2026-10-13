@@ -207,9 +207,9 @@ export proc entry_names(store: Store, family: Family) [fs, error] -> Result[List
   let found: List[Named] = collect {
     for name in variable_names(store)? {
       let decoded = entry_number(family, name)
-      continue when decoded == null
-
-      let item = decoded
+      guard let item = decoded else {
+        continue
+      }
       yield {number: item.number, name: name, lower: item.lower}
     }
   }

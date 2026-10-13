@@ -183,8 +183,9 @@ proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Ex
       exit 1
     }
     let wanted = directive_operand(lines[index], "@include")
-    continue when wanted == null
-    let name = wanted
+    guard let name = wanted else {
+      continue
+    }
     let found = find_program(name)
     if found == null {
       eprint f"awk: {source.label}:{index + 1}: error: cannot open source file `{name}' for reading: No such file or directory"

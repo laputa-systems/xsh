@@ -144,8 +144,9 @@ pure previous_device(source: Source?, current: block.BlockDevice?) -> block.Bloc
 
 pure sector_rate(current: CounterValue, previous: CounterValue, elapsed_ns: Int?, gap: Bool) -> rates.Rate {
   return {state: rates.Unavailable, value: null} when current.state != .Observed
-  return {state: rates.Warming, value: null} when elapsed_ns == null
-  let elapsed = elapsed_ns
+  guard let elapsed = elapsed_ns else {
+    return {state: rates.Warming, value: null}
+  }
   return {state: rates.Invalid, value: null} when elapsed <= 0
   if previous.state != .Observed or previous.value == null {
     return {state: rates.Warming, value: null}

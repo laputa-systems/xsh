@@ -58,8 +58,9 @@ proc capture_frame(
 }
 
 pure captured_capacity_bytes(value: Str?) -> Result[Int?, Error] {
-  return Ok(null) when value == null
-  let text = value
+  guard let text = value else {
+    return Ok(null)
+  }
   let parsed = src.parse_integer(text)
   let parsed_value = parsed ?? -1
   if parsed == null or parsed_value < 0 or f"{parsed_value}" != text {

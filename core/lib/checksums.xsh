@@ -180,8 +180,9 @@ pure unescape(name: Str) -> Str? {
   while at < name.byte_len() {
     let tail = name.byte_slice(at)
     let slash = tail.find("\\")
-    return result + tail when slash == null
-    let distance = slash
+    guard let distance = slash else {
+      return result + tail
+    }
     result += tail.byte_slice(0, length: distance)
     at += distance + 1
     return null when at >= name.byte_len()
@@ -227,8 +228,9 @@ pure last_byte_separator(line: Bytes) -> Separator? {
   var found: Separator? = null
   while offset < line.len() {
     let next = byte_index(line, 41, offset)
-    break when next == null
-    let close = next
+    guard let close = next else {
+      break
+    }
     var after = close + 1
     while after < line.len() and line.byte_at(after) == 32 { after += 1 }
     if after < line.len() and line.byte_at(after) == 61 {
@@ -432,8 +434,9 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
     } else {
       null
     }
-    return null when parsed == null
-    let item = parsed
+    guard let item = parsed else {
+      return null
+    }
     return {...item, path: content[open + 1..separator.close], alternate_path: null}
   }
 
@@ -449,8 +452,9 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, 
   } else {
     null
   }
-  return null when parsed == null
-  let item = parsed
+  guard let item = parsed else {
+    return null
+  }
   let alternate: Bytes? = if !alternate_format and marker == 32 and content.byte_at(name_start) != 42 { content[separator + 1..] } else if !alternate_format and marker == 42 { content[separator + 2..] } else { null }
   {...item, path: content[name_start..], alternate_path: alternate}
 }

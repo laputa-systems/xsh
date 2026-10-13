@@ -126,14 +126,16 @@ type Initial = {first: Int, second: Int, bad: Str?}
 # The error text is the part GNU cmp quotes, or null when well formed.
 pure parse_initial(text: Str) -> Initial {
   let head = diffutils.parse_size(text)
-  return {first: 0, second: 0, bad: text} when head == null
-  let found = head
+  guard let found = head else {
+    return {first: 0, second: 0, bad: text}
+  }
   return {first: found.value, second: found.value, bad: null} when found.rest == ""
   return {first: 0, second: 0, bad: text} unless found.rest.starts_with(":")
   let tail = found.rest.byte_slice(1)
   let second = diffutils.parse_size(tail)
-  return {first: 0, second: 0, bad: tail} when second == null
-  let other = second
+  guard let other = second else {
+    return {first: 0, second: 0, bad: tail}
+  }
   return {first: 0, second: 0, bad: tail} when other.rest != ""
   {first: found.value, second: other.value, bad: null}
 }
@@ -141,8 +143,9 @@ pure parse_initial(text: Str) -> Initial {
 # The byte count of `text` as a skip operand, or null when it is not one.
 pure parse_skip(text: Str) -> Int? {
   let parsed = diffutils.parse_size(text)
-  return null when parsed == null
-  let found = parsed
+  guard let found = parsed else {
+    return null
+  }
   return null when found.rest != ""
   found.value
 }

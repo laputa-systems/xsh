@@ -125,9 +125,9 @@ pure parse_mask(text: Str) -> List[Int]? {
 
       let digit = HEX_DIGITS.find(digit_text.lower())
 
-      return null when digit == null
-
-      let value = digit
+      guard let value = digit else {
+        return null
+      }
 
       for bit in range(4) {
         let weight = [1, 2, 4, 8][bit]

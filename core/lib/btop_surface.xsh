@@ -134,8 +134,9 @@ export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Erro
     {x: 0, y: 0, width: surface.width, height: surface.height},
     rectangle,
   )
-  return blank(0, 0) when clipped == null
-  let area = clipped
+  guard let area = clipped else {
+    return blank(0, 0)
+  }
   var lines = [
     tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)
     for y in range(area.y, area.y + area.height)
@@ -150,8 +151,9 @@ export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Erro
 ## Draws a bounded ASCII meter; missing or non-finite values use question marks.
 export pure meter(value: Float?, width: Int) -> Str {
   return "" when width <= 0 or width > MAX_DIMENSION
-  return "?" + repeated(" ", width - 1) when value == null
-  let amount = value
+  guard let amount = value else {
+    return "?" + repeated(" ", width - 1)
+  }
   return "?" + repeated(" ", width - 1) when amount != amount
   let bounded = if amount < 0.0 { 0.0 } else if amount > 100.0 { 100.0 } else { amount }
   let filled = (bounded * width.float() / 100.0).floor() ?? 0

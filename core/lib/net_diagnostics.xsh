@@ -7,8 +7,9 @@ type DnsOptions = {name: Str, record: Str, server: Str, port: Int?, timeout: Dur
 type Answer = {name: Str, record: Str, value: Str, ttl: Int}
 
 pure server_port(server: Str, port: Int?) -> Result[Str] {
-  return Ok(server) when port == null
-  let number = port
+  guard let number = port else {
+    return Ok(server)
+  }
   if number < 1 or number > 65535 { return Err(DiagnosticError.Usage("port must be between 1 and 65535")) }
   if server.starts_with("[") {
     let close = server.find("]")

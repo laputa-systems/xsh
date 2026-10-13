@@ -597,9 +597,9 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
       }
 
       let device = udev.load(root, devpath)?
-      continue when device == null
-
-      let facts = device
+      guard let facts = device else {
+        continue
+      }
       let subsystem = facts.subsystem ?? ""
       if ! opts.subsystem_match.is_empty() {
         continue when ! matches_any(opts.subsystem_match, subsystem)

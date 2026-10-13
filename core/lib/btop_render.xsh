@@ -128,8 +128,9 @@ pure byte_rate_text(value: rates.Rate) -> Str {
 }
 
 pure bytes_text(value: Int?) -> Str {
-  return "unavailable" when value == null
-  let amount = value
+  guard let amount = value else {
+    return "unavailable"
+  }
   if amount >= 1073741824 {
     return f"{(amount.float() / 1073741824.0).format(precision: 2)} GiB"
   }
