@@ -431,12 +431,11 @@ pub(super) fn if_stmt_may_produce_value(arena: &ArenaProgram, id: StmtId) -> boo
         || else_block.is_some_and(ends_in_value)
 }
 
-/// Returns true if the block contains any `break` or `return` statement that
-/// is not inside a nested `while`/`for`/`loop`. A loop body with at least one
-/// such exit point is not statically infinite.
-/// Arena-native mirror of `block_has_exit_point`/`stmt_has_exit_point` — a
-/// pure structural walk (no type-checking), so it's independent of which
-/// `ArenaStmtKind` variants `check_stmt_arena` has native coverage for.
+/// Returns true if the block contains an exit point in the current loop or a
+/// reachable break in an expression evaluated before a nested loop begins.
+/// A loop body with at least one such exit point is not statically infinite.
+/// This analysis reads the AST directly rather than depending on recovered
+/// expression types.
 #[allow(dead_code)]
 pub(super) fn block_has_exit_point_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
     let block = arena.arena.block(block_id);
@@ -444,6 +443,7 @@ pub(super) fn block_has_exit_point_arena(arena: &ArenaProgram, block_id: BlockId
         .arena
         .stmt_ids(block.statements)
         .any(|id| stmt_has_exit_point_arena(arena, id))
+        || block_control_flow(arena, block_id).breaks_target
 }
 
 #[allow(dead_code)]
@@ -5442,12 +5442,18 @@ mod return_flow_tests {
 
     #[test]
     fn a_break_in_a_while_condition_targets_the_enclosing_loop() {
-        let source = "pure choose() -> Int {\n  loop {\n    while ctx \"condition\" {\n      break\n      true\n    } {\n      return 1\n    }\n    break\n  }\n}\n";
+        let source = "pure choose(result: Result[Bool, Error]) -> Int {\n  loop {\n    while result ?? { |failure| break } {\n      return 1\n    }\n  }\n}\n";
         let diagnostics = diagnostics(source);
         assert!(
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
             "{diagnostics:?}"
         );
     }
