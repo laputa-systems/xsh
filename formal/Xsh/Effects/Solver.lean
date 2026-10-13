@@ -92,9 +92,13 @@ def readEdge (graph : Graph declarations) (state : SolverState declarations)
   else
     state edge.target
 
+/-- The outward effect facts after a boundary captures propagated errors. -/
+def captureErrorFacts (facts : FactSet) : FactSet := fun fact =>
+  if fact = some Effect.error then false else facts fact
+
 def visibleEdgeFacts (edge : Edge declarations) (facts : FactSet) : FactSet :=
   if edge.capturesError then
-    fun fact => if fact = some Effect.error then false else facts fact
+    captureErrorFacts facts
   else
     facts
 
@@ -149,10 +153,10 @@ theorem visibleEdgeFacts_mono (edge : Edge declarations)
       simpa [visibleEdgeFacts, captures] using below fact member'
   | true =>
       by_cases isError : fact = some Effect.error
-      · simp [visibleEdgeFacts, captures, isError] at member ⊢
+      · simp [visibleEdgeFacts, captureErrorFacts, captures, isError] at member ⊢
       · have member' : left fact = true := by
-          simpa [visibleEdgeFacts, captures, isError] using member
-        simpa [visibleEdgeFacts, captures, isError] using below fact member'
+          simpa [visibleEdgeFacts, captureErrorFacts, captures, isError] using member
+        simpa [visibleEdgeFacts, captureErrorFacts, captures, isError] using below fact member'
 
 theorem edgeContribution_mono (graph : Graph declarations) (edge : Edge declarations)
     {left right : SolverState declarations} (below : stateLe left right) :
@@ -638,5 +642,90 @@ theorem captured_edge_removes_only_error :
     visibleEdgeFacts errorCapturingEdge (effectFact .error) (some Effect.error) = false ∧
       visibleEdgeFacts errorCapturingEdge (effectFact .time) (some Effect.time) = true := by
   decide
+
+theorem captured_edge_preserves_non_error_fact (edge : Edge declarations)
+    (facts : FactSet) (captures : edge.capturesError = true)
+    (effect : Effect) (notError : effect ≠ .error) :
+    visibleEdgeFacts edge facts (some effect) = facts (some effect) := by
+  simp [visibleEdgeFacts, captureErrorFacts, captures, notError]
+
+theorem captured_edge_preserves_unresolved_fact (edge : Edge declarations)
+    (facts : FactSet) (captures : edge.capturesError = true) :
+    visibleEdgeFacts edge facts none = facts none := by
+  simp [visibleEdgeFacts, captureErrorFacts, captures]
+
+/-- The static transfer used by `try` and `retry`: capture `error`, retaining other facts. -/
+noncomputable def captureErrorSummary (summary : EffectSummary) : EffectSummary :=
+  toEffectSummary (captureErrorFacts (summaryFacts summary))
+
+theorem capture_error_summary_removes_error (summary : EffectSummary) :
+    (captureErrorSummary summary).known .error = false := by
+  classical
+  simp [captureErrorSummary, toEffectSummary, captureErrorFacts]
+
+theorem capture_error_summary_preserves_other_effect (summary : EffectSummary)
+    (effect : Effect) (notError : effect ≠ .error) :
+    (captureErrorSummary summary).known effect = summary.known effect := by
+  classical
+  simp [captureErrorSummary, toEffectSummary, captureErrorFacts, summaryFacts, notError]
+
+theorem capture_error_summary_preserves_unresolved (summary : EffectSummary) :
+    (captureErrorSummary summary).unresolved = summary.unresolved := by
+  classical
+  simp [captureErrorSummary, toEffectSummary, captureErrorFacts, summaryFacts]
+
+def errorOnlyTryBody : EffectSummary :=
+  { known := fun effect => effect = .error, unresolved := false }
+
+def allEffectsTryBody : EffectSummary :=
+  { known := fun _ => True, unresolved := false }
+
+def unresolvedTryBody : EffectSummary :=
+  { known := fun _ => True, unresolved := true }
+
+theorem try_captures_error_only_and_allows_empty_bound :
+    restrictedCallPermitted bottom
+      (contractOfSummary (captureErrorSummary errorOnlyTryBody)) := by
+  classical
+  have noUnresolved : (captureErrorSummary errorOnlyTryBody).unresolved = false := by
+    rw [capture_error_summary_preserves_unresolved]
+    rfl
+  have checked : contractOfSummary (captureErrorSummary errorOnlyTryBody) =
+      .checked (captureErrorSummary errorOnlyTryBody).known := by
+    simp [contractOfSummary, noUnresolved]
+  rw [checked]
+  intro effect required
+  cases effect <;>
+    simp [captureErrorSummary, errorOnlyTryBody, toEffectSummary,
+      captureErrorFacts, summaryFacts] at required
+
+theorem try_preserves_host_effects_and_empty_bound_rejects :
+    ¬ restrictedCallPermitted bottom
+      (contractOfSummary (captureErrorSummary allEffectsTryBody)) ∧
+    (∀ effect, effect ≠ .error →
+      (captureErrorSummary allEffectsTryBody).known effect = true) ∧
+    (captureErrorSummary allEffectsTryBody).known .error = false := by
+  constructor
+  · intro permitted
+    have factsPermitted : le (captureErrorSummary allEffectsTryBody).known (closure bottom) := by
+      simpa [restrictedCallPermitted, contractOfSummary, captureErrorSummary,
+        allEffectsTryBody, toEffectSummary, captureErrorFacts, summaryFacts] using permitted
+    have network : (captureErrorSummary allEffectsTryBody).known .net := by
+      rw [capture_error_summary_preserves_other_effect]
+      · simp [allEffectsTryBody]
+      · decide
+    have impossible := factsPermitted .net network
+    simp [closure, bottom] at impossible
+  · constructor
+    · intro effect notError
+      rw [capture_error_summary_preserves_other_effect _ effect notError]
+      simp [allEffectsTryBody]
+    · exact capture_error_summary_removes_error allEffectsTryBody
+
+theorem try_does_not_hide_an_unresolved_dependency :
+    ¬ restrictedCallPermitted bottom
+      (contractOfSummary (captureErrorSummary unresolvedTryBody)) := by
+  simp [restrictedCallPermitted, contractOfSummary, captureErrorSummary,
+    unresolvedTryBody, toEffectSummary, captureErrorFacts, summaryFacts]
 
 end Xsh.Semantics.Effects.Solver
