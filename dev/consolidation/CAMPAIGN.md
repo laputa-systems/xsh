@@ -1,13 +1,12 @@
 # XSH Consolidation Campaign
 
-Status: resumed after the owner-requested reboot on 2026-10-11. Setup and implementation
-are incomplete; the restart checkpoint is [`HANDOFF.md`](HANDOFF.md).
-The owner approved the entire campaign
-and all six designs on 2026-10-11, including the Codex model policy and
-completeness-first sequence. The start commit is
-`5e66b6b896a47d0c692739135d51200b007a2a67`; integration is on `consolidation`
-in a separate worktree. Implementation and gate evidence are tracked in
-`ITEMS.md` and the handoff log.
+Status: active and incomplete at checkpoint `aaa590c8e` on 2026-10-13. The
+current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
+The owner approved the entire campaign and all six designs on 2026-10-11,
+including the Codex model policy and completeness-first sequence. The start
+commit remains `5e66b6b896a47d0c692739135d51200b007a2a67`; after the owner's
+2026-10-11 update, integration continues on `master`. Implementation and gate
+evidence are tracked in `ITEMS.md` and the handoff log.
 
 The campaign runs unattended: once started it never waits for the owner.
 Every question it would otherwise ask is answered here or in a design file
@@ -21,11 +20,13 @@ before the affected item starts, or it is parked under the rules in
    port, frozen-origin accounting, and harness retirement) is not a
    prerequisite. Record its current evidence and unfinished work alongside
    the consolidation baseline.
-2. Approved workstreams run on the `consolidation` branch. Compatibility
-   correctness work may continue on a separate branch and worktree. Changes
-   between campaigns are integrated explicitly at batch boundaries, with
-   design assumptions revalidated and the affected gates rerun; a moving
-   compatibility head never silently replaces the consolidation baseline.
+2. The campaign began on a separate `consolidation` branch. The owner moved
+   integration to `master` on 2026-10-11; current approved work continues
+   there. Compatibility correctness work may continue on a separate branch
+   and worktree. Changes between campaigns are integrated explicitly at batch
+   boundaries, with design assumptions revalidated and affected gates rerun; a
+   moving compatibility head never silently replaces the consolidation
+   baseline.
 3. Complete the consolidation behavior and structural end states first.
    Stricter performance gates follow functional completion. Compatibility
    performance work (utility throughput, speed-only native primitives, moving
@@ -172,10 +173,10 @@ the item. Nothing is pushed.
 
 ## Unattended operation
 
-- **Branch.** The integrator works on a branch named `consolidation` cut from
-  the start commit. Lanes merge there. Nothing merges to `master` and nothing
-  is pushed; the owner merges at close. Laputa migrations go to a branch of
-  the same name in that repository under the same rule.
+- **Branch.** The owner moved integration to `master` on 2026-10-11. The
+  integrator owns `master`; isolated lanes merge there at accepted batch
+  boundaries. Nothing is pushed. Laputa migrations use their owner-selected
+  branch and remain separate from XSH integration.
 - **Revalidate the designs.** Each design file lists the facts about the code
   it relies on, as symbols and behaviors a search can confirm. Before a
   workstream starts, the integrator checks those facts at its recorded base
@@ -921,3 +922,32 @@ owner's request. The campaign is not complete.
   Separate Laputa consolidation and migration worktrees were created on disk;
   symlink audit found no required Laputa caller migration. Heavy sibling
   corpus checks remain excluded.
+
+### 2026-10-13 — W9 trace hardening and formal checkpoint at `aaa590c8e`
+
+- Integrated `e090f124e`, `ebecb6d9f`, `2aceba100`, `7ddd56dd4`,
+  `7cf61a3ae`, `4662992cd`, `50856659e`, `9b200e3dd`, `07397436b`,
+  `5599ddd5e`, `ff0a9f729`, and `aaa590c8e`. W9 reference digests are bound to
+  manifest inputs, complete cache-trace coverage is validated, and 36
+  synthetic runner cases plus trace checks pass. The command inventory prefers
+  native runner invocations while keeping its deterministic fallback.
+- The formal gate passed at exact `aaa590c8e`: `lake build Xsh`, axiom audit
+  over 5,410 declarations with negative controls, 82 rooted fragments, 89
+  owner sets, all 72 complete theorem obligations still planned, 29/29
+  inventory tests, and the guarded fresh kernel check. Runner, raw-decoder,
+  and delayed-effect fragments do not establish Rust conformance or close
+  whole-language obligations. The generated lint reference was refreshed.
+- The active pinned image is `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`;
+  development and final platform gates are x86_64 Linux musl only. The
+  verifier, applet-lint, and observer work are integrated. The archived
+  observer comparison has equal legacy/successor reports for its start-source
+  snapshot, but does not establish a current full-source scan or final close.
+  The recorded verification sizes at `0107c8158` are 31,005,944 bytes for
+  `xsh` and 38,002,304 bytes for `xsht`.
+- Laputa restored the four nominal Asterinas error families at `ca658ce` with
+  a red-to-green diagnostic-type regression. Control-flow follow-up remains
+  isolated through `cb45f3e54`; the
+  dead-tail cleanup is pending integration and its merged-tree gate. The
+  final-correctness launcher is prepared but not executed. W9 real publication
+  and corpus evidence, full correctness, source freeze, final close, and
+  comparative performance remain open; consolidation is not complete.

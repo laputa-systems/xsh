@@ -5,9 +5,13 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Resumed after reboot on 2026-10-11, with Luna xhigh subagents.** [`HANDOFF.md`](HANDOFF.md) records the
-latest checkpoint and supersedes the older progress states below. Unfinished
-lane diffs and interrupted gates are preserved; the owner has resumed work.
+**Current checkpoint: `aaa590c8e` on `master`, 2026-10-13.**
+[`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
+remaining gates; the older grants and progress states below are planning and
+historical context, not a live lane queue. The campaign is active and
+incomplete. The current pinned verification image is
+`sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`;
+all development and final platform gates are x86_64 Linux musl.
 
 **Owner update, 2026-10-11:** source-line and touched-line budgets below are
 advisory estimates. Source growth, temporary ceilings, and final strict shrink
@@ -42,7 +46,7 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | R3 runtime bridge | strict statement/instruction sidecar and typed transfer continuations | +340 / 1,500, expanded for all transfer sinks; final deletion offsets required |
 | R4 stream ownership | stream tokens, scope registry, boundary stamping and worker teardown | +250 / 1,800 |
 | W9 namespace isolation | restore qualified callable maps at module boundaries | +40 / 650 |
-| W9 borrowed bundle view | resolved reachable modules, source identities, shared declaration consumers | +200 / 2,000, interim; final W9 net reduction required |
+| W9 borrowed bundle view | resolved reachable modules, source identities, shared declaration consumers | +200 / 2,000 interim estimate; source delta advisory, module-view structure required |
 | W9 immutable preparation records | effect probes share resolved seeds within one bundle/domain | +200 lexical / 2,500, interim; cross-root reuse remains separate |
 | W7 deep commitment repair | shared scope/block ownership predicates and retained generated counterexamples | +320 lexical / 2,400, expanded interim allowance; existing language stays unchanged |
 | W1 stage authority | semantic enum, codec rows, tags and coverage-tool stage listing | net <= 0 / 1,500 |
@@ -51,8 +55,8 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W2 frame strategy and first apply cohort | schema strategy, leaf/Field/Index frames, strict hidden forcing policy | +200 / 1,800, interim; legacy routes must ultimately disappear |
 | W2 typed continuations | active Int/Bool frame continuations and typed statement scheduling | +350 lexical / 2,500 interim; reader acceptance waits baseline coverage |
 | W1 borrowed pattern views | all 18 rows, aggregate payload bridges and store identity checks | +200 lexical / 1,200 interim; runtime consumers remain separate |
-| W9 borrowed workspace entries | immutable entry ranges, view-aware consumers and lint workers | +180 lexical / 2,000 interim; final W9 reduction required |
-| W9 full module records | session-owned loader/cache, dependency-first local checking, cached Entry records and exact argument-domain selection | +1,900 lexical / 4,200 interim against the refreshed root; exclude identical prerequisites and separate W5 classifiers; final W9 reduction required |
+| W9 borrowed workspace entries | immutable entry ranges, view-aware consumers and lint workers | +180 lexical / 2,000 interim estimate; source delta advisory, immutable range and consumer contracts required |
+| W9 full module records | session-owned loader/cache, dependency-first local checking, cached Entry records and exact argument-domain selection | +1,900 lexical / 4,200 interim estimate against the refreshed root; source delta advisory, full record/cache contracts required |
 | W5 remaining semantic policies | explicit declaration, resource, scope and constant boundaries | +300 lexical / 1,800 interim |
 | W5 remaining lint policies | explicit core and sequence boundaries | +250 lexical / 1,400 interim, separate from rule-table scope |
 | W9 selected-entry preparation | borrowed entry ranges through compact preparation and evaluator construction | +180 lexical / 1,400 interim, separate from full module records |
@@ -93,10 +97,14 @@ record driver exceeds the earlier draft estimate, and Entry caching and direct
 Bytes-domain checking remain missing. The audit identifies actual preparation
 and effect-projection deletions but no honest 856-line offset. The expanded
 interim slice must finish those contracts and remove the identified dead state;
-it does not accept the current candidate or waive final W9 reduction.
+it does not accept the current candidate. The original W9 net source-reduction
+target is advisory under the 2026-10-11 owner update; W9's structural and
+behavioral end states remain required.
 
-These prerequisite allowances require their eventual deletion offsets and do
-not relax the final net reduction or structural ratchets. Shared changes are
+These prerequisite allowances are planning estimates. They do not accept the
+implementation or waive removal of replaced bodies where the approved
+structural end state requires it. Numerical source totals and final strict
+shrink are advisory; structural ratchets remain binding. Shared changes are
 merged by the integrator only. W4 owns option/API hunks; W9 owns module driver
 hunks; R3 owns transfer emissions; W2 owns dense-slot callable metadata; the
 BindingId adapter owns identity resolution. Source-aware arena text lookup is
@@ -187,26 +195,29 @@ exceptions to the default zero-growth budget, not waivers of final ratchets.
 - Raw physical Rust lines are 205,842 under `src/` and 60,041 under
   `crates/xsht/src`; they include tests. The verified lexical scanner measures 189,274 and 49,968 non-test lines,
   retaining mixed platform/test items and ignoring comments/string contents.
-  It measures 47,705 lines under inherited blanket dead-code allowances; the
-  earlier 15,800 figure omitted containing scopes. Semantic proof rows stay
-  explicitly unmeasured until their respective checks run.
+  The corrected same-source baseline measures 47,061 lines under blanket
+  dead-code scopes. The original 47,705 report was mis-scoped because it
+  counted narrow item allowances as scopes; the earlier 15,800 figure omitted
+  containing scopes. Semantic proof rows stay explicitly unmeasured until
+  their respective checks run.
 - Module support inventories' 24-name difference includes native-test and
   script-backed operations. It is not evidence of 24 runtime defects.
 - Module-check reuse is scoped to a resolved import graph and args domain.
   Preserve diagnostic phase order and fresh snapshots after fixes; the
   detailed approved design excludes reuse across fresh fix-round arenas.
 
-## Contract and oracle conflicts
+## Recorded contract and oracle conflicts
 
-These are concrete contradictions between approved end states and existing
-expectations. On 2026-10-11 the owner selected the approved contracts as the
+These entries preserve concrete contradictions found against approved end
+states. On 2026-10-11 the owner selected the approved contracts as the
 authority and authorized updating contradicted expectations with coverage
-retained. The integrator records each migration in the handoff log.
+retained. The table records starting expectations and current dispositions
+where known; it is not the current work queue.
 
-| Conflict | Approved end state | Current expectation / correction needed |
+| Conflict | Approved end state | Starting expectation / disposition |
 |---|---|---|
-| Local typed callee | verifier ties every callee to its declared callable type | `indexed/full.rs` typed-call corruption test explicitly accepts a local Proc row relabeled Pure, then expects runtime rejection; it must assert verifier rejection instead |
-| Unsafe prefer-fail fix | no behavior-changing autofix | native `fail.xsh` and `lint_prefer_fail.rs` tests require nominal errors to become strings and the error family to disappear; replace unsafe-fix expectations with preserved nominal failures |
+| Local typed callee | verifier ties every callee to its declared callable type | The starting corruption test accepted a local Proc row relabeled Pure and expected runtime rejection. Merged verifier work now rejects the malformed callable during verification; the corruption case is retained. |
+| Unsafe prefer-fail fix | no behavior-changing autofix | Starting tests expected nominal errors to become strings and disappear. XSH expectations preserve nominal failures; Laputa's four Asterinas error families were restored at `ca658ce` with a red-to-green diagnostic-type regression. |
 | Run propagation initializer | removable propagation is reported and fixed | `lint_redundant_propagation.rs` tests require silence for the initializer forms named as defects; preserve cases where propagation terminates run grammar |
 | Flat-map result callback | one engine, List/Stream-only behavior from evaluator design | `stage-result-contracts.xsh::test_flat_map_preserves_existing_result_collection_boundary` requires implicit Ok(List) flattening and nominal Err propagation; new tests must assert the approved accepted/rejected contract |
 | Opaque Any fix fixture | navigation requires validation or json.get | design promises the existing contextual-fix test unchanged although its input and expected output navigate raw Any; migrate fixture without losing contextual require-fix coverage |
@@ -219,27 +230,21 @@ imports currently use `source.invalid-utf8`, not `parse.module-read`.
 
 ## Verification state
 
-The pinned native image is `xsh-test:latest`, image ID
-`sha256:99e195582ba55dc427b1551022fbe56f8f344ed7838e971ecba86ce43a7733e9`.
-Baseline release products were rebuilt from the recorded source inside that
-image with the Dockerfile's static musl flags and compiler-only jemalloc.
-The full native corpus passed: 5,996 passed, 0 failed, 118 capability/fixture
-skips. Five existing redundant-parentheses findings in `core/lib/compress.xsh`
-were repaired manually in `44c7567d`; its focused tests passed 52/0 with 3
-skips. XSH check then passed 1,162 files, and the initial lightweight Laputa
-check passed 305 files. Rust full-gate and coverage evidence remain pending.
+The active pinned image is `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`.
+Development and final platform verification both use x86_64 Linux musl in
+`Dockerfile.test`; ARM64 and macOS are outside campaign scope. The initial
+source-qualified native baseline passed 5,996 cases with 118 capability or
+fixture skips. That baseline and its 1,162-file check are historical evidence,
+not current full acceptance. The 2026-10-13 checkpoint and current unresolved
+gates are in [`HANDOFF.md`](HANDOFF.md).
 
-Logs, launchers, frozen baseline products, and draft evidence live in the
-integration worktree's disk-backed `.work/consolidation/`. Lane worktrees
-live in `/home/josh/d/laputa-systems/xsh-consolidation-lanes/`. No worktree or
-build cache goes in `/tmp`. Compilation is serialized independently of agent
-concurrency, and only one full native corpus runs at a time.
-
-The owner selected native x86_64 musl development gates and aarch64 final
-verification. The unchanged Dockerfile also produced
-`xsh-test:consolidation-aarch64`; a bounded ARM help probe passed. Final ARM
-build/test evidence is pending. Only this campaign's binfmt registration is
-removed at close.
+Campaign-owned worktrees and scratch are kept under the repository's ignored
+`.work/`; older paths below describe preserved historical evidence. No
+worktree or build cache goes in `/tmp`. Compilation is serialized
+independently of agent concurrency, and only one full native corpus runs at a
+time. The final-correctness launcher is prepared but not executed, the
+post-consolidation source freeze has not started, and Rust, full correctness,
+final structural, and performance acceptance remain pending.
 
 The owner subsequently excluded `dev/compat` from check and lint while its
 campaign remains WIP. Project discovery excludes its XSH scripts; the

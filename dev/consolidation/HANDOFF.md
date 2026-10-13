@@ -2,66 +2,68 @@
 
 Status: active 2026-10-13.
 
-## Current checkpoint — 2026-10-13 (`c19798a80`)
+## Current checkpoint — 2026-10-13 (`aaa590c8e`)
 
-This is the current acceptance snapshot; the dated sections below preserve
-earlier evidence and plans. Nothing has been pushed. Consolidation remains
-active and is not accepted or complete.
+This is the current acceptance snapshot; dated sections below preserve earlier
+evidence and plans. Integration continues on `master`. Nothing has been pushed.
+Consolidation remains active and is not accepted or complete. Development and
+final platform gates are x86_64 Linux musl in the pinned `Dockerfile.test`
+image `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`;
+ARM64 and macOS are excluded.
 
-The needless-annotation contract (`fb86547ec`), directory-argument excludes
-(`65ea15b36`), tag patterns on union subjects (`2e641d157`), malformed
-list-pattern error fixtures (`969d2408f`), optional error patterns
-(`99c34c274`), conditional `as` conversion fixes (`d3fc9d03b`), multiline
-record-constructor fixes (`f40052856`), redundant-close indentation
-(`87926c482`), and the positional callable-constructor verifier gap
-(`bf11aa0c4`, covered by `cb2f444a3`) are fixed and merged. The old
-system-report timeout was split into four groups and all four passed under the
-native test timeout. The GNU cut shards passed 15/15.
+Since the preceding checkpoint, these commits are integrated:
 
-Pinned targeted factor checks passed 60/60 across the core, GNU, uutils, and
-BusyBox filters on the rebuilt `0107c8158` verification pair. The split sort
-gate passed 321 cases with 4 locale-dependent skips and no failures on source
-snapshot `f4c93f7d8`. These results cover the targeted shards only; the full
-native suite remains a final acceptance gate.
+- W9 manifest and trace coverage: `e090f124e` binds reference digests to the
+  manifest inputs; `4662992cd` validates complete cache-trace coverage. The
+  runner has 36 passing synthetic cases and its trace-coverage checks pass.
+  The pinned real build and 1,690-input, four-profile publication/corpus run,
+  including final source-matched cache measurements, remain pending. Earlier
+  1,690-input / 6,760-outcome parity belongs to an older source snapshot.
+- Command inventory: `7ddd56dd4` prefers native runner invocations while
+  retaining the deterministic mention fallback for existing family tests.
+- Formal runner and raw decoder: `ebecb6d9f` integrates and roots scripted
+  runner laws; `2aceba100` proves raw decoder bounds; `7cf61a3ae` roots those
+  decoder fragments.
+- Delayed effects: `50856659e` proves finite pull sequence origins;
+  `9b200e3dd` records those roots; `ff0a9f729` models delayed-effect
+  observations; `5599ddd5e` checks producer source fragments; and `aaa590c8e`
+  inventories the observations.
+- Generated lint reference refresh: `07397436b`.
 
-The W9 publication runner and its hardening are integrated through
-`e7fee0e7c`. Its 35 synthetic tests pass. The real pinned build and the
-1,690-input, four-profile publication/corpus run, including final source-matched
-cache measurements, have not run. The earlier 1,690-input / 6,760-outcome
-parity result belongs to an older source snapshot and does not close W9.
-Shared-module diagnostic ordering is deterministic (`60f127126`).
+At exact commit `aaa590c8e`, the formal gate passed: `lake build Xsh`, the
+transitive axiom audit over 5,410 declarations and its negative controls, the
+inventory check with 82 rooted fragment declarations and 89 owner sets, all
+29/29 inventory tests, and the guarded fresh kernel check. All 72 complete
+theorem obligations remain planned. The new finite runner, raw-decoder, and
+effect fragments state bounded results for their models; they do not close
+those obligations or establish Rust conformance, source soundness, or
+whole-language soundness.
 
-The owner-selected restoration of the four nominal Asterinas error families is
-present in Laputa at `ca658ce`, with a red-to-green diagnostic-type regression.
+The verifier, applet-lint, and observer changes are already integrated in
+`master`; they are not active lanes. The recorded observer checks passed 6
+tests and 38 current ratchets. Its archived start-source comparison produced
+identical legacy and successor reports over 306 sources and 13 metrics
+(report SHA-256 `322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3`).
+That evidence covers the archived start snapshot only; it is not a current
+full-source scan or final structural close. The recorded verification-binary
+size snapshot at `0107c8158` is 31,005,944 bytes for `xsh` and 38,002,304 bytes
+for `xsht`; final release size and memory gates remain open.
 
-The current Lean inventory names 53 fragment roots; its 29 inventory tests
-pass, and all 72 complete theorem obligations remain planned. At exact commit
-`125a9394cd38befe68b1a499b7f8e25a234f290c` (tree
-`ee352f02c776072bff9d62bf301bfa0c91bfc751`), the full formal gate passed:
-`lake build Xsh` with 27 jobs, the transitive axiom audit over 4,893
-declarations, rejection of custom-axiom/`native_decide`/`sorry` negative
-controls, and the guarded fresh checker in about 40 seconds. All 25 production
-Lean modules were reachable from `Xsh`, with 17 direct imports. The
-`BaseHostTrace` fragment proves that the generic finite-fuel runner yields a
-valid prefix trace and that valid traces preserve the machine's well-formedness
-invariant. Its mutation witness rejects omission of a consumed mismatched
-response event; the concrete two-request script returns 2 then 3 and completes
-with 5, while a Boolean response is labeled and rejected with a type-mismatch
-fault. These results concern only the finite scripted formal runner; they do
-not establish source or whole-language soundness, Rust or OS conformance,
-concrete host behavior, or clock accuracy. No `BASE-*` obligation is complete.
+The four nominal Asterinas error families are restored in Laputa at `ca658ce`,
+with a red-to-green diagnostic-type regression. Control-flow checker/lowerer
+work remains isolated through `cb45f3e54`, outside this checkpoint.
+Dead-tail cleanup remains unaccepted
+pending that work's integration and a pinned gate on the merged tree. The four
+AWK missing-return reports belong to an earlier source snapshot and are not a
+fresh result at `aaa590c8e`.
 
-The control-flow checker/lowerer lane remains unmerged and in follow-up after
-reviews found unresolved flow cases. The dead-tail AWK/sort cleanup is blocked
-on that work: its pinned gate currently reports missing-return diagnostics in
-four AWK functions. The stage-attribution series is merged and independently
-reviewed; its focused stage oracles passed 18/18, and the pinned strict Rust
-library build plus selected tests passed at `0107c8158`. Full correctness,
-structural, reliability, Linux, and comparative-performance acceptance remain
-open. Generated docs reflect the integrated Float equality contract; the
-latest checker, harness, and Lean changes do not alter the language contract,
-so this checkpoint requires no regeneration. No final comparative timings are
-recorded, and the campaign is not complete.
+The final-correctness launcher is prepared under the real-main
+`.work/final-review-evidence/final-correctness-gates` tree, but has not run.
+It does not establish a source freeze. W9 real publication/corpus evidence,
+full correctness and privileged Linux acceptance, structural and reliability
+closure, G0b post-consolidation source freeze, final campaign close, and
+comparative performance remain pending. No final comparative timings are
+recorded.
 
 ## Historical resume checkpoint at `59a6dfbc` — 2026-10-13 (superseded)
 
