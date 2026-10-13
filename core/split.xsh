@@ -3,15 +3,9 @@ use lib.gnu
 use lib.text_a2 as text
 use lib.textio_a1 as tio
 
-# Exiting through a signal hook runs deferred cleanup for active filter FIFOs.
-on INT [] {
-  exit 130
-}
-
-on TERM [] {
-  exit 143
-}
-
+const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+# Short waits let managed timeout signals interrupt a blocked filter pipeline.
+const FILTER_POLL = 50ms
 const USAGE = """Usage: split [OPTION]... [FILE [PREFIX]]
 Output pieces of FILE to PREFIXaa, PREFIXab, ...;
 default size is 1000 lines, and default PREFIX is 'x'.
@@ -52,6 +46,15 @@ CHUNKS may be:
   r/K/N   likewise but only output Kth of N to stdout
 """
 
+# Exiting through a signal hook runs deferred cleanup for active filter FIFOs.
+on INT [] {
+  exit 130
+}
+
+on TERM [] {
+  exit 143
+}
+
 type SplitOptions = {
   suffix_length: Str,
   additional: Str,
@@ -82,8 +85,6 @@ type Chunks = {kind: Str, k: Int, n: Int}
 type Naming = {prefix: Bytes, radix: Int, width: Int, start: Int, widen: Bool, extra: Bytes}
 
 type Rewritten = {argv: List[Str], obsolete: Str, blksize: Str?, blksize_missing: Bool}
-
-const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
 # GNU's getopt takes `---io-blksize` by any unambiguous prefix of at least two
 # characters after the leading `--`, so `---io=N` and `---i N` select it too.
@@ -623,9 +624,6 @@ pure round_robin(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
 
 # Round-robin filters run concurrently so one can stop reading without buffering all input.
 type FilterPipe = {handle: ProcessHandle, fd: Int, open: Bool, done: Bool, status: Int}
-
-# Short waits let managed timeout signals interrupt a blocked filter pipeline.
-const FILTER_POLL = 50ms
 
 proc run_filter(command: Str, name: Path, input: Bytes) [process, error] -> Result[Int] {
   let status = process.run(process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, input))?

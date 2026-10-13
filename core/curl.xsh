@@ -145,6 +145,13 @@ const HELP = """Usage: curl [options...] <url>
  -V, --version                Show version number and quit
 """
 
+const METER_HEADER = "  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current\n                                 Dload  Upload  Total   Spent   Left   Speed\n"
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+const ALLOWED_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
+# Statuses curl treats as transient for --retry.
+const TRANSIENT_STATUS = [408, 429, 500, 502, 503, 504]
+
+
 proc fail_usage(message: Str, code = 2) [io, error] {
   io.write_stderr(f"curl: {message}\n")
   io.write_stderr("curl: try 'curl --help' or 'curl --manual' for more information\n")
@@ -469,7 +476,6 @@ pure clock_column(elapsed_ms: Int) -> Str {
 
 const BAR = "########################################################################"
 
-const METER_HEADER = "  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current\n                                 Dload  Upload  Total   Spent   Left   Speed\n"
 
 pure meter_line(percent: Int, received: Int, speed: Int, elapsed_ms: Int) -> Str {
   let rx = size_column(received)
@@ -507,7 +513,6 @@ pure header_block(status: Int, reason: Str, headers: List[Header]) -> Str {
 
 type Cookie = {domain: Str, subdomains: Bool, path: Str, secure: Bool, expires: Int, name: Str, value: Str}
 
-const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 
 # A cookie jar file in Netscape format; `#HttpOnly_` marks HttpOnly cookies and
 # every other `#` line is a comment.
@@ -688,10 +693,7 @@ proc unknown_variable(name: Str) [io, error] -> Str {
   ""
 }
 
-const ALLOWED_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
-# Statuses curl treats as transient for --retry.
-const TRANSIENT_STATUS = [408, 429, 500, 502, 503, 504]
 
 type Attempt = {code: Int, again: Str?}
 

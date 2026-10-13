@@ -1,7 +1,5 @@
 #!/bin/xsh
 use lib.gnu
-error AppletError = Usage : Usage
-
 type PrintfSpec = {
   end: Int,
   flags: Str,
@@ -23,14 +21,6 @@ type PrintfArgument = {data: Bytes, text: Str}
 type DecimalScan = {value: Int, next: Int}
 type IntegerParse = {value: Int, issue: Str?, warning: Bytes?}
 type PrintfOutput = {data: Bytes, failed: Bool, next_argument: Int, stopped: Bool}
-
-pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
-}
-
-pure usage_error(applet_name: Str, summary: Str) -> Error {
-  AppletError.Usage(usage(applet_name, summary))
-}
 
 pure scan_decimal(text: Bytes, at: Int) -> DecimalScan {
   var value = 0
@@ -269,7 +259,7 @@ pure unsigned_negative(value: Int, base: Int, uppercase: Bool) -> Str {
   return decimal_subtract("18446744073709551616", magnitude) when base == 10
   if base == 16 {
     let prior = if value == -9223372036854775807 - 1 { 9223372036854775807 } else { -value - 1 }
-    let digits = pad_text(radix_text(prior, 16, false), 16, false, "0")
+    let digits = radix_text(prior, 16, false) |> pad_text(_, 16, false, "0")
     let lower = "0123456789abcdef"
     let upper = "fedcba9876543210"
     var output = ""

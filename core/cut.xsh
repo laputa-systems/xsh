@@ -196,8 +196,8 @@ proc main(...argv: List[Bytes]) {
           var take = selected(position, spans, opts.complement)
           if multibyte and ! character_positions {
             var begun = false
-            for position in range(at + 1, at + width + 1) {
-              let included = selected(position, spans, opts.complement)
+            for byte_position in range(at + 1, at + width + 1) {
+              let included = selected(byte_position, spans, opts.complement)
               if included { begun = true } else if begun { take = false }
             }
           }

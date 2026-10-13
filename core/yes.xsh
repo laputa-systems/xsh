@@ -25,7 +25,7 @@ pure repeated(line: Bytes, count: Int) -> Bytes {
 
   return out when copies == count
 
-  bytes.concat([out, out.slice(0, length: (count - copies) * line.len())])
+  bytes.concat([out, out[..(count - copies) * line.len()]])
 }
 
 # GNU yes names the stream in its write diagnostic, so a full or failed stdout

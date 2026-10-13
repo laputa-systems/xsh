@@ -130,7 +130,7 @@ pure uncomment(text: Str) -> Str {
   rx"[[:space:]]+".replace(output, with: " ").trim()
 }
 
-pure month(text: Str) -> Int? {
+pure month_number(text: Str) -> Int? {
   match text.lower() {
     "jan" | "january" => 1
     "feb" | "february" => 2
@@ -377,17 +377,17 @@ proc absolute(text: Str, utc: Bool, base: Instant) -> Result[Instant] {
   }
   let month_first = rx"^([A-Za-z]+)\s+([0-9]{1,2}),?\s+([0-9]{4})(?:\s+(.+))?$".captures(named)
   if ! month_first.is_empty() {
-    let number = month(month_first[1])
+    let number = month_number(month_first[1])
     if number != null { return civil_epoch(decimal(month_first[3])?, number, decimal(month_first[2])?, month_first[4], utc, zone.offset) }
   }
   let day_first = rx"^([0-9]{1,2})\s+([A-Za-z]+)\s+([0-9]{4})(?:\s+(.+))?$".captures(named)
   if ! day_first.is_empty() {
-    let number = month(day_first[2])
+    let number = month_number(day_first[2])
     if number != null { return civil_epoch(decimal(day_first[3])?, number, decimal(day_first[1])?, day_first[4], utc, zone.offset) }
   }
   let asctime = rx"^([A-Za-z]+)\s+([0-9]{1,2})\s+(.+)\s+([0-9]{4})$".captures(named)
   if ! asctime.is_empty() {
-    let number = month(asctime[1])
+    let number = month_number(asctime[1])
     if number != null { return civil_epoch(decimal(asctime[4])?, number, decimal(asctime[2])?, asctime[3], utc, zone.offset) }
   }
   civil_epoch(current.year, current.month, current.day, body, utc, zone.offset)
@@ -442,15 +442,15 @@ export proc parse_instant(text: Str, utc = false, base: Instant? = null) -> Resu
     var prefix_end = end - 1
     if end >= 2 {
       let previous = words[end - 2].lower()
-      match decimal(previous) {
-        Ok(number) => { count = number; prefix_end = end - 2 }
-        Err(_) => {
-          # A signed count attached to its number, as in "today -2 days".
-          if rx"^[+-][0-9]+$".matches(previous) {
-            count = decimal(previous.byte_slice(1))? * (if previous.starts_with("-") { -1 } else { 1 })
-            prefix_end = end - 2
-          } else if previous in ["next", "last", "this"] { count = if previous == "last" { -1 } else if previous == "this" { 0 } else { 1 }; prefix_end = end - 2 }
-        }
+      if let Ok(number) = decimal(previous) {
+        count = number
+        prefix_end = end - 2
+      } else {
+        # A signed count attached to its number, as in "today -2 days".
+        if rx"^[+-][0-9]+$".matches(previous) {
+          count = decimal(previous.byte_slice(1))? * (if previous.starts_with("-") { -1 } else { 1 })
+          prefix_end = end - 2
+        } else if previous in ["next", "last", "this"] { count = if previous == "last" { -1 } else if previous == "this" { 0 } else { 1 }; prefix_end = end - 2 }
       }
     }
     if prefix_end > 0 and words[prefix_end - 1] in ["+", "-"] {

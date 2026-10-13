@@ -387,7 +387,7 @@ proc dump(opts: MoreOptions, source: Source) [process, env, io] {
   let plain = {...opts, clean_print: false, print_over: false}
   let screen = build_screen(plain, source.lines, top, source.lines.len() + 1, 80)
   let data = if ! source.data.is_empty() and source.data.byte_at(source.data.len() - 1) != 10 and ! screen.text.is_empty() {
-    screen.text.slice(0, screen.text.len() - 1)
+    screen.text[..screen.text.len() - 1]
   } else {
     screen.text
   }

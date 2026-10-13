@@ -404,7 +404,7 @@ pure debug_offset(seconds: Int) -> Str {
 # Parsing and tracing share one baseline, so relative values cannot cross a clock
 # tick between their starting value and the emitted instant.
 proc debug_date(text: Str, instant: date_parse.Instant, base: date_parse.Instant, utc: Bool) [time, env, error, process] {
-  let style: DateStyle = DateStyle(names: null, calendar: "gregorian")
+  let style: DateStyle = DateStyle(null, "gregorian")
   let timezone = if utc { "UTC0" } else { env.get_or("TZ", "") ?? "" }
   let input_zone = if timezone == "UTC0" { "TZ=\"UTC0\" environment value or -u" } else if env.get("TZ") is Ok(_) { f"TZ=\"{timezone}\" environment value" } else { "system default" }
   let final_zone = if timezone == "UTC0" { "Universal Time" } else if env.get("TZ") is Ok(_) { f"TZ=\"{timezone}\" environment value" } else { "system default" }
@@ -492,16 +492,15 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateSty
   }
 
   let base = date_parse.instant_from_ns(time.now() * 1000000)
-  match parse_date(text, utc:, base:) {
-    Ok(epoch) => {
-      if debug { if let Err(failure) = debug_date(text, epoch, base, utc) { gnu.error(failure.message); return false } }
-      if debug { gnu.error(f"output format: {gnu.quote_value_bytes(format)}") }
-      match format_date(epoch, format, utc, style) {
-        Ok(output) => { gnu.write_bytes(bytes.concat([output, b"\n"])); return true }
-        Err(failure) => gnu.error(failure.message)
-      }
+  if let Ok(epoch) = parse_date(text, utc:, base:) {
+    if debug { if let Err(failure) = debug_date(text, epoch, base, utc) { gnu.error(failure.message); return false } }
+    if debug { gnu.error(f"output format: {gnu.quote_value_bytes(format)}") }
+    match format_date(epoch, format, utc, style) {
+      Ok(output) => { gnu.write_bytes(bytes.concat([output, b"\n"])); return true }
+      Err(failure) => gnu.error(failure.message)
     }
-    Err(_) => gnu.error(f"invalid date {gnu.quote(text)}")
+  } else {
+    gnu.error(f"invalid date {gnu.quote(text)}")
   }
   false
 }
@@ -633,20 +632,17 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
     }
 
     let parsed = if set_option { parse_date(text, utc:) } else { date_parse.parse_instant(text, utc:) }
-    match parsed {
-      Ok(epoch) => {
-        match date_parse.instant_ns(epoch) {
-          Ok(nanos) => {
-            if let Err(failure) = linux.set_system_clock(nanos / 1000000) {
-              gnu.error(f"cannot set date: {gnu.strerror(failure)}")
-              let _ = emit_date(date, format, utc, false, style)
-              exit 1
-            }
-          }
-          Err(_) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
+    if let Ok(epoch) = parsed {
+      if let Ok(nanos) = date_parse.instant_ns(epoch) {
+        if let Err(failure) = linux.set_system_clock(nanos / 1000000) {
+          gnu.error(f"cannot set date: {gnu.strerror(failure)}")
+          let _ = emit_date(date, format, utc, false, style)
+          exit 1
         }
-      }
-      Err(_) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
+      } else { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
+    } else {
+      gnu.error(f"invalid date {gnu.quote(text)}")
+      exit 1
     }
   }
   if debug and source == "" { gnu.error(f"output format: {gnu.quote_value_bytes(format)}") }

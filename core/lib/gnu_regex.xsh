@@ -834,24 +834,23 @@ pure build(parsed: Parsed, icase: Bool, utf8: Bool, warnings: List[Str], fixed: 
     }
   }
   if plain and ! text.is_empty() {
-    match bytes.from_ints(text) {
-      Ok(data) => {
-        literal = data
-        # The same bytes as a basic regular expression for the native
-        # matcher, with its few special characters escaped.
-        let quoted = collect {
-          for byte in text {
-            yield 92 when byte in [92, 91, 93, 46, 42, 94, 36]
-            yield byte
-          }
-        }
-        if let Ok(escaped) = bytes.from_ints(quoted) {
-          native = bytes_text(escaped)
-        } else {
-          native = null
+    if let Ok(data) = bytes.from_ints(text) {
+      literal = data
+      # The same bytes as a basic regular expression for the native
+      # matcher, with its few special characters escaped.
+      let quoted = collect {
+        for byte in text {
+          yield 92 when byte in [92, 91, 93, 46, 42, 94, 36]
+          yield byte
         }
       }
-      Err(_) => literal = null
+      if let Ok(escaped) = bytes.from_ints(quoted) {
+        native = bytes_text(escaped)
+      } else {
+        native = null
+      }
+    } else {
+      literal = null
     }
   }
   var consuming = false
@@ -1184,29 +1183,26 @@ export pure find_bytes(m: Matcher, line: Bytes, dec: Decoded, from_byte: Int, it
     let text = program.native ?? ""
     var at = from_byte
     while at <= line.len() {
-      match regex.captures_bytes(text, line, at, program.native_ere, program.icase) {
-        Ok(caps) => {
-          break when caps.is_empty()
-          let span = caps[0] ?? {start: 0, end: 0}
-          if m.word {
-            # Whole-word check on ASCII neighbors; a multibyte neighbor
-            # needs character decoding.
-            let before = if span.start > 0 { line.byte_at(span.start - 1) ?? 0 } else { 0 }
-            let after = if span.end < line.len() { line.byte_at(span.end) ?? 0 } else { 0 }
-            if m.utf8 and (before >= 128 or after >= 128) { return find_decoded(m, decode(line, m.utf8), from_byte, iterating) }
-            let prev_word = span.start > 0 and ! (program.fixed and span.start == from_byte) and ascii_word(before)
-            if prev_word or ascii_word(after) {
-              at = span.start + 1
-              continue
-            }
+      if let Ok(caps) = regex.captures_bytes(text, line, at, program.native_ere, program.icase) {
+        break when caps.is_empty()
+        let span = caps[0] ?? {start: 0, end: 0}
+        if m.word {
+          # Whole-word check on ASCII neighbors; a multibyte neighbor
+          # needs character decoding.
+          let before = if span.start > 0 { line.byte_at(span.start - 1) ?? 0 } else { 0 }
+          let after = if span.end < line.len() { line.byte_at(span.end) ?? 0 } else { 0 }
+          if m.utf8 and (before >= 128 or after >= 128) { return find_decoded(m, decode(line, m.utf8), from_byte, iterating) }
+          let prev_word = span.start > 0 and ! (program.fixed and span.start == from_byte) and ascii_word(before)
+          if prev_word or ascii_word(after) {
+            at = span.start + 1
+            continue
           }
-          if best.is_empty() or span.start < best[0] or (span.start == best[0] and span.end > best[1]) { best = [span.start, span.end] }
-          break
         }
-        Err(_) => {
-          # The native matcher refuses NUL bytes: take the character path.
-          return find_decoded(m, decode(line, m.utf8), from_byte, iterating)
-        }
+        if best.is_empty() or span.start < best[0] or (span.start == best[0] and span.end > best[1]) { best = [span.start, span.end] }
+        break
+      } else {
+        # The native matcher refuses NUL bytes: take the character path.
+        return find_decoded(m, decode(line, m.utf8), from_byte, iterating)
       }
     }
   }

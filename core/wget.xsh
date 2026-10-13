@@ -656,7 +656,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
         let shown_total = if ranged and reply.status == 206 { total } else { length }
         let counted = if ranged and reply.status == 206 { received + resume_from } else { received }
         log_verbose(options, progress_rows(shown_total, counted, received, if ranged and reply.status == 206 { resume_from } else { 0 }, elapsed))
-        let rate = unit_rate(rate_of(received, elapsed))
+        let rate = rate_of(received, elapsed) |> unit_rate(_)
         let verb = if target.stdout { "written to stdout" } else { f"'{target.label}' saved" }
         let sizes = if let size = shown_total { f"[{counted}/{size}]" } else { f"[{counted}]" }
         if options.terse {

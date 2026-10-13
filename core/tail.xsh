@@ -375,25 +375,24 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
     # is a regular file, and read from its start like any file that appears later.
     var still_missing = []
     for name in pending {
-      match fs.stat(fp"{name}", follow_symlinks: true) {
-        Ok(entry) => {
-          if entry.kind == "file" {
-            gnu.error(f"{gnu.quote(name)} has appeared;  following new file")
-            match unix.open_fd(fp"{name}") {
-              Ok(fd) => active += [{label: name, fd: fd, offset: 0}]
-              Err(failure) => {
-                gnu.cannot_open(name, failure)
-                failed = true
-              }
+      if let Ok(entry) = fs.stat(fp"{name}", follow_symlinks: true) {
+        if entry.kind == "file" {
+          gnu.error(f"{gnu.quote(name)} has appeared;  following new file")
+          match unix.open_fd(fp"{name}") {
+            Ok(fd) => active += [{label: name, fd: fd, offset: 0}]
+            Err(failure) => {
+              gnu.cannot_open(name, failure)
+              failed = true
             }
-          } else {
-            # Descriptors never retry a name that became a directory, FIFO, or device:
-            # it is reported and given up, even under --retry, as GNU does.
-            gnu.error(f"{gnu.quote(name)} has been replaced with an untailable file; giving up on this name")
-            failed = true
           }
+        } else {
+          # Descriptors never retry a name that became a directory, FIFO, or device:
+          # it is reported and given up, even under --retry, as GNU does.
+          gnu.error(f"{gnu.quote(name)} has been replaced with an untailable file; giving up on this name")
+          failed = true
         }
-        Err(_) => still_missing += [name]
+      } else {
+        still_missing += [name]
       }
     }
     pending = still_missing

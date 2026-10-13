@@ -4,6 +4,12 @@ use lib.text_a2 as text
 
 type Options = {width: Str, goal: Str, crown: Bool, tagged: Bool, split: Bool, uniform: Bool, quick: Bool, prefix: Str, skip_prefix: Str?, exact_prefix: Bool, exact_skip: Bool, help: Bool, version: Bool, paths: List[Str]}
 
+# GNU fmt lays out a paragraph in buffers of at most this many words and word characters. A
+# fuller buffer is cut at a low-cost break and its tail starts the next buffer, so these limits
+# change the output of long paragraphs.
+const MAX_BUFFER_WORDS = 998
+const MAX_BUFFER_CHARS = 5000
+
 # Width limits report a numeric range error; goals report the selected width's
 # data-type bound. Both options use the same diagnostic name.
 proc size(value: Str, limit: Int, width: Bool) -> Int {
@@ -72,12 +78,6 @@ pure spacing(words: List[Word], index: Int, uniform: Bool) -> Int {
 pure final_word(words: List[Word], index: Int) -> Bool {
   index + 1 == words.len() or (sentence(words[index].data) and (words[index + 1].new_line or words[index + 1].gap > 1))
 }
-
-# GNU fmt lays out a paragraph in buffers of at most this many words and word characters. A
-# fuller buffer is cut at a low-cost break and its tail starts the next buffer, so these limits
-# change the output of long paragraphs.
-const MAX_BUFFER_WORDS = 998
-const MAX_BUFFER_CHARS = 5000
 
 # Costs of a break before words[begin]. The previous word only counts inside the buffer that
 # starts at block_start, because a buffer's first line has no earlier line to be compared with.
@@ -186,15 +186,15 @@ proc paragraph(lines: List[Bytes], width: Int, goal: Int, quick: Bool, first: St
     var previous_length = 0
     var chars = 0
     for index in range(words.len()) {
-      let size = words[index].data.len()
-      if index > begin and (index - begin == MAX_BUFFER_WORDS or chars + size > MAX_BUFFER_CHARS) {
+      let word_size = words[index].data.len()
+      if index > begin and (index - begin == MAX_BUFFER_WORDS or chars + word_size > MAX_BUFFER_CHARS) {
         let flushed = emit_buffer(words, begin, index, true, first, later, uniform, width, goal, previous_length)
         begin = flushed.next_start
         previous_length = flushed.last_length
         chars = 0
         for at in range(begin, index) { chars += words[at].data.len() }
       }
-      chars += size
+      chars += word_size
     }
     let _ = emit_buffer(words, begin, words.len(), false, first, later, uniform, width, goal, previous_length)
   }

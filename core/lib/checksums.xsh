@@ -369,10 +369,10 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alterna
     name = line.byte_slice(open + 1, length: separator.close - open - 1)
     expected = line.byte_slice(separator.digest)
   } else {
-    let separator = line.find(" ") ?? -1
-    return null when separator <= 0
-    expected = line.byte_slice(0, length: separator)
-    let remainder = line.byte_slice(separator + 1)
+    let space_index = line.find(" ") ?? -1
+    return null when space_index <= 0
+    expected = line.byte_slice(0, length: space_index)
+    let remainder = line.byte_slice(space_index + 1)
     if alternate_format {
       name = remainder
     } else if remainder.starts_with(" ") {

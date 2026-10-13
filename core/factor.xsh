@@ -12,6 +12,11 @@ are specified on the command line, read them from standard input.
       --version     output version information and exit
 """
 
+# Half-width of the window scanned at each k-th root. Factors of one size
+# cluster around the geometric mean of the number's factors, so a window of
+# this width holds a clustered factor; wider spreads fall through to rho.
+const CLUSTER_WIDTH = 256
+
 type FactorOptions = {
   exponents: Bool,
   help: Bool,
@@ -836,11 +841,6 @@ pure big_ln(a: List[Int]) -> Float {
 
   head.ln() + low.float() * 20.723265836946414
 }
-
-# Half-width of the window scanned at each k-th root. Factors of one size
-# cluster around the geometric mean of the number's factors, so a window of
-# this width holds a clustered factor; wider spreads fall through to rho.
-const CLUSTER_WIDTH = 256
 
 # A divisor of `n` within CLUSTER_WIDTH of some k-th root of `n`, or [] when
 # no root has one. Every prime factor is at least 2048, so at most

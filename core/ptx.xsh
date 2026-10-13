@@ -530,14 +530,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.sentence != null and opts.sentence != "" {
     let pattern = patch_backslash(opts.sentence)
 
-    match regex.compile(pattern) {
-      Ok(found) => {
-        sentence = found
-      }
-      Err(_) => {
-        gnu.error(f"Invalid regular expression (for regexp {gnu.quote(opts.sentence)})")
-        exit 1
-      }
+    if let Ok(found) = regex.compile(pattern) {
+      sentence = found
+    } else {
+      gnu.error(f"Invalid regular expression (for regexp {gnu.quote(opts.sentence)})")
+      exit 1
     }
   }
 

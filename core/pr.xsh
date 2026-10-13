@@ -66,9 +66,10 @@ proc page_number(value: Str, range: Str) -> PageNumber {
     exit 1
   }
   if suffix != "" { page_error(range) }
-  match digits.parse_int() {
-    Ok(number) => {value: number, display: digits},
-    Err(_) => {value: 9223372036854775807, display: digits},
+  if let Ok(number) = digits.parse_int() {
+    {value: number, display: digits}
+  } else {
+    {value: 9223372036854775807, display: digits}
   }
 }
 

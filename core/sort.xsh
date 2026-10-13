@@ -149,11 +149,7 @@ type SortOptions = {
   debug_byte_columns: Bool,
 }
 
-type NumericSortKey = {number: Str, raw: Str}
-type HumanNumericSortKey = {key: Str, raw: Str}
-type GeneralNumericSortKey = {key: Str, raw: Str}
 type GeneralNumericEntry = {key: Str, prefix: Str}
-type TextSortKey = {key: Str, raw: Str}
 type SortRecord = {bytes: Bytes, text: Str?}
 type SortRecordOrder = {record: SortRecord, key: Str}
 type GeneralNumericInput = {text: Str, source_ends: List[Int]}
@@ -164,9 +160,10 @@ type SortKeyError = {kind: Str, value: Str}
 
 ## Unicode algorithms receive a view only when the original byte range is valid UTF-8.
 pure sort_utf8_text(data: Bytes) -> Str? {
-  match data.utf8() {
-    Ok(value) => value
-    Err(_) => null
+  if let Ok(value) = data.utf8() {
+    value
+  } else {
+    null
   }
 }
 
@@ -189,7 +186,7 @@ pure padded_decimal(value: Int, width: Int) -> Str {
 
 pure numeric_decimal_at(input: Bytes, at: Int, opts: SortOptions) -> Bool {
   let point = bytes.from_text(opts.decimal_point)
-  at + point.len() <= input.len() and input.slice(at, length: point.len()) == point
+  at + point.len() <= input.len() and input[at..at + point.len()] == point
 }
 
 ## A single-byte grouping mark may be invalid UTF-8 in the active locale.
@@ -268,10 +265,6 @@ pure decimal_prefix(line: Str, opts: SortOptions) -> Str {
   }
   return "" when digits == 0
   value.byte_slice(0, length: at)
-}
-
-pure numeric_prefix(line: Str, opts: SortOptions) -> Str {
-  decimal_prefix(line, opts)
 }
 
 pure human_numeric_prefix(line: Str, opts: SortOptions) -> Str {
@@ -1144,12 +1137,8 @@ pure sort_record_order(record: SortRecord, opts: SortOptions, has_key: Bool) -> 
   let plain_line_key = ! has_key and ! is_month_sort(opts) and ! is_human_numeric_sort(opts) and
     ! is_general_numeric_sort(opts) and ! is_version_sort(opts) and ! is_numeric_sort(opts) and
     ! opts.blank and ! opts.fold_case and ! opts.dictionary and ! opts.ignore_nonprinting
-  if ! opts.stable and ! opts.unique and ! plain_line_key { order += sort_raw_tiebreak(record.bytes, opts.reverse) }
+  if ! opts.stable and ! opts.unique and ! plain_line_key { order += sort_direction_bytes(record.bytes, opts.reverse) }
   order
-}
-
-pure sort_raw_tiebreak(input: Bytes, reverse: Bool) -> Str {
-  sort_direction_bytes(input, reverse)
 }
 
 pure plain_whole_line_sort(opts: SortOptions, has_key: Bool) -> Bool {
@@ -1257,7 +1246,7 @@ pure files0_names(data: Bytes) -> List[Bytes] {
   names
 }
 
-pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
+pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool) -> Str {
   if has_key {
     let selected = key_field_value(line, sort_delimiter(opts), primary_key_spec(opts), opts)
     if is_month_sort(opts) {
@@ -1265,14 +1254,14 @@ pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: 
     } else if is_human_numeric_sort(opts) {
       human_numeric_prefix(selected, opts)
     } else if is_numeric_sort(opts) {
-      numeric_prefix(selected, opts)
+      decimal_prefix(selected, opts)
     } else {
       selected
     }
   } else if is_month_sort(opts) {
     month_prefix(line, opts)
   } else if is_numeric_sort(opts) {
-    numeric_prefix(line, opts)
+    decimal_prefix(line, opts)
   } else if is_human_numeric_sort(opts) {
     human_numeric_prefix(line, opts)
   } else if is_general_numeric_sort(opts) {
@@ -1292,7 +1281,7 @@ pure debug_key_text(line: Str, opts: SortOptions, spec: Str) -> Str {
   } else if is_human_numeric_sort(key_opts) {
     human_numeric_prefix(selected, opts)
   } else if is_numeric_sort(key_opts) {
-    numeric_prefix(selected, opts)
+    decimal_prefix(selected, opts)
   } else if is_general_numeric_sort(key_opts) {
     general_numeric_prefix(selected, key_opts)
   } else {
@@ -1325,7 +1314,7 @@ pure debug_key_annotation(line: Str, opts: SortOptions, spec: Str) -> Str {
   }
 }
 
-pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
+pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool) -> Str {
   let has_last_resort = has_key or is_month_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
   var output = ""
   for line in lines {
@@ -1336,12 +1325,12 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
         let start = sort_delimiter(opts) |> key_start_byte(line, _, spec, key_opts)
         let selected = sort_delimiter(opts) |> key_field_value(line, _, spec, key_opts)
         let numeric_blanks = if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) { leading_blank_count(selected) } else { 0 }
-        let indentation = text.padding(debug_column_count(bytes.from_text(line).slice(0, length: start), opts) + numeric_blanks, " ")
+        let indentation = text.padding(debug_column_count(bytes.from_text(line)[..start], opts) + numeric_blanks, " ")
         output += indentation + debug_key_annotation(line, opts, spec) + "\n"
       }
       if ! opts.stable and ! opts.unique { output += debug_annotation(line, opts) + "\n" }
     } else {
-      let primary = debug_primary_text(line, opts, false, key_field)
+      let primary = debug_primary_text(line, opts, false)
       let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or opts.blank { text.padding(leading_blank_count(line), " ") } else { "" }
       output += indentation + debug_annotation(primary, opts) + "\n"
       if has_last_resort and ! opts.stable and ! opts.unique { output += debug_annotation(line, opts) + "\n" }
@@ -1427,12 +1416,12 @@ pure debug_key_annotation_bytes(record: SortRecord, opts: SortOptions, spec: Str
   }
 }
 
-pure debug_sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool, key_field: Int) -> Bytes {
+pure debug_sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool) -> Bytes {
   let has_last_resort = has_key or is_month_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
   let output = collect {
     for record in records {
       if let line = record.text {
-        yield bytes.from_text(debug_sort_text([line], opts, has_key, key_field))
+        yield bytes.from_text(debug_sort_text([line], opts, has_key))
       } else {
         yield @[debug_visible_bytes(record.bytes), b"\n"]
         if has_key {
@@ -1637,9 +1626,10 @@ pure legacy_key_spec(from: LegacyKeyPart, to: LegacyKeyPart?) -> Str {
 ## GNU keeps the traditional `+POS1 [-POS2]` form unless _POSIX2_VERSION is in
 ## [200112, 200809); an unset or non-numeric value keeps the form.
 proc traditional_key_syntax() [env] -> Bool {
-  match (env.get_or("_POSIX2_VERSION", "") ?? "").parse_int() {
-    Ok(version) => version < 200112 or version >= 200809
-    Err(_) => true
+  if let Ok(version) = (env.get_or("_POSIX2_VERSION", "") ?? "").parse_int() {
+    version < 200112 or version >= 200809
+  } else {
+    true
   }
 }
 
@@ -1704,7 +1694,7 @@ proc read_sort_records(sources: List[SortInput], zero_terminated: Bool) [fs, io,
 }
 
 ## Merge one current record from each input; ties keep the earlier input first.
-pure merge_sort_records(sources: List[List[SortRecord]], opts: SortOptions, has_key: Bool, key_field: Int) -> List[SortRecord] {
+pure merge_sort_records(sources: List[List[SortRecord]], opts: SortOptions, has_key: Bool) -> List[SortRecord] {
   var positions = [0 for _ in sources]
   let merged: List[SortRecord] = collect {
     loop {
@@ -1782,7 +1772,7 @@ proc can_stream_sort_merge(inputs: List[SortInput], opts: SortOptions, check_ena
 }
 
 ## Merge sorted file streams directly to stdout so a failed writer stops further reads.
-proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool, key_field: Int) [fs, io, env, process, error] {
+proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool) [fs, io, env, process, error] {
   var readers: List[SortMergeReader] = []
   for input in inputs {
     match unix.open_fd(input.path) {
@@ -1820,9 +1810,8 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
     }
     var selected = null
     for index in range(readers.len()) {
-      if let candidate = readers[index].current {
+      if let _ = readers[index].current {
         if let current_index = selected {
-          let current = readers[current_index].current ?? sort_record(b"")
           let candidate_order = readers[index].current_order ?? ""
           let current_order = readers[current_index].current_order ?? ""
           if candidate_order < current_order { selected = index }
@@ -1877,24 +1866,21 @@ proc validate_batch_size(value: Str) [process, env, error] -> Unit {
 
   let limit = process.rlimit("nofile")?
   let maximum = if let soft = limit.soft { soft - 3 } else { 9223372036854775807 }
-  match value.parse_int() {
-    Ok(size) => {
-      guard size >= 2 else {
-        gnu.error(f"invalid --batch-size argument {gnu.quote(value)}")
-        gnu.error("minimum --batch-size argument is '2'")
-        exit 2
-      }
-      if size > maximum {
-        gnu.error(f"--batch-size argument {gnu.quote(value)} too large")
-        gnu.error(f"maximum --batch-size argument with current rlimit is {maximum}")
-        exit 2
-      }
+  if let Ok(size) = value.parse_int() {
+    guard size >= 2 else {
+      gnu.error(f"invalid --batch-size argument {gnu.quote(value)}")
+      gnu.error("minimum --batch-size argument is '2'")
+      exit 2
     }
-    Err(_) => {
+    if size > maximum {
       gnu.error(f"--batch-size argument {gnu.quote(value)} too large")
       gnu.error(f"maximum --batch-size argument with current rlimit is {maximum}")
       exit 2
     }
+  } else {
+    gnu.error(f"--batch-size argument {gnu.quote(value)} too large")
+    gnu.error(f"maximum --batch-size argument with current rlimit is {maximum}")
+    exit 2
   }
 }
 
@@ -2030,7 +2016,7 @@ proc create_sort_temp_root(directory: Str?) [fs, io, process, env, error] -> FsR
     Ok(root) => root
     Err(failure) => {
       # GNU names the directory it tried, falling back to $TMPDIR and then /tmp.
-      let location = if let temp_dir = directory { temp_dir } else { match env.get("TMPDIR") { Ok(value) => value, Err(_) => "/tmp" } }
+      let location = if let temp_dir = directory { temp_dir } else { if let Ok(value) = env.get("TMPDIR") { value } else { "/tmp" } }
       gnu.error(f"cannot create temporary file in {gnu.quote(location)}: {gnu.strerror(failure)}")
       exit 2
     }
@@ -2114,7 +2100,7 @@ proc plain_sort_inputs(root: FsRoot, inputs: List[SortInput], prefix: Str) [fs, 
   plain
 }
 
-proc write_sort_run(root: FsRoot, name: Str, records: List[SortRecord], opts: SortOptions, has_key: Bool, key_field: Int, compress: Str?) [fs, process, env, error] -> SortInput {
+proc write_sort_run(root: FsRoot, name: Str, records: List[SortRecord], opts: SortOptions, has_key: Bool, compress: Str?) [fs, process, env, error] -> SortInput {
   let prepared = prepare_general_numeric_keys(records, opts)
   let sorted = unique_sorted_records(sort_records(records, prepared, has_key), prepared, has_key)
   let ending = if opts.zero_terminated { b"\0" } else { b"\n" }
@@ -2134,7 +2120,7 @@ proc sort_merge_batch_limit(opts: SortOptions) [process, error] -> Int {
   }
 }
 
-proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool, key_field: Int, output_fd: Int?, deduplicate: Bool) [fs, io, env, process, error] {
+proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool, output_fd: Int?, deduplicate: Bool) [fs, io, env, process, error] {
   var readers: List[SortMergeReader] = []
   defer {
     for reader in readers {
@@ -2183,9 +2169,8 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
     }
     var selected = null
     for index in range(readers.len()) {
-      if let candidate = readers[index].current {
+      if let _ = readers[index].current {
         if let current_index = selected {
-          let current = readers[current_index].current ?? sort_record(b"")
           let candidate_order = readers[index].current_order ?? ""
           let current_order = readers[current_index].current_order ?? ""
           if candidate_order < current_order { selected = index }
@@ -2229,7 +2214,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   }
 }
 
-proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions, has_key: Bool, key_field: Int, batch_limit: Int, output_fd: Int?, deduplicate: Bool, compress: Str?) [fs, io, env, process, error] {
+proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions, has_key: Bool, batch_limit: Int, output_fd: Int?, deduplicate: Bool, compress: Str?) [fs, io, env, process, error] {
   var runs = inputs
   var pass = 0
   while runs.len() > batch_limit {
@@ -2248,7 +2233,7 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
         let plain_inputs = plain_sort_inputs(root, input_group, name)
         let merged = sort_temp_path(root, f"{name}-plain")
         let fd = unix.open_fd(merged, write: true)?
-        merge_sort_stream(plain_inputs, opts, has_key, key_field, fd, false)
+        merge_sort_stream(plain_inputs, opts, has_key, fd, false)
         unix.close_fd(fd)
         next += [compress_temp_run(root, name, merged, compress)]
       }
@@ -2259,10 +2244,10 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
     pass += 1
   }
   let plain_runs = plain_sort_inputs(root, runs, f"final-{pass}")
-  merge_sort_stream(plain_runs, opts, has_key, key_field, output_fd, deduplicate)
+  merge_sort_stream(plain_runs, opts, has_key, output_fd, deduplicate)
 }
 
-proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int, has_key: Bool, key_field: Int, output: Path, has_output: Bool) [fs, io, env, process, error] {
+proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int, has_key: Bool, output: Path, has_output: Bool) [fs, io, env, process, error] {
   let compress = startable_compress_program(opts.compress_program)
   var temp_root = null
   defer { if let root = temp_root { root.close() } }
@@ -2299,7 +2284,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
             if chunk_bytes >= chunk_limit {
               if temp_root == null { temp_root = create_sort_temp_root(opts.temp_directory) }
               if let root = temp_root {
-                runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, key_field, compress)]
+                runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, compress)]
               } else {
                 fail "sort temporary directory was not created"
               }
@@ -2339,7 +2324,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
 
   if ! chunk.is_empty() {
     if let root = temp_root {
-      runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, key_field, compress)]
+      runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, compress)]
     } else {
       fail "sort temporary directory was not created"
     }
@@ -2353,10 +2338,10 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
         exit 2
       }
       let fd = unix.open_fd(output, write: true)?
-      merge_sort_batched(runs, root, opts, has_key, key_field, batch_limit, fd, opts.unique, compress)
+      merge_sort_batched(runs, root, opts, has_key, batch_limit, fd, opts.unique, compress)
       unix.close_fd(fd)
     } else {
-      merge_sort_batched(runs, root, opts, has_key, key_field, batch_limit, null, opts.unique, compress)
+      merge_sort_batched(runs, root, opts, has_key, batch_limit, null, opts.unique, compress)
     }
   } else {
     fail "sort temporary directory was not created"
@@ -2646,7 +2631,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let has_key = ! opts.key.is_empty()
-  let key_field = if has_key { primary_key_spec(opts) |> key_index(_) } else { 0 }
   let output_path = opts.output.get(0) ?? ""
   let has_output = ! opts.output.is_empty()
   for candidate in opts.output[1..] {
@@ -2659,7 +2643,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let check_mode = if opts.check != "" { opts.check } else if opts.short_check { "diagnose-first" } else { "" }
   let check_enabled = check_mode != "" or opts.silent_check
   let silent_check = opts.silent_check or check_mode in ["silent", "quiet", "silen", "quie", "s", "q"]
-  let delimiter = sort_delimiter(opts)
   let paths = opts.paths
   # Every occurrence is checked in order, as GNU does while parsing; a separator
   # given again must name the same character as the first one.
@@ -2765,20 +2748,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if inputs.len() > batch_limit {
       let scratch = create_sort_temp_root(opts.temp_directory)
       defer scratch.close()
-      merge_sort_batched(inputs, scratch, opts, has_key, key_field, batch_limit, null, opts.unique, startable_compress_program(opts.compress_program))
+      merge_sort_batched(inputs, scratch, opts, has_key, batch_limit, null, opts.unique, startable_compress_program(opts.compress_program))
       return
     }
   }
 
   if let size = buffer_size {
     if ! opts.merge and ! check_enabled and ! opts.debug and ! random_requested {
-      buffered_sort(inputs, opts, size, has_key, key_field, output, has_output)
+      buffered_sort(inputs, opts, size, has_key, output, has_output)
       return
     }
   }
 
   if can_stream_sort_merge(inputs, opts, check_enabled, inputs_are_regular) {
-    stream_sort_merge(inputs, opts, has_key, key_field)
+    stream_sort_merge(inputs, opts, has_key)
     return
   }
   let source_records = read_sort_records(inputs, opts.zero_terminated)
@@ -2790,7 +2773,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   var input_lines: List[SortRecord] = []
   if opts.merge {
-    input_lines = merge_sort_records(source_records, opts, has_key, key_field)
+    input_lines = merge_sort_records(source_records, opts, has_key)
   } else {
     for records in source_records { input_lines += records }
   }
@@ -2828,7 +2811,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let line_ending = if opts.zero_terminated { b"\0" } else { b"\n" }
   let output_data = if opts.debug {
-    debug_sort_records(lines, opts, has_key, key_field)
+    debug_sort_records(lines, opts, has_key)
   } else {
     sort_record_bytes(lines, line_ending)
   }

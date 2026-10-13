@@ -75,6 +75,7 @@ type Signed = {neg: Bool, digits: Str}
 # beyond it are rejected.
 const EXP_LIMIT = 100000
 const SIZE_LIMIT = 10000000
+const OUTPUT_CHUNK = 65536
 
 pure zeros(count: Int) -> Str {
   var out = ""
@@ -827,8 +828,6 @@ stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Boo
     }
   }
 }
-
-const OUTPUT_CHUNK = 65536
 
 proc main(...argv: List[Bytes]) [process, env, error, io] {
   # The host ignores SIGPIPE for its own writes; signal_action reports what the

@@ -2,6 +2,14 @@
 use lib.gnu
 use lib.text_a2 as text
 
+## Logical positions use base-billion limbs so arbitrarily large repetition counts remain exact.
+type Count = {major: Int, minor: Int}
+type Run = {byte: Int, count: Count, character_class: Str}
+
+const ZERO = {major: 0, minor: 0}
+const ONE = {major: 0, minor: 1}
+const MAX_REPEAT = {major: 18446744073, minor: 709551615}
+
 type Options = {delete: Bool, squeeze: Bool, complement: Bool, truncate: Bool, help: Bool, version: Bool, sets: List[Str]}
 type Atom = {value: Int, next: Int}
 
@@ -60,14 +68,6 @@ pure class_member(name: Str, byte: Int) -> Bool {
   let alpha = lower or upper
   if name == "alnum" { alpha or digit } else if name == "alpha" { alpha } else if name == "blank" { byte == 9 or byte == 32 } else if name == "cntrl" { byte < 32 or byte == 127 } else if name == "digit" { digit } else if name == "graph" { byte >= 33 and byte <= 126 } else if name == "lower" { lower } else if name == "print" { byte >= 32 and byte <= 126 } else if name == "punct" { byte >= 33 and byte <= 126 and ! alpha and ! digit } else if name == "space" { byte == 32 or (byte >= 9 and byte <= 13) } else if name == "upper" { upper } else { digit or (byte >= 65 and byte <= 70) or (byte >= 97 and byte <= 102) }
 }
-
-# Logical set positions can exceed both a signed integer and the size of one
-# repeat. Base-billion limbs keep those positions exact without expanding runs.
-type Count = {major: Int, minor: Int}
-type Run = {byte: Int, count: Count, character_class: Str}
-const ZERO = {major: 0, minor: 0}
-const ONE = {major: 0, minor: 1}
-const MAX_REPEAT = {major: 18446744073, minor: 709551615}
 
 pure compare(a: Count, b: Count) -> Int {
   if a.major < b.major or (a.major == b.major and a.minor < b.minor) { -1 } else if a == b { 0 } else { 1 }
@@ -277,9 +277,9 @@ proc main(...argv: List[Bytes]) {
     }
     let output: List[Int] = collect {
       for at in range(source.len()) {
-        let original = source.byte_at(at) ?? 0
-        continue when deletes[original]
-        let value = translation[original]
+        let source_byte = source.byte_at(at) ?? 0
+        continue when deletes[source_byte]
+        let value = translation[source_byte]
         yield value when previous != value or ! squeezes[value]
         previous = value
       }

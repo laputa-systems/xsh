@@ -30,9 +30,7 @@ pure env_value(entries: List[Bytes], name: Str) -> Bytes? {
   let prefix = bytes.from_text(f"{name}=")
 
   for entry in entries {
-    if entry.starts_with(prefix) {
-      return entry.slice(prefix.len(), length: entry.len() - prefix.len())
-    }
+    return entry[prefix.len()..] when entry.starts_with(prefix)
   }
 
   null

@@ -2,6 +2,11 @@
 use lib.date_dircolors as colors
 use lib.gnu
 
+# Long options in the order GNU lists their possibilities; `--help` and
+# `--version` are included so that their abbreviations resolve like the rest.
+const LONG_OPTIONS = ["--bourne-shell", "--c-shell", "--csh", "--help", "--print-database", "--print-ls-colors", "--sh", "--version"]
+enum LongAction { Bourne, Csh, PrintDatabase, PrintLsColors, Help, Version }
+
 pure term_matches(pattern: Str, value: Str) -> Bool {
   var regex_text = "^"
   var bracket = false
@@ -9,9 +14,10 @@ pure term_matches(pattern: Str, value: Str) -> Bool {
     if char == "*" and ! bracket { regex_text = f"{regex_text}.*" } else if char == "?" and ! bracket { regex_text = f"{regex_text}." } else if char == "[" { bracket = true; regex_text = f"{regex_text}[" } else if char == "]" { bracket = false; regex_text = f"{regex_text}]" } else if char == "!" and bracket { regex_text = f"{regex_text}^" } else if ! bracket and ".+(){}^$|\\".find(char) != null { regex_text = f"{regex_text}\\{char}" } else { regex_text = f"{regex_text}{char}" }
   }
   return false when bracket
-  match regex.compile(f"{regex_text}$") {
-    Ok(found) => found.matches(value)
-    Err(_) => false
+  if let Ok(found) = regex.compile(f"{regex_text}$") {
+    found.matches(value)
+  } else {
+    false
   }
 }
 
@@ -81,10 +87,6 @@ proc extra_operand(name: Bytes) [process, env] -> Unit {
   gnu.usage_error(f"extra operand {gnu.quote_bytes(name)}")
 }
 
-# Long options in the order GNU lists their possibilities; `--help` and
-# `--version` are included so that their abbreviations resolve like the rest.
-const LONG_OPTIONS = ["--bourne-shell", "--c-shell", "--csh", "--help", "--print-database", "--print-ls-colors", "--sh", "--version"]
-
 # The long options an argument names: an exact name, or every name it prefixes
 # (getopt_long accepts any unambiguous abbreviation).
 pure long_candidates(arg: Str) -> List[Str] {
@@ -94,14 +96,14 @@ pure long_candidates(arg: Str) -> List[Str] {
 
 # Aliases of one option (`--csh` and `--c-shell`) are not ambiguous with each
 # other, as in getopt_long; the action is what distinguishes options.
-pure long_action(name: Str) -> Str {
+pure long_action(name: Str) -> LongAction {
   match name {
-    "--sh" | "--bourne-shell" => "bourne"
-    "--csh" | "--c-shell" => "csh"
-    "--print-database" => "print-database"
-    "--print-ls-colors" => "print-ls-colors"
-    "--help" => "help"
-    else => "version"
+    "--sh" | "--bourne-shell" => Bourne
+    "--csh" | "--c-shell" => Csh
+    "--print-database" => PrintDatabase
+    "--print-ls-colors" => PrintLsColors
+    "--help" => Help
+    else => Version
   }
 }
 
@@ -132,15 +134,15 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
         gnu.usage_error(f"option '{arg}' is ambiguous; possibilities: {[f"'{name}'" for name in found].join(" ")}")
       }
       match action {
-        "bourne" => shell = "b"
-        "csh" => shell = "c"
-        "print-database" => database = true
-        "print-ls-colors" => display = true
-        "help" => {
+        Bourne => shell = "b"
+        Csh => shell = "c"
+        PrintDatabase => database = true
+        PrintLsColors => display = true
+        Help => {
           gnu.help("Usage: dircolors [OPTION]... [FILE]\nOutput commands to set LS_COLORS.\n  -b, --sh, --bourne-shell  Bourne shell output\n  -c, --csh, --c-shell      C shell output\n  -p, --print-database      output default database\n      --print-ls-colors     display color codes\nFILE defaults to the built-in database; '-' reads standard input.")
           return
         }
-        "version" => {
+        Version => {
           gnu.version("dircolors")
           return
         }

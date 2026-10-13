@@ -31,6 +31,60 @@ const LONG_OPTIONS = [
   {long: "version", takes: 0, key: "version"}, {long: "help", takes: 0, key: "help"}
 ]
 
+# The text of --help.
+const HELP = r"""
+  Usage: xargs [OPTION]... [COMMAND [INITIAL-ARGS]...]
+  Run COMMAND with arguments INITIAL-ARGS and more arguments read from input.
+
+  Mandatory and optional arguments to long options are also
+  mandatory or optional for the corresponding short option.
+    -0, --null                   items are separated by a null, not whitespace;
+                                   disables quote and backslash processing and
+                                   logical EOF processing
+    -a, --arg-file=FILE          read arguments from FILE, not standard input
+    -d, --delimiter=CHARACTER    items in input stream are separated by CHARACTER,
+                                   not by whitespace; disables quote and backslash
+                                   processing and logical EOF processing
+    -E END                       set logical EOF string; if END occurs as a line
+                                   of input, the rest of the input is ignored
+                                   (ignored if -0 or -d was specified)
+    -e, --eof[=END]              equivalent to -E END if END is specified;
+                                   otherwise, there is no end-of-file string
+    -I R                         same as --replace=R
+    -i, --replace[=R]            replace R in INITIAL-ARGS with names read
+                                   from standard input, split at newlines;
+                                   if R is unspecified, assume {}
+    -L, --max-lines=MAX-LINES    use at most MAX-LINES non-blank input lines per
+                                   command line
+    -l[MAX-LINES]                similar to -L but defaults to at most one non-
+                                   blank input line if MAX-LINES is not specified
+    -n, --max-args=MAX-ARGS      use at most MAX-ARGS arguments per command line
+    -o, --open-tty               Reopen standard input as /dev/tty in the child
+                                   process before executing the command; useful to
+                                   run an interactive application.
+    -P, --max-procs=MAX-PROCS    run at most MAX-PROCS processes at a time
+    -p, --interactive            prompt before running commands
+        --process-slot-var=VAR   set environment variable VAR in child processes
+    -r, --no-run-if-empty        if there are no arguments, then do not run COMMAND;
+                                   if this option is not given, COMMAND will be
+                                   run at least once
+    -s, --max-chars=MAX-CHARS    limit length of command line to MAX-CHARS
+        --show-limits            show limits on command-line length
+    -t, --verbose                print commands before executing them
+    -x, --exit                   exit if the size (see -s) is exceeded
+        --help                   display this help and exit
+        --version                output version information and exit
+
+  If COMMAND is omitted, the default is 'echo'.
+
+  Please see also the documentation at https://www.gnu.org/software/findutils/.
+  You can report (and track progress on fixing) bugs in the "xargs"
+  program via the GNU findutils bug-reporting page at
+  https://savannah.gnu.org/bugs/?group=findutils or, if
+  you have no web access, by sending email to <bug-findutils@gnu.org>.
+  """
+
+
 pure delimiter_error(spec: Str) -> Str {
   f"Invalid input delimiter specification {spec}: the delimiter must be either a single character or an escape sequence starting with \\."
 }
@@ -195,7 +249,7 @@ pure status_code(status: Status) -> Int {
 }
 
 # Parse an option's number the way GNU does, with its two diagnostics.
-proc option_number(text: Str, option: Str, minimum: Int) [process, env] -> Int {
+proc option_number(text: Str, option: Str) [process, env] -> Int {
   let value = text.parse_int() ?? -9223372036854775807
   if value == -9223372036854775807 { gnu.usage_error(f"invalid number \"{text}\" for -{option} option") }
   value
@@ -285,14 +339,14 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
           cfg.replace = if key == "i" and ! (given and value != "") { "{}" } else { value }
         }
         "n" => {
-          let number = option_number(value, "n", 1)
+          let number = option_number(value, "n")
           if number < 1 { gnu.usage_error(f"value {number} for -n option should be >= 1") }
           if cfg.replace != null { exclusive("--replace", "--max-args/-n"); cfg.replace = null }
           if cfg.max_lines > 0 { exclusive("--max-lines", "--max-args/-n"); cfg.max_lines = 0 }
           cfg.max_args = number
         }
         "L" | "l" => {
-          let number = if key == "l" and value == "" { 1 } else { option_number(value, "L", 1) }
+          let number = if key == "l" and value == "" { 1 } else { option_number(value, "L") }
           if number < 1 { gnu.usage_error(f"value {number} for -L option should be >= 1") }
           let current = if key == "L" { "-L" } else { "--max-lines/-l" }
           if cfg.replace != null { exclusive("--replace", current); cfg.replace = null }
@@ -300,13 +354,13 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
           cfg.max_lines = number
         }
         "s" => {
-          let number = option_number(value, "s", 1)
+          let number = option_number(value, "s")
           if number < 1 { gnu.error(f"value {number} for -s option should be >= 1") }
           if number > DEFAULT_LIMIT { gnu.error(f"value {number} for -s option should be <= {DEFAULT_LIMIT}") }
           cfg.max_chars = if number > DEFAULT_LIMIT { DEFAULT_LIMIT } else { number }
         }
         "P" => {
-          let number = option_number(value, "P", 0)
+          let number = option_number(value, "P")
           if number < 0 { gnu.usage_error(f"value {number} for -P option should be >= 0") }
           cfg.max_procs = number
         }
@@ -345,7 +399,7 @@ proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument
   let argv = collect {
     for word in command {
       let text = gnu.argument_bytes(word, raw)
-      let joined = if replace and ! items.is_empty() { substitute(text, marker, c_string(items[0].data)) } else { text }
+      let joined = if replace and ! items.is_empty() { c_string(items[0].data) |> substitute(text, marker, _) } else { text }
       yield joined as Path
     }
     if ! replace { for item in items { yield c_string(item.data) as Path } }
@@ -576,56 +630,3 @@ proc main(...operands: List[Bytes]) {
   if let Err(problem) = io.flush_stdout() { gnu.write_failed(problem) }
   exit result
 }
-
-# The text of --help.
-const HELP = r"""
-  Usage: xargs [OPTION]... [COMMAND [INITIAL-ARGS]...]
-  Run COMMAND with arguments INITIAL-ARGS and more arguments read from input.
-
-  Mandatory and optional arguments to long options are also
-  mandatory or optional for the corresponding short option.
-    -0, --null                   items are separated by a null, not whitespace;
-                                   disables quote and backslash processing and
-                                   logical EOF processing
-    -a, --arg-file=FILE          read arguments from FILE, not standard input
-    -d, --delimiter=CHARACTER    items in input stream are separated by CHARACTER,
-                                   not by whitespace; disables quote and backslash
-                                   processing and logical EOF processing
-    -E END                       set logical EOF string; if END occurs as a line
-                                   of input, the rest of the input is ignored
-                                   (ignored if -0 or -d was specified)
-    -e, --eof[=END]              equivalent to -E END if END is specified;
-                                   otherwise, there is no end-of-file string
-    -I R                         same as --replace=R
-    -i, --replace[=R]            replace R in INITIAL-ARGS with names read
-                                   from standard input, split at newlines;
-                                   if R is unspecified, assume {}
-    -L, --max-lines=MAX-LINES    use at most MAX-LINES non-blank input lines per
-                                   command line
-    -l[MAX-LINES]                similar to -L but defaults to at most one non-
-                                   blank input line if MAX-LINES is not specified
-    -n, --max-args=MAX-ARGS      use at most MAX-ARGS arguments per command line
-    -o, --open-tty               Reopen standard input as /dev/tty in the child
-                                   process before executing the command; useful to
-                                   run an interactive application.
-    -P, --max-procs=MAX-PROCS    run at most MAX-PROCS processes at a time
-    -p, --interactive            prompt before running commands
-        --process-slot-var=VAR   set environment variable VAR in child processes
-    -r, --no-run-if-empty        if there are no arguments, then do not run COMMAND;
-                                   if this option is not given, COMMAND will be
-                                   run at least once
-    -s, --max-chars=MAX-CHARS    limit length of command line to MAX-CHARS
-        --show-limits            show limits on command-line length
-    -t, --verbose                print commands before executing them
-    -x, --exit                   exit if the size (see -s) is exceeded
-        --help                   display this help and exit
-        --version                output version information and exit
-
-  If COMMAND is omitted, the default is 'echo'.
-
-  Please see also the documentation at https://www.gnu.org/software/findutils/.
-  You can report (and track progress on fixing) bugs in the "xargs"
-  program via the GNU findutils bug-reporting page at
-  https://savannah.gnu.org/bugs/?group=findutils or, if
-  you have no web access, by sending email to <bug-findutils@gnu.org>.
-  """

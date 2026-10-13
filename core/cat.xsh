@@ -3,6 +3,9 @@ use lib.gnu
 use lib.textio_a1 as tio
 use unix
 
+const CARET = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
+const PRINTABLE = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
 const USAGE = """Usage: cat [OPTION]... [FILE]...
 Concatenate FILE(s) to standard output.
 
@@ -118,9 +121,6 @@ proc report_name_error(name: Bytes, failure: Error) [process, env] {
     gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
   }
 }
-
-const CARET = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
-const PRINTABLE = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
 # The `-v` spelling of a byte below 128.
 pure low_byte(value: Int) -> Str {
