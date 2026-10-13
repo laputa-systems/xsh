@@ -61,6 +61,86 @@ the frozen reference on all 1,690 inputs and 6,760 profile outcomes, with
 matching diagnostics. No current per-workspace module check or preparation
 counts have been recorded. Close W9 only with that count evidence.
 
+### The xsh-wide lint pass is landed but unverified
+
+`lane/lintfix` (about 70 per-rule commits, 733 files) is merged without a test
+run on the merged tree; the final gate battery was stopped. Resume by running
+the native suite, `xsht check` over the repository, and the Rust gates that
+walk the corpus (`syntax::grammar::`, `desugar::`, `lint_format_invariance::`),
+then bisect any failure to the per-rule commit and revert that commit; a
+failure after a lint rewrite is a lint bug. Lint is not at zero. Remaining
+(count from before the second pass): `lint.shadowing` 158 (err),
+`lint.unused-local` 152, `lint.organize-top-level-consts` 126,
+`lint.prefer-slice` 158, notes `lint.empty-sentinel` 65 and
+`lint.prefer-non-empty-argv` 56, and a handful of `dollar-in-expression-string`,
+`unused-callable`, `unused-type`, `dead-code`. `crates/xsht/tests/lint_performance.rs`
+cannot pass until warn/err/info reach zero. `core/dd.xsh`,
+`core/tests/test-uu-tail-1.xsh` and `tests/xsh/stdlib/linux_storage.xsh` kept
+master's text in the merge and were not linted.
+
+Lint bugs found, with reproducers in the commit bodies of the reverts or the
+lane report: `lint.prefer-positional-constructor` (bulk `xsht check` then fails
+`compact.indexed-build` at `core/arch.xsh`; reverted); `lint.needless-annotation`
+suggests dropping `List[Any]` that the checker then rejects; 
+`lint.prefer-as-conversion` prints an unparenthesised `if ... else {} as Path`
+(`core/cp.xsh:711`); `lint.prefer-collect` rewrites rejected by the checker;
+`lint.prefer-record-constructor` joins long literals onto one line;
+`lint.redundant-close` leaves the removed line's indentation on the next line;
+directory-argument discovery ignores `xsht-config.ini` excludes (the excluded
+`core/tests/data/patch/tree.xsh` was rewritten once and restored).
+
+### Host-load flakes and slow tests in the full native suite
+
+One full `xsht test` on the merged tree under host load 35 to 75 (other jobs
+on the machine, 1.5 h) ended `13377 passed; 116 failed; 138 skipped`.
+Re-running the 72 `FAILED` IDs one at a time passed 71; the remaining one
+(`test_uu_tail_follow_descriptor_vs_rename1`) is a startup race fixed in the
+test. Re-running the 44 `TIMEOUT 2m` IDs one at a time passed 40; four still
+time out alone, and two of them also time out at 2 minutes on the frozen
+abdd589c build, so they are slow tests and not regressions:
+`test-gnu-cut.xsh::test_gnu_cut_cut_log`,
+`test-gnu-factor.xsh::test_gnu_factor_factor_parallel_log`,
+`test-uu-sort-2.xsh::test_uu_sort_merge_write_error_does_not_panic`,
+`dev/tests/test-system-report-check.xsh::test_system_report_traced_live_and_replay_paths_keep_host_effect_...`.
+Which of the other 111 are test pollution and which are timing-gated is not
+settled. Known pollution: a test that closes a descriptor and asserts the
+error from the same number races any concurrent test that opens a file
+(`linux_storage.xsh::test_real_ioctls_on_a_regular_file...`, fixed by probing a
+never-open number); other tests with that shape were not searched for. Known
+timing gates: 3 s and 5 s child deadlines in `core/tests` (awk, dd, tail,
+find, sed, ls) and the btop PTY tests' 10 s waits against a 10 to 25 s
+verification-profile applet startup. To separate them, run the suite at
+`-j 1`, `-j 8` and the default, and diff the failing sets; a failure that
+follows the worker count and moves between runs is pollution, one that
+follows host load alone is timing.
+
+### Smaller open items
+
+- `[e for e in fs.children(dir)?]` yields an empty list while
+  `for e in fs.children(dir)? { }` visits both entries (found by the laputa
+  lint pass, `guest/asterinas/viability/overlay/usr/lib/asterinas/boot-proof.xsh:117`;
+  `lint.prefer-list-comp` fires on that shape and its rewrite changed behavior).
+- Each lint candidate probe is a full parse, load and check of the import
+  graph (introduced by `da40b6b4`); options are one shared check of the
+  unchanged graph, grouped candidates, or skipping probes on a clean corpus.
+- The full IR verifier derives a field receiver's type from the slot's
+  declared type; a narrowed optional record is peeled one layer, but a callable
+  field read or call through a narrowed optional record, and an error pattern
+  on a narrowed `FetchError?`, may still be rejected. The soundness fuzzer
+  does not reach them.
+- `tag` pattern verification (`verify_tag_pattern_subject`) has the same
+  declared-union shape as the error-pattern subject fix.
+- `third_party/regex-lite` is a vendored copy of regex-lite 0.1.9 whose capture
+  name map is a `BTreeMap`, so compiling a regex literal does not need
+  `getrandom` (`test_uu_shuf_getrandom_fail`); the owner chose this over
+  leaving the test red. Build time and binary size were not measured; drop the
+  patch if an upstream release removes the std `HashMap`.
+- The `Return` continuation fix for an unowned block frame was verified for
+  error payloads only; a returned resource through that path has no test.
+- `tests/xsh/list-pattern.xsh` lines 142 and 144 use the one-line `=> last _ =>`
+  arm form that the parser now rejects without a separator; they are
+  error-expectation fixtures and may pass for the wrong reason.
+
 ## Laputa
 
 Laputa (`../laputa`) is migrated through every default lint that has a fix,
