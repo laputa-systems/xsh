@@ -30,6 +30,10 @@ CORPUS_BLAKE3 = "a7b1f70466c4e978222af3d329e9c71b0a15030480e24b8d7f77a5fa4f57f17
 HELPER_SHA256 = "2ff5aaa74f8ae3d0597a3c14796d8643211a5b57b8b95147ba87205540ca95b0"
 WRAPPER_SHA256 = "f6a76b9bcb385e1e328332c9815ce48cb0e864d3ffe951578202a774d476f64e"
 PINNED_IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+# Candidate build configuration is checked against these controller-owned pins.
+PINNED_BUILD_TARGET = "x86_64-unknown-linux-musl"
+PINNED_BUILD_PROFILE = "verification"
+PINNED_BUILD_RUNNER_SHA256 = "3477001c6cbe8e9604cb712c10d73447b7e5ee08f0ae4f5bf606f7d8a319e46c"
 APPROVED_HELPER_SOURCE = pathlib.Path(
     "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
     ".work/consolidation/w9-repository-parity.rs"
@@ -47,6 +51,21 @@ DOCKER_OVERRIDE_VARIABLES = (
     "DOCKER_CONFIG",
     "DOCKER_TLS_VERIFY",
     "DOCKER_CERT_PATH",
+)
+SHELL_OVERRIDE_VARIABLES = ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")
+DOCKER_RESOURCE_FLAGS = (
+    "--cpus",
+    "--cpu-period",
+    "--cpu-quota",
+    "--cpu-rt-period",
+    "--cpu-rt-runtime",
+    "--cpu-shares",
+    "--cpuset-cpus",
+    "--cpuset-mems",
+    "--memory",
+    "--memory-reservation",
+    "--memory-swap",
+    "--memory-swappiness",
 )
 REFERENCE_HEAD = "e240efad273fe35d66d91f4037b6a8193527da2e"
 REFERENCE_INPUT_ROOT = pathlib.Path(
@@ -105,6 +124,10 @@ RECEIPT_NAME = re.compile(r"parallel-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-all\.receip
 
 
 class PublicationError(RuntimeError):
+    pass
+
+
+class CleanupFailure(PublicationError):
     pass
 
 
@@ -198,6 +221,13 @@ def w9_build_contract() -> dict[str, str]:
         raise PublicationError(f"W9 build config is incomplete: missing={missing}")
     if result["W9_CACHE_BUILD_IMAGE"] != PINNED_IMAGE:
         raise PublicationError("W9 build image differs from the approved publication image")
+    for key, approved in (
+        ("W9_CACHE_BUILD_TARGET", PINNED_BUILD_TARGET),
+        ("W9_CACHE_BUILD_PROFILE", PINNED_BUILD_PROFILE),
+        ("W9_CACHE_BUILD_RUNNER_SHA256", PINNED_BUILD_RUNNER_SHA256),
+    ):
+        if result[key] != approved:
+            raise PublicationError(f"W9 build config {key} differs from its approved pin")
     return result
 
 
@@ -1308,6 +1338,16 @@ def claim_global_runner_lock(candidate_root: pathlib.Path, output: pathlib.Path)
         raise
 
 
+def close_lock_claim(claim: LockClaim) -> list[BaseException]:
+    errors: list[BaseException] = []
+    for descriptor in (claim.descriptor, claim.parent_descriptor):
+        try:
+            os.close(descriptor)
+        except BaseException as error:
+            errors.append(error)
+    return errors
+
+
 def release_lock_claim(claim: LockClaim) -> None:
     errors: list[BaseException] = []
     try:
@@ -1320,13 +1360,15 @@ def release_lock_claim(claim: LockClaim) -> None:
         os.fsync(claim.parent_descriptor)
     except BaseException as error:
         errors.append(error)
-    for descriptor in (claim.descriptor, claim.parent_descriptor):
-        try:
-            os.close(descriptor)
-        except BaseException as error:
-            errors.append(error)
+    errors.extend(close_lock_claim(claim))
     if errors:
         raise PublicationError(f"could not fully release lock {claim.path}: {errors[0]}") from errors[0]
+
+
+def retain_lock_claim(claim: LockClaim) -> None:
+    errors = close_lock_claim(claim)
+    if errors:
+        raise PublicationError(f"could not close retained lock {claim.path}: {errors[0]}") from errors[0]
 
 
 @contextlib.contextmanager
@@ -1372,11 +1414,15 @@ def claim_run_resources(
         except BaseException as error:
             cleanup_interrupt = error
         cleanup_errors: list[BaseException] = []
+        retain_claims = isinstance(primary_error, CleanupFailure)
         for claim in (output_claim, global_claim):
             if claim is None:
                 continue
             try:
-                release_lock_claim(claim)
+                if retain_claims:
+                    retain_lock_claim(claim)
+                else:
+                    release_lock_claim(claim)
             except BaseException as error:
                 cleanup_errors.append(error)
         signal.signal(signal.SIGTERM, previous_sigterm)
@@ -1470,6 +1516,14 @@ def validate_docker_target(
     return pinned_environment
 
 
+def sanitized_shell_environment(environment: dict[str, str]) -> dict[str, str]:
+    return {
+        name: value
+        for name, value in environment.items()
+        if name not in SHELL_OVERRIDE_VARIABLES and not name.startswith("BASH_FUNC_")
+    }
+
+
 def verify_unix_socket(socket_path: pathlib.Path) -> None:
     try:
         mode = os.stat(socket_path, follow_symlinks=False).st_mode
@@ -1486,7 +1540,8 @@ def verify_local_docker_socket(endpoint: str) -> None:
 
 
 def local_docker_environment() -> dict[str, str]:
-    environment = dict(os.environ)
+    environment = sanitized_shell_environment(dict(os.environ))
+    environment["PATH"] = "/usr/bin:/bin"
     overrides = sorted(name for name in DOCKER_OVERRIDE_VARIABLES if name in environment)
     if overrides:
         raise PublicationError(f"Docker endpoint overrides are not allowed: {overrides}")
@@ -1519,11 +1574,16 @@ def docker_shim(job_dir: pathlib.Path, container: str, cpu: int, input_root: pat
     shim_dir.mkdir()
     shim = shim_dir / "docker"
     input_mount = shlex.quote(f"{input_root}:{input_root}:ro")
+    resource_flags = "|".join(f"{flag}|{flag}=*" for flag in DOCKER_RESOURCE_FLAGS)
     contents = (
         "#!/usr/bin/env bash\nset -euo pipefail\n"
         "if [[ ${1-} == run ]]; then\n  shift\n  args=()\n"
         "  while (($#)); do\n    case $1 in\n"
-        "      --cpus=8|--memory=16g) shift ;;\n"
+        f"      {resource_flags})\n"
+        "        if [[ $1 == *=* ]]; then shift; else\n"
+        "          if (($# < 2)); then echo \"Docker resource option $1 needs a value\" >&2; exit 2; fi\n"
+        "          shift 2\n"
+        "        fi ;;\n"
         "      *) args+=(\"$1\"); shift ;;\n"
         "    esac\n  done\n"
         f"  exec /usr/bin/docker run --name={container} --cpuset-cpus={cpu} --cpus=1 --memory=1g -v {input_mount} \"${{args[@]}}\"\n"
@@ -1557,19 +1617,32 @@ def existing_container(name: str, environment: dict[str, str]) -> bool:
 def stop_owned_job(job: dict[str, object], environment: dict[str, str]) -> list[str]:
     errors: list[str] = []
     container = str(job["container"])
-    try:
-        subprocess.run(
-            ["/usr/bin/docker", "stop", "--time", "5", container],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=environment,
-            timeout=10,
-        )
-    except subprocess.TimeoutExpired:
-        errors.append(f"timed out stopping Docker container {container}")
-    except OSError as error:
-        errors.append(f"could not stop Docker container {container}: {error}")
+
+    def stop_if_present(stage: str, grace: int, timeout: int) -> None:
+        try:
+            present = existing_container(container, environment)
+        except PublicationError as error:
+            errors.append(f"could not verify Docker container {container} before {stage}: {error}")
+            present = True
+        if not present:
+            return
+        try:
+            result = subprocess.run(
+                ["/usr/bin/docker", "stop", "--time", str(grace), container],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=environment,
+                timeout=timeout,
+            )
+            if result.returncode != 0:
+                errors.append(f"Docker stop for {container} failed during {stage} with status {result.returncode}")
+        except subprocess.TimeoutExpired:
+            errors.append(f"timed out stopping Docker container {container} during {stage}")
+        except OSError as error:
+            errors.append(f"could not stop Docker container {container} during {stage}: {error}")
+
+    stop_if_present("initial cleanup", 5, 10)
     process = job.get("process")
     if process is not None:
         try:
@@ -1612,19 +1685,12 @@ def stop_owned_job(job: dict[str, object], environment: dict[str, str]) -> list[
             output_handle.close()
         except OSError as error:
             errors.append(f"could not close worker log: {error}")
+    stop_if_present("final cleanup", 1, 5)
     try:
-        subprocess.run(
-            ["/usr/bin/docker", "stop", "--time", "1", container],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=environment,
-            timeout=5,
-        )
-    except subprocess.TimeoutExpired:
-        errors.append(f"timed out finishing stop for Docker container {container}")
-    except OSError as error:
-        errors.append(f"could not finish stopping Docker container {container}: {error}")
+        if existing_container(container, environment):
+            errors.append(f"owned Docker container {container} remains after cleanup")
+    except PublicationError as error:
+        errors.append(f"could not verify Docker container {container} after cleanup: {error}")
     return errors
 
 
@@ -1651,14 +1717,17 @@ def start_and_register_job(
         active.append(job)
         signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
         return process
-    except BaseException:
+    except BaseException as start_error:
         signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
-        if job in active:
-            active.remove(job)
         if process is not None:
             errors = stop_owned_job(job, environment)
-            for error in errors:
-                print(error, file=sys.stderr)
+            if errors:
+                detail = "; ".join(errors)
+                raise CleanupFailure(
+                    f"worker start failed and cleanup failed: {detail}; shared and output locks will be retained"
+                ) from start_error
+        if job in active:
+            active.remove(job)
         raise
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
@@ -1736,10 +1805,14 @@ def launch_job(
 
 
 def stop_jobs(active: list[dict[str, object]], environment: dict[str, str]) -> None:
+    errors: list[str] = []
     for job in list(active):
-        for error in stop_owned_job(job, environment):
-            print(error, file=sys.stderr)
+        errors.extend(stop_owned_job(job, environment))
         active.remove(job)
+    if errors:
+        raise CleanupFailure(
+            "worker cleanup failed: " + "; ".join(errors) + "; shared and output locks will be retained"
+        )
 
 
 def handle_termination(signum: int, _frame: object) -> None:
@@ -1827,12 +1900,20 @@ def execute_run(args: argparse.Namespace) -> None:
                 env=docker_environment,
             ).stdout.strip()
             if remaining:
-                raise PublicationError(f"owned Docker containers remain after parity run: {remaining}")
+                stranded_jobs = [
+                    {"container": name, "process": None, "output": None}
+                    for name in remaining.splitlines()
+                ]
+                stop_jobs(stranded_jobs, docker_environment)
+                raise PublicationError(f"owned Docker containers remained after the parity workers exited: {remaining}")
             summary = verify_receipt_bundle(reference, output / "candidate", paths_by_index, record["corpus_blake3"])
             write_status(output, "complete", completed, summary)
             print(summary)
-        except BaseException:
-            stop_jobs(active, docker_environment)
+        except BaseException as primary_error:
+            try:
+                stop_jobs(active, docker_environment)
+            except CleanupFailure as cleanup_error:
+                raise CleanupFailure(f"run failed: {primary_error}; {cleanup_error}") from primary_error
             raise
 
 

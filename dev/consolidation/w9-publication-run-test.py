@@ -344,6 +344,38 @@ class PublicationRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PublicationError, "duplicate W9 build receipt field schema"):
             runner.parse_build_receipt(path)
 
+    def test_w9_build_contract_rejects_target_profile_and_builder_pin_drift(self):
+        contract = runner.w9_build_contract()
+        self.assertEqual(contract["W9_CACHE_BUILD_TARGET"], "x86_64-unknown-linux-musl")
+        self.assertEqual(contract["W9_CACHE_BUILD_PROFILE"], "verification")
+        self.assertEqual(
+            contract["W9_CACHE_BUILD_RUNNER_SHA256"],
+            "3477001c6cbe8e9604cb712c10d73447b7e5ee08f0ae4f5bf606f7d8a319e46c",
+        )
+        config_path = self.root / "dev/consolidation/w9-cache-build-config.sh"
+        config_path.parent.mkdir(parents=True)
+        mutations = {
+            "W9_CACHE_BUILD_TARGET": "aarch64-unknown-linux-musl",
+            "W9_CACHE_BUILD_PROFILE": "release",
+            "W9_CACHE_BUILD_RUNNER_SHA256": "0" * 64,
+        }
+        with patch.object(runner, "ROOT", self.root):
+            for key, value in mutations.items():
+                with self.subTest(key=key):
+                    changed = dict(contract)
+                    changed[key] = value
+                    config_path.write_text(
+                        "".join(f"readonly {name}={item}\n" for name, item in changed.items()),
+                        encoding="utf-8",
+                    )
+                    runner.w9_build_contract.cache_clear()
+                    with self.assertRaisesRegex(
+                        runner.PublicationError,
+                        f"W9 build config {key} differs from its approved pin",
+                    ):
+                        runner.w9_build_contract()
+        runner.w9_build_contract.cache_clear()
+
     def test_build_receipt_binding_rejects_source_tree_and_binary_mismatches(self):
         path = self.root / ".work/build.receipt"
         path.parent.mkdir()
@@ -469,6 +501,78 @@ class PublicationRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PublicationError, "endpoint must be local"):
             runner.validate_docker_target(environment, "default", "ssh://builder.example")
 
+    def test_local_docker_environment_removes_inherited_shell_overrides(self):
+        hostile = {
+            "BASH_ENV": "/home/attacker/override.sh",
+            "ENV": "/home/attacker/env.sh",
+            "SHELLOPTS": "xtrace",
+            "BASHOPTS": "expand_aliases",
+            "BASH_FUNC_docker%%": "() { printf hostile; }",
+            "BASH_FUNC_timeout%%": "() { printf hostile; }",
+        }
+        responses = iter(("default\n", f"{runner.DOCKER_LOCAL_ENDPOINT}\n"))
+
+        def inspect_context(_command, *, env, **_kwargs):
+            self.assertFalse(hostile.keys() & env.keys())
+            self.assertEqual(env["PATH"], "/usr/bin:/bin")
+            return SimpleNamespace(stdout=next(responses))
+
+        with patch.dict(
+            runner.os.environ,
+            {"PATH": "/home/attacker/bin:/usr/bin:/bin", **hostile},
+            clear=True,
+        ):
+            with patch.object(runner.subprocess, "run", side_effect=inspect_context):
+                with patch.object(runner, "verify_local_docker_socket"):
+                    environment = runner.local_docker_environment()
+
+        self.assertFalse(hostile.keys() & environment.keys())
+        self.assertEqual(environment["DOCKER_HOST"], runner.DOCKER_LOCAL_ENDPOINT)
+        self.assertEqual(environment["PATH"], "/usr/bin:/bin")
+
+    def test_docker_shim_applies_exact_worker_limits_from_pinned_wrapper(self):
+        wrapper = runner.APPROVED_BUILD_RUNNER.parent / "run-native-secondary.sh"
+        runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
+        wrapper_text = runner.read_regular_text(wrapper)
+        docker_array_line = next(line for line in wrapper_text.splitlines() if line.startswith("TASK_DOCKER=("))
+        wrapper_args = runner.shlex.split(docker_array_line.removeprefix("TASK_DOCKER=(").removesuffix(")"))
+        self.assertEqual(wrapper_args[:2], ["docker", "run"])
+        self.assertIn("--cpus=8", wrapper_args)
+        self.assertIn("--memory=16g", wrapper_args)
+
+        job_dir = self.root / "jobs/A/0-100"
+        job_dir.mkdir(parents=True)
+        shim_dir = runner.docker_shim(job_dir, "fixture-worker", 2, self.root / "input")
+        shim = shim_dir / "docker"
+        fake_docker = self.root / "record-docker"
+        record_path = self.root / "docker-argv.bin"
+        fake_docker.write_text(
+            "#!/usr/bin/env bash\nprintf '%s\\0' \"$@\" > \"$W9_DOCKER_ARGV_FILE\"\n",
+            encoding="utf-8",
+        )
+        fake_docker.chmod(0o755)
+        shim.write_text(
+            runner.read_regular_text(shim).replace("/usr/bin/docker", str(fake_docker)),
+            encoding="utf-8",
+        )
+        extra_resource_args = [
+            "--memory", "4g", "--memory-swap=8g", "--cpus", "4",
+            "--cpu-quota=50000", "--cpu-period", "100000", "--cpu-shares", "512",
+            "--cpuset-cpus", "0-7", "--cpuset-mems=0",
+        ]
+        result = subprocess.run(
+            ["/bin/bash", str(shim), "run", *wrapper_args[2:], *extra_resource_args],
+            check=False,
+            env={"PATH": "/usr/bin:/bin", "W9_DOCKER_ARGV_FILE": str(record_path)},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8"))
+        final_args = [value.decode("utf-8") for value in record_path.read_bytes().split(b"\0")[:-1]]
+        resource_names = set(runner.DOCKER_RESOURCE_FLAGS)
+        final_resources = [arg for arg in final_args if arg.split("=", 1)[0] in resource_names]
+        self.assertEqual(final_resources, ["--cpuset-cpus=2", "--cpus=1", "--memory=1g"])
+
     def test_docker_endpoint_must_resolve_to_a_local_unix_socket(self):
         path = self.root / "docker.sock"
         regular = self.root / "not-a-socket"
@@ -525,14 +629,67 @@ class PublicationRunnerTests(unittest.TestCase):
 
         with patch.object(runner.subprocess, "run", side_effect=timed_out):
             with patch.object(runner.os, "killpg", side_effect=lambda _pid, sig: signals.append(sig)):
-                errors = runner.stop_owned_job(
-                    {"container": "stuck-daemon", "process": FakeProcess(), "output": None},
-                    {"PATH": "/usr/bin:/bin"},
-                )
+                with patch.object(runner, "existing_container", return_value=True):
+                    errors = runner.stop_owned_job(
+                        {"container": "stuck-daemon", "process": FakeProcess(), "output": None},
+                        {"PATH": "/usr/bin:/bin"},
+                    )
 
         self.assertEqual(signals, [signal.SIGINT])
         self.assertEqual(waits, [15])
-        self.assertEqual(len(errors), 2)
+        self.assertEqual(len(errors), 3)
+
+    def test_docker_cleanup_failure_retains_shared_and_output_locks(self):
+        work = self.root / ".work"
+        work.mkdir()
+        output = work / "cleanup-failed"
+        active = []
+
+        class FakeProcess:
+            pid = 123456
+
+            def wait(self, timeout=None):
+                return 0
+
+        job = {"container": "stuck-daemon", "process": FakeProcess(), "output": None}
+        real_run = runner.subprocess.run
+
+        def successful_stop(command, *args, **kwargs):
+            if command[:3] == ["/usr/bin/docker", "stop", "--time"]:
+                return SimpleNamespace(returncode=0)
+            return real_run(command, *args, **kwargs)
+
+        with self.assertRaisesRegex(runner.CleanupFailure, "remains after cleanup"):
+            with runner.claim_run_resources(self.root, output, []):
+                active.append(job)
+                with patch.object(runner.subprocess, "run", side_effect=successful_stop):
+                    with patch.object(runner.os, "killpg", side_effect=ProcessLookupError):
+                        with patch.object(runner, "existing_container", return_value=True):
+                            runner.stop_jobs(active, {"PATH": "/usr/bin:/bin"})
+
+        self.assertEqual(active, [])
+        self.assertTrue(runner.global_runner_lock_path(self.root).exists())
+        self.assertTrue(runner.output_lock_path(output).exists())
+
+    def test_nonzero_docker_stop_is_cleanup_failure_after_container_disappears(self):
+        class FakeProcess:
+            pid = 123456
+
+            def wait(self, timeout=None):
+                return 0
+
+        active = [{"container": "failed-stop", "process": FakeProcess(), "output": None}]
+        with self.assertRaisesRegex(runner.CleanupFailure, "failed during initial cleanup with status 1"):
+            with patch.object(
+                runner.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=1),
+            ):
+                with patch.object(runner.os, "killpg", side_effect=ProcessLookupError):
+                    with patch.object(runner, "existing_container", side_effect=[True, False, False]):
+                        runner.stop_jobs(active, {"PATH": "/usr/bin:/bin"})
+
+        self.assertEqual(active, [])
 
     def test_signal_after_output_claim_releases_locks_and_records_status(self):
         work = self.root / ".work"
@@ -562,7 +719,6 @@ class PublicationRunnerTests(unittest.TestCase):
         completed = []
         active = []
         joined = []
-        docker_calls = []
 
         class FakeProcess:
             pid = 987654
@@ -585,16 +741,12 @@ class PublicationRunnerTests(unittest.TestCase):
                 os.kill(os.getpid(), signal.SIGTERM)
             return real_pthread_sigmask(how, mask)
 
-        def fake_run(command, **_kwargs):
-            docker_calls.append(command)
-            return None
-
         with self.assertRaisesRegex(KeyboardInterrupt, "received signal 15"):
             with runner.claim_run_resources(self.root, output, completed):
                 output_handle = (output / "worker.log").open("wb")
                 job = {"container": "fixture-worker", "output": output_handle, "process": None}
                 with patch.object(runner.subprocess, "Popen", return_value=process):
-                    with patch.object(runner.subprocess, "run", side_effect=fake_run):
+                    with patch.object(runner, "existing_container", return_value=False):
                         with patch.object(runner.os, "killpg", side_effect=ProcessLookupError):
                             with patch.object(runner.signal, "pthread_sigmask", side_effect=signal_on_unblock):
                                 runner.start_and_register_job(
@@ -607,7 +759,6 @@ class PublicationRunnerTests(unittest.TestCase):
 
         self.assertEqual(active, [])
         self.assertTrue(joined)
-        self.assertEqual(len(docker_calls), 2)
         self.assertTrue(output_handle.closed)
         self.assertTrue((output / "attempt-status.txt").is_file())
 
