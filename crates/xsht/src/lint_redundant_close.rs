@@ -139,7 +139,7 @@ pub(super) fn lint_deferred_root_closes(
         }
 
         let root_name = name.as_str();
-        let span = arena.stmt(defer_stmt).span;
+        let span = statement_line_span(linter.source, arena.stmt(defer_stmt).span);
         diagnostics.push(
             Diagnostic::new(
                 Severity::Warning,
@@ -163,6 +163,18 @@ pub(super) fn lint_deferred_root_closes(
         );
     }
     diagnostics
+}
+
+fn statement_line_span(source: &str, statement: Span) -> Span {
+    let line_start = source[..statement.start()]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let indentation = &source[line_start..statement.start()];
+    if indentation.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
+        Span::new(statement.source_id, line_start, statement.end())
+    } else {
+        statement
+    }
 }
 
 fn check_has_errors_in_source(
