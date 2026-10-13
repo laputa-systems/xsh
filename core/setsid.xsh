@@ -25,5 +25,4 @@ proc main(...argv: List[Str]) {
     exit control.status_code(status)?
   }
   let _ = process.spawn(command)?
-  return
 }

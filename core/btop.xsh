@@ -203,7 +203,6 @@ proc dump_frames(
     }
     fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))
   }
-  return
 }
 
 proc headless_replay(bundle: replay.Bundle, count: Int?, dump_model_path: Str?, dump_screen_path: Str?) [fs, error] {
@@ -254,7 +253,6 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
     histories = graph_series.observe(histories, frames[index], view.network_interface)?
     committed = draw(frames[index], view, rows, cols, committed, histories, session.capabilities)?
   }
-  return
 }
 
 proc interactive_live(count: Int?) [fs, process, time, io, error] {
@@ -378,7 +376,6 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] {
     cols = size.cols
     view = ui.resize(view, current, renderer.process_capacity(rows), local_display)
   }
-  return
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, io, error] {

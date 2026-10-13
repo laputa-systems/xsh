@@ -143,7 +143,6 @@ export proc begin_with(inputs: Inputs) [env, process, io, error] -> Result[Sessi
 export proc finish(session: Session) [process, io, error] -> Result[Unit, Error] {
   defer { gnu.write_text(cleanup_sequences()) }
   unix.set_tty_attrs(session.attrs, fd: 0)
-  return
 }
 
 ## Closes synchronized output on errors while a frame is being written.
