@@ -2,6 +2,9 @@ name = "xsh"
 version = "0.1.0"
 defaultTargets = ["Xsh"]
 moreLeanArgs = ["-j", "4", "-M", "8192"]
+srcDir = "../formal"
+buildDir = "../.work/formal-build"
+packagesDir = "../.work/lake-packages"
 
 [[lean_lib]]
 name = "Xsh"

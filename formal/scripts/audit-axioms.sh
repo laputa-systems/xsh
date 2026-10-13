@@ -2,6 +2,25 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+repo_root=$(git rev-parse --show-toplevel)
+work_root="$repo_root/.work"
+tmp_root="$work_root/tmp"
+lake_cache="$work_root/lake-cache"
+lakefile="$repo_root/formal/lakefile.toml"
+
+prepare_work_root() {
+  local exclude_path
+  exclude_path=$(git rev-parse --git-path info/exclude)
+  if ! rg -qxF '.work/' "$exclude_path"; then
+    printf '.work/\n' >>"$exclude_path"
+  fi
+  mkdir -p "$tmp_root" "$lake_cache"
+}
+
+lake_project() {
+  TMPDIR="$tmp_root" LAKE_CACHE_DIR="$lake_cache" \
+    lake --dir="$work_root" --file="$lakefile" "$@"
+}
 
 usage() {
   cat >&2 <<'EOF'
@@ -39,7 +58,7 @@ load_project_modules() {
 }
 
 build_project_modules() {
-  TMPDIR=../.work/tmp lake build "${project_modules[@]}"
+  lake_project build "${project_modules[@]}"
 }
 
 audit_source() {
@@ -58,7 +77,7 @@ audit_source() {
       printf '%s\n' "$prefix"
     fi
     cat scripts/AuditAxioms.lean
-  } | TMPDIR=../.work/tmp lake env lean -j 4 -M 8192 --stdin
+  } | lake_project env lean -j 4 -M 8192 --stdin
 }
 
 expect_rejected() {
@@ -90,6 +109,7 @@ self_test() {
   expect_rejected sorry 'sorryRoot depends on forbidden axioms' "$sorry_control"
 }
 
+prepare_work_root
 load_project_modules
 build_project_modules
 
