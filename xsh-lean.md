@@ -6,9 +6,9 @@ scalar and base-machine fragments, validation, environment/store, effects,
 raw-IR, and transport codec/law fragments are integrated.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
 runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
-and `Xsh.Values.FloatEquality` defines an executable raw-bit comparator with
-Lean laws for that rule. A source regression now covers runtime and
-constant-folded signed-zero, NaN, and nested comparisons. Consolidation
+and `Xsh.Values.FloatEquality` defines an executable comparator over raw
+encodings with Lean laws for IEEE value equality. A source regression covers
+runtime and constant-folded signed-zero, NaN, and nested comparisons. Consolidation
 acceptance and the post-consolidation G0b source freeze remain pending gates.
 The owner requested wider staggered lanes; continue on disjoint domains with
 the coordinated build and memory limits. No Rust conformance or full-language
@@ -16,8 +16,9 @@ theorem is claimed, and all 72 inventoried full theorem obligations remain
 planned. The Raw decoder fragments prove successful word-read length, payload
 length and table bounds, plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 82 fragment roots; its 29 Python
-tests check inventory consistency and root reachability. Five observation
+Rust conformance. The inventory now names 82 fragment roots; its 50 Python
+tests check inventory consistency, mutation controls, and finite-case evidence
+boundaries. Five observation
 fragments pair caller-supplied emissions with classified obligations, require
 explicit alignment for permission and pull-sequence correspondence, and use
 structural `Expr` site labels that cannot distinguish identical occurrences.
@@ -88,7 +89,30 @@ The integrator chooses file splits and proof lemmas within the domains and owner
 
 G0a established the pinned Lean/Lake/checker setup, private test-only bridge, provisional source inventory, and initial scalar foundation. Continue reconciling the imported theorem modules, inventory mutation controls, and audit results as foundations grow. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
 
-The initial Float equality disagreement has been repaired: the XSH language contract defines Float equality by IEEE value equality, and runtime, constant-folded, and fuzz-oracle comparisons implement that rule while raw Float representation and total-sort order stay intact. `formal/Xsh/Values/FloatEquality.lean` defines the executable Boolean comparator and proves its agreement with the raw-bit relation, symmetry, transitivity, and reflexivity exactly for non-NaNs. It also proves that signed-zero equality preserves distinct payloads, wire encodings, and total-sort order. `tests/xsh/float-equality.xsh` now contains the runtime and constant-folding witnesses, including signed zero, same-bit NaN, and nested values. After consolidation closes, run these source witnesses against the frozen source and record the results as finite evidence. The repair and Lean laws do not establish Rust conformance.
+Coverage schema 2 keeps `source_state` provisional and `source_identity` null
+through consolidation; `finite_conformance.cases` stays empty until G0b freezes
+the source. At freeze, record an existing full Git commit and its exact root
+tree; the commit may be an ancestor of `HEAD`. Each named `RUST_CONFORMANCE`
+case carries a stable `test_id` as an exact argv element. The only accepted
+commands are `xsht test --exact <test_id>` and
+`cargo test --profile <profile> --target <target> -p <package> --lib
+<test_id> -- --exact` or the corresponding `--test <target>` form. Source tests
+require separate `xsht` and `xsh` SHA-256 roles; Cargo tests require separate
+`cargo` and `cargo-test:<package>:<target>` roles. The expected result is a
+predeclared normalized oracle with exactly `test_id`, `exit_code`, `passed`,
+`failed`, `skipped`, and `filtered`; it requires one pass with no failure or
+skip. For `xsht`, `filtered` is null because its summary has no such count;
+Cargo's filtered-out count is retained. The actual result retains captured
+`exit_code`, `stdout`, and `stderr`. The checker parses the named result line
+and summary, ignores duration values only, maps Cargo ignored tests to
+`skipped`, then compares the normalized outcome with the oracle. It rejects
+zero-test success and requires exactly one named pass, with no failures, skips,
+or ignored tests. The agreement is finite evidence for the named case only.
+Record only cases that have actually run; all universal theorem obligations
+remain independently planned until their complete proofs and required evidence
+pass.
+
+The initial Float equality disagreement has been repaired: the XSH language contract defines Float equality by IEEE value equality, and runtime, constant-folded, and fuzz-oracle comparisons implement that rule while raw Float representation and total-sort order stay intact. `formal/Xsh/Values/FloatEquality.lean` defines a Boolean comparator over raw encodings and proves its agreement with IEEE value equality, symmetry, transitivity, and reflexivity exactly for non-NaNs. It also proves that signed-zero equality preserves distinct payloads, wire encodings, and total-sort order. `tests/xsh/float-equality.xsh` now contains the runtime and constant-folding witnesses, including signed zero, same-bit NaN, and nested values. After consolidation closes, run these source witnesses against the frozen source and record the results as finite evidence. The Lean model and laws do not establish Rust conformance.
 
 Record measured startup, exact-name native gate, fresh Rust build, Lean changed-module check, and clean Lean build as each becomes available. Warm changed Lean-module check target: at most 60 seconds. Exact-name Rust/native check target: at most 30 seconds unless an external/process boundary requires more. If a repeated core loop exceeds 120 seconds or twice its measured baseline, repair the loop before broad lane work. Do not report a benchmark claim from one run. Performance is measured and logged during parity work; optimization gates begin only after feature and test parity. Final performance gates run only when `perf-gate-ready` passes immediately before and `perf-gate-ready -1` passes immediately after; if the host remains busy, report `perf gate deferred: host busy`. Memory and binary-size gates always run.
 
@@ -374,7 +398,7 @@ This map was checked at `120f8b44e98b4fa3cb87ab2ee6fc75da2b3d07c4`; the campaign
 | Effects, bounds and streams | `src/sema/check/infer_effects.rs`, `src/sema/check/effect_bounds.rs` (`enter_block_effect_bound`, `check_effect_not_excluded`), `src/sema/check/stream.rs`, `src/sema/check/module_driver.rs`; `AstArena::block_effect_bound`. |
 | Lowering, indexed schema and verify | `src/runtime/eval/lower.rs`, `src/runtime/eval/indexed.rs`, `src/runtime/eval/indexed/semantic.rs`, `src/runtime/eval/indexed/full.rs` (`FullVerifier::verify`, `verify_callable_slot_initializers`), `src/runtime/eval/indexed/full/schema.rs`, `src/runtime/eval/indexed/full/decode.rs`. |
 | Execution and host lifecycle | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `indexed_run/explicit_run.rs`, `indexed_run/producer.rs`, `indexed_run/serial_pipeline.rs`, `src/runtime/process.rs`, `src/runtime/run.rs`, `src/runtime/signal.rs`, `src/runtime/value/resource_values.rs`, `src/trace.rs`. |
-| Float equality implementation and witnesses | `src/runtime/value.rs::FloatValue::eq`, `src/sema/constants.rs::constant_values_equal` and constant `B::Eq/B::Ne`, `crates/xsh-fuzz/src/eval.rs::values_equal`; Lean comparator laws are in `formal/Xsh/Values/FloatEquality.lean`; runtime and constant-folded regressions are in `tests/xsh/float-equality.xsh` (`test_float_runtime_equality_uses_ieee_values`, `test_float_constant_equality_uses_ieee_values`). Run these against the post-consolidation source and record finite evidence; they do not establish Rust conformance by themselves. |
+| Float equality implementation and witnesses | language runtime comparison uses `src/runtime/eval.rs::lowered_values_semantically_equal`; `src/runtime/value.rs::FloatValue::eq` keeps raw-bit representation equality for storage and codecs. Constant-folded `B::Eq/B::Ne` use `src/sema/constants.rs::constant_values_equal`; the fuzz oracle uses `crates/xsh-fuzz/src/eval.rs::values_equal`; Lean comparator laws are in `formal/Xsh/Values/FloatEquality.lean`; runtime and constant-folded regressions are in `tests/xsh/float-equality.xsh` (`test_float_runtime_equality_uses_ieee_values`, `test_float_constant_equality_uses_ieee_values`). Run these against the post-consolidation source and record finite evidence; they do not establish Rust conformance by themselves. |
 | Existing behavior/conformance cases | `tests/xsh/{effects,private-proc-effects,resource-ownership,error-resource-ownership,with-resource,stream-producers,checker-streams,lowering-coverage,signal-hooks}.xsh`; `tests/grammar.rs`; verifier corruption tests in `src/runtime/eval/indexed/full.rs`; independent soundness oracle and harness under `crates/xsh-fuzz/`. |
 
 The existing runtime applies verified indexed execution, uses heap-backed frames and a verifier-bounded in-place path (currently height 128), and retains program ownership for suspended producers. Resource/effect/lowering facts are behavior-bearing; prove their preservation rather than expanding hot rows by default. Re-resolve callable provenance and temporary-writer verifier checks at campaign start.

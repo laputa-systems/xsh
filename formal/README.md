@@ -48,9 +48,10 @@ private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
 G0b source freeze remain pending. The provisional inventory still marks all
 72 complete theorem obligations planned. The inventory names 82 rooted Lean
-fragment declarations. Its 29 Python tests check inventory shape, root
-reachability, and mutation controls; they are not semantic or Rust conformance
-tests. No full G1 closure or whole-language soundness claim is made.
+fragment declarations. Its 50 Python tests check inventory shape, root
+reachability, mutation controls, and finite-case evidence boundaries; they are
+not semantic or Rust conformance tests. No full G1 closure or whole-language
+soundness claim is made.
 
 The base-machine fragment includes a typed `time.now()` request for signed
 epoch milliseconds. `Xsh.Semantics.BaseHostTrace` labels internal steps,
@@ -69,13 +70,44 @@ that changing response order changes the returned value. These results concern
 only the finite scripted formal runner. They do
 not establish source or whole-language soundness, Rust or OS conformance,
 concrete host behavior, or clock accuracy; clock correspondence remains an
-external assumption. The executable Float comparator
-in `Xsh.Values.FloatEquality` is specified against the raw-bit IEEE value
-relation, with symmetry, transitivity, and reflexivity exactly for non-NaNs.
-Signed zeros compare equal while retaining distinct raw bits, transport
-encodings, and total-sort order. `tests/xsh/float-equality.xsh` includes a
-constant-folding regression for signed zeros, NaNs, and nested values. These
-Lean laws and the source regression do not establish Rust conformance.
+external assumption. The Lean comparator in `Xsh.Values.FloatEquality` takes
+raw 64-bit Float encodings and computes IEEE value equality. Its specification
+proves symmetry, transitivity, and reflexivity exactly for non-NaNs. Signed
+zeros compare equal while retaining distinct raw bits, transport encodings,
+and total-sort order. This semantic comparison is distinct from bitwise
+representation equality used by `FloatValue::eq`. The
+`tests/xsh/float-equality.xsh` source regression includes signed zeros, NaNs,
+and nested values. These Lean laws and the source regression do not establish
+Rust conformance.
+
+Coverage schema 2 prepares the finite conformance ledger for G0b. The current
+inventory remains provisional, has no frozen source identity, contains no
+finite conformance cases, and keeps all 72 universal theorem obligations
+planned. A frozen identity uses a full Git commit and its exact root tree; the
+commit must exist in the checkout, and it may be an ancestor of `HEAD`. Each
+named `RUST_CONFORMANCE` case requires a stable `test_id` present as an exact
+argv element. The only supported forms are `xsht test --exact <test_id>` and
+`cargo test --profile <profile> --target <target> -p <package> --lib
+<test_id> -- --exact` or the corresponding `--test <target>` form. Source-test
+cases identify both sibling products with separate `xsht` and `xsh` SHA-256
+roles. Cargo-test cases identify the Cargo executable and package test
+artifact separately with `cargo` and `cargo-test:<package>:<target>` roles.
+Every role has its own SHA-256; profile and target are recorded, and Cargo
+values must match the command. `expected_result` is a predeclared normalized
+oracle with exactly `test_id`, `exit_code`, `passed`, `failed`, `skipped`, and
+`filtered`; it requires that named test to pass once with no failures or skips.
+For `xsht`, `filtered` is null because its summary does not report that count;
+Cargo's filtered-out count is retained.
+`actual_result` retains captured command output as `exit_code`, `stdout`, and
+`stderr`. The checker parses the runner's result line and summary, ignores
+duration text only, maps Cargo's ignored count to `skipped`, and compares the
+normalized outcome with the oracle. It requires one named `ok` result and a
+summary with exactly one pass and zero failures, skips, or ignored tests. This
+rejects the zero-test success result that either exact filter can produce.
+The agreement is finite evidence for the named case only. Provisional cases,
+missing or mismatched identities, duplicate names, other evidence classes,
+trivial or mismatched commands, invalid result records, and failed cases are
+rejected. No finite evidence is recorded here.
 
 From this directory, keep Lake's metadata, manifest, cache, build outputs, and
 temporary files under the repository's ignored `.work/` directory. Add that

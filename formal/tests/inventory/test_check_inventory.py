@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -17,6 +18,99 @@ SPEC.loader.exec_module(CHECKER)
 
 
 class InventoryCheckerTests(unittest.TestCase):
+    def git_object(self, revision: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--verify", "--end-of-options", revision],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def git_source_identity(self, revision: str = "HEAD") -> dict[str, str]:
+        commit = self.git_object(f"{revision}^{{commit}}")
+        tree = self.git_object(f"{commit}^{{tree}}")
+        return {"commit": commit, "tree": tree}
+
+    def cargo_coverage_with_case(self) -> dict[str, object]:
+        coverage = self.frozen_coverage_with_case()
+        case = coverage["finite_conformance"]["cases"][0]
+        test_id = "runtime::eval::indexed::full::tests::rejects_bad_tag"
+        case["test_id"] = test_id
+        case["command"] = [
+            "cargo",
+            "test",
+            "--profile",
+            "verification",
+            "--target",
+            "x86_64-unknown-linux-musl",
+            "-p",
+            "xsh",
+            "--lib",
+            test_id,
+            "--",
+            "--exact",
+        ]
+        case["binary_sha256s"] = {"cargo": "e" * 64, "cargo-test:xsh:lib": "f" * 64}
+        case["profile"] = "verification"
+        stdout = (
+            "running 1 test\n"
+            f"test {test_id} ... ok\n"
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; "
+            "12 filtered out; finished in 0.01s\n"
+        )
+        case["expected_result"] = {
+            "test_id": test_id,
+            "exit_code": 0,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "filtered": 12,
+        }
+        case["actual_result"] = {"exit_code": 0, "stdout": stdout, "stderr": ""}
+        return coverage
+
+    def frozen_coverage_with_case(self) -> dict[str, object]:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["source_state"] = "frozen-post-consolidation"
+        coverage["source_identity"] = self.git_source_identity()
+        coverage["finite_conformance"]["status"] = "passed"
+        coverage["finite_conformance"]["cases"] = [
+            {
+                "name": "float-equality-source-witnesses",
+                "test_id": "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
+                "evidence_class": "RUST_CONFORMANCE",
+                "binary_sha256s": {"xsht": "c" * 64, "xsh": "d" * 64},
+                "profile": "release",
+                "target": "x86_64-unknown-linux-musl",
+                "command": [
+                    "target/x86_64-unknown-linux-musl/release/xsht",
+                    "test",
+                    "--exact",
+                    "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
+                ],
+                "expected_result": {
+                    "test_id": "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
+                    "exit_code": 0,
+                    "passed": 1,
+                    "failed": 0,
+                    "skipped": 0,
+                    "filtered": None,
+                },
+                "actual_result": {
+                    "exit_code": 0,
+                    "stdout": (
+                        "running 1 tests\n"
+                        "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values "
+                        "... ok 0ms\n"
+                        "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+                    ),
+                    "stderr": "",
+                },
+                "status": "passed",
+            }
+        ]
+        return coverage
+
     def test_current_owner_sets_match_provisional_inventory(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         result = CHECKER.validate_coverage(ROOT, coverage)
@@ -28,6 +122,8 @@ class InventoryCheckerTests(unittest.TestCase):
         )
         self.assertEqual(82, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
+        self.assertEqual("provisional-during-consolidation", coverage["source_state"])
+        self.assertIsNone(coverage["source_identity"])
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
     def test_root_import_reaches_every_project_module(self) -> None:
@@ -482,10 +578,257 @@ class InventoryCheckerTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.InventoryError, "duplicate fixture entries"):
             CHECKER.compare_owner_items("fixture", ["Any", "Any"], ["Any"])
 
-    def test_provisional_source_cannot_be_marked_frozen_here(self) -> None:
+    def test_frozen_source_identity_and_named_case_are_accepted(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_ancestor_commit_is_a_valid_frozen_source(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["source_identity"] = self.git_source_identity("HEAD^")
+        CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_provisional_source_rejects_finite_conformance_cases(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["source_state"] = "provisional-during-consolidation"
+        coverage["source_identity"] = None
+        with self.assertRaisesRegex(CHECKER.InventoryError, "require a frozen source identity"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_frozen_source_requires_exact_commit_and_tree(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         coverage["source_state"] = "frozen-post-consolidation"
-        with self.assertRaisesRegex(CHECKER.InventoryError, "requires reconciliation"):
+        with self.assertRaisesRegex(CHECKER.InventoryError, "requires exact commit and tree"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_unknown_frozen_source_commit_fails(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["source_identity"]["commit"] = "0" * 40
+        with self.assertRaisesRegex(CHECKER.InventoryError, "commit does not exist"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_frozen_source_tree_must_match_commit_root_tree(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["source_identity"]["commit"] = self.git_object("HEAD^{commit}")
+        parent_commit = self.git_object("HEAD^")
+        coverage["source_identity"]["tree"] = self.git_object(f"{parent_commit}^{{tree}}")
+        with self.assertRaisesRegex(CHECKER.InventoryError, "does not match the commit root tree"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_frozen_source_commit_and_tree_must_be_full_object_ids(self) -> None:
+        for field in ("commit", "tree"):
+            with self.subTest(field=field):
+                coverage = self.frozen_coverage_with_case()
+                coverage["source_identity"][field] = coverage["source_identity"][field][:-1]
+                with self.assertRaisesRegex(CHECKER.InventoryError, "full lowercase Git object id"):
+                    CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_provisional_source_cannot_carry_frozen_identity(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["source_identity"] = {"commit": "a" * 40, "tree": "b" * 40}
+        with self.assertRaisesRegex(CHECKER.InventoryError, "cannot carry a frozen source identity"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_duplicate_finite_conformance_case_names_fail(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        cases = coverage["finite_conformance"]["cases"]
+        cases.append(cases[0].copy())
+        with self.assertRaisesRegex(CHECKER.InventoryError, "duplicate finite conformance case name"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_finite_conformance_requires_rust_evidence_class(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["finite_conformance"]["cases"][0]["evidence_class"] = "SPEC_PROVED"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "must use RUST_CONFORMANCE"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_finite_conformance_requires_binary_identity(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["finite_conformance"]["cases"][0]["binary_sha256s"]["xsht"] = ""
+        with self.assertRaisesRegex(CHECKER.InventoryError, "binary SHA-256 per role"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_xsht_cases_require_both_sibling_binary_roles(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        del coverage["finite_conformance"]["cases"][0]["binary_sha256s"]["xsh"]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "binary roles must be"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_finite_conformance_requires_binary_profile_and_target(self) -> None:
+        for field in ("profile", "target"):
+            with self.subTest(field=field):
+                coverage = self.frozen_coverage_with_case()
+                coverage["finite_conformance"]["cases"][0][field] = " "
+                with self.assertRaisesRegex(CHECKER.InventoryError, f"binary {field}"):
+                    CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_failed_or_mismatched_finite_conformance_cases_fail(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["finite_conformance"]["cases"][0]["status"] = "failed"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "must have passed status"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+        coverage = self.frozen_coverage_with_case()
+        coverage["finite_conformance"]["cases"][0]["actual_result"]["exit_code"] = 1
+        with self.assertRaisesRegex(CHECKER.InventoryError, "result does not match expectation"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_finite_case_test_id_must_match_supported_argv(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["finite_conformance"]["cases"][0]["command"] = ["true"]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "unsupported evidence runner"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+        coverage = self.frozen_coverage_with_case()
+        coverage["finite_conformance"]["cases"][0]["test_id"] = "some-other-test"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "test identifier does not match argv"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_supported_xsht_command_rejects_unrecognized_arguments(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        coverage["finite_conformance"]["cases"][0]["command"].append("--help")
+        with self.assertRaisesRegex(CHECKER.InventoryError, "exact xsht test command"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_xsht_case_requires_one_named_passing_test(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        case = coverage["finite_conformance"]["cases"][0]
+        test_id = case["test_id"]
+        outcomes = [
+            (
+                "running 0 tests\n"
+                "test result: ok. 0 passed; 0 failed; 0 skipped\n",
+                "no matching tests",
+            ),
+            (
+                "running 2 tests\n"
+                f"{test_id} ... ok 0ms\n"
+                "tests/xsh/other.xsh::test_other ... ok 0ms\n"
+                "test result: ok. 2 passed; 0 failed; 0 skipped\n",
+                "multiple tests",
+            ),
+            (
+                "running 1 tests\n"
+                "tests/xsh/other.xsh::test_other ... ok 0ms\n"
+                "test result: ok. 1 passed; 0 failed; 0 skipped\n",
+                "wrong test id",
+            ),
+            (
+                "running 1 tests\n"
+                f"{test_id} ... skipped: unavailable 0ms\n"
+                "test result: ok. 0 passed; 0 failed; 1 skipped\n",
+                "skipped test",
+            ),
+        ]
+        for stdout, label in outcomes:
+            with self.subTest(label=label):
+                case["actual_result"] = {"exit_code": 0, "stdout": stdout, "stderr": ""}
+                with self.assertRaises(CHECKER.InventoryError):
+                    CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_cargo_case_requires_one_named_passing_test(self) -> None:
+        coverage = self.cargo_coverage_with_case()
+        case = coverage["finite_conformance"]["cases"][0]
+        test_id = case["test_id"]
+        outcomes = [
+            (
+                "running 0 tests\n"
+                "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; "
+                "0 filtered out; finished in 0.00s\n",
+                "no matching tests",
+            ),
+            (
+                "running 2 tests\n"
+                f"test {test_id} ... ok\n"
+                "test extra::test ... ok\n"
+                "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; "
+                "1 filtered out; finished in 0.01s\n",
+                "multiple tests",
+            ),
+            (
+                "running 1 test\n"
+                f"test {test_id} ... ignored\n"
+                "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; "
+                "1 filtered out; finished in 0.00s\n",
+                "ignored test",
+            ),
+            (
+                "running 1 test\n"
+                "test another::test ... ok\n"
+                "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; "
+                "1 filtered out; finished in 0.01s\n",
+                "wrong test id",
+            ),
+        ]
+        for stdout, label in outcomes:
+            with self.subTest(label=label):
+                case["actual_result"] = {"exit_code": 0, "stdout": stdout, "stderr": ""}
+                with self.assertRaises(CHECKER.InventoryError):
+                    CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_passed_case_requires_captured_successful_result(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        case = coverage["finite_conformance"]["cases"][0]
+        case["actual_result"] = None
+        with self.assertRaisesRegex(CHECKER.InventoryError, "actual result must record"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+        coverage = self.frozen_coverage_with_case()
+        case = coverage["finite_conformance"]["cases"][0]
+        case["actual_result"]["exit_code"] = 1
+        with self.assertRaisesRegex(CHECKER.InventoryError, "result does not match expectation"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_expected_result_must_be_normalized_oracle(self) -> None:
+        coverage = self.frozen_coverage_with_case()
+        case = coverage["finite_conformance"]["cases"][0]
+        case["expected_result"] = {
+            "exit_code": 0,
+            "stdout": case["actual_result"]["stdout"],
+            "stderr": "",
+        }
+        with self.assertRaisesRegex(CHECKER.InventoryError, "normalized test outcome"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_runner_duration_does_not_change_normalized_outcome(self) -> None:
+        xsht_coverage = self.frozen_coverage_with_case()
+        xsht_case = xsht_coverage["finite_conformance"]["cases"][0]
+        xsht_case["actual_result"]["stdout"] = xsht_case["actual_result"]["stdout"].replace(
+            "ok 0ms", "ok 48ms"
+        )
+        CHECKER.validate_coverage(ROOT, xsht_coverage)
+
+        cargo_coverage = self.cargo_coverage_with_case()
+        cargo_case = cargo_coverage["finite_conformance"]["cases"][0]
+        cargo_case["actual_result"]["stdout"] = cargo_case["actual_result"]["stdout"].replace(
+            "finished in 0.01s", "finished in 91.47s"
+        )
+        CHECKER.validate_coverage(ROOT, cargo_coverage)
+
+        cargo_case["actual_result"]["stdout"] = cargo_case["actual_result"]["stdout"].replace(
+            "12 filtered out", "13 filtered out"
+        )
+        with self.assertRaisesRegex(CHECKER.InventoryError, "result does not match expectation"):
+            CHECKER.validate_coverage(ROOT, cargo_coverage)
+
+        xsht_case["actual_result"]["stdout"] += "unexpected output\n"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "unexpected xsht result output"):
+            CHECKER.validate_coverage(ROOT, xsht_coverage)
+
+        invalid_duration_coverage = self.cargo_coverage_with_case()
+        invalid_duration_case = invalid_duration_coverage["finite_conformance"]["cases"][0]
+        invalid_duration_case["actual_result"]["stdout"] = invalid_duration_case["actual_result"][
+            "stdout"
+        ].replace("finished in 0.01s", "finished in soon")
+        with self.assertRaisesRegex(CHECKER.InventoryError, "invalid cargo test result transcript"):
+            CHECKER.validate_coverage(ROOT, invalid_duration_coverage)
+
+    def test_cargo_case_identifies_runner_and_package_test_artifact(self) -> None:
+        coverage = self.cargo_coverage_with_case()
+        case = coverage["finite_conformance"]["cases"][0]
+        CHECKER.validate_coverage(ROOT, coverage)
+
+        del case["binary_sha256s"]["cargo-test:xsh:lib"]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "binary roles must be"):
             CHECKER.validate_coverage(ROOT, coverage)
 
     def test_duplicate_json_keys_fail(self) -> None:

@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "source_state": "provisional-during-consolidation",
   "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results. Additional derived owners cover runtime Value and ResultValue, LiteralConstant, Validation, closed RuntimeOp identities, checked callable construction and compatibility plus indexed signature encoding, stream parameter types/defaults/validations and callable policy, indexed ID/sentinel/range/location layouts, and TypeTag payload/pool classification. New owner rows state their derivation and boundary explicitly. The inventory remains provisional and makes no G0b freeze, semantic proof, full grammar, Rust conformance, or host-behavior claim.",
   "core_inventory": {
@@ -3011,7 +3011,7 @@
       "declaration": "Xsh.Values.decode_encode_int",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded scalar representations, integer conversion, and IEEE float equality over raw bits.",
+      "scope": "Bounded scalar representations, integer conversion, and IEEE Float value equality from raw 64-bit encodings.",
       "boundary": "No Rust arithmetic/value conformance, complete value algebra, or source evaluator claim."
     },
     {
@@ -3020,7 +3020,7 @@
       "declaration": "Xsh.Values.ieee_signed_zeros_equal",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded scalar representations, integer conversion, and IEEE float equality over raw bits.",
+      "scope": "Bounded scalar representations, integer conversion, and IEEE Float value equality from raw 64-bit encodings.",
       "boundary": "No Rust arithmetic/value conformance, complete value algebra, or source evaluator claim."
     },
     {
@@ -3038,7 +3038,7 @@
       "declaration": "Xsh.Values.float_value_eq_spec",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Executable IEEE Float equality over raw bits and its Boolean specification.",
+      "scope": "Executable IEEE Float value equality from raw 64-bit encodings and its Boolean specification.",
       "boundary": "No Rust runtime, constant-folder, fuzzer, or source evaluator conformance claim."
     },
     {
@@ -3725,5 +3725,6 @@
       "scope": "A classified obligation listed on a checked consumer is permitted at the lexical context stored on that consumer.",
       "boundary": "Uses a caller-supplied checked consumer and an obligation already in its classified list. Structural Expr labels cannot distinguish identical source occurrences. No producer execution, Rust conformance, or full EFF-LATENT/EFF-SEMANTIC proof."
     }
-  ]
+  ],
+  "source_identity": null
 }

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -14,6 +15,13 @@ from typing import Any, Iterable
 
 
 PLAN_PATH = "xsh-lean.md"
+PROVISIONAL_SOURCE_STATE = "provisional-during-consolidation"
+FROZEN_SOURCE_STATE = "frozen-post-consolidation"
+GIT_OBJECT_ID = re.compile(r"[0-9a-f]{40}")
+SHA256_DIGEST = re.compile(r"[0-9a-f]{64}")
+TEST_IDENTIFIER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._:/-]*")
+XSHT_DURATION = r"(?:[0-9]+ms|[0-9]+(?:\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)"
+CARGO_DURATION = r"[0-9]+(?:\.[0-9]+)?s"
 
 
 @dataclass(frozen=True)
@@ -1760,12 +1768,322 @@ def validate_obligation_entries(
     return list(required)
 
 
+def resolve_git_object(root: Path, revision: str, description: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "--end-of-options", revision],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except OSError as exc:
+        raise InventoryError(f"cannot verify frozen source {description}: {exc}") from exc
+    if result.returncode != 0:
+        raise InventoryError(f"frozen source {description} does not exist in this repository")
+    return result.stdout.strip()
+
+
+def validate_source_identity(
+    root: Path,
+    source_state: Any,
+    source_identity: Any,
+) -> None:
+    if source_state == PROVISIONAL_SOURCE_STATE:
+        if source_identity is not None:
+            raise InventoryError("provisional source state cannot carry a frozen source identity")
+        return
+    if source_state != FROZEN_SOURCE_STATE:
+        raise InventoryError(f"unknown source state {source_state!r}")
+    if not isinstance(source_identity, dict) or set(source_identity) != {"commit", "tree"}:
+        raise InventoryError("frozen source state requires exact commit and tree identities")
+    for field in ("commit", "tree"):
+        value = source_identity[field]
+        if not isinstance(value, str) or GIT_OBJECT_ID.fullmatch(value) is None:
+            raise InventoryError(f"frozen source {field} must be a full lowercase Git object id")
+    commit = source_identity["commit"]
+    resolved_commit = resolve_git_object(root, f"{commit}^{{commit}}", "commit")
+    if resolved_commit != commit:
+        raise InventoryError("frozen source commit does not resolve to its exact full object id")
+    resolved_tree = resolve_git_object(root, f"{commit}^{{tree}}", "commit tree")
+    if source_identity["tree"] != resolved_tree:
+        raise InventoryError("frozen source tree does not match the commit root tree")
+
+
+def validate_case_command(case: dict[str, Any], binary_sha256s: dict[str, Any]) -> None:
+    name = case["name"]
+    test_id = case["test_id"]
+    if not isinstance(test_id, str) or TEST_IDENTIFIER.fullmatch(test_id) is None:
+        raise InventoryError(f"finite conformance case {name} needs a stable test identifier")
+    command = case["command"]
+    if (
+        not isinstance(command, list)
+        or not command
+        or not isinstance(command[0], str)
+        or not command[0].strip()
+        or any(not isinstance(argument, str) or "\0" in argument for argument in command)
+    ):
+        raise InventoryError(f"finite conformance case {name} needs an exact argv command")
+    runner = Path(command[0]).name
+    if runner not in {"xsht", "cargo"}:
+        raise InventoryError(f"finite conformance case {name} uses an unsupported evidence runner")
+
+    if runner == "xsht":
+        if len(command) != 4 or command[1:3] != ["test", "--exact"]:
+            raise InventoryError(f"finite conformance case {name} needs an exact xsht test command")
+        if command[3] != test_id:
+            raise InventoryError(f"finite conformance case {name} test identifier does not match argv")
+        required_roles = {"xsh", "xsht"}
+    else:
+        common = ["test", "--profile", case["profile"], "--target", case["target"], "-p"]
+        if command[1:7] != common or len(command) < 12:
+            raise InventoryError(f"finite conformance case {name} needs a supported exact cargo test command")
+        package = command[7]
+        if not package:
+            raise InventoryError(f"finite conformance case {name} needs one explicit Cargo package")
+        if command[8] == "--lib" and len(command) == 12:
+            test_target = "lib"
+            test_index = 9
+        elif command[8] == "--test" and len(command) == 13 and command[9]:
+            test_target = command[9]
+            test_index = 10
+        else:
+            raise InventoryError(f"finite conformance case {name} needs one Cargo test target")
+        if command[test_index + 1 :] != ["--", "--exact"]:
+            raise InventoryError(f"finite conformance case {name} needs an exact Rust test filter")
+        if command[test_index] != test_id:
+            raise InventoryError(f"finite conformance case {name} test identifier does not match argv")
+        required_roles = {"cargo", f"cargo-test:{package}:{test_target}"}
+
+    if set(binary_sha256s) != required_roles:
+        raise InventoryError(
+            f"finite conformance case {name} binary roles must be {sorted(required_roles)}"
+        )
+
+
+def validate_finite_conformance(
+    finite_conformance: Any,
+    source_state: str,
+    source_identity: Any,
+) -> None:
+    if not isinstance(finite_conformance, dict) or set(finite_conformance) != {
+        "evidence_class",
+        "status",
+        "cases",
+    }:
+        raise InventoryError("finite conformance has an invalid shape")
+    if finite_conformance["evidence_class"] != "RUST_CONFORMANCE":
+        raise InventoryError("finite conformance must use RUST_CONFORMANCE")
+    cases = finite_conformance["cases"]
+    if not isinstance(cases, list):
+        raise InventoryError("finite conformance cases must be an array")
+    if not cases:
+        if finite_conformance["status"] != "planned":
+            raise InventoryError("empty finite conformance must remain planned")
+        return
+    if source_state != FROZEN_SOURCE_STATE or source_identity is None:
+        raise InventoryError("finite conformance cases require a frozen source identity")
+    if finite_conformance["status"] != "passed":
+        raise InventoryError("finite conformance with cases must have passed status")
+
+    case_keys = {
+        "name",
+        "test_id",
+        "evidence_class",
+        "binary_sha256s",
+        "profile",
+        "target",
+        "command",
+        "expected_result",
+        "actual_result",
+        "status",
+    }
+    seen_names: set[str] = set()
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != case_keys:
+            raise InventoryError("finite conformance case has an invalid shape")
+        name = case["name"]
+        if not isinstance(name, str) or not name.strip():
+            raise InventoryError("finite conformance case name must be nonempty text")
+        if name in seen_names:
+            raise InventoryError(f"duplicate finite conformance case name {name}")
+        seen_names.add(name)
+        if case["evidence_class"] != "RUST_CONFORMANCE":
+            raise InventoryError(f"finite conformance case {name} must use RUST_CONFORMANCE")
+        for field in ("profile", "target"):
+            value = case[field]
+            if not isinstance(value, str) or not value.strip():
+                raise InventoryError(f"finite conformance case {name} needs a binary {field}")
+        binary_sha256s = case["binary_sha256s"]
+        if not isinstance(binary_sha256s, dict) or not binary_sha256s:
+            raise InventoryError(f"finite conformance case {name} needs role-keyed binary identities")
+        for role, digest in binary_sha256s.items():
+            if not isinstance(role, str) or not role.strip():
+                raise InventoryError(f"finite conformance case {name} has an empty binary role")
+            if not isinstance(digest, str) or SHA256_DIGEST.fullmatch(digest) is None:
+                raise InventoryError(f"finite conformance case {name} needs a binary SHA-256 per role")
+        validate_case_command(case, binary_sha256s)
+        if case["status"] != "passed":
+            raise InventoryError(f"finite conformance case {name} must have passed status")
+        validate_expected_result(
+            case["expected_result"],
+            name,
+            case["test_id"],
+            Path(case["command"][0]).name,
+        )
+        validate_command_result(case["actual_result"], name, "actual")
+        actual = normalized_test_outcome(case)
+        if actual != case["expected_result"]:
+            raise InventoryError(f"finite conformance case {name} result does not match expectation")
+
+
+def validate_expected_result(value: Any, case_name: str, test_id: str, runner: str) -> None:
+    keys = {"test_id", "exit_code", "passed", "failed", "skipped", "filtered"}
+    if not isinstance(value, dict) or set(value) != keys:
+        raise InventoryError(
+            f"finite conformance case {case_name} expected result must be a normalized test outcome"
+        )
+    if value["test_id"] != test_id or any(
+        type(value[field]) is not int or value[field] < 0
+        for field in ("exit_code", "passed", "failed", "skipped")
+    ):
+        raise InventoryError(
+            f"finite conformance case {case_name} expected result has invalid normalized fields"
+        )
+    if (runner == "xsht" and value["filtered"] is not None) or (
+        runner == "cargo"
+        and (type(value["filtered"]) is not int or value["filtered"] < 0)
+    ):
+        raise InventoryError(
+            f"finite conformance case {case_name} expected result has invalid filtered count"
+        )
+    if value != {
+        "test_id": test_id,
+        "exit_code": 0,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "filtered": value["filtered"],
+    }:
+        raise InventoryError(
+            f"finite conformance case {case_name} expected result must require one passing test"
+        )
+
+
+def validate_command_result(value: Any, case_name: str, field: str) -> None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"exit_code", "stdout", "stderr"}
+        or type(value["exit_code"]) is not int
+        or not isinstance(value["stdout"], str)
+        or not isinstance(value["stderr"], str)
+    ):
+        raise InventoryError(
+            f"finite conformance case {case_name} {field} result must record exit_code, stdout, and stderr"
+        )
+
+
+def normalized_test_outcome(case: dict[str, Any]) -> dict[str, Any]:
+    name = case["name"]
+    runner = Path(case["command"][0]).name
+    actual_result = case["actual_result"]
+    lines = actual_result["stdout"].splitlines()
+    content_lines = [line for line in lines if line]
+    header_lines = [line for line in lines if re.fullmatch(r"running [0-9]+ tests?", line)]
+    summaries = [line for line in lines if line.startswith("test result:")]
+    if runner == "xsht":
+        result_lines = [line for line in lines if " ... " in line]
+        if len(header_lines) != 1 or len(result_lines) != 1 or len(summaries) != 1:
+            raise InventoryError(
+                f"finite conformance case {name} output must show exactly one passing test"
+            )
+        if content_lines != [header_lines[0], result_lines[0], summaries[0]]:
+            raise InventoryError(f"finite conformance case {name} has unexpected xsht result output")
+        header_match = re.fullmatch(r"running ([0-9]+) tests", header_lines[0])
+        result_match = re.fullmatch(
+            rf"(?P<test_id>.+) \.\.\. (?P<status>ok|FAILED|TIMEOUT|skipped(?: .*)?) "
+            rf"(?P<duration>{XSHT_DURATION})",
+            result_lines[0],
+        )
+        summary_match = re.fullmatch(
+            r"test result: (?P<result>ok|FAILED)\. (?P<passed>[0-9]+) passed; "
+            r"(?P<failed>[0-9]+) failed; (?P<skipped>[0-9]+) skipped",
+            summaries[0],
+        )
+        if header_match is None or result_match is None or summary_match is None:
+            raise InventoryError(f"finite conformance case {name} has an invalid xsht result transcript")
+        outcome = {
+            "test_id": result_match["test_id"],
+            "exit_code": actual_result["exit_code"],
+            "passed": int(summary_match["passed"]),
+            "failed": int(summary_match["failed"]),
+            "skipped": int(summary_match["skipped"]),
+            "filtered": None,
+        }
+        status_outcome = {
+            "ok": (1, 0, 0),
+            "FAILED": (0, 1, 0),
+            "TIMEOUT": (0, 1, 0),
+        }.get(result_match["status"])
+        if result_match["status"].startswith("skipped"):
+            status_outcome = (0, 0, 1)
+        if (
+            int(header_match[1]) != 1
+            or (outcome["passed"], outcome["failed"], outcome["skipped"]) != (1, 0, 0)
+            or summary_match["result"] != ("ok" if outcome["failed"] == 0 else "FAILED")
+            or status_outcome != (outcome["passed"], outcome["failed"], outcome["skipped"])
+        ):
+            raise InventoryError(
+                f"finite conformance case {name} output must show exactly one passing test"
+            )
+        return outcome
+
+    result_lines = [line for line in lines if line.startswith("test ") and " ... " in line]
+    if len(header_lines) != 1 or len(result_lines) != 1 or len(summaries) != 1:
+        raise InventoryError(f"finite conformance case {name} output must show exactly one passing test")
+    if content_lines != [header_lines[0], result_lines[0], summaries[0]]:
+        raise InventoryError(f"finite conformance case {name} has unexpected cargo test output")
+    header_match = re.fullmatch(r"running ([0-9]+) tests?", header_lines[0])
+    result_match = re.fullmatch(r"test (?P<test_id>.+) \.\.\. (?P<status>ok|FAILED|ignored)", result_lines[0])
+    summary_match = re.fullmatch(
+        r"test result: (?P<result>ok|FAILED)\. (?P<passed>[0-9]+) passed; "
+        r"(?P<failed>[0-9]+) failed; (?P<ignored>[0-9]+) ignored; "
+        r"(?P<measured>[0-9]+) measured; (?P<filtered>[0-9]+) filtered out; "
+        rf"finished in (?P<duration>{CARGO_DURATION})",
+        summaries[0],
+    )
+    if header_match is None or result_match is None or summary_match is None:
+        raise InventoryError(f"finite conformance case {name} has an invalid cargo test result transcript")
+    outcome = {
+        "test_id": result_match["test_id"],
+        "exit_code": actual_result["exit_code"],
+        "passed": int(summary_match["passed"]),
+        "failed": int(summary_match["failed"]),
+        "skipped": int(summary_match["ignored"]),
+        "filtered": int(summary_match["filtered"]),
+    }
+    status_outcome = {"ok": (1, 0, 0), "FAILED": (0, 1, 0), "ignored": (0, 0, 1)}[
+        result_match["status"]
+    ]
+    if (
+        int(header_match[1]) != 1
+        or int(summary_match["measured"]) != 0
+        or (outcome["passed"], outcome["failed"], outcome["skipped"]) != (1, 0, 0)
+        or summary_match["result"] != ("ok" if outcome["failed"] == 0 else "FAILED")
+        or status_outcome != (outcome["passed"], outcome["failed"], outcome["skipped"])
+    ):
+        raise InventoryError(
+            f"finite conformance case {name} output must show exactly one passing test"
+        )
+    return outcome
+
+
 def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
     if not isinstance(coverage, dict):
         raise InventoryError("coverage root must be an object")
     required_root_keys = {
         "schema",
         "source_state",
+        "source_identity",
         "scope",
         "core_inventory",
         "fragment_roots",
@@ -1778,10 +2096,9 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
             f"coverage root keys differ: missing={sorted(required_root_keys - set(coverage))}, "
             f"unknown={sorted(set(coverage) - required_root_keys)}"
         )
-    if type(coverage["schema"]) is not int or coverage["schema"] != 1:
+    if type(coverage["schema"]) is not int or coverage["schema"] != 2:
         raise InventoryError("unsupported coverage schema")
-    if coverage["source_state"] != "provisional-during-consolidation":
-        raise InventoryError("post-consolidation source inventory still requires reconciliation")
+    validate_source_identity(root, coverage["source_state"], coverage["source_identity"])
     if not isinstance(coverage["scope"], str) or not coverage["scope"].strip():
         raise InventoryError("scope must state the inventory denominator")
 
@@ -1839,15 +2156,11 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
     obligation_ids = validate_obligation_entries(
         plan, coverage["universal_theorems"], fragment_root_ids
     )
-    finite_conformance = coverage["finite_conformance"]
-    if (
-        not isinstance(finite_conformance, dict)
-        or set(finite_conformance) != {"evidence_class", "status", "cases"}
-        or finite_conformance["evidence_class"] != "RUST_CONFORMANCE"
-        or finite_conformance["status"] != "planned"
-        or finite_conformance["cases"] != []
-    ):
-        raise InventoryError("finite conformance must remain a separate planned, empty case set")
+    validate_finite_conformance(
+        coverage["finite_conformance"],
+        coverage["source_state"],
+        coverage["source_identity"],
+    )
     return {
         "owners": live,
         "fragment_roots": fragment_root_ids,
