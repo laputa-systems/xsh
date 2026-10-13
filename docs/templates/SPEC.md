@@ -3162,8 +3162,15 @@ source evaluates once when reached; handle results explicitly
 value` is rejected. Defers run when the producer finishes, fails, or its
 consumer stops early (a delegated child is closed before its parent). Streams
 are one-pass, and aliases share one cursor. Producers use proc-style effect
-clauses. A `yield` inside a `collect` block (6.9) in a producer appends to
-that block's list and emits nothing.
+clauses. The checker checks and charges a producer's declared or inferred
+effects at the lexical call that creates its stream, even though its body is
+lazy. When the stream is pulled later, its producer-body effect obligation
+stays attributed to that creation call; pulling inside a `without` region does
+not move it to the consumer. A net-effect stream can therefore be created
+outside `without net` and consumed inside, while creating it inside is
+rejected. This is static checking, not a run-time sandbox. A `yield` inside a
+`collect` block (6.9) in a producer appends to that block's list and emits
+nothing.
 
 ### 9.6 Effects
 
