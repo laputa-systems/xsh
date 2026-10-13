@@ -21,6 +21,8 @@ class OwnerSpec:
     source: str
     declaration: str
     extractor: str
+    derivation: str | None = None
+    boundary: str | None = None
 
 
 ARENA_ENUMS = (
@@ -128,6 +130,90 @@ OWNER_SPECS: dict[str, OwnerSpec] = {
     "types.indexed": OwnerSpec(
         "src/runtime/eval/indexed/semantic.rs", "TypeTag", "rust-enum"
     ),
+    "runtime.value": OwnerSpec(
+        "src/runtime/value.rs",
+        "Value",
+        "rust-enum",
+        "Rust enum variants and tuple/record payload types, parsed from the declaration.",
+        "Describes the runtime value algebra only; it does not inventory evaluator behavior or prove source semantics.",
+    ),
+    "runtime.result_value": OwnerSpec(
+        "src/runtime/value.rs",
+        "ResultValue",
+        "rust-enum",
+        "Rust enum variants and payload types, parsed from the declaration.",
+        "Describes the runtime result container only; it does not inventory error propagation behavior.",
+    ),
+    "constants.literal": OwnerSpec(
+        "src/sema/constants.rs",
+        "LiteralConstant",
+        "rust-enum",
+        "Rust enum variants and payload types, parsed from the declaration.",
+        "Covers bounded prepared constants, not which expressions evaluate to constants or their evaluation semantics.",
+    ),
+    "types.validation": OwnerSpec(
+        "src/sema/validated.rs",
+        "Validation",
+        "rust-enum",
+        "Rust enum variants and payload types, parsed from the declaration.",
+        "Covers validation identities only; validity rules and preservation behavior remain separate semantics.",
+    ),
+    "types.runtime_op": OwnerSpec(
+        "crates/xsh-registry/src/runtime_op.rs",
+        "RuntimeOp",
+        "rust-enum",
+        "All RuntimeOp variants are parsed in declaration order from the closed Rust enum.",
+        "Covers operation identities only; API registration, dispatch, and host effects are outside this inventory.",
+    ),
+    "types.callable_contract": OwnerSpec(
+        "src/sema/types.rs",
+        "CallableType",
+        "callable-contract",
+        "Named struct fields and normalized token bodies of the checked callable construction and compatibility rules.",
+        "Pins current source-level signature rules; it is not a proof that call lowering or runtime dispatch conforms.",
+    ),
+    "types.callable_encoding": OwnerSpec(
+        "src/runtime/eval/indexed/semantic.rs",
+        "intern_signature",
+        "callable-encoding",
+        "Parameter flag constants and normalized token bodies for signature interning, decoding, and effect normalization.",
+        "Pins the indexed signature representation only; verifier soundness and execution behavior are not established.",
+    ),
+    "stream.parameters": OwnerSpec(
+        "crates/xsh-registry/src/stream_parameters.rs",
+        "stage_parameters",
+        "stream-parameters",
+        "Parameter enum variants, record fields, default constant, and normalized stage-configuration and callable-policy functions.",
+        "Covers registry declarations and policy tables only; stream execution and delayed-effect charging are outside this inventory.",
+    ),
+    "ir.indexed_ids": OwnerSpec(
+        "src/runtime/eval/indexed.rs",
+        "ir_id!",
+        "indexed-id-layout",
+        "The sentinel, ID-generating macro body, and every macro invocation are parsed from their declarations.",
+        "Describes the current nonzero, one-based ID encoding and sentinel; it does not prove every decoder checks bounds.",
+    ),
+    "ir.indexed_ranges": OwnerSpec(
+        "src/runtime/eval/indexed.rs",
+        "IrRange",
+        "indexed-range-layout",
+        "IrData, IrRange, IrLocation field layouts and the range-bound and span-conversion methods are parsed from Rust.",
+        "Covers compact indexed offsets and locations only; broader source-map behavior and verifier checks are excluded.",
+    ),
+    "source.locations": OwnerSpec(
+        "src/source.rs",
+        "Span",
+        "source-location-layout",
+        "SourceId, Span, and SourceLocation field layouts plus span constructor and range methods are parsed from Rust.",
+        "Covers byte-offset representation and local span operations only; source loading and diagnostics are not modeled.",
+    ),
+    "types.indexed_pool_schema": OwnerSpec(
+        "src/runtime/eval/indexed/semantic.rs",
+        "TypeTag",
+        "indexed-type-pool-schema",
+        "TypeTag and TypeKey variants, pool fields, payload-classification helpers, and type interning layout are parsed from Rust.",
+        "Records the current pool encoding and classification source; it does not establish a verified round trip or semantic preservation.",
+    ),
     "control.eval_flow": OwnerSpec(
         "src/runtime/eval.rs", "EvalFlow", "rust-enum"
     ),
@@ -182,6 +268,8 @@ OWNER_SPECS: dict[str, OwnerSpec] = {
         "src/runtime/eval/indexed/full.rs",
         "lowered_value_schema!",
         "lowered-value-schema",
+        "Codec rows are parsed and reconciled with every live LoweredValue variant; custom row procedures are retained verbatim as normalized tokens.",
+        "Covers persistent value codec routing, including Set encode/decode/verify procedures; it does not prove codec soundness or runtime semantics.",
     ),
 }
 
@@ -864,22 +952,55 @@ def parse_lowered_value_schema(source: str) -> list[str]:
             raise InventoryError(f"duplicate custom lowered value tag or ordinal {tag}={ordinal}")
         seen_tags.add(tag)
         seen_ordinals.add(ordinal)
-        rows.append(f"{tag}={ordinal}|custom")
         cursor += 3
         if tokens[cursor] != "{":
             raise InventoryError(f"custom lowered value row {tag} body missing")
         custom_end_row = matching(tokens, cursor)
-        encode_index = tokens.index("encode", cursor + 1, custom_end_row)
-        encode_open = tokens.index("{", encode_index + 1, custom_end_row)
-        encode_end = matching(tokens, encode_open)
-        encode_arrow = find_top_level(tokens, encode_open + 1, encode_end, "=>")
+        procedures: dict[str, str] = {}
+        section_cursor = cursor + 1
+        while section_cursor < custom_end_row:
+            procedure = tokens[section_cursor]
+            if procedure not in {"encode", "decode", "verify"}:
+                raise InventoryError(
+                    f"unrecognized custom lowered value procedure {procedure!r}"
+                )
+            if procedure in procedures:
+                raise InventoryError(
+                    f"duplicate custom lowered value procedure {procedure}"
+                )
+            if tokens[section_cursor + 1] != "{":
+                raise InventoryError(
+                    f"custom lowered value procedure {procedure} body missing"
+                )
+            procedure_open = section_cursor + 1
+            procedure_end = matching(tokens, procedure_open)
+            procedures[procedure] = compact_tokens(
+                tokens[procedure_open + 1 : procedure_end]
+            )
+            section_cursor = procedure_end + 1
+        if set(procedures) != {"encode", "decode", "verify"}:
+            raise InventoryError(
+                "custom lowered value route requires exactly one encode, decode, and verify procedure"
+            )
+        encode_tokens = lex_rust(procedures["encode"])
+        encode_arrow = find_top_level(encode_tokens, 0, len(encode_tokens), "=>")
         encoded_variant = self_variant_from_pattern(
-            tokens[encode_open + 1 : encode_arrow], f"custom lowered value row {tag}"
+            encode_tokens[:encode_arrow], f"custom lowered value row {tag}"
         )
         if encoded_variant != tag:
             raise InventoryError(
                 f"custom lowered value row {tag} encodes {encoded_variant}"
             )
+        if tag != "Set":
+            raise InventoryError(f"unrecognized custom lowered value route {tag}")
+        helper = function_body(source, "decode_set_payload")
+        rows.append(
+            f"{tag}={ordinal}|custom"
+            f"|encode:{procedures['encode']}"
+            f"|decode:{procedures['decode']}"
+            f"|verify:{procedures['verify']}"
+            f"|decode_set_payload:{helper}"
+        )
         cursor = custom_end_row + 1
 
     cursor = reject_open + 1
@@ -939,7 +1060,7 @@ def reconcile_lowered_value_routes(
             variant, equals, ordinal = row.partition("=")
             if not separator or not equals or not ordinal.isdecimal():
                 raise InventoryError(f"malformed lowered value schema route {item}")
-            route = "custom" if details == "custom" else "encoded"
+            route = "custom" if details.startswith("custom") else "encoded"
             routes.append((variant, route))
 
     route_names = [variant for variant, _ in routes]
@@ -958,17 +1079,272 @@ def reconcile_lowered_value_routes(
     for item in schema_items:
         row, separator, details = item.partition("|")
         variant = row.split("=", 1)[0]
-        if separator and details == "custom":
+        if separator and details.startswith("custom"):
             payload = lowered_value_payload(enum_by_name[variant])
             if not payload:
                 raise InventoryError(
                     f"custom LoweredValue route {variant} has no enum payload"
                 )
             ordinal = row.split("=", 1)[1]
-            reconciled.append(f"{variant}={ordinal}|custom:{payload}")
+            procedure_details = details[len("custom") :]
+            reconciled.append(
+                f"{variant}={ordinal}|custom:{payload}{procedure_details}"
+            )
         else:
             reconciled.append(item)
     return reconciled
+
+
+def extract_struct_fields(source: str, struct_name: str) -> list[str]:
+    tokens = lex_rust(source)
+    found = [
+        index
+        for index in range(len(tokens) - 1)
+        if tokens[index] == "struct" and tokens[index + 1] == struct_name
+    ]
+    if len(found) != 1:
+        raise InventoryError(f"expected one struct {struct_name}, found {len(found)}")
+    opening = next(
+        (
+            index
+            for index in range(found[0] + 2, len(tokens))
+            if tokens[index] in ("{", "(", ";")
+        ),
+        None,
+    )
+    if opening is None or tokens[opening] == ";":
+        raise InventoryError(f"body missing for struct {struct_name}")
+    closing = matching(tokens, opening)
+    body = tokens[opening + 1 : closing]
+    fields: list[str] = []
+    for raw in split_top_level(body):
+        if tokens[opening] == "(":
+            if raw and raw[0] == "pub":
+                raw = raw[1:]
+            fields.append(f"{len(fields)}:{compact_tokens(raw)}")
+        else:
+            raw = raw[1:] if raw and raw[0] == "pub" else raw
+            colon = find_top_level(raw, 0, len(raw), ":")
+            if colon != 1 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", raw[0]):
+                raise InventoryError(f"unrecognized field in struct {struct_name}")
+            fields.append(f"{raw[0]}:{compact_tokens(raw[colon + 1 :])}")
+    return ensure_unique(fields, struct_name)
+
+
+def function_body(
+    source: str, function_name: str, impl_name: str | None = None
+) -> str:
+    tokens = lex_rust(source)
+    if impl_name is not None:
+        impls = [
+            index
+            for index in range(len(tokens) - 1)
+            if tokens[index] == "impl" and tokens[index + 1] == impl_name
+        ]
+        if len(impls) != 1:
+            raise InventoryError(f"expected one impl {impl_name}, found {len(impls)}")
+        impl_open = next(
+            (index for index in range(impls[0] + 2, len(tokens)) if tokens[index] == "{"),
+            None,
+        )
+        if impl_open is None:
+            raise InventoryError(f"impl body missing for {impl_name}")
+        scope = (impl_open + 1, matching(tokens, impl_open))
+    else:
+        scope = (0, len(tokens))
+    found = [
+        index
+        for index in range(scope[0], scope[1] - 1)
+        if tokens[index] == "fn" and tokens[index + 1] == function_name
+    ]
+    if len(found) != 1:
+        raise InventoryError(
+            f"expected one {function_name} function in {impl_name or 'module'}, found {len(found)}"
+        )
+    opening = next(
+        (index for index in range(found[0] + 2, scope[1]) if tokens[index] in ("{", ";")),
+        None,
+    )
+    if opening is None or tokens[opening] != "{":
+        raise InventoryError(f"body missing for function {function_name}")
+    return "{" + compact_tokens(tokens[opening + 1 : matching(tokens, opening)]) + "}"
+
+
+def constant_value(source: str, name: str) -> str:
+    tokens = lex_rust(source)
+    found = [
+        index
+        for index in range(len(tokens) - 1)
+        if tokens[index] == "const" and tokens[index + 1] == name
+    ]
+    if len(found) != 1:
+        raise InventoryError(f"expected one const {name}, found {len(found)}")
+    equals = tokens.index("=", found[0] + 2)
+    end = tokens.index(";", equals + 1)
+    return compact_tokens(tokens[equals + 1 : end])
+
+
+def parse_callable_contract(source: str) -> list[str]:
+    items = [
+        f"CallableType{{{','.join(extract_struct_fields(source, 'CallableType'))}}}",
+        f"CallableParamType{{{','.join(extract_struct_fields(source, 'CallableParamType'))}}}",
+        f"TypedCallable{{{','.join(extract_struct_fields(source, 'TypedCallable'))}}}",
+    ]
+    items.extend(
+        f"TypedCallable::{name}{function_body(source, name, 'TypedCallable')}"
+        for name in ("from_type_expr", "type_expr_error", "mismatch")
+    )
+    items.append(f"callable_return_fits{function_body(source, 'callable_return_fits')}")
+    return ensure_unique(items, "callable contract")
+
+
+def parse_callable_encoding(source: str) -> list[str]:
+    items = [
+        f"{name}={constant_value(source, name)}"
+        for name in ("PARAM_DEFAULTED", "PARAM_REST", "MODULE_EXPORT_OPTIONAL")
+    ]
+    items.extend(
+        f"{name}{function_body(source, name)}"
+        for name in (
+            "intern_signature",
+            "intern_signature_key",
+            "to_signature",
+            "normalized_effects",
+            "signature_effect_count",
+        )
+    )
+    return ensure_unique(items, "callable encoding")
+
+
+def parse_stream_parameters(source: str) -> list[str]:
+    items = [
+        f"StageParameterType={','.join(extract_enum(source, 'StageParameterType'))}",
+        f"StageParameterDefault={','.join(extract_enum(source, 'StageParameterDefault'))}",
+        f"StageParameterValidation={','.join(extract_enum(source, 'StageParameterValidation'))}",
+        f"StageParameter{{{','.join(extract_struct_fields(source, 'StageParameter'))}}}",
+        f"DEFAULT_PAR_MAP_WORKERS={constant_value(source, 'DEFAULT_PAR_MAP_WORKERS')}",
+        f"stage_parameters{function_body(source, 'stage_parameters')}",
+        f"stage_accepts_callable{function_body(source, 'stage_accepts_callable')}",
+    ]
+    return ensure_unique(items, "stream parameter contract")
+
+
+def parse_indexed_id_layout(source: str) -> list[str]:
+    tokens = lex_rust(source)
+    macro = [
+        index
+        for index in range(len(tokens) - 2)
+        if tokens[index : index + 3] == ["macro_rules", "!", "ir_id"]
+    ]
+    if len(macro) != 1:
+        raise InventoryError(f"expected one ir_id macro, found {len(macro)}")
+    opening = tokens.index("{", macro[0] + 3)
+    macro_body = "{" + compact_tokens(tokens[opening + 1 : matching(tokens, opening)]) + "}"
+    names = []
+    for index in range(len(tokens) - 3):
+        if tokens[index : index + 3] == ["ir_id", "!", "("]:
+            name = tokens[index + 3]
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                raise InventoryError(f"unrecognized ir_id invocation {name!r}")
+            names.append(name)
+    return ensure_unique(
+        [
+            f"IR_NONE={constant_value(source, 'IR_NONE')}",
+            f"ir_id!={macro_body}",
+            f"ids={','.join(names)}",
+        ],
+        "indexed ID layout",
+    )
+
+
+def parse_indexed_range_layout(source: str) -> list[str]:
+    return ensure_unique(
+        [
+            f"IrData{{{','.join(extract_struct_fields(source, 'IrData'))}}}",
+            f"IrRange{{{','.join(extract_struct_fields(source, 'IrRange'))}}}",
+            f"IrLocation{{{','.join(extract_struct_fields(source, 'IrLocation'))}}}",
+            f"IrData::ZERO={constant_value(source, 'ZERO')}",
+            f"IrData::new{function_body(source, 'new', 'IrData')}",
+            f"IrData::from_range{function_body(source, 'from_range', 'IrData')}",
+            f"IrData::range{function_body(source, 'range', 'IrData')}",
+            f"IrRange::new{function_body(source, 'new', 'IrRange')}",
+            f"IrRange::bounds{function_body(source, 'bounds', 'IrRange')}",
+            f"IrLocation::from_span{function_body(source, 'from_span', 'IrLocation')}",
+        ],
+        "indexed range layout",
+    )
+
+
+def parse_source_location_layout(source: str) -> list[str]:
+    items = [
+        f"SourceId{{{','.join(extract_struct_fields(source, 'SourceId'))}}}",
+        f"Span{{{','.join(extract_struct_fields(source, 'Span'))}}}",
+        f"SourceLocation{{{','.join(extract_struct_fields(source, 'SourceLocation'))}}}",
+    ]
+    items.extend(
+        f"{impl}::{name}{function_body(source, name, impl)}"
+        for impl, names in (
+            ("SourceId", ("new", "raw")),
+            (
+                "Span",
+                (
+                    "new",
+                    "at",
+                    "set_start",
+                    "set_end",
+                    "shift_start",
+                    "start",
+                    "end",
+                    "range",
+                    "is_empty",
+                ),
+            ),
+        )
+        for name in names
+    )
+    return ensure_unique(items, "source location layout")
+
+
+def parse_indexed_type_pool_schema(source: str) -> list[str]:
+    helpers = ("has_no_payload", "has_one_type", "has_one_name")
+    variants = extract_enum(source, "TypeTag")
+    classified: dict[str, list[str]] = {}
+    for helper in helpers:
+        body = lex_rust(function_body(source, helper, "TypeTag"))
+        members = [
+            body[index + 2]
+            for index in range(len(body) - 2)
+            if body[index : index + 2] == ["Self", "::"]
+        ]
+        ensure_unique(members, f"TypeTag::{helper}")
+        unknown = sorted(set(members) - set(variants))
+        if unknown:
+            raise InventoryError(f"TypeTag::{helper} names unknown variants {unknown}")
+        classified[helper] = members
+    combined = [variant for members in classified.values() for variant in members]
+    ensure_unique(combined, "TypeTag payload classes")
+    special = [variant for variant in variants if variant not in set(combined)]
+    items = [
+        f"TypeTag={','.join(variants)}",
+        "payload-buckets="
+        + ";".join(
+            f"{helper.removeprefix('has_')}:{','.join(classified[helper])}"
+            for helper in helpers
+        )
+        + f";other:{','.join(special)}",
+        f"TypeKey={','.join(extract_enum(source, 'TypeKey'))}",
+        f"SemanticPools{{{','.join(extract_struct_fields(source, 'SemanticPools'))}}}",
+    ]
+    items.extend(
+        f"TypeTag::{name}{function_body(source, name, 'TypeTag')}"
+        for name in helpers
+    )
+    items.extend(
+        f"{name}{function_body(source, name)}"
+        for name in ("intern_type", "verify_type_raw", "to_type_inner")
+    )
+    items.append(f"SemanticPools::verify{function_body(source, 'verify', 'SemanticPools')}")
+    return ensure_unique(items, "indexed type pool schema")
 
 
 def find_top_level(tokens: list[str], start: int, end: int, target: str) -> int:
@@ -1005,6 +1381,13 @@ EXTRACTORS = {
     "lowered-value-schema": parse_lowered_value_schema,
     "effect-all": parse_effect_all,
     "builtin-type-names": parse_builtin_type_names,
+    "callable-contract": parse_callable_contract,
+    "callable-encoding": parse_callable_encoding,
+    "stream-parameters": parse_stream_parameters,
+    "indexed-id-layout": parse_indexed_id_layout,
+    "indexed-range-layout": parse_indexed_range_layout,
+    "source-location-layout": parse_source_location_layout,
+    "indexed-type-pool-schema": parse_indexed_type_pool_schema,
 }
 
 
@@ -1178,10 +1561,17 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
     live = expected_owner_items(root)
     for owner_id, spec in OWNER_SPECS.items():
         entry = owners[owner_id]
-        if not isinstance(entry, dict) or set(entry) != {"source", "declaration", "extractor", "items"}:
+        expected_keys = {"source", "declaration", "extractor", "items"}
+        if spec.derivation is not None or spec.boundary is not None:
+            expected_keys.update({"derivation", "boundary"})
+        if not isinstance(entry, dict) or set(entry) != expected_keys:
             raise InventoryError(f"owner entry {owner_id} has an invalid shape")
         if entry["source"] != spec.source or entry["declaration"] != spec.declaration or entry["extractor"] != spec.extractor:
             raise InventoryError(f"owner entry {owner_id} does not match its canonical owner")
+        if spec.derivation is not None and entry["derivation"] != spec.derivation:
+            raise InventoryError(f"owner entry {owner_id} has stale derivation metadata")
+        if spec.boundary is not None and entry["boundary"] != spec.boundary:
+            raise InventoryError(f"owner entry {owner_id} has stale boundary metadata")
         compare_owner_items(owner_id, entry["items"], live[owner_id])
 
     classes = coverage["evidence_classes"]
