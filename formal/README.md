@@ -3,8 +3,11 @@
 This is the Lean foundation for the XSH soundness campaign. It is pinned to
 Lean 4.34.1 and uses only Lean's bundled libraries; no XSH runtime or product
 build depends on it. The current foundation proves exact round trips for
-32-bit words, binder IDs, and name IDs. It does not model or prove XSH
-semantics.
+32-bit words, binder IDs, name IDs, and signed 64-bit values. The scalar model
+also defines bounded UInt and Duration values, raw Float bits with IEEE
+equality and total ordering, and NUL-free native paths. These are independent
+value-domain proofs, without a Rust conformance or whole-language soundness
+claim.
 
 From this directory, keep Lake's metadata, manifest, cache, build outputs, and
 temporary files under the repository's ignored `.work/` directory. Add that

@@ -1,8 +1,8 @@
 # XSH semantic soundness campaign
 
-**Status:** Active G0a, authorized 2026-10-13 after preflight. Toolchain setup and private bridge-fixture work run while consolidation finishes, with disjoint ownership and coordinated build/memory slots. Consolidation acceptance remains an independent gate. Source baselines, semantic repairs, and dependent proof lanes use the actual post-consolidation tree.
+**Status:** Active foundations, authorized 2026-10-13 after preflight. Toolchain setup, private bridge fixtures, provisional inventory, and independent scalar proofs run while consolidation finishes, with disjoint ownership and coordinated build/memory slots. The owner requested wider staggered lanes on 2026-10-13. Consolidation acceptance remains an independent gate. Source freezing, Rust semantic repairs, conformance, and dependent proof closure use the actual post-consolidation tree.
 **Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
-**Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and lowering obligations, and connect those independent statements to the Rust implementation with conformance and certified artifacts. This plan claims no Lean prototype or completed proof exists; `formal/` is absent in the inspected checkout.
+**Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and lowering obligations, and connect those independent statements to the Rust implementation with conformance and certified artifacts. The project now contains foundational word/identity and scalar proofs. They do not establish whole-language soundness or Rust conformance.
 
 ## Deliverables
 
@@ -57,7 +57,7 @@ The integrator chooses file splits and proof lemmas within the domains and owner
 
 ## Baseline
 
-G0a may establish the pinned Lean/Lake/checker invocation, validate the private test-only bridge seam, and prepare schema/scenario fixtures after this preflight closes. Keep it on disjoint files with coordinated build slots. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
+G0a may establish the pinned Lean/Lake/checker invocation, validate the private test-only bridge seam, and prepare schema/scenario fixtures after this preflight closes. Independent value-domain proofs and provisional source inventory may overlap on disjoint files; review their statements and reconcile the inventory again at G0b. Keep coordinated build slots. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
 
 The known semantic red to preserve is the Float equality disagreement: runtime `FloatValue` equality uses bits, constant equality uses IEEE `f64` equality, and the independent fuzzer accepts either bit equality or IEEE equality. After consolidation closes, run fresh source-level witnesses for `+0/-0`, same-bit NaN, and structural Float values, and record each actual result. They remain visibly red until the authorized minimal repair and must never be entered as a passing baseline.
 
@@ -364,7 +364,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | Phase | Commit/revision and exact evidence | Open items / next action |
 |---|---|---|
 | Preflight | Lean 4.34.1 fresh `Init.Prelude` recheck; pinned release hello execution/JSONL trace; private typed-callable verifier regression passed. `mdtool check --untracked xsh-lean.md`: zero errors; planned-path/symbol warnings and known dangling-fixture notes. Independent review found no P1/P2 blocker. | Exporter and project do not yet exist; G0a proves those foundations before dependent work. |
-| G0a | Authorized staggered start 2026-10-13; no formal proof claimed. | Establish pinned project and private bridge fixture on disjoint paths; G0b waits for consolidation close. |
+| G0a | Pinned project, module-wide axiom audit, guarded fresh-check runner, and exact scalar foundation merged. Private Rust bridge and provisional inventory have focused checks and independent review; integration fixes remain. | Include every theorem module in the fresh-check root. Finish reference and inventory mutation controls; G0b waits for consolidation close. |
 
 ## For the owner afterwards
 
