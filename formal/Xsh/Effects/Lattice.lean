@@ -186,33 +186,33 @@ theorem filesystem_does_not_imply_io : ¬ closure (ofList [.fs]) .io := by
   simp [closure, ofList, ioComponent]
 
 /-- A valid `without` component rejects `io`; excluding `io` is exact. -/
-def withoutBlocks (excluded required : Effect) : Prop :=
+def effectExclusionBlocks (excluded required : Effect) : Prop :=
   excluded ≠ .error ∧
     (excluded = required ∨ (required = .io ∧ ioComponent excluded))
 
 theorem without_component_blocks_io (component : Effect)
-    (isComponent : ioComponent component) : withoutBlocks component .io := by
+    (isComponent : ioComponent component) : effectExclusionBlocks component .io := by
   have notError : component ≠ .error := by
     intro equal
     subst component
     simp [ioComponent] at isComponent
   exact ⟨notError, Or.inr ⟨rfl, isComponent⟩⟩
 
-theorem without_io_does_not_block_filesystem : ¬ withoutBlocks .io .fs := by
-  simp [withoutBlocks, ioComponent]
+theorem without_io_does_not_block_filesystem : ¬ effectExclusionBlocks .io .fs := by
+  simp [effectExclusionBlocks, ioComponent]
 
-theorem without_io_does_not_block_network : ¬ withoutBlocks .io .net := by
-  simp [withoutBlocks, ioComponent]
+theorem without_io_does_not_block_network : ¬ effectExclusionBlocks .io .net := by
+  simp [effectExclusionBlocks, ioComponent]
 
-theorem without_io_does_not_block_process : ¬ withoutBlocks .io .process := by
-  simp [withoutBlocks, ioComponent]
+theorem without_io_does_not_block_process : ¬ effectExclusionBlocks .io .process := by
+  simp [effectExclusionBlocks, ioComponent]
 
-theorem without_io_does_not_block_environment : ¬ withoutBlocks .io .env := by
-  simp [withoutBlocks, ioComponent]
+theorem without_io_does_not_block_environment : ¬ effectExclusionBlocks .io .env := by
+  simp [effectExclusionBlocks, ioComponent]
 
 theorem without_never_blocks_error (excluded : Effect) :
-    ¬ withoutBlocks excluded .error := by
-  cases excluded <;> simp [withoutBlocks, ioComponent]
+    ¬ effectExclusionBlocks excluded .error := by
+  cases excluded <;> simp [effectExclusionBlocks, ioComponent]
 
 /-- A summary retains known effects even when an unresolved dependency exists. -/
 structure EffectSummary where
@@ -245,7 +245,7 @@ def clauseCallPermitted (bound : Option FiniteEffectSet) (contract : EffectContr
 
 /-- Whether one valid lexical exclusion blocks a known required effect. -/
 def excludedRequirement (bounds : List Effect) (required : Effect) : Prop :=
-  ∃ excluded, excluded ∈ bounds ∧ withoutBlocks excluded required
+  ∃ excluded, excluded ∈ bounds ∧ effectExclusionBlocks excluded required
 
 /-- Unknown or unrestricted contracts cannot be justified inside a `without` region. -/
 def withoutCallPermitted (bounds : List Effect) (contract : EffectContract) : Prop :=
@@ -299,7 +299,7 @@ theorem without_region_rejects_unrestricted (excluded : Effect) (rest : List Eff
 
 theorem without_fs_blocks_known_io :
     excludedRequirement [.fs] .io := by
-  exact ⟨.fs, by simp, by simp [withoutBlocks, ioComponent]⟩
+  exact ⟨.fs, by simp, by simp [effectExclusionBlocks, ioComponent]⟩
 
 theorem without_io_allows_known_filesystem :
     withoutCallPermitted [.io] (.checked (ofList [.fs])) := by
