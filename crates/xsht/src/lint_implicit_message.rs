@@ -146,13 +146,7 @@ pub(super) fn lint_implicit_messages(
                     variant.name
                 ),
             ));
-            if exported {
-                diagnostic = diagnostic.with_note(format!(
-                    "`{family}` is exported, and a `{variant}(message: ...)` call in a file that imports it stops checking once the payload is gone (`check.error-constructor`); positional calls, patterns, and `.message` are unchanged. Run this rule over the importing files, which passes each message positionally, then delete `(message: Str)` here",
-                    family = family.name,
-                    variant = variant.name
-                ));
-            } else if named_calls {
+            if named_calls {
                 diagnostic = diagnostic.with_note(format!(
                     "first pass the message positionally at each `{}(message: ...)` call in this file",
                     variant.name
