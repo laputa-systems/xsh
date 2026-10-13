@@ -22,35 +22,87 @@ class InventoryCheckerTests(unittest.TestCase):
         result = CHECKER.validate_coverage(ROOT, coverage)
         self.assertEqual(set(CHECKER.OWNER_SPECS), set(result["owners"]))
         self.assertEqual(89, len(result["owners"]))
+        self.assertEqual(
+            {root["id"] for root in coverage["fragment_roots"]},
+            result["fragment_roots"],
+        )
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual([], coverage["finite_conformance"]["cases"])
 
     def test_root_import_reaches_every_project_module(self) -> None:
         formal_root = ROOT / "formal"
-        module_sources = {
-            ".".join(path.relative_to(formal_root).with_suffix("").parts): path
-            for path in formal_root.rglob("*.lean")
-            if "scripts" not in path.relative_to(formal_root).parts
-        }
-        imports_by_module: dict[str, set[str]] = {}
-        for module, path in module_sources.items():
-            imports: set[str] = set()
-            for line in path.read_text().splitlines():
-                declaration = line.split("--", 1)[0].strip()
-                if declaration.startswith("import "):
-                    imports.update(declaration.removeprefix("import ").split())
-            imports_by_module[module] = imports
-
-        reachable = {"Xsh"}
-        pending = ["Xsh"]
-        while pending:
-            module = pending.pop()
-            for imported in imports_by_module[module] & module_sources.keys():
-                if imported not in reachable:
-                    reachable.add(imported)
-                    pending.append(imported)
-
+        module_sources = CHECKER.lean_module_sources(formal_root)
+        reachable = CHECKER.reachable_lean_modules(module_sources)
         self.assertEqual(set(module_sources), reachable)
+
+    def test_fragment_roots_cover_every_theorem_module(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        roots = coverage["fragment_roots"]
+        module_sources = CHECKER.lean_module_sources(ROOT / "formal")
+        reachable = CHECKER.reachable_lean_modules(module_sources)
+        root_ids = CHECKER.validate_fragment_roots(roots, module_sources, reachable)
+        self.assertEqual(len(roots), len(root_ids))
+        self.assertTrue(
+            any(
+                "pending_integer_frames_reject_noninteger_mutations_fragment"
+                in root["declaration"]
+                for root in roots
+            )
+        )
+        self.assertTrue(
+            any(
+                "float_sign_bit_mutation_changes_machine_payload_fragment"
+                in root["declaration"]
+                for root in roots
+            )
+        )
+
+    def test_missing_fragment_module_root_fails(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["fragment_roots"] = [
+            root
+            for root in coverage["fragment_roots"]
+            if root["module"] != "Xsh.Values.Scalars"
+        ]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "missing fragment roots"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_duplicate_fragment_root_fails(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["fragment_roots"].append(coverage["fragment_roots"][0].copy())
+        with self.assertRaisesRegex(CHECKER.InventoryError, "duplicate fragment root id"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_fragment_root_must_name_a_live_qualified_theorem(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["fragment_roots"][0]["declaration"] = "Xsh.Foundation.missing_root"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "not a public theorem"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_unreachable_theorem_root_module_fails(self) -> None:
+        module_sources = CHECKER.lean_module_sources(ROOT / "formal")
+        reachable = CHECKER.reachable_lean_modules(module_sources)
+        reachable.remove("Xsh.Values.Scalars")
+        roots = [
+            {
+                "id": "fragment.scalar.round-trip",
+                "module": "Xsh.Values.Scalars",
+                "declaration": "Xsh.Values.decode_encode_int",
+                "evidence_class": "SPEC_PROVED",
+                "status": "fragment",
+                "scope": "Scalar representation only.",
+                "boundary": "No full-language or Rust conformance claim.",
+            }
+        ]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "unreachable Lean theorem modules"):
+            CHECKER.validate_fragment_roots(roots, module_sources, reachable)
+
+    def test_fragment_cannot_close_a_full_obligation(self) -> None:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["universal_theorems"][0]["proof_root_id"] = coverage["fragment_roots"][0]["id"]
+        coverage["universal_theorems"][0]["status"] = "proved"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "cannot close theorem obligation"):
+            CHECKER.validate_coverage(ROOT, coverage)
 
     def test_constructor_add_remove_and_rename_drift(self) -> None:
         fixture = (ROOT / "formal/tests/inventory/fixtures/arena.rs").read_text()

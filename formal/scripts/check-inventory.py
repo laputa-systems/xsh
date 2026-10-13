@@ -1489,6 +1489,173 @@ def required_plan_obligations(plan: str) -> dict[str, str]:
     return dict(sorted(obligations.items()))
 
 
+def lean_module_sources(formal_root: Path) -> dict[str, Path]:
+    return {
+        ".".join(path.relative_to(formal_root).with_suffix("").parts): path
+        for path in formal_root.rglob("*.lean")
+        if "scripts" not in path.relative_to(formal_root).parts
+    }
+
+
+def lean_import_graph(module_sources: dict[str, Path]) -> dict[str, set[str]]:
+    imports_by_module: dict[str, set[str]] = {}
+    for module, path in module_sources.items():
+        imports: set[str] = set()
+        for line in path.read_text(encoding="utf-8").splitlines():
+            declaration = line.split("--", 1)[0].strip()
+            if declaration.startswith("import "):
+                imports.update(declaration.removeprefix("import ").split())
+        imports_by_module[module] = imports
+    return imports_by_module
+
+
+def reachable_lean_modules(module_sources: dict[str, Path]) -> set[str]:
+    if "Xsh" not in module_sources:
+        raise InventoryError("Lean root module Xsh is missing")
+    imports_by_module = lean_import_graph(module_sources)
+    reachable = {"Xsh"}
+    pending = ["Xsh"]
+    while pending:
+        module = pending.pop()
+        for imported in imports_by_module[module] & module_sources.keys():
+            if imported not in reachable:
+                reachable.add(imported)
+                pending.append(imported)
+    return reachable
+
+
+def lean_theorem_declarations(source: str) -> set[str]:
+    scopes: list[tuple[str, str | None]] = []
+    declarations: set[str] = set()
+    for line in source.splitlines():
+        namespace_match = re.match(
+            r"^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*(?:--.*)?$", line
+        )
+        if namespace_match:
+            name = namespace_match.group(1)
+            namespaces = [value for kind, value in scopes if kind == "namespace" and value]
+            if name.startswith("Xsh.") or name == "Xsh":
+                qualified = name
+            elif namespaces:
+                qualified = f"{namespaces[-1]}.{name}"
+            else:
+                qualified = name
+            scopes.append(("namespace", qualified))
+            continue
+
+        section_match = re.match(
+            r"^\s*section(?:\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*(?:--.*)?$", line
+        )
+        if section_match:
+            scopes.append(("section", section_match.group(1)))
+            continue
+
+        if re.match(r"^\s*mutual\s*(?:--.*)?$", line):
+            scopes.append(("mutual", None))
+            continue
+
+        end_match = re.match(r"^\s*end(?:\s+([A-Za-z_][A-Za-z0-9_.]*))?\s*(?:--.*)?$", line)
+        if end_match:
+            closing = end_match.group(1)
+            if closing is None:
+                if scopes:
+                    scopes.pop()
+            else:
+                for index in range(len(scopes) - 1, -1, -1):
+                    kind, name = scopes[index]
+                    if name == closing or name and name.split(".")[-1] == closing:
+                        del scopes[index:]
+                        break
+            continue
+
+        theorem_match = re.match(
+            r"^\s*theorem\s+([A-Za-z_][A-Za-z0-9_.'?!]*)\b", line
+        )
+        if theorem_match:
+            name = theorem_match.group(1)
+            namespaces = [value for kind, value in scopes if kind == "namespace" and value]
+            declarations.add(f"{namespaces[-1]}.{name}" if namespaces else name)
+    return declarations
+
+
+def validate_fragment_roots(
+    roots: Any,
+    module_sources: dict[str, Path],
+    reachable_modules: set[str],
+) -> set[str]:
+    if not isinstance(roots, list) or not roots:
+        raise InventoryError("fragment_roots must be a nonempty array")
+
+    root_keys = {
+        "id",
+        "module",
+        "declaration",
+        "evidence_class",
+        "status",
+        "scope",
+        "boundary",
+    }
+    seen_ids: set[str] = set()
+    seen_declarations: set[str] = set()
+    seen_modules: set[str] = set()
+    theorem_declarations: dict[str, set[str]] = {}
+    expected_modules: set[str] = set()
+    for module, path in module_sources.items():
+        if module.startswith("Xsh."):
+            declarations = lean_theorem_declarations(path.read_text(encoding="utf-8"))
+            if declarations:
+                expected_modules.add(module)
+                theorem_declarations[module] = declarations
+
+    unreachable_modules = expected_modules - reachable_modules
+    if unreachable_modules:
+        raise InventoryError(
+            f"unreachable Lean theorem modules: {sorted(unreachable_modules)}"
+        )
+
+    for entry in roots:
+        if not isinstance(entry, dict) or set(entry) != root_keys:
+            raise InventoryError("fragment root row has an invalid shape")
+        identifier = entry["id"]
+        module = entry["module"]
+        declaration = entry["declaration"]
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise InventoryError("fragment root id must be nonempty text")
+        if identifier in seen_ids:
+            raise InventoryError(f"duplicate fragment root id {identifier}")
+        seen_ids.add(identifier)
+        if not isinstance(module, str) or not module.startswith("Xsh."):
+            raise InventoryError(f"fragment root {identifier} must name an Xsh module")
+        path = module_sources.get(module)
+        if path is None:
+            raise InventoryError(f"fragment root {identifier} names missing module {module}")
+        if module not in reachable_modules:
+            raise InventoryError(f"unreachable fragment root module {module}")
+        if not isinstance(declaration, str) or not declaration.strip():
+            raise InventoryError(f"fragment root {identifier} must name a qualified declaration")
+        if declaration in seen_declarations:
+            raise InventoryError(f"duplicate fragment root declaration {declaration}")
+        seen_declarations.add(declaration)
+        if declaration not in theorem_declarations.get(module, set()):
+            raise InventoryError(
+                f"fragment root {identifier} is not a public theorem in {module}: {declaration}"
+            )
+        if entry["evidence_class"] != "SPEC_PROVED":
+            raise InventoryError(f"fragment root {identifier} must use SPEC_PROVED")
+        if entry["status"] != "fragment":
+            raise InventoryError(f"fragment root {identifier} must remain visibly fragmentary")
+        for field in ("scope", "boundary"):
+            value = entry[field]
+            if not isinstance(value, str) or not value.strip():
+                raise InventoryError(f"fragment root {identifier} needs explicit {field} text")
+        seen_modules.add(module)
+
+    missing_modules = expected_modules - seen_modules
+    if missing_modules:
+        raise InventoryError(f"missing fragment roots for Lean modules: {sorted(missing_modules)}")
+    return seen_ids
+
+
 def expected_owner_items(root: Path) -> dict[str, list[str]]:
     expected: dict[str, list[str]] = {}
     arena_path = root / "src/syntax/arena.rs"
@@ -1543,18 +1710,42 @@ def compare_owner_items(owner_id: str, inventoried: Any, live: list[str]) -> Non
         )
 
 
-def validate_obligation_entries(plan: str, obligations: Any) -> list[str]:
+def validate_obligation_entries(
+    plan: str,
+    obligations: Any,
+    fragment_root_ids: set[str] | None = None,
+) -> list[str]:
     required = required_plan_obligations(plan)
     if not isinstance(obligations, list):
         raise InventoryError("obligations must be an array")
+    fragment_root_ids = fragment_root_ids or set()
     seen: set[str] = set()
+    seen_root_ids: set[str] = set()
     for entry in obligations:
-        if not isinstance(entry, dict) or set(entry) != {"id", "gate", "evidence_class", "status"}:
+        if not isinstance(entry, dict) or set(entry) != {
+            "id",
+            "gate",
+            "evidence_class",
+            "status",
+            "proof_root_id",
+        }:
             raise InventoryError("obligation row has an invalid shape")
         identifier = entry["id"]
         if not isinstance(identifier, str) or identifier in seen:
             raise InventoryError(f"missing, malformed, or duplicate obligation id {identifier!r}")
         seen.add(identifier)
+        root_id = entry["proof_root_id"]
+        if not isinstance(root_id, str) or not root_id.strip():
+            raise InventoryError(f"theorem obligation {identifier} needs a planned proof-root id")
+        if root_id in fragment_root_ids:
+            raise InventoryError(
+                f"fragment root {root_id} cannot close theorem obligation {identifier}"
+            )
+        if root_id != f"full.{identifier}" or root_id in seen_root_ids:
+            raise InventoryError(
+                f"theorem obligation {identifier} has a missing or duplicate full proof-root id"
+            )
+        seen_root_ids.add(root_id)
         if entry["evidence_class"] != "SPEC_PROVED":
             raise InventoryError(f"theorem obligation {identifier} must use SPEC_PROVED")
         if entry["status"] != "planned":
@@ -1577,6 +1768,7 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         "source_state",
         "scope",
         "core_inventory",
+        "fragment_roots",
         "universal_theorems",
         "finite_conformance",
         "evidence_classes",
@@ -1639,7 +1831,14 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         plan = plan_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise InventoryError(f"cannot read formal plan {plan_path}: {exc}") from exc
-    obligation_ids = validate_obligation_entries(plan, coverage["universal_theorems"])
+    module_sources = lean_module_sources(root / "formal")
+    reachable_modules = reachable_lean_modules(module_sources)
+    fragment_root_ids = validate_fragment_roots(
+        coverage["fragment_roots"], module_sources, reachable_modules
+    )
+    obligation_ids = validate_obligation_entries(
+        plan, coverage["universal_theorems"], fragment_root_ids
+    )
     finite_conformance = coverage["finite_conformance"]
     if (
         not isinstance(finite_conformance, dict)
@@ -1649,7 +1848,11 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         or finite_conformance["cases"] != []
     ):
         raise InventoryError("finite conformance must remain a separate planned, empty case set")
-    return {"owners": live, "obligations": obligation_ids}
+    return {
+        "owners": live,
+        "fragment_roots": fragment_root_ids,
+        "obligations": obligation_ids,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1669,6 +1872,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(
         f"inventory ok: {len(result['owners'])} owner sets, "
+        f"{len(result['fragment_roots'])} Lean fragment roots, "
         f"{len(result['obligations'])} planned theorem obligations"
     )
     return 0

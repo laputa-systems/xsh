@@ -2462,433 +2462,505 @@
       "id": "BASE-ENV",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.BASE-ENV"
     },
     {
       "id": "BASE-NUM",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.BASE-NUM"
     },
     {
       "id": "BASE-PROGRESS",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.BASE-PROGRESS"
     },
     {
       "id": "BASE-RUNNER",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.BASE-RUNNER"
     },
     {
       "id": "BASE-STEP",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.BASE-STEP"
     },
     {
       "id": "BASE-VERTICAL",
       "gate": "G1",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.BASE-VERTICAL"
     },
     {
       "id": "CERT-COVERAGE",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CERT-COVERAGE"
     },
     {
       "id": "CERT-SOUND",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CERT-SOUND"
     },
     {
       "id": "CLEAN-ERROR",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CLEAN-ERROR"
     },
     {
       "id": "CLEAN-ONCE",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CLEAN-ONCE"
     },
     {
       "id": "CLEAN-ORDER",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CLEAN-ORDER"
     },
     {
       "id": "CTRL-DEADLINE",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CTRL-DEADLINE"
     },
     {
       "id": "CTRL-DEST",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CTRL-DEST"
     },
     {
       "id": "CTRL-RESULT",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CTRL-RESULT"
     },
     {
       "id": "CTRL-SIGNAL",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.CTRL-SIGNAL"
     },
     {
       "id": "EFF-BOUNDS",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EFF-BOUNDS"
     },
     {
       "id": "EFF-CAPTURE",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EFF-CAPTURE"
     },
     {
       "id": "EFF-LATENT",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EFF-LATENT"
     },
     {
       "id": "EFF-LATTICE",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EFF-LATTICE"
     },
     {
       "id": "EFF-ORDER",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EFF-ORDER"
     },
     {
       "id": "EFF-SEMANTIC",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EFF-SEMANTIC"
     },
     {
       "id": "EFF-SOLVE",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EFF-SOLVE"
     },
     {
       "id": "EFF-WITNESS",
       "gate": "G3",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EFF-WITNESS"
     },
     {
       "id": "EXEC-SAFE",
       "gate": "G7b",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.EXEC-SAFE"
     },
     {
       "id": "IR-GUARDS",
       "gate": "G7b",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.IR-GUARDS"
     },
     {
       "id": "IR-PROVENANCE",
       "gate": "G7b",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.IR-PROVENANCE"
     },
     {
       "id": "IR-TYPED",
       "gate": "G7b",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.IR-TYPED"
     },
     {
       "id": "LOWER-DIVERGE",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.LOWER-DIVERGE"
     },
     {
       "id": "LOWER-FACTS",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.LOWER-FACTS"
     },
     {
       "id": "LOWER-OBS",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.LOWER-OBS"
     },
     {
       "id": "LOWER-STEP",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.LOWER-STEP"
     },
     {
       "id": "LOWER-SUGAR",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.LOWER-SUGAR"
     },
     {
       "id": "LOWER-WF",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.LOWER-WF"
     },
     {
       "id": "MODE-EQUIV",
       "gate": "G8",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.MODE-EQUIV"
     },
     {
       "id": "PAR-BOUND",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.PAR-BOUND"
     },
     {
       "id": "PAR-DRAIN",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.PAR-DRAIN"
     },
     {
       "id": "PAR-OUTCOME",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.PAR-OUTCOME"
     },
     {
       "id": "RES-CONSUME",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.RES-CONSUME"
     },
     {
       "id": "RES-EXPLICIT",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.RES-EXPLICIT"
     },
     {
       "id": "RES-OWNER",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.RES-OWNER"
     },
     {
       "id": "RES-TRANSFER",
       "gate": "G5",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.RES-TRANSFER"
     },
     {
       "id": "STREAM-CLOSE",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.STREAM-CLOSE"
     },
     {
       "id": "STREAM-CURSOR",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.STREAM-CURSOR"
     },
     {
       "id": "STREAM-DEMAND",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.STREAM-DEMAND"
     },
     {
       "id": "STREAM-LATENT",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.STREAM-LATENT"
     },
     {
       "id": "STREAM-SOUND",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.STREAM-SOUND"
     },
     {
       "id": "STREAM-TYPE",
       "gate": "G6",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.STREAM-TYPE"
     },
     {
       "id": "TYPE-CALL",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-CALL"
     },
     {
       "id": "TYPE-CHECK",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-CHECK"
     },
     {
       "id": "TYPE-ENTRY",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-ENTRY"
     },
     {
       "id": "TYPE-FACTS",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-FACTS"
     },
     {
       "id": "TYPE-MEMBER",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-MEMBER"
     },
     {
       "id": "TYPE-MODULE",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-MODULE"
     },
     {
       "id": "TYPE-PRESERVE",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-PRESERVE"
     },
     {
       "id": "TYPE-PROGRESS",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-PROGRESS"
     },
     {
       "id": "TYPE-RECOVERY",
       "gate": "G4",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.TYPE-RECOVERY"
     },
     {
       "id": "VAL-ERASE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-ERASE"
     },
     {
       "id": "VAL-INTRO",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-INTRO"
     },
     {
       "id": "VAL-NARROW",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-NARROW"
     },
     {
       "id": "VAL-NOMINAL",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-NOMINAL"
     },
     {
       "id": "VAL-PRESERVE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-PRESERVE"
     },
     {
       "id": "VAL-REQUIRE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-REQUIRE"
     },
     {
       "id": "VAL-STORE",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-STORE"
     },
     {
       "id": "VAL-UNION",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-UNION"
     },
     {
       "id": "VAL-WIDEN",
       "gate": "G2",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.VAL-WIDEN"
     },
     {
       "id": "XSH-CERTIFIED-ARTIFACT",
       "gate": "G10",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.XSH-CERTIFIED-ARTIFACT"
     },
     {
       "id": "XSH-CHECK-SOUND",
       "gate": "G10",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.XSH-CHECK-SOUND"
     },
     {
       "id": "XSH-COMPILE-CORRECT",
       "gate": "G10",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.XSH-COMPILE-CORRECT"
     },
     {
       "id": "XSH-EFFECT-SAFE",
       "gate": "G10",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.XSH-EFFECT-SAFE"
     },
     {
       "id": "XSH-IR-SAFE",
       "gate": "G10",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.XSH-IR-SAFE"
     },
     {
       "id": "XSH-RESOURCE-SAFE",
       "gate": "G10",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.XSH-RESOURCE-SAFE"
     },
     {
       "id": "XSH-SOURCE-SAFE",
       "gate": "G10",
       "evidence_class": "SPEC_PROVED",
-      "status": "planned"
+      "status": "planned",
+      "proof_root_id": "full.XSH-SOURCE-SAFE"
     }
   ],
   "finite_conformance": {
@@ -2912,6 +2984,377 @@
     {
       "class": "EXTERNAL_ASSUMPTION",
       "status": "planned"
+    }
+  ],
+  "fragment_roots": [
+    {
+      "id": "fragment.Xsh.Foundation.Word32.decode_value",
+      "module": "Xsh.Foundation",
+      "declaration": "Xsh.Foundation.Word32.decode_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The stored word and identity encodings used by the formal bridge.",
+      "boundary": "No parser, source-span, or Rust representation conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Syntax.binding_initializer_is_outside_its_binding",
+      "module": "Xsh.Syntax.Core",
+      "declaration": "Xsh.Syntax.binding_initializer_is_outside_its_binding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Free-name and binder-scope rules for the selected core syntax constructors.",
+      "boundary": "No complete XSH grammar, type checker, lowering, or runtime semantics claim."
+    },
+    {
+      "id": "fragment.Xsh.Values.decode_encode_int",
+      "module": "Xsh.Values.Scalars",
+      "declaration": "Xsh.Values.decode_encode_int",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded scalar representations, integer conversion, and IEEE float equality over raw bits.",
+      "boundary": "No Rust arithmetic/value conformance, complete value algebra, or source evaluator claim."
+    },
+    {
+      "id": "fragment.Xsh.Values.ieee_signed_zeros_equal",
+      "module": "Xsh.Values.Scalars",
+      "declaration": "Xsh.Values.ieee_signed_zeros_equal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounded scalar representations, integer conversion, and IEEE float equality over raw bits.",
+      "boundary": "No Rust arithmetic/value conformance, complete value algebra, or source evaluator claim."
+    },
+    {
+      "id": "fragment.Xsh.Values.nested_list_uses_ieee_float_equality",
+      "module": "Xsh.Values.Composite",
+      "declaration": "Xsh.Values.nested_list_uses_ieee_float_equality",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Composite equality for nested lists under the modeled Float equality rule.",
+      "boundary": "No Rust equality conformance, general collection behavior, or source evaluator claim."
+    },
+    {
+      "id": "fragment.Xsh.Values.IntegerOps.negative_division_truncates_toward_zero",
+      "module": "Xsh.Values.IntegerOps",
+      "declaration": "Xsh.Values.IntegerOps.negative_division_truncates_toward_zero",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked integer arithmetic and truncating division and remainder rules.",
+      "boundary": "Only the integer operation fragment is covered; checker integration and Rust conformance remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Environments.scope_exit_restores_shadowed_outer",
+      "module": "Xsh.Semantics.Environments",
+      "declaration": "Xsh.Semantics.Environments.scope_exit_restores_shadowed_outer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Resolved name lookup, lexical shadowing, captured cell identities, and local store-write laws.",
+      "boundary": "No source binder analysis, closure execution, or Rust runtime conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Validation.require_bounded_success_is_in_range",
+      "module": "Xsh.Validation.Boundary",
+      "declaration": "Xsh.Validation.require_bounded_success_is_in_range",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "NonEmpty and bounded-integer validation boundaries.",
+      "boundary": "No end-to-end typing, control-flow, or Rust checker preservation claim."
+    },
+    {
+      "id": "fragment.Xsh.Validation.Store.accepted_write_preserves_store_invariant",
+      "module": "Xsh.Validation.Store",
+      "declaration": "Xsh.Validation.Store.accepted_write_preserves_store_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Membership-guarded typed-cell writes and recoverable versus uncatchable boundary outcomes.",
+      "boundary": "No source evaluator, unwind machine, or Rust store conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.closure_is_least_closed",
+      "module": "Xsh.Effects.Lattice",
+      "declaration": "Xsh.Semantics.Effects.closure_is_least_closed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite effect-set order, closure, and lattice laws.",
+      "boundary": "No Rust effect extraction, diagnostics, source-site classification, or runtime effect claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.Solver.solve_least_closed",
+      "module": "Xsh.Effects.Solver",
+      "declaration": "Xsh.Semantics.Effects.Solver.solve_least_closed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite graph equations and least recursive effect-summary closure.",
+      "boundary": "No Rust checker graph construction, diagnostic provenance, or complete delayed-effect claim."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.nested_without_only_restricts",
+      "module": "Xsh.Effects.Lexical",
+      "declaration": "Xsh.Semantics.Effects.nested_without_only_restricts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical effect bounds and delayed-work origins in the formal effect model.",
+      "boundary": "No Rust checker classification, stream execution, or conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.decoded_row_preserves_raw_fields",
+      "module": "Xsh.IR.Raw.Laws",
+      "declaration": "Xsh.IR.Raw.decoded_row_preserves_raw_fields",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Raw IR row field preservation and range laws.",
+      "boundary": "No complete instruction schema, raw IR execution, or Rust export conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.RawRange.resolve_sound",
+      "module": "Xsh.IR.Raw.Ranges",
+      "declaration": "Xsh.IR.Raw.RawRange.resolve_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bounds resolution for a raw IR word range.",
+      "boundary": "No table schema completeness, instruction semantics, or Rust verifier conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.tag_data_mismatch_row_read_fails",
+      "module": "Xsh.IR.Raw.Witnesses",
+      "declaration": "Xsh.IR.Raw.tag_data_mismatch_row_read_fails",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite raw IR acceptance/rejection cases and mutation witnesses.",
+      "boundary": "Finite witnesses do not establish full decoder soundness, schema completeness, or Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.PoolId.decode_encode",
+      "module": "Xsh.IR.Raw.Words",
+      "declaration": "Xsh.IR.Raw.PoolId.decode_encode",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One-based pool IDs, direct and optional indexes, and the IR_NONE sentinel.",
+      "boundary": "No full raw IR schema, instruction-level soundness, or Rust decoder conformance claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.decodeHex32_accepted_reencodes",
+      "module": "Xsh.Conformance.Transport.Codecs",
+      "declaration": "Xsh.Conformance.Transport.decodeHex32_accepted_reencodes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Fixed-width lowercase transport codecs for word and byte payloads.",
+      "boundary": "No Rust bridge conformance, source/IR export, or artifact certification claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.bridge_id_wire_round_trip",
+      "module": "Xsh.Conformance.Transport.Laws",
+      "declaration": "Xsh.Conformance.Transport.bridge_id_wire_round_trip",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Bridge ID transport and accepted hexadecimal payload re-encoding.",
+      "boundary": "No certified artifact, Rust transport conformance, or end-to-end certificate claim."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.accepted_initial_expression_is_wellFormed_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.accepted_initial_expression_is_wellFormed_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.integer_checker_implies_supported_checker_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.integer_checker_implies_supported_checker_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.machine_progress_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.machine_progress_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.wellFormed_preserved_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.wellFormed_preserved_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.machine_runner_never_stuck_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.machine_runner_never_stuck_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.runner_soundness_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.runner_soundness_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.integer_checker_accepts_supported_arithmetic_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.integer_checker_accepts_supported_arithmetic_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.integer_checker_rejects_out_of_range_literal_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.integer_checker_rejects_out_of_range_literal_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.integer_checker_rejects_unbound_name_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.integer_checker_rejects_unbound_name_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.supported_arithmetic_runs_to_exact_value_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.supported_arithmetic_runs_to_exact_value_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.checked_multiplication_overflow_is_explicit_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.checked_multiplication_overflow_is_explicit_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.checked_division_by_zero_is_explicit_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.checked_division_by_zero_is_explicit_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.multiplication_mutant_witness_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.multiplication_mutant_witness_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.pending_integer_frames_reject_noninteger_mutations_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.pending_integer_frames_reject_noninteger_mutations_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.scalar_literal_runs_to_its_typed_payload_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.scalar_literal_runs_to_its_typed_payload_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.scalar_checker_accepts_exact_float_literal_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.scalar_checker_accepts_exact_float_literal_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.positive_zero_literal_runs_with_exact_float_payload_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.positive_zero_literal_runs_with_exact_float_payload_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.every_supported_scalar_kind_runs_with_exact_typed_payload_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.every_supported_scalar_kind_runs_with_exact_typed_payload_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.scalar_checker_rejects_composite_literal_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.scalar_checker_rejects_composite_literal_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.composite_literal_failure_is_explicit_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.composite_literal_failure_is_explicit_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.float_sign_bit_mutation_changes_machine_payload_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.float_sign_bit_mutation_changes_machine_payload_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.typed_identifier_reads_exact_scalar_from_store_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.typed_identifier_reads_exact_scalar_from_store_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachine.binder_redirection_changes_identifier_result_fragment",
+      "module": "Xsh.Proofs.BaseMachine",
+      "declaration": "Xsh.Proofs.BaseMachine.binder_redirection_changes_identifier_result_fragment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The integer and supported scalar expression machine, including typed payloads, lookup, arithmetic, and runner progress for this fragment.",
+      "boundary": "Covers only the listed BaseExpr language and formal store model; it proves no full source typing, Rust evaluator equivalence, whole-language progress, or conformance."
     }
   ]
 }
