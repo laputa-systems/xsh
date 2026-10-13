@@ -1,7 +1,8 @@
 #![cfg(unix)]
 
+// `test_bin!` expands through the test crate root in both aggregator targets.
 #[macro_use]
-mod test_binary;
+pub(crate) mod test_binary;
 
 use std::io::Read;
 use std::os::fd::AsRawFd;

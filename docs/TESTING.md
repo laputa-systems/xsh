@@ -51,7 +51,7 @@ adjacent comment explaining why a native test cannot express it.
 |---|---|
 | native XSH | `tests/xsh`, `core/tests`, `dev/tests`, `showcase/tests` (the `test_roots` in `xsht-config.ini`) |
 | root integration | `tests/integration.rs` aggregates `tests/syntax.rs`, `tests/sema.rs`, `tests/runtime/`, `tests/cli.rs`, and the rest |
-| separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/core_compat_boundaries.rs`, `tests/core_compat_extra.rs` (core applet descriptors, PTYs and child lifecycles), `tests/linux_priv.rs` (`linux-priv-tests` feature) |
+| separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/core_compat_boundaries.rs`, `tests/core_compat_extra.rs` (core applet descriptors, PTYs and child lifecycles), `tests/linux_priv.rs` (`linux-priv-tests` feature), `core_compat_extra_privileged` (same core applet source with privileged cases enabled) |
 | tooling | `crates/xsht/tests/` (`integration`, `profile_parity` targets) |
 | interactive | `crates/xshi/src/interactive/` units and `crates/xshi/tests/` (`laputa-asterinas` feature) |
 | fixtures | `tests/fixtures/{syntax,sema,runtime,fmt,frontend-indexed}` |
@@ -368,6 +368,14 @@ block-device copy regression cannot open a host device. The same tests accept
 9.12 tools with identical descriptor and fixture setup. Bound the container to
 1 GiB for the large virtual `dd` buffer case; its empty input must not commit
 the virtual allocation to physical memory.
+
+The `core_compat_extra_privileged` target includes the same aggregator source
+and requires `linux-priv-tests`, so a focused run can compile the gated cases
+without changing the ordinary target. For the recursive block-device copy
+cases, build with `--features linux-priv-tests --test
+core_compat_extra_privileged --no-run`, then run the target with filter
+`cp::privileged::test_cp_recursive_block_device_` in the pinned image as root,
+with no network, a 1 GiB memory limit, and a `nodev` `/tmp` tmpfs.
 
 `core/tests/test-traceroute.xsh` also needs both privilege contexts. The normal
 UID 1000 suite checks the exact `EPERM` result for IPv4 source-route

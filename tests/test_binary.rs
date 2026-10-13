@@ -1,6 +1,7 @@
 //! Process tests require optimized products. Cargo builds binary targets in
 //! the test's own profile, so reject every profile except verification and
-//! release. Each test crate includes this file at its root with `#[macro_use]`.
+//! release. Each test crate imports this module with `#[macro_use]` and exposes
+//! it at its crate root for the `test_bin!` macro.
 
 /// Cargo's binary target path, checked to use an accepted test profile.
 macro_rules! test_bin {
