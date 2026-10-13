@@ -203,7 +203,7 @@ export pure size_value(raw: Str) -> Int? {
       let rest = suffix.byte_slice(1)
       if first == unit and rest in ["", "iB", "B", "D"] {
         let base = if rest in ["B", "D"] { 1000 } else { 1024 }
-        for unused in range(index) {
+        for _ in range(index) {
           if multiplier > 9223372036854775807 / base { return if (number ?? 0) == 0 { 0 } else { null } }
           multiplier *= base
         }

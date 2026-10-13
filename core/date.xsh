@@ -501,7 +501,7 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateSty
         Err(failure) => gnu.error(failure.message)
       }
     }
-    Err(failure) => gnu.error(f"invalid date {gnu.quote(text)}")
+    Err(_) => gnu.error(f"invalid date {gnu.quote(text)}")
   }
   false
 }
@@ -643,10 +643,10 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
               exit 1
             }
           }
-          Err(failure) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
+          Err(_) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
         }
       }
-      Err(failure) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
+      Err(_) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
     }
   }
   if debug and source == "" { gnu.error(f"output format: {gnu.quote_value_bytes(format)}") }

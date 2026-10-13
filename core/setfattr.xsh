@@ -78,7 +78,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let attribute = fileattrs.unquote_name(opts.name ?? opts.remove ?? "")
   if let Err(failure) = attribute { gnu.error(failure.message); exit 1 }
   let value = if opts.raw { Ok(bytes.from_text(opts.value ?? "")) } else { fileattrs.decode(opts.value ?? "") }
-  if let Err(failure) = value { gnu.error("bad input encoding"); exit 1 }
+  if let Err(_) = value { gnu.error("bad input encoding"); exit 1 }
   var success = true
   for name in opts.files { if ! apply(name, attribute?, value?, opts.remove != null, ! opts.nofollow) { success = false } }
   if ! success { exit 1 }

@@ -444,7 +444,7 @@ export proc parse_instant(text: Str, utc = false, base: Instant? = null) -> Resu
       let previous = words[end - 2].lower()
       match decimal(previous) {
         Ok(number) => { count = number; prefix_end = end - 2 }
-        Err(problem) => {
+        Err(_) => {
           # A signed count attached to its number, as in "today -2 days".
           if rx"^[+-][0-9]+$".matches(previous) {
             count = decimal(previous.byte_slice(1))? * (if previous.starts_with("-") { -1 } else { 1 })

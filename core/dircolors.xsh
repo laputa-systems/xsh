@@ -11,7 +11,7 @@ pure term_matches(pattern: Str, value: Str) -> Bool {
   return false when bracket
   match regex.compile(f"{regex_text}$") {
     Ok(found) => found.matches(value)
-    Err(failure) => false
+    Err(_) => false
   }
 }
 

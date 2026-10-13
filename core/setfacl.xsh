@@ -101,7 +101,7 @@ proc parse_restore(text: Str) [fs, error] -> Result[List[Restore], Error] {
         acl.validate(entries)
         for default in [false, true] {
           let selected = collect { for entry in entries { yield entry when entry.default == default } }
-          if ! selected.is_empty() { let encoded = acl.encode(selected)? }
+          if ! selected.is_empty() { let _ = acl.encode(selected)? }
         }
         records += [{name: previous, entries: entries, uid: uid, gid: gid, special: special}]
       }

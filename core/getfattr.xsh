@@ -74,7 +74,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.files.is_empty() { gnu.missing_operand(status: 2) }
   if opts.encoding not in ["", "text", "hex", "base64"] { gnu.usage_error(f"invalid encoding {gnu.quote(opts.encoding)}", status: 2) }
   let compiled = regex.compile(if opts.pattern == "-" { "" } else { opts.pattern })
-  if let Err(failure) = compiled { gnu.error(f"invalid regular expression {gnu.quote(opts.pattern)}"); exit 1 }
+  if let Err(_) = compiled { gnu.error(f"invalid regular expression {gnu.quote(opts.pattern)}"); exit 1 }
   var walk: WalkMode = if opts.physical { .Physical } else if opts.logical { .Logical } else { .Hybrid }
   var option_at = 0
   while option_at < argv.len() {
