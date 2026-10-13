@@ -14,6 +14,7 @@ const resource_response: NetResponse = {
 type ResourceRootHolder = {root: FsRoot?}
 type ResourceChildHolder = {child: ProcessHandle?}
 type ResourceJobHolder = {job: NetJob?}
+type WorkerReturnedRoot = {root: FsRoot, path: Path}
 
 error ResourceRootError = Owned(root: FsRoot) | Unavailable
 
@@ -460,6 +461,25 @@ test resource_worker_teardown_closes_its_roots_and_owned_children {
     assert result.child.cancel(signal: "TERM", kill_after: 0ms) is Err(_), "a returned worker child is not live in the caller"
   }
   assert (parent |> collect()) == [7]
+}
+
+# Two inputs force the parallel path that owns a separate worker root scope.
+proc return_worker_root_from_nested_block() [fs, error] -> Result[WorkerReturnedRoot] {
+  let _ = [0, 1] |> par-map(jobs: 4) { |item|
+    if item == 0 {
+      let root = fs.tempdir()?
+      let root_path = root.host_path()?
+      return {root, path: root_path}
+    }
+    item
+  }
+  fail "par-map callback return did not escape"
+}
+
+test resource_return_from_unowned_worker_block_is_closed_at_worker_teardown {
+  let returned = return_worker_root_from_nested_block()?
+  assert returned.root.exists(p".") is Err(_), "the returned handle is closed with its worker scope"
+  assert ! returned.path.exists()?, "worker teardown removes the returned temporary root"
 }
 
 test resource_worker_rejects_foreign_script_stream { |ctx|

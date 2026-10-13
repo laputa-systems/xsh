@@ -135,8 +135,6 @@ follows host load alone is timing.
   `getrandom` (`test_uu_shuf_getrandom_fail`); the owner chose this over
   leaving the test red. Build time and binary size were not measured; drop the
   patch if an upstream release removes the std `HashMap`.
-- The `Return` continuation fix for an unowned block frame was verified for
-  error payloads only; a returned resource through that path has no test.
 - `tests/xsh/list-pattern.xsh` lines 142 and 144 use the one-line `=> last _ =>`
   arm form that the parser now rejects without a separator; they are
   error-expectation fixtures and may pass for the wrong reason.
