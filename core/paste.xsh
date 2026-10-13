@@ -138,7 +138,7 @@ proc main(...argv: List[Bytes]) {
       readers += [{source: source, buffer: b"", eof: false}]
     }
     defer { for reader in readers { text.close_source(reader.source) } }
-    var stdin: Reader = Reader(source: text.Stdin, buffer: b"", eof: false)
+    var stdin: Reader = Reader(text.Stdin, b"", false)
     loop {
       var found = false
       var prefix = b""
