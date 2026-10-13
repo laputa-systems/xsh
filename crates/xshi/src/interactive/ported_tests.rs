@@ -1,4 +1,4 @@
-//! Behavior tests ported from ish's `tests/integration.rs` (see plan-ish-parity.md).
+//! Behavior tests ported from ish's integration tests.
 //!
 //! Tests the public API at a higher level than unit tests — verifying that
 //! modules compose correctly (line editing sequences, history search,

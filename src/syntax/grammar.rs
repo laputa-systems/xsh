@@ -5,8 +5,7 @@
 //! with their precedence, associativity, and line-continuation behavior; the
 //! keywords that begin statements and expression forms; quoted-literal
 //! prefixes; stream stages; and run forms. The productions describe the same
-//! language over the lexer's tokens, and `make docs` renders them as
-//! `docs/reference/grammar.md`.
+//! language over the lexer's tokens.
 //!
 //! The productions are checked against the parser in both directions on
 //! every test run: sentences generated from them (`generate`) must parse

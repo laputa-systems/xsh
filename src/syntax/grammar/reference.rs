@@ -1,6 +1,5 @@
 //! The grammar as reference data: EBNF text for each production and the
-//! tables behind them, as one JSON document that `make docs` renders into
-//! `docs/reference/grammar.md`.
+//! tables behind them, collected in one JSON document.
 
 use super::{
     Associativity, BINARY_OPERATORS, Class, DURATION_SUFFIXES, Grammar, Item, OperatorFamily,
