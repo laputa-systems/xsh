@@ -1,5 +1,6 @@
 use super::super::{LintOptions, Linter};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
@@ -102,6 +103,18 @@ fn iteration_counts_are_not_byte_sizes() {
 
     let bytes = "let size: Int = 20 * 1024 * 1024\nimage.truncate(size)\n";
     assert_eq!(lint(bytes).len(), 1, "{bytes}");
+}
+
+#[test]
+fn a_user_defined_range_does_not_hide_a_byte_size() {
+    let source = "proc range(start: Int, count: Int) -> Int { return count }\nfp\"range-shadow-output\".truncate(range(0, 5 * 1024 * 1024))?\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint(source);
+    assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
 }
 
 #[test]

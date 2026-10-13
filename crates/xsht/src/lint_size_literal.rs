@@ -22,7 +22,7 @@ pub(super) struct SizeProducts {
     operator_above: FxHashMap<ExprId, BinaryOp>,
     /// Products that initialize a binding with a written type.
     typed_initializers: FxHashSet<ExprId>,
-    /// Products passed directly as bounds to the integer `range` producer.
+    /// Products passed directly as bounds to the builtin integer `range` producer.
     range_bounds: FxHashSet<ExprId>,
 }
 
@@ -42,11 +42,12 @@ impl SizeProducts {
         arena: &AstArena,
         source: &str,
         id: ExprId,
+        builtin_range: bool,
     ) -> Option<Diagnostic> {
         let expr = arena.expr(id);
-        if let ArenaExprKind::Call { callee, args } = expr.kind {
-            // Range arguments bound an integer sequence and carry no byte unit.
-            if matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "range") {
+        if let ArenaExprKind::Call { args, .. } = expr.kind {
+            // Only the builtin producer gives its bounds integer-count semantics.
+            if builtin_range {
                 self.range_bounds.extend(arena.call_args(args).iter().filter_map(|arg| {
                     let value = match arg.kind {
                         ArenaCallArgKind::Positional(value)
