@@ -153,6 +153,8 @@ class PublicationRunnerTests(unittest.TestCase):
             runner.validate_runner_binding(current, runner.sha256_file(current)),
             current,
         )
+        with self.assertRaisesRegex(runner.PublicationError, "publication runner: SHA-256 mismatch"):
+            runner.validate_runner_binding(current, "0" * 64)
 
     def test_pin_validation_accepts_exact_hash_and_reports_mismatch(self):
         path = self.root / "pinned-input"
@@ -342,6 +344,55 @@ class PublicationRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PublicationError, "duplicate W9 build receipt field schema"):
             runner.parse_build_receipt(path)
 
+    def test_build_receipt_binding_rejects_source_tree_and_binary_mismatches(self):
+        path = self.root / ".work/build.receipt"
+        path.parent.mkdir()
+        binary = self.root / ".work/candidate-bin"
+        fields = self.build_receipt_fields()
+        fields["binary_path"] = str(binary)
+
+        def write_receipt(record):
+            path.write_text("".join(f"{key}\t{value}\n" for key, value in record.items()), encoding="utf-8")
+
+        stale_tree = dict(fields)
+        stale_tree["source_tree"] = "f" * 40
+        write_receipt(stale_tree)
+        with self.assertRaisesRegex(runner.PublicationError, "build receipt source tree mismatch"):
+            runner.validate_build_receipt_binding(
+                path,
+                self.root,
+                fields["source_commit"],
+                fields["source_tree"],
+                binary,
+                fields["binary_sha256"],
+            )
+
+        wrong_binary_path = dict(fields)
+        wrong_binary_path["binary_path"] = str(self.root / ".work/other-bin")
+        write_receipt(wrong_binary_path)
+        with self.assertRaisesRegex(runner.PublicationError, "build receipt binary path mismatch"):
+            runner.validate_build_receipt_binding(
+                path,
+                self.root,
+                fields["source_commit"],
+                fields["source_tree"],
+                binary,
+                fields["binary_sha256"],
+            )
+
+        wrong_binary_hash = dict(fields)
+        wrong_binary_hash["binary_sha256"] = "f" * 64
+        write_receipt(wrong_binary_hash)
+        with self.assertRaisesRegex(runner.PublicationError, "build receipt binary hash mismatch"):
+            runner.validate_build_receipt_binding(
+                path,
+                self.root,
+                fields["source_commit"],
+                fields["source_tree"],
+                binary,
+                fields["binary_sha256"],
+            )
+
     def test_pinned_helper_staging_verifies_hash_and_refuses_overwrite(self):
         source = self.root / "approved-helper-source.rs"
         source.write_bytes(b"approved helper source\n")
@@ -397,6 +448,11 @@ class PublicationRunnerTests(unittest.TestCase):
         unsafe = work / "run:with-colon"
         with self.assertRaisesRegex(runner.PublicationError, "PATH separator"):
             runner.require_output_path(str(unsafe), self.root)
+
+    def test_output_path_rejects_location_outside_candidate_work(self):
+        outside = self.root / "outside"
+        with self.assertRaisesRegex(runner.PublicationError, r"under candidate source \.work"):
+            runner.require_output_path(str(outside), self.root)
 
     def test_docker_configuration_must_name_local_context_and_socket(self):
         environment = {"PATH": "/usr/bin:/bin"}
