@@ -6717,6 +6717,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 facets,
                 span: error.span.or(Some(span)),
                 contexts: error.contexts,
+                stream_item_context: None,
                 cause: error.cause,
                 abort: None,
                 within: None,

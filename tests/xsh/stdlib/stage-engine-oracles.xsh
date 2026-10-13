@@ -363,6 +363,74 @@ let _ = numbers() |> flat-map { |item|
   }
 }
 
+test test_stage_engine_nested_projection_error_wraps_once { |ctx|
+  let root = test.temp_dir(ctx, name: "stage-nested-map-error")?
+  fp"{root}/entry.txt".write("payload")
+
+  let projection_error = test.run_xsht_trace(
+    ctx,
+    f"""
+let root = p"{root}"
+let _ = [0, 1] |> map {{ |outer|
+  let sizes = if outer == 1 {{
+    let entries = fs.files(root, stat: false)? |> collect()
+    entries |> map .size |> collect()
+  }} else {{ [] }}
+  sizes.len()
+}} |> collect()
+""",
+    ["--trace", "--raw"],
+  )?
+  assert projection_error.status == 3, projection_error.stderr
+  assert "metadata-unavailable" in projection_error.stderr, projection_error.stderr
+  assert "err: metadata-unavailable: stream stage `map` item 0 failed: filesystem entry field `size`" in projection_error.stderr
+  assert "stream stage `map` item 0 failed: stream stage `map` item 0 failed" not in projection_error.stderr
+  assert "stream stage `map` item 1 failed" not in projection_error.stderr
+  assert projection_error.stderr.split("kind=stream.item.error").len() - 1 == 1
+}
+
+test test_stage_engine_nested_callback_error_wraps_once { |ctx|
+  let callback_error = test.run_xsht_trace(
+    ctx,
+    r"""
+let _ = [7, 8] |> map { |outer|
+  let inner = if outer == 8 {
+    [1] |> map { |item|
+      let adjusted = item + outer
+      10 / (item - 1)
+    } |> collect()
+  } else { [] }
+  inner.len()
+} |> collect()
+""",
+    ["--trace", "--raw"],
+  )?
+  assert callback_error.status == 3, callback_error.stderr
+  assert "err: division-by-zero: stream stage `map` item 0 failed: division by zero" in callback_error.stderr
+  assert "stream stage `map` item 0 failed: stream stage `map` item 0 failed" not in callback_error.stderr
+  assert "stream stage `map` item 1 failed" not in callback_error.stderr
+  assert callback_error.stderr.split("kind=stream.item.error").len() - 1 == 1
+}
+
+test test_stage_engine_for_body_error_is_not_a_map_item_error { |ctx|
+  let for_body_error = test.run_xsht_trace(
+    ctx,
+    r"""
+for item in [1] |> map { |value|
+  let adjusted = value + 0
+  adjusted
+} {
+  let broken = 10 / (item - 1)
+}
+""",
+    ["--trace", "--raw"],
+  )?
+  assert for_body_error.status == 3, for_body_error.stderr
+  assert "division by zero" in for_body_error.stderr
+  assert "kind=stream.item.error" not in for_body_error.stderr
+  assert "stream stage `map` item" not in for_body_error.stderr
+}
+
 test test_stage_engine_map_field_error_uses_field_span { |ctx|
   let root = test.temp_dir(ctx, name: "stage-map-field-span")?
   fp"{root}/entry.txt".write("payload")

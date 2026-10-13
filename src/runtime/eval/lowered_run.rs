@@ -25,7 +25,7 @@ use crate::runtime::run::execute_run_with_policy;
 use crate::runtime::value::{
     CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream,
     DurationValue, FunctionName, LiveStream, PathValue, ProcessHandleValue, RecordMap, RegexValue,
-    RunError, RuntimeError, StreamValue, Value, error_constructor,
+    RunError, RuntimeError, StreamItemErrorContext, StreamValue, Value, error_constructor,
     identified_structured_error_constructor,
 };
 use crate::sema::types::Type;
@@ -7132,11 +7132,11 @@ impl Evaluator {
     /// recursive evaluator). Abort errors pass through unchanged.
     fn stream_item_runtime_error(
         &mut self,
-        stage: &str,
+        stage: &'static str,
         item_index: usize,
         mut error: RuntimeError,
     ) -> RuntimeError {
-        if error.abort.is_some() {
+        if error.abort.is_some() || error.stream_item_context.is_some() {
             return error;
         }
         self.trace_leaf(
@@ -7153,6 +7153,7 @@ impl Evaluator {
             "stream stage `{stage}` item {item_index} failed: {}",
             error.message
         );
+        error.stream_item_context = Some(StreamItemErrorContext { stage, item_index });
         error
     }
 

@@ -1530,6 +1530,9 @@ pub struct RuntimeError {
     pub facets: Vec<String>,
     pub span: Option<Span>,
     pub contexts: Vec<ErrorContext>,
+    // An inner stream stage has already assigned this item error its trace
+    // and message context, so outer stages must not wrap it again.
+    pub(crate) stream_item_context: Option<StreamItemErrorContext>,
     pub cause: Option<ErrorCause>,
     pub abort: Option<AbortSignal>,
     // The `within` scope whose deadline raised this error. Only that scope
@@ -1550,6 +1553,12 @@ pub struct RuntimeError {
     pub(crate) _symbols: SymbolOwner,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct StreamItemErrorContext {
+    pub stage: &'static str,
+    pub item_index: usize,
+}
+
 impl RuntimeError {
     pub fn new(kind: impl Into<String>, message: impl Into<String>) -> Self {
         let kind = kind.into();
@@ -1564,6 +1573,7 @@ impl RuntimeError {
             facets: Vec::new(),
             span: None,
             contexts: Vec::new(),
+            stream_item_context: None,
             cause: None,
             abort: None,
             within: None,
@@ -1619,6 +1629,7 @@ impl RuntimeError {
             facets,
             span: None,
             contexts: Vec::new(),
+            stream_item_context: None,
             cause: None,
             abort: None,
             within: None,
@@ -1668,6 +1679,7 @@ impl RuntimeError {
             facets: Vec::new(),
             span: None,
             contexts: Vec::new(),
+            stream_item_context: None,
             propagated: false,
             propagated_run_error: None,
             scope_cleanup: false,
