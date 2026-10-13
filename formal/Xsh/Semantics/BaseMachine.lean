@@ -221,12 +221,24 @@ def continuationChecked (names : LexicalEnvironment) (activations : ActivationEn
     checkIntegerExpr names activations store right && continuationChecked names activations store rest
   | .binaryRight _ _ :: rest => continuationChecked names activations store rest
 
+/-- Pending arithmetic frames require integer controls until the frame is discharged. -/
+def controlFitsContinuation (names : LexicalEnvironment) (activations : ActivationEnvironment)
+    (store : BaseStore) (control : BaseControl) : List BaseFrame → Bool
+  | [] => true
+  | _ :: _ =>
+    match control with
+    | .evaluate expression => checkIntegerExpr names activations store expression
+    | .returned value => (integerPayload? value).isSome
+    | .failed _ => true
+
 def wellFormed (config : MachineConfig) : Prop :=
   (match config.control with
    | .evaluate expression =>
      checkBaseExpr config.names config.activations config.store expression = true
    | .returned _ | .failed _ => True) ∧
-  continuationChecked config.names config.activations config.store config.continuation = true
+  continuationChecked config.names config.activations config.store config.continuation = true ∧
+  controlFitsContinuation config.names config.activations config.store config.control
+    config.continuation = true
 
 inductive MachineSteps : Nat → MachineConfig → MachineConfig → Prop where
   | refl (config : MachineConfig) : MachineSteps 0 config config

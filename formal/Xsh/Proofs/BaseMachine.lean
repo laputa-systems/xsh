@@ -13,7 +13,7 @@ theorem accepted_initial_expression_is_wellFormed_fragment
     (expression : BaseExpr)
     (accepted : checkBaseExpr names activations store expression = true) :
     wellFormed (initialConfig names activations store expression) := by
-  exact ⟨accepted, rfl⟩
+  exact ⟨accepted, rfl, rfl⟩
 
 theorem integer_checker_implies_supported_checker_fragment
     (names : LexicalEnvironment) (activations : ActivationEnvironment) (store : BaseStore)
@@ -53,6 +53,31 @@ theorem integer_checker_implies_supported_checker_fragment
         cases leftTag <;> cases rightTag <;>
           simp [checkIntegerExpr, checkBaseExpr, inferBaseType?, leftType, rightType] at accepted ⊢
 
+private theorem typed_integer_payload_is_present (value : BaseTypedValue)
+    (integerTag : value.typeTag = .integer) :
+    (integerPayload? value).isSome = true := by
+  cases value with
+  | mk typeTag payload wellTyped =>
+    cases typeTag with
+    | null => simp at integerTag
+    | boolean => simp at integerTag
+    | integer =>
+      cases payload with
+      | null => simp [hasBaseType] at wellTyped
+      | boolean _ => simp [hasBaseType] at wellTyped
+      | integer _ => rfl
+      | float _ => simp [hasBaseType] at wellTyped
+      | duration _ => simp [hasBaseType] at wellTyped
+      | string _ => simp [hasBaseType] at wellTyped
+      | bytes _ => simp [hasBaseType] at wellTyped
+      | list _ => simp [hasBaseType] at wellTyped
+      | record _ => simp [hasBaseType] at wellTyped
+      | tagged _ _ _ => simp [hasBaseType] at wellTyped
+    | float => simp at integerTag
+    | duration => simp at integerTag
+    | string => simp at integerTag
+    | bytes => simp at integerTag
+
 theorem machine_progress_fragment (config : MachineConfig) :
     terminalOutcome config ≠ none ∨ ∃ next, step config = some next := by
   cases config with
@@ -73,7 +98,7 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
   cases config with
   | mk names activations store control continuation =>
     simp [wellFormed] at wellFormedConfig
-    rcases wellFormedConfig with ⟨controlWellFormed, continuationWellFormed⟩
+    rcases wellFormedConfig with ⟨controlWellFormed, continuationWellFormed, controlFits⟩
     cases control with
     | evaluate expression =>
       cases expression with
@@ -81,17 +106,55 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
         simp only [step] at takesStep
         cases takesStep
         cases result : checkedInt value <;>
-          simp_all [wellFormed, updateState, controlOfIntegerResult]
+          cases continuation <;>
+            simp_all [wellFormed, updateState, controlOfIntegerResult,
+              controlFitsContinuation, integerPayload?, typedInteger]
       | scalarLiteral value =>
-        simp only [step] at takesStep
-        cases takesStep
-        cases result : scalarTypedValue? value <;>
-          simp_all [wellFormed, updateState]
+        cases continuation with
+        | nil =>
+          simp only [step] at takesStep
+          cases takesStep
+          cases result : scalarTypedValue? value <;>
+            simp_all [wellFormed, updateState, controlFitsContinuation]
+        | cons frame rest =>
+          have expressionInteger :
+              checkIntegerExpr names activations store (.scalarLiteral value) = true := by
+            simpa [controlFitsContinuation] using controlFits
+          simp only [step] at takesStep
+          cases takesStep
+          cases result : scalarTypedValue? value with
+          | none => simp_all [wellFormed, updateState, controlFitsContinuation]
+          | some typed =>
+            cases type : typed.typeTag with
+            | integer =>
+              have typedPayloadPresent := typed_integer_payload_is_present typed type
+              simp_all [wellFormed, updateState, controlFitsContinuation, integerPayload?,
+                checkIntegerExpr, inferBaseType?]
+            | null | boolean | float | duration | string | bytes =>
+              simp_all [controlFitsContinuation, checkIntegerExpr, inferBaseType?]
       | identifier name =>
-        simp only [step] at takesStep
-        cases takesStep
-        cases result : lookupBaseValue names activations store name <;>
-          simp_all [wellFormed, updateState]
+        cases continuation with
+        | nil =>
+          simp only [step] at takesStep
+          cases takesStep
+          cases result : lookupBaseValue names activations store name <;>
+            simp_all [wellFormed, updateState, controlFitsContinuation]
+        | cons frame rest =>
+          have expressionInteger :
+              checkIntegerExpr names activations store (.identifier name) = true := by
+            simpa [controlFitsContinuation] using controlFits
+          simp only [step] at takesStep
+          cases takesStep
+          cases result : lookupBaseValue names activations store name with
+          | error fault => simp_all [wellFormed, updateState, controlFitsContinuation]
+          | ok typed =>
+            cases type : typed.typeTag with
+            | integer =>
+              have typedPayloadPresent := typed_integer_payload_is_present typed type
+              simp_all [wellFormed, updateState, controlFitsContinuation, integerPayload?,
+                checkIntegerExpr, inferBaseType?]
+            | null | boolean | float | duration | string | bytes =>
+              simp_all [controlFitsContinuation, checkIntegerExpr, inferBaseType?]
       | negate operand =>
         have operandInteger : checkIntegerExpr names activations store operand = true := by
           simpa [checkBaseExpr] using controlWellFormed
@@ -99,8 +162,8 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
           names activations store operand operandInteger
         simp only [step] at takesStep
         cases takesStep
-        simp [wellFormed, updateState, continuationChecked, operandChecked,
-          continuationWellFormed]
+        simp [wellFormed, updateState, continuationChecked, controlFitsContinuation,
+          operandChecked, operandInteger, continuationWellFormed]
       | binary operator left right =>
         have operandsInteger :
             checkIntegerExpr names activations store left = true ∧
@@ -110,8 +173,8 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
           names activations store left operandsInteger.1
         simp only [step] at takesStep
         cases takesStep
-        simp [wellFormed, updateState, continuationChecked, leftChecked,
-          operandsInteger.2, continuationWellFormed]
+        simp [wellFormed, updateState, continuationChecked, controlFitsContinuation,
+          leftChecked, operandsInteger, continuationWellFormed]
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
@@ -124,10 +187,12 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
           cases takesStep
           cases payload : integerPayload? value with
           | none =>
-            simp_all [wellFormed, updateState]
+            simp_all [controlFitsContinuation]
           | some integer =>
             cases result : IntegerOps.negate integer <;>
-              simp_all [wellFormed, updateState, controlOfIntegerResult]
+              cases rest <;>
+                simp_all [wellFormed, updateState, controlOfIntegerResult,
+                  controlFitsContinuation, integerPayload?, typedInteger]
         | binaryLeft operator right =>
           have continuationParts :
               checkIntegerExpr names activations store right = true ∧
@@ -140,7 +205,8 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
           simp only [step] at takesStep
           cases takesStep
           cases payload : integerPayload? value <;>
-            simp_all [wellFormed, updateState, continuationChecked]
+            simp_all [wellFormed, updateState, continuationChecked,
+              controlFitsContinuation]
         | binaryRight operator left =>
           have restWellFormed : continuationChecked names activations store rest = true := by
             simpa [continuationChecked] using continuationWellFormed
@@ -148,10 +214,12 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
           cases takesStep
           cases payload : integerPayload? value with
           | none =>
-            simp_all [wellFormed, updateState]
+            simp_all [controlFitsContinuation]
           | some integer =>
             cases result : applyBinary operator left integer <;>
-              simp_all [wellFormed, updateState, controlOfIntegerResult]
+              cases rest <;>
+                simp_all [wellFormed, updateState, controlOfIntegerResult,
+                  controlFitsContinuation, integerPayload?, typedInteger]
     | failed fault => simp [step] at takesStep
 
 theorem machine_runner_never_stuck_fragment {fuel : Nat} {config : MachineConfig}
@@ -272,6 +340,33 @@ private def typedDurationValue : BaseTypedValue :=
   ⟨.duration, .duration ⟨37, by decide⟩, trivial⟩
 private def typedStringValue : BaseTypedValue := ⟨.string, .string "xsh", trivial⟩
 private def typedBytesValue : BaseTypedValue := ⟨.bytes, .bytes [], trivial⟩
+
+private def oldWellFormedInvariant (config : MachineConfig) : Prop :=
+  (match config.control with
+   | .evaluate expression =>
+     checkBaseExpr config.names config.activations config.store expression = true
+   | .returned _ | .failed _ => True) ∧
+  continuationChecked config.names config.activations config.store config.continuation = true
+
+private def booleanUnderNegate : MachineConfig :=
+  ⟨[], [], (fun _ => none), .returned typedBooleanValue, [.negate]⟩
+
+private def floatUnderBinaryRight : MachineConfig :=
+  ⟨[], [], (fun _ => none), .returned positiveZeroTypedValue,
+    [.binaryRight .add exampleTwo]⟩
+
+theorem pending_integer_frames_reject_noninteger_mutations_fragment :
+    oldWellFormedInvariant booleanUnderNegate ∧
+      oldWellFormedInvariant floatUnderBinaryRight ∧
+      ¬ wellFormed booleanUnderNegate ∧
+      ¬ wellFormed floatUnderBinaryRight ∧
+      step booleanUnderNegate = some
+        (updateState booleanUnderNegate (.failed .expectedInteger) []) ∧
+      step floatUnderBinaryRight = some
+        (updateState floatUnderBinaryRight (.failed .expectedInteger) []) := by
+  simp [oldWellFormedInvariant, booleanUnderNegate, floatUnderBinaryRight,
+    typedBooleanValue, positiveZeroTypedValue, oldWellFormedInvariant, wellFormed,
+    controlFitsContinuation, continuationChecked, integerPayload?, step, updateState]
 
 theorem scalar_literal_runs_to_its_typed_payload_fragment
     (value : CompositeValue) (typed : BaseTypedValue)
