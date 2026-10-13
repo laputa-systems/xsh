@@ -83,25 +83,25 @@ pure escaped(source: Bytes, start: Int, quote: Int, hex_escapes: Bool) -> Result
     let next = source.byte_at(at) ?? 0
     at += 1
     if next >= 48 and next <= 55 {
-      var number = next - 48
+      var octal_value = next - 48
       var count = 0
       while count < 2 and (source.byte_at(at) ?? -1) >= 48 and (source.byte_at(at) ?? -1) <= 55 {
-        number = number * 8 + (source.byte_at(at) ?? 48) - 48
+        octal_value = octal_value * 8 + (source.byte_at(at) ?? 48) - 48
         at += 1
         count += 1
       }
-      out += [number % 256]
+      out += [octal_value % 256]
     } else if next == 120 and ! hex_escapes {
       out += [120]
     } else if next == 120 {
-      var number = 0
+      var hex_value = 0
       var count = 0
       while count < 2 and hex_digit(source.byte_at(at) ?? 0) {
-        number = number * 16 + digit_value(source.byte_at(at) ?? 0)
+        hex_value = hex_value * 16 + digit_value(source.byte_at(at) ?? 0)
         at += 1
         count += 1
       }
-      if count == 0 { notes += ["no hex digits in `\\x' escape sequence"]; out += [120] } else { out += [number] }
+      if count == 0 { notes += ["no hex digits in `\\x' escape sequence"]; out += [120] } else { out += [hex_value] }
     } else if next == 10 { continue } else if next == 110 { out += [10] } else if next == 116 { out += [9] } else if next == 114 { out += [13] } else if next == 98 { out += [8] } else if next == 102 { out += [12] } else if next == 118 { out += [11] } else if next == 97 { out += [7] } else if next == 92 { out += [92] } else if next == 34 { out += [34] } else {
       let shown = bytes.from_ints([next])?.utf8() ?? "?"
       notes += [f"escape sequence `\\{shown}' treated as plain `{shown}'"]
@@ -569,7 +569,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
   p = advance(p)
   var first: Parsed[Int] = Parsed(parser: p, value: 0)
   match token {
-    TokNumber(number) => { first = expression_node(p, Number(number)) }
+    TokNumber(number_value) => { first = expression_node(p, Number(number_value)) }
     TokText(content) => { first = expression_node(p, Text(content)) }
     TokRegex(pattern) => {
       if let Err(failure) = check_regex(pattern) { return Err(syntax_error(f"{label_of(begin, begin.at)}: error: {failure.message}")) }
@@ -1349,24 +1349,24 @@ pure escape_byte(chars: List[Str], at: Int) -> ByteEscape? {
   let next = chars[at + 1]
   var cursor = at + 2
   if next in ["0", "1", "2", "3", "4", "5", "6", "7"] {
-    var number = digit_value(next.byte_at(0) ?? 48)
+    var octal_value = digit_value(next.byte_at(0) ?? 48)
     var count = 1
     while count < 3 and cursor < chars.len() and chars[cursor] in ["0", "1", "2", "3", "4", "5", "6", "7"] {
-      number = number * 8 + digit_value(chars[cursor].byte_at(0) ?? 48)
+      octal_value = octal_value * 8 + digit_value(chars[cursor].byte_at(0) ?? 48)
       cursor += 1
       count += 1
     }
-    return {value: number % 256, at: cursor}
+    return {value: octal_value % 256, at: cursor}
   }
   if next == "x" {
-    var number = 0
+    var hex_value = 0
     var count = 0
     while count < 2 and cursor < chars.len() and chars[cursor].byte_len() == 1 and hex_digit(chars[cursor].byte_at(0) ?? 0) {
-      number = number * 16 + digit_value(chars[cursor].byte_at(0) ?? 48)
+      hex_value = hex_value * 16 + digit_value(chars[cursor].byte_at(0) ?? 48)
       cursor += 1
       count += 1
     }
-    return {value: number, at: cursor} when count > 0
+    return {value: hex_value, at: cursor} when count > 0
   }
   null
 }
@@ -1405,23 +1405,23 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
         let code = SIMPLE_ESCAPES.get(next) ?? 0
         out += [literal_char(shown_char(code), alphabet)]
       } else if next in ["0", "1", "2", "3", "4", "5", "6", "7"] {
-        var number = digit_value(next.byte_at(0) ?? 48)
+        var octal_value = digit_value(next.byte_at(0) ?? 48)
         var count = 1
         while count < 3 and at < chars.len() and chars[at] in ["0", "1", "2", "3", "4", "5", "6", "7"] {
-          number = number * 8 + digit_value(chars[at].byte_at(0) ?? 48)
+          octal_value = octal_value * 8 + digit_value(chars[at].byte_at(0) ?? 48)
           at += 1
           count += 1
         }
-        out += [literal_char(shown_char(number % 256), alphabet)]
+        out += [literal_char(shown_char(octal_value % 256), alphabet)]
       } else if next == "x" {
-        var number = 0
+        var hex_value = 0
         var count = 0
         while count < 2 and at < chars.len() and chars[at].byte_len() == 1 and hex_digit(chars[at].byte_at(0) ?? 0) {
-          number = number * 16 + digit_value(chars[at].byte_at(0) ?? 48)
+          hex_value = hex_value * 16 + digit_value(chars[at].byte_at(0) ?? 48)
           at += 1
           count += 1
         }
-        out += [if count == 0 { "x" } else { literal_char(shown_char(number), alphabet) }]
+        out += [if count == 0 { "x" } else { literal_char(shown_char(hex_value), alphabet) }]
       } else if next == "`" {
         out += ["^"]
       } else if next == "'" {
@@ -1545,12 +1545,12 @@ pure rx_bracket(chars: List[Str], start: Int, alphabet: Alphabet) -> Result[Brac
     if c == "[" and at + 1 < chars.len() and chars[at + 1] in [":", "=", "."] {
       let kind = chars[at + 1]
       var end = at + 2
-      var name = ""
-      while end + 1 < chars.len() and ! (chars[end] == kind and chars[end + 1] == "]") { name += chars[end]; end += 1 }
+      var collation_name = ""
+      while end + 1 < chars.len() and ! (chars[end] == kind and chars[end + 1] == "]") { collation_name += chars[end]; end += 1 }
       return Err(ere_error("Unmatched [, [^, [:, [., or [=")) when end + 1 >= chars.len()
-      if kind == ":" { items += ["[:" + name + ":]"] } else {
-        return Err(ere_error("Invalid collation character")) when name.count_chars() != 1
-        if name == "]" { has_close = true } else if name == "-" { has_dash = true } else if name == "^" { has_caret = true } else { items += [bracket_char(name, alphabet)] }
+      if kind == ":" { items += ["[:" + collation_name + ":]"] } else {
+        return Err(ere_error("Invalid collation character")) when collation_name.count_chars() != 1
+        if collation_name == "]" { has_close = true } else if collation_name == "-" { has_dash = true } else if collation_name == "^" { has_caret = true } else { items += [bracket_char(collation_name, alphabet)] }
       }
       at = end + 2
       continue
@@ -2328,35 +2328,35 @@ type Frame = {slots: List[Scalar], aliases: List[Str], return_to: Int, base: Int
 type Iteration = {keys: List[Str], at: Int}
 type Linked = {ops: List[Op], entries: Map[Int], labels: List[Str], loop_at: Int, end_at: Int, rules: Int}
 
-pure slot_of(names: List[Str], name: Str) -> Int {
-  for at in range(names.len()) { return at when names[at] == name }
+pure slot_of(names: List[Str], symbol: Str) -> Int {
+  for at in range(names.len()) { return at when names[at] == symbol }
   -1
 }
-pure variable_spot(names: List[Str], name: Str) -> Spot {
-  return SpotNF when name == "NF"
-  let slot = slot_of(names, name)
-  if slot >= 0 { SpotLocal(slot, name) } else { SpotGlobal(name) }
+pure variable_spot(names: List[Str], symbol: Str) -> Spot {
+  return SpotNF when symbol == "NF"
+  let slot = slot_of(names, symbol)
+  if slot >= 0 { SpotLocal(slot, symbol) } else { SpotGlobal(symbol) }
 }
-pure array_spot(names: List[Str], name: Str) -> Spot {
-  let slot = slot_of(names, name)
-  if slot >= 0 { SpotLocal(slot, name) } else { SpotGlobal(name) }
+pure array_spot(names: List[Str], symbol: Str) -> Spot {
+  let slot = slot_of(names, symbol)
+  if slot >= 0 { SpotLocal(slot, symbol) } else { SpotGlobal(symbol) }
 }
 type Place = {ops: List[Op], spot: Spot}
 
 # The code evaluating subscripts or a field index, and the Spot to use.
 pure compile_place(x: List[Expression], names: List[Str], id: Int) -> Result[Place] {
   match x[id] {
-    Variable(name) => Ok({ops: [], spot: variable_spot(names, name)})
+    Variable(symbol) => Ok({ops: [], spot: variable_spot(names, symbol)})
     Field(child) => {
       return Ok({ops: [], spot: SpotRecord}) when is_dollar_zero(x, child)
       Ok({ops: compile_expression(x, names, child)?, spot: SpotField})
     }
-    Index(name, keys) => {
+    Index(symbol, keys) => {
       let ops: List[Op] = collect {
         for key in keys { yield @compile_expression(x, names, key)? }
       }
-      let slot = slot_of(names, name)
-      Ok({ops: ops, spot: if slot >= 0 { SpotIndexLocal(slot, name, keys.len()) } else { SpotIndexGlobal(name, keys.len()) }})
+      let slot = slot_of(names, symbol)
+      Ok({ops: ops, spot: if slot >= 0 { SpotIndexLocal(slot, symbol, keys.len()) } else { SpotIndexGlobal(symbol, keys.len()) }})
     }
     else => Err(syntax_error("assignment requires variable, field, or array element"))
   }
@@ -2380,17 +2380,17 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
     Number(n) => Ok([OpPushNumber(n)])
     Text(content) => Ok([OpPushText(content)])
     RegexLiteral(pattern) => Ok([OpMatchRecord(pattern)])
-    Variable(name) => {
-      let slot = slot_of(names, name)
-      Ok([if slot >= 0 { OpLoadLocal(slot, name) } else { OpLoadGlobal(name) }])
+    Variable(symbol) => {
+      let slot = slot_of(names, symbol)
+      Ok([if slot >= 0 { OpLoadLocal(slot, symbol) } else { OpLoadGlobal(symbol) }])
     }
     Field(child) => Ok(compile_expression(x, names, child)? + [OpLoadField])
-    Index(name, keys) => {
+    Index(symbol, keys) => {
       let ops: List[Op] = collect {
         for key in keys { yield @compile_expression(x, names, key)? }
       }
-      let slot = slot_of(names, name)
-      Ok(ops + [if slot >= 0 { OpLoadIndexLocal(slot, name, keys.len()) } else { OpLoadIndexGlobal(name, keys.len()) }])
+      let slot = slot_of(names, symbol)
+      Ok(ops + [if slot >= 0 { OpLoadIndexLocal(slot, symbol, keys.len()) } else { OpLoadIndexGlobal(symbol, keys.len()) }])
     }
     Unary(op, child) => Ok(compile_expression(x, names, child)? + [if op == "!" { OpNot } else if op == "-" { OpNegate } else { OpPlus }])
     Increment(target, delta, post) => {
@@ -2451,25 +2451,25 @@ pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Resul
       let place = compile_place(x, names, target)?
       Ok(source + place.ops + [OpGetlineFile(place.spot)])
     }
-    Call(name, args) => compile_call(x, names, name, args)
+    Call(call_name, args) => compile_call(x, names, call_name, args)
   }
 }
 
 # A user function, a builtin that takes values, or one that names arrays or
 # assignable targets.
-pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[Int]) -> Result[List[Op]] {
+pure compile_call(x: List[Expression], names: List[Str], call_name: Str, args: List[Int]) -> Result[List[Op]] {
   var ops: List[Op] = []
-  if name in BUILTINS {
-    if name in ["sub", "gsub"] {
-      if args.len() < 2 or args.len() > 3 { return Err(fatal_error(f"{name}: wrong number of arguments")) }
+  if call_name in BUILTINS {
+    if call_name in ["sub", "gsub"] {
+      if args.len() < 2 or args.len() > 3 { return Err(fatal_error(f"{call_name}: wrong number of arguments")) }
       ops += compile_regex_source(x, names, args[0])? + compile_expression(x, names, args[1])?
-      return Ok(ops + [OpArrayBuiltin(name, [SpotRecord], 2)]) when args.len() == 2
+      return Ok(ops + [OpArrayBuiltin(call_name, [SpotRecord], 2)]) when args.len() == 2
       match x[args[2]] {
-        Variable(_) | Field(_) | Index(_, _) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
-        else => { return Ok(ops + compile_expression(x, names, args[2])? + [OpArrayBuiltin(name, [SpotNone], 2)]) }
+        Variable(_) | Field(_) | Index(_, _) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(call_name, [place.spot], 2)]) }
+        else => { return Ok(ops + compile_expression(x, names, args[2])? + [OpArrayBuiltin(call_name, [SpotNone], 2)]) }
       }
     }
-    if name == "split" {
+    if call_name == "split" {
       if args.len() < 2 or args.len() > 4 { return Err(fatal_error("split: wrong number of arguments")) }
       ops += compile_expression(x, names, args[0])?
       var literal = false
@@ -2490,7 +2490,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
       }] }
       return Ok(ops + [OpArrayBuiltin(if literal { "split_regex" } else { "split" }, spots, args.len())])
     }
-    if name == "match" {
+    if call_name == "match" {
       if args.len() < 2 or args.len() > 3 { return Err(fatal_error("match: wrong number of arguments")) }
       ops += compile_expression(x, names, args[0])? + compile_regex_source(x, names, args[1])?
       let spots: List[Spot] = collect {
@@ -2504,30 +2504,30 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
       }
       return Ok(ops + [OpArrayBuiltin("match", spots, args.len())])
     }
-    if name == "gensub" {
+    if call_name == "gensub" {
       if args.len() < 3 or args.len() > 4 { return Err(fatal_error("gensub: wrong number of arguments")) }
       ops += compile_regex_source(x, names, args[0])?
       for child in args[1..] { ops += compile_expression(x, names, child)? }
       return Ok(ops + [OpBuiltin("gensub", args.len())])
     }
-    if name in ["patsplit", "asort", "asorti", "typeof", "isarray", "length"] and args.len() >= 1 {
+    if call_name in ["patsplit", "asort", "asorti", "typeof", "isarray", "length"] and args.len() >= 1 {
       var spots: List[Spot] = []
       var plain = []
       for at in range(args.len()) {
-        let is_array_position = (name == "patsplit" and (at == 1 or at == 3)) or (name in ["asort", "asorti"] and at <= 1) or (name in ["typeof", "isarray", "length"] and at == 0)
+        let is_array_position = (call_name == "patsplit" and (at == 1 or at == 3)) or (call_name in ["asort", "asorti"] and at <= 1) or (call_name in ["typeof", "isarray", "length"] and at == 0)
         match x[args[at]] {
           Variable(variable) => {
             if is_array_position { spots += [array_spot(names, variable)] } else { plain += [at] }
           }
           Index(_, _) => {
-            if name in ["typeof", "isarray"] and at == 0 {
+            if call_name in ["typeof", "isarray"] and at == 0 {
               let place = compile_place(x, names, args[at])?
               ops += place.ops
               spots += [place.spot]
             } else { plain += [at] }
           }
           Field(_) => {
-            if name in ["typeof", "isarray"] and at == 0 {
+            if call_name in ["typeof", "isarray"] and at == 0 {
               let place = compile_place(x, names, args[at])?
               ops += place.ops
               spots += [place.spot]
@@ -2536,22 +2536,22 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
           else => { plain += [at] }
         }
       }
-      if name == "length" and args.len() == 1 and ! spots.is_empty() { return Ok([OpArrayBuiltin("length", spots, 1)]) }
-      if name in ["typeof", "isarray"] and ! spots.is_empty() { return Ok(ops + [OpArrayBuiltin(name, spots, 1)]) }
-      if name in ["asort", "asorti"] {
+      if call_name == "length" and args.len() == 1 and ! spots.is_empty() { return Ok([OpArrayBuiltin("length", spots, 1)]) }
+      if call_name in ["typeof", "isarray"] and ! spots.is_empty() { return Ok(ops + [OpArrayBuiltin(call_name, spots, 1)]) }
+      if call_name in ["asort", "asorti"] {
         var how_ops: List[Op] = []
         if args.len() == 3 { how_ops = compile_expression(x, names, args[2])? }
-        return Err(fatal_error(f"{name}: first argument is not an array")) when spots.len() < 1
-        return Ok(how_ops + [OpArrayBuiltin(name, spots, args.len())])
+        return Err(fatal_error(f"{call_name}: first argument is not an array")) when spots.len() < 1
+        return Ok(how_ops + [OpArrayBuiltin(call_name, spots, args.len())])
       }
-      if name == "patsplit" {
+      if call_name == "patsplit" {
         var value_ops = compile_expression(x, names, args[0])?
         if args.len() >= 3 { value_ops += compile_regex_source(x, names, args[2])? }
         return Ok(value_ops + [OpArrayBuiltin("patsplit", spots, args.len())])
       }
     }
     for child in args { ops += compile_expression(x, names, child)? }
-    return Ok(ops + [OpBuiltin(name, args.len())])
+    return Ok(ops + [OpBuiltin(call_name, args.len())])
   }
   # Anything else is a user function, resolved when the call runs.
   let kinds: List[Arg] = collect {
@@ -2565,7 +2565,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
       }
     }
   }
-  Ok(ops + [OpCall(name, kinds)])
+  Ok(ops + [OpCall(call_name, kinds)])
 }
 
 # Statements. Loop bodies carry BreakMarker and ContinueMarker placeholders
@@ -2621,14 +2621,14 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       # An increment or plain assignment to a global whose value is not used.
       match x[child] {
         Increment(target, delta, _) => {
-          if let Variable(name) = x[target] {
-            if slot_of(names, name) < 0 and name != "NF" { return Ok(site + [OpIncGlobal(name, delta)]) }
+          if let Variable(symbol) = x[target] {
+            if slot_of(names, symbol) < 0 and symbol != "NF" { return Ok(site + [OpIncGlobal(symbol, delta)]) }
           }
         }
         Assign(op, target, right) => {
-          if let Variable(name) = x[target] {
-            if op == "=" and slot_of(names, name) < 0 and name != "NF" {
-              return Ok(site + compile_expression(x, names, right)? + [OpStoreGlobal(name)])
+          if let Variable(symbol) = x[target] {
+            if op == "=" and slot_of(names, symbol) < 0 and symbol != "NF" {
+              return Ok(site + compile_expression(x, names, right)? + [OpStoreGlobal(symbol)])
             }
           }
         }
@@ -2672,8 +2672,8 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       var step_ops: List[Op] = []
       if step != null {
         if let Increment(target, delta, _) = x[step] {
-          if let Variable(name) = x[target] {
-            if slot_of(names, name) < 0 and name != "NF" { step_ops = [OpIncGlobal(name, delta)] }
+          if let Variable(symbol) = x[target] {
+            if slot_of(names, symbol) < 0 and symbol != "NF" { step_ops = [OpIncGlobal(symbol, delta)] }
           }
         }
 
@@ -2761,9 +2761,9 @@ pure link(program: Program) -> Result[Linked] {
   }
   ops += end_ops + [OpHalt]
   var entries: Map[Int] = {}
-  for name in program.functions.keys() {
-    let function = program.functions.get(name) ?? Function([], 0, "")
-    entries = entries.set(name, ops.len())
+  for function_name in program.functions.keys() {
+    let function = program.functions.get(function_name) ?? Function([], 0, "")
+    entries = entries.set(function_name, ops.len())
     ops += compile_statement(x, s, function.parameters, function.body)? + [OpReturnEmpty]
   }
   Ok({ops: ops, entries: entries, labels: labels, loop_at: loop_at, end_at: end_at, rules: program.rules.len()})
@@ -2837,14 +2837,14 @@ proc environment_prefix(arrays: Map[Table]) -> Str {
   let table = arrays.get("ENVIRON") ?? empty_table()
   var current: Map[Str] = {}
   for entry in env.list() ?? [] { current = current.set(entry.name, entry.value) }
-  for name in table.cells.keys() {
-    continue unless binding_name(name)
-      let wanted = plain_text((table.cells.get(name) ?? Cell(Empty, 0)).value) ?? ""
-    continue when name in current and (current.get(name) ?? "") == wanted
-    prefix += f"export {name}='{wanted.replace("'", with: "'\\''")}'; "
+  for variable_name in table.cells.keys() {
+    continue unless binding_name(variable_name)
+    let wanted = plain_text((table.cells.get(variable_name) ?? Cell(Empty, 0)).value) ?? ""
+    continue when variable_name in current and (current.get(variable_name) ?? "") == wanted
+    prefix += f"export {variable_name}='{wanted.replace("'", with: "'\\''")}'; "
   }
-  for name in current.keys() {
-    if name not in table.cells and binding_name(name) { prefix += f"unset {name}; " }
+  for variable_name in current.keys() {
+    if variable_name not in table.cells and binding_name(variable_name) { prefix += f"unset {variable_name}; " }
   }
   prefix
 }
@@ -2895,12 +2895,12 @@ proc open_output(target: Path, append: Bool) -> Result[Int] {
   target.write("")
   unix.open_fd(target, write: true)
 }
-proc open_file_reader(name: Str, stdin_reader: Reader) -> Result[Reader] {
-  return Ok(stdin_reader) when name == "-" or name == "/dev/stdin"
-  let metadata = fs.stat(fp"{name}", follow_symlinks: true)?
+proc open_file_reader(path_text: Str, stdin_reader: Reader) -> Result[Reader] {
+  return Ok(stdin_reader) when path_text == "-" or path_text == "/dev/stdin"
+  let metadata = fs.stat(fp"{path_text}", follow_symlinks: true)?
   return Err(error.failure("is a directory")) when metadata.kind == "dir"
-  let fd = unix.open_fd(fp"{name}")?
-  Ok(Reader(fd:, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name:, command: false))
+  let fd = unix.open_fd(fp"{path_text}")?
+  Ok(Reader(fd:, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: path_text, command: false))
 }
 
 ## True when the text is a valid awk variable name.
@@ -2956,13 +2956,13 @@ pure field_separator(globals: Map[Scalar]) -> Result[Str] {
 }
 # The variable a -v or operand assignment sets: GNU-only names are ordinary
 # variables outside GNU awk's own dialect.
-pure assigned_name(name: Str, mode: Int) -> Str {
-  if mode != 0 and name in GNU_VARIABLES { "\u{1}" + name } else { name }
+pure assigned_name(variable_name: Str, mode: Int) -> Str {
+  if mode != 0 and variable_name in GNU_VARIABLES { "\u{1}" + variable_name } else { variable_name }
 }
 # Outside GNU awk's own dialect, setting these draws a one-time warning.
-pure extension_variable(name: Str) -> Bool { name == "\u{1}IGNORECASE" or name == "BINMODE" }
+pure extension_variable(variable_name: Str) -> Bool { variable_name == "\u{1}IGNORECASE" or variable_name == "BINMODE" }
 # A name as the program wrote it.
-pure shown_name(name: Str) -> Str { if name.starts_with("\u{1}") { name.byte_slice(1) } else { name } }
+pure shown_name(variable_name: Str) -> Str { if variable_name.starts_with("\u{1}") { variable_name.byte_slice(1) } else { variable_name } }
 # The record separator; only its first character counts outside GNU awk's own dialect.
 pure record_separator(globals: Map[Scalar], mode: Int) -> Result[Str] {
   let text = plain_text(globals.get("RS") ?? Empty)?
@@ -2994,24 +2994,24 @@ pure split_fields(content: Str, separator: Str, regex_mode: Bool, ignore_case: B
 }
 # How records are cut into fields: by FS (0), FIELDWIDTHS (1) or FPAT (2),
 # whichever of the three variables was assigned last.
-pure mode_after(name: Str, current: Int) -> Int {
-  return 0 when name == "FS"
-  return 1 when name == "FIELDWIDTHS"
-  return 2 when name == "FPAT"
+pure mode_after(variable_name: Str, current: Int) -> Int {
+  return 0 when variable_name == "FS"
+  return 1 when variable_name == "FIELDWIDTHS"
+  return 2 when variable_name == "FPAT"
   current
 }
 # The mode after variable `name` takes `value`; FIELDWIDTHS is checked when
 # assigned.
-pure field_mode_after(name: Str, value: Scalar, current: Int) -> Result[Int] {
-  if name == "FIELDWIDTHS" {
+pure field_mode_after(variable_name: Str, value: Scalar, current: Int) -> Result[Int] {
+  if variable_name == "FIELDWIDTHS" {
     let _ = parse_field_widths(plain_text(value)?)?
     return Ok(1)
   }
-  if name == "FPAT" {
+  if variable_name == "FPAT" {
     let _ = dynamic_matches(plain_text(value)?, "", false)?
     return Ok(2)
   }
-  Ok(mode_after(name, current))
+  Ok(mode_after(variable_name, current))
 }
 # One FIELDWIDTHS designator: characters to skip, then the width (-1 for the rest).
 type FieldWidth = {skip: Int, width: Int}
@@ -3421,9 +3421,9 @@ proc make_time(spec: Str, utc: Bool) -> Result[Int] {
   let parts = collect {
     for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
       continue when word.is_empty()
-      let number = leading_integer(word)
-      return Ok(-1) when number == null
-      yield number
+      let parsed_number = leading_integer(word)
+      return Ok(-1) when parsed_number == null
+      yield parsed_number
     }
   }
   return Ok(-1) when parts.len() < 6
@@ -3500,14 +3500,14 @@ proc gensub(globals: Map[Scalar], pattern: Str, replacement: Str, how: Scalar, t
   }
   Ok(out + target.byte_slice(copied))
 }
-pure to_bit_operand(name: Str, position: Int, value: Float) -> Result[Float] {
-  guard ! (value < 0.0) else { return Err(fatal_error(f"{name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
+pure to_bit_operand(operation_name: Str, position: Int, value: Float) -> Result[Float] {
+  guard ! (value < 0.0) else { return Err(fatal_error(f"{operation_name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
   Ok(truncate(value))
 }
 # and, or and xor over unsigned 64-bit operands. A value that does not fit is
 # taken as zero. The result is handed back as a double: when its set bits span
 # more than 53 positions GNU awk keeps only the low 53 bits.
-pure bit_fold(name: Str, operands: List[Float]) -> Float {
+pure bit_fold(operation_name: Str, operands: List[Float]) -> Float {
   var rest = [if value >= 18446744073709551616.0 { 0.0 } else { value } for value in operands]
   var kept = 0.0
   var whole = 0.0
@@ -3519,7 +3519,7 @@ pure bit_fold(name: Str, operands: List[Float]) -> Float {
     for index in range(rest.len()) {
       let bit = rest[index] - 2.0 * truncate(rest[index] / 2.0)
       rest[index] = truncate(rest[index] / 2.0)
-      if combined < 0.0 { combined = bit } else if name == "and" { combined = combined * bit } else if name == "or" { combined = if combined + bit > 0.0 { 1.0 } else { 0.0 } } else { combined = if combined != bit { 1.0 } else { 0.0 } }
+      if combined < 0.0 { combined = bit } else if operation_name == "and" { combined = combined * bit } else if operation_name == "or" { combined = if combined + bit > 0.0 { 1.0 } else { 0.0 } } else { combined = if combined != bit { 1.0 } else { 0.0 } }
     }
     if combined > 0.0 {
       whole += weight
@@ -3562,9 +3562,9 @@ pure compare(left: Scalar, right: Scalar, conversion: Str, fold: Bool) -> Result
 pure context_text(globals: Map[Scalar]) -> Str {
   let fnr = number(globals.get("FNR") ?? Empty) ?? 0.0
   if fnr > 0.0 {
-    let name = plain_text(globals.get("FILENAME") ?? Empty) ?? ""
+    let filename = plain_text(globals.get("FILENAME") ?? Empty) ?? ""
     let line = float_text(fnr, "%.6g") ?? "0"
-    return f"(FILENAME={name} FNR={line}) "
+    return f"(FILENAME={filename} FNR={line}) "
   }
   ""
 }
@@ -3606,11 +3606,11 @@ pure placed(labels: List[Str], site: Int, globals: Map[Scalar], out: Str, failur
 # stack, and `current` its present value.
 type Target = {kind: Int, name: Str, slot: Int, key: Str, used: Int, current: Scalar}
 # The failure for a scalar used as an array; a function parameter is named as one.
-pure scalar_as_array(name: Str, parameter: Bool) -> Error {
-  fatal_error(f"attempt to use scalar {if parameter { "parameter " } else { "" }}`{name}' as an array")
+pure scalar_as_array(variable_name: Str, parameter: Bool) -> Error {
+  fatal_error(f"attempt to use scalar {if parameter { "parameter " } else { "" }}`{variable_name}' as an array")
 }
-pure array_target(array: Str, name: Str, parameter: Bool, key: Str, used: Int, arrays: Map[Table], globals: Map[Scalar]) -> Result[Target] {
-  return Err(scalar_as_array(name, parameter)) when array in globals
+pure array_target(array: Str, variable_name: Str, parameter: Bool, key: Str, used: Int, arrays: Map[Table], globals: Map[Scalar]) -> Result[Target] {
+  return Err(scalar_as_array(variable_name, parameter)) when array in globals
   var current: Scalar = Empty
   if array in arrays { current = (arrays[array].cells.get(key) ?? no_cell()).value }
   Ok({kind: 5, name: array, slot: 0, key: key, used: used, current: current})
@@ -3620,14 +3620,14 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
   let separator = plain_text(globals.get("SUBSEP") ?? Empty)?
   let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
   match spot {
-    SpotGlobal(name) => {
-      if name in arrays { return Err(fatal_error(f"attempt to use array `{name}' in a scalar context")) }
-      Ok({kind: 1, name: name, slot: 0, key: "", used: 0, current: globals.get(name) ?? Empty})
+    SpotGlobal(variable_name) => {
+      if variable_name in arrays { return Err(fatal_error(f"attempt to use array `{variable_name}' in a scalar context")) }
+      Ok({kind: 1, name: variable_name, slot: 0, key: "", used: 0, current: globals.get(variable_name) ?? Empty})
     }
     SpotNF => Ok({kind: 2, name: "NF", slot: 0, key: "", used: 0, current: globals.get("NF") ?? Empty})
-    SpotLocal(slot, name) => {
-      if aliases[slot] != "" and aliases[slot] in arrays { return Err(fatal_error(f"attempt to use array `{name} (from {aliases[slot]})' in a scalar context")) }
-      Ok({kind: 3, name: name, slot: slot, key: "", used: 0, current: slots[slot]})
+    SpotLocal(slot, variable_name) => {
+      if aliases[slot] != "" and aliases[slot] in arrays { return Err(fatal_error(f"attempt to use array `{variable_name} (from {aliases[slot]})' in a scalar context")) }
+      Ok({kind: 3, name: variable_name, slot: slot, key: "", used: 0, current: slots[slot]})
     }
     SpotField => {
       let index = integer(number(stack[top - 1])?)?
@@ -3636,11 +3636,11 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
       Ok({kind: 4, name: "", slot: index, key: "", used: 1, current: current})
     }
     SpotRecord => Ok({kind: 6, name: "", slot: 0, key: "", used: 0, current: Input(record, null)})
-    SpotIndexGlobal(name, count) => array_target(name, name, false, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
-    SpotIndexLocal(slot, name, count) => {
+    SpotIndexGlobal(variable_name, count) => array_target(variable_name, variable_name, false, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
+    SpotIndexLocal(slot, variable_name, count) => {
       let array = aliases[slot]
-      return Err(scalar_as_array(name, true)) when array == "" or slots[slot] != Empty
-      array_target(array, name, true, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
+      return Err(scalar_as_array(variable_name, true)) when array == "" or slots[slot] != Empty
+      array_target(array, variable_name, true, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
     }
     SpotNone => Ok({kind: 7, name: "", slot: 0, key: "", used: 0, current: Empty})
   }
@@ -3648,12 +3648,12 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
 # The array a spot names, for operations on whole arrays.
 pure array_of(spot: Spot, slots: List[Scalar], aliases: List[Str], globals: Map[Scalar]) -> Result[Str] {
   match spot {
-    SpotGlobal(name) => {
-      return Err(scalar_as_array(name, false)) when name in globals
-      Ok(name)
+    SpotGlobal(variable_name) => {
+      return Err(scalar_as_array(variable_name, false)) when variable_name in globals
+      Ok(variable_name)
     }
-    SpotLocal(slot, name) => {
-      return Err(scalar_as_array(name, true)) when aliases[slot] == "" or slots[slot] != Empty
+    SpotLocal(slot, variable_name) => {
+      return Err(scalar_as_array(variable_name, true)) when aliases[slot] == "" or slots[slot] != Empty
       Ok(aliases[slot])
     }
     else => Err(fatal_error("an array name is required"))
@@ -3723,8 +3723,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   var stdin_reader = Reader(fd: 0, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: "-", command: false)
   var out = ""
   var lossy = assigned_mapped
-  for expression in program.expressions {
-    if let Text(content) = expression { if holds_mapped_bytes(content) { lossy = true } }
+  for node in program.expressions {
+    if let Text(content) = node { if holds_mapped_bytes(content) { lossy = true } }
   }
   var status = 0
   var site = 0
@@ -3753,18 +3753,18 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
       match op {
         OpPushNumber(n) => { result = Numeric(n); produced = true }
         OpPushText(content) => { result = String(content); produced = true }
-        OpLoadGlobal(name) => {
-          if name in globals { result = globals.get(name) ?? Empty } else {
-            if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
+        OpLoadGlobal(variable_name) => {
+          if variable_name in globals { result = globals.get(variable_name) ?? Empty } else {
+            if variable_name in arrays { Err(fatal_error(f"attempt to use array `{variable_name}' in a scalar context"))? }
             # Reading an untyped variable settles it as a scalar for good.
-            globals[name] = Empty
+            globals[variable_name] = Empty
             result = Empty
           }
           produced = true
         }
-        OpLoadLocal(slot, name) => {
+        OpLoadLocal(slot, variable_name) => {
           result = slots[slot]
-          if aliases[slot] != "" and aliases[slot] in arrays { Err(fatal_error(f"attempt to use array `{name} (from {aliases[slot]})' in a scalar context"))? }
+          if aliases[slot] != "" and aliases[slot] in arrays { Err(fatal_error(f"attempt to use array `{variable_name} (from {aliases[slot]})' in a scalar context"))? }
           if aliases[slot] != "" and slots[slot] == Empty and ! (aliases[slot] in globals) { globals[aliases[slot]] = Empty }
           produced = true
         }
@@ -3775,26 +3775,26 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           result = if index == 0 { input(record)? } else { fields.get(index - 1) ?? Input("", null) }
           produced = true
         }
-        OpLoadIndexGlobal(name, count) => {
+        OpLoadIndexGlobal(variable_name, count) => {
           let key = subscript_key(stack, sp, count, plain_text(globals.get("SUBSEP") ?? Empty)?, plain_text(globals.get("CONVFMT") ?? Empty)?)?
           sp -= count
-          if name in globals { Err(scalar_as_array(name, false))? }
-          if name not in arrays { arrays[name] = empty_table() }
-          let cell = arrays[name].cells.get(key) ?? no_cell()
+          if variable_name in globals { Err(scalar_as_array(variable_name, false))? }
+          if variable_name not in arrays { arrays[variable_name] = empty_table() }
+          let cell = arrays[variable_name].cells.get(key) ?? no_cell()
           if cell.seq >= 0 { result = cell.value } else {
             pending = 5
-            pending_name = name
+            pending_name = variable_name
             pending_key = key
             pending_value = Empty
             result = Empty
           }
           produced = true
         }
-        OpLoadIndexLocal(slot, name, count) => {
+        OpLoadIndexLocal(slot, variable_name, count) => {
           let key = subscript_key(stack, sp, count, plain_text(globals.get("SUBSEP") ?? Empty)?, plain_text(globals.get("CONVFMT") ?? Empty)?)?
           sp -= count
           let array = aliases[slot]
-          if array == "" or slots[slot] != Empty { Err(scalar_as_array(name, true))? }
+          if array == "" or slots[slot] != Empty { Err(scalar_as_array(variable_name, true))? }
           if array not in arrays { arrays[array] = empty_table() }
           let cell = arrays[array].cells.get(key) ?? no_cell()
           if cell.seq >= 0 { result = cell.value } else {
@@ -3973,27 +3973,27 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
 
           if ! holds { pc += offset }
         }
-        OpStoreGlobal(name) => {
-          if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
-          field_mode = field_mode_after(name, stack[sp - 1], field_mode)?
-          if mode != 0 and ! warned_extension and extension_variable(name) {
+        OpStoreGlobal(variable_name) => {
+          if variable_name in arrays { Err(fatal_error(f"attempt to use array `{variable_name}' in a scalar context"))? }
+          field_mode = field_mode_after(variable_name, stack[sp - 1], field_mode)?
+          if mode != 0 and ! warned_extension and extension_variable(variable_name) {
             warned_extension = true
-            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(variable_name)}' is a gawk extension\n"))
           }
-          globals[name] = stack[sp - 1]
+          globals[variable_name] = stack[sp - 1]
           sp -= 1
         }
-        OpIncGlobal(name, delta) => {
-          if mode != 0 and ! warned_extension and extension_variable(name) {
+        OpIncGlobal(variable_name, delta) => {
+          if mode != 0 and ! warned_extension and extension_variable(variable_name) {
             warned_extension = true
-            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(variable_name)}' is a gawk extension\n"))
           }
-          if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
-          let current = globals.get(name) ?? Empty
+          if variable_name in arrays { Err(fatal_error(f"attempt to use array `{variable_name}' in a scalar context"))? }
+          let current = globals.get(variable_name) ?? Empty
           if let Numeric(n) = current {
-            globals[name] = Numeric(n + delta)
+            globals[variable_name] = Numeric(n + delta)
           } else {
-            globals[name] = Numeric(number(current)? + delta)
+            globals[variable_name] = Numeric(number(current)? + delta)
           }
         }
         OpJump(offset) => { pc += offset }
@@ -4048,17 +4048,17 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             pending_value = String(iterators[top].keys[iterators[top].at])
             iterators[top].at += 1
             match spot {
-              SpotGlobal(name) => { pending = 1; pending_name = name }
-              SpotLocal(slot, name) => { pending = 3; pending_slot = slot; pending_name = name }
+              SpotGlobal(variable_name) => { pending = 1; pending_name = variable_name }
+              SpotLocal(slot, variable_name) => { pending = 3; pending_slot = slot; pending_name = variable_name }
               SpotNF => { pending = 2 }
               else => {}
             }
           }
         }
         OpForInEnd => { iterators = iterators[..iterators.len() - 1] }
-        OpCall(name, kinds) => {
-          if name not in entries { Err(fatal_error(f"function `{shown_name(name)}' not defined"))? }
-            let function = functions.get(name) ?? Function([], 0, "")
+        OpCall(function_name, kinds) => {
+          if function_name not in entries { Err(fatal_error(f"function `{shown_name(function_name)}' not defined"))? }
+          let function = functions.get(function_name) ?? Function([], 0, "")
           calls += 1
           # Arguments computed as values sit on the stack in order; names are
           # passed as references so the callee may use them as arrays.
@@ -4112,7 +4112,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           frames += [Frame(slots:, aliases:, return_to: pc, base: sp, iterators: iterators.len(), site:)]
           slots = new_slots
           aliases = new_aliases
-          pc = entries.get(name) ?? 0
+          pc = entries.get(function_name) ?? 0
         }
         OpReturn => {
           let value = stack[sp - 1]
@@ -4316,17 +4316,17 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpGetlineFile(spot) => {
           let target = resolve_target(spot, stack, sp, globals, arrays, slots, aliases, fields, record)?
           sp -= target.used
-          let name = scalar_text(stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          let input_name = scalar_text(stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)?
           sp -= 1
-          if name.is_empty() { Err(fatal_error("expression for `<' redirection has null string value"))? }
+          if input_name.is_empty() { Err(fatal_error("expression for `<' redirection has null string value"))? }
           result = Numeric(-1.0)
           var reader = no_reader()
           var usable = true
-          var uses_stdin = name == "-" or name == "/dev/stdin"
+          var uses_stdin = input_name == "-" or input_name == "/dev/stdin"
           if uses_stdin { reader = stdin_reader } else {
-            let key = f"<{name}"
+            let key = f"<{input_name}"
             if key not in readers {
-              match open_file_reader(name, stdin_reader) {
+              match open_file_reader(input_name, stdin_reader) {
                 Ok(opened) => { readers[key] = opened }
                 Err(failure) => {
                   usable = false
@@ -4339,7 +4339,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if usable {
             if let Ok(got) = read_record(reader, record_separator(globals, mode)?, fold_case(globals)) {
               if got.reader.lossy { lossy = true }
-              if uses_stdin { stdin_reader = got.reader } else { readers[f"<{name}"] = got.reader }
+              if uses_stdin { stdin_reader = got.reader } else { readers[f"<{input_name}"] = got.reader }
               if got.record == null {
                 result = Numeric(0.0)
               } else {
@@ -4390,15 +4390,15 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
 
           produced = true
         }
-        OpBuiltin(name, count) => {
+        OpBuiltin(builtin_name, count) => {
           let base = sp - count
           let values = stack[base..sp]
           sp = base
           let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
           result = Empty
-          if name == "length" {
+          if builtin_name == "length" {
             result = Numeric((if count == 0 { record } else { scalar_text(values[0], conversion)? }).count_chars().float())
-          } else if name == "substr" {
+          } else if builtin_name == "substr" {
             if count < 2 or count > 3 { Err(fatal_error("substr: wrong number of arguments"))? }
             let content = scalar_text(values[0], conversion)?
             let pieces = content.split("")
@@ -4412,36 +4412,36 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
             let end = if first + length > size { size } else { first + length }
             result = String(pieces[first..end].join(""))
-          } else if name == "index" {
+          } else if builtin_name == "index" {
             if count != 2 { Err(fatal_error("index: wrong number of arguments"))? }
             var content = scalar_text(values[0], conversion)?
             var wanted = scalar_text(values[1], conversion)?
             if fold_case(globals) { content = lower_text(content); wanted = lower_text(wanted) }
             let found = content.find(wanted)
             result = Numeric(if found == null { 0.0 } else { (content.byte_slice(0, length: found).count_chars() + 1).float() })
-          } else if name == "tolower" or name == "toupper" {
-            if count != 1 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
+          } else if builtin_name == "tolower" or builtin_name == "toupper" {
+            if count != 1 { Err(fatal_error(f"{builtin_name}: wrong number of arguments"))? }
             let text = scalar_text(values[0], conversion)?
-            result = String(if name == "tolower" { lower_text(text) } else { upper_text(text) })
-          } else if name == "sprintf" {
+            result = String(if builtin_name == "tolower" { lower_text(text) } else { upper_text(text) })
+          } else if builtin_name == "sprintf" {
             if count == 0 { Err(fatal_error("sprintf: no arguments"))? }
             result = String(printf(scalar_text(values[0], conversion)?, values[1..], conversion)?)
-          } else if name == "int" or name == "sqrt" or name == "exp" or name == "log" or name == "sin" or name == "cos" {
-            if count != 1 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
+          } else if builtin_name == "int" or builtin_name == "sqrt" or builtin_name == "exp" or builtin_name == "log" or builtin_name == "sin" or builtin_name == "cos" {
+            if count != 1 { Err(fatal_error(f"{builtin_name}: wrong number of arguments"))? }
             let n = number(values[0])?
             var computed = 0.0
-            if name == "int" { computed = truncate(n) } else if name == "sqrt" {
+            if builtin_name == "int" { computed = truncate(n) } else if builtin_name == "sqrt" {
               if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: sqrt: received negative argument {float_text(n, conversion)?}\n")) }
               computed = n.sqrt()
-            } else if name == "log" {
+            } else if builtin_name == "log" {
               if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: log: received negative argument {float_text(n, conversion)?}\n")) }
               computed = n.ln()
-            } else if name == "exp" { computed = n.exp() } else if name == "sin" { computed = n.sin() } else { computed = n.cos() }
+            } else if builtin_name == "exp" { computed = n.exp() } else if builtin_name == "sin" { computed = n.sin() } else { computed = n.cos() }
             result = Numeric(computed)
-          } else if name == "atan2" {
+          } else if builtin_name == "atan2" {
             if count != 2 { Err(fatal_error("atan2: wrong number of arguments"))? }
             result = Numeric(number(values[0])?.atan2(number(values[1])?))
-          } else if name == "rand" {
+          } else if builtin_name == "rand" {
             var high = 0
             var low = 0
             rng.words[rng.front] = (rng.words[rng.front] + rng.words[rng.rear]) % 4294967296
@@ -4456,12 +4456,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             draw = draw - 0.5
             if draw == 1.0 { draw = 0.0 }
             result = Numeric(draw)
-          } else if name == "srand" {
+          } else if builtin_name == "srand" {
             let previous = seed_value
             seed_value = if count == 0 { (time.now() / 1000).float() } else { number(values[0])? }
             rng = seed_generator(integer(truncate(seed_value))?)
             result = Numeric(previous)
-          } else if name == "system" {
+          } else if builtin_name == "system" {
             if count != 1 { Err(fatal_error("system: wrong number of arguments"))? }
             let command = scalar_text(values[0], conversion)?
             let flushed = flush_writers(writers, lossy)?
@@ -4471,14 +4471,14 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             out = ""
             let finished = run.status sh -c ${environment_prefix(arrays) + command}
             result = Numeric(status_code(finished).float())
-          } else if name == "close" {
+          } else if builtin_name == "close" {
             if count < 1 or count > 2 { Err(fatal_error("close: wrong number of arguments"))? }
             if count == 2 and scalar_text(values[1], conversion)?.lower() not in ["to", "from"] { Err(fatal_error("close: second argument must be `to' or `from'"))? }
             let closed = close_stream(readers, writers, scalar_text(values[0], conversion)?, lossy)?
             readers = closed.readers
             writers = closed.writers
             result = Numeric(closed.code.float())
-          } else if name == "fflush" {
+          } else if builtin_name == "fflush" {
             if count > 1 { Err(fatal_error("fflush: wrong number of arguments"))? }
             let target = if count == 0 { "" } else { scalar_text(values[0], conversion)? }
             if target.is_empty() {
@@ -4512,22 +4512,22 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 result = Numeric(-1.0)
               }
             }
-          } else if name == "and" or name == "or" or name == "xor" {
-            if count < 2 { Err(fatal_error(f"{name}: called with less than two arguments"))? }
+          } else if builtin_name == "and" or builtin_name == "or" or builtin_name == "xor" {
+            if count < 2 { Err(fatal_error(f"{builtin_name}: called with less than two arguments"))? }
             let operands = collect {
-              for at in range(count) { yield to_bit_operand(name, at + 1, number(values[at])?)? }
+              for at in range(count) { yield to_bit_operand(builtin_name, at + 1, number(values[at])?)? }
             }
-            result = Numeric(bit_fold(name, operands))
-          } else if name == "lshift" or name == "rshift" {
-            if count != 2 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
+            result = Numeric(bit_fold(builtin_name, operands))
+          } else if builtin_name == "lshift" or builtin_name == "rshift" {
+            if count != 2 { Err(fatal_error(f"{builtin_name}: wrong number of arguments"))? }
             let a = number(values[0])?
             let b = number(values[1])?
-            if a < 0.0 or b < 0.0 { Err(fatal_error(f"{name}({a.format_number("f", 6)?}, {b.format_number("f", 6)?}): negative values are not allowed"))? }
+            if a < 0.0 or b < 0.0 { Err(fatal_error(f"{builtin_name}({a.format_number("f", 6)?}, {b.format_number("f", 6)?}): negative values are not allowed"))? }
             # Counts wrap at 64 and results at 2^64, as the machine shift does.
             let width = arith("%", truncate(b), 64.0)?
             let moved = if a >= 18446744073709551616.0 { 0.0 } else { truncate(a) }
-            result = Numeric(if name == "lshift" { arith("%", moved * 2.0.pow(width), 18446744073709551616.0)? } else { truncate(moved / 2.0.pow(width)) })
-          } else if name == "compl" {
+            result = Numeric(if builtin_name == "lshift" { arith("%", moved * 2.0.pow(width), 18446744073709551616.0)? } else { truncate(moved / 2.0.pow(width)) })
+          } else if builtin_name == "compl" {
             if count != 1 { Err(fatal_error("compl: wrong number of arguments"))? }
             let value = number(values[0])?
             if value < 0.0 { Err(fatal_error(f"compl({value.format_number("f", 6)?}): negative value is not allowed"))? }
@@ -4544,17 +4544,17 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               while rest % 2 == 0 and zeros < 63 { rest = rest / 2; zeros += 1 }
               result = Numeric(2.0.pow((if 53 + zeros > 64 { 64 } else { 53 + zeros }).float()) - successor)
             }
-          } else if name == "strtonum" {
+          } else if builtin_name == "strtonum" {
             if count != 1 { Err(fatal_error("strtonum: wrong number of arguments"))? }
             result = Numeric(strtonum(scalar_text(values[0], conversion)?)?)
-          } else if name == "typeof" {
+          } else if builtin_name == "typeof" {
             if count == 2 { Err(fatal_error("typeof: second argument is not an array"))? }
             result = String(type_name(values[0]))
-          } else if name == "isarray" {
+          } else if builtin_name == "isarray" {
             result = Numeric(0.0)
-          } else if name == "systime" {
+          } else if builtin_name == "systime" {
             result = Numeric((time.now() / 1000).float())
-          } else if name == "strftime" {
+          } else if builtin_name == "strftime" {
             var format = "%a %b %e %H:%M:%S %Z %Y"
             if count >= 1 { format = scalar_text(values[0], conversion)? }
             var stamp = time.now() / 1000
@@ -4562,9 +4562,9 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var utc = false
             if count >= 3 { utc = truth(values[2])? }
             result = String(time.format(stamp * 1000000000, format, utc)?)
-          } else if name == "mktime" {
+          } else if builtin_name == "mktime" {
             result = Numeric(make_time(scalar_text(values[0], conversion)?, count == 2 and truth(values[1])?)?.float())
-          } else if name == "gensub" {
+          } else if builtin_name == "gensub" {
             var target = record
             if count == 4 { target = scalar_text(values[3], conversion)? }
             let how_text = scalar_text(values[2], conversion)?
@@ -4573,15 +4573,15 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
             result = String(gensub(globals, scalar_text(values[0], conversion)?, scalar_text(values[1], conversion)?, values[2], target)?)
           } else {
-            Err(fatal_error(f"function `{shown_name(name)}' not defined"))?
+            Err(fatal_error(f"function `{shown_name(builtin_name)}' not defined"))?
           }
           produced = true
         }
-        OpArrayBuiltin(name, spots, count) => {
+        OpArrayBuiltin(builtin_name, spots, count) => {
           let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
           let ignore_case = fold_case(globals)
           result = Empty
-          if name == "length" {
+          if builtin_name == "length" {
             var size = -1
             match spots[0] {
               SpotGlobal(variable) => {
@@ -4609,7 +4609,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               else => {}
             }
             if size >= 0 { result = Numeric(size.float()) }
-          } else if name == "typeof" or name == "isarray" {
+          } else if builtin_name == "typeof" or builtin_name == "isarray" {
             var kind = "untyped"
             var is_array = false
             match spots[0] {
@@ -4633,8 +4633,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 }
               }
             }
-            result = if name == "isarray" { Numeric(if is_array { 1.0 } else { 0.0 }) } else { String(kind) }
-          } else if name == "sub" or name == "gsub" {
+            result = if builtin_name == "isarray" { Numeric(if is_array { 1.0 } else { 0.0 }) } else { String(kind) }
+          } else if builtin_name == "sub" or builtin_name == "gsub" {
             var target = resolve_target(spots[0], stack, sp, globals, arrays, slots, aliases, fields, record)?
             sp -= target.used
             var current = target.current
@@ -4656,7 +4656,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               copied = hit.end
               previous_end = hit.end
               changes += 1
-              break when name == "sub"
+              break when builtin_name == "sub"
             }
             rebuilt += content.byte_slice(copied)
             if changes > 0 and target.kind != 7 {
@@ -4667,13 +4667,13 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               pending_value = String(rebuilt)
             }
             result = Numeric(changes.float())
-          } else if name == "split" or name == "split_regex" {
+          } else if builtin_name == "split" or builtin_name == "split_regex" {
             let base = sp - (if count >= 3 { 2 } else { 1 })
             let content = scalar_text(stack[base], conversion)?
             var separator = plain_text(globals.get("FS") ?? Empty)?
             if count >= 3 { separator = scalar_text(stack[base + 1], conversion)? }
             sp = base
-            let regex_mode = name == "split_regex"
+            let regex_mode = builtin_name == "split_regex"
             var array = ""
             if let Ok(named) = array_of(spots[0], slots, aliases, globals) {
               array = named
@@ -4698,7 +4698,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               arrays[array] = grown_table(cells, "1")
               result = Numeric(pieces.len().float())
             }
-          } else if name == "match" {
+          } else if builtin_name == "match" {
             let pattern = scalar_text(stack[sp - 1], conversion)?
             let content = scalar_text(stack[sp - 2], conversion)?
             sp -= 2
@@ -4729,8 +4729,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               arrays[array] = grown_table(cells, "0")
             }
             result = Numeric(start.float())
-          } else if name == "asort" or name == "asorti" {
-            var how = if name == "asorti" { "@ind_str_asc" } else { "@val_type_asc" }
+          } else if builtin_name == "asort" or builtin_name == "asorti" {
+            var how = if builtin_name == "asorti" { "@ind_str_asc" } else { "@val_type_asc" }
             if count == 3 {
               how = scalar_text(stack[sp - 1], conversion)?
               sp -= 1
@@ -4739,7 +4739,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             if let Ok(found) = array_of(spots[0], slots, aliases, globals) {
               source = found
             } else {
-              Err(fatal_error(f"{name}: first argument is not an array"))?
+              Err(fatal_error(f"{builtin_name}: first argument is not an array"))?
             }
 
             var destination = source
@@ -4747,24 +4747,24 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               if let Ok(found) = array_of(spots[1], slots, aliases, globals) {
                 destination = found
               } else {
-                Err(fatal_error(f"{name}: second argument is not an array"))?
+                Err(fatal_error(f"{builtin_name}: second argument is not an array"))?
               }
             }
             let items: List[SortItem] = collect {
               if source in arrays {
                 for subscript in arrays[source].cells.keys() {
                   let held = (arrays[source].cells.get(subscript) ?? no_cell()).value
-                  let shown = if name == "asorti" { input(subscript)? } else { held }
+                  let shown = if builtin_name == "asorti" { input(subscript)? } else { held }
                   yield sort_item(shown, subscript, how)?
                 }
               }
             }
             let ordered = merge_sort(items, how.ends_with("_desc"))
             var cells: Map[Cell] = {}
-                  for at in range(ordered.len()) { cells = cells.set(f"{at + 1}", Cell(if name == "asorti" { String(ordered[at].text) } else { ordered[at].value }, at)) }
+              for at in range(ordered.len()) { cells = cells.set(f"{at + 1}", Cell(if builtin_name == "asorti" { String(ordered[at].text) } else { ordered[at].value }, at)) }
             arrays[destination] = grown_table(cells, "1")
             result = Numeric(ordered.len().float())
-          } else if name == "patsplit" {
+          } else if builtin_name == "patsplit" {
             let base = sp - (if count >= 3 { 2 } else { 1 })
             let content = scalar_text(stack[base], conversion)?
             var pattern = plain_text(globals.get("FPAT") ?? Empty)?
@@ -4797,7 +4797,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
             result = Numeric(matched.float())
           } else {
-            Err(fatal_error(f"function `{shown_name(name)}' not defined"))?
+            Err(fatal_error(f"function `{shown_name(builtin_name)}' not defined"))?
           }
           produced = true
         }
@@ -4887,10 +4887,10 @@ export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[S
   let program = parse(pieces, sandbox, mode)?
   for item in variables {
     let equals = item.find("=") ?? 0
-    let name = item.byte_slice(0, length: equals)
-    if name in program.functions {
-        let function = program.functions.get(name) ?? Function([], 0, "cmd. line:1")
-      return Err(AwkError.Syntax(f"{function.site}: error: function name `{name}' previously defined"))
+    let variable_name = item.byte_slice(0, length: equals)
+    if variable_name in program.functions {
+        let function = program.functions.get(variable_name) ?? Function([], 0, "cmd. line:1")
+      return Err(AwkError.Syntax(f"{function.site}: error: function name `{variable_name}' previously defined"))
     }
   }
   for note in program.notes { write_all(2, bytes.from_text(f"awk: {note}\n")) }
