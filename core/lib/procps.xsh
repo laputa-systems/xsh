@@ -117,8 +117,21 @@ export proc grep_main(argv: List[Str], send_signal: Bool) [process, env, error, 
   if opts.operands.len() > 1 or (opts.operands.is_empty() and opts.users == null and opts.parents == null and opts.groups == null and opts.sessions == null) {
     eprint "a single pattern or an explicit process selector is required"; exit 2
   }
-  let base = selector()
-  let options: Selector = {...base, pattern: if opts.operands.is_empty() { null } else { opts.operands[0] }, exact: opts.exact, full: opts.full, ignore_case: opts.ignore_case, inverse: opts.inverse, newest: opts.newest, oldest: opts.oldest, users: (opts.users ?? "").split(",") |> where . != "", parents: if opts.parents == null { [] } else { ids(opts.parents)? }, groups: if opts.groups == null { [] } else { ids(opts.groups)? }, sessions: if opts.sessions == null { [] } else { ids(opts.sessions)? }}
+  let options: Selector = Selector(
+    pattern: if opts.operands.is_empty() { null } else { opts.operands[0] },
+    exact: opts.exact,
+    full: opts.full,
+    ignore_case: opts.ignore_case,
+    inverse: opts.inverse,
+    newest: opts.newest,
+    oldest: opts.oldest,
+    users: (opts.users ?? "").split(",") |> where . != "",
+    parents: if opts.parents == null { [] } else { ids(opts.parents)? },
+    groups: if opts.groups == null { [] } else { ids(opts.groups)? },
+    sessions: if opts.sessions == null { [] } else { ids(opts.sessions)? },
+    pids: [],
+    names: [],
+  )
   let rows: List[ProcessEntry] = process.list()? |> collect
   let matching = select(rows, options, process.current_pid()?)
   if let Err(problem) = matching { eprint f"pgrep/pkill: {problem.message}"; exit 2 }

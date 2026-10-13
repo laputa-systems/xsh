@@ -106,6 +106,8 @@ const SHORTS = "hVnralmoepisZz46tuwxfHQOAKBTbENDF0MSd"
 const ALL_STATES = 4095
 const LISTEN_BIT = 1024
 const CLOSE_BIT = 128
+const HEADERS = ["Netid", "State", "Recv-Q", "Send-Q", "Local Address:", "Port", "Peer Address:", "Port", "Process", ""]
+const DELIMS = ["", " ", " ", " ", " ", "", " ", "", "", ""]
 
 type Config = {
   numeric: Bool,
@@ -827,7 +829,7 @@ pure endpoint_match(cond: Cond, item: sockets.DiagSocket, port: Int, address: By
       if address.byte_at(index) != 0 { mapped = false }
     }
     if mapped and address.byte_at(10) == 255 and address.byte_at(11) == 255 {
-      return prefix_match(cond.prefix, cond.bits, address.slice(12, 4))
+      return prefix_match(cond.prefix, cond.bits, address[12..16])
     }
     return false
   }
@@ -961,9 +963,6 @@ pure spaces(count: Int) -> Str {
   }
   out
 }
-
-const HEADERS = ["Netid", "State", "Recv-Q", "Send-Q", "Local Address:", "Port", "Peer Address:", "Port", "Process", ""]
-const DELIMS = ["", " ", " ", " ", " ", "", " ", "", "", ""]
 
 proc endpoint_cell(item: sockets.DiagSocket, remote: Bool, config: Config, names: Names, devices: List[Device]) [env, net, error] -> List[Str] {
   let table = item.netid
@@ -1241,7 +1240,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
     }
   }
   let ports = sockets.local_port_range()
-  let context: Context = Context(low: ports.low, high: ports.high, devices:, cgroups: group_ids)
+  let context: Context = Context(...ports, devices:, cgroups: group_ids)
 
   let want_info = config.info
   var found: List[sockets.DiagSocket] = []

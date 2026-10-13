@@ -22,6 +22,81 @@ const POW2 = [
   33554432, 67108864, 134217728, 268435456, 536870912, 1073741824, 2147483648,
 ]
 
+# One offload flag as `ethtool -K` names it: the short word, the long name
+# `-k` prints, and which kernel features it covers.
+type Flag = {short: Str, long: Str, exact: Str, prefix: Str, suffix: Str}
+
+const FLAGS: List[Flag] = [
+  {short: "rx", long: "rx-checksumming", exact: "rx-checksum", prefix: "", suffix: ""},
+  {short: "tx", long: "tx-checksumming", exact: "", prefix: "tx-checksum-", suffix: ""},
+  {short: "sg", long: "scatter-gather", exact: "", prefix: "tx-scatter-gather", suffix: ""},
+  {short: "tso", long: "tcp-segmentation-offload", exact: "", prefix: "tx-tcp", suffix: "-segmentation"},
+  {short: "ufo", long: "udp-fragmentation-offload", exact: "tx-udp-fragmentation", prefix: "", suffix: ""},
+  {short: "gso", long: "generic-segmentation-offload", exact: "tx-generic-segmentation", prefix: "", suffix: ""},
+  {short: "gro", long: "generic-receive-offload", exact: "rx-gro", prefix: "", suffix: ""},
+  {short: "lro", long: "large-receive-offload", exact: "rx-lro", prefix: "", suffix: ""},
+  {short: "rxvlan", long: "rx-vlan-offload", exact: "rx-vlan-hw-parse", prefix: "", suffix: ""},
+  {short: "txvlan", long: "tx-vlan-offload", exact: "tx-vlan-hw-insert", prefix: "", suffix: ""},
+  {short: "ntuple", long: "ntuple-filters", exact: "rx-ntuple-filter", prefix: "", suffix: ""},
+  {short: "rxhash", long: "receive-hashing", exact: "rx-hashing", prefix: "", suffix: ""},
+]
+
+## Coalescing fields in ethtool_coalesce order.
+export const COALESCE_FIELDS = [
+  "rx-usecs", "rx-frames", "rx-usecs-irq", "rx-frames-irq", "tx-usecs", "tx-frames", "tx-usecs-irq", "tx-frames-irq",
+  "stats-block-usecs", "adaptive-rx", "adaptive-tx", "pkt-rate-low", "rx-usecs-low", "rx-frames-low", "tx-usecs-low",
+  "tx-frames-low", "pkt-rate-high", "rx-usecs-high", "rx-frames-high", "tx-usecs-high", "tx-frames-high", "sample-interval",
+]
+
+const TS_CAPABILITIES = [
+  "hardware-transmit", "software-transmit", "hardware-receive", "software-receive", "software-system-clock",
+  "hardware-legacy-clock", "hardware-raw-clock",
+]
+const TS_TX_TYPES = ["off", "on", "onestep-sync", "onestep-p2p"]
+const TS_TX_CONSTANTS = ["HWTSTAMP_TX_OFF", "HWTSTAMP_TX_ON", "HWTSTAMP_TX_ONESTEP_SYNC", "HWTSTAMP_TX_ONESTEP_P2P"]
+const TS_FILTERS = [
+  "none", "all", "some", "ptpv1-l4-event", "ptpv1-l4-sync", "ptpv1-l4-delay-req", "ptpv2-l4-event", "ptpv2-l4-sync",
+  "ptpv2-l4-delay-req", "ptpv2-l2-event", "ptpv2-l2-sync", "ptpv2-l2-delay-req", "ptpv2-event", "ptpv2-sync",
+  "ptpv2-delay-req", "ntp-all",
+]
+const TS_FILTER_CONSTANTS = [
+  "HWTSTAMP_FILTER_NONE", "HWTSTAMP_FILTER_ALL", "HWTSTAMP_FILTER_SOME", "HWTSTAMP_FILTER_PTP_V1_L4_EVENT",
+  "HWTSTAMP_FILTER_PTP_V1_L4_SYNC", "HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ", "HWTSTAMP_FILTER_PTP_V2_L4_EVENT",
+  "HWTSTAMP_FILTER_PTP_V2_L4_SYNC", "HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ", "HWTSTAMP_FILTER_PTP_V2_L2_EVENT",
+  "HWTSTAMP_FILTER_PTP_V2_L2_SYNC", "HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ", "HWTSTAMP_FILTER_PTP_V2_EVENT",
+  "HWTSTAMP_FILTER_PTP_V2_SYNC", "HWTSTAMP_FILTER_PTP_V2_DELAY_REQ", "HWTSTAMP_FILTER_NTP_ALL",
+]
+
+# Link modes by bit number; a blank entry is a bit that is not a speed mode
+# (autonegotiation, port, pause, and FEC bits are decoded separately).
+const LINK_MODES = [
+  "10baseT/Half", "10baseT/Full", "100baseT/Half", "100baseT/Full", "1000baseT/Half", "1000baseT/Full", "", "", "", "",
+  "", "", "10000baseT/Full", "", "", "2500baseX/Full", "", "1000baseKX/Full", "10000baseKX4/Full", "10000baseKR/Full",
+  "10000baseR_FEC", "20000baseMLD2/Full", "20000baseKR2/Full", "40000baseKR4/Full", "40000baseCR4/Full",
+  "40000baseSR4/Full", "40000baseLR4/Full", "56000baseKR4/Full", "56000baseCR4/Full", "56000baseSR4/Full",
+  "56000baseLR4/Full", "25000baseCR/Full", "25000baseKR/Full", "25000baseSR/Full", "50000baseCR2/Full",
+  "50000baseKR2/Full", "100000baseKR4/Full", "100000baseSR4/Full", "100000baseCR4/Full", "100000baseLR4_ER4/Full",
+  "50000baseSR2/Full", "1000baseX/Full", "10000baseCR/Full", "10000baseSR/Full", "10000baseLR/Full",
+  "10000baseLRM/Full", "10000baseER/Full", "2500baseT/Full", "5000baseT/Full", "", "", "", "50000baseKR/Full",
+  "50000baseSR/Full", "50000baseCR/Full", "50000baseLR_ER_FR/Full", "50000baseDR/Full", "100000baseKR2/Full",
+  "100000baseSR2/Full", "100000baseCR2/Full", "100000baseLR2_ER2_FR2/Full", "100000baseDR2/Full", "200000baseKR4/Full",
+  "200000baseSR4/Full", "200000baseLR4_ER4_FR4/Full", "200000baseDR4/Full", "200000baseCR4/Full", "100baseT1/Full",
+  "1000baseT1/Full", "400000baseKR8/Full", "400000baseSR8/Full", "400000baseLR8_ER8_FR8/Full", "400000baseDR8/Full",
+  "400000baseCR8/Full", "", "100000baseKR/Full", "100000baseSR/Full", "100000baseLR_ER_FR/Full", "100000baseCR/Full",
+  "100000baseDR/Full", "200000baseKR2/Full", "200000baseSR2/Full", "200000baseLR2_ER2_FR2/Full", "200000baseDR2/Full",
+  "200000baseCR2/Full", "400000baseKR4/Full", "400000baseSR4/Full", "400000baseLR4_ER4_FR4/Full", "400000baseDR4/Full",
+  "400000baseCR4/Full", "100baseFX/Half", "100baseFX/Full",
+]
+
+# The autonegotiation, port, and pause link-mode bits.
+const LM_AUTONEG = 6
+const LM_PORTS = [{bit: 7, name: "TP"}, {bit: 8, name: "AUI"}, {bit: 9, name: "MII"}, {bit: 10, name: "FIBRE"}, {bit: 11, name: "BNC"}, {bit: 16, name: "Backplane"}]
+const LM_PAUSE = 13
+const LM_ASYM_PAUSE = 14
+const LM_FECS = [{bit: 49, name: "None"}, {bit: 51, name: "BaseR"}, {bit: 50, name: "RS"}, {bit: 74, name: "LLRS"}]
+const WOL_LETTERS = ["p", "u", "m", "b", "a", "g", "s", "f"]
+const MSGLVL_NAMES = ["drv", "probe", "link", "timer", "ifdown", "ifup", "rx_err", "tx_err", "tx_queued", "intr", "tx_done", "rx_status", "pktdata", "hw", "wol"]
+
 ## Bit `index` of a 32-bit word.
 export pure bit(word: Int, index: Int) -> Bool {
   word / POW2[index] % 2 == 1
@@ -56,7 +131,7 @@ export pure text_field(data: Bytes, at: Int, length: Int) -> Result[Str, Error] 
   let raw = data.slice(at, length)
   var end = 0
   while end < length and (raw.byte_at(end) ?? 0) != 0 { end += 1 }
-  raw.slice(0, end).utf8()
+  raw[0..end].utf8()
 }
 
 ## Kernel strings of a string set: `count` fixed 32-byte entries after the
@@ -150,25 +225,6 @@ export pure features_set_request(count: Int, wanted: Map[Int, Bool]) -> Result[B
   }
   Ok(bytes.concat(chunks))
 }
-
-# One offload flag as `ethtool -K` names it: the short word, the long name
-# `-k` prints, and which kernel features it covers.
-type Flag = {short: Str, long: Str, exact: Str, prefix: Str, suffix: Str}
-
-const FLAGS: List[Flag] = [
-  {short: "rx", long: "rx-checksumming", exact: "rx-checksum", prefix: "", suffix: ""},
-  {short: "tx", long: "tx-checksumming", exact: "", prefix: "tx-checksum-", suffix: ""},
-  {short: "sg", long: "scatter-gather", exact: "", prefix: "tx-scatter-gather", suffix: ""},
-  {short: "tso", long: "tcp-segmentation-offload", exact: "", prefix: "tx-tcp", suffix: "-segmentation"},
-  {short: "ufo", long: "udp-fragmentation-offload", exact: "tx-udp-fragmentation", prefix: "", suffix: ""},
-  {short: "gso", long: "generic-segmentation-offload", exact: "tx-generic-segmentation", prefix: "", suffix: ""},
-  {short: "gro", long: "generic-receive-offload", exact: "rx-gro", prefix: "", suffix: ""},
-  {short: "lro", long: "large-receive-offload", exact: "rx-lro", prefix: "", suffix: ""},
-  {short: "rxvlan", long: "rx-vlan-offload", exact: "rx-vlan-hw-parse", prefix: "", suffix: ""},
-  {short: "txvlan", long: "tx-vlan-offload", exact: "tx-vlan-hw-insert", prefix: "", suffix: ""},
-  {short: "ntuple", long: "ntuple-filters", exact: "rx-ntuple-filter", prefix: "", suffix: ""},
-  {short: "rxhash", long: "receive-hashing", exact: "rx-hashing", prefix: "", suffix: ""},
-]
 
 pure flag_covers(flag: Flag, name: Str) -> Bool {
   return name == flag.exact when flag.exact != ""
@@ -438,13 +494,6 @@ export pure ring_set_request(reply: Bytes, requested: List[Int?]) -> Result[Byte
   words(CMD.SRINGPARAM, counts)
 }
 
-## Coalescing fields in `ethtool_coalesce` order.
-export const COALESCE_FIELDS = [
-  "rx-usecs", "rx-frames", "rx-usecs-irq", "rx-frames-irq", "tx-usecs", "tx-frames", "tx-usecs-irq", "tx-frames-irq",
-  "stats-block-usecs", "adaptive-rx", "adaptive-tx", "pkt-rate-low", "rx-usecs-low", "rx-frames-low", "tx-usecs-low",
-  "tx-frames-low", "pkt-rate-high", "rx-usecs-high", "rx-frames-high", "tx-usecs-high", "tx-frames-high", "sample-interval",
-]
-
 ## The values are the driver's, with no way to tell an unsupported field from
 ## a zero one through this interface, so none is reported as `n/a`.
 export pure coalesce_lines(device: Str, reply: Bytes) -> Result[List[Str], Error] {
@@ -484,27 +533,6 @@ export pure pause_set_request(reply: Bytes, autoneg: Bool?, rx: Bool?, tx: Bool?
   words(CMD.SPAUSEPARAM, [flag_word(autoneg, v[0]), flag_word(rx, v[1]), flag_word(tx, v[2])])
 }
 
-const TS_CAPABILITIES = [
-  "hardware-transmit", "software-transmit", "hardware-receive", "software-receive", "software-system-clock",
-  "hardware-legacy-clock", "hardware-raw-clock",
-]
-
-const TS_TX_TYPES = ["off", "on", "onestep-sync", "onestep-p2p"]
-const TS_TX_CONSTANTS = ["HWTSTAMP_TX_OFF", "HWTSTAMP_TX_ON", "HWTSTAMP_TX_ONESTEP_SYNC", "HWTSTAMP_TX_ONESTEP_P2P"]
-
-const TS_FILTERS = [
-  "none", "all", "some", "ptpv1-l4-event", "ptpv1-l4-sync", "ptpv1-l4-delay-req", "ptpv2-l4-event", "ptpv2-l4-sync",
-  "ptpv2-l4-delay-req", "ptpv2-l2-event", "ptpv2-l2-sync", "ptpv2-l2-delay-req", "ptpv2-event", "ptpv2-sync",
-  "ptpv2-delay-req", "ntp-all",
-]
-const TS_FILTER_CONSTANTS = [
-  "HWTSTAMP_FILTER_NONE", "HWTSTAMP_FILTER_ALL", "HWTSTAMP_FILTER_SOME", "HWTSTAMP_FILTER_PTP_V1_L4_EVENT",
-  "HWTSTAMP_FILTER_PTP_V1_L4_SYNC", "HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ", "HWTSTAMP_FILTER_PTP_V2_L4_EVENT",
-  "HWTSTAMP_FILTER_PTP_V2_L4_SYNC", "HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ", "HWTSTAMP_FILTER_PTP_V2_L2_EVENT",
-  "HWTSTAMP_FILTER_PTP_V2_L2_SYNC", "HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ", "HWTSTAMP_FILTER_PTP_V2_EVENT",
-  "HWTSTAMP_FILTER_PTP_V2_SYNC", "HWTSTAMP_FILTER_PTP_V2_DELAY_REQ", "HWTSTAMP_FILTER_NTP_ALL",
-]
-
 ## `ethtool_ts_info` request buffer.
 export pure tsinfo_request() -> Result[Bytes, Error] {
   Ok(bytes.concat([bytes.pack_le(CMD.GET_TS_INFO, 4)?, bytes.zero(40)?]))
@@ -532,39 +560,11 @@ export pure tsinfo_lines(device: Str, reply: Bytes) -> Result[List[Str], Error] 
   Ok(lines)
 }
 
-# Link modes by bit number; a blank entry is a bit that is not a speed mode
-# (autonegotiation, port, pause, and FEC bits are decoded separately).
-const LINK_MODES = [
-  "10baseT/Half", "10baseT/Full", "100baseT/Half", "100baseT/Full", "1000baseT/Half", "1000baseT/Full", "", "", "", "",
-  "", "", "10000baseT/Full", "", "", "2500baseX/Full", "", "1000baseKX/Full", "10000baseKX4/Full", "10000baseKR/Full",
-  "10000baseR_FEC", "20000baseMLD2/Full", "20000baseKR2/Full", "40000baseKR4/Full", "40000baseCR4/Full",
-  "40000baseSR4/Full", "40000baseLR4/Full", "56000baseKR4/Full", "56000baseCR4/Full", "56000baseSR4/Full",
-  "56000baseLR4/Full", "25000baseCR/Full", "25000baseKR/Full", "25000baseSR/Full", "50000baseCR2/Full",
-  "50000baseKR2/Full", "100000baseKR4/Full", "100000baseSR4/Full", "100000baseCR4/Full", "100000baseLR4_ER4/Full",
-  "50000baseSR2/Full", "1000baseX/Full", "10000baseCR/Full", "10000baseSR/Full", "10000baseLR/Full",
-  "10000baseLRM/Full", "10000baseER/Full", "2500baseT/Full", "5000baseT/Full", "", "", "", "50000baseKR/Full",
-  "50000baseSR/Full", "50000baseCR/Full", "50000baseLR_ER_FR/Full", "50000baseDR/Full", "100000baseKR2/Full",
-  "100000baseSR2/Full", "100000baseCR2/Full", "100000baseLR2_ER2_FR2/Full", "100000baseDR2/Full", "200000baseKR4/Full",
-  "200000baseSR4/Full", "200000baseLR4_ER4_FR4/Full", "200000baseDR4/Full", "200000baseCR4/Full", "100baseT1/Full",
-  "1000baseT1/Full", "400000baseKR8/Full", "400000baseSR8/Full", "400000baseLR8_ER8_FR8/Full", "400000baseDR8/Full",
-  "400000baseCR8/Full", "", "100000baseKR/Full", "100000baseSR/Full", "100000baseLR_ER_FR/Full", "100000baseCR/Full",
-  "100000baseDR/Full", "200000baseKR2/Full", "200000baseSR2/Full", "200000baseLR2_ER2_FR2/Full", "200000baseDR2/Full",
-  "200000baseCR2/Full", "400000baseKR4/Full", "400000baseSR4/Full", "400000baseLR4_ER4_FR4/Full", "400000baseDR4/Full",
-  "400000baseCR4/Full", "100baseFX/Half", "100baseFX/Full",
-]
-
 pure spaces(count: Int) -> Str {
   var text = ""
   while text.byte_len() < count { text += " " }
   text
 }
-
-# The autonegotiation, port, and pause link-mode bits.
-const LM_AUTONEG = 6
-const LM_PORTS = [{bit: 7, name: "TP"}, {bit: 8, name: "AUI"}, {bit: 9, name: "MII"}, {bit: 10, name: "FIBRE"}, {bit: 11, name: "BNC"}, {bit: 16, name: "Backplane"}]
-const LM_PAUSE = 13
-const LM_ASYM_PAUSE = 14
-const LM_FECS = [{bit: 49, name: "None"}, {bit: 51, name: "BaseR"}, {bit: 50, name: "RS"}, {bit: 74, name: "LLRS"}]
 
 pure mode_set(mask: List[Int], index: Int) -> Bool {
   index / 32 < mask.len() and bit(mask[index / 32], index % 32)
@@ -711,8 +711,6 @@ export pure settings_lines(settings: LinkSettings) -> List[Str] {
   lines
 }
 
-const WOL_LETTERS = ["p", "u", "m", "b", "a", "g", "s", "f"]
-
 ## Wake-on-LAN letters for a bitmap, `d` when none is set.
 export pure wol_letters(mask: Int) -> Str {
   let letters = [WOL_LETTERS[index] for index in range(8) if bit(mask, index)]
@@ -749,8 +747,6 @@ export pure wol_lines(reply: Bytes) -> Result[List[Str], Error] {
   }
   Ok(lines)
 }
-
-const MSGLVL_NAMES = ["drv", "probe", "link", "timer", "ifdown", "ifup", "rx_err", "tx_err", "tx_queued", "intr", "tx_done", "rx_status", "pktdata", "hw", "wol"]
 
 ## The message level word and the names of its set bits.
 export pure msglvl_lines(level: Int) -> List[Str] {

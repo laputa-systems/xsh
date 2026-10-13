@@ -71,6 +71,9 @@ export const TCP_LISTEN = 10
 export const TCP_CLOSING = 11
 const STATE_NAMES = ["UNKNOWN", "ESTAB", "SYN-SENT", "SYN-RECV", "FIN-WAIT-1", "FIN-WAIT-2", "TIME-WAIT", "UNCONN", "CLOSE-WAIT", "LAST-ACK", "LISTEN", "CLOSING"]
 
+# The cgroup2 mount the socket `cgroup` attribute and filter are relative to.
+const CGROUP_ROOT = "/sys/fs/cgroup"
+
 ## The filesystem identity of a bound unix socket path.
 export type VfsIdentity = {inode: Int, device: Int}
 
@@ -151,7 +154,7 @@ pure attributes(payload: Bytes, start: Int) -> List[Attribute] {
       let length = bytes.unpack_le(payload, 2, offset) ?? 0
       let kind = (bytes.unpack_le(payload, 2, offset + 2) ?? 0).bit_and(16383)
       break when length < 4 or offset + length > payload.len()
-      yield {kind: kind, data: payload.slice(offset + 4, length - 4)}
+      yield {kind: kind, data: payload[offset + 4..offset + length]}
       offset += (length + 3) / 4 * 4
     }
   }
@@ -173,7 +176,7 @@ pure cstring(data: Bytes) -> Str {
       break
     }
   }
-  data.slice(0, end).utf8() ?? ""
+  data[0..end].utf8() ?? ""
 }
 
 pure cookie_text(low: Int, high: Int) -> Str {
@@ -230,8 +233,8 @@ pure decode_inet(payload: Bytes, protocol: Int) -> DiagSocket? {
     expires: u32(payload, 52),
     recv_queue: u32(payload, 56),
     send_queue: u32(payload, 60),
-    local: payload.slice(8, size),
-    remote: payload.slice(24, size),
+    local: payload[8..8 + size],
+    remote: payload[24..24 + size],
     local_port: u16be(payload, 4),
     remote_port: u16be(payload, 6),
     ifindex: u32(payload, 40),
@@ -266,7 +269,7 @@ pure decode_unix(payload: Bytes) -> DiagSocket? {
       var text = ""
       for index in range(data.len()) {
         let byte = data.byte_at(index) ?? 0
-        text += if byte == 0 { "@" } else { data.slice(index, 1).utf8() ?? "?" }
+        text += if byte == 0 { "@" } else { data[index..index + 1].utf8() ?? "?" }
       }
       name = text
     } else {
@@ -509,9 +512,6 @@ export proc local_port_range() [process, error] -> PortRange {
   }
   {low: low, high: high}
 }
-
-# The cgroup2 mount the socket `cgroup` attribute and filter are relative to.
-const CGROUP_ROOT = "/sys/fs/cgroup"
 
 ## The cgroup id (the directory inode on the unified hierarchy) of the cgroup2
 ## directory `relative` names, or null when there is none.

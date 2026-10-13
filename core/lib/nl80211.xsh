@@ -148,6 +148,98 @@ const RATE_SHORT_GI = 4
 const RATE_BITRATE32 = 5
 const RATE_VHT_MCS = 6
 const RATE_VHT_NSS = 7
+
+const CAPABILITY_NAMES = [
+  {bit: 1, name: "ESS"}, {bit: 2, name: "IBSS"}, {bit: 4, name: "CfPollable"}, {bit: 8, name: "CfPollReq"},
+  {bit: 16, name: "Privacy"}, {bit: 32, name: "ShortPreamble"},
+  {bit: 64, name: "PBCC"}, {bit: 128, name: "ChannelAgility"}, {bit: 256, name: "SpectrumMgmt"},
+  {bit: 512, name: "QoS"}, {bit: 1024, name: "ShortSlotTime"}, {bit: 2048, name: "APSD"},
+  {bit: 4096, name: "RadioMeasure"}, {bit: 8192, name: "DSSS-OFDM"}, {bit: 16384, name: "DelayedBACK"},
+  {bit: 32768, name: "ImmediateBACK"},
+]
+
+# Cipher suite types of the 00-0f-ac OUI as the RSN element lists them.
+const CIPHER_SUITE_NAMES = [
+  {kind: 0, name: "Use group cipher suite"}, {kind: 1, name: "WEP-40"}, {kind: 2, name: "TKIP"},
+  {kind: 4, name: "CCMP"}, {kind: 5, name: "WEP-104"}, {kind: 6, name: "AES-128-CMAC"},
+  {kind: 7, name: "NO-GROUP"}, {kind: 8, name: "GCMP"}, {kind: 9, name: "GCMP-256"}, {kind: 10, name: "CCMP-256"},
+  {kind: 11, name: "BIP-GMAC-128"}, {kind: 12, name: "BIP-GMAC-256"}, {kind: 13, name: "BIP-CMAC-256"},
+]
+
+# Cipher suite types of the 00-50-f2 (WPA) OUI.
+const MS_CIPHER_NAMES = [
+  {kind: 0, name: "Use group cipher suite"}, {kind: 1, name: "WEP-40"}, {kind: 2, name: "TKIP"},
+  {kind: 4, name: "CCMP"}, {kind: 5, name: "WEP-104"},
+]
+
+# Authentication suite types of the 00-50-f2 (WPA) OUI.
+const MS_AKM_NAMES = [{kind: 1, name: "IEEE 802.1X"}, {kind: 2, name: "PSK"}]
+
+# Authentication and key management suite types of the 00-0f-ac OUI.
+const AKM_NAMES = [
+  {kind: 1, name: "IEEE 802.1X"}, {kind: 2, name: "PSK"}, {kind: 3, name: "FT/IEEE 802.1X"},
+  {kind: 4, name: "FT/PSK"}, {kind: 5, name: "IEEE 802.1X/SHA-256"}, {kind: 6, name: "PSK/SHA-256"},
+  {kind: 7, name: "TDLS/TPK"}, {kind: 8, name: "SAE"}, {kind: 9, name: "FT/SAE"},
+  {kind: 11, name: "IEEE 802.1X/SUITE-B"}, {kind: 12, name: "IEEE 802.1X/SUITE-B-192"},
+  {kind: 13, name: "FT/IEEE 802.1X/SHA-384"}, {kind: 14, name: "FILS/SHA-256"}, {kind: 15, name: "FILS/SHA-384"},
+  {kind: 16, name: "FT/FILS/SHA-256"}, {kind: 17, name: "FT/FILS/SHA-384"}, {kind: 18, name: "OWE"},
+  {kind: 19, name: "FT/PSK/SHA-384"}, {kind: 20, name: "PSK/SHA-384"},
+]
+
+# Cipher suite selectors of the 00-0f-ac family, by suite type.
+const CIPHER_NAMES = [
+  {kind: 1, name: "WEP40"}, {kind: 5, name: "WEP104"}, {kind: 2, name: "TKIP"}, {kind: 4, name: "CCMP-128"},
+  {kind: 10, name: "CCMP-256"}, {kind: 8, name: "GCMP-128"}, {kind: 9, name: "GCMP-256"}, {kind: 6, name: "CMAC"},
+  {kind: 13, name: "CMAC-256"}, {kind: 11, name: "GMAC-128"}, {kind: 12, name: "GMAC-256"},
+]
+
+const AMPDU_SPACING_NAMES = ["No restriction", "1/4 usec", "1/2 usec", "1 usec", "2 usec", "4 usec", "8 usec", "16 usec"]
+
+const DISCONNECT_REASONS = [
+  "<unknown>", "Unspecified", "Previous authentication no longer valid",
+  "Deauthenticated because sending station is leaving (or has left) the IBSS or ESS",
+  "Disassociated due to inactivity", "Disassociated because AP is unable to handle all currently associated STA",
+  "Class 2 frame received from non-authenticated station", "Class 3 frame received from non-authenticated station",
+  "Disassociated because sending station is leaving (or has left) the BSS",
+  "Station requesting (re)association is not authenticated with responding station",
+  "Disassociated because the information in the Power Capability element is unacceptable",
+  "Disassociated because the information in the Supported Channels element is unacceptable", "<unknown>",
+  "Invalid information element", "MIC failure", "4-way handshake timeout", "Group key update timeout",
+  "Information element in 4-way handshake different from (Re-)associate request/Probe response/Beacon",
+  "Multicast cipher is not valid", "Unicast cipher is not valid", "AKMP is not valid", "Unsupported RSNE version",
+  "Invalid RSNE capabilities", "IEEE 802.1X authentication failed", "Cipher Suite rejected per security policy",
+]
+
+const STATUS_TEXTS = [
+  {code: 0, text: "Successful"},
+  {code: 1, text: "Unspecified failure"},
+  {code: 10, text: "Cannot support all requested capabilities in the capability information field"},
+  {code: 11, text: "Reassociation denied due to inability to confirm that association exists"},
+  {code: 12, text: "Association denied due to reason outside the scope of this standard"},
+  {code: 13, text: "Responding station does not support the specified authentication algorithm"},
+  {code: 14, text: "Received an authentication frame with authentication transaction sequence number out of expected sequence"},
+  {code: 15, text: "Authentication rejected because of challenge failure"},
+  {code: 16, text: "Authentication rejected due to timeout waiting for next frame in sequence"},
+  {code: 17, text: "Association denied because AP is unable to handle additional associated STA"},
+  {code: 18, text: "Association denied due to requesting station not supporting all of the data rates in the BSSBasicRateSet parameter"},
+  {code: 19, text: "Association denied due to requesting station not supporting the short preamble option"},
+  {code: 20, text: "Association denied due to requesting station not supporting the PBCC modulation option"},
+  {code: 21, text: "Association denied due to requesting station not supporting the channel agility option"},
+  {code: 22, text: "Association request rejected because Spectrum Management capability is required"},
+  {code: 23, text: "Association request rejected because the information in the Power Capability element is unacceptable"},
+  {code: 24, text: "Association request rejected because the information in the Supported Channels element is unacceptable"},
+  {code: 25, text: "Association request rejected due to requesting station not supporting the short slot time option"},
+  {code: 26, text: "Association request rejected due to requesting station not supporting the ER-PBCC modulation option"},
+  {code: 27, text: "Association denied due to requesting STA not supporting HT features"},
+  {code: 28, text: "R0KH Unreachable"},
+  {code: 29, text: "Association denied because the requesting STA does not support the PCO transition required by the AP"},
+  {code: 30, text: "Association request rejected temporarily; try again later"},
+  {code: 31, text: "Robust Management frame policy violation"},
+  {code: 32, text: "Unspecified, QoS related failure"},
+  {code: 33, text: "Association denied due to QAP having insufficient bandwidth to handle another QSTA"},
+  {code: 34, text: "Association denied due to poor channel conditions"},
+  {code: 35, text: "Association (with QBSS) denied due to requesting station not supporting the QoS facility"},
+]
 const RATE_80_MHZ = 8
 const RATE_80P80_MHZ = 9
 const RATE_160_MHZ = 10
@@ -403,13 +495,13 @@ export pure cstring(data: Bytes) -> Str {
       break
     }
   }
-  data.slice(0, end).utf8() ?? ""
+  data[0..end].utf8() ?? ""
 }
 
 # --- text helpers ------------------------------------------------------
 
 ## `value` in lowercase hexadecimal, zero-padded to `width` digits.
-export pure hex(value: Int, width: Int = 1) -> Str {
+export pure hex(value: Int, width = 1) -> Str {
   let digits = "0123456789abcdef"
   var number = value
   var text = ""
@@ -468,7 +560,7 @@ export pure ssid_text(data: Bytes) -> Str {
     } else if byte == 32 and index != 0 and index != last {
       out += " "
     } else if byte > 32 and byte < 127 {
-      out += data.slice(index, 1).utf8() ?? ""
+      out += data[index..index + 1].utf8() ?? ""
     } else {
       out += "\\x" + hex(byte, 2)
     }
@@ -602,7 +694,7 @@ proc decode_messages(replies: List[LinuxNetlinkMessage]) -> List[Message] {
 
 ## Sends nl80211 command `cmd` with `attrs` and returns the reply messages.
 ## `dump` asks for every object; a kernel refusal is `IwError.Errno`.
-export proc request(client: Client, cmd: Int, attrs: List[Bytes], dump: Bool = false) [process, error] -> Result[List[Message], Error] {
+export proc request(client: Client, cmd: Int, attrs: List[Bytes], dump = false) [process, error] -> Result[List[Message], Error] {
   let header = bytes.from_ints([cmd, 0, 0, 0])?
   let payload = bytes.concat([header, @attrs])
   let flags = if dump { NLM_F_REQUEST + NLM_F_ACK + NLM_F_DUMP } else { NLM_F_REQUEST + NLM_F_ACK }
@@ -858,15 +950,6 @@ export pure reg_lines(messages: List[Message]) -> List[Str] {
 
 # --- scan results ------------------------------------------------------
 
-const CAPABILITY_NAMES = [
-  {bit: 1, name: "ESS"}, {bit: 2, name: "IBSS"}, {bit: 4, name: "CfPollable"}, {bit: 8, name: "CfPollReq"},
-  {bit: 16, name: "Privacy"}, {bit: 32, name: "ShortPreamble"},
-  {bit: 64, name: "PBCC"}, {bit: 128, name: "ChannelAgility"}, {bit: 256, name: "SpectrumMgmt"},
-  {bit: 512, name: "QoS"}, {bit: 1024, name: "ShortSlotTime"}, {bit: 2048, name: "APSD"},
-  {bit: 4096, name: "RadioMeasure"}, {bit: 8192, name: "DSSS-OFDM"}, {bit: 16384, name: "DelayedBACK"},
-  {bit: 32768, name: "ImmediateBACK"},
-]
-
 type InformationElement = {id: Int, data: Bytes}
 
 pure split_elements(data: Bytes) -> List[InformationElement] {
@@ -876,7 +959,7 @@ pure split_elements(data: Bytes) -> List[InformationElement] {
       let id = data.byte_at(offset) ?? 0
       let length = data.byte_at(offset + 1) ?? 0
       break when offset + 2 + length > data.len()
-      yield {id: id, data: data.slice(offset + 2, length)}
+      yield {id: id, data: data[offset + 2..offset + 2 + length]}
       offset += 2 + length
     }
   }
@@ -919,42 +1002,14 @@ pure suite_text(data: Bytes, akm: Bool) -> Str {
   suite_dashed(data)
 }
 
-# Cipher suite types of the 00-0f-ac OUI as the RSN element lists them.
-const CIPHER_SUITE_NAMES = [
-  {kind: 0, name: "Use group cipher suite"}, {kind: 1, name: "WEP-40"}, {kind: 2, name: "TKIP"},
-  {kind: 4, name: "CCMP"}, {kind: 5, name: "WEP-104"}, {kind: 6, name: "AES-128-CMAC"},
-  {kind: 7, name: "NO-GROUP"}, {kind: 8, name: "GCMP"}, {kind: 9, name: "GCMP-256"}, {kind: 10, name: "CCMP-256"},
-  {kind: 11, name: "BIP-GMAC-128"}, {kind: 12, name: "BIP-GMAC-256"}, {kind: 13, name: "BIP-CMAC-256"},
-]
-
-# Cipher suite types of the 00-50-f2 (WPA) OUI.
-const MS_CIPHER_NAMES = [
-  {kind: 0, name: "Use group cipher suite"}, {kind: 1, name: "WEP-40"}, {kind: 2, name: "TKIP"},
-  {kind: 4, name: "CCMP"}, {kind: 5, name: "WEP-104"},
-]
-
-# Authentication suite types of the 00-50-f2 (WPA) OUI.
-const MS_AKM_NAMES = [{kind: 1, name: "IEEE 802.1X"}, {kind: 2, name: "PSK"}]
-
-# Authentication and key management suite types of the 00-0f-ac OUI.
-const AKM_NAMES = [
-  {kind: 1, name: "IEEE 802.1X"}, {kind: 2, name: "PSK"}, {kind: 3, name: "FT/IEEE 802.1X"},
-  {kind: 4, name: "FT/PSK"}, {kind: 5, name: "IEEE 802.1X/SHA-256"}, {kind: 6, name: "PSK/SHA-256"},
-  {kind: 7, name: "TDLS/TPK"}, {kind: 8, name: "SAE"}, {kind: 9, name: "FT/SAE"},
-  {kind: 11, name: "IEEE 802.1X/SUITE-B"}, {kind: 12, name: "IEEE 802.1X/SUITE-B-192"},
-  {kind: 13, name: "FT/IEEE 802.1X/SHA-384"}, {kind: 14, name: "FILS/SHA-256"}, {kind: 15, name: "FILS/SHA-384"},
-  {kind: 16, name: "FT/FILS/SHA-256"}, {kind: 17, name: "FT/FILS/SHA-384"}, {kind: 18, name: "OWE"},
-  {kind: 19, name: "FT/PSK/SHA-384"}, {kind: 20, name: "PSK/SHA-384"},
-]
-
 pure suites(data: Bytes, offset: Int, akm: Bool) -> List[Str] {
   var names = []
   return names when offset + 2 > data.len()
-  let count = uint(data.slice(offset, 2))
+  let count = uint(data[offset..offset + 2])
   var at = offset + 2
   var remaining = count
   while remaining > 0 and at + 4 <= data.len() {
-    names += [suite_text(data.slice(at, 4), akm)]
+    names += [suite_text(data[at..at + 4], akm)]
     at += 4
     remaining -= 1
   }
@@ -969,7 +1024,7 @@ pure suites(data: Bytes, offset: Int, akm: Bool) -> List[Str] {
 pure cipher_lines(data: Bytes, offset: Int, version: Int, rsn: Bool) -> List[Str] {
   var lines: List[Str] = [f"\t * Version: {version}"]
   return lines when offset + 4 > data.len()
-  lines += [f"\t\t * Group cipher: {suite_text(data.slice(offset, 4), false)}"]
+  lines += [f"\t\t * Group cipher: {suite_text(data[offset..offset + 4], false)}"]
   let pairwise_at = offset + 4
   return lines when pairwise_at + 2 > data.len()
   let pairwise = suites(data, pairwise_at, false)
@@ -980,7 +1035,7 @@ pure cipher_lines(data: Bytes, offset: Int, version: Int, rsn: Bool) -> List[Str
   lines += ["\t\t * Authentication suites: " + key_management.join(" ")]
   var at = akm_at + 2 + 4 * key_management.len()
   return lines when ! rsn or at + 2 > data.len()
-  let value = uint(data.slice(at, 2))
+  let value = uint(data[at..at + 2])
   at += 2
   var text = "\t\t * Capabilities:"
   if value.bit_and(1) != 0 {
@@ -1004,13 +1059,13 @@ pure cipher_lines(data: Bytes, offset: Int, version: Int, rsn: Bool) -> List[Str
   }
   lines += [text + f" (0x{hex(value, 4)})"]
   if at + 2 <= data.len() {
-    let count = uint(data.slice(at, 2))
+    let count = uint(data[at..at + 2])
     at += 2
     lines += [f"\t\t * {count} PMKIDs"]
     at += 16 * count
   }
   if at + 4 <= data.len() {
-    lines += ["\t\t * Group mgmt cipher suite: " + suite_text(data.slice(at, 4), false)]
+    lines += ["\t\t * Group mgmt cipher suite: " + suite_text(data[at..at + 4], false)]
   }
   lines
 }
@@ -1095,7 +1150,7 @@ pure load_lines(data: Bytes) -> List[Str] {
     "\tBSS Load:",
     f"\t\t * station count: {uint(data[..2])}",
     f"\t\t * channel utilisation: {data.byte_at(2) ?? 0}/255",
-    f"\t\t * available admission capacity: {uint(data.slice(3, 2))} [*32us]",
+    f"\t\t * available admission capacity: {uint(data[3..5])} [*32us]",
   ]
 }
 
@@ -1125,7 +1180,7 @@ pure rsn_lines(data: Bytes) -> List[Str] {
 
 pure vendor_lines(data: Bytes, unknown: Bool) -> List[Str] {
   if data.len() >= 8 and hex_bytes(data[..4]) == "00 50 f2 01" {
-    let body = uint(data.slice(4, 2)) |> cipher_lines(data, 6, _, false)
+    let body = uint(data[4..6]) |> cipher_lines(data, 6, _, false)
     return ["\tWPA:" + body[0], @body[1..]]
   }
   if unknown {
@@ -1443,7 +1498,7 @@ export pure station_lines(message: Message, interface: Str, boot_ms: Int, wall_m
   let flags = pick(info, STA_FLAGS)
   if flags != null and flags.len() >= 8 {
     let mask = uint(flags[..4])
-    let value_bits = uint(flags.slice(4, 4))
+    let value_bits = uint(flags[4..8])
     # Station flag bits: authorized 1, short preamble 2, WME 3, MFP 4,
     # authenticated 5, TDLS peer 6, associated 7.
     if mask.bit_and(2) != 0 {
@@ -1567,13 +1622,6 @@ export pure link_lines(message: Message) -> List[Str] {
 
 # --- wireless devices --------------------------------------------------
 
-# Cipher suite selectors of the 00-0f-ac family, by suite type.
-const CIPHER_NAMES = [
-  {kind: 1, name: "WEP40"}, {kind: 5, name: "WEP104"}, {kind: 2, name: "TKIP"}, {kind: 4, name: "CCMP-128"},
-  {kind: 10, name: "CCMP-256"}, {kind: 8, name: "GCMP-128"}, {kind: 9, name: "GCMP-256"}, {kind: 6, name: "CMAC"},
-  {kind: 13, name: "CMAC-256"}, {kind: 11, name: "GMAC-128"}, {kind: 12, name: "GMAC-256"},
-]
-
 # The name `iw` gives a cipher suite selector (three OUI bytes and a type).
 pure cipher_name(selector: Bytes) -> Str {
   let kind = selector.byte_at(3) ?? 0
@@ -1637,8 +1685,6 @@ pure bitrate_lines(rates: Bytes) -> List[Str] {
   }
   lines
 }
-
-const AMPDU_SPACING_NAMES = ["No restriction", "1/4 usec", "1/2 usec", "1 usec", "2 usec", "4 usec", "8 usec", "16 usec"]
 
 # The HT capability bits of a 2.4 or 5 GHz band, one indented line each.
 pure ht_capability_lines(cap: Int) -> List[Str] {
@@ -1852,7 +1898,7 @@ export pure phy_lines(messages: List[Message]) -> List[Str] {
       lines += ["\tSupported Ciphers:"]
       var at = 0
       while at + 4 <= ciphers.len() {
-        let selector = ciphers.slice(at, 4)
+        let selector = ciphers[at..at + 4]
         lines += [f"\t\t* {cipher_name(selector)}"]
         at += 4
       }
@@ -1928,57 +1974,11 @@ pure reg_initiator_text(kind: Int) -> Str {
   }
 }
 
-const DISCONNECT_REASONS = [
-  "<unknown>", "Unspecified", "Previous authentication no longer valid",
-  "Deauthenticated because sending station is leaving (or has left) the IBSS or ESS",
-  "Disassociated due to inactivity", "Disassociated because AP is unable to handle all currently associated STA",
-  "Class 2 frame received from non-authenticated station", "Class 3 frame received from non-authenticated station",
-  "Disassociated because sending station is leaving (or has left) the BSS",
-  "Station requesting (re)association is not authenticated with responding station",
-  "Disassociated because the information in the Power Capability element is unacceptable",
-  "Disassociated because the information in the Supported Channels element is unacceptable", "<unknown>",
-  "Invalid information element", "MIC failure", "4-way handshake timeout", "Group key update timeout",
-  "Information element in 4-way handshake different from (Re-)associate request/Probe response/Beacon",
-  "Multicast cipher is not valid", "Unicast cipher is not valid", "AKMP is not valid", "Unsupported RSNE version",
-  "Invalid RSNE capabilities", "IEEE 802.1X authentication failed", "Cipher Suite rejected per security policy",
-]
-
 # The `iw` wording of a deauthentication or disassociation reason code, or
 # `<unknown>` for a code its table does not name.
 pure reason_text(code: Int) -> Str {
   if code >= 0 and code < DISCONNECT_REASONS.len() { DISCONNECT_REASONS[code] } else { "<unknown>" }
 }
-
-const STATUS_TEXTS = [
-  {code: 0, text: "Successful"},
-  {code: 1, text: "Unspecified failure"},
-  {code: 10, text: "Cannot support all requested capabilities in the capability information field"},
-  {code: 11, text: "Reassociation denied due to inability to confirm that association exists"},
-  {code: 12, text: "Association denied due to reason outside the scope of this standard"},
-  {code: 13, text: "Responding station does not support the specified authentication algorithm"},
-  {code: 14, text: "Received an authentication frame with authentication transaction sequence number out of expected sequence"},
-  {code: 15, text: "Authentication rejected because of challenge failure"},
-  {code: 16, text: "Authentication rejected due to timeout waiting for next frame in sequence"},
-  {code: 17, text: "Association denied because AP is unable to handle additional associated STA"},
-  {code: 18, text: "Association denied due to requesting station not supporting all of the data rates in the BSSBasicRateSet parameter"},
-  {code: 19, text: "Association denied due to requesting station not supporting the short preamble option"},
-  {code: 20, text: "Association denied due to requesting station not supporting the PBCC modulation option"},
-  {code: 21, text: "Association denied due to requesting station not supporting the channel agility option"},
-  {code: 22, text: "Association request rejected because Spectrum Management capability is required"},
-  {code: 23, text: "Association request rejected because the information in the Power Capability element is unacceptable"},
-  {code: 24, text: "Association request rejected because the information in the Supported Channels element is unacceptable"},
-  {code: 25, text: "Association request rejected due to requesting station not supporting the short slot time option"},
-  {code: 26, text: "Association request rejected due to requesting station not supporting the ER-PBCC modulation option"},
-  {code: 27, text: "Association denied due to requesting STA not supporting HT features"},
-  {code: 28, text: "R0KH Unreachable"},
-  {code: 29, text: "Association denied because the requesting STA does not support the PCO transition required by the AP"},
-  {code: 30, text: "Association request rejected temporarily; try again later"},
-  {code: 31, text: "Robust Management frame policy violation"},
-  {code: 32, text: "Unspecified, QoS related failure"},
-  {code: 33, text: "Association denied due to QAP having insufficient bandwidth to handle another QSTA"},
-  {code: 34, text: "Association denied due to poor channel conditions"},
-  {code: 35, text: "Association (with QBSS) denied due to requesting station not supporting the QoS facility"},
-]
 
 # The `iw` wording of an association status code, or `<unknown>`.
 pure status_text(code: Int) -> Str {

@@ -58,7 +58,7 @@ export pure echo_request(family: Str, identifier: Int, sequence: Int, payload: B
   let head = bytes.concat([bytes.from_ints([request_type(family), 0, 0, 0])?, bytes.pack_be(identifier, 2)?, bytes.pack_be(sequence, 2)?])
   let message = bytes.concat([head, payload])
   return Ok(message) when ! checksummed or family == "inet6"
-  Ok(bytes.concat([message[..2], bytes.pack_be(checksum(message), 2)?, message.slice(4)]))
+  Ok(bytes.concat([message[..2], bytes.pack_be(checksum(message), 2)?, message[4..]]))
 }
 
 ## The fill of an echo payload of `size` bytes. Without a pattern byte N
@@ -73,7 +73,7 @@ export pure echo_fill(size: Int, pattern: Bytes) -> Result[Bytes, Error] {
 ## enough to carry it, as ping carries its send time.
 export pure echo_stamped(fill: Bytes, stamp: Bytes) -> Bytes {
   return fill when fill.len() < stamp.len()
-  bytes.concat([stamp, fill.slice(stamp.len())])
+  bytes.concat([stamp, fill[stamp.len()..]])
 }
 
 ## The pattern bytes of a `-p` argument: hexadecimal digit pairs, a trailing
@@ -114,7 +114,7 @@ export pure parse_echo(message: Bytes) -> Echo? {
   return null when message.len() < 8
   let identifier = bytes.unpack_be(message, 2, 4) ?? 0
   let sequence = bytes.unpack_be(message, 2, 6) ?? 0
-  {kind: message.byte_at(0) ?? 0, code: message.byte_at(1) ?? 0, identifier: identifier, sequence: sequence, payload: message.slice(8)}
+  {kind: message.byte_at(0) ?? 0, code: message.byte_at(1) ?? 0, identifier: identifier, sequence: sequence, payload: message[8..]}
 }
 
 ## The echo reply type for a family.
@@ -277,8 +277,8 @@ export pure icmp6_text(kind: Int, code: Int, info: Int) -> Str {
 ## this module does not read.
 export pure sockaddr_text(raw: Bytes) -> Str {
   let family = bytes.unpack_le(raw, 2, 0) ?? 0
-  return ipv4_text(raw.slice(4, 4)) when family == 2 and raw.len() >= 8
-  return ipv6_text(raw.slice(8, 16)) when family == 10 and raw.len() >= 24
+  return ipv4_text(raw[4..8]) when family == 2 and raw.len() >= 8
+  return ipv6_text(raw[8..24]) when family == 10 and raw.len() >= 24
   ""
 }
 
@@ -288,12 +288,12 @@ export pure parse_queued_error(data: Bytes, payload: Bytes) -> QueuedError? {
   return null when data.len() < 16
   let errno = bytes.unpack_le(data, 4, 0) ?? 0
   let info = bytes.unpack_le(data, 4, 8) ?? 0
-  {errno: errno, origin: data.byte_at(4) ?? 0, kind: data.byte_at(5) ?? 0, code: data.byte_at(6) ?? 0, info: info, offender: sockaddr_text(data.slice(16)), payload: payload, port: 0, ttl: null, stamp_ns: null}
+  {errno: errno, origin: data.byte_at(4) ?? 0, kind: data.byte_at(5) ?? 0, code: data.byte_at(6) ?? 0, info: info, offender: sockaddr_text(data[16..]), payload: payload, port: 0, ttl: null, stamp_ns: null}
 }
 
 ## Receive one datagram, reading the TTL or hop limit and the kernel receive
 ## timestamp from its ancillary data.
-export proc receive(fd: Int, flags: Int = 0, max_bytes: Int = 65600) [process, net, error] -> Result[Received, Error] {
+export proc receive(fd: Int, flags = 0, max_bytes = 65600) [process, net, error] -> Result[Received, Error] {
   let c = linux.net_constants()
   let got = linux.recvfrom(fd, max_bytes, flags)?
   var ttl = null
@@ -341,7 +341,7 @@ export proc read_error(fd: Int) [process, net, error] -> Result[QueuedError?, Er
 ## raw socket for processes with CAP_NET_RAW. `raw_only` skips the datagram
 ## socket, for callers that choose their own identifier. A failure carries the
 ## raw socket's errno, which is the one a privilege hint is about.
-export proc open_echo(family: Str, raw_only: Bool = false) [process, net, error] -> Result[EchoSocket, Error] {
+export proc open_echo(family: Str, raw_only = false) [process, net, error] -> Result[EchoSocket, Error] {
   let c = linux.net_constants()
   let domain = if family == "inet6" { c.AF_INET6 } else { c.AF_INET }
   let protocol = if family == "inet6" { c.IPPROTO_ICMPV6 } else { c.IPPROTO_ICMP }
@@ -392,7 +392,7 @@ proc bind_clock(fd: Int) [process, net, error] -> Result[Clock, Error] {
 ## coarse rather than wrong.
 export proc open_clock() [process, net, error] -> Result[Clock, Error] {
   let c = linux.net_constants()
-  let coarse: Clock = Clock(fd: -1, target: b"")
+  let coarse: Clock = Clock(-1, b"")
   guard let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM) else { return Ok(coarse) }
   if let Ok(clock) = bind_clock(fd) {
     Ok(clock)

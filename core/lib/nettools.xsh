@@ -45,6 +45,9 @@ const ARPHRD_ETHER = 1
 const ARPHRD_TUNNEL = 768
 const ARPHRD_LOOPBACK = 772
 
+# The octet value that carries 0 to 8 leading one bits.
+const OCTET_BY_BITS = [0, 128, 192, 224, 240, 248, 252, 254, 255]
+
 type HardwareType = {type: Int, name: Str, description: Str, print: Str}
 
 # The names ifconfig prints inside flags=N<...>, in its printing order.
@@ -83,6 +86,27 @@ const FLAG_LETTERS = [
   {bit: 64, letter: "R"},
   {bit: 1, letter: "U"},
 ]
+
+## The header of the short (-s) listing.
+export const SHORT_HEADER = "Iface      MTU    RX-OK RX-ERR RX-DRP RX-OVR    TX-OK TX-ERR TX-DRP TX-OVR Flg"
+
+## The IPv6 routing table header.
+export const ROUTE6_HEADER = "Kernel IPv6 routing table\nDestination                    Next Hop                   Flag Met Ref  Use If"
+
+## The header of the IPv4 table.
+export const ROUTE4_HEADER = "Kernel IP routing table\nDestination     Gateway         Genmask         Flags Metric Ref    Use Iface"
+## Route4 extended header.
+## The header of the IPv4 table under -e.
+export const ROUTE4_EXTENDED_HEADER = "Kernel IP routing table\nDestination     Gateway         Genmask         Flags   MSS Window  irtt Iface"
+## Route4 extra header.
+## The header of the IPv4 table under -ee.
+export const ROUTE4_EXTRA_HEADER = "Kernel IP routing table\nDestination     Gateway         Genmask         Flags Metric Ref    Use Iface    MSS   Window irtt"
+## Route4 cache header.
+## The header of the IPv4 routing cache listing.
+export const ROUTE4_CACHE_HEADER = "Kernel IP routing cache\nSource          Destination     Gateway         Flags Metric Ref    Use Iface"
+
+## The header of the ARP listing.
+export const ARP_HEADER = "Address                  HWtype  HWaddress           Flags Mask            Iface"
 
 # Hardware types with a legacy name. `print` says how the address is shown:
 # ether is colon-separated hex, none prints no address, empty prints an empty
@@ -219,9 +243,6 @@ export pure netmask_parse(text: Str) -> Bytes? {
   }
   ipv4_parse(text)
 }
-
-# The octet value that carries 0 to 8 leading one bits.
-const OCTET_BY_BITS = [0, 128, 192, 224, 240, 248, 252, 254, 255]
 
 ## The netmask bytes for a prefix length of 0 to 32.
 export pure prefix_mask(prefix: Int) -> Bytes {
@@ -419,7 +440,7 @@ export pure attributes_of(payload: Bytes, start: Int) -> List[Attribute] {
       let length = bytes.unpack_le(payload, 2, offset) ?? 0
       let kind = bytes.unpack_le(payload, 2, offset + 2) ?? 0
       break when length < 4 or offset + length > payload.len()
-      yield {kind: kind.bit_and(16383), data: payload.slice(offset + 4, length - 4)}
+      yield {kind: kind.bit_and(16383), data: payload[offset + 4..offset + length]}
       offset += (length + 3) / 4 * 4
     }
   }
@@ -563,7 +584,8 @@ pure hardware_line(item: Interface) -> Str {
     if entry.type == ARPHRD_LOOPBACK and blank { shown = "" }
     return f"        {entry.name} {shown} txqueuelen {item.txqueuelen}  ({entry.description})"
   }
-  var padded = item.hwaddr.slice(0, if item.hwaddr.len() < 14 { item.hwaddr.len() } else { 14 })
+  let length = if item.hwaddr.len() < 14 { item.hwaddr.len() } else { 14 }
+  var padded = item.hwaddr[0..length]
   let missing = 16 - padded.len()
   padded = bytes.concat([padded, bytes.zero(missing) ?? b""])
   f"        unspec {address_text(padded, 16, "-", true)}  txqueuelen {item.txqueuelen}  (UNSPEC)"
@@ -575,7 +597,7 @@ export pure long_listing(item: Interface) -> Str {
   let lines = collect {
     yield f"{item.name}: flags={flags}<{flag_names(item.flags)}>  mtu {item.mtu}"
     if let address = item.ipv4 {
-      let mask = ipv4_text(prefix_mask(address.prefix), 0)
+      let mask = prefix_mask(address.prefix) |> ipv4_text(_, 0)
       var text = f"        inet {address.local}  netmask {mask}"
       if item.flags.bit_and(IFF_POINTOPOINT) != 0 { text += f"  destination {address.peer}" }
       if item.flags.bit_and(IFF_BROADCAST) != 0 { text += f"  broadcast {address.broadcast ?? "0.0.0.0"}" }
@@ -598,9 +620,6 @@ export pure long_listing(item: Interface) -> Str {
   }
   lines.join("\n") + "\n\n"
 }
-
-## The header of the short (-s) listing.
-export const SHORT_HEADER = "Iface      MTU    RX-OK RX-ERR RX-DRP RX-OVR    TX-OK TX-ERR TX-DRP TX-OVR Flg"
 
 ## One row of the short listing. An alias has no statistics to show.
 export pure short_row(item: Interface) -> Str {
@@ -772,25 +791,10 @@ pure ipv6_flag_letters(flags: Int) -> Str {
   letters
 }
 
-## The IPv6 routing table header.
-export const ROUTE6_HEADER = "Kernel IPv6 routing table\nDestination                    Next Hop                   Flag Met Ref  Use If"
-
 ## Route6 row.
 export pure route6_row(row: Route6Row, destination: Str, nexthop: Str) -> Str {
   f"{destination:<30} {nexthop:<26} {ipv6_flag_letters(row.flags):<4} {row.metric:<3} {row.ref:<3} {row.use:>4} {row.iface}"
 }
-
-## The header of the IPv4 table.
-export const ROUTE4_HEADER = "Kernel IP routing table\nDestination     Gateway         Genmask         Flags Metric Ref    Use Iface"
-## Route4 extended header.
-## The header of the IPv4 table under -e.
-export const ROUTE4_EXTENDED_HEADER = "Kernel IP routing table\nDestination     Gateway         Genmask         Flags   MSS Window  irtt Iface"
-## Route4 extra header.
-## The header of the IPv4 table under -ee.
-export const ROUTE4_EXTRA_HEADER = "Kernel IP routing table\nDestination     Gateway         Genmask         Flags Metric Ref    Use Iface    MSS   Window irtt"
-## Route4 cache header.
-## The header of the IPv4 routing cache listing.
-export const ROUTE4_CACHE_HEADER = "Kernel IP routing cache\nSource          Destination     Gateway         Flags Metric Ref    Use Iface"
 
 ## One row of the IPv4 table. `extend` is the number of -e flags given.
 export pure route4_row(row: RouteRow, destination: Str, gateway: Str, extend: Int) -> Str {
@@ -887,9 +891,6 @@ export pure arp_row(entry: Neighbour, name: Str) -> Str {
   if entry.flags.bit_and(8) != 0 { letters += "P" }
   f"{name:<24} {kind:<7} {hw:<19} {letters:<5} {"":<15} {entry.iface}"
 }
-
-## The header of the ARP listing.
-export const ARP_HEADER = "Address                  HWtype  HWaddress           Flags Mask            Iface"
 
 ## The BSD-style (-a) row of the ARP listing.
 export pure arp_bsd_row(entry: Neighbour, name: Str) -> Str {

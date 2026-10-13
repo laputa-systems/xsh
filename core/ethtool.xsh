@@ -704,7 +704,7 @@ proc change_settings(fd: Int, device: Str, rest: List[Str]) {
     if let Err(failure) = current { netlink_fail(failure, 75) }
     let before = current?
     let options = wol ?? bytes.unpack_le(before, 4, 8)?
-    let password = secure ?? before.slice(12, 6)
+    let password = secure ?? before[12..18]
     let request = bytes.concat([bytes.pack_le(dec.CMD.SWOL, 4)?, bytes.pack_le(bytes.unpack_le(before, 4, 4)?, 4)?, bytes.pack_le(options, 4)?, password, bytes.zero(2)?])
     if let Err(failure) = eth_request(fd, device, request, 20) { netlink_fail(failure, 75) }
   }

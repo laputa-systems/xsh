@@ -618,7 +618,7 @@ proc write_all(fd: Int, data: Bytes) [net, process, error] {
   var rest = data
   while ! rest.is_empty() {
     let written = unix.write_fd(fd, rest)?
-    rest = rest.slice(written)
+    rest = rest[written..]
   }
   Ok()
 }
@@ -632,12 +632,12 @@ pure add_carriage_returns(data: Bytes, after_cr: Bool) -> Bytes {
     for at in range(data.len()) {
       let byte = data.byte_at(at) ?? 0
       if byte == 10 and ! previous_cr {
-        yield @[data.slice(start, at - start), b"\r"]
+        yield @[data[start..at], b"\r"]
         start = at
       }
       previous_cr = byte == 13
     }
-    yield data.slice(start)
+    yield data[start..]
   }
   bytes.concat(pieces)
 }
@@ -721,7 +721,7 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
     if "writable" in events and ! pending.is_empty() {
       match linux.sendto(fd, pending, null, c.MSG_DONTWAIT) {
         Ok(sent) => {
-          pending = pending.slice(sent)
+          pending = pending[sent..]
           progressed = true
         }
         Err(failure) => {

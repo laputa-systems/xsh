@@ -352,7 +352,7 @@ export proc execute(argv: List[Str]) {
   defer unix.close_fd(fd)
   let c = linux.net_constants()
   let clock = icmp.open_clock()?
-  var walk: Walk = Walk(mtu: mtu, hops_to: -1, hops_from: -1, history: {}, slot: 0, names: {})
+  var walk: Walk = Walk(mtu:, hops_to: -1, hops_from: -1, history: {}, slot: 0, names: {})
   var finished = false
   var ttl = 1
   while ttl <= max_hops and ! finished {

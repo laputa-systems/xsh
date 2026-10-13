@@ -23,6 +23,10 @@ const CHANNEL_ARGS = "<channel> [NOHT|HT20|HT40+|HT40-]"
 const FREQ_ARGS = "<freq> [NOHT|HT20|HT40+|HT40-]"
 const TXPOWER_ARGS = "<auto|fixed|limit> [<tx power in mBm>]"
 
+# Words that name a command or a device selector, which an implicit device
+# name cannot be.
+const RESERVED = ["dev", "phy", "wdev", "list", "event", "reg", "help", "features", "commands"]
+
 # The commands in the order `iw help` lists them. A command with no help text
 # prints only its usage line, as `iw` does for the `phy` alias of `list`.
 const COMMANDS: List[Entry] = [
@@ -520,10 +524,6 @@ proc command_event(client: nl.Client, stamp: Str) -> Result[Int] {
 }
 
 # --- command line ------------------------------------------------------
-
-# Words that name a command or a device selector, which an implicit device
-# name cannot be.
-const RESERVED = ["dev", "phy", "wdev", "list", "event", "reg", "help", "features", "commands"]
 
 pure scan_words() -> List[Str] {
   ["freq", "ies", "meshid", "duration", "ssid", "passive", "lowpri", "flush", "ap-force", "duration-mandatory", "coloc"]

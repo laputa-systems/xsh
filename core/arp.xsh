@@ -128,7 +128,7 @@ proc set_entry(options: Options, host: Str, hardware: Str, words: List[Str]) [fs
     defer unix.close_fd(socket)
     let lookup = nettools.ifreq(hardware, b"") ?? b""
     match linux.ioctl(socket, c.SIOCGIFHWADDR, lookup, 40) {
-      Ok(reply) => mac = reply.slice(18, 6)
+      Ok(reply) => mac = reply[18..24]
       Err(failure) => {
         eprint f"arp: cant get HW-Address for `{hardware}': {gnu.strerror(failure)}."
         exit 255

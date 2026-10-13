@@ -349,7 +349,7 @@ pure control_stamp(control: List[Control], level: Int, kind: Int) -> Int {
 
 proc open_clock() [process, net, error] -> Clock {
   let c = linux.net_constants()
-  let unusable: Clock = Clock(fd: -1, address: {address: "", family: "unspec", port: 0, raw: b"", scope_id: 0})
+  let unusable: Clock = Clock(-1, {address: "", family: "unspec", port: 0, raw: b"", scope_id: 0})
 
   guard let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM) else { |failure|
     return unusable
@@ -622,7 +622,7 @@ pure echo_request(v6: Bool, seq: Int, ident: Int, checksum: Bool, payload: Bytes
 
   let sum = icmp_checksum(message)
 
-  bytes.concat([message[..2], bytes.pack_be(sum, 2) ?? b"", message.slice(4)])
+  bytes.concat([message[..2], bytes.pack_be(sum, 2) ?? b"", message[4..]])
 }
 
 # Whether the ICMP header at `at` is our echo request with this identifier

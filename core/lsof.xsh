@@ -9,8 +9,21 @@ pure file_type(kind: Str) -> Str {
 proc main(...argv: List[Str]) [fs, process, error] {
   let opts: Options = cli.applet(argv, {gnu: {status: 2}, pids: {form: "-p PID"}, users: {form: "-u USER"}, terse: {form: "-t", default: false}, command: {form: "-c COMMAND"}, help: {form: "--help", default: false}, operands: {form: "...FILE"}})?
   if opts.help { print "Usage: lsof [-p PID,...] [-u USER,...] [-c COMMAND] [-t] [FILE...]"; return }
-  let base = procps.selector()
-  let selector: procps.Selector = {...base, pids: if opts.pids == null { [] } else { procps.ids(opts.pids)? }, users: (opts.users ?? "").split(",") |> where . != "", pattern: if opts.command == null { null } else { f"^{opts.command}" }}
+  let selector: procps.Selector = procps.Selector(
+    pattern: if opts.command == null { null } else { f"^{opts.command}" },
+    exact: false,
+    full: false,
+    ignore_case: false,
+    inverse: false,
+    pids: if opts.pids == null { [] } else { procps.ids(opts.pids)? },
+    parents: [],
+    users: (opts.users ?? "").split(",") |> where . != "",
+    names: [],
+    groups: [],
+    sessions: [],
+    newest: false,
+    oldest: false,
+  )
   let snapshot: List[ProcessEntry] = process.list()? |> collect
   let selected = procps.select(snapshot, selector, 0)?
   let wanted = [fs.stat(fp"{name}", follow_symlinks: true)? for name in opts.operands]
