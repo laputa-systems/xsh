@@ -424,7 +424,7 @@ pure starts_operand(p: Parser) -> Bool {
   match peek(p) {
     TokNumber(_) | TokText(_) | TokRegex(_) => true
     TokWord(word) => word not in ["else", "in", "while", "BEGIN", "END", "function", "func", "if", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "print", "printf"] and word != "getline"
-    TokCall(word) => true
+    TokCall(_) => true
     TokOp(symbol) => symbol in ["$", "(", "++", "--", "!", "-", "+"]
     else => false
   }
@@ -2519,7 +2519,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
           Variable(variable) => {
             if is_array_position { spots += [array_spot(names, variable)] } else { plain += [at] }
           }
-          Index(variable, keys) => {
+          Index(_, _) => {
             if name in ["typeof", "isarray"] and at == 0 {
               let place = compile_place(x, names, args[at])?
               ops += place.ops
@@ -2620,7 +2620,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
     ExpressionStatement(child) => {
       # An increment or plain assignment to a global whose value is not used.
       match x[child] {
-        Increment(target, delta, post) => {
+        Increment(target, delta, _) => {
           if let Variable(name) = x[target] {
             if slot_of(names, name) < 0 and name != "NF" { return Ok(site + [OpIncGlobal(name, delta)]) }
           }
@@ -2671,7 +2671,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
       if initial != null { init_ops = compile_expression(x, names, initial)? + [OpPop] }
       var step_ops: List[Op] = []
       if step != null {
-        if let Increment(target, delta, post) = x[step] {
+        if let Increment(target, delta, _) = x[step] {
           if let Variable(name) = x[target] {
             if slot_of(names, name) < 0 and name != "NF" { step_ops = [OpIncGlobal(name, delta)] }
           }
@@ -4594,7 +4594,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                   result = Numeric((scalar_text(globals.get(variable) ?? Empty, conversion)?).count_chars().float())
                 }
               }
-              SpotLocal(slot, variable) => {
+              SpotLocal(slot, _) => {
                 if aliases[slot] != "" and slots[slot] == Empty {
                   if aliases[slot] in arrays {
                     if mode == 2 { Err(fatal_error("length: received array argument"))? }
@@ -4616,7 +4616,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               SpotGlobal(variable) => {
                 if variable in arrays { kind = "array"; is_array = true } else if variable in globals { kind = type_name(globals.get(variable) ?? Empty) }
               }
-              SpotLocal(slot, variable) => {
+              SpotLocal(slot, _) => {
                 if aliases[slot] != "" and slots[slot] == Empty {
                   if aliases[slot] in arrays { kind = "array"; is_array = true }
                 } else { kind = type_name(slots[slot]) }
