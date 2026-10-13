@@ -939,7 +939,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
         let outcome: Outcome = Outcome(status: 0, reason: "", headers: [], bytes: 0, url: request.url, redirects: 0, millis: elapsed, code: described.code)
         finish_write_out(settings, outcome, method)
       }
-      return {code: described.code, again: described.again}
+      {code: described.code, again: described.again}
     }
     Ok(reply) => {
       var code = 0
@@ -1051,7 +1051,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
         finish_write_out(settings, outcome, method)
       }
       if failed { show_error(settings, 22, f"The requested URL returned error: {reply.status}") }
-      return {code: code, again: again}
+      {code: code, again: again}
     }
   }
 }

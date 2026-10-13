@@ -687,7 +687,7 @@ proc parse_condition(words: List[Str], start: Int, family: Int, tables: List[Str
       if position >= words.len() { syntax_error() }
       var cond = parse_host(words[position], family, tables, names)
       cond.kind = word
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
     "dport" | "sport" => {
       if position >= words.len() { syntax_error() }
@@ -700,13 +700,13 @@ proc parse_condition(words: List[Str], start: Int, family: Int, tables: List[Str
       var cond = blank_cond(word)
       cond.op = op
       cond.port = parse_port(words[position], tables, names)
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
     "dev" => {
       if position >= words.len() { syntax_error() }
       var cond = blank_cond("dev")
       cond.text = words[position]
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
     "fwmark" => {
       if position >= words.len() { syntax_error() }
@@ -719,18 +719,18 @@ proc parse_condition(words: List[Str], start: Int, family: Int, tables: List[Str
         eprint "Cannot parse dst/src address."
         exit 1
       }
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
     "cgroup" => {
       if position >= words.len() { syntax_error() }
       var cond = blank_cond("cgroup")
       cond.text = words[position]
-      return {position: position + 1, output: [cond]}
+      {position: position + 1, output: [cond]}
     }
-    "autobound" => return {position: position, output: [blank_cond("autobound")]}
+    "autobound" => {position: position, output: [blank_cond("autobound")]}
     else => {
       unknown_word(word, false, family, tables, names)
-      return {position: position, output: []}
+      {position: position, output: []}
     }
   }
 }

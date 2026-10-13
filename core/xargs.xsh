@@ -198,7 +198,7 @@ pure status_code(status: Status) -> Int {
 proc option_number(text: Str, option: Str, minimum: Int) [process, env] -> Int {
   let value = text.parse_int() ?? -9223372036854775807
   if value == -9223372036854775807 { gnu.usage_error(f"invalid number \"{text}\" for -{option} option") }
-  return value
+  value
 }
 
 proc exclusive(previous: Str, current: Str) [process, env] -> Unit {

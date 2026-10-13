@@ -133,7 +133,7 @@ proc read_program(name: Str, kind: Str) [fs, io, env, error] -> Loaded {
     exit 2
   }
   match fp"{found ?? name}".read_text() {
-    Ok(text) => { return {source: {label: name, text: text}, found: found ?? name} }
+    Ok(text) => { {source: {label: name, text: text}, found: found ?? name} }
     Err(failure) => {
       var reason = failure.message
       let cut = reason.find(" (os error")

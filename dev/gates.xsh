@@ -42,7 +42,7 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Runtime] when changed_path.starts_with("crates/xsh-net/") or changed_path == "tests/linux_priv.rs"
   return [Compile, Api] when changed_path == "Cargo.toml" or changed_path == "Cargo.lock" or changed_path == "build.rs" or changed_path == "rust-toolchain.toml" or changed_path.starts_with(".cargo/")
   return [Compile] when changed_path.starts_with("src/") or changed_path.starts_with("crates/") or changed_path.starts_with("tests/") or changed_path == "AGENTS.md" or changed_path == "TODO.md" or changed_path == "xsht-config.ini" or changed_path == "Dockerfile.test"
-  return Err(GateError.UnmappedPath(path: changed_path))
+  Err(GateError.UnmappedPath(path: changed_path))
 }
 
 ## Deduplicates gates while retaining the order in which their owners appear.

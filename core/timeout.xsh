@@ -82,7 +82,7 @@ proc wait_until_exit(handle: ProcessHandle) [process, error] -> Result[Status] {
     }
   }
 
-  return Err(error.failure("process wait loop ended unexpectedly"))
+  Err(error.failure("process wait loop ended unexpectedly"))
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {

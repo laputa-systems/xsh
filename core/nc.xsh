@@ -437,7 +437,7 @@ proc lookup(host: Str, opts: Options) [net] -> Lookup {
     return {rows: [], problem: "Name does not resolve"}
   }
   match dns.resolve_host(host) {
-    Err(failure) => return {rows: [], problem: resolver_reason(failure.message)}
+    Err(failure) => {rows: [], problem: resolver_reason(failure.message)}
     Ok(rows) => {
       let usable: List[Address] = collect {
         for row in rows {
@@ -447,7 +447,7 @@ proc lookup(host: Str, opts: Options) [net] -> Lookup {
         }
       }
       return {rows: [], problem: "Name has no usable address"} when usable.is_empty()
-      return {rows: usable, problem: ""}
+      {rows: usable, problem: ""}
     }
   }
 }

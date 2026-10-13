@@ -637,7 +637,7 @@ pure mask_prefix(mask: Str) -> Int {
       value = value / 2
     }
   }
-  return length
+  length
 }
 
 test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {

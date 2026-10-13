@@ -38,9 +38,9 @@ pure describe(line: Str) -> Str {
 
 pure literal_statement_label(line: Str) -> Str {
   match line {
-    "ready" => return "ready"
-    "queued" => return "queued"
-    else => return "other"
+    "ready" => "ready"
+    "queued" => "queued"
+    else => "other"
   }
 }
 

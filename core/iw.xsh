@@ -660,8 +660,8 @@ pure identify(idby: Str, words: List[Str]) -> Identified {
     return none
   }
   match words[0] {
-    "info" => return {key: "dev.info", rest: words[1..]}
-    "link" => return {key: "dev.link", rest: words[1..]}
+    "info" => {key: "dev.info", rest: words[1..]}
+    "link" => {key: "dev.link", rest: words[1..]}
     "scan" => {
       if words.len() >= 2 {
         match words[1] {
@@ -671,7 +671,7 @@ pure identify(idby: Str, words: List[Str]) -> Identified {
           else => {}
         }
       }
-      return {key: "scan", rest: words[1..]}
+      {key: "scan", rest: words[1..]}
     }
     "station" => {
       if words.len() >= 2 {
@@ -681,7 +681,7 @@ pure identify(idby: Str, words: List[Str]) -> Identified {
           else => {}
         }
       }
-      return none
+      none
     }
     "set" => {
       if words.len() >= 2 {
@@ -693,9 +693,9 @@ pure identify(idby: Str, words: List[Str]) -> Identified {
           else => {}
         }
       }
-      return none
+      none
     }
-    else => return none
+    else => none
   }
 }
 
@@ -716,23 +716,23 @@ proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[
   match key {
     "phy.info" => {
       return Ok(1) unless rest.is_empty()
-      return command_list(client, [nl.attr_u32(nl.ATTRS.wiphy, target.index)?])
+      command_list(client, [nl.attr_u32(nl.ATTRS.wiphy, target.index)?])
     }
     "phy.reg.get" => {
       return Ok(1) unless rest.is_empty()
-      return command_reg_get(client, target.index)
+      command_reg_get(client, target.index)
     }
     "dev.info" => {
       return Ok(1) unless rest.is_empty()
-      return command_info(client, target)
+      command_info(client, target)
     }
     "dev.link" => {
       return Ok(1) unless rest.is_empty()
-      return command_link(client, target)
+      command_link(client, target)
     }
     "station.dump" => {
       return Ok(1) unless rest.is_empty()
-      return command_station_dump(client, target)
+      command_station_dump(client, target)
     }
     "station.get" => {
       return Ok(1) when rest.len() != 1
@@ -741,20 +741,20 @@ proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[
         eprint "invalid mac address"
         return Ok(2)
       }
-      return command_station_get(client, target, mac)
+      command_station_get(client, target, mac)
     }
     "scan.dump" => {
       return Ok(1) when rest.len() > 1 or (rest.len() == 1 and rest[0] != "-u")
-      return command_scan_dump(client, target, ! rest.is_empty())
+      command_scan_dump(client, target, ! rest.is_empty())
     }
     "scan.abort" => {
       return Ok(1) unless rest.is_empty()
-      return command_scan_abort(client, target)
+      command_scan_abort(client, target)
     }
     "scan.trigger" => {
       let request = parse_scan(rest, true)
       return Ok(1) when request == null
-      return command_scan(client, target, request, false, false)
+      command_scan(client, target, request, false, false)
     }
     "scan" => {
       var words = rest
@@ -765,7 +765,7 @@ proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[
       }
       let request = parse_scan(words, false)
       return Ok(1) when request == null
-      return command_scan(client, target, request, unknown, true)
+      command_scan(client, target, request, unknown, true)
     }
     "set.type" => {
       return Ok(1) when rest.len() != 1
@@ -774,14 +774,14 @@ proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[
         eprint f"invalid interface type {rest[0]}"
         return Ok(2)
       }
-      return command_set_type(client, target, kind)
+      command_set_type(client, target, kind)
     }
     "set.txpower" => {
       return Ok(1) when rest.is_empty()
       match rest[0] {
         "auto" => {
           return Ok(1) when rest.len() != 1
-          return command_set_txpower(client, target, nl.TX_POWER.auto, null)
+          command_set_txpower(client, target, nl.TX_POWER.auto, null)
         }
         "fixed" | "limit" => {
           guard rest.len() >= 2 else {
@@ -794,11 +794,11 @@ proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[
             let setting = if rest[0] == "fixed" { nl.TX_POWER.fixed } else { nl.TX_POWER.limit }
             return command_set_txpower(client, target, setting, mbm)
           }
-          return Ok(1)
+          Ok(1)
         }
         else => {
           eprint f"Invalid parameter: {rest[0]}"
-          return Ok(2)
+          Ok(2)
         }
       }
     }
@@ -816,9 +816,9 @@ proc run_device_command(client: nl.Client, target: Target, key: Str, rest: List[
         return Ok(1) when converted == null
         freq = converted
       }
-      return command_set_frequency(client, target, freq, mode)
+      command_set_frequency(client, target, freq, mode)
     }
-    else => return Ok(1)
+    else => Ok(1)
   }
 }
 

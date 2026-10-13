@@ -1458,7 +1458,7 @@ proc open_next(cursor: Cursor, name: Str, delim: Int) [fs, io, error, process, e
   match gnu.read_operand(name) {
     Ok(data) => {
       let records = split_records(data, delim)
-      return {cursor: {...next, count: records.len(), trailing: data.is_empty() or data.byte_at(data.len() - 1) == delim, current: name}, records: records}
+      {cursor: {...next, count: records.len(), trailing: data.is_empty() or data.byte_at(data.len() - 1) == delim, current: name}, records: records}
     }
     Err(failure) => {
       if gnu.errno(failure) == 21 {
@@ -1466,7 +1466,7 @@ proc open_next(cursor: Cursor, name: Str, delim: Int) [fs, io, error, process, e
         return {cursor: {...next, fatal: true}, records: []}
       }
       gnu.error(f"can't read {name}: {gnu.strerror(failure)}")
-      return {cursor: {...next, bad: next.bad + 1}, records: []}
+      {cursor: {...next, bad: next.bad + 1}, records: []}
     }
   }
 }
