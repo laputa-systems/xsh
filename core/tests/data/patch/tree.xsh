@@ -9,7 +9,7 @@ export proc describe(root: Path, mtimes: List[Str]) [fs, error] -> Result[List[S
   var rows: List[Str] = []
   for entry in fs.walk(root, stat: true, hidden: true)? {
     let relative = entry.path.strip_prefix(root)?.display()
-    continue when relative == "." or relative == ""
+    if relative == "." or relative == "" { continue }
     let info = fs.stat(entry.path, follow_symlinks: false)?
     let owner = info.mode / 64 % 8
     var line = ""
