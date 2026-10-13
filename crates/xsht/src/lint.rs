@@ -3805,6 +3805,7 @@ impl<'a> Linter<'a> {
             "construct the declared schema",
         ));
         let mut arguments = Vec::new();
+        let mut argument_indents = Vec::new();
         let mut safe = !self.source[value.span.range()].contains('#');
         let Type::Record(schema_fields) =
             self.record_constructors.resolve_type(self.arena, ty, None)
@@ -3820,10 +3821,48 @@ impl<'a> Linter<'a> {
                 .all(|ty| !matches!(ty, Type::Unknown | Type::Invalid));
         let mut supplied = FxHashSet::default();
         let defaults = self.record_constructors.defaults(definition);
+        let value_line_start = self.source[..value.span.start()]
+            .rfind('\n')
+            .map_or(0, |index| index + 1);
+        let value_prefix = &self.source[value_line_start..value.span.start()];
+        let base_indent: String = value_prefix
+            .chars()
+            .take_while(|character| matches!(character, ' ' | '\t'))
+            .collect();
+        let continuation_indent = format!("{base_indent}  ");
+        let mut previous_field_end = value.span.start();
+        let mut multiline = false;
         for field in self.arena.record_fields(fields) {
+            let field_span_id = match &field.kind {
+                ArenaRecordFieldKind::Computed { span, .. }
+                | ArenaRecordFieldKind::Path { span, .. }
+                | ArenaRecordFieldKind::Named { span, .. }
+                | ArenaRecordFieldKind::Shorthand { span, .. }
+                | ArenaRecordFieldKind::Spread { span, .. } => *span,
+            };
+            let field_span = self.arena.span(field_span_id);
+            multiline |= self
+                .source
+                .get(previous_field_end..field_span.start())
+                .is_some_and(|gap| gap.contains('\n'));
+            previous_field_end = field_span.end();
+            let line_start = self.source[..field_span.start()]
+                .rfind('\n')
+                .map_or(0, |index| index + 1);
+            let line_prefix = &self.source[line_start..field_span.start()];
+            let argument_indent = if !line_prefix.is_empty()
+                && line_prefix
+                    .chars()
+                    .all(|character| matches!(character, ' ' | '\t'))
+            {
+                line_prefix.to_string()
+            } else {
+                continuation_indent.clone()
+            };
             match field.kind {
                 ArenaRecordFieldKind::Shorthand { name, .. } => {
                     safe &= supplied.insert(name);
+                    argument_indents.push(argument_indent);
                     arguments.push(format!("{name}:"));
                 }
                 ArenaRecordFieldKind::Named { name, value, .. } => {
@@ -3856,8 +3895,10 @@ impl<'a> Linter<'a> {
                     }
                     if matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(identifier) if identifier == name)
                     {
+                        argument_indents.push(argument_indent);
                         arguments.push(format!("{name}:"));
                     } else {
+                        argument_indents.push(argument_indent);
                         arguments.push(format!("{name}: {text}"));
                     }
                 }
@@ -3866,6 +3907,10 @@ impl<'a> Linter<'a> {
                 | ArenaRecordFieldKind::Path { .. } => safe = false,
             }
         }
+        multiline |= self
+            .source
+            .get(previous_field_end..value.span.end())
+            .is_some_and(|gap| gap.contains('\n'));
         if safe {
             let constructor = if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Applied
             {
@@ -3874,10 +3919,24 @@ impl<'a> Linter<'a> {
                 ty
             };
             let name = &self.source[self.arena.type_expr_span(constructor).range()];
+            let replacement = if multiline && !arguments.is_empty() {
+                // Preserve multiline layout so safe migrations remain readable.
+                let mut replacement = format!("{name}(\n");
+                for (indent, argument) in argument_indents.iter().zip(&arguments) {
+                    replacement.push_str(indent);
+                    replacement.push_str(argument);
+                    replacement.push_str(",\n");
+                }
+                replacement.push_str(&base_indent);
+                replacement.push(')');
+                replacement
+            } else {
+                format!("{name}({})", arguments.join(", "))
+            };
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                 value.span,
                 "use the schema constructor",
-                format!("{name}({})", arguments.join(", ")),
+                replacement,
             ));
         }
         self.diagnostics.push(diagnostic);

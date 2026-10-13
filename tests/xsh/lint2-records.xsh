@@ -80,6 +80,29 @@ test test_record_constructor_fix_keeps_annotation_and_comments_and_converges { |
   assert fixed(file, "lint.prefer-record-constructor")? == text
 }
 
+test test_multiline_record_constructor_fix_keeps_argument_layout { |ctx|
+  let source = r"""type Settings = {name: Str, enabled: Bool, retries: Int}
+let settings: Settings = {
+  name: "this is a deliberately long setting label that makes the constructor replacement hard to scan in a narrow editor",
+  enabled: true,
+  retries: 3,
+}
+"""
+  let file = script(ctx, source)?
+  let expected = r"""type Settings = {name: Str, enabled: Bool, retries: Int}
+let settings: Settings = Settings(
+  name: "this is a deliberately long setting label that makes the constructor replacement hard to scan in a narrow editor",
+  enabled: true,
+  retries: 3,
+)
+"""
+
+  assert fixed(file, "lint.prefer-record-constructor")? == expected
+  assert_checked(file)
+  assert findings(file, "lint.prefer-record-constructor")? == 0
+  assert fixed(file, "lint.prefer-record-constructor")? == expected
+}
+
 test test_record_constructor_requires_static_schema_and_keeps_constant_bits { |ctx|
   let file = script(
     ctx,
