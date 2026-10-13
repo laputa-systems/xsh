@@ -105,7 +105,7 @@ test test_current_metrics_cli_measures_generated_pattern_rows { |ctx|
       output_path,
     ],
   )?
-  let report: metrics.Report = json.read(output_path)?.require(metrics.Report)?
+  let report: metrics.Report = json.read(output_path)?.require()?
   assert report_value(report, "pattern_variants") == 17
 }
 
@@ -140,7 +140,7 @@ test test_pattern_schema_table_and_legacy_enum_cannot_double_count_across_module
 test test_canonical_observer_provenance_pins_the_frozen_same_source_report {
   let baseline_path = p"dev/consolidation/baseline-blanket-scope.json"
   let provenance_path = p"dev/consolidation/blanket-metric-provenance-source-advisory.json"
-  let baseline: metrics.Report = json.read(baseline_path)?.require(metrics.Report)?
+  let baseline: metrics.Report = json.read(baseline_path)?.require()?
   match metrics.verify_observer_successor(p".", baseline_path.display(), provenance_path.display(), baseline) {
     Ok(_) => {}
     Err(metrics.MetricError.Contract {detail}) => test.fail(detail)

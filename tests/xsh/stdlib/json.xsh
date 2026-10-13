@@ -218,8 +218,8 @@ pure rejection_message(outcome: Result[Any]) -> Result[Str] {
   match outcome {
     Ok(value) => {
       match value {
-        Ok(inner) => Ok(json.get(inner, ["message"])?.require(Str)?)
-        Err(failure) => Ok(json.get(failure, ["message"])?.require(Str)?)
+        Ok(inner) => Ok(json.get(inner, ["message"])?.require()?)
+        Err(failure) => Ok(json.get(failure, ["message"])?.require()?)
         else => Ok("no rejection")
       }
     }

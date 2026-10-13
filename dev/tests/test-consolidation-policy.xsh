@@ -52,7 +52,7 @@ test test_source_equality_and_growth_keep_the_measured_report_and_raw_audit { |c
   for current in [report(20, 30, 1, 0), report(21, 30, 1, 0), report(20, 31, 1, 0), report(21, 31, 1, 0)] {
     json.write(current_path, current)
     assert test.run_script(ctx, driver, ["check", @flags, "--envelope", envelope_path])?.success
-    let saved: metrics.Report = json.read(output_path)?.require(metrics.Report)?
+    let saved: metrics.Report = json.read(output_path)?.require()?
     assert metric_value(saved, "source_lines_src") == metric_value(current, "source_lines_src")
     assert metric_value(saved, "source_lines_xsht") == metric_value(current, "source_lines_xsht")
     let rises = json.get(json.read(audit_path)?, ["rises"])?.require(List[AuditRise])?

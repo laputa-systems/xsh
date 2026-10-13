@@ -303,7 +303,7 @@ type Observed = {stdout: Bytes, stderr: Bytes, status: Int, root: Str}
 
 proc matrix_cases(ctx: TestContext, family: Str) [fs, error] -> Result[List[MatrixCase]] {
   let decoded = json.decode(fp"{ctx.core_dir}/tests/data/awk/matrix/{family}.json".read_text()?)?
-  Ok(decoded.require(List[MatrixCase])?)
+  Ok(decoded.require()?)
 }
 
 # The value paired with a key in a list of [key, value] pairs.

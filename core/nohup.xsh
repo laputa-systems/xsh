@@ -59,7 +59,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     command: {form: "...COMMAND"},
-  })?.require(Options)?
+  })?.require()?
   if opts.help { gnu.help(USAGE); return }
   if opts.version { gnu.version("nohup"); return }
   if opts.command.is_empty() { gnu.missing_operand(failure_status) }

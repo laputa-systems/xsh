@@ -93,7 +93,7 @@ test test_with_enters_left_to_right_and_releases_every_resource { |ctx|
   }
 
   assert fp"{dir}/inner/file".exists()?
-  assert was_released(outer_lock.require(FsLock)?)
+  assert was_released(outer_lock.require()?)
   if let root = inner_root {
     assert was_closed(root)
   } else {
@@ -261,8 +261,8 @@ test test_with_releases_the_rest_when_one_release_fails { |ctx|
     broken.path
   }
   assert outcome is Err(_)
-  assert was_released(first.require(FsLock)?)
-  assert was_released(last.require(FsLock)?)
+  assert was_released(first.require()?)
+  assert was_released(last.require()?)
 }
 
 test test_with_body_failure_wins_over_a_release_failure { |ctx|

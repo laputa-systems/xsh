@@ -714,7 +714,7 @@ test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates
   }
   json.write(fp"{fixture.root}/current.json", source_growth)
   assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
-  let saved: metrics.Report = json.read(fp"{fixture.root}/saved.json")?.require(metrics.Report)?
+  let saved: metrics.Report = json.read(fp"{fixture.root}/saved.json")?.require()?
   assert report_metric(saved, "source_lines_src") == report_metric(source_growth, "source_lines_src")
   let rises = json.get(json.read(fp"{fixture.root}/audit.json")?, ["rises"])?.require(List[AuditRise])?
   assert rises.len() == 1
