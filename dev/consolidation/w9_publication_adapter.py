@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Mapping
+from typing import Callable, Mapping
 
 
 ADAPTER_SCHEMA = "w9-publication-adapter-v1"
@@ -19,7 +19,7 @@ PATHS = {
 CONTROL_FLOW_OWNERS = {
     "builtin_range_calls": {"expr:Call"},
     "cardinality_preserving_collection_calls": {"expr:Call"},
-    "propagating_error_spans": {"expr"},
+    "propagating_error_spans": {"expr", "stmt:Command"},
     "latent_stream_error_spans": {"expr"},
     "fallible_pipeline_stage_spans": {"stage:Range", "stage:Repeat"},
     "propagating_stage_callback_spans": {"stage"},
@@ -347,6 +347,114 @@ def _pair_key(value: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
+def _tuple_items(value: str, label: str) -> tuple[str, ...]:
+    value = value.strip()
+    if not value.startswith("(") or _group_end(value, 0) != len(value) - 1:
+        raise AdapterError(f"expected {label} tuple")
+    return tuple(_split_top_level(value[1:-1], ","))
+
+
+def _canonical_cli_plan_key(value: str, source_schema: str) -> str:
+    try:
+        key_parts = _tuple_items(value, "CLI plan key")
+        if len(key_parts) != 2:
+            raise AdapterError("malformed key")
+        origin, namespace_or_applet = key_parts
+        if source_schema == "legacy":
+            expression = re.fullmatch(r"ExprId\((\d+)\)", origin)
+            if expression is None or str(int(expression.group(1))) != expression.group(1):
+                raise AdapterError("malformed key")
+            origin = f"ExprId({expression.group(1)})"
+            namespace = None
+        else:
+            origin_parts = _tuple_items(origin, "current CLI plan origin")
+            expression = re.fullmatch(r"ExprId\((\d+)\)", origin_parts[0]) if len(origin_parts) == 2 else None
+            if expression is None or str(int(expression.group(1))) != expression.group(1):
+                raise AdapterError("malformed key")
+            origin = f"ExprId({expression.group(1)})"
+            namespace = origin_parts[1]
+            if namespace != "None":
+                symbol = re.fullmatch(r"Some\(Name\(Symbol\((\d+)\)\)\)", namespace)
+                if symbol is None or str(int(symbol.group(1))) != symbol.group(1):
+                    raise AdapterError("malformed key")
+                namespace = f"Some(Name(Symbol({symbol.group(1)})))"
+        applet = namespace_or_applet
+        if applet not in {"true", "false"}:
+            raise AdapterError("malformed key")
+    except AdapterError:
+        raise AdapterError(f"malformed {source_schema} CLI plan key") from None
+    if source_schema == "current" and namespace != "None":
+        raise AdapterError("current CLI plan Some namespace has no legacy comparison key")
+    return f"({origin},{applet})"
+
+
+def _normalize_cli_plan_mutex(value: str, source_schema: str) -> str:
+    prefix, entries = _struct_parts(value, "Mutex")
+    fields = {}
+    other = []
+    for entry in entries:
+        if entry == "..":
+            other.append(entry)
+            continue
+        name, field_value = _field(entry)
+        if name in fields:
+            raise AdapterError(f"duplicate Mutex Debug field {name}")
+        fields[name] = field_value
+    if other != [".."] or set(fields) != {"data", "poisoned"}:
+        raise AdapterError("unexpected Mutex Debug fields")
+    if fields["poisoned"] not in {"true", "false"}:
+        raise AdapterError("malformed Mutex Debug poison state")
+    data = fields["data"].strip()
+    if not data.startswith("{") or _group_end(data, 0) != len(data) - 1:
+        raise AdapterError("expected CLI plan Debug map")
+    projected: list[tuple[str, str]] = []
+    seen = set()
+    for entry in _split_top_level(data[1:-1], ","):
+        pair = _split_first_top_level(entry, ":")
+        if pair is None:
+            raise AdapterError("malformed CLI plan Debug map entry")
+        key, payload = pair
+        normalized_key = _canonical_cli_plan_key(key, source_schema)
+        if normalized_key in seen:
+            raise AdapterError(f"duplicate normalized CLI plan key {normalized_key}")
+        seen.add(normalized_key)
+        projected.append((normalized_key, payload))
+    projected.sort(key=lambda entry: entry[0])
+    projected_data = ",".join(f"{key}:{payload}" for key, payload in projected)
+    rewritten = []
+    for entry in entries:
+        if entry == "..":
+            rewritten.append(entry)
+        else:
+            name, _ = _field(entry)
+            rewritten.append(f"{name}:{{{projected_data}}}" if name == "data" else entry)
+    return f"{prefix}{{{','.join(rewritten)}}}"
+
+
+def _rewrite_field_path(
+    value: str,
+    path: tuple[tuple[str, str], ...],
+    transform: Callable[[str], str],
+) -> str:
+    expected_type, target_field = path[0]
+    prefix, entries = _struct_parts(value, expected_type)
+    rebuilt = []
+    matches = 0
+    for entry in entries:
+        name, field_value = _field(entry)
+        if name != target_field:
+            rebuilt.append(entry)
+            continue
+        matches += 1
+        if len(path) == 1:
+            rebuilt.append(f"{name}:{transform(field_value)}")
+        else:
+            rebuilt.append(f"{name}:{_rewrite_field_path(field_value, path[1:], transform)}")
+    if matches != 1:
+        raise AdapterError(f"field path {path!r} matched {matches} times")
+    return f"{prefix}{{{','.join(rebuilt)}}}"
+
+
 def _legacy_redundancy(
     fields: Mapping[str, str],
     source_sizes: Mapping[int, int],
@@ -490,7 +598,13 @@ def _current_fact_owners(
     for field, allowed_owners in CONTROL_FLOW_OWNERS.items():
         for span in _canonical_span_set(control_flow[field], field.replace("_", " ")):
             span = _validate_source_span(span, field.replace("_", " "), source_sizes, source_owners, allowed_owners)
-            if field in {"builtin_range_calls", "propagating_error_spans", "latent_stream_error_spans"}:
+            if field == "propagating_error_spans":
+                owner_kinds = source_owners.get(span, set())
+                if any(owner.startswith("expr:") for owner in owner_kinds) and span not in expression_types:
+                    raise AdapterError(f"{field.replace('_', ' ')} span has no checked expression type: {span}")
+                if "stmt:Command" in owner_kinds and span not in statement_positions:
+                    raise AdapterError(f"{field.replace('_', ' ')} span has no checked statement position: {span}")
+            elif field in {"builtin_range_calls", "latent_stream_error_spans"}:
                 if span not in expression_types:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked expression type: {span}")
             elif field == "cardinality_preserving_collection_calls":
@@ -544,6 +658,11 @@ def project_publication(
     common = rendered
     for path in PATHS[source_schema]:
         common, _ = _remove_field_path(common, path)
+    common = _rewrite_field_path(
+        common,
+        (("CheckOutput", "prepared_constants"), ("PreparedConstants", "cli_plans")),
+        lambda value: _normalize_cli_plan_mutex(value, source_schema),
+    )
     if source_schema == "legacy":
         if source_sizes is None or source_owners is None or tail_statement_owners is None or statement_owners is None:
             raise AdapterError("legacy publication validation requires source and statement owners")

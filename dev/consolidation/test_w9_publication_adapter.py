@@ -56,7 +56,8 @@ COMMON = (
     "prepared_constants:PreparedConstants{"
     f"binding_values:{{{BINDING}:{EXPR},{TAIL_BINDING}:{TAIL_EXPR},"
     f"{MISSING_VALUE_TAIL_BINDING}:{MISSING_VALUE_EXPR}}},"
-    f"values:{{{EXPR}:LiteralConstant::Int(42),{TAIL_EXPR}:LiteralConstant::Int(43)}}"
+    f"values:{{{EXPR}:LiteralConstant::Int(42),{TAIL_EXPR}:LiteralConstant::Int(43)}},"
+    'cli_plans:Mutex{..,data:{(ExprId(2),false):Ok(Plan("payload"))},poisoned:false}'
 )
 COMMON_OUTPUT_FIELDS = (
     "},diagnostics:[],opaque:Other{global_bindings:\"keep\"},"
@@ -73,7 +74,7 @@ LEGACY_PUBLICATION = (
     + "}"
 )
 CURRENT_PUBLICATION = (
-    COMMON
+    COMMON.replace("(ExprId(2),false)", "((ExprId(2),None),false)")
     + COMMON_OUTPUT_FIELDS
     + ","
     + "selected_function_calls:{"
@@ -320,6 +321,109 @@ class PublicationAdapterTests(unittest.TestCase):
         owners = {**SOURCE_OWNERS, TAIL_SPAN: {"stmt:TailBareIdent"}}
         with self.assertRaisesRegex(AdapterError, "no matching AST owner"):
             project_publication("current", wrong_kind, SOURCE_SIZES, owners)
+
+    def test_propagating_error_command_span_joins_statement_position(self):
+        command_span = "Span{source_id:SourceId(0),start:36,len:40}"
+        current = CURRENT_PUBLICATION.replace(
+            "propagating_error_spans:{}",
+            f"propagating_error_spans:{{{command_span}}}",
+        ).replace(
+            f"statement_positions:{{{SPAN}:Value}}",
+            f"statement_positions:{{{SPAN}:Value,{command_span}:Value}}",
+        )
+        owners = {**SOURCE_OWNERS, command_span: {"stmt:Command"}}
+
+        project_publication("current", current, SOURCE_SIZES, owners)
+
+        expression_error = CURRENT_PUBLICATION.replace(
+            "propagating_error_spans:{}",
+            f"propagating_error_spans:{{{CALL_SPAN}}}",
+        )
+        project_publication("current", expression_error, SOURCE_SIZES, SOURCE_OWNERS)
+
+        without_statement_position = current.replace(
+            f"statement_positions:{{{SPAN}:Value,{command_span}:Value}}",
+            f"statement_positions:{{{SPAN}:Value}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "no checked statement position"):
+            project_publication("current", without_statement_position, SOURCE_SIZES, owners)
+
+        unsupported_statement = {**SOURCE_OWNERS, command_span: {"stmt:LetExpr"}}
+        with self.assertRaisesRegex(AdapterError, "no matching AST owner"):
+            project_publication("current", current, SOURCE_SIZES, unsupported_statement)
+
+    def test_current_cli_plan_none_namespace_normalizes_only_its_typed_key(self):
+        current_key = "((ExprId(2),None),false)"
+        legacy_key = "(ExprId(2),false)"
+        current = CURRENT_PUBLICATION
+
+        legacy_projection = project_legacy(LEGACY_PUBLICATION)
+        current_projection = project_publication(
+            "current", current, SOURCE_SIZES, SOURCE_OWNERS
+        )
+        self.assertEqual(legacy_projection, current_projection)
+        self.assertIn(f"{legacy_key}:Ok(Plan(\"payload\"))", current_projection)
+
+        changed_payload = current.replace('Plan("payload")', 'Plan("changed")')
+        self.assertNotEqual(
+            current_projection,
+            project_publication("current", changed_payload, SOURCE_SIZES, SOURCE_OWNERS),
+        )
+
+        namespaced_key = "((ExprId(3),Some(Name(Symbol(7)))),false)"
+        namespaced = current.replace(
+            f"data:{{{current_key}:Ok(Plan(\"payload\"))}}",
+            f"data:{{{current_key}:Ok(Plan(\"payload\")),{namespaced_key}:Err(error)}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "Some namespace has no legacy comparison key"):
+            project_publication("current", namespaced, SOURCE_SIZES, SOURCE_OWNERS)
+
+    def test_cli_plan_map_order_does_not_depend_on_schema_hash_order(self):
+        legacy_data = (
+            '{(ExprId(2),false):Ok(Plan("first")),'
+            '(ExprId(3),true):Err(PlanError("second"))}'
+        )
+        current_data = (
+            '{((ExprId(3),None),true):Err(PlanError("second")),'
+            '((ExprId(2),None),false):Ok(Plan("first"))}'
+        )
+        legacy = LEGACY_PUBLICATION.replace(
+            '{(ExprId(2),false):Ok(Plan("payload"))}', legacy_data
+        )
+        current = CURRENT_PUBLICATION.replace(
+            '{((ExprId(2),None),false):Ok(Plan("payload"))}', current_data
+        )
+
+        legacy_projection = project_legacy(legacy)
+        current_projection = project_publication(
+            "current", current, SOURCE_SIZES, SOURCE_OWNERS
+        )
+
+        self.assertEqual(legacy_projection, current_projection)
+        self.assertIn('Ok(Plan("first"))', current_projection)
+        self.assertIn('Err(PlanError("second"))', current_projection)
+
+    def test_current_cli_plan_debug_keys_and_mutex_fields_are_strict(self):
+        wrong_key = CURRENT_PUBLICATION.replace(
+            "((ExprId(2),None),false)", "(ExprId(2),false)"
+        )
+        with self.assertRaisesRegex(AdapterError, "malformed current CLI plan key"):
+            project_publication("current", wrong_key, SOURCE_SIZES, SOURCE_OWNERS)
+
+        current_key = "((ExprId(2),None),false)"
+        duplicate = CURRENT_PUBLICATION.replace(
+            f"{current_key}:Ok(Plan(\"payload\"))",
+            f"{current_key}:Ok(Plan(\"payload\")),"
+            f"{current_key}:Err(error)",
+        )
+        with self.assertRaisesRegex(AdapterError, "duplicate normalized CLI plan key"):
+            project_publication("current", duplicate, SOURCE_SIZES, SOURCE_OWNERS)
+
+        unknown_field = CURRENT_PUBLICATION.replace(
+            "poisoned:false", "poisoned:false,unexpected:false"
+        )
+        with self.assertRaisesRegex(AdapterError, "unexpected Mutex Debug fields"):
+            project_publication("current", unknown_field, SOURCE_SIZES, SOURCE_OWNERS)
 
     def test_legacy_tail_fields_require_exact_statement_identity_and_name(self):
         missing_owner = {
