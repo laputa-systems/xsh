@@ -1735,6 +1735,31 @@ class PublicationAdapterTests(unittest.TestCase):
                 candidate_exact_owners=module_contract_alias[2],
             )
 
+    def test_propagating_stage_field_alias_matches_exact_member_name(self):
+        base_span = "Span{source_id:SourceId(0),start:90,len:3}"
+        for member_name in ("usage", "actual"):
+            with self.subTest(member_name=member_name):
+                current, owners, exact_owners, callback_span = exact_stage_callback_alias_publication()
+                exact_owners["exprs"][2] = (callback_span, "Field", "")
+                exact_owners["exprs"][3] = (base_span, "Ident", "module")
+                exact_owners["expr_count"] = 4
+                exact_owners["field_accesses"] = {2: (3, member_name)}
+                owners[callback_span] = {"expr:Field"}
+                owners[base_span] = {"expr:Ident"}
+
+                if member_name == "usage":
+                    projected = project_publication(
+                        "current", current, SOURCE_SIZES, owners,
+                        candidate_exact_owners=exact_owners,
+                    )
+                    self.assertIn("static_callable_aliases:{", projected)
+                else:
+                    with self.assertRaisesRegex(AdapterError, "field name disagrees with its exact Field access"):
+                        project_publication(
+                            "current", current, SOURCE_SIZES, owners,
+                            candidate_exact_owners=exact_owners,
+                        )
+
     def test_native_set_call_requires_exact_unshadowed_module_resolution(self):
         current, owners, exact_owners = exact_native_set_publication()
         project_publication(

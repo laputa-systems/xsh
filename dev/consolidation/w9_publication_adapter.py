@@ -1250,6 +1250,14 @@ def _validate_static_callable_alias_facts(
             alias_name = _debug_name_value(alias["name"])
             if alias_kind == "Ident" and alias_expression[2] != alias_name:
                 raise AdapterError(f"static callable alias stage callback name disagrees with its exact identifier: {alias_span}")
+            if (
+                alias_kind == "Field"
+                and alias["method_call"] == "false"
+                and member_name != alias_name
+            ):
+                raise AdapterError(
+                    f"static callable alias stage callback field name disagrees with its exact Field access: {alias_span}"
+                )
             if alias_kind == "Field" and alias["method_call"] == "true":
                 if not isinstance(field_access, tuple) or len(field_access) != 2:
                     raise AdapterError(f"static callable alias stage method call has no exact Field link: {alias_span}")
