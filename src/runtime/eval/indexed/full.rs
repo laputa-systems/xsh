@@ -20742,10 +20742,11 @@ pure selected() -> Str {
         };
         let _range = stages.next_with_id().unwrap().unwrap();
         let map = stages.next_with_id().unwrap().unwrap();
-        let StageView::MapBlock { slot, .. } =
-            StageView::decode(DecodeContext::from_decoder(&decoder), map.id.raw()).unwrap()
-        else {
-            panic!("second pipeline stage is map");
+        let slot = match StageView::decode(DecodeContext::from_decoder(&decoder), map.id.raw())
+            .unwrap()
+        {
+            StageView::Map { slot, .. } | StageView::MapBlock { slot, .. } => slot,
+            _ => panic!("second pipeline stage is map"),
         };
         let callback_parameter = function_instruction_indices(
             &program,
