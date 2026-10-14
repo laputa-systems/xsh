@@ -9,10 +9,12 @@ checked integer outcomes and millisecond-duration operations over typed scalar
 values; finite map-presence and primitive key-order laws; checked call argument
 ordering; checked record updates and finite Map literal evaluation; JSON-tree
 paths, bounded JSON compatibility projection, and compact JSON text encoding;
-byte-lexical path components and POSIX lexical path fields; Str-backed enum
-wire conversion; List index and slice bounds, bounded List-comprehension
-execution, and eager finite loop snapshots; Unicode scalar text-slice laws and UTF-8 byte
-search; Result `?` propagation boundaries and returned-Result data; finite
+byte-lexical path components, POSIX lexical path fields, and lexical path
+normalization; Str-backed enum wire conversion; List index and slice bounds,
+bounded List-comprehension execution, eager finite loop snapshots, and finite
+loop-local control traces;
+Unicode scalar text-slice laws and UTF-8 byte search; Result `?` propagation
+boundaries and returned-Result data; finite
 `.require(Set[T])` validation and array conversion; validated
 boundaries and atomic typed-store writes; and effect lattices, recursive
 summaries, lexical bounds, and delayed-work origins. Failed typed writes
@@ -83,7 +85,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 484 fragment
+G0b source freeze remain pending. The provisional inventory has 508 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -113,6 +115,21 @@ Str, unsigned values for Bytes, and Result success or error handling. Body
 frames preserve their current item when the loop source is rebound. The model
 excludes streams and pipelines, loop control, typechecking, and runtime or Rust
 correspondence.
+
+`Xsh.Loops.ControlFlow` has twelve roots for finite loop-local outcomes and
+traces over a preselected finite item sequence. It covers current-loop continue
+and break, nested loop targets, return and failure propagation, one-time repeat
+count evaluation, finite ranges, and exact traces. It excludes checker target
+validity, stage callbacks, divergence, effects, cleanup, streams, and runtime
+or Rust correspondence.
+
+`Xsh.Paths.Normalize` has twelve roots for native-byte lexical stack
+normalization. It removes empty and dot components, cancels ordinary components
+before `..`, preserves leading relative parents, clamps parents at an absolute
+root, and retains component bytes. Its repeated-normalization result is a
+concrete example, not a general idempotence law. Runtime NUL admission, cwd and
+filesystem resolution, symlinks and confinement, path fields, construction and
+interpolation, and runtime or Rust correspondence are excluded.
 
 `Xsh.Calls.ArgumentOrder` has fourteen roots for already-checked finite call
 layouts. The model preserves receiver, written argument-source, and omitted
@@ -303,7 +320,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 484 rooted Lean fragment declarations across 89 core owner
+The inventory names 508 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full

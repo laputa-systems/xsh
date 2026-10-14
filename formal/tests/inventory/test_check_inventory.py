@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(484, len(result["fragment_roots"]))
+        self.assertEqual(508, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -517,6 +517,48 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Paths.Fields.extension_uses_final_nonleading_dot",
             },
             path_fields_roots,
+        )
+        loop_control_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Loops.ControlFlow"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Loops.ControlFlow.normal_step_advances_to_next_iteration",
+                "Xsh.Loops.ControlFlow.continue_targets_next_iteration",
+                "Xsh.Loops.ControlFlow.break_unit_completes_loop",
+                "Xsh.Loops.ControlFlow.break_value_completes_loop",
+                "Xsh.Loops.ControlFlow.return_propagates_through_loop",
+                "Xsh.Loops.ControlFlow.failure_propagates_through_loop",
+                "Xsh.Loops.ControlFlow.inner_break_targets_inner_loop",
+                "Xsh.Loops.ControlFlow.inner_continue_targets_inner_loop",
+                "Xsh.Loops.ControlFlow.repeat_evaluates_count_once_with_mutation_witness",
+                "Xsh.Loops.ControlFlow.zero_range_runs_no_body",
+                "Xsh.Loops.ControlFlow.range_item_count_matches_absolute_count",
+                "Xsh.Loops.ControlFlow.continue_then_break_has_exact_trace",
+            },
+            loop_control_roots,
+        )
+        path_normalize_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Paths.Normalize"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Paths.Normalize.absolute_root_is_retained",
+                "Xsh.Paths.Normalize.empty_relative_path_normalizes_to_dot",
+                "Xsh.Paths.Normalize.empty_and_dot_components_are_removed",
+                "Xsh.Paths.Normalize.ordinary_component_before_parent_is_cancelled",
+                "Xsh.Paths.Normalize.leading_and_consecutive_relative_parents_are_retained",
+                "Xsh.Paths.Normalize.absolute_parents_clamp_at_root",
+                "Xsh.Paths.Normalize.absolute_normalization_renders_root",
+                "Xsh.Paths.Normalize.repeated_normalization_matches_single_result_for_example",
+                "Xsh.Paths.Normalize.normalized_components_remove_empty_and_dot_for_example",
+                "Xsh.Paths.Normalize.ordinary_component_step_preserves_bytes",
+                "Xsh.Paths.Normalize.relative_parent_stack_mutation_witness",
+                "Xsh.Paths.Normalize.absolute_parent_stack_mutation_witness",
+            },
+            path_normalize_roots,
         )
         recursive_require_roots = {
             root["declaration"] for root in roots

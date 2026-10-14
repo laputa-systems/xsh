@@ -15,6 +15,7 @@ import Xsh.Records.Update
 import Xsh.Maps.Literal
 import Xsh.Paths.Components
 import Xsh.Paths.Fields
+import Xsh.Paths.Normalize
 import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
 import Xsh.Calls.ArgumentOrder
@@ -22,6 +23,7 @@ import Xsh.Semantics.Argv
 import Xsh.Semantics.ListAccess
 import Xsh.Semantics.ListExecution
 import Xsh.Iteration.Snapshot
+import Xsh.Loops.ControlFlow
 import Xsh.Strings.Slice
 import Xsh.Strings.Search
 import Xsh.Strings.ByteAccess

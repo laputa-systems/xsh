@@ -7,8 +7,9 @@ union-membership, byte-lexical RelPath, and recursive `.require` fragments,
 bounded refinements, non-empty filtering, environment/store, effects including
 bounded failure witnesses, edge-order laws, and five bounded primitive
 classifications, argv expansion, finite ordered-set laws, List access bounds
-and bounded List-comprehension execution, duration operations, native path
-components, Str-backed enum wire conversion, JSON compatibility projection,
+and bounded List-comprehension execution, finite loop-control traces, duration
+operations, native path components and lexical path normalization, Str-backed
+enum wire conversion, JSON compatibility projection,
 raw-IR, and transport codec/law fragments are
 integrated, along with finite map-presence laws over ordinal keys, checked call
 argument ordering, Unicode scalar text slicing, primitive collection-key
@@ -30,7 +31,7 @@ source or Rust conformance claim and close no full G1, G2, or G3 obligation; all
 fragments prove successful word-read length, payload length and table bounds,
 plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 484 fragment roots across 89 owners;
+Rust conformance. The inventory now names 508 fragment roots across 89 owners;
 its 50 Python tests check inventory consistency, mutation controls, and finite-case evidence
 boundaries. The new RelPath roots cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,
@@ -54,11 +55,24 @@ conformance or closes a full G1/G2/G3 obligation.
 `Xsh.Iteration.Snapshot` models finite eager values captured for a loop over a
 List, finite Map, Str, Bytes, or Result. Its body frame keeps the current item
 immutable across source rebinding. It excludes streams and pipelines, loop
-control, typechecking, and runtime or Rust correspondence. `Xsh.Paths.Fields`
+control, typechecking, and runtime or Rust correspondence. `Xsh.Loops.ControlFlow`
+has twelve roots for finite loop-local outcomes and traces over a preselected
+finite item sequence. It covers current-loop continue and break, outer-target
+propagation through nested loops, return and failure propagation, repeat-count
+evaluation, finite ranges, and exact traces. It excludes checker target
+validity, stage callbacks, divergence, effects, cleanup, streams, and runtime
+or Rust correspondence. `Xsh.Paths.Fields`
 models POSIX lexical name, basename, dirname, parent, and extension queries on
 native bytes; it does not match every Rust-backed XSH `Path.name`, `Path.ext`,
 or `Path.parent` edge case, including `foo/.`, `foo/..`, and component
-normalization, so it establishes no XSH API/Rust correspondence. `Xsh.Json.Encoding`
+normalization, so it establishes no XSH API/Rust correspondence. `Xsh.Paths.Normalize`
+has twelve roots for a native-byte lexical stack model. It removes empty and dot
+components, cancels ordinary components before `..`, preserves leading relative
+parents, clamps parents at an absolute root, and retains component bytes. Its
+concrete repeated-normalization example is not a general idempotence law. Runtime
+NUL admission, cwd and filesystem resolution, symlinks and confinement, path
+fields, construction and interpolation, and runtime or Rust correspondence are
+excluded. `Xsh.Json.Encoding`
 models bounded compact encoding of a finite JSON tree; it excludes Float
 formatting, pretty output, parsing, and I/O, and establishes no runtime or Rust
 correspondence.
@@ -80,8 +94,9 @@ lowering obligations, and connect those independent statements to the Rust
 implementation with conformance and certified artifacts. The current scalar,
 syntax, environment/store, validation, effects, argv, ordered-set, base-machine,
 raw-IR, transport, UTF-8 byte search, Result propagation, Set validation, JSON
-compatibility projection, and bounded List-comprehension execution modules are
-partial foundations only. The search model uses Lean's encoded byte list;
+compatibility projection, bounded List-comprehension execution, finite loop
+control, and native-byte path normalization modules are partial foundations
+only. The search model uses Lean's encoded byte list;
 Result propagation assumes an explicit compatible-error embedding; Set
 validation assumes a finite ordered key table and target predicate. JSON
 compatibility assumes unique record and Map keys, models Set serialization only
@@ -504,6 +519,8 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | JSON compatibility and bounded List-comprehension execution | Reviewed commits `98cfd2b02697` and `71029bfedae5` add fourteen roots each in `Xsh.Json.Compatibility` and `Xsh.Semantics.ListExecution`; the latter retains the established List semantics path. Both proof files remain byte-identical to their reviewed sources. The root imports each module once. The inventory reports 424 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the transitive axiom allowlist accepts 9,324 project declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | JSON Set projection covers only ordered ordinal keys and emits their ordinals as JSON integers; it does not model general `Set[T]` serialization. Record and Map entries are assumed unique, Path values need explicit conversion, and JSON text encoding/parsing, diagnostics, runtime, and Rust correspondence are excluded. List execution uses abstract finite expressions and excludes parsing, effects, streams, cleanup, and runtime/Rust correspondence. Neither fragment establishes full G1/G2/G3 closure. |
 | Optional access and UTF-8 byte access | Reviewed commits `c727034ed` and `6bd4387525c2` add 12 roots each in `Xsh.Control.OptionalAccess` and `Xsh.Strings.ByteAccess`; both proof files remain byte-identical to those commits, and `Xsh.lean` imports each module once. OptionalAccess covers lazy callback ordering for field, method, index, and range hops plus Result propagation and an eager-argument mutation witness. ByteAccess covers `Str` byte lookup and UTF-8-boundary-checked slicing with an explicit byte length. The inventory reports 448 roots across 89 owners and 72 planned obligations; all 50 Python inventory tests pass. Full `lake build` passes; the transitive axiom allowlist accepts 9,479 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | OptionalAccess excludes effects, cleanup, and runtime parity. ByteAccess excludes omitted-length slicing, the `Bytes` API, bracket slicing, parsing, runtime errors, `UInt8` conversion, runtime evaluation, and Rust correspondence. Neither fragment establishes Rust conformance or closes full G1/G2/G3 obligations. |
 | Finite loop snapshots, POSIX path fields, and bounded JSON encoding | Reviewed commits `7202ab29f`, `878ad20ae`, and `fa5073974` add 12 roots each in `Xsh.Iteration.Snapshot`, `Xsh.Paths.Fields`, and `Xsh.Json.Encoding`; the proof files remain byte-identical to their reviewed sources, and `Xsh.lean` imports each module once. The inventory reports 484 roots across 89 owners and 72 planned obligations; all 50 Python inventory tests pass. `lake build Xsh` passes; the transitive axiom allowlist passes and all three negative controls are rejected; the prohibited-term scan is clean and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | Snapshot covers finite eager captured values and excludes streams/pipelines, loop control, typechecking, and runtime correspondence. Path Fields is a native-byte POSIX lexical model and does not match all Rust-backed `Path.name`, `Path.ext`, or `Path.parent` edge cases such as `foo/.`, `foo/..`, or component normalization; it makes no XSH API/Rust correspondence claim. JSON Encoding is bounded compact tree encoding; it excludes Float formatting, pretty output, parsing, and I/O, and establishes no runtime or Rust correspondence. |
+
+| Finite loop control and lexical path normalization | Reviewed proof blobs from `2240fabf6` and `8e78cf370` add 12 roots each in `Xsh.Loops.ControlFlow` and `Xsh.Paths.Normalize`; both proof files are byte-identical to those sources, and `Xsh.lean` imports each once. The inventory reports 508 roots across 89 owners and 72 planned obligations; all 50 Python inventory tests pass. `lake build Xsh` passes; the axiom allowlist accepts 10,160 declarations and all three negative controls are rejected; the prohibited-term scan and guarded fresh kernel check pass. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | Loop control models finite loop-local outcomes and traces; it excludes checker target validity, stage callbacks, divergence, effects, cleanup, streams, and runtime or Rust correspondence. Path normalization is a native-byte lexical stack abstraction; it excludes runtime NUL admission, cwd and filesystem resolution, symlinks and confinement, path fields, construction and interpolation, and runtime or Rust correspondence. Neither fragment closes a full G1/G2/G3 obligation. |
 
 ## For the owner afterwards
 

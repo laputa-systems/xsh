@@ -7342,6 +7342,222 @@
       "status": "fragment",
       "scope": "A mutation that exposes a raw line feed while retaining quote escaping is distinguished.",
       "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.normal_step_advances_to_next_iteration",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.normal_step_advances_to_next_iteration",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A normal body outcome visits the remaining finite items and preserves their trace.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.continue_targets_next_iteration",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.continue_targets_next_iteration",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A continue aimed at the current loop advances to the next item.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.break_unit_completes_loop",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.break_unit_completes_loop",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A unit break completes the targeted loop without visiting later items.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.break_value_completes_loop",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.break_value_completes_loop",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A value break completes the loop with its supplied value.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.return_propagates_through_loop",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.return_propagates_through_loop",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A return leaves the loop immediately with its payload unchanged.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.failure_propagates_through_loop",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.failure_propagates_through_loop",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A failure leaves the loop immediately with its error unchanged.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.inner_break_targets_inner_loop",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.inner_break_targets_inner_loop",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An inner break remains local; an outer break, return, or failure stops nested execution.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.inner_continue_targets_inner_loop",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.inner_continue_targets_inner_loop",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Inner continue advances within its loop, while an outer-target continue resumes at the next outer item.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.repeat_evaluates_count_once_with_mutation_witness",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.repeat_evaluates_count_once_with_mutation_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Repeat reads a state-sensitive count once; repeated evaluation changes the read trace and iteration count.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.zero_range_runs_no_body",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.zero_range_runs_no_body",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A zero range has no items and never invokes its body.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.range_item_count_matches_absolute_count",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.range_item_count_matches_absolute_count",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite range contains the absolute count magnitude in items.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Loops.ControlFlow.continue_then_break_has_exact_trace",
+      "module": "Xsh.Loops.ControlFlow",
+      "declaration": "Xsh.Loops.ControlFlow.continue_then_break_has_exact_trace",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Continue advances to the next item and a later break stops before the tail.",
+      "boundary": "Finite loop-local outcomes and traces over a preselected finite item sequence. It excludes checker target validity, stage callbacks, divergence, effects, cleanup, and streams; no XSH runtime or Rust correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.absolute_root_is_retained",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.absolute_root_is_retained",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Normalization preserves an absolute root.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.empty_relative_path_normalizes_to_dot",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.empty_relative_path_normalizes_to_dot",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An empty relative byte path normalizes to dot.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.empty_and_dot_components_are_removed",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.empty_and_dot_components_are_removed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Empty and dot components disappear from the normalized path.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.ordinary_component_before_parent_is_cancelled",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.ordinary_component_before_parent_is_cancelled",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A parent component cancels the preceding ordinary relative component.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.leading_and_consecutive_relative_parents_are_retained",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.leading_and_consecutive_relative_parents_are_retained",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Leading and consecutive relative parent components remain in order.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.absolute_parents_clamp_at_root",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.absolute_parents_clamp_at_root",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Parent components above an absolute root are discarded.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.absolute_normalization_renders_root",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.absolute_normalization_renders_root",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Normalizing a path marked absolute preserves its absolute-root marker.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.repeated_normalization_matches_single_result_for_example",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.repeated_normalization_matches_single_result_for_example",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The stated concrete example has the same result after a second normalization.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.normalized_components_remove_empty_and_dot_for_example",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.normalized_components_remove_empty_and_dot_for_example",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The stated component list normalizes without empty or dot components.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.ordinary_component_step_preserves_bytes",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.ordinary_component_step_preserves_bytes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An ordinary component is pushed unchanged onto the lexical stack.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.relative_parent_stack_mutation_witness",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.relative_parent_stack_mutation_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A witness distinguishes retaining a leading relative parent from dropping it.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Normalize.absolute_parent_stack_mutation_witness",
+      "module": "Xsh.Paths.Normalize",
+      "declaration": "Xsh.Paths.Normalize.absolute_parent_stack_mutation_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A witness distinguishes clamping a parent at the absolute root from retaining it.",
+      "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
     }
   ],
   "source_identity": null
