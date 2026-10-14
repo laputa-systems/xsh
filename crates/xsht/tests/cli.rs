@@ -835,7 +835,7 @@ fn native_test_route_witness_captures_the_exact_oracle_in_both_modes() {
     let output_dir_env = format!("{harness_prefix}_OUTPUT_DIR");
 
     for (forced, route, mode) in [
-        (false, "recursive_bridge_to_explicit_frames", "normal"),
+        (false, "explicit_frame_apply_path", "normal"),
         (true, "generic_operand_apply_path", "forced"),
     ] {
         let output_root = cli_tempdir();
@@ -933,7 +933,7 @@ test unobserved {{ |ctx|
     fs::write(tests.join("witness.xsh"), fixture).expect("write native test fixture");
     let test_id = "tests/witness.xsh::captured";
     for (forced, route, mode) in [
-        (false, "recursive_bridge_to_explicit_frames", "normal"),
+        (false, "explicit_frame_apply_path", "normal"),
         (true, "generic_operand_apply_path", "forced"),
     ] {
         let output_root = cli_tempdir();
