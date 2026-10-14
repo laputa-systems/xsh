@@ -1,5 +1,8 @@
+import argparse
+import hashlib
 import os
 import pathlib
+import re
 import shutil
 import sys
 import subprocess
@@ -428,6 +431,550 @@ class AdapterRawOutcomeTests(unittest.TestCase):
             self.assertEqual(commands[0][0:2], ["timeout", "900s"])
             self.assertIn("--cpuset-cpus=0", (capture_output / "hashjobs/reference/docker-shim/docker").read_text())
             self.assertEqual(cleanup_calls, [1])
+
+
+class AdapterReferenceReuseTests(unittest.TestCase):
+    def setUp(self):
+        self.repository = pathlib.Path(__file__).resolve().parents[2]
+        self.runner = adapter_runner._load_publication_runner(
+            self.repository / "dev/consolidation/w9-publication-run.py"
+        )
+        self.scratch_root = self.repository.parents[2] / ".work/wt"
+        self.scratch_root.mkdir(parents=True, exist_ok=True)
+        self.case_root = pathlib.Path(
+            tempfile.mkdtemp(prefix="w9-adapter-reference-reuse-", dir=self.scratch_root)
+        )
+        self.helper_attempts = []
+        allocate_helper = adapter_runner._new_derived_helper_directory
+
+        def allocate(root, runner):
+            directory = allocate_helper(root, runner)
+            self.helper_attempts.append(directory.parent)
+            return directory
+
+        self.allocate_helper_patch = patch.object(
+            adapter_runner, "_new_derived_helper_directory", side_effect=allocate
+        )
+        self.allocate_helper_patch.start()
+        self.addCleanup(self._cleanup)
+        self.addCleanup(self.allocate_helper_patch.stop)
+        self.candidate_root = self.case_root
+        self.candidate_commit, self.candidate_tree = self._initialize_source(
+            self.candidate_root, b"#[test]\nfn candidate_source() {}\n"
+        )
+        self.runner.exclude_work_from_git(self.candidate_root)
+        self.artifact_root = self.candidate_root / ".work/test"
+        self.artifact_root.mkdir(parents=True)
+        self.reference_root = self.scratch_root / "w9-adapter-ref-e240"
+        self.reference_commit, self.reference_tree = self.runner.source_identity(
+            self.reference_root
+        )
+        self.reference_head_patch = patch.object(
+            self.runner, "REFERENCE_HEAD", self.reference_commit
+        )
+        self.reference_tree_patch = patch.object(
+            adapter_runner, "REFERENCE_TREE", self.reference_tree
+        )
+        self.reference_head_patch.start()
+        self.reference_tree_patch.start()
+        self.addCleanup(self.reference_tree_patch.stop)
+        self.addCleanup(self.reference_head_patch.stop)
+        self.expected_inputs = {
+            index: self.runner.ManifestSource(
+                f"source/{index:04}.xsh", f"{index + 1:064x}"
+            )
+            for index in range(1690)
+        }
+        self.reference = self._reference_receipt()
+        self.helper = self._derive_helper()
+
+    def _cleanup(self):
+        for attempt in self.helper_attempts:
+            shutil.rmtree(attempt, ignore_errors=True)
+        shutil.rmtree(self.case_root, ignore_errors=True)
+
+    def _initialize_source(self, root, source):
+        root.mkdir(parents=True, exist_ok=True)
+        tests = root / "tests/sema.rs"
+        tests.parent.mkdir(parents=True)
+        tests.write_bytes(source)
+        for command in (
+            ["git", "init", "--quiet", str(root)],
+            ["git", "-C", str(root), "config", "user.name", "Test"],
+            ["git", "-C", str(root), "config", "user.email", "test@example.invalid"],
+            ["git", "-C", str(root), "add", "tests/sema.rs"],
+            ["git", "-C", str(root), "commit", "--quiet", "-m", "source"],
+        ):
+            subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.strip()
+        tree = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD^{tree}"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.strip()
+        return commit, tree
+
+    def _derive_helper(self):
+        directory = adapter_runner._new_derived_helper_directory(
+            self.candidate_root, self.runner
+        )
+        return adapter_runner.derive_helper(
+            output_directory=directory,
+            output_root=self.candidate_root,
+        )
+
+    def _reference_receipt(self):
+        inputs = {
+            index: self.runner.ReceiptSource(source.relative_path, "b" * 64)
+            for index, source in self.expected_inputs.items()
+        }
+        outcomes = {
+            (index, source.relative_path, profile): ("1" * 64, "2" * 64)
+            for index, source in self.expected_inputs.items()
+            for profile in adapter_runner.PROFILES
+        }
+        return self.runner.ParsedReceipt((), inputs, outcomes, ())
+
+    def _write_build_receipt(
+        self,
+        role,
+        source_root,
+        commit,
+        tree,
+        helper=None,
+        helper_sha256=None,
+        owner_source_path=None,
+    ):
+        helper, helper_sha, owner_sha, owner_source_sha = (
+            self.helper if helper is None else helper
+        )
+        if helper_sha256 is not None:
+            helper_sha = helper_sha256
+        root_hash = hashlib.sha256(str(source_root).encode()).hexdigest()[:8]
+        binary = self.artifact_root / "binaries" / f"{role}-{commit[:12]}-{root_hash}"
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(f"{role} harness".encode())
+        binary.chmod(0o700)
+        builder = self.runner.regular_file(
+            self.runner.APPROVED_BUILD_RUNNER, "pinned adapter build runner", executable=True
+        )
+        contract = self.runner.w9_build_contract()
+        source_path = pathlib.Path(owner_source_path or adapter_runner.OWNER_HELPER)
+        source_tests = self.runner.read_regular_bytes(source_root / "tests/sema.rs")
+        record = {
+            "schema": "1",
+            "role": role,
+            "source_root": str(source_root),
+            "source_commit": commit,
+            "source_tree": tree,
+            "binary": str(binary),
+            "binary_sha256": self.runner.sha256_file(binary),
+            "builder_path": str(builder),
+            "builder_sha256": self.runner.sha256_file(builder),
+            "builder_image": contract["W9_CACHE_BUILD_IMAGE"],
+            "build_target": contract["W9_CACHE_BUILD_TARGET"],
+            "build_profile": contract["W9_CACHE_BUILD_PROFILE"],
+            "approved_helper_path": str(self.runner.APPROVED_HELPER_SOURCE),
+            "approved_helper_sha256": adapter_runner.APPROVED_HELPER_SHA256,
+            "helper_path": str(helper),
+            "helper_sha256": helper_sha,
+            "owner_helper_path": str(helper.parent / "w9-publication-owner-helper.rs"),
+            "owner_helper_sha256": owner_sha,
+            "owner_helper_source_path": str(source_path),
+            "owner_helper_source_sha256": self.runner.sha256_file(source_path),
+            "overlay_sha256": hashlib.sha256(
+                adapter_runner._adapter_overlay(source_tests, self.runner)
+            ).hexdigest(),
+        }
+        receipt = self.artifact_root / "build-receipts" / f"{role}-{commit[:12]}-{root_hash}-{helper_sha[:8]}.receipt"
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        adapter_runner._write_adapter_build_receipt(receipt, record, self.runner)
+        return receipt, record
+
+    def _candidate_source_record(self):
+        return {
+            "candidate_root": str(self.candidate_root),
+            "candidate_commit": self.candidate_commit,
+            "candidate_tree": self.candidate_tree,
+            "reference_receipt": str(self.artifact_root / "pinned-reference.receipt"),
+            "input_root": str(self.runner.REFERENCE_INPUT_ROOT),
+            "input_manifest": str(self.artifact_root / "input-files.sha256.tsv"),
+            "wrapper": "/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/infra/run-native-secondary.sh",
+            "wrapper_root": "/home/josh/d/laputa-systems/xsh",
+        }
+
+    def _capture_receipt(self, build_path, build_record, capture_root, outcome_count=6760):
+        raw_root = capture_root / "raw"
+        receipt_directory = capture_root / "receipts"
+        raw_root.mkdir(parents=True)
+        receipt_directory.mkdir()
+        ranges = self.runner.expected_ranges(len(self.expected_inputs))
+        range_receipts = {}
+        for start, end in ranges:
+            path = self.runner.candidate_receipt_path(receipt_directory, start, end)
+            path.write_bytes(f"range {start}..{end}".encode())
+            range_receipts[(start, end)] = path
+        receipt = capture_root / "capture.receipt"
+        adapter_runner._write_capture_receipt(
+            receipt,
+            "reference",
+            build_path,
+            build_record,
+            capture_root,
+            raw_root,
+            receipt_directory,
+            self.runner.REFERENCE_INPUT_ROOT,
+            pathlib.Path(self._candidate_source_record()["input_manifest"]),
+            range_receipts,
+            self.runner,
+        )
+        if outcome_count != 6760:
+            lines = self.runner.read_regular_text(receipt).splitlines()
+            lines[adapter_runner.CAPTURE_FIELDS.index("outcome_count")] = f"outcome_count\t{outcome_count}"
+            receipt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return receipt, range_receipts
+
+    def _parse_shard(self, path, _expected_inputs):
+        match = re.fullmatch(r"parallel-(\d+)-(\d+)-all\.receipt", path.name)
+        if match is None:
+            raise AssertionError(path)
+        start, end = int(match.group(1)), int(match.group(2)) + 1
+        shard = start // 100
+        count = len(self.expected_inputs)
+        inputs = {
+            index: self.reference.inputs[index]
+            for index in range(start, end)
+        }
+        outcomes = {
+            key: self.reference.outcomes[key]
+            for index in range(start, end)
+            for key in (
+                (index, self.expected_inputs[index].relative_path, profile)
+                for profile in adapter_runner.PROFILES
+            )
+        }
+        header = (
+            f"corpus={count}",
+            f"shard={shard}/{(count + 99) // 100}",
+            f"range={start}..{end}",
+            "shard_size=100",
+            f"input_digest={self.runner.CORPUS_BLAKE3}",
+            self.runner.OPTION_HEADER,
+        )
+        terminals = (f"terminal\tshard={shard}\tcompleted={end - start}",)
+        return self.runner.ParsedReceipt(header, inputs, outcomes, terminals)
+
+    def test_build_reuses_only_a_fully_pinned_reference_harness(self):
+        owner_source = adapter_runner.OWNER_HELPER
+        reference_receipt, _record = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+            owner_source_path=owner_source,
+        )
+        source_receipt = self.artifact_root / "candidate-source.receipt"
+        source_receipt.write_text("fixture\n", encoding="utf-8")
+        source_record = self._candidate_source_record()
+        build_roles = []
+
+        def build(_source, _candidate, role, *_args, **_kwargs):
+            build_roles.append(role)
+            return self.case_root / "candidate-harness", self.case_root / "candidate-build.receipt"
+
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
+            patch.object(
+                self.runner,
+                "validate_all_inputs",
+                return_value=(self.expected_inputs, {}, self.reference),
+            ),
+            patch.object(adapter_runner, "build_adapter_harness", side_effect=build),
+        ):
+            adapter_runner.build_adapter_harnesses(
+                argparse.Namespace(
+                    candidate_root=self.candidate_root,
+                    candidate_source_receipt=source_receipt,
+                    reference_source_root=self.reference_root,
+                    reference_build_receipt=reference_receipt,
+                ),
+                self.runner,
+            )
+
+        self.assertEqual(build_roles, ["candidate"])
+
+    def test_build_reuse_rejects_wrong_reference_root_and_helper(self):
+        owner_source = adapter_runner.OWNER_HELPER
+        reference_receipt, _record = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+            owner_source_path=owner_source,
+        )
+        other_root = self.artifact_root / "other/w9-adapter-ref-e240"
+        other_root.parent.mkdir()
+        subprocess.run(
+            ["git", "clone", "--quiet", "--no-local", str(self.reference_root), str(other_root)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        source_receipt = self.artifact_root / "candidate-source.receipt"
+        source_receipt.write_text("fixture\n", encoding="utf-8")
+        source_record = self._candidate_source_record()
+        build_roles = []
+
+        def build(_source, _candidate, role, *_args, **_kwargs):
+            build_roles.append(role)
+            return self.case_root / "candidate-harness", self.case_root / "candidate-build.receipt"
+
+        def run_build(reference_path, reference_root):
+            with (
+                patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
+                patch.object(
+                    self.runner,
+                    "validate_all_inputs",
+                    return_value=(self.expected_inputs, {}, self.reference),
+                ),
+                patch.object(adapter_runner, "build_adapter_harness", side_effect=build),
+            ):
+                adapter_runner.build_adapter_harnesses(
+                    argparse.Namespace(
+                        candidate_root=self.candidate_root,
+                        candidate_source_receipt=source_receipt,
+                        reference_source_root=reference_root,
+                        reference_build_receipt=reference_path,
+                    ),
+                    self.runner,
+                )
+
+        wrong_root_receipt, _record = self._write_build_receipt(
+            "reference",
+            other_root,
+            self.reference_commit,
+            self.reference_tree,
+            owner_source_path=owner_source,
+        )
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "different source root"):
+            run_build(wrong_root_receipt, self.reference_root)
+        self.assertEqual(build_roles, [])
+
+        wrong_source_receipt, _record = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            "e" * 40,
+            self.reference_tree,
+            owner_source_path=owner_source,
+        )
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "source commit differs from its pin"):
+            run_build(wrong_source_receipt, self.reference_root)
+        self.assertEqual(build_roles, [])
+
+        changed_helper_root = self.artifact_root / "changed-helper/derived"
+        changed_helper_root.mkdir(parents=True)
+        changed_helper = changed_helper_root / "w9-publication-adapter.rs"
+        changed_helper.write_bytes(self.helper[0].read_bytes() + b"\n")
+        (changed_helper_root / "w9-publication-owner-helper.rs").write_bytes(
+            (self.helper[0].parent / "w9-publication-owner-helper.rs").read_bytes()
+        )
+        changed_helper_sha = hashlib.sha256(changed_helper.read_bytes()).hexdigest()
+        changed_receipt, _record = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+            helper=(
+                changed_helper,
+                changed_helper_sha,
+                self.helper[2],
+                self.helper[3],
+            ),
+            owner_source_path=owner_source,
+        )
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "helper differs from the current helper"):
+            run_build(changed_receipt, self.reference_root)
+        self.assertEqual(build_roles, [])
+
+    def test_reference_capture_reuse_rejects_partial_coverage(self):
+        owner_source = adapter_runner.OWNER_HELPER
+        build_path, build = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+            owner_source_path=owner_source,
+        )
+        capture_root = self.artifact_root / "partial-reference-capture"
+        raw_root = capture_root / "raw"
+        receipt_directory = capture_root / "receipts"
+        raw_root.mkdir(parents=True)
+        receipt_directory.mkdir()
+        record = {
+            "schema": "1",
+            "role": "reference",
+            "source_root": build["source_root"],
+            "source_commit": build["source_commit"],
+            "source_tree": build["source_tree"],
+            "binary": build["binary"],
+            "binary_sha256": build["binary_sha256"],
+            "build_receipt": str(build_path),
+            "build_receipt_sha256": self.runner.sha256_file(build_path),
+            "helper_sha256": build["helper_sha256"],
+            "owner_helper_sha256": build["owner_helper_sha256"],
+            "input_root": str(self.runner.REFERENCE_INPUT_ROOT),
+            "input_manifest": self._candidate_source_record()["input_manifest"],
+            "input_manifest_sha256": self.runner.INPUT_MANIFEST_SHA256,
+            "corpus_blake3": self.runner.CORPUS_BLAKE3,
+            "capture_root": str(capture_root),
+            "raw_root": str(raw_root),
+            "receipt_directory": str(receipt_directory),
+            "range_count": "67",
+            "outcome_count": "6700",
+        }
+        capture_receipt = capture_root / "capture.receipt"
+        adapter_runner._write_new_file(
+            capture_receipt,
+            "".join(f"{field}\t{record[field]}\n" for field in adapter_runner.CAPTURE_FIELDS).encode(),
+            self.runner,
+        )
+
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "coverage differs"):
+            adapter_runner._reuse_reference_capture(
+                capture_receipt,
+                build_path,
+                build,
+                self.expected_inputs,
+                self.reference,
+                self.runner.REFERENCE_INPUT_ROOT,
+                pathlib.Path(record["input_manifest"]),
+                self.runner,
+            )
+
+    def test_reference_capture_reuse_rejects_outcome_drift(self):
+        build_path, build = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+        )
+        capture_receipt, _ranges = self._capture_receipt(
+            build_path, build, self.artifact_root / "outcome-drift-reference-capture"
+        )
+
+        def parse_with_changed_outcome(path, expected_inputs):
+            parsed = self._parse_shard(path, expected_inputs)
+            outcomes = dict(parsed.outcomes)
+            key = min(outcomes)
+            outcomes[key] = ("c" * 64, "d" * 64)
+            return self.runner.ParsedReceipt(
+                parsed.header, parsed.inputs, outcomes, parsed.terminals
+            )
+
+        with patch.object(self.runner, "parse_receipt", side_effect=parse_with_changed_outcome):
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "reused reference harness outcomes differ",
+            ):
+                adapter_runner._reuse_reference_capture(
+                    capture_receipt,
+                    build_path,
+                    build,
+                    self.expected_inputs,
+                    self.reference,
+                    self.runner.REFERENCE_INPUT_ROOT,
+                    pathlib.Path(self._candidate_source_record()["input_manifest"]),
+                    self.runner,
+                )
+
+    def test_run_reuses_reference_capture_and_captures_only_the_candidate(self):
+        owner_source = adapter_runner.OWNER_HELPER
+        reference_build_path, reference_build = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+            owner_source_path=owner_source,
+        )
+        candidate_commit, candidate_tree = self.runner.source_identity(self.candidate_root)
+        candidate_build_path, _candidate_build = self._write_build_receipt(
+            "candidate",
+            self.candidate_root,
+            candidate_commit,
+            candidate_tree,
+        )
+        reference_capture, reference_ranges = self._capture_receipt(
+            reference_build_path, reference_build, self.artifact_root / "prior-reference-capture"
+        )
+        source_receipt = self.artifact_root / "candidate-source.receipt"
+        source_receipt.write_text("fixture\n", encoding="utf-8")
+        source_record = self._candidate_source_record()
+        capture_roles = []
+        comparisons = []
+
+        def capture(runner, record, output, role, _build, _binary, _count, _environment):
+            capture_roles.append(role)
+            capture_root = output / role
+            raw_root = capture_root / "raw"
+            receipt_directory = capture_root / "receipts"
+            raw_root.mkdir(parents=True)
+            receipt_directory.mkdir()
+            range_receipts = {}
+            for (start, end), source in reference_ranges.items():
+                destination = runner.candidate_receipt_path(receipt_directory, start, end)
+                destination.write_bytes(source.read_bytes())
+                range_receipts[(start, end)] = destination
+            return raw_root, receipt_directory, range_receipts
+
+        def compare(*args):
+            comparisons.append(args)
+            return len(self.expected_inputs) * len(adapter_runner.PROFILES), 0
+
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
+            patch.object(
+                self.runner,
+                "validate_all_inputs",
+                return_value=(self.expected_inputs, {}, self.reference),
+            ),
+            patch.object(self.runner, "parse_receipt", side_effect=self._parse_shard),
+            patch.object(self.runner, "local_docker_environment", return_value={"PATH": os.environ["PATH"]}),
+            patch.object(adapter_runner, "_run_capture_role", side_effect=capture),
+            patch.object(adapter_runner, "compare_full_publications", side_effect=compare),
+        ):
+            result = adapter_runner.execute_adapter_publication(
+                argparse.Namespace(
+                    candidate_root=self.candidate_root,
+                    candidate_source_receipt=source_receipt,
+                    reference_source_root=self.reference_root,
+                    reference_build_receipt=reference_build_path,
+                    candidate_build_receipt=candidate_build_path,
+                    reference_capture_receipt=reference_capture,
+                    output=str(self.candidate_root / ".work/consolidation/new-publication"),
+                    dry_run=False,
+                ),
+                self.runner,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(capture_roles, ["candidate"])
+        self.assertEqual(len(comparisons), 1)
+        self.assertEqual(comparisons[0][7], reference_capture)
+        output = self.candidate_root / ".work/consolidation/new-publication"
+        self.assertTrue((output / "candidate/capture.receipt").is_file())
+        self.assertFalse((output / "reference/capture.receipt").exists())
+        self.assertEqual(
+            (output / "attempt-status.txt").read_text(encoding="utf-8").splitlines()[0],
+            "status=complete",
+        )
 
 
 if __name__ == "__main__":

@@ -1006,6 +1006,54 @@ def _parse_capture_receipt(
     return record
 
 
+def _reuse_reference_capture(
+    capture_receipt: pathlib.Path,
+    build_receipt: pathlib.Path,
+    build: dict[str, str],
+    expected_inputs: dict[int, object],
+    reference,
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    runner,
+) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[tuple[int, int], pathlib.Path]]:
+    receipt = runner.regular_file(capture_receipt, "reference adapter capture receipt")
+    capture_root = pathlib.Path(_capture_field(receipt, "capture_root", runner))
+    raw_root = pathlib.Path(_capture_field(receipt, "raw_root", runner))
+    receipt_directory = pathlib.Path(_capture_field(receipt, "receipt_directory", runner))
+    capture_root = runner.real_directory(capture_root, "reference adapter capture root")
+    raw_root = runner.real_directory(raw_root, "reference adapter raw outcomes")
+    receipt_directory = runner.real_directory(receipt_directory, "reference adapter range receipts")
+    if receipt.parent != capture_root or receipt.name != "capture.receipt":
+        raise PublicationError("reference capture receipt is outside its recorded capture root")
+    record = _parse_capture_receipt(
+        receipt,
+        "reference",
+        receipt_directory,
+        capture_root,
+        raw_root,
+        build,
+        expected_inputs,
+        input_root,
+        input_manifest,
+        runner,
+    )
+    expected_build_receipt = runner.regular_file(build_receipt, "reference adapter build receipt")
+    if pathlib.Path(record["build_receipt"]) != expected_build_receipt:
+        raise PublicationError("reference capture names a different adapter build receipt")
+    if runner.sha256_file(expected_build_receipt) != record["build_receipt_sha256"]:
+        raise PublicationError("reference capture adapter build receipt hash differs")
+    captured_reference = aggregate_candidate_receipts(
+        runner, receipt_directory, expected_inputs, reference
+    )
+    if captured_reference.outcomes != reference.outcomes:
+        raise PublicationError("reused reference harness outcomes differ from the pinned reference receipt")
+    range_receipts = {
+        interval: runner.candidate_receipt_path(receipt_directory, *interval)
+        for interval in runner.expected_ranges(len(expected_inputs))
+    }
+    return raw_root, receipt_directory, receipt, range_receipts
+
+
 def _capture_plan(count: int, runner) -> tuple[list[tuple[int, int]], dict[str, list[tuple[int, int]]]]:
     ranges = runner.expected_ranges(count)
     workers = {worker: ranges[index::4] for index, worker in enumerate(("A", "B", "C", "D"))}
@@ -1193,6 +1241,19 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
         raise PublicationError("reference and candidate adapter helpers differ")
     if reference_build["owner_helper_sha256"] != candidate_build["owner_helper_sha256"]:
         raise PublicationError("reference and candidate owner helpers differ")
+    reference_capture = None
+    reference_capture_receipt = getattr(args, "reference_capture_receipt", None)
+    if reference_capture_receipt is not None:
+        reference_capture = _reuse_reference_capture(
+            reference_capture_receipt,
+            reference_build_path,
+            reference_build,
+            expected_inputs,
+            reference,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            runner,
+        )
     ranges, workers = _capture_plan(len(expected_inputs), runner)
     output = runner.require_output_path(args.output, candidate_root)
     if args.dry_run:
@@ -1212,10 +1273,16 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
     with runner.claim_run_resources(candidate_root, output, completed):
         runner.write_status(output, "incomplete", completed)
         captures: dict[str, tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[tuple[int, int], pathlib.Path]]] = {}
+        if reference_capture is not None:
+            captures["reference"] = reference_capture
+            completed.extend(ranges)
+            runner.write_status(output, "incomplete", completed, "reused_capture=reference")
         for role, build_path, build in (
             ("reference", reference_build_path, reference_build),
             ("candidate", candidate_build_path, candidate_build),
         ):
+            if role == "reference" and reference_capture is not None:
+                continue
             binary = runner.regular_file(build["binary"], f"{role} adapter harness", executable=True)
             raw_root, receipt_directory, range_receipts = _run_capture_role(
                 runner,
@@ -1403,16 +1470,32 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
         output_directory=derived_directory,
         output_root=candidate_root,
     )
-    reference_binary, reference_receipt = build_adapter_harness(
-        reference_root,
-        candidate_root,
-        "reference",
-        adapter_helper,
-        helper_sha256,
-        owner_helper_sha256,
-        owner_helper_source_sha256,
-        runner,
-    )
+    reference_build_receipt = getattr(args, "reference_build_receipt", None)
+    if reference_build_receipt is None:
+        reference_binary, reference_receipt = build_adapter_harness(
+            reference_root,
+            candidate_root,
+            "reference",
+            adapter_helper,
+            helper_sha256,
+            owner_helper_sha256,
+            owner_helper_source_sha256,
+            runner,
+        )
+    else:
+        reference_receipt = runner.regular_file(
+            reference_build_receipt, "reference adapter build receipt"
+        )
+        reference_build = _parse_adapter_build_receipt(
+            reference_receipt, "reference", runner
+        )
+        if pathlib.Path(reference_build["source_root"]) != reference_root:
+            raise PublicationError("reference adapter build receipt names a different source root")
+        if reference_build["helper_sha256"] != helper_sha256:
+            raise PublicationError("reused reference adapter helper differs from the current helper")
+        if reference_build["owner_helper_sha256"] != owner_helper_sha256:
+            raise PublicationError("reused reference owner helper differs from the current helper")
+        reference_binary = pathlib.Path(reference_build["binary"])
     candidate_binary, candidate_receipt = build_adapter_harness(
         candidate_root,
         candidate_root,
@@ -1648,12 +1731,14 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--candidate-root", type=pathlib.Path, required=True)
     build.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     build.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    build.add_argument("--reference-build-receipt", type=pathlib.Path)
     run = commands.add_parser("run")
     run.add_argument("--candidate-root", type=pathlib.Path, required=True)
     run.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     run.add_argument("--reference-source-root", type=pathlib.Path, required=True)
     run.add_argument("--reference-build-receipt", type=pathlib.Path, required=True)
     run.add_argument("--candidate-build-receipt", type=pathlib.Path, required=True)
+    run.add_argument("--reference-capture-receipt", type=pathlib.Path)
     run.add_argument("--output", required=True)
     run.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
