@@ -17,6 +17,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tempfile::TempDir;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{
     Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram, TestCancellation,
@@ -54,6 +55,46 @@ impl TestOptions {
         self.coverage || self.coverage_json_out.is_some()
     }
 }
+
+#[derive(Clone, Debug)]
+struct RouteWitnessConfig {
+    test_id: String,
+    output_dir: PathBuf,
+}
+
+fn route_witness_config() -> Result<Option<RouteWitnessConfig>, String> {
+    let test_id_name = format!(
+        "{}_TEST_ID",
+        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX
+    );
+    let output_dir_name = format!(
+        "{}_OUTPUT_DIR",
+        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX
+    );
+    let test_id = std::env::var_os(test_id_name);
+    let output_dir = std::env::var_os(output_dir_name);
+    match (test_id, output_dir) {
+        (None, None) => Ok(None),
+        (Some(test_id), Some(output_dir)) => {
+            let test_id = test_id
+                .into_string()
+                .map_err(|_| "route-witness harness test identity is not UTF-8".to_string())?;
+            if test_id.is_empty() {
+                return Err("route-witness harness test identity is empty".to_string());
+            }
+            let output_dir = PathBuf::from(output_dir);
+            fs::create_dir_all(&output_dir).map_err(|error| {
+                format!("failed to create route-witness output directory: {error}")
+            })?;
+            Ok(Some(RouteWitnessConfig {
+                test_id,
+                output_dir,
+            }))
+        }
+        _ => Err("route-witness harness configuration is incomplete".to_string()),
+    }
+}
+
 pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
@@ -63,6 +104,19 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut coverage_source_files: Vec<PathBuf> = Vec::new();
     let mut stdout = String::new();
     let stderr = String::new();
+
+    let route_witness = match route_witness_config() {
+        Ok(config) => config,
+        Err(message) => {
+            return CliOutput {
+                status: 2,
+                stdout: stdout.into_bytes(),
+                stderr: text_bytes(format!("xsht: {message}\n")),
+                trace_text: String::new(),
+                syscall_summary: None,
+            };
+        }
+    };
 
     let config = match load_config() {
         Ok(config) => config,
@@ -149,7 +203,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         collector.register_source_files(&coverage_source_files);
     }
     let mut interrupted = None;
-    run_test_cases(cases, &run_id, &options, |id, outcome| {
+    run_test_cases(cases, &run_id, &options, route_witness.as_ref(), |id, outcome| {
         if let Some(output) = cancellation_output() {
             interrupted = Some(output);
             return false;
@@ -270,7 +324,13 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     }
 }
 
-fn run_test_cases<F>(cases: Vec<TestCase>, run_id: &str, options: &TestOptions, mut on_outcome: F)
+fn run_test_cases<F>(
+    cases: Vec<TestCase>,
+    run_id: &str,
+    options: &TestOptions,
+    route_witness: Option<&RouteWitnessConfig>,
+    mut on_outcome: F,
+)
 where
     F: FnMut(String, TestOutcome) -> bool,
 {
@@ -278,7 +338,7 @@ where
     if jobs <= 1 {
         for (index, case) in cases.into_iter().enumerate() {
             let id = case.id().to_string();
-            let outcome = run_test_case(case, index, run_id, options);
+            let outcome = run_test_case(case, index, run_id, options, route_witness);
             if !on_outcome(id, outcome) {
                 break;
             }
@@ -286,7 +346,7 @@ where
         return;
     }
 
-    run_test_cases_parallel(cases, run_id, options, jobs, on_outcome);
+    run_test_cases_parallel(cases, run_id, options, route_witness, jobs, on_outcome);
 }
 
 fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
@@ -313,6 +373,7 @@ fn run_test_cases_parallel<F>(
     cases: Vec<TestCase>,
     run_id: &str,
     options: &TestOptions,
+    route_witness: Option<&RouteWitnessConfig>,
     jobs: usize,
     mut on_outcome: F,
 ) where
@@ -322,11 +383,13 @@ fn run_test_cases_parallel<F>(
     let (tx, rx) = mpsc::channel();
 
     let options = Arc::new(options.clone());
+    let route_witness = Arc::new(route_witness.cloned());
     let run_id = Arc::new(run_id.to_string());
     for _ in 0..jobs {
         let queue = Arc::clone(&queue);
         let tx = tx.clone();
         let options = Arc::clone(&options);
+        let route_witness = Arc::clone(&route_witness);
         let run_id = Arc::clone(&run_id);
         std::thread::spawn(move || {
             loop {
@@ -360,7 +423,13 @@ fn run_test_cases_parallel<F>(
                         file_index,
                     };
                     let id = case.id().to_string();
-                    let outcome = run_test_case(case, index, &run_id, &options);
+                    let outcome = run_test_case(
+                        case,
+                        index,
+                        &run_id,
+                        &options,
+                        route_witness.as_ref().as_ref(),
+                    );
                     (id, outcome)
                 };
                 if tx.send((index, id, outcome)).is_err() {
@@ -980,10 +1049,18 @@ fn discover_native_test_entry(
     cases
 }
 
-fn run_test_case(case: TestCase, index: usize, run_id: &str, options: &TestOptions) -> TestOutcome {
+fn run_test_case(
+    case: TestCase,
+    index: usize,
+    run_id: &str,
+    options: &TestOptions,
+    route_witness: Option<&RouteWitnessConfig>,
+) -> TestOutcome {
     let started = Instant::now();
     let mut outcome = match case {
-        TestCase::Native(case) => run_native_test_with_timeout(case, index, run_id, options),
+        TestCase::Native(case) => {
+            run_native_test_with_timeout(case, index, run_id, options, route_witness)
+        }
         TestCase::Invalid { message, .. } => TestOutcome {
             kind: TestOutcomeKind::Failed(message),
             duration: Duration::ZERO,
@@ -1013,9 +1090,40 @@ fn run_native_test_with_timeout(
     index: usize,
     run_id: &str,
     options: &TestOptions,
+    route_witness: Option<&RouteWitnessConfig>,
 ) -> TestOutcome {
+    // Keep ownership outside the test worker so timeout and abandoned-thread
+    // paths remove partial artifacts; only a completed pass preserves them.
+    let route_witness_tempdir = match route_witness.filter(|config| config.test_id == case.id) {
+        Some(config) => match TempDir::new_in(&config.output_dir) {
+            Ok(tempdir) => Some(tempdir),
+            Err(error) => {
+                return TestOutcome {
+                    kind: TestOutcomeKind::Failed(format!(
+                        "failed to create route-witness invocation directory: {error}"
+                    )),
+                    duration: Duration::ZERO,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                    coverage_trace: None,
+                };
+            }
+        },
+        None => None,
+    };
+    let route_witness_output_dir = route_witness_tempdir
+        .as_ref()
+        .map(|tempdir| tempdir.path().to_path_buf());
     let Some(run_limit) = options.timeout else {
-        return run_native_test(case, index, run_id, options, TestCancellation::default());
+        let outcome = run_native_test(
+            case,
+            index,
+            run_id,
+            options,
+            route_witness_output_dir.as_deref(),
+            TestCancellation::default(),
+        );
+        return finish_route_witness(outcome, route_witness_tempdir);
     };
     let cancellation = TestCancellation::default();
     let (tx, rx) = mpsc::channel();
@@ -1023,6 +1131,7 @@ fn run_native_test_with_timeout(
         let cancellation = cancellation.clone();
         let run_id = run_id.to_string();
         let options = options.clone();
+        let route_witness_output_dir = route_witness_output_dir.clone();
         std::thread::Builder::new()
             .name(format!("xsht-test-{index}"))
             .spawn(move || {
@@ -1031,6 +1140,7 @@ fn run_native_test_with_timeout(
                     index,
                     &run_id,
                     &options,
+                    route_witness_output_dir.as_deref(),
                     cancellation,
                 ));
             })
@@ -1052,7 +1162,7 @@ fn run_native_test_with_timeout(
             break limit;
         }
         match rx.recv_timeout(remaining.min(TEST_TIMEOUT_POLL)) {
-            Ok(outcome) => return outcome,
+            Ok(outcome) => return finish_route_witness(outcome, route_witness_tempdir),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 return TestOutcome {
@@ -1103,11 +1213,24 @@ fn run_native_test_with_timeout(
     }
 }
 
+fn finish_route_witness(
+    outcome: TestOutcome,
+    route_witness_tempdir: Option<TempDir>,
+) -> TestOutcome {
+    if matches!(&outcome.kind, TestOutcomeKind::Passed)
+        && let Some(tempdir) = route_witness_tempdir
+    {
+        let _ = tempdir.keep();
+    }
+    outcome
+}
+
 fn run_native_test(
     case: NativeTestCase,
     index: usize,
     run_id: &str,
     options: &TestOptions,
+    route_witness_output_dir: Option<&Path>,
     cancellation: TestCancellation,
 ) -> TestOutcome {
     let temp_root = std::env::temp_dir().join(format!(
@@ -1167,6 +1290,16 @@ fn run_native_test(
     }
     if let Some(dir) = &nested_coverage_dir {
         env_overlay.push((XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir)));
+    }
+    if let Some(output_dir) = route_witness_output_dir {
+        env_overlay.push((
+            xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_TEST_ID_OVERLAY.to_vec(),
+            case.id.as_bytes().to_vec(),
+        ));
+        env_overlay.push((
+            xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_OUTPUT_DIR_OVERLAY.to_vec(),
+            path_bytes(output_dir),
+        ));
     }
     let evaluated = case.prepared.eval_test(
         &case.name,
@@ -1308,6 +1441,16 @@ fn native_test_host(
     command.args(&request.script_args);
     if let Some(module_path) = module_path {
         command.env(XSH_MODULE_PATH, module_path);
+    }
+    for (name, _) in std::env::vars_os() {
+        let name_bytes = name.as_os_str().as_bytes();
+        if name_bytes.starts_with(
+            xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX.as_bytes(),
+        ) || name_bytes.starts_with(
+            xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX.as_bytes(),
+        ) {
+            command.env_remove(name);
+        }
     }
     for (name, value) in &request.env {
         let value: &std::ffi::OsStr = std::os::unix::ffi::OsStrExt::from_bytes(value);

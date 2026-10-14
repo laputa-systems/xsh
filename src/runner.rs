@@ -40,6 +40,7 @@ struct PreparedRun {
     source_id: crate::source::SourceId,
     module_roots: Vec<PathBuf>,
     coverage_trace_dir: Option<PathBuf>,
+    route_witness: Option<crate::runtime::eval::route_witness::ChildCapture>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -51,6 +52,10 @@ pub(crate) struct RuntimeAllocationPhases {
 
 impl PreparedRun {
     fn run(self) -> RunAttempt {
+        let route_witness = self.route_witness;
+        let route_witness_sink = route_witness
+            .as_ref()
+            .map(crate::runtime::eval::route_witness::ChildCapture::sink);
         let output = self
             .evaluator
             .eval_installed_compact_indexed_only(self.plan);
@@ -64,6 +69,17 @@ impl PreparedRun {
                 );
             }
         };
+        if let (Some(route_witness), Some(sink)) = (route_witness, route_witness_sink)
+            && let Err(error) = route_witness.write_records(&sink.take_records())
+        {
+            let mut stderr = output.stderr;
+            push_text(&mut stderr, &format!("xsh: failed to write route witness: {error}\n"));
+            return RunAttempt::Output(ScriptOutput {
+                status: 4,
+                stdout: output.stdout,
+                stderr,
+            });
+        }
         RunAttempt::Output(script_output_from_eval(output, self.coverage_trace_dir))
     }
 }
@@ -362,8 +378,20 @@ fn try_prepare_program(
     options: &RunOptions,
 ) -> Result<Result<PreparedRun, RunAttempt>, std::io::Error> {
     let bytes = fs::read(&options.script)?;
+    let route_witness = match crate::runtime::eval::route_witness::ChildCapture::from_environment(
+        &bytes,
+    ) {
+        Ok(route_witness) => route_witness,
+        Err(message) => {
+            return Ok(Err(RunAttempt::Output(ScriptOutput {
+                status: 2,
+                stdout: Vec::new(),
+                stderr: text_bytes(format!("xsh: invalid route-witness sidechannel: {message}\n")),
+            })));
+        }
+    };
     let entry_source = entry_source_from_bytes(&options.script, bytes);
-    Ok(prepare_entry_source(options, entry_source))
+    Ok(prepare_entry_source(options, entry_source, route_witness))
 }
 
 fn diagnostic_attempt(
@@ -384,6 +412,7 @@ fn diagnostic_attempt(
 fn prepare_entry_source(
     options: &RunOptions,
     entry_source: EntrySource,
+    route_witness: Option<crate::runtime::eval::route_witness::ChildCapture>,
 ) -> Result<PreparedRun, RunAttempt> {
     let source_id = entry_source.source_id;
     if !entry_source.diagnostics.is_empty() {
@@ -445,6 +474,10 @@ fn prepare_entry_source(
     let mut evaluator = evaluator_with_script_arguments(
         &options.args, byte_arguments, sources, script_command_name(&options.script),
     ).map_err(RunAttempt::Output)?.with_module_roots(module_roots.clone());
+    if let Some(capture) = &route_witness {
+        evaluator.install_route_witness_sink(capture.sink());
+    }
+    evaluator = evaluator.without_private_route_witness_env();
     let coverage_trace_dir = options
         .coverage_trace_dir
         .clone()
@@ -471,6 +504,7 @@ fn prepare_entry_source(
         source_id,
         module_roots,
         coverage_trace_dir,
+        route_witness,
     })
 }
 

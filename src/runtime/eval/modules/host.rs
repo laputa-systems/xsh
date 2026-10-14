@@ -195,6 +195,11 @@ fn command_invocation(command: &CommandSpec) -> HostResult<ProcessInvocation> {
     } else {
         let mut env = BTreeMap::new();
         for (name, value) in std::env::vars_os() {
+            if crate::runtime::eval::route_witness::is_private_env_name_bytes(
+                name.as_os_str().as_bytes(),
+            ) {
+                continue;
+            }
             env.insert(os_bytes(&name)?, os_bytes(&value)?);
         }
         env
@@ -207,6 +212,12 @@ fn command_invocation(command: &CommandSpec) -> HostResult<ProcessInvocation> {
             return Err(HostError::new(
                 "env-name",
                 "environment names cannot be empty or contain `=`",
+            ));
+        }
+        if crate::runtime::eval::route_witness::is_private_env_name_bytes(&name_bytes) {
+            return Err(HostError::new(
+                "env-name",
+                "environment names in the private route-witness namespaces are reserved",
             ));
         }
         env.insert(name_bytes.clone(), value_bytes.clone());

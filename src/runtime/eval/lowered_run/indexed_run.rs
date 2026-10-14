@@ -45,6 +45,7 @@ use super::{
 };
 use crate::map_key::MapKey;
 use crate::runtime::eval::BuildExprId;
+use crate::runtime::eval::route_witness::{RouteWitnessMode, RouteWitnessRoute};
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::decode::{
     ErrorExprView, FmtPartView, ListPosition, ListView, RecordEntryView,
@@ -1468,6 +1469,15 @@ impl Evaluator {
         }
         // These rows have no recursive evaluator arms; their children must stay on frames.
         if indexed_frame_apply_tag(tag) {
+            if tag == FullTag::ExprEmptyMap
+                && let Some(sink) = &self.route_witness_sink
+            {
+                sink.record(
+                    tag,
+                    RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
+                    RouteWitnessMode::Normal,
+                );
+            }
             return self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span);
         }
         let result = match tag {

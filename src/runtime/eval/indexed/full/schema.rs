@@ -484,6 +484,15 @@ macro_rules! instruction_schema {
         }
 
         impl FullTag {
+            pub(in crate::runtime::eval) fn matches_identity(name: &str, ordinal: u32) -> bool {
+                match (name, ordinal) {
+                    $(
+                        $((stringify!($tag), $ordinal) => true,)*
+                    )*
+                    _ => false,
+                }
+            }
+
             pub(in crate::runtime::eval) fn in_place_class(self) -> InPlaceClass {
                 match self {
                     $($(Self::$tag => InPlaceClass::$class,)*)*

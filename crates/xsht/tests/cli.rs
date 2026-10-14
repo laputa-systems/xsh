@@ -2,8 +2,74 @@
 
 use std::fs;
 use std::os::unix::ffi::OsStringExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
+
+#[derive(miniserde::Deserialize)]
+struct RouteWitnessArtifact {
+    version: u64,
+    test_id: String,
+    source_hash: String,
+    records: Vec<RouteWitnessRecord>,
+}
+
+#[derive(miniserde::Deserialize)]
+struct RouteWitnessRecord {
+    tag_name: String,
+    tag_ordinal: u32,
+    route: String,
+    mode: String,
+}
+
+fn route_witness_files(root: &Path) -> Vec<PathBuf> {
+    fn collect(directory: &Path, files: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(directory).expect("read route-witness output directory") {
+            let entry = entry.expect("read route-witness directory entry");
+            if entry.file_type().expect("inspect route-witness entry").is_dir() {
+                collect(&entry.path(), files);
+            } else if entry.file_name() == "route-witness.json" {
+                files.push(entry.path());
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    collect(root, &mut files);
+    files
+}
+
+fn assert_route_witness(
+    output_dir: &Path,
+    test_id: &str,
+    source: &[u8],
+    route: &str,
+    mode: &str,
+) {
+    let files = route_witness_files(output_dir);
+    assert_eq!(files.len(), 1, "expected one child witness artifact");
+    let text = fs::read_to_string(&files[0]).expect("read route-witness artifact");
+    let artifact: RouteWitnessArtifact =
+        miniserde::json::from_str(&text).expect("parse route-witness artifact");
+    assert_eq!(artifact.version, 1);
+    assert_eq!(artifact.test_id, test_id);
+    use sha2::{Digest, Sha256};
+    assert_eq!(artifact.source_hash, format!("{:x}", Sha256::digest(source)));
+    assert!(!artifact.records.is_empty());
+    assert!(artifact.records.iter().any(|record| {
+        record.tag_name == "ExprEmptyMap"
+            && record.tag_ordinal == 49
+            && record.route == route
+            && record.mode == mode
+    }));
+}
+
+fn route_witness_tempdir() -> TempDir {
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let scratch = repository.join(".work/tmp");
+    fs::create_dir_all(&scratch).expect("create repository scratch directory");
+    TempDir::new_in(scratch).expect("create route-witness fixture")
+}
 
 #[test]
 fn xsht_reports_non_utf8_argument_without_panicking() {
@@ -672,4 +738,148 @@ test passes {{ |ctx|
         .expect("run xsht test with an invalid timeout");
     assert_eq!(invalid.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("`--timeout` expects a duration"));
+}
+
+#[test]
+fn native_test_route_witness_captures_the_exact_oracle_in_both_modes() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("workspace root");
+    let test_id = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map";
+    let source = b"let empty: Map[Str, Int] = {}\nassert empty.len() == 0\n";
+    let harness_prefix =
+        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX;
+    let test_id_env = format!("{harness_prefix}_TEST_ID");
+    let output_dir_env = format!("{harness_prefix}_OUTPUT_DIR");
+
+    for (forced, route, mode) in [
+        (false, "recursive_bridge_to_explicit_frames", "normal"),
+        (true, "generic_operand_apply_path", "forced"),
+    ] {
+        let output_root = route_witness_tempdir();
+        let mut command = Command::new(test_bin!("xsht"));
+        command.args(["test"]);
+        if forced {
+            command.arg("--force-frames");
+        }
+        let output = command
+            .args(["--exact", test_id])
+            .current_dir(&workspace)
+            .env(&test_id_env, test_id)
+            .env(&output_dir_env, output_root.path())
+            .output()
+            .expect("run exact native test oracle");
+
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(output.stderr.is_empty());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed; 0 skipped"));
+        assert_route_witness(output_root.path(), test_id, source, route, mode);
+    }
+}
+
+#[test]
+fn native_test_route_witness_is_private_and_scoped_when_prepared_program_is_reused() {
+    let root = route_witness_tempdir();
+    let tests = root.path().join("tests");
+    fs::create_dir(&tests).expect("create native test root");
+    let route_prefix = xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX;
+    let harness_prefix =
+        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX;
+    let test_id_env = format!("{harness_prefix}_TEST_ID");
+    let output_dir_env = format!("{harness_prefix}_OUTPUT_DIR");
+    let child_source = format!(
+        "assert env.get_or(\"{route_prefix}_TRANSPORT_TEST_ID\", \"absent\")? == \"absent\"\n\
+         assert env.get_or(\"{route_prefix}_TRANSPORT_OUTPUT_DIR\", \"absent\")? == \"absent\"\n\
+         assert env.get_or(\"{route_prefix}_TRANSPORT_SOURCE_HASH\", \"absent\")? == \"absent\"\n\
+         assert env.get_or(\"{harness_prefix}_TEST_ID\", \"absent\")? == \"absent\"\n\
+         assert env.get_or(\"{harness_prefix}_OUTPUT_DIR\", \"absent\")? == \"absent\"\n\
+         let inherited = run.capture --text \"/usr/bin/env\"\n\
+         assert !(\"{route_prefix}_TRANSPORT_TEST_ID\" in inherited.stdout)\n\
+         assert !(\"{route_prefix}_TRANSPORT_OUTPUT_DIR\" in inherited.stdout)\n\
+         assert !(\"{route_prefix}_TRANSPORT_SOURCE_HASH\" in inherited.stdout)\n\
+         assert !(\"{harness_prefix}_TEST_ID\" in inherited.stdout)\n\
+         assert !(\"{harness_prefix}_OUTPUT_DIR\" in inherited.stdout)\n\
+         let empty: Map[Str, Int] = {{}}\nassert empty.len() == 0\nprint \"same\"\n"
+    );
+    let fixture = format!(
+        r#"test captured {{ |ctx|
+  let output = test.run_xsh(ctx, r"""{child_source}""")?
+  assert output.success, output.stderr
+  assert output.stdout_bytes == b"same\n"
+  assert output.stderr_bytes == b""
+}}
+
+test unobserved {{ |ctx|
+  let output = test.run_xsh(ctx, r"""{child_source}""")?
+  assert output.success, output.stderr
+  assert output.stdout_bytes == b"same\n"
+  assert output.stderr_bytes == b""
+}}
+"#
+    );
+    fs::write(tests.join("witness.xsh"), fixture).expect("write native test fixture");
+    let test_id = "tests/witness.xsh::captured";
+    for (forced, route, mode) in [
+        (false, "recursive_bridge_to_explicit_frames", "normal"),
+        (true, "generic_operand_apply_path", "forced"),
+    ] {
+        let output_root = route_witness_tempdir();
+        let mut command = Command::new(test_bin!("xsht"));
+        command.args(["test", "--jobs", "2"]);
+        if forced {
+            command.arg("--force-frames");
+        }
+        let output = command
+            .current_dir(root.path())
+            .env(&test_id_env, test_id)
+            .env(&output_dir_env, output_root.path())
+            .output()
+            .expect("run parallel tests over one prepared program");
+
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(output.stderr.is_empty());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("2 passed; 0 failed; 0 skipped"));
+        assert_route_witness(
+            output_root.path(),
+            test_id,
+            child_source.as_bytes(),
+            route,
+            mode,
+        );
+    }
+}
+
+#[test]
+fn native_test_rejects_script_supplied_route_witness_environment_names() {
+    let root = route_witness_tempdir();
+    let tests = root.path().join("tests");
+    fs::create_dir(&tests).expect("create native test root");
+    let reserved_name = format!(
+        "{}_FORGED",
+        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX
+    );
+    let fixture = format!(
+        "test forged {{ |ctx|\n  let _ = test.run_xsh(ctx, \"print 1\\n\", env: {{{reserved_name}: \"forged\"}})?\n}}\n"
+    );
+    fs::write(tests.join("spoof.xsh"), fixture).expect("write spoofing test fixture");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--exact", "tests/spoof.xsh::forged"])
+        .current_dir(root.path())
+        .output()
+        .expect("run spoofing native test");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("reserved route-witness name"));
 }

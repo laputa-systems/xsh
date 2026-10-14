@@ -54,6 +54,9 @@ use crate::runtime::eval::{
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
+use crate::runtime::eval::route_witness::{
+    RouteWitnessMode, RouteWitnessRoute,
+};
 use crate::runtime::value::{DurationValue, Value};
 use crate::trace::Traceback;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -473,6 +476,7 @@ fn expr_if_branches<'e>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::eval::route_witness::RouteWitnessSink;
     use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep, Value};
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
@@ -523,6 +527,66 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(matches.len(), 1, "expected one {tag:?} instruction");
         matches[0]
+    }
+
+    #[test]
+    fn empty_map_witnesses_capture_the_selected_dispatch_route() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure empty() -> Map[Int] { return map.empty() }\n";
+            let (program, source_id) = full_program(source);
+            let function = program
+                .symbol_owner()
+                .with_current(|| Name::intern("empty"));
+            let view = program
+                .function_view(
+                    LoweredFunctionKey::Name(function),
+                    LoweredFunctionKind::Pure,
+                )
+                .unwrap()
+                .expect("empty map function is present");
+            let execution = view.execution().unwrap();
+            let instruction = function_instruction(&program, &execution, FullTag::ExprEmptyMap);
+            let span = Span::new(source_id, 0, 0);
+
+            for (forced, expected_route, expected_mode) in [
+                (
+                    false,
+                    RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
+                    RouteWitnessMode::Normal,
+                ),
+                (
+                    true,
+                    RouteWitnessRoute::GenericOperandApplyPath,
+                    RouteWitnessMode::Forced,
+                ),
+            ] {
+                let sink = RouteWitnessSink::default();
+                let mut evaluator = Evaluator::new(Vec::new());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = forced;
+                evaluator.install_route_witness_sink(sink.clone());
+                let mut slots = vec![LoweredValue::Unit; view.slot_count()];
+
+                let result = evaluator
+                    .eval_indexed_expr(&execution, instruction, &mut slots, span)
+                    .expect("empty map evaluation succeeds");
+                assert!(matches!(
+                    result,
+                    ControlFlow::Continue(LoweredValue::Map(ref value)) if value.is_empty()
+                ));
+                assert!(evaluator.stdout.is_empty());
+                assert!(evaluator.stderr.is_empty());
+
+                let records = sink.take_records();
+                assert_eq!(records.len(), 1);
+                assert_eq!(records[0].tag.name, "ExprEmptyMap");
+                assert_eq!(records[0].tag.ordinal, FullTag::ExprEmptyMap as u32);
+                assert_eq!(records[0].route, expected_route);
+                assert_eq!(records[0].mode, expected_mode);
+                assert_eq!(records[0].route.name(), expected_route.name());
+                assert_eq!(records[0].mode.name(), expected_mode.name());
+            }
+        });
     }
 
     #[test]
@@ -6417,6 +6481,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             );
         }
         if super::indexed_frame_apply_tag(tag) {
+            if self.evaluator.force_frames
+                && tag == FullTag::ExprEmptyMap
+                && let Some(sink) = &self.evaluator.route_witness_sink
+            {
+                sink.record(
+                    tag,
+                    RouteWitnessRoute::GenericOperandApplyPath,
+                    RouteWitnessMode::Forced,
+                );
+            }
             let mut view = super::ExprView::decode(&execution, tag, payload)
                 .map_err(|error| indexed_error(error, span))?;
             let first = super::indexed_frame_apply_child(tag, &mut view, 0, None, None, span)?;

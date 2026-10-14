@@ -6,6 +6,27 @@
 //! not mistaken for the ordinary script-running contract.
 
 pub mod evaluator {
+    /// Reserved environment namespace for the private native-test route-witness side channel.
+    #[cfg(feature = "native-tests")]
+    #[doc(hidden)]
+    pub const NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX: &str =
+        crate::runtime::eval::route_witness::ENV_PREFIX;
+    /// Reserved environment namespace for xsht's private per-invocation opt-in.
+    #[cfg(feature = "native-tests")]
+    #[doc(hidden)]
+    pub const NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX: &str =
+        crate::runtime::eval::route_witness::HARNESS_ENV_PREFIX;
+    /// Hidden evaluator-overlay key carrying the exact outer harness test ID.
+    #[cfg(feature = "native-tests")]
+    #[doc(hidden)]
+    pub const NATIVE_TEST_ROUTE_WITNESS_TEST_ID_OVERLAY: &[u8] =
+        crate::runtime::eval::route_witness::INVOCATION_TEST_ID_OVERLAY;
+    /// Hidden evaluator-overlay key carrying the current invocation output directory.
+    #[cfg(feature = "native-tests")]
+    #[doc(hidden)]
+    pub const NATIVE_TEST_ROUTE_WITNESS_OUTPUT_DIR_OVERLAY: &[u8] =
+        crate::runtime::eval::route_witness::INVOCATION_OUTPUT_DIR_OVERLAY;
+
     pub use crate::runtime::eval::{
         CompactLowerBodyProbeOutput, CompactLowerConstructProbeOutput,
         CompactRuntimeDeclProbeOutput, EvalFlow, EvalOutput, Evaluator, FrontendLoweredStats,

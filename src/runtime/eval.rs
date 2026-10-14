@@ -64,6 +64,7 @@ mod require;
 mod set;
 mod validated;
 mod type_view;
+pub(crate) mod route_witness;
 mod json;
 use type_view::{ValueView, value_matches_static_type};
 
@@ -2531,6 +2532,7 @@ pub(crate) struct ScopedProducerContext {
 #[derive(Clone, Debug)]
 enum RuntimeEnv {
     Inherited,
+    InheritedWithoutRouteWitness,
     Snapshot(BTreeMap<Vec<u8>, Vec<u8>>),
 }
 
@@ -2548,11 +2550,17 @@ impl RuntimeEnv {
     }
 
     fn snapshot_mut(&mut self) -> &mut BTreeMap<Vec<u8>, Vec<u8>> {
-        if matches!(self, Self::Inherited) {
-            *self = Self::Snapshot(initial_env());
+        match self {
+            Self::Inherited => *self = Self::Snapshot(initial_env()),
+            Self::InheritedWithoutRouteWitness => {
+                *self = Self::Snapshot(initial_env_without_route_witness());
+            }
+            Self::Snapshot(_) => {}
         }
         match self {
-            Self::Inherited => unreachable!("runtime env snapshot was initialized"),
+            Self::Inherited | Self::InheritedWithoutRouteWitness => {
+                unreachable!("runtime env snapshot was initialized")
+            }
             Self::Snapshot(env) => env,
         }
     }
@@ -2565,12 +2573,26 @@ impl RuntimeEnv {
         match self {
             Self::Inherited => std::env::var_os(OsStr::from_bytes(key))
                 .map(|value| value.as_os_str().as_bytes().to_vec()),
+            Self::InheritedWithoutRouteWitness
+                if route_witness::is_private_env_name_bytes(key) => None,
+            Self::InheritedWithoutRouteWitness => std::env::var_os(OsStr::from_bytes(key))
+                .map(|value| value.as_os_str().as_bytes().to_vec()),
             Self::Snapshot(env) => env.get(key).cloned(),
         }
     }
 
     fn insert(&mut self, name: Vec<u8>, value: Vec<u8>) {
         self.snapshot_mut().insert(name, value);
+    }
+
+    fn remove_private_route_witness_env(&mut self) {
+        match self {
+            Self::Inherited => *self = Self::InheritedWithoutRouteWitness,
+            Self::InheritedWithoutRouteWitness => {}
+            Self::Snapshot(env) => {
+                env.retain(|name, _| !route_witness::is_private_env_name_bytes(name));
+            }
+        }
     }
 
     fn extend(&mut self, overlay: BTreeMap<Vec<u8>, Vec<u8>>) {
@@ -2580,6 +2602,7 @@ impl RuntimeEnv {
     fn into_snapshot(self) -> BTreeMap<Vec<u8>, Vec<u8>> {
         match self {
             Self::Inherited => initial_env(),
+            Self::InheritedWithoutRouteWitness => initial_env_without_route_witness(),
             Self::Snapshot(env) => env,
         }
     }
@@ -2693,6 +2716,10 @@ pub struct Evaluator {
     frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch,
     /// Test-only policy that requires executed instructions to have frame handlers.
     force_frames: bool,
+    /// An evaluation-local opt-in sink for route observations.
+    route_witness_sink: Option<route_witness::RouteWitnessSink>,
+    /// Exact harness identity used only to transport child route observations.
+    route_witness_invocation: Option<route_witness::InvocationContext>,
     /// Set while a context-scoped frame lends its slots to the recursive
     /// evaluator, so nested bodies keep the outer-assignment escape rule.
     lent_context_slots:
@@ -2753,6 +2780,8 @@ struct LoweredSharedState {
     cwd: PathBuf,
     env: RuntimeEnv,
     force_frames: bool,
+    route_witness_sink: Option<route_witness::RouteWitnessSink>,
+    route_witness_invocation: Option<route_witness::InvocationContext>,
     #[cfg(feature = "native-tests")]
     native_test_host: Option<NativeTestHost>,
     #[cfg(feature = "native-tests")]
@@ -2772,6 +2801,51 @@ impl PreparedTestProgram {
         env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
         cancellation: TestCancellation,
     ) -> TestEvalOutput {
+        let (route_witness_invocation, env_overlay) =
+            match route_witness::take_invocation_context(env_overlay) {
+            Ok(context) => context,
+            Err(message) => return self.invalid_route_witness_invocation(message),
+        };
+        self.eval_test_with_route_witness_sink(
+            test_name,
+            ctx,
+            trace_enabled,
+            force_frames,
+            env_overlay,
+            cancellation,
+            None,
+            route_witness_invocation,
+        )
+    }
+
+    fn invalid_route_witness_invocation(&self, message: String) -> TestEvalOutput {
+        let diagnostic = runtime_diagnostic(
+            self.script_span,
+            &message,
+            DiagnosticCode::RuntimeError,
+        );
+        TestEvalOutput {
+            output: EvalOutput {
+                diagnostics: vec![diagnostic],
+                sources: Arc::clone(&self.shared.sources),
+                status: 3,
+                ..EvalOutput::default()
+            },
+            result: Some(module_error("route-witness", &message, self.script_span)),
+        }
+    }
+
+    pub(crate) fn eval_test_with_route_witness_sink(
+        &self,
+        test_name: &str,
+        ctx: Value,
+        trace_enabled: bool,
+        force_frames: bool,
+        env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
+        cancellation: TestCancellation,
+        route_witness_sink: Option<route_witness::RouteWitnessSink>,
+        route_witness_invocation: Option<route_witness::InvocationContext>,
+    ) -> TestEvalOutput {
         let symbols = self.symbols.clone();
         run_eval(move || {
             symbols.with_current(|| {
@@ -2784,12 +2858,15 @@ impl PreparedTestProgram {
                     &self.setup_shared
                 };
                 let mut evaluator = Evaluator::new_lowered_worker(shared);
+                evaluator.route_witness_sink = route_witness_sink;
+                evaluator.route_witness_invocation = route_witness_invocation;
                 evaluator.force_frames |= force_frames;
                 evaluator.capture_process_output = true;
                 evaluator.test_cancellation = Some(cancellation);
                 for (name, value) in env_overlay {
                     evaluator = evaluator.with_env_var(name, value);
                 }
+                evaluator = evaluator.without_private_route_witness_env();
                 if trace_enabled {
                     evaluator = evaluator.with_tracing();
                     evaluator.eval_installed_indexed_test_inner(
@@ -2855,6 +2932,18 @@ pub type InteractiveCommandDispatcher =
     fn(&str, Vec<Vec<u8>>, &mut InteractiveCommandContext<'_>) -> u8;
 
 impl Evaluator {
+    pub(crate) fn install_route_witness_sink(
+        &mut self,
+        sink: route_witness::RouteWitnessSink,
+    ) {
+        self.route_witness_sink = Some(sink);
+    }
+
+    pub(crate) fn without_private_route_witness_env(mut self) -> Self {
+        self.env.remove_private_route_witness_env();
+        self
+    }
+
     pub fn new(argv: Vec<String>) -> Self {
         Self::new_with_sources(argv, SourceMap::new())
     }
@@ -2992,6 +3081,8 @@ impl Evaluator {
             force_frames: force_frames_from_marker(
                 std::env::var_os(FORCE_FRAMES_ENV).as_deref(),
             ),
+            route_witness_sink: None,
+            route_witness_invocation: None,
             lent_context_slots: None,
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
@@ -3143,6 +3234,8 @@ impl Evaluator {
             cwd: self.cwd.clone(),
             env: self.env.clone(),
             force_frames: self.force_frames,
+            route_witness_sink: self.route_witness_sink.clone(),
+            route_witness_invocation: self.route_witness_invocation.clone(),
             #[cfg(feature = "native-tests")]
             native_test_host: self.native_test_host.clone(),
             #[cfg(feature = "native-tests")]
@@ -3237,6 +3330,8 @@ impl Evaluator {
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
             force_frames: shared.force_frames,
+            route_witness_sink: shared.route_witness_sink.clone(),
+            route_witness_invocation: shared.route_witness_invocation.clone(),
             lent_context_slots: None,
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
@@ -6935,6 +7030,12 @@ fn initial_env() -> BTreeMap<Vec<u8>, Vec<u8>> {
     env
 }
 
+fn initial_env_without_route_witness() -> BTreeMap<Vec<u8>, Vec<u8>> {
+    let mut env = initial_env();
+    env.retain(|name, _| !route_witness::is_private_env_name_bytes(name));
+    env
+}
+
 fn check_env_name(name: &str, span: Span) -> Result<(), RuntimeError> {
     if valid_env_name(name) {
         Ok(())
@@ -7880,6 +7981,21 @@ mod frame_scheduler_marker_tests {
             force_frames_from_marker(Some(OsStr::new("enabled")))
         })
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod runtime_env_route_witness_tests {
+    use super::RuntimeEnv;
+
+    #[test]
+    fn private_prefix_filter_keeps_inherited_environment_lazy() {
+        let mut env = RuntimeEnv::inherited();
+        env.remove_private_route_witness_env();
+        assert!(matches!(env, RuntimeEnv::InheritedWithoutRouteWitness));
+        assert!(env
+            .get_owned(b"XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TEST")
+            .is_none());
     }
 }
 

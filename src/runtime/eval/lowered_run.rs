@@ -358,13 +358,51 @@ impl Evaluator {
                 RuntimeError::new(error_kind, "native test host is not installed").with_span(span),
             );
         };
+        super::route_witness::reject_reserved_env(env).map_err(|message| {
+            RuntimeError::new(error_kind, message).with_span(span)
+        })?;
+        let mut request_env = env.clone();
+        let route_witness_output = if let Some(invocation) = &self.route_witness_invocation {
+            if kind != NativeTestRunKind::Xsh
+                || self.linux_fake.is_some()
+                || self.unix_fake.is_some()
+            {
+                return Err(RuntimeError::new(
+                    error_kind,
+                    "route-witness capture requires a direct xsh child without test fakes",
+                )
+                .with_span(span));
+            }
+            Some(
+                tempfile::TempDir::new_in(&invocation.output_dir).map_err(|error| {
+                    RuntimeError::new(
+                        error_kind,
+                        format!("failed to create child route-witness directory: {error}"),
+                    )
+                    .with_span(span)
+                })?,
+            )
+        } else {
+            None
+        };
+        if let (Some(invocation), Some(output_dir)) =
+            (&self.route_witness_invocation, route_witness_output.as_ref())
+        {
+            super::route_witness::transport_env(
+                &invocation.test_id,
+                output_dir.path(),
+                source.as_bytes(),
+                &mut request_env,
+            )
+            .map_err(|message| RuntimeError::new(error_kind, message).with_span(span))?;
+        }
         let value = host(NativeTestRunRequest {
             kind,
             script_path,
             source: source.to_string(),
             tool_args: tool_args.to_vec(),
             script_args: script_args.to_vec(),
-            env: env.clone(),
+            env: request_env,
             force_frames: self.force_frames,
             stdin: stdin.to_vec(),
             linux_fake: self.linux_fake.as_deref().cloned(),
@@ -372,6 +410,26 @@ impl Evaluator {
             cancellation: self.test_cancellation.clone(),
             span,
         })?;
+        if let Some(output_dir) = route_witness_output
+            && matches!(
+                &value,
+                Value::Record(record)
+                    if record.get("success") == Some(&Value::Bool(true))
+            )
+        {
+            super::route_witness::validate_artifact(
+                output_dir.path(),
+                &self
+                    .route_witness_invocation
+                    .as_ref()
+                    .expect("route-witness output has its invocation context")
+                    .test_id,
+                source.as_bytes(),
+                self.force_frames,
+            )
+            .map_err(|message| RuntimeError::new(error_kind, message).with_span(span))?;
+            let _ = output_dir.keep();
+        }
         match lowered_runtime_value(value, span)? {
             LoweredValue::Record(record) => Ok(take_shared(record)),
             other => Err(RuntimeError::new(
