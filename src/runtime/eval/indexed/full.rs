@@ -21087,6 +21087,37 @@ pure selected() -> Str {
         assert!(FullVerifier::verify(&bad_location).is_err());
     }
 
+    #[test]
+    fn verifier_rejects_a_pipeline_input_that_names_a_statement() {
+        let program = fixture(
+            "pipeline-input.xsh",
+            "pure pipeline() -> List[Int] { return [1] |> map { |item| item } |> collect() }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let pipeline = function_instruction_indices(&program, "pipeline", FullTag::ExprPipeline)
+            .into_iter()
+            .next()
+            .expect("function has a pipeline expression");
+        let statement = function_instruction_indices(&program, "pipeline", FullTag::StmtReturn)
+            .into_iter()
+            .next()
+            .expect("function has a return statement");
+        let payload = program.store.data[pipeline]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
+
+        let mut missing_input = program;
+        missing_input.store.extra[payload.start] =
+            u32::try_from(statement).expect("instruction index fits in the IR");
+        let error = FullVerifier::verify(&missing_input).unwrap_err();
+        assert!(
+            error.message.contains("wrong category"),
+            "{}",
+            error.message
+        );
+    }
+
     /// An index from the end carries the distance the checker read from the
     /// literal. Lowering never writes zero, which would read one past the
     /// end, so a program that holds one is rejected before it runs.

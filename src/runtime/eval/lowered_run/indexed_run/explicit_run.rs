@@ -553,6 +553,31 @@ mod tests {
         });
     }
 
+    #[test]
+    fn complete_pipeline_decode_preserves_the_stage_count() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure pipeline() -> List[Int] { return [1] |> map { |item| item } |> sort |> map { |item| item } |> collect() }\n";
+            let (program, source_id) = full_program(source);
+            let function = program.symbol_owner().with_current(|| {
+                program
+                    .function_view(
+                        LoweredFunctionKey::Name(Name::intern("pipeline")),
+                        LoweredFunctionKind::Pure,
+                    )
+                    .unwrap()
+                    .expect("pipeline function is present")
+            });
+            let execution = function.execution().unwrap();
+            let instruction = function_instruction(&program, &execution, FullTag::ExprPipeline);
+            let span = Span::new(source_id, 0, 0);
+            let (_, _, stages) = indexed_value_pipeline_input(&execution, instruction, span)
+                .unwrap()
+                .expect("a complete pipeline decode retains its input");
+
+            assert_eq!(stages.len(), 4);
+        });
+    }
+
     struct RetainedFrameStream(ProducerFrameState);
 
     impl ScriptStream for RetainedFrameStream {
