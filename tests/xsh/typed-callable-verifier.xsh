@@ -10,8 +10,8 @@ pure thrice(value: Int) -> Int {
   value * 3
 }
 
-proc write_marker(root: FsRoot) [fs, error] -> Result[Unit] {
-  root.write(p"marker", "kept")
+proc write_marker(root: FsRoot) [fs, error] {
+  return root.write(p"marker", "kept")
 }
 
 pure callback_map() -> Map[Str, Scale] {
@@ -45,7 +45,7 @@ test test_record_callable_and_resource_survive_returned_frame {
   let bundle = make_root_bundle()?
   defer bundle.root.close()
 
-  bundle.write(bundle.root)?
+  let _ = bundle.write(bundle.root)?
   assert bundle.root.read_text(p"marker")? == "kept"
 }
 

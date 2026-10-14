@@ -1,9 +1,5 @@
-stream delayed_clock() -> Stream[Int] {
-  yield time.now()
-}
-
 stream delayed_file_marker(marker: Path) [fs, error] -> Stream[Int] {
-  marker.write("pulled")?
+  marker.write("pulled")
   yield 7
 }
 
@@ -66,7 +62,7 @@ test test_filesystem_effects_of_an_external_stream_are_charged_at_creation { |ct
   let rows = delayed_file_marker(marker)
   assert ! marker.exists()?, "calling a producer must not run its body"
 
-  var values: List[Int] = []
+  var values = []
   without fs {
     values = rows |> collect()
   }
@@ -79,7 +75,7 @@ test test_process_effects_of_an_external_stream_are_charged_at_creation { |ctx|
   let rows = delayed_process_marker(marker)
   assert ! marker.exists()?, "calling a producer must not run its body"
 
-  var values: List[Int] = []
+  var values = []
   without process {
     values = rows |> collect()
   }
@@ -102,9 +98,9 @@ test test_network_effects_of_an_external_stream_are_charged_at_creation { |ctx|
   test.mock(ctx, "net.request", {url: url}, Ok(response))
 
   let rows = delayed_http_status()
-  assert test.calls(ctx, "net.request").len() == 0
+  assert test.calls(ctx, "net.request").is_empty()
 
-  var values: List[Int] = []
+  var values = []
   without net {
     values = rows |> collect()
   }

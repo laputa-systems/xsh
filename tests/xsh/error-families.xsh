@@ -12,17 +12,15 @@ error FetchError {
     Refused(message: Str, port: Int) : PermissionDenied, Timeout
 }
 
-error OptionalError = Failed(message: Str)
+error OptionalError = Failed
 
 type OptionalErrorSource = {load: proc() -> OptionalError?}
 
 proc load_optional_error() -> OptionalError? {
-  OptionalError.Failed("optional failure")
+  .Failed("optional failure")
 }
 
-let optional_error_source: OptionalErrorSource = {
-  load: load_optional_error,
-}
+let optional_error_source: OptionalErrorSource = OptionalErrorSource(load_optional_error)
 
 pure count_of(text: Str, needle: Str) -> Int {
   text.split(needle).len() - 1
@@ -101,7 +99,8 @@ left=3 right=2
 test test_narrowed_optional_error_pattern_from_callable_field {
   let possible = optional_error_source.load()
   if possible != null {
-    assert possible is OptionalError.Failed
+    assert possible is .Failed
+    assert possible.message == "optional failure"
   } else {
     assert false, "expected the callable field to return an error"
   }

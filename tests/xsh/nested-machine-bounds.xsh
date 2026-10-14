@@ -169,7 +169,7 @@ print f"accepted {values[0]}"
 test nested_started_callback_producer_cancel_cleans_at_32_machine_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "nested-producer-cancel")?
   let pid_file = fp"{root}/child.pid"
-  defer root.remove(missing_ok: true)?
+  defer root.remove()
   defer {
     if let Ok(text) = pid_file.read_text() {
       if let Ok(pid) = text.trim().parse_int() {
@@ -215,7 +215,7 @@ print "cancelled"
   for n in range(31) {
     assert ! fp"{root}/{n}".exists()?, f"producer {n} kept its tempdir after cancellation"
   }
-  let child_pid = pid_file.read_text()?.trim().parse_int()?
+  let child_pid = pid_file.read_text()?.trim() as Int
   assert process.kill(child_pid, signal: "0") is Err(_), "the leaf producer must reap its child during cancellation"
 }
 

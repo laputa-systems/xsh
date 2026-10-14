@@ -4,36 +4,37 @@ type FlowCase = {name: Str, source: Str, diagnostics: List[Str]}
 # Checks each source separately so a missing diagnostic cannot be hidden by
 # another case in the batch.
 proc expect_flow_cases(ctx: TestContext, cases: List[FlowCase]) [fs, process, error] {
-  var failures: List[Str] = []
   let root = test.temp_dir(ctx, name: "flow-cases")?
   for item in cases {
     let file = fp"{root}/{item.name}.xsh"
     file.write(item.source)
   }
 
-  for item in cases {
-    let file = fp"{root}/{item.name}.xsh"
-    let checked = run.capture --text "xsht" check --summary $file
-    let diagnostic_output = checked.stderr.split("xsht check summary:")[0]
-    let diagnostic_blocks = diagnostic_output.split("err[")
-    let filename = f"{item.name}.xsh"
-    if item.diagnostics.len() > 0 {
-      if !checked.status.exited_with(2) {
-        failures += [f"{filename}: expected status 2: {checked.stderr}"]
+  let failures = collect {
+    for item in cases {
+      let file = fp"{root}/{item.name}.xsh"
+      let checked = run.capture --text "xsht" check --summary $file
+      let diagnostic_output = checked.stderr.split("xsht check summary:")[0]
+      let diagnostic_blocks = diagnostic_output.split("err[")
+      let filename = f"{item.name}.xsh"
+      if ! item.diagnostics.is_empty() {
+        if !checked.status.exited_with(2) {
+          yield f"{filename}: expected status 2: {checked.stderr}"
+        }
+      } else {
+        if !checked.status.exited_with(0) {
+          yield f"{filename}: expected status 0: {checked.stderr}"
+        }
       }
-    } else {
-      if !checked.status.exited_with(0) {
-        failures += [f"{filename}: expected status 0: {checked.stderr}"]
+      if diagnostic_blocks.len() - 1 != item.diagnostics.len() {
+        yield f"{filename}: expected {item.diagnostics.len()} diagnostics, got {diagnostic_blocks.len() - 1}: {checked.stderr}"
       }
-    }
-    if diagnostic_blocks.len() - 1 != item.diagnostics.len() {
-      failures += [f"{filename}: expected {item.diagnostics.len()} diagnostics, got {diagnostic_blocks.len() - 1}: {checked.stderr}"]
-    }
-    for code in item.diagnostics {
-      let actual_code = diagnostic_blocks |> where { |block| f"{code}]" in block } |> count()
-      let expected_count = item.diagnostics |> where { |expected| expected == code } |> count()
-      if actual_code != expected_count {
-        failures += [f"{filename}: expected {expected_count} {code} diagnostics, got {actual_code}: {checked.stderr}"]
+      for code in item.diagnostics {
+        let actual_code = diagnostic_blocks |> where { |block| f"{code}]" in block } |> count()
+        let expected_count = item.diagnostics |> where { |expected| expected == code } |> count()
+        if actual_code != expected_count {
+          yield f"{filename}: expected {expected_count} {code} diagnostics, got {actual_code}: {checked.stderr}"
+        }
       }
     }
   }
@@ -709,9 +710,9 @@ pure choose_guard(stop: Bool) -> Int {
   )
 }
 
-test test_json_lines_may_drop_whitespace_only_input { |ctx|
+test test_json_lines_may_drop_whitespace_only_input {
   var visited = 0
-  for row in " \n" |> json.lines {
+  for _ in " \n" |> json.lines {
     visited += 1
   }
   assert visited == 0
