@@ -532,7 +532,7 @@ mod tests {
     #[test]
     fn empty_map_witnesses_capture_the_selected_dispatch_route() {
         crate::runtime::eval::run_eval(|| {
-            let source = "pure empty() -> Map[Int] { return map.empty() }\n";
+            let source = "pure empty() -> Map[Str, Int] { let value: Map[Str, Int] = {}; return value }\n";
             let (program, source_id) = full_program(source);
             let function = program
                 .symbol_owner()
