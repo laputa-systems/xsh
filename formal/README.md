@@ -112,7 +112,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 663 fragment
+G0b source freeze remain pending. The provisional inventory has 685 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -407,6 +407,21 @@ cover selected operations in the independent validation model; they do not
 cover every validated-type operation or establish Rust correspondence or full
 G2.
 
+`Xsh.Validation.IdentityStorage` adds 22 roots over finite path, List, Stream,
+Set, Map, Optional, Result, and runtime-payload models. Validated types retain
+their exact `ValidationIdentity`; structural views recurse through List,
+Stream, Optional, and Result, while Set elements and Map keys remain invariant
+and eligible Map values may use a validated base view. Optional injection
+requires a non-Optional, non-Any source. The rejection witness covers only
+Optional Path to Optional Any and Any to Optional Any; it does not establish
+invariance for every Optional type. The Result field witness uses structural
+`baseView` only; it proves no full Any or Optional field conversion. The
+witnessed sibling-path update requires distinct source and target variable
+handles and preserves the `ResourceIdentity` carried in the `RuntimeValue`
+payload.
+Null, Record, and Union types are outside the model. It establishes no source
+or Rust correspondence and closes no full G2 obligation.
+
 `Xsh.Effects.BoundFailureWitnesses` preserves the source expression, required
 effect, and rejection reason for a classified obligation.
 `Xsh.Effects.SolverEdgeOrder` proves that edge permutations preserve the finite
@@ -414,7 +429,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 663 rooted Lean fragment declarations across 89 core owner
+The inventory names 685 rooted Lean fragment declarations across 89 core owner
 sets. Its 51 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full

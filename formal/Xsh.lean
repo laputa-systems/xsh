@@ -49,6 +49,7 @@ import Xsh.Proofs.Foundation.ResolvedBinding
 import Xsh.Validation.Boundary
 import Xsh.Validation.Store
 import Xsh.Validation.Nominal
+import Xsh.Validation.IdentityStorage
 import Xsh.Validation.RelPath
 import Xsh.Validation.RecursiveRequire
 import Xsh.Validation.SetRequire

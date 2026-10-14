@@ -8953,6 +8953,204 @@
       "status": "fragment",
       "scope": "The width-checking decoder rejects a malformed row accepted by the mutation that ignores declared width.",
       "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.same_validation_identity_assigns",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.same_validation_identity_assigns",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A validated type is assignable to the same validated declaration with the same base.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.distinct_validations_do_not_assign",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.distinct_validations_do_not_assign",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Validated declarations with distinct identities are not assignable even when their bases match.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.validated_list_has_its_base_view",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.validated_list_has_its_base_view",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A validated List of Path is assignable to its declared List Path base.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.nested_validated_element_has_base_view",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.nested_validated_element_has_base_view",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A List element validated as Path has the modeled structural List Path base view.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.validated_set_element_widening_is_rejected",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.validated_set_element_widening_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Set whose element is a validated Path is not assignable to a Set Path.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.validated_map_key_widening_is_rejected",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.validated_map_key_widening_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Map with a validated Path key is not assignable to a Map Path key with the same Text value type.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.validated_map_value_has_base_view",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.validated_map_value_has_base_view",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Map with a validated Path value has a base view when its Text key type stays fixed.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.validated_result_field_has_base_view",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.validated_result_field_has_base_view",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Result field containing Optional validated Path has the modeled structural base view with its Text error type unchanged.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.optional_injection_preserves_assignability",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.optional_injection_preserves_assignability",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An assignable non-Optional, non-Any source remains assignable after injection into Optional.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.validated_path_injects_optional",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.validated_path_injects_optional",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A validated Path is assignable to Optional Path through its base view even though direct baseView to Optional Path is false.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.optional_storage_widening_and_any_injection_are_rejected",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.optional_storage_widening_and_any_injection_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Optional Path does not widen to Optional Any, and Any does not inject into Optional Any.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.collection_parameter_invariance_remains",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.collection_parameter_invariance_remains",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An ordinary List or Stream Path collection is not assignable to the corresponding Any-parameter collection without a validation base.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.concrete_type_fits_any",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.concrete_type_fits_any",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every type in the finite model is assignable to the dynamic Any type.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.any_does_not_fit_path",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.any_does_not_fit_path",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A value with dynamic Any type is not assignable to Path implicitly.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.persistent_view_update_preserves_narrow_binding",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.persistent_view_update_preserves_narrow_binding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Updating the widened target binding preserves the distinct narrow source binding in the original store.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.persistent_path_update_commits_and_preserves_source",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.persistent_path_update_commits_and_preserves_source",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A successful modeled sibling-path update commits its payload to the distinct base-view target and preserves the narrow source binding.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.persistent_update_commits_selected_payload",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.persistent_update_commits_selected_payload",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A persistent update writes the replacement payload at the selected store handle.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.widened_binding_preserves_payload",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.widened_binding_preserves_payload",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Creating a base-view binding preserves the exact runtime payload.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.path_update_preserves_resource_identity",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.path_update_preserves_resource_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A modeled sibling-path replacement retains the leading runtime ResourceIdentity in the payload.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.persistent_resource_update_witness",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.persistent_resource_update_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete persistent path update changes the widened payload and preserves the narrow source binding and resource identity.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.changed_resource_identity_mutation_is_detected",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.changed_resource_identity_mutation_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A sibling-path mutation that changes the embedded resource identity is distinguished from the original identity.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
+    },
+    {
+      "id": "fragment.Xsh.Validation.IdentityStorage.disabled_persistent_update_mutation_is_detected",
+      "module": "Xsh.Validation.IdentityStorage",
+      "declaration": "Xsh.Validation.IdentityStorage.disabled_persistent_update_mutation_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Disabling the persistent update leaves the base-view target payload stale and is distinguished from the successful update.",
+      "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
     }
   ],
   "source_identity": null

@@ -183,7 +183,7 @@ theorem validated_path_injects_optional (identity : ValidationIdentity) :
       assignable (.validated identity .path) (.optional .path) = true := by
   simp [assignable, baseView, optionalInjectionMatches]
 
-/-- Optional storage stays invariant, and dynamic Any does not inject into an Optional. -/
+/-- Optional Path does not widen to Optional Any, and Any does not inject into Optional Any. -/
 theorem optional_storage_widening_and_any_injection_are_rejected :
     assignable (.optional .path) (.optional .any) = false ∧
       assignable .any (.optional .any) = false := by

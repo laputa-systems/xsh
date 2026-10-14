@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(663, len(result["fragment_roots"]))
+        self.assertEqual(685, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -605,6 +605,37 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Validation.Nominal.id_collapse_mutation_is_detected",
                 "Xsh.Validation.Nominal.provenance_erasure_mutation_is_detected",
             }.issubset(nominal_roots)
+        )
+        identity_storage_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Validation.IdentityStorage"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Validation.IdentityStorage.same_validation_identity_assigns",
+                "Xsh.Validation.IdentityStorage.distinct_validations_do_not_assign",
+                "Xsh.Validation.IdentityStorage.validated_list_has_its_base_view",
+                "Xsh.Validation.IdentityStorage.nested_validated_element_has_base_view",
+                "Xsh.Validation.IdentityStorage.validated_set_element_widening_is_rejected",
+                "Xsh.Validation.IdentityStorage.validated_map_key_widening_is_rejected",
+                "Xsh.Validation.IdentityStorage.validated_map_value_has_base_view",
+                "Xsh.Validation.IdentityStorage.validated_result_field_has_base_view",
+                "Xsh.Validation.IdentityStorage.optional_injection_preserves_assignability",
+                "Xsh.Validation.IdentityStorage.validated_path_injects_optional",
+                "Xsh.Validation.IdentityStorage.optional_storage_widening_and_any_injection_are_rejected",
+                "Xsh.Validation.IdentityStorage.collection_parameter_invariance_remains",
+                "Xsh.Validation.IdentityStorage.concrete_type_fits_any",
+                "Xsh.Validation.IdentityStorage.any_does_not_fit_path",
+                "Xsh.Validation.IdentityStorage.persistent_view_update_preserves_narrow_binding",
+                "Xsh.Validation.IdentityStorage.persistent_path_update_commits_and_preserves_source",
+                "Xsh.Validation.IdentityStorage.persistent_update_commits_selected_payload",
+                "Xsh.Validation.IdentityStorage.widened_binding_preserves_payload",
+                "Xsh.Validation.IdentityStorage.path_update_preserves_resource_identity",
+                "Xsh.Validation.IdentityStorage.persistent_resource_update_witness",
+                "Xsh.Validation.IdentityStorage.changed_resource_identity_mutation_is_detected",
+                "Xsh.Validation.IdentityStorage.disabled_persistent_update_mutation_is_detected",
+            },
+            identity_storage_roots,
         )
         relpath_roots = {
             root["declaration"] for root in roots
