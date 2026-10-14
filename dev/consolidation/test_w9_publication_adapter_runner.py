@@ -2145,15 +2145,20 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "comparison_progress inputs=2/2 outcomes=8/8 mismatches=0\n",
         )
 
-    def test_full_compare_retries_and_reports_each_failed_profile_pair(self):
+    def test_full_compare_reuses_failed_profile_pairs_and_reports_each_mismatch(self):
         result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
             "cache-failure"
         )
 
-        mismatches = (self.artifact_root / "full-mismatches.tsv").read_text().splitlines()
+        mismatch_report = (self.artifact_root / "full-mismatches.tsv").read_bytes()
+        expected_mismatches = "".join(
+            f"{(0, self.expected_inputs[0].relative_path, profile)}"
+            "\tadapter\tAdapterError\tfixture comparison failure\n"
+            for profile in adapter_runner.PROFILES
+        ).encode()
         self.assertEqual(result, (4, 4))
-        self.assertEqual(len(observed), 4)
-        self.assertEqual(len(mismatches), 4)
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(mismatch_report, expected_mismatches)
         self.assertEqual(
             progress,
             "comparison_progress inputs=1/1 outcomes=4/4 mismatches=4\n",

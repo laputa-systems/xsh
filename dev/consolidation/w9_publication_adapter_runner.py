@@ -1999,7 +1999,9 @@ def compare_full_publications(
                 mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
                 _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
                 continue
-            validated_profile_pairs: set[tuple[str, str, str, str]] = set()
+            comparison_outcomes: dict[
+                tuple[str, str, str, str], tuple[type[Exception], str] | None
+            ] = {}
             for (
                 profile,
                 key,
@@ -2015,7 +2017,13 @@ def compare_full_publications(
                     candidate_diagnostics,
                     aligned.candidate_publications[profile_index],
                 )
-                if comparison_pair in validated_profile_pairs:
+                if comparison_pair in comparison_outcomes:
+                    cached_error = comparison_outcomes[comparison_pair]
+                    if cached_error is not None:
+                        error_type, error_text = cached_error
+                        mismatches.append(
+                            f"{key}\tadapter\t{error_type.__name__}\t{error_text}"
+                        )
                     continue
                 try:
                     adapter.compare_publications(
@@ -2033,9 +2041,10 @@ def compare_full_publications(
                         candidate_statement_owners=aligned_candidate_statement_owners,
                     )
                 except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+                    comparison_outcomes[comparison_pair] = (type(error), str(error))
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
                 else:
-                    validated_profile_pairs.add(comparison_pair)
+                    comparison_outcomes[comparison_pair] = None
             _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
     finally:
         os.close(reference_root)
