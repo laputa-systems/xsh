@@ -7,6 +7,10 @@ from typing import Callable, Mapping, NamedTuple
 
 ADAPTER_SCHEMA = "w9-publication-adapter-v1"
 SOURCE_SCHEMAS = {"legacy", "current"}
+_DEBUG_STRUCTURAL_TOKENS = re.compile(r'''['"{}()\[\]]''')
+_DEBUG_COMMA_TOKENS = re.compile(r'''['"{}()\[\],]''')
+_DEBUG_DOUBLE_QUOTED_TOKENS = re.compile(r'\\[\s\S]|"')
+_DEBUG_SINGLE_QUOTED_TOKENS = re.compile(r"\\[\s\S]|'|\s")
 PATHS = {
     "legacy": (
         (("CheckOutput", "prepared_constants"), ("PreparedConstants", "global_bindings")),
@@ -125,17 +129,23 @@ def _quoted_end(value: str, start: int) -> int | None:
     quote = value[start]
     if quote not in {"\"", "'"}:
         return None
+    tokens = _DEBUG_DOUBLE_QUOTED_TOKENS if quote == "\"" else _DEBUG_SINGLE_QUOTED_TOKENS
     index = start + 1
-    while index < len(value):
-        if value[index] == "\\":
-            index += 2
-        elif value[index] == quote:
-            return index + 1
-        elif quote == "'" and value[index].isspace():
+    while match := _search_debug_token(tokens, value, index):
+        token = match.group()
+        if token[0] == "\\":
+            index = match.end()
+        elif quote == "'" and token.isspace():
             return None
         else:
-            index += 1
+            return match.end()
     return None
+
+
+def _search_debug_token(
+    tokens: re.Pattern[str], value: str, start: int
+) -> re.Match[str] | None:
+    return tokens.search(value, start)
 
 
 def _group_end(value: str, start: int) -> int | None:
@@ -145,10 +155,10 @@ def _group_end(value: str, start: int) -> int | None:
         return None
     stack = [closes[opening]]
     index = start + 1
-    while index < len(value):
-        character = value[index]
+    while match := _search_debug_token(_DEBUG_STRUCTURAL_TOKENS, value, index):
+        character = match.group()
         if character in {"\"", "'"}:
-            quoted = _quoted_end(value, index)
+            quoted = _quoted_end(value, match.start())
             if quoted is not None:
                 index = quoted
                 continue
@@ -158,25 +168,25 @@ def _group_end(value: str, start: int) -> int | None:
             if not stack or stack.pop() != character:
                 raise AdapterError("unbalanced Rust Debug value")
             if not stack:
-                return index
-        index += 1
+                return match.start()
+        index = match.end()
     raise AdapterError("unterminated Rust Debug value")
 
 
 def _struct_parts(value: str, expected_type: str) -> tuple[str, list[str]]:
     index = 0
     opening = None
-    while index < len(value):
-        character = value[index]
+    while match := _search_debug_token(_DEBUG_STRUCTURAL_TOKENS, value, index):
+        character = match.group()
         if character in {"\"", "'"}:
-            quoted = _quoted_end(value, index)
+            quoted = _quoted_end(value, match.start())
             if quoted is not None:
                 index = quoted
                 continue
         if character == "{":
-            opening = index
+            opening = match.start()
             break
-        index += 1
+        index = match.end()
     if opening is None:
         raise AdapterError(f"expected named {expected_type} Debug struct")
     closing = _group_end(value, opening)
@@ -191,10 +201,10 @@ def _struct_parts(value: str, expected_type: str) -> tuple[str, list[str]]:
     closes = {"{": "}", "[": "]", "(": ")"}
     start = 0
     index = 0
-    while index < len(body):
-        character = body[index]
+    while match := _search_debug_token(_DEBUG_COMMA_TOKENS, body, index):
+        character = match.group()
         if character in {"\"", "'"}:
-            quoted = _quoted_end(body, index)
+            quoted = _quoted_end(body, match.start())
             if quoted is not None:
                 index = quoted
                 continue
@@ -204,11 +214,11 @@ def _struct_parts(value: str, expected_type: str) -> tuple[str, list[str]]:
             if not stack or stack.pop() != character:
                 raise AdapterError("unbalanced Rust Debug field value")
         elif character == "," and not stack:
-            entry = body[start:index].strip()
+            entry = body[start:match.start()].strip()
             if entry:
                 entries.append(entry)
-            start = index + 1
-        index += 1
+            start = match.end()
+        index = match.end()
     tail = body[start:].strip()
     if tail:
         entries.append(tail)
@@ -289,12 +299,18 @@ def _split_top_level(value: str, separator: str) -> list[str]:
     parts = []
     stack: list[str] = []
     closes = {"{": "}", "[": "]", "(": ")"}
+    if separator == ",":
+        tokens = _DEBUG_COMMA_TOKENS
+    elif len(separator) != 1:
+        tokens = _DEBUG_STRUCTURAL_TOKENS
+    else:
+        tokens = re.compile(r'''['"{}()\[\]]|''' + re.escape(separator))
     start = 0
     index = 0
-    while index < len(value):
-        character = value[index]
+    while match := _search_debug_token(tokens, value, index):
+        character = match.group()
         if character in {"\"", "'"}:
-            quoted = _quoted_end(value, index)
+            quoted = _quoted_end(value, match.start())
             if quoted is not None:
                 index = quoted
                 continue
@@ -304,9 +320,9 @@ def _split_top_level(value: str, separator: str) -> list[str]:
             if not stack or stack.pop() != character:
                 raise AdapterError("unbalanced Rust Debug collection")
         elif character == separator and not stack:
-            parts.append(value[start:index].strip())
-            start = index + 1
-        index += 1
+            parts.append(value[start:match.start()].strip())
+            start = match.end()
+        index = match.end()
     if stack:
         raise AdapterError("unterminated Rust Debug collection")
     parts.append(value[start:].strip())

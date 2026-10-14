@@ -145,6 +145,42 @@ def aligned(*, reference=None, candidate=None, reference_owners=None, candidate_
 
 
 class TuiPublicationSourceAlignmentTests(unittest.TestCase):
+    def test_span_rewriter_preserves_quote_and_identifier_boundaries(self):
+        edit = publication_sources._known_source_edit(OLD_SOURCE, CURRENT_SOURCE)
+        start = CURRENT_SOURCE.index(b"export pure reset")
+        length = len(b"export pure reset")
+        target = span(5, start, length)
+        aligned_target = span(5, start - DELTA, length)
+        for rendered in (f'quoted:"  {target}  "', f"quoted:'{target}'"):
+            with self.subTest(rendered=rendered[:20]):
+                self.assertEqual(
+                    publication_sources._rewrite_publication_spans(rendered, 5, edit),
+                    rendered,
+                )
+
+        self.assertEqual(
+            publication_sources._rewrite_publication_spans(f"lifetime:'a + {target}", 5, edit),
+            f"lifetime:'a + {aligned_target}",
+        )
+        for rendered in (
+            f"boundaries:Spanish{{source_id:SourceId(5),start:{start},len:{length}}}",
+            f"boundaries:xSpan{{source_id:SourceId(5),start:{start},len:{length}}}",
+            f"boundaries:éSpan{{source_id:SourceId(5),start:{start},len:{length}}}",
+            f"boundaries:Spané{{source_id:SourceId(5),start:{start},len:{length}}}",
+        ):
+            with self.subTest(rendered=rendered[:20]):
+                self.assertEqual(
+                    publication_sources._rewrite_publication_spans(rendered, 5, edit),
+                    rendered,
+                )
+
+        with self.assertRaisesRegex(publication_adapter.AdapterError, "unterminated Rust Debug value"):
+            publication_sources._rewrite_publication_spans(
+                f"malformed:Span{{source_id:SourceId(5),start:{start},len:{length}",
+                5,
+                edit,
+            )
+
     def test_exact_owner_spans_align_across_all_tables_and_keep_unrelated_spans(self):
         source_id = 5
         candidate_start = CURRENT_SOURCE.index(CURRENT_HEADER) + len(CURRENT_HEADER) + 4

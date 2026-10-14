@@ -31,6 +31,7 @@ FUNCTION_ID = re.compile(r"FunctionDefId\((\d+)\)\Z")
 FUNCTION_NAME = re.compile(r'Name\("([A-Za-z_][A-Za-z0-9_]*)"\)\Z')
 FUNCTION_KIND = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
 SPAN_START = re.compile(r"(?<![A-Za-z0-9_])start\s*:\s*(\d+)")
+_SPAN_REWRITE_TOKENS = re.compile(r"['\"]|Span")
 
 
 class SourceAlignmentError(publication_adapter.AdapterError):
@@ -378,7 +379,8 @@ def _rewrite_publication_spans(rendered: str, source_id: int, edit: _SourceEdit)
     pieces = []
     unchanged_start = 0
     index = 0
-    while index < len(rendered):
+    while match := _SPAN_REWRITE_TOKENS.search(rendered, index):
+        index = match.start()
         quoted_end = publication_adapter._quoted_end(rendered, index)
         if quoted_end is not None:
             index = quoted_end
