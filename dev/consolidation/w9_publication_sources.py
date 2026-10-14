@@ -340,10 +340,7 @@ def _aligned_owner_map(
 ) -> dict[str, set[str]]:
     aligned = {}
     for raw_span, kinds in owners.items():
-        match = publication_adapter.SPAN.fullmatch(raw_span)
-        if match is None:
-            raise SourceAlignmentError(f"malformed AST owner span {raw_span!r}")
-        span_source, start, length = map(int, match.groups())
+        span_source, start, length = _parse_span(raw_span)
         if span_source != source_id:
             continue
         if not kinds:
@@ -458,10 +455,8 @@ def align_tui_publications(
         raise SourceAlignmentError("source sizes differ outside TUI alignment")
     aligned_candidate_owners = {}
     for span, kinds in candidate_source_owners.items():
-        match = publication_adapter.SPAN.fullmatch(span)
-        if match is None:
-            raise SourceAlignmentError(f"malformed AST owner span {span!r}")
-        if int(match.group(1)) != source_id:
+        span_source, _start, _length = _parse_span(span)
+        if span_source != source_id:
             aligned_candidate_owners[span] = set(kinds)
     aligned_candidate_owners.update(candidate_tui_owners)
     aligned_reference_publications = tuple(

@@ -1,6 +1,8 @@
 import unittest
 from pathlib import Path
 
+import w9_publication_adapter as publication_adapter
+import w9_publication_sources as publication_sources
 from w9_publication_sources import (
     CURRENT_HEADER,
     SourceAlignmentError,
@@ -157,6 +159,18 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
         self.assertEqual(result.candidate_source_owners, owner_index(OLD_SOURCE))
         for rendered in result.candidate_publications:
             self.assertIn('literal:"Span{source_id:SourceId(5),start:999,len:2}"', rendered)
+
+    def test_actual_adapter_alignment_parses_noncanonical_owner_span_fields(self):
+        self.assertIs(publication_sources.publication_adapter, publication_adapter)
+        candidate_owners = owner_index(CURRENT_SOURCE)
+        canonical_span = next(iter(candidate_owners))
+        source_id, start, length = publication_sources._parse_span(canonical_span)
+        kinds = candidate_owners.pop(canonical_span)
+        candidate_owners[debug_span(source_id, start, length)] = kinds
+
+        result = aligned(candidate_owners=candidate_owners)
+
+        self.assertEqual(result.candidate_source_owners, owner_index(OLD_SOURCE))
 
     def test_rejects_tui_declarations_from_multiple_source_ids(self):
         reference, _ = publication(OLD_SOURCE, spoof=True)
