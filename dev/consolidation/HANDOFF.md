@@ -2,11 +2,54 @@
 
 Status: active 2026-10-14.
 
-## Current checkpoint — 2026-10-14 (`9b88622c6`)
+## Current checkpoint — 2026-10-14 (`56079e577`)
 
-This is the current acceptance snapshot; dated sections below preserve earlier
-evidence and plans. Integration continues on `master`. Nothing has been pushed.
-Consolidation remains active and is not accepted or complete. Development and
+Consolidation remains active. Integration is on `master`; final acceptance is
+pending. Platform acceptance uses x86_64 Linux musl in the pinned image
+`sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`.
+ARM64 and macOS remain excluded.
+
+Master now includes the corrected pipeline-input regressions, authenticated
+route-witness descriptor transport, and the Docker `.work` context exclusion.
+Focused pinned transport checks passed. The broader runtime gate remains
+90/91 because the DNS client exposes a verifier completion-analysis defect.
+The functional candidate contains its proposed fix and retained regressions.
+
+The formal inventory has 685 fragment roots across 89 owners. All 72 universal
+obligations remain planned; `source_identity` is null and conformance cases are
+empty. The latest validation/storage integration passed the inventory's 51
+tests, full 82-job Lake build, fresh kernel check, 12,948-declaration axiom
+audit, and all three negative controls. These fragments establish no Rust
+conformance or whole-language soundness.
+
+The functional candidate is in `.work/wt/closure-batch-integration`. Its
+current check revision is `045ec245f2465b3a48ef0554b8d6db5962a7a8e9`.
+It combines the reviewed closure batch, narrower gate selection, root XSHT
+dev-dependency removal, generated instruction listing, mark-driven evaluator,
+single pipeline path, route oracles, and consistent kache/mold build policy.
+The product and debug harness builds passed. Focused tests exposed a
+depth-test fixture decoder defect; its correction and the remaining checks
+are pending. This candidate is not accepted yet.
+
+Iteration latency now has a dedicated owner under both campaign skills.
+The canonical campaign wrapper is `.work/tmp/run-native-canonical.sh`; it
+mounts `dev/musl-linker.sh`, keeps one target/flag contract, and uses disk-backed
+`.work/tmp` scratch. Do not restart old launchers with a different linker or
+rebuild broad products for each exact filter.
+
+Next gates are the combined candidate's focused tests and route receipts,
+normal/deep grammar proofs, current structural scan and ten review rows, W9's
+fresh 1,690-input/four-profile publication run, and final correctness, Linux,
+documentation, size, memory, and performance acceptance. Older parity and
+timing evidence does not close these gates. The corrected blanket baseline is
+47,061 lines. Source totals and strict shrink remain advisory; the four
+required zero metrics and other structural bounds remain binding.
+
+## Earlier checkpoint — 2026-10-14 (`9b88622c6`, superseded)
+
+This section records the acceptance snapshot at `9b88622c6` and is superseded
+by the checkpoint above. At that checkpoint, consolidation remained active
+and was not accepted or complete. Development and
 final platform gates are x86_64 Linux musl in the pinned `Dockerfile.test`
 image `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`;
 ARM64 and macOS are excluded.
@@ -2187,16 +2230,16 @@ R2 canonical cleanup prose (old text still says roots/locks are not scope-owned)
 type/fact/session architecture, Optional/label guidance and resource API docs,
 then `make docs`. Update TODOs only after each defect is actually closed.
 
-The unchanged baseline scanner reports 189,274 src and 49,968 xsht non-test
-lines; 47,705 lines fall under inherited blanket dead-code scopes. Intermediate
-envelope ceilings are 193,174 / 50,368 / 52,005. Final closure requires net source
-reduction, zero blankets and no envelope. Ten semantic review rows remain
-pending; establish verified evidence consumed by the ratchet rather than
-manually erasing Reviews. Current verification opt3/no-LTO profile is provisional;
-measure opt1/2/3 build-plus-native cost in isolation after functional close.
+The original scanner reports 189,274 src and 49,968 xsht non-test lines.
+The corrected blanket baseline is 47,061 lines; 47,705 was a scope-count error.
+Source totals, intermediate envelopes, and strict shrink are advisory under
+the 2026-10-11 owner update. Final closure requires zero blanket allowances and
+the other structural end states. Ten semantic review rows need verified
+evidence consumed by the check. The verification opt3/no-LTO profile remains
+provisional; profile-cost measurement follows functional close.
 
 Final feature probe (manual sites zero), reliability/fixed-seed gates, pinned
-seven-tool comparative parity/timings, complete candidate Linux/ARM verification,
+seven-tool comparative parity/timings, complete candidate x86_64 Linux verification,
 cleanup and the closing report all remain. No comparative timings were taken;
 prepared suite has 35 parity cases and eight harness tests green. Continue to
 campaign completion only after the owner's resume request.
