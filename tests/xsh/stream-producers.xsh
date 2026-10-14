@@ -132,6 +132,21 @@ stream values() -> Stream[Int] {
   checks += 1
   yield checks
 }
+var resumed = 0
+stream resumed_values() -> Stream[Int] {
+  resumed += 1
+  yield resumed
+  resumed += 1
+  yield resumed
+}
+var delegated = 0
+stream delegated_values() -> Stream[Int] {
+  delegated += 1
+  yield delegated
+  delegated += 1
+  yield delegated
+}
+stream delegated_parent() -> Stream[Int] { yield @delegated_values() }
 proc observe_pipeline() -> Int {
   let rows = values() |> collect()
   print f"pipeline:{rows[0]}:{checks}"
@@ -153,9 +168,25 @@ proc observe_comprehension() -> Int {
   print f"comprehension:{rows[0]}:{checks}"
   checks
 }
+proc observe_resumed() -> Int {
+  for item in resumed_values() {
+    print f"resumed:{item}:{resumed}"
+    resumed += 10
+  }
+  resumed
+}
+proc observe_delegated() -> Int {
+  for item in delegated_parent() {
+    print f"delegated:{item}:{delegated}"
+    delegated += 10
+  }
+  delegated
+}
 let results = [observe_pipeline(), observe_method(), observe_for(), observe_comprehension()]
 print f"returns:{results[0]},{results[1]},{results[2]},{results[3]}"
 print f"checks:{checks}"
+print f"resumed-return:{observe_resumed()}"
+print f"delegated-return:{observe_delegated()}"
 """,
   )?
   assert output.success, output.stderr
@@ -166,6 +197,12 @@ print f"checks:{checks}"
     "comprehension:4:4",
     "returns:1,2,3,4",
     "checks:4",
+    "resumed:1:1",
+    "resumed:12:12",
+    "resumed-return:22",
+    "delegated:1:1",
+    "delegated:12:12",
+    "delegated-return:22",
     "",
   ].join("\n"), output.stdout
   assert output.stderr == "", output.stderr

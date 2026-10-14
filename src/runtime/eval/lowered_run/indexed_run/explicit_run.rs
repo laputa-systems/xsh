@@ -3354,6 +3354,18 @@ impl ProducerFrameState {
         }
     }
 
+    pub(super) fn hydrate_captures(
+        &mut self,
+        evaluator: &Evaluator,
+        header: &FunctionHeader,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        for (slot, value) in evaluator.lowered_capture_values(header, span)? {
+            self.slots[slot] = value;
+        }
+        Ok(())
+    }
+
     /// The scopes the body has open: its call scope, then its live blocks.
     ///
     /// A suspended producer's scopes are detached from the evaluator's stack
