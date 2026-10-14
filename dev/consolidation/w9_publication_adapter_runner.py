@@ -1761,6 +1761,22 @@ def _align_profile_publications(
     )
 
 
+def _report_comparison_progress(
+    processed_inputs: int,
+    total_inputs: int,
+    total_outcomes: int,
+    mismatch_count: int,
+) -> None:
+    if processed_inputs % 25 == 0 or processed_inputs == total_inputs:
+        processed_outcomes = processed_inputs * len(PROFILES)
+        print(
+            f"comparison_progress inputs={processed_inputs}/{total_inputs} "
+            f"outcomes={processed_outcomes}/{total_outcomes} mismatches={mismatch_count}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def compare_full_publications(
     runner,
     reference_receipt_path: pathlib.Path,
@@ -1889,6 +1905,7 @@ def compare_full_publications(
         )
         if len(keys) != count * len(PROFILES):
             raise PublicationError(f"receipt outcome count differs: {len(keys)}")
+
         for index in range(count):
             owner_error = False
             try:
@@ -1947,8 +1964,10 @@ def compare_full_publications(
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
                     profile_error = True
             if owner_error or profile_error:
+                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
                 continue
             if not profile_records:
+                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
                 continue
             try:
                 profile_by_name = {record[0]: record for record in profile_records}
@@ -1974,6 +1993,7 @@ def compare_full_publications(
                 )
             except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
                 mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
+                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
                 continue
             for (
                 profile,
@@ -2000,6 +2020,7 @@ def compare_full_publications(
                     )
                 except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
+            _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
     finally:
         os.close(reference_root)
         os.close(candidate_root)

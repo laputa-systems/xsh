@@ -1,4 +1,5 @@
 import argparse
+import io
 import hashlib
 import os
 import pathlib
@@ -1555,7 +1556,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(proof_calls, ["reference"])
         compare.assert_not_called()
 
-    def test_full_compare_aligns_candidate_exact_owner_spans_before_comparison(self):
+    def _run_full_compare_progress_case(self, scenario):
         expected_inputs = self.expected_inputs
         reference_receipt = self.reference
         original_profiles = adapter_runner.PROFILES
@@ -1625,6 +1626,9 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         candidate_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
             source_fixtures.publication(source_fixtures.CURRENT_SOURCE)[0], "current"
         )
+        if scenario == "load-error":
+            reference_publication = ""
+            candidate_publication = ""
         diagnostics = "[]"
         reference_hashes = (
             hashlib.sha256(diagnostics.encode()).hexdigest(),
@@ -1657,23 +1661,31 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         reference_projection = adapter_runner.adapter.parse_owner_index(reference_owner_text)
         candidate_projection = adapter_runner.adapter.parse_owner_index(candidate_owner_text)
 
-        def write_raw(capture, publication, hashes, owners):
+        def write_raw(capture, publication, hashes, owners, kind="checked"):
             raw_root = capture.parent / "raw"
             (raw_root / "owners-0.tsv").write_text(owners, encoding="utf-8")
             (raw_root / "schema").write_text(adapter_runner.RAW_SCHEMA, encoding="utf-8")
             record = raw_root / "record-0-default"
             record.mkdir()
-            (record / "kind").write_text("checked", encoding="utf-8")
+            (record / "kind").write_text(kind, encoding="utf-8")
             (record / "diagnostics").write_text(diagnostics, encoding="utf-8")
             (record / "publication").write_text(publication, encoding="utf-8")
             (record / "receipt-hashes").write_text("\t".join(hashes), encoding="utf-8")
             return raw_root
 
         reference_raw = write_raw(
-            reference_capture, reference_publication, reference_hashes, reference_owner_text
+            reference_capture,
+            reference_publication,
+            reference_hashes,
+            "invalid-owner-index\n" if scenario == "owner-error" else reference_owner_text,
+            "load-error" if scenario == "load-error" else "checked",
         )
         candidate_raw = write_raw(
-            candidate_capture, candidate_publication, candidate_hashes, candidate_owner_text
+            candidate_capture,
+            candidate_publication,
+            candidate_hashes,
+            candidate_owner_text,
+            "load-error" if scenario == "load-error" else "checked",
         )
         reference_outcomes = {
             (0, self.expected_inputs[0].relative_path, "default"): reference_hashes
@@ -1744,7 +1756,9 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         def compare_adapter(*args, **kwargs):
             observed.append((args, kwargs))
 
+        stderr = io.StringIO()
         with (
+            patch.object(adapter_runner.sys, "stderr", stderr),
             patch.object(self.runner, "regular_file", side_effect=regular_file),
             patch.object(self.runner, "require_sha256", side_effect=require_sha256),
             patch.object(self.runner, "validate_reference_receipt", return_value=self.reference),
@@ -1783,6 +1797,13 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 candidate_exact_owners=exact_owner_projection["candidate"],
             )
 
+        self.expected_inputs = expected_inputs
+        self.reference = reference_receipt
+        return result, observed, stderr.getvalue(), candidate_start
+
+    def test_full_compare_aligns_candidate_exact_owner_spans_before_comparison(self):
+        result, observed, progress, candidate_start = self._run_full_compare_progress_case("checked")
+
         self.assertEqual(result, (1, 0))
         self.assertEqual(len(observed), 1)
         self.assertEqual(
@@ -1790,8 +1811,59 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             source_fixtures.span(5, candidate_start - source_fixtures.DELTA, 1),
         )
         self.assertNotIn("reference_exact_owners", observed[0][1])
-        self.expected_inputs = expected_inputs
-        self.reference = reference_receipt
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=1/1 mismatches=0\n",
+        )
+
+    def test_full_compare_reports_load_error_sources_as_processed_outcomes(self):
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case("load-error")
+
+        self.assertEqual(result, (1, 0))
+        self.assertEqual(observed, [])
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=1/1 mismatches=0\n",
+        )
+
+    def test_full_compare_reports_owner_errors_with_recorded_mismatch_count(self):
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case("owner-error")
+
+        self.assertEqual(result, (1, 1))
+        self.assertEqual(observed, [])
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=1/1 mismatches=1\n",
+        )
+
+    def test_progress_reports_each_twenty_five_inputs_and_final_remainder(self):
+        class ProgressStream:
+            def __init__(self):
+                self.parts = []
+                self.flush_count = 0
+
+            def write(self, value):
+                self.parts.append(value)
+
+            def flush(self):
+                self.flush_count += 1
+
+        stream = ProgressStream()
+        with (
+            patch.object(adapter_runner, "PROFILES", ("default", "reveal", "execution", "check-cli")),
+            patch.object(adapter_runner.sys, "stderr", stream),
+        ):
+            for processed_inputs in range(1, 27):
+                adapter_runner._report_comparison_progress(
+                    processed_inputs, 26, 104, 7
+                )
+
+        self.assertEqual(
+            "".join(stream.parts),
+            "comparison_progress inputs=25/26 outcomes=100/104 mismatches=7\n"
+            "comparison_progress inputs=26/26 outcomes=104/104 mismatches=7\n",
+        )
+        self.assertEqual(stream.flush_count, 2)
 
     def test_compare_captures_rejects_candidate_source_drift(self):
         case = self._compare_case()
