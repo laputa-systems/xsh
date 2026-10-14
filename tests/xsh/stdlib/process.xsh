@@ -161,7 +161,7 @@ let command = process.command_argv(
   timeout: mark_duration("timeout", 1s),
   cwd: mark_path("cwd", Path(".")),
 )
-process.run(command)?
+let _ = process.run(command)?
 """,
     status: 3,
     stderr: ["cpu-max"],

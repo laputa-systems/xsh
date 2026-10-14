@@ -76,15 +76,15 @@ proc marked_value() -> Int {
   return 5
 }
 nested[marked_index_one()][marked_index_two()] = marked_value()
-print $nested[0][0]
+print ${nested[0][0]}
 """,
     status: 0,
   )?
-  assert succeeded.stdout == "eval:index-one
+  assert succeeded.stdout == """eval:index-one
 eval:index-two
 eval:rhs
 5
-"
+"""
 }
 
 test test_assert_statement_orders_and_selects_its_message { |ctx|
