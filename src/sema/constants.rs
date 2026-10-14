@@ -2102,8 +2102,6 @@ pub struct PreparedConstants {
     pub types: FxHashMap<ExprId, Type>,
     pub record_constructor_instances: FxHashMap<ExprId, CheckedRecordConstructor>,
     pub origins: FxHashMap<ExprId, ExprId>,
-    pub tail_bindings: BTreeMap<crate::source::Span, ExprId>,
-    pub global_bindings: FxHashMap<(Option<Name>, Name), ExprId>,
     pub binding_values: FxHashMap<crate::sema::check::BindingId, ExprId>,
     pub diagnostics: Vec<crate::diagnostic::Diagnostic>,
     pub(crate) cli_wire_enums: crate::sema::wire_enums::PreparedWireEnums,
@@ -2229,17 +2227,30 @@ mod prepared_constant_tests {
                         .keys()
                         .all(|id| program.arena.expr(*id).span.source_id == SourceId::new(1))
                 );
-                assert!(
-                    !prepared
-                        .global_bindings
-                        .contains_key(&(None, Name::intern("unrelated")))
-                );
+                assert!(prepared.binding_values.iter().all(|(binding, expression)| {
+                    bindings
+                        .declarations
+                        .get(binding)
+                        .is_some_and(|declaration| {
+                            declaration.span.source_id == SourceId::new(1)
+                        })
+                        && program.arena.expr(*expression).span.source_id == SourceId::new(1)
+                }));
                 if source.starts_with("const") {
-                    let local = prepared.global_bindings[&(None, Name::intern("local"))];
-                    assert_eq!(prepared.values[&local], LiteralConstant::Int(7));
+                    let local = bindings
+                        .declarations
+                        .iter()
+                        .find_map(|(&binding, declaration)| {
+                            (declaration.name == Name::intern("local")
+                                && declaration.span.source_id == SourceId::new(1))
+                            .then_some(binding)
+                        })
+                        .expect("the configured root declares its local constant");
+                    let initializer = prepared.binding_values[&local];
+                    assert_eq!(prepared.values[&initializer], LiteralConstant::Int(7));
                 } else {
                     assert!(prepared.values.is_empty());
-                    assert!(prepared.global_bindings.is_empty());
+                    assert!(prepared.binding_values.is_empty());
                 }
             });
         }
@@ -2355,8 +2366,6 @@ impl PreparedConstants {
         self.types.clear();
         self.record_constructor_instances.clear();
         self.origins.clear();
-        self.tail_bindings.clear();
-        self.global_bindings.clear();
         self.binding_values.clear();
         self.diagnostics.clear();
         self.cli_wire_enums = Default::default();
@@ -2367,17 +2376,6 @@ impl PreparedConstants {
         merge_owned_map(&mut self.types, &other.types);
         merge_owned_map(&mut self.record_constructor_instances, &other.record_constructor_instances);
         merge_owned_map(&mut self.origins, &other.origins);
-        for (&span, &expression) in &other.tail_bindings {
-            if let Some(existing) = self.tail_bindings.get(&span) {
-                assert_eq!(
-                    *existing, expression,
-                    "constant tail binding {span:?} has conflicting owner facts"
-                );
-            } else {
-                self.tail_bindings.insert(span, expression);
-            }
-        }
-        merge_owned_map(&mut self.global_bindings, &other.global_bindings);
         merge_owned_map(&mut self.binding_values, &other.binding_values);
         self.diagnostics.extend(other.diagnostics.iter().cloned());
         self.cli_wire_enums
@@ -2445,11 +2443,6 @@ impl PreparedConstants {
             .retain(|id, _| arena.expr(*id).span.source_id == source_id);
         self.origins
             .retain(|id, _| arena.expr(*id).span.source_id == source_id);
-        self.tail_bindings
-            .retain(|span, _| span.source_id == source_id);
-        self.global_bindings.retain(|_, expression| {
-            arena.expr(*expression).span.source_id == source_id
-        });
         self.binding_values.retain(|binding, _| {
             bindings
                 .declarations
@@ -2760,24 +2753,12 @@ impl PreparedConstants {
                     preparation.prepared.values.insert(id, value);
                 }
             }
-            for (&statement, &binding) in &bindings.tails {
-                if view.contains_source(arena.stmt(statement).span.source_id)
-                    && let Some(declaration) = bindings.constant(binding)
-                    && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(declaration).kind
-                    && preparation.prepared.values.contains_key(&expr)
-                {
-                    preparation.prepared.tail_bindings.insert(arena.stmt(statement).span, expr);
-                }
-            }
-            for (&id, declaration) in &bindings.declarations {
+            for &id in bindings.declarations.keys() {
                 if let Some(statement) = bindings.constant(id)
                     && view.contains_source(arena.stmt(statement).span.source_id)
                     && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(statement).kind
                 {
                     preparation.prepared.binding_values.insert(id, expr);
-                    if declaration.global {
-                        preparation.prepared.global_bindings.insert((declaration.namespace, declaration.name), expr);
-                    }
                 }
             }
         }
