@@ -63,8 +63,6 @@ private theorem sourceRunner_reduces :
     runBaseHostFuel 6 [clockResponse] sourceMachine = ⟨sourceFinal, sourceEvents⟩ := by
   rfl
 
-/-- The checked name resolves through its active cell, then the runner composes that stored
-integer with a typed clock response while preserving the observed-machine invariant. -/
 theorem checked_binding_and_host_run_compose :
     checkBaseExpr sourceNames sourceActivations sourceStore sourceExpression = true ∧
     lookupBaseValue sourceNames sourceActivations sourceStore sourceName =
@@ -104,8 +102,6 @@ private def subtractedMachine : MachineConfig :=
 private def subtractedFinal : MachineConfig :=
   updateState subtractedMachine (.returned (typedInteger one)) []
 
-/-- Changing only the arithmetic operator preserves checker acceptance but changes the final
-machine result. -/
 theorem arithmetic_operator_mutation_changes_the_result :
     checkBaseExpr sourceNames sourceActivations sourceStore sourceExpression = true ∧
     checkBaseExpr sourceNames sourceActivations sourceStore subtractedExpression = true ∧
@@ -138,8 +134,6 @@ private def bindingMutationFinal : MachineConfig :=
   updateState bindingMutationMachine (.failed (.inactiveBinder staleBinder))
     [.binaryLeft .add .timeNow]
 
-/-- Redirecting the source name to a binder with no active cell is rejected and reaches the
-specified inactive-binding fault before the clock request can occur. -/
 theorem inactive_binding_mutation_is_rejected_and_observable :
     checkBaseExpr mutatedNames sourceActivations sourceStore sourceExpression = false ∧
     runBaseHostFuel 2 [] bindingMutationMachine =
@@ -164,8 +158,6 @@ private def wrongResponseEvents : List BaseHostEvent :=
    .request BaseHostRequest.timeNow,
    .response BaseHostRequest.timeNow wrongClockResponse]
 
-/-- A response with the wrong type is recorded as a host event and becomes the machine's
-specified failure while retaining the checked continuation. -/
 theorem wrong_host_response_mutation_is_rejected_in_the_run :
     checkBaseExpr sourceNames sourceActivations sourceStore sourceExpression = true ∧
     checkedHostResponse? BaseHostRequest.timeNow wrongClockResponse = none ∧

@@ -1,20 +1,10 @@
 import Xsh.Effects.Lexical
 
-/-!
-A small executable model for one effectful producer pull and a checked
-consumer callback. Each producer instruction generates its own observable host
-event. Its effect is charged to the producer creation expression, while each
-callback operation is charged to its own lexical source expression. This model
-does not classify arbitrary syntax or establish checker, runtime, stream, or
-Rust correspondence, and it does not close a universal latent-effect contract.
--/
-
 namespace Xsh.Semantics.Effects.DelayedCausality
 
 open Xsh.Syntax
 open Xsh.Semantics.Environments
 
-/-- The host operations whose delayed observations this model can execute. -/
 inductive HostAction where
   | filesystemRead (resource : Nat)
   | networkRequest (request : Nat)
@@ -22,14 +12,12 @@ inductive HostAction where
   | environmentRead (key : Nat)
   deriving DecidableEq, Repr
 
-/-- The represented action-to-effect mapping is part of each modeled operation. -/
 def HostAction.requiredEffect : HostAction → Effect
   | .filesystemRead _ => .fs
   | .networkRequest _ => .net
   | .processStart _ => .process
   | .environmentRead _ => .env
 
-/-- One producer instruction emits an item after its represented host action. -/
 structure ProducerInstruction where
   source : Expr
   value : Nat
@@ -39,7 +27,6 @@ def ProducerInstruction.obligation (instruction : ProducerInstruction) :
     EffectObligation :=
   ⟨instruction.source, instruction.action.requiredEffect⟩
 
-/-- A producer's latent obligations are derived from its executable instructions. -/
 def producerWork (creationSite : Expr) (captures : CapturedEnvironment)
     (body : List ProducerInstruction) : DelayedWork :=
   { kind := .streamProducer
@@ -47,7 +34,6 @@ def producerWork (creationSite : Expr) (captures : CapturedEnvironment)
     captures := captures
     obligations := body.map ProducerInstruction.obligation }
 
-/-- A producer can be suspended only after its whole body fits its creation context. -/
 structure CheckedProducer where
   context : LexicalContext
   creationSite : Expr
@@ -58,7 +44,6 @@ structure CheckedProducer where
 def CheckedProducer.work (producer : CheckedProducer) : DelayedWork :=
   producerWork producer.creationSite producer.captures producer.body
 
-/-- One host operation in a callback runs at its classified source expression. -/
 structure CallbackOperation where
   source : Expr
   action : HostAction
@@ -67,7 +52,6 @@ def CallbackOperation.obligation (operation : CallbackOperation) :
     EffectObligation :=
   ⟨operation.source, operation.action.requiredEffect⟩
 
-/-- Callback effects are checked where their body operations are written. -/
 structure CheckedConsumer where
   context : LexicalContext
   invocationSite : Expr
@@ -75,7 +59,6 @@ structure CheckedConsumer where
   accepted : permitsObligations context
     (callback.map CallbackOperation.obligation)
 
-/-- One observed host action paired with the site that pays its effect. -/
 structure EffectObservation where
   event : HostAction × Expr
   charge : EffectCharge
@@ -89,7 +72,6 @@ def observeCallbackOperation (operation : CallbackOperation) : EffectObservation
   { event := (operation.action, operation.source)
     charge := chargeAtUse operation.obligation }
 
-/-- A pull exposes its yielded item and the ordered host observations it caused. -/
 structure PullObservation where
   value : Nat
   operations : List EffectObservation
@@ -103,7 +85,6 @@ def observePull (consumer : CheckedConsumer) (producer : CheckedProducer)
     operations := observeProducerInstruction producer instruction ::
       consumer.callback.map observeCallbackOperation }
 
-/-- A suspended producer records the consumed prefix and the pending suffix. -/
 structure SuspendedProducer where
   producer : CheckedProducer
   consumed : List ProducerInstruction
@@ -116,7 +97,6 @@ def suspend (producer : CheckedProducer) : SuspendedProducer :=
     pending := producer.body
     decomposition := by simp }
 
-/-- One pull executes one pending producer instruction before its callback. -/
 def pull (consumer : CheckedConsumer) (suspended : SuspendedProducer) :
     Option (PullObservation × SuspendedProducer) :=
   match suspended with
@@ -132,7 +112,6 @@ def pull (consumer : CheckedConsumer) (suspended : SuspendedProducer) :
               _ = (consumed ++ [instruction]) ++ remaining := by
                 simp [List.append_assoc] })
 
-/-- Execute a finite number of pulls, stopping when the producer is exhausted. -/
 def runPulls : Nat → CheckedConsumer → SuspendedProducer →
     List PullObservation × SuspendedProducer
   | 0, _, suspended => ([], suspended)
@@ -227,7 +206,6 @@ theorem suspended_pending_instruction_is_permitted_at_creation
   exact checked_producer_pays_each_body_instruction suspended.producer instruction
     (suspended_pending_instruction_belongs_to_body suspended instruction member)
 
-/-- A concrete accepted network producer and filesystem callback under `without net`. -/
 private def name (value : Nat) (bound : value < 4294967296) : RawName :=
   ⟨⟨value, bound⟩⟩
 
@@ -299,7 +277,6 @@ theorem pull_keeps_distinct_lexical_charges :
     callbackBodySite, consumerInvocationSite, outsideContext, withoutNetContext,
     HostAction.requiredEffect, chargeAtCreation, chargeAtUse]
 
-/-- Recharging a delayed producer effect at the consumer moves its lexical site. -/
 def producerChargeAtConsumer (consumer : CheckedConsumer)
     (producer : CheckedProducer) (instruction : ProducerInstruction) : EffectCharge :=
   { chargeAtCreation producer.work instruction.obligation with
@@ -318,7 +295,6 @@ theorem consumer_recharge_mutation_is_rejected :
     consumerInvocationSite, permits, clauseCovers, ioCovers, blockedBy,
     withoutBlocks, chargeAtCreation, HostAction.requiredEffect]
 
-/-- Dropping the producer operation loses a required causal observation. -/
 def dropProducerObservation (observation : PullObservation) : PullObservation :=
   { observation with operations := observation.operations.drop 1 }
 
