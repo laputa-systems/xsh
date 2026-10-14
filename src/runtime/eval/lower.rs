@@ -6758,6 +6758,425 @@ mod checked_constructor_fact_tests {
     }
 }
 
+#[cfg(test)]
+mod checked_control_flow_fact_tests {
+    use crate::sema::check::{CheckedControlFlowFacts, CompactDeclOutput};
+    use crate::source::{SourceId, SourceMap, Span};
+    use crate::syntax::parser::ArenaParseOutput;
+    use std::collections::BTreeSet;
+
+    #[derive(Clone, Copy, Debug)]
+    enum FactCategory {
+        BuiltinRange,
+        CollectionCardinality,
+        PropagatingError,
+        LatentStreamError,
+        FalliblePipelineStage,
+        PropagatingStageCallback,
+        ExhaustiveMatch,
+    }
+
+    impl FactCategory {
+        fn spans(self, facts: &CheckedControlFlowFacts) -> &BTreeSet<Span> {
+            match self {
+                Self::BuiltinRange => &facts.builtin_range_calls,
+                Self::CollectionCardinality => {
+                    &facts.cardinality_preserving_collection_calls
+                }
+                Self::PropagatingError => &facts.propagating_error_spans,
+                Self::LatentStreamError => &facts.latent_stream_error_spans,
+                Self::FalliblePipelineStage => &facts.fallible_pipeline_stage_spans,
+                Self::PropagatingStageCallback => &facts.propagating_stage_callback_spans,
+                Self::ExhaustiveMatch => &facts.exhaustive_match_spans,
+            }
+        }
+
+        fn spans_mut(self, facts: &mut CheckedControlFlowFacts) -> &mut BTreeSet<Span> {
+            match self {
+                Self::BuiltinRange => &mut facts.builtin_range_calls,
+                Self::CollectionCardinality => {
+                    &mut facts.cardinality_preserving_collection_calls
+                }
+                Self::PropagatingError => &mut facts.propagating_error_spans,
+                Self::LatentStreamError => &mut facts.latent_stream_error_spans,
+                Self::FalliblePipelineStage => &mut facts.fallible_pipeline_stage_spans,
+                Self::PropagatingStageCallback => &mut facts.propagating_stage_callback_spans,
+                Self::ExhaustiveMatch => &mut facts.exhaustive_match_spans,
+            }
+        }
+    }
+
+    struct CheckedSource {
+        source: String,
+        sources: SourceMap,
+        parsed: ArenaParseOutput,
+        declarations: CompactDeclOutput,
+        source_id: SourceId,
+    }
+
+    impl CheckedSource {
+        fn new(name: &str, source: &str) -> Self {
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                name,
+                crate::loader::entry_source_from_text(name, source.to_string()),
+                Vec::new(),
+            );
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = sources.files()[0].id();
+            let declarations = crate::sema::check::Checker::check_compact_declarations(
+                &parsed.arena,
+                &sources,
+                source_id,
+            );
+            Self {
+                source: source.to_string(),
+                sources,
+                parsed,
+                declarations,
+                source_id,
+            }
+        }
+
+        fn build(
+            &self,
+            declarations: &CompactDeclOutput,
+        ) -> Result<(), super::super::indexed::IrBuildError> {
+            super::super::FullBuilder::build_compact(
+                &self.parsed.arena,
+                declarations,
+                &self.source,
+                std::sync::Arc::new(self.sources.clone()),
+                self.source_id,
+            )
+            .map(|_| ())
+        }
+
+        fn fact_owner(&self, category: FactCategory, fragment: &str) -> Span {
+            let matches = category
+                .spans(&self.declarations.bodies.checked_control_flow)
+                .iter()
+                .copied()
+                .filter(|span| {
+                    self.sources
+                        .span_text(*span)
+                        .is_some_and(|text| text.contains(fragment))
+                })
+                .collect::<Vec<_>>();
+            let available = category
+                .spans(&self.declarations.bodies.checked_control_flow)
+                .iter()
+                .map(|span| (*span, self.sources.span_text(*span)))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                matches.len(),
+                1,
+                "{category:?} owner {fragment:?}: {matches:?}; available {available:?}"
+            );
+            matches[0]
+        }
+
+        fn unrelated_statement_span(&self) -> Span {
+            let statement = (0..self.parsed.arena.arena.stmt_tags.len())
+                .map(crate::syntax::arena::StmtId::from_index)
+                .map(|id| self.parsed.arena.arena.stmt(id))
+                .find(|statement| {
+                    self.sources
+                        .span_text(statement.span)
+                        .is_some_and(|text| text.starts_with("let unrelated = 0"))
+                })
+                .expect("unrelated statement");
+            statement.span
+        }
+
+        fn assert_fact_changes_lowering(
+            &self,
+            category: FactCategory,
+            owner_fragment: &str,
+            actual_builds: bool,
+        ) {
+            let owner = self.fact_owner(category, owner_fragment);
+            let unrelated = self.unrelated_statement_span();
+            assert_ne!(owner, unrelated);
+            assert!(
+                !category
+                    .spans(&self.declarations.bodies.checked_control_flow)
+                    .contains(&unrelated)
+            );
+
+            let actual = self.build(&self.declarations);
+            let mut omitted = self.declarations.clone();
+            assert!(category
+                .spans_mut(&mut omitted.bodies.checked_control_flow)
+                .remove(&owner));
+            let mut misowned = self.declarations.clone();
+            let spans = category.spans_mut(&mut misowned.bodies.checked_control_flow);
+            assert!(spans.remove(&owner));
+            assert!(spans.insert(unrelated));
+
+            if actual_builds {
+                assert!(actual.is_ok(), "{actual:?}");
+                let omitted = self.build(&omitted);
+                assert!(
+                    matches!(&omitted, Err(error) if error.construct == "full_ir_function_blocker"),
+                    "{omitted:?}"
+                );
+                let misowned = self.build(&misowned);
+                assert!(
+                    matches!(&misowned, Err(error) if error.construct == "full_ir_function_blocker"),
+                    "{misowned:?}"
+                );
+            } else {
+                assert!(
+                    matches!(&actual, Err(error) if error.construct == "full_ir_function_blocker"),
+                    "{actual:?}"
+                );
+                let omitted = self.build(&omitted);
+                assert!(omitted.is_ok(), "{omitted:?}");
+                let misowned = self.build(&misowned);
+                assert!(misowned.is_ok(), "{misowned:?}");
+            }
+        }
+
+        fn assert_fact_mutation_is_rejected_by_verification(
+            &self,
+            category: FactCategory,
+            owner_fragment: &str,
+        ) {
+            let owner = self.fact_owner(category, owner_fragment);
+            let unrelated = self.unrelated_statement_span();
+            assert_ne!(owner, unrelated);
+            assert!(
+                !category
+                    .spans(&self.declarations.bodies.checked_control_flow)
+                    .contains(&unrelated)
+            );
+
+            let actual = self.build(&self.declarations);
+            assert!(
+                matches!(&actual, Err(error) if error.construct == "full_ir_function_blocker"),
+                "{actual:?}"
+            );
+            let mut omitted = self.declarations.clone();
+            assert!(category
+                .spans_mut(&mut omitted.bodies.checked_control_flow)
+                .remove(&owner));
+            let mut misowned = self.declarations.clone();
+            let spans = category.spans_mut(&mut misowned.bodies.checked_control_flow);
+            assert!(spans.remove(&owner));
+            assert!(spans.insert(unrelated));
+
+            for mutated in [&omitted, &misowned] {
+                let build = self.build(mutated);
+                assert!(
+                    matches!(&build, Err(error) if error.construct == "full_ir_verification"),
+                    "{build:?}"
+                );
+            }
+        }
+
+        fn assert_no_fact_owner(&self, category: FactCategory, fragment: &str) {
+            assert!(
+                category
+                    .spans(&self.declarations.bodies.checked_control_flow)
+                    .iter()
+                    .all(|span| self
+                        .sources
+                        .span_text(*span)
+                        .is_none_or(|text| !text.contains(fragment))),
+                "unexpected {category:?} owner for {fragment:?}"
+            );
+        }
+
+        fn assert_missing_return(&self) {
+            assert!(
+                self.declarations.diagnostics.iter().any(|diagnostic| diagnostic.code
+                    == Some(crate::diagnostic::DiagnosticCode::CheckMissingReturn)),
+                "{:?}",
+                self.declarations.diagnostics
+            );
+        }
+
+        fn assert_no_errors(&self) {
+            assert!(self.declarations.diagnostics.is_empty(), "{:?}", self.declarations.diagnostics);
+        }
+    }
+
+    fn with_unrelated_statement(source: &str) -> String {
+        format!("{source}\npure unrelated() -> Int {{ let unrelated = 0; return unrelated }}\n")
+    }
+
+    #[test]
+    fn builtin_range_fact_is_owned_by_the_builtin_call() {
+        let source = with_unrelated_statement(
+            "pure choose() -> Int { for item in range(1) { return item } }",
+        );
+        let checked = CheckedSource::new("builtin-range-flow.xsh", &source);
+        checked.assert_no_errors();
+        checked.assert_fact_changes_lowering(FactCategory::BuiltinRange, "range(1)", true);
+    }
+
+    #[test]
+    fn collection_cardinality_fact_is_owned_by_the_collect_call() {
+        let source = with_unrelated_statement(
+            "pure choose() -> Int { for item in range(1).collect() { return item } }",
+        );
+        let checked = CheckedSource::new("collection-cardinality-flow.xsh", &source);
+        checked.assert_no_errors();
+        checked.assert_fact_changes_lowering(
+            FactCategory::CollectionCardinality,
+            "range(1).collect()",
+            true,
+        );
+    }
+
+    #[test]
+    fn propagating_error_fact_is_owned_by_the_effectful_call() {
+        let source = with_unrelated_statement(
+            "proc maybe_fail() [error] -> Int { return 1 }\nproc choose() [error] -> Int { with value = maybe_fail() { return value } else { |failure| let ignored = 0 } }",
+        );
+        let checked = CheckedSource::new("propagating-error-flow.xsh", &source);
+        checked.assert_missing_return();
+        checked.assert_fact_mutation_is_rejected_by_verification(
+            FactCategory::PropagatingError,
+            "maybe_fail()",
+        );
+    }
+
+    #[test]
+    fn latent_stream_error_fact_is_owned_by_the_stream_call() {
+        let source = with_unrelated_statement(
+            "stream failing_rows() [error] -> Stream[Int] { yield 1; let ignored = \"late\".parse_int()? }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = failing_rows().collect(); return values.len() } }",
+        );
+        let checked = CheckedSource::new("latent-stream-flow.xsh", &source);
+        checked.assert_missing_return();
+        checked.assert_fact_changes_lowering(
+            FactCategory::LatentStreamError,
+            "failing_rows()",
+            false,
+        );
+    }
+
+    #[test]
+    fn fallible_pipeline_stage_fact_is_owned_by_the_range_stage() {
+        let source = with_unrelated_statement(
+            "proc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [] |> range(0, 9223372036854775807) |> map { |item| return 1 } } }",
+        );
+        let checked = CheckedSource::new("fallible-stage-flow.xsh", &source);
+        checked.assert_missing_return();
+        checked.assert_fact_changes_lowering(
+            FactCategory::FalliblePipelineStage,
+            "range(0, 9223372036854775807)",
+            false,
+        );
+    }
+
+    #[test]
+    fn propagating_stage_callback_fact_is_owned_by_the_tee_stage() {
+        let source = with_unrelated_statement(
+            "proc maybe_fail(item: Int) -> Result[Unit, Error] { return Ok() }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> tee(maybe_fail); return 1 } }",
+        );
+        let checked = CheckedSource::new("stage-callback-flow.xsh", &source);
+        checked.assert_missing_return();
+        checked.assert_fact_changes_lowering(
+            FactCategory::PropagatingStageCallback,
+            "tee(maybe_fail)",
+            false,
+        );
+    }
+
+    #[test]
+    fn exhaustive_match_fact_is_owned_by_the_match_expression() {
+        let source = with_unrelated_statement(
+            "pure choose(values: List[Int]) -> Int { let ignored = match values { [] => { return 1 }, [head, ..tail] => { return 2 } } }",
+        );
+        let checked = CheckedSource::new("exhaustive-match-flow.xsh", &source);
+        checked.assert_no_errors();
+        checked.assert_fact_changes_lowering(
+            FactCategory::ExhaustiveMatch,
+            "match values",
+            true,
+        );
+    }
+
+    #[test]
+    fn shadowed_range_does_not_publish_the_builtin_cardinality_fact() {
+        let source = with_unrelated_statement(
+            "pure range(start: Int, end: Int) -> List[Int] { return [] }\npure choose() -> Int { let ignored = range(0, 1) |> map { |item| return item } }",
+        );
+        let checked = CheckedSource::new("shadowed-range-flow.xsh", &source);
+        checked.assert_missing_return();
+        checked.assert_no_fact_owner(FactCategory::BuiltinRange, "range(0, 1)");
+    }
+
+    #[test]
+    fn preserving_collection_fact_keeps_an_empty_source_empty() {
+        let source = with_unrelated_statement(
+            "pure choose() -> Int { for item in range(0).collect() { return item } }",
+        );
+        let checked = CheckedSource::new("empty-collection-flow.xsh", &source);
+        checked.assert_missing_return();
+        checked.fact_owner(FactCategory::CollectionCardinality, "range(0).collect()");
+        let build = checked.build(&checked.declarations);
+        assert!(
+            matches!(&build, Err(error) if error.construct == "full_ir_function_blocker"),
+            "{build:?}"
+        );
+    }
+
+    #[test]
+    fn direct_result_return_does_not_publish_a_propagation_fact() {
+        let source = with_unrelated_statement(
+            "pure maybe() -> Result[Int, Error] { return Ok(1) }\npure choose() -> Int { let ignored = maybe(); return 1 }",
+        );
+        let checked = CheckedSource::new("direct-result-flow.xsh", &source);
+        checked.assert_no_errors();
+        checked.assert_no_fact_owner(FactCategory::PropagatingError, "maybe()");
+    }
+
+    #[test]
+    fn safe_stream_call_does_not_publish_a_latent_error_fact() {
+        let source = with_unrelated_statement(
+            "stream ready() -> Stream[Int] { yield 1 }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = ready().collect(); return values.len() } }",
+        );
+        let checked = CheckedSource::new("safe-stream-flow.xsh", &source);
+        checked.assert_no_errors();
+        checked.assert_no_fact_owner(FactCategory::LatentStreamError, "ready()");
+    }
+
+    #[test]
+    fn non_fallible_map_stage_does_not_publish_a_stage_error_fact() {
+        let source = with_unrelated_statement(
+            "proc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map { |item| return item } } }",
+        );
+        let checked = CheckedSource::new("non-fallible-stage-flow.xsh", &source);
+        checked.assert_no_errors();
+        checked.assert_no_fact_owner(FactCategory::FalliblePipelineStage, "map");
+    }
+
+    #[test]
+    fn map_result_callback_does_not_publish_a_propagating_callback_fact() {
+        let source = with_unrelated_statement(
+            "proc maybe_fail(item: Int) -> Result[Unit, Error] { return Ok() }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map(maybe_fail); return 1 } }",
+        );
+        let checked = CheckedSource::new("map-result-callback-flow.xsh", &source);
+        checked.assert_no_errors();
+        checked.assert_no_fact_owner(
+            FactCategory::PropagatingStageCallback,
+            "map(maybe_fail)",
+        );
+    }
+
+    #[test]
+    fn incomplete_error_match_does_not_publish_an_exhaustiveness_fact() {
+        let source = with_unrelated_statement(
+            "pure choose(values: List[Int]) -> Int { let ignored = match values { [] => { return 1 } } }",
+        );
+        let checked = CheckedSource::new("incomplete-match-flow.xsh", &source);
+        assert!(!checked.declarations.diagnostics.is_empty());
+        checked.assert_no_fact_owner(FactCategory::ExhaustiveMatch, "match values");
+    }
+}
+
 #[cfg(all(test, debug_assertions))]
 mod checked_type_fact_tests {
     #[test]
