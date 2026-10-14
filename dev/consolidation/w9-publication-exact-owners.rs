@@ -320,8 +320,18 @@ fn w9_exact_repository_owners_receipt() {
     let mut receipt_rows = Vec::with_capacity(end - start);
     for index in start..end {
         let path = &paths[index];
+        let relative = path
+            .strip_prefix(&root)
+            .expect("input is under root")
+            .to_string_lossy()
+            .replace('\\', "/");
         let bytes = std::fs::read(path)
             .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        let parse_hash = blake3::hash(&bytes).to_hex().to_string();
+        assert_eq!(
+            parse_hash, source_hashes[index],
+            "source changed between manifest and parse: {relative}"
+        );
         let source = String::from_utf8(bytes).expect("XSH corpus is UTF-8");
         let file = path.to_string_lossy().into_owned();
         let roots = project_module_roots(path)
@@ -333,11 +343,6 @@ fn w9_exact_repository_owners_receipt() {
         let owner_path = format!("owners-{index}.tsv");
         let owner_bytes = w9_exact_read_file_at(&w9_exact_open_directory(&outputdir).expect("open owner output directory"), &owner_path)
             .unwrap_or_else(|error| panic!("read exact owner sidecar {index}: {error}"));
-        let relative = path
-            .strip_prefix(&root)
-            .expect("input is under root")
-            .to_string_lossy()
-            .replace('\\', "/");
         receipt_rows.push(format!(
             "owner\t{index}\t{relative}\t{}\t{}",
             source_hashes[index],
