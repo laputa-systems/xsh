@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
+import w9_publication_adapter_runner as adapter_runner
 import w9_publication_exact_owner_runner as exact_runner
 
 
@@ -41,6 +42,7 @@ def owner_index():
             f"tail\tStmtId(1)\t{tail_span}\tlast\tstmt:TailBareIdent",
             f"owner\t{tail_span}\tstmt:TailBareIdent",
             "exact-counts\t6\t4",
+            "structured-stage-count\t0",
             f"record\tExprId(1)\t{span(0, 50)}\t2",
         f'record-field\tExprId(1)\t0\tnamed\t"first"\t{span(1, 4)}\t\tExprId(2)',
         f'record-field\tExprId(1)\t1\tshorthand\t"alias"\t{span(10, 5)}\t\t',
@@ -68,6 +70,7 @@ def call_and_field_owner_index():
         "call\tExprId(2)\tExprId(1)",
         "field-access\tExprId(4)\tExprId(3)\t" + r'"a\tb\n\r\0\\\"\u{1f642}"',
         "exact-counts\t4\t0",
+        "structured-stage-count\t0",
     ]
     return "\n".join(rows) + "\n"
 
@@ -85,13 +88,14 @@ def named_and_path_owner_index():
         f'record-field\tExprId(1)\t2\tnamed\t""\t{span(41, 5)}\t\tExprId(2)',
         f'record-field\tExprId(1)\t3\tpath\t[""]\t{span(47, 2)}\t\tExprId(2)',
         "exact-counts\t2\t4",
+        "structured-stage-count\t0",
     ]
     return "\n".join(rows) + "\n"
 
 
 def named_keys_with_nonidentifier_names_owner_index():
     names = ("=", "MAJ:MIN", "-c", "full-dev-path", "", "internal key", "a\nb")
-    rows = ["source\tSourceId(0)\t512", "exact-counts\t15\t7"]
+    rows = ["source\tSourceId(0)\t512", "exact-counts\t15\t7", "structured-stage-count\t0"]
     record_span = span(0, 512)
     rows.extend((f"owner\t{record_span}\texpr:Record", f"expr\tExprId(1)\t{record_span}\tRecord\t\"\""))
     rows.append(f"record\tExprId(1)\t{record_span}\t{len(names)}")
@@ -117,6 +121,19 @@ def named_keys_with_nonidentifier_names_owner_index():
     return "\n".join(rows) + "\n"
 
 
+def structured_stage_owner_index():
+    return "\n".join(
+        (
+            "source\tSourceId(0)\t100",
+            f"owner\t{span(1, 8)}\tstage:Range",
+            "exact-counts\t0\t0",
+            "structured-stage-count\t2",
+            f"structured-stage\t0\t{span(10, 5)}\tRange",
+            f"structured-stage\t1\t{span(20, 5)}\tRepeat",
+        )
+    ) + "\n"
+
+
 def legacy_owner_index(contents):
     return "".join(
         line + "\n"
@@ -126,6 +143,49 @@ def legacy_owner_index(contents):
 
 
 class ExactOwnerIndexTests(unittest.TestCase):
+    def test_structured_stage_tags_match_the_rust_enum(self):
+        source_path = adapter_runner.ROOT / "src/syntax/node.rs"
+        source = source_path.read_text(encoding="utf-8")
+        enum_start = source.index("pub enum StreamStageKind {") + len("pub enum StreamStageKind {")
+        enum_end = source.index("\n}", enum_start)
+        body = source[enum_start:enum_end]
+        variants = []
+        for line in body.splitlines():
+            entry = line.strip()
+            if not entry:
+                continue
+            self.assertTrue(entry.endswith(","), "StreamStageKind entries must stay simple variants")
+            tag = entry[:-1]
+            self.assertTrue(tag.isidentifier(), "StreamStageKind entries must expose Rust Debug variant names")
+            variants.append(tag)
+
+        self.assertEqual(exact_runner.STREAM_STAGE_TAGS, frozenset(variants))
+
+    def test_parses_complete_structured_stream_stage_table_without_changing_legacy_projection(self):
+        legacy, exact = exact_runner.parse_exact_owner_index(structured_stage_owner_index())
+
+        self.assertEqual(legacy[1], {"Span{source_id:SourceId(0),start:1,len:8}": {"stage:Range"}})
+        self.assertEqual(
+            exact["structured_stages"],
+            {
+                0: ("Span{source_id:SourceId(0),start:10,len:5}", "Range"),
+                1: ("Span{source_id:SourceId(0),start:20,len:5}", "Repeat"),
+            },
+        )
+
+    def test_structured_stage_count_and_rows_fail_closed(self):
+        valid = structured_stage_owner_index()
+        cases = (
+            (valid.replace("structured-stage-count\t2\n", ""), "is missing its structured-stage-count"),
+            (valid + f"structured-stage\t0\t{span(30, 5)}\tMap\n", "duplicate structured-stage index"),
+            (valid.replace(f"structured-stage\t0\t{span(10, 5)}\tRange", f"structured-stage\t0\t{span(10, 5)}\tUnknown"), "unknown structured-stage kind"),
+            (valid.replace(f"structured-stage\t0\t{span(10, 5)}\tRange", f"structured-stage\t0\t{span(96, 5)}\tRange"), "outside its source"),
+            (valid.replace(f"structured-stage\t1\t{span(20, 5)}\tRepeat\n", ""), "do not cover the declared table"),
+        )
+        for contents, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(exact_runner.ExactOwnerError, message):
+                exact_runner.parse_exact_owner_index(contents)
+
     def test_parses_complete_global_ids_with_nonzero_record_field_ranges(self):
         legacy, exact = exact_runner.parse_exact_owner_index(owner_index())
 

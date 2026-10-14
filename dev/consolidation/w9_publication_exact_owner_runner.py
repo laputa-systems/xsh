@@ -19,7 +19,7 @@ import w9_publication_adapter_runner as adapter_runner
 EXACT_OWNER_TEST = "sema::w9_exact_repository_owners_receipt"
 EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
 EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owners.rs")
-EXACT_OWNER_HELPER_SHA256 = "da43a868ade8e8e97be885b0cea6c8be3df9e8b17f5b08c544819ddf326df0d0"
+EXACT_OWNER_HELPER_SHA256 = "02491ea3a28e09655740eb5467aa0d0d9a27b34006af134b0915d30c1c5226f8"
 EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t1\n"
 EXACT_PROOF_FIELDS = (
     "schema",
@@ -89,6 +89,45 @@ STMT_ID = re.compile(r"StmtId\(([1-9][0-9]*)\)\Z")
 DECIMAL = re.compile(r"(0|[1-9][0-9]*)\Z")
 HEX256 = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+STREAM_STAGE_TAGS = frozenset(
+    {
+        "Where",
+        "Map",
+        "ParMap",
+        "Each",
+        "Batch",
+        "Sort",
+        "SortBy",
+        "Take",
+        "Drop",
+        "First",
+        "Last",
+        "UniqueBy",
+        "Enumerate",
+        "Zip",
+        "Range",
+        "Repeat",
+        "Tee",
+        "Sum",
+        "Min",
+        "Max",
+        "GroupBy",
+        "Fold",
+        "Reduce",
+        "FlatMap",
+        "Any",
+        "All",
+        "Shuffle",
+        "TablePrint",
+        "TextStreamLines",
+        "BytesChunks",
+        "JsonLines",
+        "JsonStream",
+        "Count",
+        "Collect",
+        "ReduceBy",
+    }
+)
 LEGACY_OWNER_ROWS = {"source", "stmt", "tail", "owner"}
 EXACT_OWNER_ROWS = {
     "exact-counts",
@@ -99,6 +138,8 @@ EXACT_OWNER_ROWS = {
     "record-shorthand-alias",
     "call",
     "field-access",
+    "structured-stage-count",
+    "structured-stage",
 }
 
 
@@ -245,6 +286,7 @@ def parse_exact_owner_index(
     legacy_lines: list[str] = []
     run_owner_spans: list[str] = []
     exact_count: tuple[int, int] | None = None
+    structured_stage_count: int | None = None
     expressions: dict[int, tuple[str, str, str]] = {}
     runs: dict[int, tuple[str, bool]] = {}
     record_headers: dict[int, tuple[str, int]] = {}
@@ -255,6 +297,7 @@ def parse_exact_owner_index(
     aliases: dict[tuple[int, int], tuple[int, str, str]] = {}
     calls: dict[int, int] = {}
     field_accesses: dict[int, tuple[int, str]] = {}
+    structured_stages: dict[int, tuple[str, str]] = {}
     for line_number, line in enumerate(contents.splitlines(), 1):
         fields = line.split("\t")
         if fields[0] in {"source", "stmt", "tail"}:
@@ -272,6 +315,22 @@ def parse_exact_owner_index(
                 _decimal(fields[1], "expression count"),
                 _decimal(fields[2], "record field count"),
             )
+        elif fields[0] == "structured-stage-count":
+            if len(fields) != 2 or structured_stage_count is not None:
+                raise ExactOwnerError(
+                    f"owner index line {line_number}: malformed or duplicate structured-stage-count row"
+                )
+            structured_stage_count = _decimal(fields[1], "structured-stage count")
+        elif fields[0] == "structured-stage":
+            if len(fields) != 4:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed structured-stage row")
+            stage_index = _decimal(fields[1], "structured-stage index")
+            if stage_index in structured_stages:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate structured-stage index")
+            tag = fields[3]
+            if tag not in STREAM_STAGE_TAGS:
+                raise ExactOwnerError(f"owner index line {line_number}: unknown structured-stage kind")
+            structured_stages[stage_index] = (fields[2], tag)
         elif fields[0] == "expr":
             if len(fields) != 5:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed expr row")
@@ -359,6 +418,12 @@ def parse_exact_owner_index(
     if exact_count is None:
         raise ExactOwnerError("exact owner index is missing its exact-counts row")
     expr_count, record_field_count = exact_count
+    if structured_stage_count is None:
+        raise ExactOwnerError("exact owner index is missing its structured-stage-count row")
+    if structured_stage_count != len(structured_stages) or set(structured_stages) != set(
+        range(len(structured_stages))
+    ):
+        raise ExactOwnerError("structured-stage rows do not cover the declared table")
     if set(expressions) != set(range(expr_count)):
         raise ExactOwnerError("exact expression ids do not cover the declared arena table")
     if set(runs) != set(range(len(runs))):
@@ -386,6 +451,13 @@ def parse_exact_owner_index(
     for expression_id, (base_id, _name) in field_accesses.items():
         if base_id not in expressions or base_id == expression_id:
             raise ExactOwnerError(f"field access {expression_id} references an invalid base expression")
+    structured_stages = {
+        stage_index: (
+            _span(raw_span, source_sizes, f"structured stage {stage_index}"),
+            tag,
+        )
+        for stage_index, (raw_span, tag) in structured_stages.items()
+    }
 
     for expression_id, (raw_span, tag, _name) in expressions.items():
         span = _span(raw_span, source_sizes, f"expression {expression_id}")
@@ -482,6 +554,7 @@ def parse_exact_owner_index(
         "record_field_count": record_field_count,
         "calls": calls,
         "field_accesses": field_accesses,
+        "structured_stages": structured_stages,
         "tails": {
             _stmt_id(statement_id): (span, name, kind)
             for statement_id, (span, name, kind) in legacy[2].items()
