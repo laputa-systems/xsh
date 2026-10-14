@@ -6874,7 +6874,44 @@ mod checked_constructor_fact_tests {
         );
         let call = checked.expression_containing("m.increment(7)");
         assert!(checked.build(&checked.declarations).is_ok());
+        assert!(checked
+            .declarations
+            .bodies
+            .statically_resolved_calls
+            .contains(&call));
         assert!(checked.declarations.bodies.expr_types.contains_key(&call));
+        let mut declarations = checked.declarations.clone();
+        assert!(declarations
+            .bodies
+            .selected_function_calls
+            .remove(&call)
+            .is_some());
+        checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn missing_qualified_named_spread_function_identity_blocks_lowering() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).expect("create repository scratch directory");
+        let module_root = tempfile::tempdir_in(&work).expect("create function module fixture");
+        std::fs::write(
+            module_root.path().join("model.xsh"),
+            "##! A module for function identity tests.\n## An exported pure function.\nexport pure increment(value: Int) -> Int { return value + 1 }\n",
+        )
+        .expect("write function module");
+        let source = "use model as m\nlet made = m.increment(...{value: 7})\n";
+        let checked = CheckedSource::new(
+            "missing-qualified-named-spread-function-identity.xsh",
+            source,
+            vec![module_root.path().to_path_buf()],
+        );
+        let call = checked.expression_containing("m.increment(...{value: 7})");
+        assert!(checked.build(&checked.declarations).is_ok());
+        assert!(checked
+            .declarations
+            .bodies
+            .statically_resolved_calls
+            .contains(&call));
         let mut declarations = checked.declarations.clone();
         assert!(declarations
             .bodies
@@ -6911,6 +6948,65 @@ mod checked_constructor_fact_tests {
             .remove(&callback)
             .is_some());
         checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn missing_qualified_stage_callback_identity_blocks_lowering() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).expect("create repository scratch directory");
+        let module_root = tempfile::tempdir_in(&work).expect("create function module fixture");
+        std::fs::write(
+            module_root.path().join("model.xsh"),
+            "##! A module for function identity tests.\n## An exported pure function.\nexport pure increment(value: Int) -> Int { return value + 1 }\n",
+        )
+        .expect("write function module");
+        let source = "use model as m\nlet values = [1] |> map(m.increment)\n";
+        let checked = CheckedSource::new(
+            "missing-qualified-stage-callback-identity.xsh",
+            source,
+            vec![module_root.path().to_path_buf()],
+        );
+        let matches = checked
+            .declarations
+            .bodies
+            .selected_function_calls
+            .keys()
+            .copied()
+            .filter(|&id| {
+                checked
+                    .sources
+                    .span_text(checked.parsed.arena.arena.expr(id).span)
+                    .is_some_and(|text| text == "m.increment")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "{matches:?}");
+        let callback = matches[0];
+        assert!(checked.build(&checked.declarations).is_ok());
+        let mut declarations = checked.declarations.clone();
+        assert!(declarations
+            .bodies
+            .selected_function_calls
+            .remove(&callback)
+            .is_some());
+        checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn runtime_module_function_calls_keep_dynamic_lowering() {
+        let source = "type Plugin = module { export pure increment(value: Int) -> Int }\nproc invoke(plugin: Plugin) -> Int { return plugin.increment(7) }\n";
+        let checked = CheckedSource::new("runtime-module-call.xsh", source, Vec::new());
+        let call = checked.expression_containing("plugin.increment(7)");
+        assert!(!checked
+            .declarations
+            .bodies
+            .statically_resolved_calls
+            .contains(&call));
+        assert!(!checked
+            .declarations
+            .bodies
+            .selected_function_calls
+            .contains_key(&call));
+        assert!(checked.build(&checked.declarations).is_ok());
     }
 
     #[test]

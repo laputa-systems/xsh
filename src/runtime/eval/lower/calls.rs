@@ -702,7 +702,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ) {
                     return Some(env_call);
                 }
-                let runtime_module = !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_none());
+                let statically_resolved = self.bodies.statically_resolved_calls.contains(&id);
+                let has_checked_route = self.bodies.selected_function_calls.contains_key(&id)
+                    || self.bodies.api_calls.contains_key(&id)
+                    || self
+                        .bodies
+                        .resolved_type_expressions
+                        .instantiations
+                        .contains_key(&id);
+                if statically_resolved && !has_checked_route {
+                    return None;
+                }
+                let runtime_module = !statically_resolved
+                    && !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_none());
                 if runtime_module
                     && let Some(Type::Module(exports)) = self.checked_expr_type(base)
                     && let Some(
@@ -726,7 +738,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         BuildExprRow::DynamicCall { callee, args, span }
                     ));
                 }
-                if name == "call" {
+                if name == "call" && !statically_resolved {
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
                     let call = push_build_row!(
@@ -1523,8 +1535,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                 }
-                if self.source_slot(base, slots).is_none()
-                    && matches!(self.checked_expr_type(base), Some(Type::Module(_)))
+                if statically_resolved
+                    || self.source_slot(base, slots).is_none()
+                        && matches!(self.checked_expr_type(base), Some(Type::Module(_)))
                 {
                     return None;
                 }
@@ -2338,6 +2351,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if self.expression_binding(callee).is_some() {
+                    if self.bodies.statically_resolved_calls.contains(&id) {
+                        return None;
+                    }
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
                     return Some(push_build_row!(

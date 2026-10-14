@@ -97,6 +97,7 @@ pub struct CompactBodyFacts {
         FxHashMap<ExprId, super::CheckedFunctionTarget>,
     pub(crate) selected_function_references:
         BTreeMap<Span, (super::CheckedFunctionTarget, Option<Type>)>,
+    pub(crate) statically_resolved_calls: FxHashSet<ExprId>,
     pub module_commands: BTreeMap<Span, super::CheckedModuleCommand>,
     /// User callable calls and structured stages keyed by their source span.
     pub argument_bindings: BTreeMap<Span, super::CheckedArguments>,
@@ -217,6 +218,9 @@ impl CompactBodyFacts {
                         record_field_types.insert(field_span, value_type);
                     }
                 }
+            }
+            if checked.statically_resolved_call_spans.contains(&span) {
+                facts.statically_resolved_calls.insert(id);
             }
             if matches!(expression.kind, ArenaExprKind::Call { .. })
                 && let Some(instance) = checked.resolved_type_expressions.instantiations.get(&span) {
