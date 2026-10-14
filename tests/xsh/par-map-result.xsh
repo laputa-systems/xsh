@@ -57,7 +57,8 @@ test test_par_map_all_ok {
 }
 
 test test_par_map_worker_calls_observe_outer_capture_updates { |ctx|
-  let output = test.run_script(
+  let expected = "rows:1,1,1\nchecks:1\n"
+  let output = test.expect(
     ctx,
     r"""var checks = 0
 pure read() -> Int { checks }
@@ -69,9 +70,10 @@ let rows = observed()
 print f"rows:{rows[0]},{rows[1]},{rows[2]}"
 print f"checks:{checks}"
 """,
+    status: 0,
+    stdout: [expected],
   )?
-  assert output.success, output.stderr
-  assert output.stdout == "rows:1,1,1\nchecks:1\n", output.stdout
+  assert output.stdout == expected, output.stdout
   assert output.stderr == "", output.stderr
 }
 

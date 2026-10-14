@@ -51,7 +51,7 @@ right
 
 test test_expr_glob_literal_has_no_child_and_expands_in_current_directory { |ctx|
   let root = test.temp_dir(ctx, name: "expr-glob-order")?
-  fp"{root}/only.xsh".write("contents")?
+  fp"{root}/only.xsh".write("contents")
 
   let output = test.expect(
     ctx,

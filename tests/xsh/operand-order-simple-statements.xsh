@@ -1,5 +1,13 @@
 test test_simple_statement_expression_payloads_evaluate_once { |ctx|
-  let output = test.run_script(
+  let expected = """eval:let
+eval:assign
+eval:assign-field
+eval:let-record
+eval:value
+eval:expr
+bound|after|field|0|record|7|tail
+"""
+  let output = test.expect(
     ctx,
     r"""type Pair = {text: Str, count: Int}
 
@@ -31,18 +39,12 @@ let tail = value_tail()
 expression_statement()
 print f"{bound}|{assigned}|{pair.text}|{pair.count}|{record_text}|{record_count}|{tail}"
 """,
+    status: 0,
+    stdout: [expected],
   )?
 
-  assert output.success, output.stderr
   assert output.stderr == ""
-  assert output.stdout == """eval:let
-eval:assign
-eval:assign-field
-eval:let-record
-eval:value
-eval:expr
-bound|after|field|0|record|7|tail
-"""
+  assert output.stdout == expected
 }
 
 test test_path_assignment_evaluates_the_index_before_the_value { |ctx|

@@ -2,7 +2,7 @@ type RouteScale = pure(value: Int) -> Int
 type RouteJson = {value: Int}
 type RouteRenderPlugin = module {export pure render(data: Any) -> Result[Str, Error]}
 enum RouteTag { Ready, Busy }
-error RouteOracleError = Failed(message: Str)
+error RouteOracleError = Failed
 
 pure route_direct_scale(value: Int) -> Int { value * 3 }
 
@@ -73,7 +73,7 @@ test test_expr_str_match {
   let word = "green"
   let selected = match word {
     "green" => "go"
-    _ => "stop"
+    else => "stop"
   }
   assert selected == "go"
 }
@@ -88,7 +88,7 @@ test test_expr_tag_match {
 }
 
 test test_expr_result_fallback {
-  let missing: Result[Int, RouteOracleError] = Err(RouteOracleError.Failed(message: "missing"))
+  let missing: Result[Int, RouteOracleError] = Err(.Failed("missing"))
   assert (missing ?? 9) == 9
 }
 
@@ -131,7 +131,8 @@ test test_expr_map_comp {
 }
 
 test test_expr_method {
-  assert "17".parse_int()? == 17
+  let parsed = "17".parse_int()
+  assert parsed? == 17
 }
 
 test test_expr_require {
@@ -171,7 +172,8 @@ test test_expr_wait {
 }
 
 test test_expr_capture {
-  let result = try { "21".parse_int()? }
+  let parsed = "21".parse_int()
+  let result = try { parsed? }
   assert result == Ok(21)
 }
 
@@ -214,17 +216,18 @@ test test_expr_process_command_builder {
 }
 
 test test_expr_ok {
-  let result: Result[Int] = Ok(21)
+  let result = Ok(21)
   assert result == Ok(21)
 }
 
 test test_expr_err {
-  let result: Result[Int, RouteOracleError] = Err(RouteOracleError.Failed(message: "failed"))
+  let result: Result[Int, RouteOracleError] = Err(.Failed("failed"))
   assert result is Err(_)
 }
 
 test test_expr_try {
-  assert "21".parse_int()? == 21
+  let parsed = "21".parse_int()
+  assert parsed? == 21
 }
 
 test test_expr_call {

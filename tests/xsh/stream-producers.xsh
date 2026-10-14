@@ -125,7 +125,26 @@ test test_zero_argument_stream_producers_run_from_every_call_position { |ctx|
 }
 
 test test_stream_producer_mutations_refresh_consumer_captures { |ctx|
-  let output = test.run_script(
+  let expected = [
+    "pipeline:1:1",
+    "method:2:2",
+    "for:3:3",
+    "comprehension:4:4",
+    "returns:1,2,3,4",
+    "checks:4",
+    "resumed:1:1",
+    "resumed:12:12",
+    "resumed-return:22",
+    "delegated:1:1",
+    "delegated:12:12",
+    "delegated-return:22",
+    "cancelled:1:1",
+    "closed:11",
+    "cancelled-after:111",
+    "cancelled-return:111",
+    "",
+  ].join("\n")
+  let output = test.expect(
     ctx,
     r"""var checks = 0
 stream values() -> Stream[Int] {
@@ -207,27 +226,10 @@ print f"resumed-return:{observe_resumed()}"
 print f"delegated-return:{observe_delegated()}"
 print f"cancelled-return:{observe_cancelled()}"
 """,
+    status: 0,
+    stdout: [expected],
   )?
-  assert output.success, output.stderr
-  assert output.stdout == [
-    "pipeline:1:1",
-    "method:2:2",
-    "for:3:3",
-    "comprehension:4:4",
-    "returns:1,2,3,4",
-    "checks:4",
-    "resumed:1:1",
-    "resumed:12:12",
-    "resumed-return:22",
-    "delegated:1:1",
-    "delegated:12:12",
-    "delegated-return:22",
-    "cancelled:1:1",
-    "closed:11",
-    "cancelled-after:111",
-    "cancelled-return:111",
-    "",
-  ].join("\n"), output.stdout
+  assert output.stdout == expected, output.stdout
   assert output.stderr == "", output.stderr
 }
 

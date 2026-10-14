@@ -113,7 +113,7 @@ let values = [1, 2] |> batch(count: 1)
   assert succeeded, diagnostic
   let report = json.read(report_path)?.require(IRWireReport)?
   let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
-  let instruction_tag_json = run.text $xsht ir-tags --json ?
+  let instruction_tag_json = run.text $xsht ir-tags --json
   let instruction_tags = json.decode(instruction_tag_json)?.require(List[Str])?
   let statement_tags = [name for name in instruction_tags if name.starts_with("Stmt")]
   let expression_tags = [name for name in instruction_tags if name.starts_with("Expr")]
@@ -390,7 +390,7 @@ pattern_schema! {
   assert status.exited_with(0), diagnostic
   let report = json.read(report_path)?.require(IRWireReport)?
   let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
-  let instruction_tag_json = run.text $xsht ir-tags --json ?
+  let instruction_tag_json = run.text $xsht ir-tags --json
   let instruction_tags = json.decode(instruction_tag_json)?.require(List[Str])?
   let statement_tags = [name for name in instruction_tags if name.starts_with("Stmt")]
   let expression_tags = [name for name in instruction_tags if name.starts_with("Expr")]
