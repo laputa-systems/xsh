@@ -1051,7 +1051,17 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                     self.runner,
                 )
 
-    def test_run_reuses_reference_capture_and_captures_only_the_candidate(self):
+    def test_run_rejects_inline_comparison_before_capturing(self):
+        with patch.object(adapter_runner, "_run_capture_role") as capture:
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "run requires --capture-only; then capture exact owners and use compare-captures",
+            ):
+                adapter_runner.execute_adapter_publication(argparse.Namespace(), self.runner)
+
+        capture.assert_not_called()
+
+    def test_run_capture_only_reuses_reference_capture_and_writes_candidate_receipt(self):
         owner_source = self.owner_helper_source
         reference_build_path, reference_build = self._write_build_receipt(
             "reference",
@@ -1074,7 +1084,6 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         source_receipt.write_text("fixture\n", encoding="utf-8")
         source_record = self._candidate_source_record()
         capture_roles = []
-        comparisons = []
 
         def capture(runner, record, output, role, _build, _binary, _count, _environment):
             capture_roles.append(role)
@@ -1090,10 +1099,6 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 range_receipts[(start, end)] = destination
             return raw_root, receipt_directory, range_receipts
 
-        def compare(*args):
-            comparisons.append(args)
-            return len(self.expected_inputs) * len(adapter_runner.PROFILES), 0
-
         with (
             patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
             patch.object(
@@ -1104,7 +1109,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             patch.object(self.runner, "parse_receipt", side_effect=self._parse_shard),
             patch.object(self.runner, "local_docker_environment", return_value={"PATH": os.environ["PATH"]}),
             patch.object(adapter_runner, "_run_capture_role", side_effect=capture),
-            patch.object(adapter_runner, "compare_full_publications", side_effect=compare),
+            patch.object(adapter_runner, "compare_full_publications") as compare,
+            patch("builtins.print") as printed,
         ):
             result = adapter_runner.execute_adapter_publication(
                 argparse.Namespace(
@@ -1115,6 +1121,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                     candidate_build_receipt=candidate_build_path,
                     reference_capture_receipt=reference_capture,
                     output=str(self.candidate_root / ".work/consolidation/new-publication"),
+                    capture_only=True,
                     dry_run=False,
                 ),
                 self.runner,
@@ -1122,15 +1129,20 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(capture_roles, ["candidate"])
-        self.assertEqual(len(comparisons), 1)
-        self.assertEqual(comparisons[0][7], reference_capture)
+        compare.assert_not_called()
         output = self.candidate_root / ".work/consolidation/new-publication"
         self.assertTrue((output / "candidate/capture.receipt").is_file())
         self.assertFalse((output / "reference/capture.receipt").exists())
         self.assertEqual(
             (output / "attempt-status.txt").read_text(encoding="utf-8").splitlines()[0],
-            "status=complete",
+            "status=capture-complete",
         )
+        self.assertIn(f"reference_capture={reference_capture}", printed.call_args.args[0])
+        self.assertIn(
+            f"candidate_capture={output / 'candidate/capture.receipt'}",
+            printed.call_args.args[0],
+        )
+        self.assertIn("comparison=not_run", printed.call_args.args[0])
 
     def test_compare_captures_rechecks_source_and_routes_both_roles_to_comparator(self):
         case = self._compare_case()

@@ -1314,6 +1314,10 @@ def _run_capture_role(
 
 
 def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
+    if not getattr(args, "capture_only", False):
+        raise PublicationError(
+            "run requires --capture-only; then capture exact owners and use compare-captures"
+        )
     candidate_root = runner.real_directory(args.candidate_root, "candidate source")
     source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source and binary receipt")
     source_record = runner.parse_candidate_receipt(source_receipt)
@@ -1416,28 +1420,13 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
             captures[role] = (raw_root, receipt_directory, capture_receipt, range_receipts)
             completed.extend(ranges)
             runner.write_status(output, "incomplete", completed, f"completed_capture={role}")
-        mismatch_path = runner.new_work_file_path(output / "mismatches.tsv", candidate_root, "adapter mismatch report")
-        outcomes, mismatches = compare_full_publications(
-            runner,
-            pathlib.Path(source_record["reference_receipt"]),
-            captures["candidate"][1],
-            captures["reference"][0],
-            captures["candidate"][0],
-            expected_inputs,
-            mismatch_path,
-            captures["reference"][2],
-            captures["candidate"][2],
-            candidate_root,
-            reference_source_root,
-            source_record,
-            pathlib.Path(source_record["input_root"]),
-            pathlib.Path(source_record["input_manifest"]),
-            docker_environment,
+        summary = f"capture-only corpus={len(expected_inputs)} outcomes={len(expected_inputs) * len(PROFILES)}"
+        runner.write_status(output, "capture-complete", completed, summary)
+        print(
+            f"{summary}\nreference_capture={captures['reference'][2]}\n"
+            f"candidate_capture={captures['candidate'][2]}\ncomparison=not_run"
         )
-        summary = f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches}"
-        runner.write_status(output, "complete", completed, summary)
-        print(f"{summary}\nreference_capture={captures['reference'][2]}\ncandidate_capture={captures['candidate'][2]}\nmismatch_file={mismatch_path}")
-        return 0 if mismatches == 0 else 1
+        return 0
 
 
 def build_adapter_harness(
@@ -2107,13 +2096,25 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     build.add_argument("--reference-source-root", type=pathlib.Path, required=True)
     build.add_argument("--reference-build-receipt", type=pathlib.Path)
-    run = commands.add_parser("run")
+    run = commands.add_parser(
+        "run",
+        help="capture legacy outcomes before exact-owner comparison",
+        description=(
+            "Capture legacy outcomes with --capture-only, then capture or reuse exact-owner "
+            "proofs and call compare-captures."
+        ),
+    )
     run.add_argument("--candidate-root", type=pathlib.Path, required=True)
     run.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     run.add_argument("--reference-source-root", type=pathlib.Path, required=True)
     run.add_argument("--reference-build-receipt", type=pathlib.Path, required=True)
     run.add_argument("--candidate-build-receipt", type=pathlib.Path, required=True)
     run.add_argument("--reference-capture-receipt", type=pathlib.Path)
+    run.add_argument(
+        "--capture-only",
+        action="store_true",
+        help="write capture receipts for a later exact-owner comparison",
+    )
     run.add_argument("--output", required=True)
     run.add_argument("--dry-run", action="store_true")
     compare = commands.add_parser("compare-captures")
