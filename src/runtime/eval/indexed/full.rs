@@ -17731,7 +17731,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             .any(|instruction| marks[instruction]));
         let binary = function_instruction_indices(&program, "sum", FullTag::ExprBinary);
         assert_eq!(binary.len(), 1);
-        assert!(marks[binary[0]]);
+        assert!(!marks[binary[0]]);
         let matched = function_instruction_indices(&program, "matched", FullTag::ExprMatch);
         assert_eq!(matched.len(), 1);
         assert!(marks[matched[0]]);

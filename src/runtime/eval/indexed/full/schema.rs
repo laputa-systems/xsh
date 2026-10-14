@@ -505,12 +505,6 @@ macro_rules! instruction_schema {
                 }
             }
 
-            pub(in crate::runtime::eval) fn is_scheduled_frame_control_expr(self) -> bool {
-                self.kind() == InstructionKind::Expr
-                    && self.in_place_class() == InPlaceClass::Scheduled
-                    && self.frame_strategy() == FrameStrategy::FrameControl
-            }
-
             pub(in crate::runtime::eval) fn is_eager_atom(self) -> bool {
                 match self {
                     $($(Self::$tag => instruction_schema!(@eager_atom $($classification)?),)*)*
@@ -826,7 +820,7 @@ instruction_schema! {
             left: BuildExprId,
             right: BuildExprId,
             span: Span,
-        } => ExprBinary = 33 [0; Operands; FrameControl];
+        } => ExprBinary = 33 [0; Scheduled; FrameControl];
         IfExpr {
             branches: Vec<(BuildExprId, BuildExprId)>,
             else_value: BuildExprId,
@@ -836,7 +830,7 @@ instruction_schema! {
             branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
             else_value: BuildExprId,
             span: Span,
-        } => ExprPatternIf = 35 [0; Operands; FrameControl];
+        } => ExprPatternIf = 35 [0; Scheduled; FrameControl];
         MatchExpr {
             value: BuildExprId,
             arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
@@ -847,13 +841,13 @@ instruction_schema! {
             arms: FxHashMap<Arc<str>, BuildExprId>,
             fallback: Option<BuildExprId>,
             span: Span,
-        } => ExprStrMatch = 37 [0; Operands; FrameControl];
+        } => ExprStrMatch = 37 [0; Scheduled; FrameControl];
         TagMatchExpr {
             value: BuildExprId,
             arms: FxHashMap<Arc<str>, BuildExprId>,
             fallback: Option<BuildExprId>,
             span: Span,
-        } => ExprTagMatch = 38 [0; Operands; FrameControl];
+        } => ExprTagMatch = 38 [0; Scheduled; FrameControl];
         ResultFallback {
             left: BuildExprId,
             right: BuildExprId,
@@ -1127,11 +1121,11 @@ instruction_schema! {
         Abort {
             status: BuildExprId,
             span: Span,
-        } => ExprAbort = 102 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; FrameApply];
+        } => ExprAbort = 102 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         Fail {
             message: BuildExprId,
             span: Span,
-        } => ExprFail = 103 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; FrameApply];
+        } => ExprFail = 103 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         Ok(value: BuildExprId) => ExprOk = 104 [0; Operands; FrameControl];
         Err {
             value: BuildExprId,
@@ -1140,7 +1134,7 @@ instruction_schema! {
         // Boxed: `LoweredErrorExpr::Structured` inlines three `String`s plus two
         // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
         // for the sake of the comparatively rare structured-error-literal case.
-        Error(value: Box<LoweredErrorExpr>) => ExprError = 106 [0; Operands; FrameApply];
+        Error(value: Box<LoweredErrorExpr>) => ExprError = 106 [0; Scheduled; FrameApply];
         Try {
             value: BuildExprId,
             span: Span,
@@ -1494,34 +1488,6 @@ mod tests {
     };
 
     #[test]
-    fn scheduled_frame_control_expressions_use_the_explicit_machine_route() {
-        for tag in [
-            FullTag::ExprListComp,
-            FullTag::ExprMapComp,
-            FullTag::ExprMethod,
-            FullTag::ExprModuleCall,
-            FullTag::ExprExternalCall,
-            FullTag::ExprDynamicCall,
-            FullTag::ExprTypedCall,
-            FullTag::ExprRunCapture,
-        ] {
-            assert!(tag.is_scheduled_frame_control_expr(), "{}", tag.name());
-        }
-
-        for tag in [
-            FullTag::ExprBinary,
-            FullTag::ExprPatternIf,
-            FullTag::ExprStrMatch,
-            FullTag::ExprTagMatch,
-            FullTag::ExprGlob,
-            FullTag::ExprLastStatus,
-            FullTag::StmtLet,
-        ] {
-            assert!(!tag.is_scheduled_frame_control_expr(), "{}", tag.name());
-        }
-    }
-
-    #[test]
     fn instruction_classes_include_only_operations_that_never_run_script() {
         let operands = r#"
             IntInt
@@ -1555,12 +1521,8 @@ mod tests {
             ExprPath
             ExprParam
             ExprComparisonChain
-            ExprBinary
             ExprIf
-            ExprPatternIf
             ExprMatch
-            ExprStrMatch
-            ExprTagMatch
             ExprResultFallback
             ExprFmtString
             ExprPathFmtString
@@ -1574,15 +1536,12 @@ mod tests {
             ExprIndexFromEnd
             ExprRequire
             ExprCheckedValue
-            ExprAbort
-            ExprFail
             ExprOk
             ExprErr
-            ExprError
             ExprTry
         "#;
         let names: Vec<_> = operands.split_whitespace().collect();
-        assert_eq!(names.len(), 56);
+        assert_eq!(names.len(), 49);
         for tag in INSTRUCTION_TAGS {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
@@ -1600,8 +1559,11 @@ mod tests {
             "ExprStrByteLen",
             "ExprStrByteAt",
             "ExprStrPredicate",
+            "ExprAbort",
+            "ExprFail",
+            "ExprError",
         ];
-        assert_eq!(scheduled_apply.len(), 11);
+        assert_eq!(scheduled_apply.len(), 14);
         for name in scheduled_apply {
             let tag = INSTRUCTION_TAGS
                 .iter()
@@ -1736,6 +1698,7 @@ mod tests {
             FrameStrategy::FrameControl
         );
         for tag in [
+            FullTag::ExprBinary,
             FullTag::ExprPatternIf,
             FullTag::ExprStrMatch,
             FullTag::ExprTagMatch,

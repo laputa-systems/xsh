@@ -6412,23 +6412,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             execution.instruction_id(instruction),
             span,
         )?;
-        // Frame-applied operations and binary control keep their children on this machine.
-        if in_place
-            && !super::indexed_frame_apply_tag(tag)
-            && !matches!(
-                tag,
-                FullTag::ExprBinary
-                    | FullTag::ExprPatternIf
-                    | FullTag::ExprStrMatch
-                    | FullTag::ExprTagMatch
-                    | FullTag::ExprProcessCommandBuilder
-                    | FullTag::ExprRunCapture
-                    | FullTag::ExprRunPipeline
-                    | FullTag::ExprSpawnRun
-                    | FullTag::ExprSpawnCommand
-                    | FullTag::ExprWait
-            )
-        {
+        if in_place {
             let flow = {
                 let call = &mut self.calls[index];
                 self.evaluator.eval_indexed_expr(
@@ -6481,15 +6465,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             );
         }
         if super::indexed_frame_apply_tag(tag) {
-            if self.evaluator.force_frames
-                && tag == FullTag::ExprEmptyMap
+            if tag == FullTag::ExprEmptyMap
                 && let Some(sink) = &self.evaluator.route_witness_sink
             {
-                sink.record(
-                    tag,
-                    RouteWitnessRoute::GenericOperandApplyPath,
-                    RouteWitnessMode::Forced,
-                );
+                let (route, mode) = if self.evaluator.force_frames {
+                    (
+                        RouteWitnessRoute::GenericOperandApplyPath,
+                        RouteWitnessMode::Forced,
+                    )
+                } else {
+                    (
+                        RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
+                        RouteWitnessMode::Normal,
+                    )
+                };
+                sink.record(tag, route, mode);
             }
             let mut view = super::ExprView::decode(&execution, tag, payload)
                 .map_err(|error| indexed_error(error, span))?;

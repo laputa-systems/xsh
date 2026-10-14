@@ -1290,22 +1290,7 @@ impl Evaluator {
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         self.sync_indexed_root_slots(slots, call_span)?;
-        let frame_scheduled = execution
-            .instruction_id(instruction)
-            .map(|(tag, _)| {
-                tag.is_scheduled_frame_control_expr()
-                    || matches!(
-                        tag,
-                        FullTag::ExprBinary
-                            | FullTag::ExprPatternIf
-                            | FullTag::ExprStrMatch
-                            | FullTag::ExprTagMatch
-                            | FullTag::ExprGlob
-                            | FullTag::ExprLastStatus
-                    )
-            })
-            .map_err(|error| indexed_error(error, call_span))?;
-        let result = if self.force_frames || frame_scheduled {
+        let result = if self.force_frames || !execution.is_in_place(instruction) {
             self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
         } else {
             self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
@@ -1466,19 +1451,6 @@ impl Evaluator {
                 slots,
                 call_span,
             )?));
-        }
-        // These rows have no recursive evaluator arms; their children must stay on frames.
-        if indexed_frame_apply_tag(tag) {
-            if tag == FullTag::ExprEmptyMap
-                && let Some(sink) = &self.route_witness_sink
-            {
-                sink.record(
-                    tag,
-                    RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
-                    RouteWitnessMode::Normal,
-                );
-            }
-            return self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span);
         }
         let result = match tag {
             FullTag::ExprComparisonChain => {

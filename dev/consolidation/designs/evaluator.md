@@ -59,14 +59,14 @@ An instruction is *in place* when all of these hold:
 - its height in in-place operands is at most 128, the parser's nesting
   limit, so that the bound does not rest on lowering preserving depth.
 
-The in-place class is the tags whose own behavior runs no script code and
-does not wait on anything that services signals: the constants and slot
+The in-place class contains only tags with direct handlers that run no
+script code and wait on nothing that services signals: the constants and slot
 reads, all `Int*` and `Bool*` tags, and the operations whose only work is on
 their operand values (comparison, arithmetic, selection among operands by a
 condition or a pattern, record, list, map, tag, range, and format
 construction, field and index access, slices, string measures and
 predicates, path construction, checked conversion, `.require`, `Ok`, `Err`,
-`Error`, `?`, `fail`, and the fallback operator), plus the file-system and
+`?`, and the fallback operator), plus the file-system and
 path operations that take operands and wait on nothing. Excluded: every call
 tag, `ExprMethod` and `ExprModuleCall` (what they run depends on the method
 or operation), value blocks, captures, error contexts, context scopes,
