@@ -3,17 +3,17 @@ import Xsh.Validation.RecursiveRequire
 /-!
 A conservative wire-enum extension around the existing recursive `.require`
 boundary. The shared checker validates the portion representable by its current
-Target grammar; this module handles Str-enum replacement and visits every
-finite Map value. The wrapper publishes a converted value only when both the
-shared check and the whole-tree conversion succeed. Maps here have Str keys.
+Target grammar; this module builds Str-enum mappings from finite source
+declarations, handles enum replacement, and visits every finite Map value. The
+wrapper publishes a converted value only when both the shared check and the
+whole-tree conversion succeed. Maps here have Str keys.
 
-Enum mappings are supplied as prepared data with unique wire spellings. This
-model assumes each mapping is nonempty and its declaration names and wire
-spellings are unique; it records those assumptions as structure proofs but
-does not check source declarations. Structural rejection carries the existing
-pathless `ValidationFailure`; conversion rejection retains the original
-candidate and a `BlamePath`. This fragment excludes implicit coercions, JSON
-encoding, diagnostic spans, and Rust correspondence.
+Mapping construction rejects empty declarations, duplicate declaration names,
+and duplicate wire spellings before conversion can use the table. Structural
+rejection carries the existing pathless `ValidationFailure`; conversion
+rejection retains the original candidate and a `BlamePath`. This bounded
+independent model excludes implicit coercions, JSON encoding, diagnostic spans,
+and Rust correspondence.
 -/
 
 namespace Xsh.Enums.WireConversion
@@ -22,13 +22,54 @@ open Xsh.Values
 open Xsh.Validation.Nominal
 open Xsh.Validation.RecursiveRequire
 
-/-- A prepared Str-backed enum mapping; declaration checking is outside this model. -/
+/-- One variant from a finite, Str-backed source enum declaration. -/
+structure SourceEnumVariant where
+  declarationName : String
+  wireSpelling : String
+  deriving DecidableEq, Repr
+
+/-- The finite source declaration from which a conversion table is built. -/
+structure SourceEnumDeclaration where
+  typeName : NominalId
+  variants : List SourceEnumVariant
+  deriving DecidableEq, Repr
+
+/-- A validated table produced only after checking a source declaration. -/
 structure StrEnumMapping where
   typeName : NominalId
   variants : List (String × String)
   variantsNonempty : variants ≠ []
   variantNamesUnique : (variants.map Prod.fst).Nodup
   wireSpellingsUnique : (variants.map Prod.snd).Nodup
+
+inductive MappingBuildFailure where
+  | emptyDeclaration
+  | duplicateDeclarationNames
+  | duplicateWireSpellings
+  deriving DecidableEq, Repr
+
+def sourceVariantPairs (variants : List SourceEnumVariant) : List (String × String) :=
+  variants.map fun variant => (variant.declarationName, variant.wireSpelling)
+
+/-- Build the lookup table only when the finite declaration satisfies its invariants. -/
+def buildStrEnumMapping (declaration : SourceEnumDeclaration) :
+    Except MappingBuildFailure StrEnumMapping :=
+  let variants := sourceVariantPairs declaration.variants
+  if nonempty : variants ≠ [] then
+    if namesUnique : (variants.map Prod.fst).Nodup then
+      if spellingsUnique : (variants.map Prod.snd).Nodup then
+        .ok ⟨declaration.typeName, variants, nonempty, namesUnique, spellingsUnique⟩
+      else .error .duplicateWireSpellings
+    else .error .duplicateDeclarationNames
+  else .error .emptyDeclaration
+
+abbrev MappingRows := NominalId × List (String × String)
+
+/-- Erase proof fields to compare checked construction with an unchecked mutant. -/
+def buildStrEnumMappingRows (declaration : SourceEnumDeclaration) :
+    Except MappingBuildFailure MappingRows :=
+  (buildStrEnumMapping declaration).map fun mapping =>
+    (mapping.typeName, mapping.variants)
 
 /-- The input and output values needed at this conversion boundary. -/
 inductive WireValue where
@@ -41,7 +82,7 @@ inductive WireValue where
 /-- A schema adds enum conversion and open Str-keyed maps to recursive require. -/
 inductive WireSchema where
   | base (target : Target)
-  | enumeration (mapping : StrEnumMapping)
+  | enumeration (declaration : SourceEnumDeclaration)
   | optional (inner : WireSchema)
   | list (element : WireSchema)
   | record (fields : List (String × WireSchema))
@@ -104,6 +145,7 @@ abbrev BlamePath := List PathSegment
 
 inductive ConversionIssue where
   | unknownWireString (typeName : NominalId) (spelling : String)
+  | invalidEnumDeclaration (failure : MappingBuildFailure)
   | expectedValue (expected : String)
   | fuelExhausted
   deriving DecidableEq, Repr
@@ -127,7 +169,7 @@ def expectedSchemaName : WireSchema → String
   | .base (.list _) => "List"
   | .base (.field _ _) => "Field"
   | .base (.record _) => "Record"
-  | .enumeration mapping => mapping.typeName.declarationName
+  | .enumeration declaration => declaration.typeName.declarationName
   | .optional inner => s!"{expectedSchemaName inner}?"
   | .list _ => "List"
   | .record _ => "Record"
@@ -143,16 +185,22 @@ def convertFuel : Nat → WireSchema → WireValue → BlamePath →
       | .base target, .atom atom =>
           if check (Nat.succ fuel) target atom then .ok (.atom atom)
           else .error ⟨path, .expectedValue (expectedSchemaName schema)⟩
-      | .enumeration mapping, .atom (.string spelling) =>
-          match enumVariant? mapping spelling with
-          | some variant => .ok (.enumValue mapping.typeName variant)
-          | none => .error ⟨path, .unknownWireString mapping.typeName spelling⟩
-      | .enumeration mapping, .enumValue typeName variantName =>
-          if typeName == mapping.typeName &&
-              mapping.variants.any (fun (variant, _) => variant == variantName) then
-            .ok value
-          else
-            .error ⟨path, .expectedValue mapping.typeName.declarationName⟩
+      | .enumeration declaration, .atom (.string spelling) =>
+          match buildStrEnumMapping declaration with
+          | .error failure => .error ⟨path, .invalidEnumDeclaration failure⟩
+          | .ok mapping =>
+              match enumVariant? mapping spelling with
+              | some variant => .ok (.enumValue mapping.typeName variant)
+              | none => .error ⟨path, .unknownWireString mapping.typeName spelling⟩
+      | .enumeration declaration, .enumValue typeName variantName =>
+          match buildStrEnumMapping declaration with
+          | .error failure => .error ⟨path, .invalidEnumDeclaration failure⟩
+          | .ok mapping =>
+              if typeName == mapping.typeName &&
+                  mapping.variants.any (fun (variant, _) => variant == variantName) then
+                .ok value
+              else
+                .error ⟨path, .expectedValue mapping.typeName.declarationName⟩
       | .optional _, .atom .null => .ok (.atom .null)
       | .optional inner, other => convertFuel fuel inner other path
       | .list element, .list values => do
@@ -174,8 +222,8 @@ def convertFuel : Nat → WireSchema → WireValue → BlamePath →
             pure (key, value)
           pure (.map converted)
       | .base target, _ => .error ⟨path, .expectedValue (expectedSchemaName (.base target))⟩
-      | .enumeration mapping, _ =>
-          .error ⟨path, .expectedValue mapping.typeName.declarationName⟩
+      | .enumeration declaration, _ =>
+          .error ⟨path, .expectedValue declaration.typeName.declarationName⟩
       | .list _, _ => .error ⟨path, .expectedValue "List"⟩
       | .record _, _ => .error ⟨path, .expectedValue "Record"⟩
       | .map _, _ => .error ⟨path, .expectedValue "Map"⟩
@@ -214,12 +262,52 @@ def skipMapValueValidationMutation (fuel : Nat) (schema : WireSchema)
   | .map _, .map _ => .ok value
   | _, _ => convertFuel fuel schema value path
 
+/-- A faulty builder with the same result type that skips variant uniqueness checks. -/
+def skipSourceUniquenessChecksMutation (declaration : SourceEnumDeclaration) :
+    Except MappingBuildFailure MappingRows :=
+  let variants := sourceVariantPairs declaration.variants
+  if _nonempty : variants ≠ [] then
+    .ok (declaration.typeName, variants)
+  else .error .emptyDeclaration
+
+/-- A faulty enum reader that silently substitutes the first variant on a miss. -/
+def unknownWireDefaultsToFirstVariantMutation (declaration : SourceEnumDeclaration)
+    (_spelling : String) (path : BlamePath) : Except ConversionFailure WireValue :=
+  match declaration.variants with
+  | [] => .error ⟨path, .invalidEnumDeclaration .emptyDeclaration⟩
+  | first :: _ => .ok (.enumValue declaration.typeName first.declarationName)
+
+/-- A faulty list edge that gives each child the parent's full fuel again. -/
+def reuseFullFuelForListChildrenMutation (fuel : Nat) (schema : WireSchema)
+    (value : WireValue) (path : BlamePath) : Except ConversionFailure WireValue :=
+  match schema, value with
+  | .list element, .list values => do
+      let indexed := values.zip (List.range values.length)
+      let converted ← indexed.mapM fun (item, index) =>
+        convertFuel fuel element item (path ++ [.index index])
+      pure (.list converted)
+  | _, _ => convertFuel fuel schema value path
+
 def stateEnumId : NominalId := ⟨"wire", "State"⟩
 
-def stateMapping : StrEnumMapping :=
-  ⟨stateEnumId, [("Ready", "ready"), ("Missing", "")], by decide, by decide, by decide⟩
+def stateDeclaration : SourceEnumDeclaration := ⟨stateEnumId, [
+  ⟨"Ready", "ready"⟩,
+  ⟨"Missing", ""⟩
+  ]⟩
 
-def stateSchema : WireSchema := .enumeration stateMapping
+def duplicateNameDeclaration : SourceEnumDeclaration := ⟨stateEnumId, [
+  ⟨"Ready", "ready"⟩,
+  ⟨"Ready", "alternate"⟩
+  ]⟩
+
+def duplicateSpellingDeclaration : SourceEnumDeclaration := ⟨stateEnumId, [
+  ⟨"Ready", "ready"⟩,
+  ⟨"Unavailable", "ready"⟩
+  ]⟩
+
+def emptyDeclaration : SourceEnumDeclaration := ⟨stateEnumId, []⟩
+
+def stateSchema : WireSchema := .enumeration stateDeclaration
 
 def requireId : NominalId := stateEnumId
 
@@ -257,55 +345,67 @@ def nestedConverted : WireValue := .record [
   ("extra", .atom (.string "preserved"))
 ]
 
-theorem wire_mapping_retains_unique_spellings :
-    stateMapping.variants.map Prod.snd = ["ready", ""] ∧
-      stateMapping.variants ≠ [] ∧
-      (stateMapping.variants.map Prod.fst).Nodup ∧
-      (stateMapping.variants.map Prod.snd).Nodup := by
-  exact ⟨rfl, stateMapping.variantsNonempty,
-    stateMapping.variantNamesUnique, stateMapping.wireSpellingsUnique⟩
+theorem source_mapping_builds_from_finite_declarations_and_rejects_duplicates :
+    (buildStrEnumMapping stateDeclaration).map StrEnumMapping.variants =
+        .ok [("Ready", "ready"), ("Missing", "")] ∧
+      buildStrEnumMapping emptyDeclaration = .error .emptyDeclaration ∧
+      buildStrEnumMapping duplicateNameDeclaration =
+        .error .duplicateDeclarationNames ∧
+      buildStrEnumMapping duplicateSpellingDeclaration =
+        .error .duplicateWireSpellings ∧
+      convertFuel 2 (.enumeration duplicateNameDeclaration)
+        (.atom (.string "ready")) [] =
+        .error ⟨[], .invalidEnumDeclaration .duplicateDeclarationNames⟩ ∧
+      convertFuel 2 (.enumeration duplicateSpellingDeclaration)
+        (.atom (.string "ready")) [] =
+        .error ⟨[], .invalidEnumDeclaration .duplicateWireSpellings⟩ ∧
+      buildStrEnumMappingRows duplicateNameDeclaration =
+        .error .duplicateDeclarationNames ∧
+      skipSourceUniquenessChecksMutation duplicateNameDeclaration =
+        .ok (stateEnumId, [("Ready", "ready"), ("Ready", "alternate")]) ∧
+      (Except.error .duplicateDeclarationNames :
+        Except MappingBuildFailure MappingRows) ≠
+        .ok (stateEnumId, [("Ready", "ready"), ("Ready", "alternate")]) ∧
+      buildStrEnumMappingRows duplicateSpellingDeclaration =
+        .error .duplicateWireSpellings ∧
+      skipSourceUniquenessChecksMutation duplicateSpellingDeclaration =
+        .ok (stateEnumId, [("Ready", "ready"), ("Unavailable", "ready")]) ∧
+      (Except.error .duplicateWireSpellings :
+        Except MappingBuildFailure MappingRows) ≠
+        .ok (stateEnumId, [("Ready", "ready"), ("Unavailable", "ready")]) := by
+  exact ⟨by rfl, by rfl, by rfl, by rfl, by rfl, by rfl,
+    by rfl, by rfl, by (intro impossible; cases impossible), by rfl, by rfl,
+    by (intro impossible; cases impossible)⟩
 
-theorem exact_wire_string_converts_to_its_variant :
+theorem exact_wire_spelling_converts_to_its_source_variant :
     convertFuel 2 stateSchema (.atom (.string "ready")) [] =
       .ok (.enumValue stateEnumId "Ready") := by
   rfl
 
-theorem unknown_wire_string_reports_root_path :
-    convertFuel 2 stateSchema (.atom (.string "unknown")) [] =
-      .error ⟨[], .unknownWireString stateEnumId "unknown"⟩ := by
-  rfl
-
-theorem optional_null_is_preserved :
-    convertFuel 2 (.optional stateSchema) (.atom .null) [] =
-      .ok (.atom .null) := by
-  rfl
-
-theorem optional_wire_string_converts :
-    convertFuel 2 (.optional stateSchema) (.atom (.string "")) [] =
-      .ok (.enumValue stateEnumId "Missing") := by
-  rfl
-
-theorem matching_enum_value_is_preserved :
-    convertFuel 2 stateSchema (.enumValue stateEnumId "Ready") [] =
-      .ok (.enumValue stateEnumId "Ready") := by
-  rfl
-
-theorem same_display_name_from_another_module_is_rejected :
-    (⟨"other", "State"⟩ : NominalId) ≠ stateEnumId ∧
-      convertFuel 2 stateSchema (.enumValue ⟨"other", "State"⟩ "Ready") [] =
-        .error ⟨[], .expectedValue "State"⟩ := by
-  exact ⟨by decide, by rfl⟩
-
-theorem wire_string_matching_is_case_sensitive :
+theorem unknown_wire_value_rejects_instead_of_defaulting :
     convertFuel 2 stateSchema (.atom (.string "Ready")) [] =
-      .error ⟨[], .unknownWireString stateEnumId "Ready"⟩ := by
-  rfl
+        .error ⟨[], .unknownWireString stateEnumId "Ready"⟩ ∧
+      unknownWireDefaultsToFirstVariantMutation stateDeclaration "Ready" [] =
+        .ok (.enumValue stateEnumId "Ready") := by
+  exact ⟨by rfl, by rfl⟩
 
-theorem list_values_convert_in_order :
-    convertFuel 3 (.list stateSchema)
-      (.list [.atom (.string "ready"), .atom (.string "")]) [] =
-      .ok (.list [.enumValue stateEnumId "Ready", .enumValue stateEnumId "Missing"]) := by
-  rfl
+theorem optional_enum_preserves_null_and_checks_present_values :
+    convertFuel 2 (.optional stateSchema) (.atom .null) [] = .ok (.atom .null) ∧
+      convertFuel 2 (.optional stateSchema) (.atom (.string "")) [] =
+        .ok (.enumValue stateEnumId "Missing") ∧
+      convertFuel 2 (.optional stateSchema) (.atom (.string "other")) [] =
+        .error ⟨[], .unknownWireString stateEnumId "other"⟩ := by
+  exact ⟨rfl, rfl, rfl⟩
+
+theorem enum_values_require_exact_module_and_declared_variant :
+    convertFuel 2 stateSchema (.enumValue stateEnumId "Ready") [] =
+        .ok (.enumValue stateEnumId "Ready") ∧
+      (⟨"other", "State"⟩ : NominalId) ≠ stateEnumId ∧
+      convertFuel 2 stateSchema (.enumValue ⟨"other", "State"⟩ "Ready") [] =
+        .error ⟨[], .expectedValue "State"⟩ ∧
+      convertFuel 2 stateSchema (.enumValue stateEnumId "Absent") [] =
+        .error ⟨[], .expectedValue "State"⟩ := by
+  exact ⟨by rfl, by decide, by rfl, by rfl⟩
 
 theorem record_conversion_preserves_extras_and_field_order :
     convertFuel 4 (.record [("state", stateSchema)])
@@ -313,24 +413,36 @@ theorem record_conversion_preserves_extras_and_field_order :
       .ok (.record [("extra", .atom (.string "keep")), ("state", .enumValue stateEnumId "Ready")]) := by
   rfl
 
-theorem map_values_convert_and_keys_remain_ordered :
+theorem map_conversion_visits_every_value_and_preserves_key_order :
     convertFuel 3 (.map stateSchema)
       (.map [("primary", .atom (.string "")), ("backup", .atom (.string "ready"))]) [] =
       .ok (.map [("primary", .enumValue stateEnumId "Missing"),
-        ("backup", .enumValue stateEnumId "Ready")]) := by
-  rfl
+        ("backup", .enumValue stateEnumId "Ready")]) ∧
+      convertFuel 3 (.map stateSchema) unknownMapCandidate.value [] =
+        .error ⟨[.key "rejected"], .unknownWireString stateEnumId "unknown"⟩ ∧
+      skipMapValueValidationMutation 3 (.map stateSchema) unknownMapCandidate.value [] =
+        .ok unknownMapCandidate.value := by
+  exact ⟨by rfl, by rfl, by rfl⟩
 
-theorem nested_failure_blames_field_then_index :
+theorem nested_recursive_failures_report_field_index_and_key :
     convertFuel 4 (.record [("states", .list stateSchema)])
       (.record [("states", .list [.atom (.string "ready"), .atom (.string "bad")])]) [] =
-      .error ⟨[.field "states", .index 1], .unknownWireString stateEnumId "bad"⟩ := by
-  rfl
-
-theorem unknown_map_value_blames_its_key :
-    convertFuel 3 (.map stateSchema)
+      .error ⟨[.field "states", .index 1], .unknownWireString stateEnumId "bad"⟩ ∧
+      convertFuel 3 (.map stateSchema)
       (.map [("bad-key", .atom (.string "bad"))]) [] =
-      .error ⟨[.key "bad-key"], .unknownWireString stateEnumId "bad"⟩ := by
-  rfl
+        .error ⟨[.key "bad-key"], .unknownWireString stateEnumId "bad"⟩ := by
+  exact ⟨by rfl, by rfl⟩
+
+theorem list_conversion_preserves_order_and_spends_recursive_fuel :
+    convertFuel 3 (.list stateSchema)
+      (.list [.atom (.string "ready"), .atom (.string "")]) [] =
+        .ok (.list [.enumValue stateEnumId "Ready", .enumValue stateEnumId "Missing"]) ∧
+      convertFuel 1 (.list stateSchema) (.list [.atom (.string "ready")]) [] =
+        .error ⟨[.index 0], .fuelExhausted⟩ ∧
+      reuseFullFuelForListChildrenMutation 1 (.list stateSchema)
+        (.list [.atom (.string "ready")]) [] =
+        .ok (.list [.enumValue stateEnumId "Ready"]) := by
+  exact ⟨by rfl, by rfl, by rfl⟩
 
 theorem require_wire_publishes_only_converted_nested_value :
     ∃ checked,
@@ -365,14 +477,7 @@ theorem require_wire_publishes_only_converted_nested_value :
     simp only [sourceAccepted]
   · rfl
 
-theorem skipping_map_value_validation_is_detected :
-    convertFuel 3 (.map stateSchema) unknownMapCandidate.value [] =
-        .error ⟨[.key "rejected"], .unknownWireString stateEnumId "unknown"⟩ ∧
-      skipMapValueValidationMutation 3 (.map stateSchema) unknownMapCandidate.value [] =
-        .ok unknownMapCandidate.value := by
-  exact ⟨by rfl, by rfl⟩
-
-theorem rejected_wire_conversion_retains_candidate_and_map_blame :
+theorem rejected_wire_conversion_retains_candidate_and_nested_blame :
     requireWire 3 requireId (.map stateSchema) unknownMapCandidate =
       .rejected (.conversion unknownMapCandidate requireId
         (requireTarget (.map stateSchema))
@@ -403,6 +508,6 @@ theorem rejected_conversion_exposes_no_converted_value :
     (match requireWire 3 requireId (.map stateSchema) unknownMapCandidate with
     | .accepted checked => some checked.converted
     | .rejected _ => none) = none := by
-  rw [rejected_wire_conversion_retains_candidate_and_map_blame]
+  rw [rejected_wire_conversion_retains_candidate_and_nested_blame]
 
 end Xsh.Enums.WireConversion
