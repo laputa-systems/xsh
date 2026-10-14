@@ -6,8 +6,6 @@ open Xsh.Foundation
 
 namespace DecoderSoundness
 
-/- This finite model is independent of the Rust decoder and makes no runtime correspondence claim. -/
-
 /-- The finite decoder schema used here has four raw tag ordinals. -/
 inductive Tag where
   | immediate

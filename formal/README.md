@@ -75,9 +75,13 @@ optional IDs, ranges, tables, and row decoding. Its decoder fragments prove
 successful sequential read length, successful payload length and table bounds,
 and rejection of one concrete out-of-bounds payload range. The finite
 `DecoderSoundness` model covers four tag ordinals, successful-row schema
-conditions, bounded payload ranges, and concrete malformed-row witnesses. It
-does not cover all raw IR tags, establish Rust/G7a decoder correspondence, or
-prove verifier conformance. Transport modules define closed bridge codecs and
+conditions, bounded payload ranges, and concrete malformed-row witnesses. Its
+separate `FiniteSchema` model maps ordinals to payload widths with
+`Array (Option Nat)` and represents rows as `List Word32`; nine roots prove
+width-aware decode/encode, acceptance, rejection, and mutation witnesses for
+that model. These models establish no Rust `FullTag` or field-schema
+correspondence, cover no other raw IR structures or verifier behavior, and do
+not close universal G7a. Transport modules define closed bridge codecs and
 prove re-encoding laws for accepted hexadecimal values and bridge IDs. These are
 independent Lean results about their stated definitions, not Rust conformance
 or full-language proofs.
@@ -108,7 +112,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 654 fragment
+G0b source freeze remain pending. The provisional inventory has 663 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -410,7 +414,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 654 rooted Lean fragment declarations across 89 core owner
+The inventory names 663 rooted Lean fragment declarations across 89 core owner
 sets. Its 51 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full

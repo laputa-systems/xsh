@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(654, len(result["fragment_roots"]))
+        self.assertEqual(663, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -486,6 +486,15 @@ class InventoryCheckerTests(unittest.TestCase):
                 "fragment.Xsh.IR.Raw.DecoderSoundness.immediate_tag_with_nonzero_payload_length_is_rejected",
                 "fragment.Xsh.IR.Raw.DecoderSoundness.valid_singleton_payload_is_accepted",
                 "fragment.Xsh.IR.Raw.DecoderSoundness.immediate_payload_guard_mutation_is_detected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_decode_encode",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_success_has_declared_width",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_acceptance_iff",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_unknown_ordinal_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_payload_width_mismatch_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_reserved_ordinal_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_out_of_range_ordinal_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_accepts_declared_sample_row",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_rejects_wrong_width_mutation_accepts",
             },
             raw_roots,
         )

@@ -34,17 +34,21 @@ source or Rust conformance claim and close no full G1, G2, or G3 obligation; all
 72 inventoried universal theorem obligations remain planned. The Raw decoder
 modules include a finite four-tag schema model with successful-row conditions,
 bounded payload ranges, malformed-row rejection witnesses, and a guard
-mutation witness. This does not close G7a or establish Rust decoder/verifier
-correspondence. The effects checker bridge consumes already-classified
-`FactSet` summaries and checks their body-site obligations through the finite
-lexical model; it does not establish Rust classification/runtime correspondence
-or close `EFF-LATENT`/`EFF-SEMANTIC`. `Xsh.Effects.DelayedCausality` adds 13
+mutation witness. A separate `FiniteSchema` model adds nine roots over an
+`Array (Option Nat)` ordinal-to-width schema and `List Word32` rows. It proves
+only finite decoder claims for that model; it establishes no Rust `FullTag` or
+field-schema correspondence, covers no other raw IR structures or verifier
+behavior, and does not close universal G7a. `Xsh.Effects.CheckerBridge`
+consumes already-classified `FactSet` summaries and checks their body-site
+obligations in the finite lexical model. It establishes no Rust classification
+or runtime correspondence and closes neither `EFF-LATENT` nor `EFF-SEMANTIC`.
+`Xsh.Effects.DelayedCausality` adds 13
 roots over finite producer instructions and callback operations. Its list model
 preserves pull order and keeps producer creation-site charges distinct from
 callback operation-site charges; it does not establish source or Rust
 correspondence, aliases, delegation, close semantics, divergence, or full
 `EFF-LATENT`, `EFF-SEMANTIC`, or universal G3 closure. The inventory now names
-654 roots across 89 owners; its 51 Python tests check inventory consistency,
+663 roots across 89 owners; its 51 Python tests check inventory consistency,
 mutation controls, and finite-case evidence boundaries. The observed-machine
 fragment wraps the accepted scalar/integer BaseMachine in an ordered
 observation trace; progress preserves the link between a pending typed wait
@@ -575,6 +579,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | Occurrence-labeled binding identity | Reviewed source commit `4b5a84d` was cherry-picked as `9817a7a49`; the root imports each identity, semantics, and proof module once, and the inventory adds exactly six `SPEC_PROVED` roots. They cover same-name declarations, occurrence labels, active-cell reads and writes, declaration mismatch, activation-only cell mismatch, and atomic wrong-type rejection. The checker reports 637 roots, 89 owners, and 72 planned obligations; all 51 inventory tests, the full Lake root build, fresh kernel check, axiom audit (12,096 declarations) and three negative controls, prohibited-term scan, and diff check pass. `source_identity` stays null with zero finite cases. | `OccurrenceId` is a label, not a lookup key; the examples prove no source-site table or uniqueness, whole lexical-shadowing semantics, source/lowering/Rust correspondence, or full G1/BASE closure. |
 
 | G1 and G3 formal fragments | Review commits `f390e8c0e` and `98e23d08` were cherry-picked as `0ac9b4efd` and `9a56be930`. The root and inventory add four G1 and thirteen G3 theorem roots. Cleanup commit `b9c323f3` deletes 20 comment blocks outside theorem contracts and retains eight public theorem contracts. At `b9c323f3`, the inventory checker and all 51 inventory tests pass. The full Lake build and guarded fresh check pass. The axiom audit accepts 12,429 project declarations and rejects all three negative controls. Coverage has 654 roots, 89 owners, and 72 planned obligations. `source_identity` is null and finite conformance has zero cases. | These roots prove facts about finite independent models only. They establish no source or Rust correspondence. They close no universal G1, BASE, EFF, or G3 obligation. |
+| Finite schema-width decoder fragment | Reviewed source commits `a70d2d89f` and `b6c92ef18` were cherry-picked as `0f6630913` and `550b3a1df`. `Xsh.IR.Raw.DecoderSoundness.FiniteSchema` adds nine `SPEC_PROVED` roots over an independent `Array (Option Nat)` ordinal-to-width schema and `List Word32` row model; the root import was already present once. The inventory reports 663 roots across 89 owners and 72 planned obligations; all 51 inventory tests pass. The targeted decoder build, full 81-job Lake build, and guarded fresh kernel check pass. The axiom audit accepts 12,498 declarations and all three negative controls are rejected. `source_identity` remains null with no finite conformance cases. | This model establishes no Rust `FullTag` or field-schema correspondence, covers no other raw IR structures or verifier behavior, and does not close universal G7a. |
 
 ## For the owner afterwards
 

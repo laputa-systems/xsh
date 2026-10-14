@@ -8872,6 +8872,87 @@
       "status": "fragment",
       "scope": "Dropping the producer network request changes the two-event pull trace to only the callback filesystem read.",
       "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_decode_encode",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_decode_encode",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A row with a declared ordinal and matching payload width round-trips through the finite schema decoder.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_success_has_declared_width",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_success_has_declared_width",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Successful decoding preserves the input ordinal and payload and proves the schema declares that payload width.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_acceptance_iff",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_acceptance_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite decoder accepts a row exactly when its ordinal declares the row payload length.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_unknown_ordinal_rejected",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_unknown_ordinal_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An ordinal with no declared payload width is rejected for every payload list.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_payload_width_mismatch_rejected",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_payload_width_mismatch_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A declared ordinal is rejected when the row payload length differs from its declared width.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_reserved_ordinal_rejected",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_reserved_ordinal_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A reserved array slot with no payload width is rejected as an unknown ordinal.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_out_of_range_ordinal_rejected",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_out_of_range_ordinal_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An ordinal at or beyond the schema array length is rejected without a valid entry.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_accepts_declared_sample_row",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_accepts_declared_sample_row",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete sample schema accepts a row whose ordinal has a two-word payload width.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
+    },
+    {
+      "id": "fragment.Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_rejects_wrong_width_mutation_accepts",
+      "module": "Xsh.IR.Raw.DecoderSoundness",
+      "declaration": "Xsh.IR.Raw.DecoderSoundness.FiniteSchema.finite_schema_rejects_wrong_width_mutation_accepts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The width-checking decoder rejects a malformed row accepted by the mutation that ignores declared width.",
+      "boundary": "Independent finite Array (Option Nat) ordinal-to-width schema and List Word32 row model only. No Rust FullTag or field-schema correspondence, other raw IR structures or verifier coverage, or universal G7a closure."
     }
   ],
   "source_identity": null
