@@ -630,6 +630,39 @@ export pure release_tools(ctx: context.Context) -> DocTools {
   DocTools(xsh: fp"{ctx.target_dir}/{ctx.target.triple}/release/xsh", xsht: fp"{ctx.target_dir}/{ctx.target.triple}/release/xsht")
 }
 
+# Keep a caller-selected linker wrapper intact for docs builds while ordinary
+# test builds continue to use the repository's pinned target flags.
+proc release_environment(ctx: context.Context) [env, error] -> Result[Record, Error] {
+  let defaults = tests.cargo_environment(ctx)?
+  match ctx.target.triple {
+    "x86_64-unknown-linux-musl" => {
+      let rustflags = env.get_or("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS", "")?
+      if rustflags != "" {
+        return {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags}
+      }
+      defaults
+    }
+    "aarch64-unknown-linux-musl" => {
+      let rustflags = env.get_or("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS", "")?
+      if rustflags != "" {
+        return {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags}
+      }
+      defaults
+    }
+    "aarch64-apple-darwin" => {
+      let rustflags = env.get_or("CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS", "")?
+      if rustflags != "" {
+        return {
+          MACOSX_DEPLOYMENT_TARGET: ctx.darwin_deployment_target,
+          CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: rustflags,
+        }
+      }
+      defaults
+    }
+    else => defaults
+  }
+}
+
 ## Builds the release `xsh` and `xsht` that render the docs.
 export proc build_release(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   cargo_steps.run_build(
@@ -653,7 +686,7 @@ export proc build_release(ctx: context.Context) [fs, process, env, error, io] ->
         "xsht",
       ],
       ctx.root,
-      tests.cargo_environment(ctx)?,
+      release_environment(ctx)?,
     ),
   )
 }

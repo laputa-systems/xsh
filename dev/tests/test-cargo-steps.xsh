@@ -103,7 +103,12 @@ print "host: x86_64-unknown-linux-musl"
     f"""#!{xsh}
 let log = p"{log}"
 let earlier = if log.exists()? {{ log.read_text()? }} else {{ "" }}
-log.write(earlier + f"{{args.join(" ")}} preload={{env.get_or("LD_PRELOAD", "")?}}\\n")?
+let release_flags = if "--release" in args {{
+  let rustflags = env.get_or("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS", "<unset>")?
+  let linker = env.get_or("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER", "<unset>")?
+  f" rustflags={{rustflags}} linker={{linker}}"
+}} else {{ "" }}
+log.write(earlier + f"{{args.join(" ")}}{{release_flags}} preload={{env.get_or("LD_PRELOAD", "")?}}\\n")?
 """,
     mode: 0o755,
   )
@@ -128,6 +133,15 @@ let ctx: context.Context = {context_source}
 docs.build_release(ctx)?
 test_workflows.run_commands(test_workflows.rust_plan(ctx, test_workflows.Verification)?)?
 """
+  let docs_script = f"""
+use context
+use docs
+use targets as target_policy
+
+let root = p"{root}"
+let ctx: context.Context = {context_source}
+docs.build_release(ctx)?
+"""
   test.expect(
     ctx,
     script,
@@ -146,7 +160,7 @@ test_workflows.run_commands(test_workflows.rust_plan(ctx, test_workflows.Verific
   )?
   let preloaded = f"preload={library}"
   assert log.read_lines()? == [
-    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht {preloaded}",
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker=<unset> {preloaded}",
     f"build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi {preloaded}",
     f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra --no-run {preloaded}",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra -- --skip split:: --skip runtime::coverage:: --skip runtime::examples::example_corpus_is_formatted --skip runtime::examples::example_corpus_lints_without_warnings --skip syntax::formatter_is_idempotent_on_laputa_corpus preload=",
@@ -156,6 +170,56 @@ test_workflows.run_commands(test_workflows.rust_plan(ctx, test_workflows.Verific
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus preload=",
     f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness --no-run {preloaded}",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness preload=",
+  ]
+
+  # An override replaces repository defaults, so retain static musl linking and
+  # both C23 aliases while selecting the Clang/mold wrapper.
+  let rustflags = [
+    "-Zlocation-detail=none",
+    "-Zunstable-options",
+    "-Cpanic=immediate-abort",
+    "-C target-cpu=x86-64-v3",
+    "-C target-feature=+crt-static",
+    "-C linker=clang",
+    "-C link-arg=-fuse-ld=mold",
+    "-C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf",
+    "-C link-arg=-Wl,--defsym=__isoc23_strtol=strtol",
+  ].join(" ")
+  log.remove(missing_ok: false)
+  test.expect(
+    ctx,
+    docs_script,
+    status: 0,
+    stdout: ["[docs-build target=x86_64-unknown-linux-musl] cargo build --release"],
+    args: [],
+    env: {
+      PATH: tools,
+      XSH_MODULE_PATH: fp"{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: "",
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: "clang",
+    },
+  )?
+  assert log.read_lines()? == [
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags={rustflags} linker=clang preload=",
+  ]
+
+  log.remove(missing_ok: false)
+  test.expect(
+    ctx,
+    docs_script,
+    status: 0,
+    stdout: ["[docs-build target=x86_64-unknown-linux-musl] cargo build --release"],
+    args: [],
+    env: {
+      PATH: tools,
+      XSH_MODULE_PATH: fp"{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: "",
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
+    },
+  )?
+  assert log.read_lines()? == [
+    "build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker=<unset> preload=",
   ]
 
   log.remove(missing_ok: false)
@@ -171,7 +235,7 @@ test_workflows.run_commands(test_workflows.rust_plan(ctx, test_workflows.Verific
     },
   )?
   assert log.read_lines()? == [
-    "build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht preload=",
+    "build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker=<unset> preload=",
     "build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra -- --skip split:: --skip runtime::coverage:: --skip runtime::examples::example_corpus_is_formatted --skip runtime::examples::example_corpus_lints_without_warnings --skip syntax::formatter_is_idempotent_on_laputa_corpus preload=",
     "test --locked --target x86_64-unknown-linux-musl -p xsh --lib preload=",
