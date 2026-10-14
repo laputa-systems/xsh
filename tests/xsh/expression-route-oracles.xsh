@@ -40,6 +40,17 @@ assert (if route_if_condition() { "selected" } else { "skipped" }) == "selected"
   assert output.stdout == ""
 }
 
+test test_expr_if_in_place_selection { |ctx|
+  let output = test.expect(
+    ctx,
+    """
+assert (if true { "selected" } else { "skipped" }) == "selected"
+""",
+    status: 0,
+  )?
+  assert output.stdout == ""
+}
+
 test test_expr_pattern_if {
   let result = Ok(7)
   let selected = if let Ok(value) = result { value } else { 0 }
@@ -52,6 +63,17 @@ test test_expr_match { |ctx|
     """
 proc route_match_source() -> Int { return 2 }
 assert (match route_match_source() { 2 => 22, _ => 0 }) == 22
+""",
+    status: 0,
+  )?
+  assert output.stdout == ""
+}
+
+test test_expr_match_in_place_selection { |ctx|
+  let output = test.expect(
+    ctx,
+    """
+assert (match 2 { 2 => 22, _ => 0 }) == 22
 """,
     status: 0,
   )?
