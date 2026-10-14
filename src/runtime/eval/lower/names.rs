@@ -368,6 +368,20 @@ mod tests {
             .expect("the fixture contains the requested tail")
     }
 
+    fn function_body_span(parsed: &ArenaParseOutput, name: Name) -> Span {
+        let definition = parsed
+            .arena
+            .arena
+            .function_defs
+            .iter()
+            .find(|definition| definition.name == name)
+            .expect("the fixture contains the requested function");
+        parsed
+            .arena
+            .arena
+            .span(parsed.arena.arena.block(definition.body).span)
+    }
+
     fn shorthand_span(parsed: &ArenaParseOutput, name: Name) -> Span {
         (0..parsed.arena.arena.expr_tags.len())
             .map(ExprId::from_index)
@@ -506,6 +520,19 @@ mod tests {
         let name = Name::intern("render_defaulted");
         let statement = tail_statement(&parsed, name);
         let span = parsed.arena.arena.stmt(statement).span;
+        let factory_span = function_body_span(&parsed, Name::intern("factory"));
+        let checked_return_type = declarations
+            .function_return_types
+            .get(&factory_span)
+            .expect("the factory's checked return type remains published");
+        assert!(matches!(checked_return_type, Type::Callable(_)));
+        assert_eq!(
+            declarations
+                .function_signatures
+                .get(&factory_span)
+                .map(|signature| &signature.return_ty),
+            Some(checked_return_type)
+        );
         assert!(declarations
             .bodies
             .selected_function_references
@@ -516,6 +543,18 @@ mod tests {
         assert!(probe
             .lower_bare_ident_stmt(statement, name, &SlotScope::default())
             .is_none());
+        let source_id = sources.files()[0].id();
+        let error = match super::super::FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &source,
+            Arc::new(sources.clone()),
+            source_id,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a missing typed callable tail target must block full lowering"),
+        };
+        assert_eq!(error.construct, "full_ir_function_blocker");
     }
 
     #[test]

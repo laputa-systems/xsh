@@ -63,9 +63,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 )
             }
             ArenaStmtKind::TailBareIdent(name) => {
-                let value = self
-                    .lower_bare_ident_stmt(tail, name, slots)
-                    .unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit));
+                let value = self.lower_bare_ident_stmt(tail, name, slots)?;
                 push_build_row!(self, stmt, BuildStmtRow::Return { value })
             }
             ArenaStmtKind::If {

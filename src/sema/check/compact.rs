@@ -165,7 +165,7 @@ impl CompactBodyFacts {
             ..Self::default()
         };
         let mut selected_function_expr_spans = FxHashSet::default();
-        let mut selected_function_reference_types = BTreeMap::new();
+        let mut record_field_types = BTreeMap::new();
         facts.expr_types.reserve(checked.expr_types.len());
         for index in 0..arena.expr_tags.len() {
             let id = ExprId::from_index(index);
@@ -214,7 +214,7 @@ impl CompactBodyFacts {
                         _ => None,
                     };
                     if let Some(value_type) = value_type {
-                        selected_function_reference_types.insert(field_span, value_type);
+                        record_field_types.insert(field_span, value_type);
                     }
                 }
             }
@@ -341,7 +341,7 @@ impl CompactBodyFacts {
                             .expr_types
                             .get(&span)
                             .cloned()
-                            .or_else(|| selected_function_reference_types.get(&span).cloned()),
+                            .or_else(|| record_field_types.get(&span).cloned()),
                     ),
                 );
             }
