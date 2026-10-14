@@ -76,7 +76,12 @@ witnesses. It does not classify arbitrary source
 syntax, establish registry or Rust correspondence, or close G3. The ordered-set
 fragment proves eleven laws and witnesses for finite sets over ordinal keys,
 including extensional membership, increasing iteration, and an insertion-order
-mutation. The finite map-presence fragment proves twelve laws for lookup,
+mutation. `Xsh.Sets.Algebra` adds twelve roots for union, intersection, and
+difference over the same finite ordered-key model. Its laws compare canonical
+increasing iteration as well as membership and include a difference-versus-union
+mutation witness; first-insertion history, XSH runtime behavior, and Rust
+correspondence are excluded. The finite map-presence fragment proves twelve
+laws for lookup,
 `.get`, presence, setting, removal, and a null-as-absence mutation witness over
 finite ordinal keys. It distinguishes a present `null` from an absent key. It
 does not model key validation, comparators, ordering, iteration, JSON, diagnostic
@@ -86,7 +91,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 532 fragment
+G0b source freeze remain pending. The provisional inventory has 587 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -109,6 +114,21 @@ Its mutation witness detects hoisting an inner source that depends on the outer
 binding. It uses abstract finite expression functions and does not model
 parsing, general expression effects, streams, cleanup, or XSH runtime
 correspondence.
+
+`Xsh.Lists.Splice` has twelve roots for finite effectful List-literal
+evaluation. Element and splice expressions run once in written order, splices
+expand in place, nested Lists remain single elements unless explicitly
+spliced, and failures stop the suffix without publishing a partial List. A
+mutation witness detects evaluating a splice before its preceding element.
+Expressions are supplied outcomes with one event each; parsing, general
+expression evaluation, checking, type inference, XSH runtime behavior, and Rust
+correspondence are excluded.
+
+`Xsh.Operators.BooleanShortCircuit` has twelve roots for a finite Boolean
+expression tree with state writes and failures. It covers lazy `&&` and `||`,
+left-to-right effects, nested evaluation, and a mutation witness that detects
+eager right-operand evaluation. It does not model checker behavior, diagnostics,
+general expression semantics, XSH runtime behavior, or Rust correspondence.
 
 `Xsh.Iteration.Snapshot` has twelve roots for finite eager loop sources. It
 captures List order, the selected Map key order, Unicode scalar iteration for
@@ -141,6 +161,14 @@ current arm. The `else` arm and no-arm fault are explicit, and a mutation
 witness shows that moving `else` changes selection. Actual pattern matching,
 guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH
 runtime or Rust correspondence are outside the model.
+
+`Xsh.Patterns.ListMatcher` has twelve roots for a bounded matcher over finite
+recursive values. It covers wildcard, binder, scalar-literal, exact-list, and
+prefix/rest patterns; child callback order; tentative captures; and publication
+only after a complete match. A late-miss witness detects leaking an earlier
+capture. Records, enums, errors, type and text patterns, alternatives,
+exhaustiveness, checker behavior, diagnostics, and XSH runtime or Rust
+correspondence are excluded.
 
 `Xsh.Paths.Normalize` has twelve roots for native-byte lexical stack
 normalization. It removes empty and dot components, cancels ordinary components
@@ -202,11 +230,13 @@ serialization. The fragment excludes JSON text encoding/parsing, source-width
 validation, diagnostics, runtime, and Rust correspondence.
 
 `Xsh.Json.Encoding` has twelve roots for compact encoding of a bounded finite
-JSON tree. It preserves array order, sorts object fields by the shared string
-key order, escapes quotes, backslashes, and control characters, and preserves
-printable Unicode. Float leaves and exhausted fuel produce no text. The
-bounded fragment does not establish runtime or Rust correspondence; Float
-formatting, pretty output, parsing, and I/O are excluded.
+JSON tree. It preserves array order, proves canonical nondecreasing order and
+permutation for arbitrary finite object fields, escapes every control scalar,
+and preserves non-control Unicode scalars. Mutation witnesses distinguish
+strict tie handling, control-boundary errors, ASCII-only escaping, and raw
+control output. Float leaves and exhausted fuel produce no text. The bounded
+fragment establishes no runtime or Rust correspondence; Float formatting,
+pretty output, parsing, and I/O are excluded.
 
 `Xsh.Records.Update` has twelve roots for checked functional updates to existing
 record paths. The model covers path-prefix overlap checks, one evaluation of the
@@ -254,6 +284,14 @@ the omitted-length form, the `Bytes` API, bracket slicing, parsing, runtime
 errors, `UInt8` conversion, runtime evaluation, Rust correspondence, and full
 G1/G2/G3 closure.
 
+`Xsh.Bytes.Access` has twelve roots for lookup and slicing over finite raw byte
+lists. Negative lookups and indices at or beyond the sequence end are rejected;
+negative or strictly past-end slice offsets are rejected, while the end offset
+is valid for slicing. Omitted lengths select the suffix, explicit lengths clamp
+at the end, and bytes are returned without UTF-8 decoding. The fragment excludes
+`Str` slicing, bracket slicing, source spans, checker diagnostics, XSH runtime
+behavior, and Rust correspondence.
+
 `Xsh.Values.DurationOps` has eighteen roots for checked millisecond addition,
 subtraction, multiplication, division, interval ratios, and time conversions.
 Its `time.millis` saturation law uses mathematical `Int`; actual XSH signed-64-bit
@@ -292,17 +330,18 @@ does not match every Rust-backed XSH `Path.name`, `Path.ext`, or `Path.parent`
 edge case, including `foo/.` and `foo/..`; it establishes no correspondence
 with those XSH APIs. Filesystem resolution and `with_ext` are excluded.
 
-`Xsh.Enums.WireConversion` has seventeen roots for prepared Str-backed enum
-mappings layered over the shared recursive `.require` boundary. The model
-assumes each mapping is nonempty and has unique declaration names and wire
-spellings; it does not validate source declarations. Enum identity uses
-`NominalId`. The shared structural projection represents maps as open records
-and reports structural rejection through pathless `ValidationFailure`; the
-separate conversion pass visits every Str-keyed map value and reports
-`BlamePath` for conversion failures. The wrapper exposes a converted value only
-after both stages succeed. A mutation witness skips map-value validation. The
-fragment excludes implicit coercions, JSON encoding, diagnostic spans, and
-Rust correspondence.
+`Xsh.Enums.WireConversion` now has twelve roots for a bounded Str-backed enum
+conversion layer over shared recursive `.require`. Finite source declarations
+are checked for nonempty variants and unique declaration and wire spellings;
+conversion requires exact `NominalId` and declared-variant identity. Records
+retain extras and field order, every Str-keyed Map value is visited, and nested
+failures retain field, index, and key blame. A converted value is published
+only after structural validation and full conversion succeed. This replaces
+the prior prepared-mapping roots; source declarations are still finite model
+data and do not establish Rust correspondence. The structural projection
+represents Maps as open records and reports structural rejection through
+pathless `ValidationFailure`; the conversion pass carries `BlamePath`. Implicit
+coercions, JSON encoding, and diagnostic spans are excluded.
 
 `Xsh.Validation.RecursiveRequire` models `.require` over a finite target
 grammar for integers, strings, optional values, lists, and required record
@@ -339,7 +378,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 532 rooted Lean fragment declarations across 89 core owner
+The inventory names 587 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full

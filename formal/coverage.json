@@ -5886,159 +5886,6 @@
       "boundary": "Reuses Xsh.Validation.RelPath.PathBytes and its slashByte, dotByte, and byte constructors; the splitOn/collectNames scan is an independent Lean model. Covers only lexical component scanning and component-sequence prefix/suffix definitions, not filesystem access, normalization, name or parent queries, RelPath validation, a shared Rust scanner, or Rust correspondence."
     },
     {
-      "id": "fragment.Xsh.Enums.WireConversion.wire_mapping_retains_unique_spellings",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.wire_mapping_retains_unique_spellings",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "The prepared example mapping retains its ordered wire spellings, nonempty condition, and unique declaration and wire spellings.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.exact_wire_string_converts_to_its_variant",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.exact_wire_string_converts_to_its_variant",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "An exact wire spelling converts to its declared nominal enum variant.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.unknown_wire_string_reports_root_path",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.unknown_wire_string_reports_root_path",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "An unknown wire spelling reports a conversion failure at the root path.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.optional_null_is_preserved",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.optional_null_is_preserved",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Null passes through an optional enum schema unchanged.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.optional_wire_string_converts",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.optional_wire_string_converts",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A present optional wire string converts through the nested enum schema.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.matching_enum_value_is_preserved",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.matching_enum_value_is_preserved",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A preconverted enum value with the matching NominalId and declared variant is preserved.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.same_display_name_from_another_module_is_rejected",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.same_display_name_from_another_module_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "An enum value with the same declaration spelling but a different module identity is rejected.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.wire_string_matching_is_case_sensitive",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.wire_string_matching_is_case_sensitive",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Changing wire spelling case causes lookup rejection.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.list_values_convert_in_order",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.list_values_convert_in_order",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "List elements convert in their original order.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.record_conversion_preserves_extras_and_field_order",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.record_conversion_preserves_extras_and_field_order",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Known record fields convert while extra fields and source field order remain unchanged.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.map_values_convert_and_keys_remain_ordered",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.map_values_convert_and_keys_remain_ordered",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Every map value converts while its string keys and entry order remain unchanged.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.nested_failure_blames_field_then_index",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.nested_failure_blames_field_then_index",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A nested list enum failure records its containing field followed by the element index.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.unknown_map_value_blames_its_key",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.unknown_map_value_blames_its_key",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "An unknown enum value in a map records the failing string key.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.require_wire_publishes_only_converted_nested_value",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.require_wire_publishes_only_converted_nested_value",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Successful shared structural validation and full nested conversion publish the converted value with .require provenance.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.skipping_map_value_validation_is_detected",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.skipping_map_value_validation_is_detected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A mutation that returns map entries without visiting values disagrees on an unknown enum value.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.rejected_wire_conversion_retains_candidate_and_map_blame",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.rejected_wire_conversion_retains_candidate_and_map_blame",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Conversion rejection retains the original candidate, target, structural shape, and map-key blame path.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
-      "id": "fragment.Xsh.Enums.WireConversion.rejected_conversion_exposes_no_converted_value",
-      "module": "Xsh.Enums.WireConversion",
-      "declaration": "Xsh.Enums.WireConversion.rejected_conversion_exposes_no_converted_value",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A rejected conversion exposes no converted value through the wrapper result.",
-      "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
-    },
-    {
       "id": "fragment.Xsh.Records.Update.record_update_base_evaluates_once",
       "module": "Xsh.Records.Update",
       "declaration": "Xsh.Records.Update.record_update_base_evaluates_once",
@@ -7286,7 +7133,7 @@
       "declaration": "Xsh.Json.Encoding.control_characters_are_escaped",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Sample JSON control characters use short or lowercase Unicode escapes.",
+      "scope": "For any control Char, the escape has length two for the named short escapes and six for a Unicode escape.",
       "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
     },
     {
@@ -7295,7 +7142,7 @@
       "declaration": "Xsh.Json.Encoding.noncontrol_unicode_is_preserved",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Printable non-ASCII text survives string encoding unchanged.",
+      "scope": "Every noncontrol, nonquote, nonbackslash Char is preserved; an ASCII-only mutation is distinguished at representative Unicode boundaries.",
       "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
     },
     {
@@ -7322,7 +7169,7 @@
       "declaration": "Xsh.Json.Encoding.object_fields_are_sorted",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Object fields use the shared sorted string-key order.",
+      "scope": "Arbitrary finite object fields have canonical nondecreasing key order and retain their permutation; a duplicate-key example detects strict-tie reversal.",
       "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
     },
     {
@@ -7340,7 +7187,7 @@
       "declaration": "Xsh.Json.Encoding.raw_control_and_quote_mutation_are_distinguished",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "A mutation that exposes a raw line feed while retaining quote escaping is distinguished.",
+      "scope": "Concrete control-boundary and Unicode examples distinguish raw output and escaping-bound mutations while quote escaping remains intact.",
       "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
     },
     {
@@ -7774,6 +7621,654 @@
       "status": "fragment",
       "scope": "Moving a catch-all ahead of an earlier pattern changes selection and trace.",
       "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.source_mapping_builds_from_finite_declarations_and_rejects_duplicates",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.source_mapping_builds_from_finite_declarations_and_rejects_duplicates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite declarations reject empty variant lists, duplicate declaration names, and duplicate wire spellings before conversion.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.exact_wire_spelling_converts_to_its_source_variant",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.exact_wire_spelling_converts_to_its_source_variant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An exact wire spelling converts to the declared nominal enum variant.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.unknown_wire_value_rejects_instead_of_defaulting",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.unknown_wire_value_rejects_instead_of_defaulting",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An unrecognized wire spelling is rejected without selecting a default variant.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.optional_enum_preserves_null_and_checks_present_values",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.optional_enum_preserves_null_and_checks_present_values",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Optional enum conversion preserves null and converts a present wire value.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.enum_values_require_exact_module_and_declared_variant",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.enum_values_require_exact_module_and_declared_variant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Enum values require the matching module identity and a variant declared by the mapping.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.record_conversion_preserves_extras_and_field_order",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.record_conversion_preserves_extras_and_field_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Known record fields convert while extra fields and source field order remain unchanged.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.map_conversion_visits_every_value_and_preserves_key_order",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.map_conversion_visits_every_value_and_preserves_key_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every Str-keyed Map value is converted while keys and entry order are retained.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.nested_recursive_failures_report_field_index_and_key",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.nested_recursive_failures_report_field_index_and_key",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Nested failures retain field, list-index, and Map-key blame paths.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.list_conversion_preserves_order_and_spends_recursive_fuel",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.list_conversion_preserves_order_and_spends_recursive_fuel",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List conversion preserves item order and consumes predecessor fuel for recursive values.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.require_wire_publishes_only_converted_nested_value",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.require_wire_publishes_only_converted_nested_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The wrapper publishes a converted value only after structural validation and complete nested conversion.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.rejected_wire_conversion_retains_candidate_and_nested_blame",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.rejected_wire_conversion_retains_candidate_and_nested_blame",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rejected conversion retains the original candidate and nested Map-key blame.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Enums.WireConversion.rejected_conversion_exposes_no_converted_value",
+      "module": "Xsh.Enums.WireConversion",
+      "declaration": "Xsh.Enums.WireConversion.rejected_conversion_exposes_no_converted_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rejected conversion exposes no converted value through the wrapper result.",
+      "boundary": "Finite Str-backed enum declarations layered over shared recursive .require. Structural Maps project to open records and structural failures are pathless; conversion visits Str-keyed Map values and carries BlamePath. No implicit coercion, JSON encoding, diagnostic spans, XSH runtime, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.left_evaluated_once",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.left_evaluated_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Effectful left operands produce one write in the trace for either Boolean operator.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.false_and_skips_right",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.false_and_skips_right",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A false left operand of && preserves state and outcome without evaluating the right operand.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.true_and_evaluates_right_once",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.true_and_evaluates_right_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A true left operand of && evaluates its right operand exactly once.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.true_or_skips_right",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.true_or_skips_right",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A true left operand of || preserves state and outcome without evaluating the right operand.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.false_or_evaluates_right_once",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.false_or_evaluates_right_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A false left operand of || evaluates its right operand exactly once.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.and_left_failure_propagates",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.and_left_failure_propagates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A left-side failure in && propagates unchanged and prevents right-side effects.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.or_left_failure_propagates",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.or_left_failure_propagates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A left-side failure in || propagates unchanged and prevents right-side effects.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.and_reached_right_failure_propagates",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.and_reached_right_failure_propagates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A reached failing right operand of && propagates its error.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.or_reached_right_failure_propagates",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.or_reached_right_failure_propagates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A reached failing right operand of || propagates its error.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.operand_effects_preserve_left_to_right_trace",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.operand_effects_preserve_left_to_right_trace",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Reached operand writes appear in source order and leave the last written state.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.nested_boolean_evaluation_is_left_to_right",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.nested_boolean_evaluation_is_left_to_right",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Nested Boolean operators finish their left-to-right trace before the outer reached operand.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Operators.BooleanShortCircuit.eager_rhs_mutation_is_detectable",
+      "module": "Xsh.Operators.BooleanShortCircuit",
+      "declaration": "Xsh.Operators.BooleanShortCircuit.eager_rhs_mutation_is_detectable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A mutation that eagerly evaluates a skipped right operand changes the observable trace and state.",
+      "boundary": "Finite Boolean expression trees with state writes and failures. Excludes checker behavior, diagnostics, general expression semantics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.unsigned_lookup_matches_list",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.unsigned_lookup_matches_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Nonnegative lookup returns the corresponding optional unsigned byte.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.negative_lookup_is_absent",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.negative_lookup_is_absent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every negative signed lookup has no byte value.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.past_end_lookup_is_absent",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.past_end_lookup_is_absent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lookup at or beyond the byte sequence end is absent.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.zero_offset_reads_head",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.zero_offset_reads_head",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Offset zero reads the first unsigned byte.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.last_and_end_offsets_are_distinct",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.last_and_end_offsets_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The final position is readable while the following end position is absent.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.omitted_length_returns_suffix",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.omitted_length_returns_suffix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An omitted length returns the complete suffix beginning at a valid offset.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.exact_length_slice_selects_requested_bytes",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.exact_length_slice_selects_requested_bytes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An in-bounds explicit range returns exactly its requested raw bytes.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.zero_length_slice_is_empty",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.zero_length_slice_is_empty",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A zero-length slice at a valid offset is empty.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.slice_length_is_clamped",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.slice_length_is_clamped",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An explicit slice length is clamped to the bytes remaining after its offset.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.invalid_slice_offsets_are_rejected",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.invalid_slice_offsets_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Negative and strictly past-end slice offsets are rejected.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.negative_slice_length_is_rejected",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.negative_slice_length_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A negative explicit slice length is rejected.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Bytes.Access.raw_ff_byte_does_not_require_utf8_decoding",
+      "module": "Xsh.Bytes.Access",
+      "declaration": "Xsh.Bytes.Access.raw_ff_byte_does_not_require_utf8_decoding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Raw 0xff lookup and slicing succeed even though the byte cannot decode as UTF-8 text.",
+      "boundary": "Finite raw byte lists with signed lookup and slice offsets; values remain raw bytes without UTF-8 decoding. Excludes Str slicing, bracket slicing, source spans, checker diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.written_order_trace",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.written_order_trace",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Element and splice expressions produce a value and trace in written order.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.element_evaluated_once",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.element_evaluated_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A List element expression is evaluated once.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.splice_source_evaluated_once",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.splice_source_evaluated_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A splice source expression is evaluated once.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.splice_expands_in_place",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.splice_expands_in_place",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Spliced items appear at the splice position between surrounding elements.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.unmarked_list_remains_nested",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.unmarked_list_remains_nested",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A List element remains nested when it is not marked as a splice.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.empty_splice_identity",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.empty_splice_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An empty splice contributes no items and preserves surrounding order.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.duplicates_are_retained",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.duplicates_are_retained",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List-literal evaluation retains duplicate elements.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.exact_result_and_length",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.exact_result_and_length",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Successful element and splice evaluation publishes the exact expanded List and length.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.element_failure_stops_the_suffix",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.element_failure_stops_the_suffix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An element failure stops evaluation before the remaining suffix.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.splice_failure_stops_the_suffix",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.splice_failure_stops_the_suffix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A splice failure stops evaluation before the remaining suffix.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.failure_publishes_no_partial_list",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.failure_publishes_no_partial_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Failure exposes no partially accumulated List while retaining events through the failure.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Lists.Splice.hoisting_splice_changes_an_effectful_witness",
+      "module": "Xsh.Lists.Splice",
+      "declaration": "Xsh.Lists.Splice.hoisting_splice_changes_an_effectful_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Evaluating a splice before its preceding element changes the observable event order.",
+      "boundary": "Finite List literal parts with supplied expression outcomes and one event per invocation. Excludes parsing, general expression evaluation, checking, type inference, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.union_commutativity",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.union_commutativity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Union operands produce the same canonical ordered iteration in either order.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.union_associativity",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.union_associativity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Grouping three union operands does not change canonical ordered iteration.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.union_idempotence",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.union_idempotence",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Union of a finite set with itself preserves its canonical iteration.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.union_empty_left",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.union_empty_left",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The empty set is a left identity for union.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.union_empty_right",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.union_empty_right",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The empty set is a right identity for union.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.intersection_commutativity",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.intersection_commutativity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Intersection operands produce the same canonical ordered iteration in either order.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.intersection_associativity",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.intersection_associativity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Grouping three intersection operands does not change canonical ordered iteration.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.intersection_idempotence",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.intersection_idempotence",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Intersection of a finite set with itself preserves its canonical iteration.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.intersection_empty_annihilation",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.intersection_empty_annihilation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Intersection with the empty set produces empty canonical iteration.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.difference_self_empty",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.difference_self_empty",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Subtracting a finite set from itself produces empty canonical iteration.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.difference_empty_identity",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.difference_empty_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Subtracting the empty set preserves canonical ordered iteration.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Sets.Algebra.difference_union_mutation_witness",
+      "module": "Xsh.Sets.Algebra",
+      "declaration": "Xsh.Sets.Algebra.difference_union_mutation_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A singleton witness distinguishes set difference from union.",
+      "boundary": "Finite ordered sets over ordinal keys; canonical iteration scans keys in increasing order. Does not model first-insertion history, XSH runtime behavior, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.wildcard_matches_without_captures",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.wildcard_matches_without_captures",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A wildcard matches a scalar without captures.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.binder_capture_publishes_value",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.binder_capture_publishes_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A binder publishes the matched value as a capture.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.scalar_literal_matches_equal_value",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.scalar_literal_matches_equal_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scalar literal matches an equal scalar value.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.scalar_literal_mismatch_is_rejected",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.scalar_literal_mismatch_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scalar literal rejects a different scalar value.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.exact_length_list_matches_each_element",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.exact_length_list_matches_each_element",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An exact-list pattern invokes its element matchers in order and captures matched values.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.exact_length_list_rejects_wrong_length",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.exact_length_list_rejects_wrong_length",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An exact-list pattern rejects a value with a different element count.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.exact_length_is_checked_before_element_callbacks",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.exact_length_is_checked_before_element_callbacks",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Wrong list length is rejected before any element matcher callback or capture.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.prefix_rest_captures_suffix_after_prefix",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.prefix_rest_captures_suffix_after_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A prefix/rest pattern matches its prefix and captures the remaining suffix as a List.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.empty_prefix_and_rest_capture_edges",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.empty_prefix_and_rest_capture_edges",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Empty-prefix and empty-rest cases capture the entire value or an empty List.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.nested_patterns_match_recursive_values",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.nested_patterns_match_recursive_values",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Nested exact-list patterns match recursive List values and retain callback paths.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.captures_follow_pattern_order",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.captures_follow_pattern_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Captures follow the order of successful pattern bindings.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Patterns.ListMatcher.late_miss_discards_prior_capture_mutation_witness",
+      "module": "Xsh.Patterns.ListMatcher",
+      "declaration": "Xsh.Patterns.ListMatcher.late_miss_discards_prior_capture_mutation_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A late child mismatch discards earlier tentative captures, and a leaking mutation is distinguished.",
+      "boundary": "Bounded matching of finite recursive scalar/List values with wildcard, binder, scalar-literal, exact-list, and prefix/rest patterns. Excludes records, enums, errors, type and text patterns, alternatives, exhaustiveness, checker behavior, diagnostics, XSH runtime behavior, and Rust correspondence."
     }
   ],
   "source_identity": null

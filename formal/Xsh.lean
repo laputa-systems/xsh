@@ -4,6 +4,7 @@ import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
 import Xsh.Values.OrderedSet
+import Xsh.Sets.Algebra
 import Xsh.Values.MapPresence
 import Xsh.Results.Fallback
 import Xsh.Results.Propagation
@@ -21,14 +22,18 @@ import Xsh.Values.DurationOps
 import Xsh.Calls.ArgumentOrder
 import Xsh.Collect.Block
 import Xsh.Semantics.Argv
+import Xsh.Operators.BooleanShortCircuit
 import Xsh.Semantics.ListAccess
 import Xsh.Semantics.ListExecution
+import Xsh.Lists.Splice
 import Xsh.Iteration.Snapshot
 import Xsh.Loops.ControlFlow
 import Xsh.Matches.Selection
+import Xsh.Patterns.ListMatcher
 import Xsh.Strings.Slice
 import Xsh.Strings.Search
 import Xsh.Strings.ByteAccess
+import Xsh.Bytes.Access
 import Xsh.Semantics.Environments
 import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace

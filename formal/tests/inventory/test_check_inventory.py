@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(532, len(result["fragment_roots"]))
+        self.assertEqual(587, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -221,6 +221,97 @@ class InventoryCheckerTests(unittest.TestCase):
             },
             json_encoding_roots,
         )
+        expected_batch_roots = {
+            "Xsh.Enums.WireConversion": {
+                "Xsh.Enums.WireConversion.source_mapping_builds_from_finite_declarations_and_rejects_duplicates",
+                "Xsh.Enums.WireConversion.exact_wire_spelling_converts_to_its_source_variant",
+                "Xsh.Enums.WireConversion.unknown_wire_value_rejects_instead_of_defaulting",
+                "Xsh.Enums.WireConversion.optional_enum_preserves_null_and_checks_present_values",
+                "Xsh.Enums.WireConversion.enum_values_require_exact_module_and_declared_variant",
+                "Xsh.Enums.WireConversion.record_conversion_preserves_extras_and_field_order",
+                "Xsh.Enums.WireConversion.map_conversion_visits_every_value_and_preserves_key_order",
+                "Xsh.Enums.WireConversion.nested_recursive_failures_report_field_index_and_key",
+                "Xsh.Enums.WireConversion.list_conversion_preserves_order_and_spends_recursive_fuel",
+                "Xsh.Enums.WireConversion.require_wire_publishes_only_converted_nested_value",
+                "Xsh.Enums.WireConversion.rejected_wire_conversion_retains_candidate_and_nested_blame",
+                "Xsh.Enums.WireConversion.rejected_conversion_exposes_no_converted_value",
+            },
+            "Xsh.Operators.BooleanShortCircuit": {
+                "Xsh.Operators.BooleanShortCircuit.left_evaluated_once",
+                "Xsh.Operators.BooleanShortCircuit.false_and_skips_right",
+                "Xsh.Operators.BooleanShortCircuit.true_and_evaluates_right_once",
+                "Xsh.Operators.BooleanShortCircuit.true_or_skips_right",
+                "Xsh.Operators.BooleanShortCircuit.false_or_evaluates_right_once",
+                "Xsh.Operators.BooleanShortCircuit.and_left_failure_propagates",
+                "Xsh.Operators.BooleanShortCircuit.or_left_failure_propagates",
+                "Xsh.Operators.BooleanShortCircuit.and_reached_right_failure_propagates",
+                "Xsh.Operators.BooleanShortCircuit.or_reached_right_failure_propagates",
+                "Xsh.Operators.BooleanShortCircuit.operand_effects_preserve_left_to_right_trace",
+                "Xsh.Operators.BooleanShortCircuit.nested_boolean_evaluation_is_left_to_right",
+                "Xsh.Operators.BooleanShortCircuit.eager_rhs_mutation_is_detectable",
+            },
+            "Xsh.Bytes.Access": {
+                "Xsh.Bytes.Access.unsigned_lookup_matches_list",
+                "Xsh.Bytes.Access.negative_lookup_is_absent",
+                "Xsh.Bytes.Access.past_end_lookup_is_absent",
+                "Xsh.Bytes.Access.zero_offset_reads_head",
+                "Xsh.Bytes.Access.last_and_end_offsets_are_distinct",
+                "Xsh.Bytes.Access.omitted_length_returns_suffix",
+                "Xsh.Bytes.Access.exact_length_slice_selects_requested_bytes",
+                "Xsh.Bytes.Access.zero_length_slice_is_empty",
+                "Xsh.Bytes.Access.slice_length_is_clamped",
+                "Xsh.Bytes.Access.invalid_slice_offsets_are_rejected",
+                "Xsh.Bytes.Access.negative_slice_length_is_rejected",
+                "Xsh.Bytes.Access.raw_ff_byte_does_not_require_utf8_decoding",
+            },
+            "Xsh.Lists.Splice": {
+                "Xsh.Lists.Splice.written_order_trace",
+                "Xsh.Lists.Splice.element_evaluated_once",
+                "Xsh.Lists.Splice.splice_source_evaluated_once",
+                "Xsh.Lists.Splice.splice_expands_in_place",
+                "Xsh.Lists.Splice.unmarked_list_remains_nested",
+                "Xsh.Lists.Splice.empty_splice_identity",
+                "Xsh.Lists.Splice.duplicates_are_retained",
+                "Xsh.Lists.Splice.exact_result_and_length",
+                "Xsh.Lists.Splice.element_failure_stops_the_suffix",
+                "Xsh.Lists.Splice.splice_failure_stops_the_suffix",
+                "Xsh.Lists.Splice.failure_publishes_no_partial_list",
+                "Xsh.Lists.Splice.hoisting_splice_changes_an_effectful_witness",
+            },
+            "Xsh.Sets.Algebra": {
+                "Xsh.Sets.Algebra.union_commutativity",
+                "Xsh.Sets.Algebra.union_associativity",
+                "Xsh.Sets.Algebra.union_idempotence",
+                "Xsh.Sets.Algebra.union_empty_left",
+                "Xsh.Sets.Algebra.union_empty_right",
+                "Xsh.Sets.Algebra.intersection_commutativity",
+                "Xsh.Sets.Algebra.intersection_associativity",
+                "Xsh.Sets.Algebra.intersection_idempotence",
+                "Xsh.Sets.Algebra.intersection_empty_annihilation",
+                "Xsh.Sets.Algebra.difference_self_empty",
+                "Xsh.Sets.Algebra.difference_empty_identity",
+                "Xsh.Sets.Algebra.difference_union_mutation_witness",
+            },
+            "Xsh.Patterns.ListMatcher": {
+                "Xsh.Patterns.ListMatcher.wildcard_matches_without_captures",
+                "Xsh.Patterns.ListMatcher.binder_capture_publishes_value",
+                "Xsh.Patterns.ListMatcher.scalar_literal_matches_equal_value",
+                "Xsh.Patterns.ListMatcher.scalar_literal_mismatch_is_rejected",
+                "Xsh.Patterns.ListMatcher.exact_length_list_matches_each_element",
+                "Xsh.Patterns.ListMatcher.exact_length_list_rejects_wrong_length",
+                "Xsh.Patterns.ListMatcher.exact_length_is_checked_before_element_callbacks",
+                "Xsh.Patterns.ListMatcher.prefix_rest_captures_suffix_after_prefix",
+                "Xsh.Patterns.ListMatcher.empty_prefix_and_rest_capture_edges",
+                "Xsh.Patterns.ListMatcher.nested_patterns_match_recursive_values",
+                "Xsh.Patterns.ListMatcher.captures_follow_pattern_order",
+                "Xsh.Patterns.ListMatcher.late_miss_discards_prior_capture_mutation_witness",
+            },
+        }
+        for module, expected in expected_batch_roots.items():
+            self.assertEqual(
+                expected,
+                {root["declaration"] for root in roots if root["module"] == module},
+            )
         list_execution_roots = {
             root["declaration"] for root in roots
             if root["module"] == "Xsh.Semantics.ListExecution"
