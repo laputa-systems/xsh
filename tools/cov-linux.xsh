@@ -124,9 +124,9 @@ proc main() [fs, process, env, error, io] {
   let profile = tests.execution_profile()?
   let profile_dir = fp"{target_dir}/{ctx.target.triple}/{tests.profile_name(profile)}"
   let debug_dir = fp"{target_dir}/{ctx.target.triple}/debug"
-  let xsh = tests.product_path(ctx, profile, "xsh")
-  let xsht = tests.product_path(ctx, profile, "xsht")
-  let xshi = tests.product_path(ctx, profile, "xshi")
+  let xsh = tests.product_path(ctx, profile, tests.Xsh)
+  let xsht = tests.product_path(ctx, profile, tests.Xsht)
+  let xshi = tests.product_path(ctx, profile, tests.Xshi)
   let llvm_profdata = find_llvm_tool("llvm-profdata")?
   let llvm_cov = find_llvm_tool("llvm-cov")?
   let cargo_bin = cargo_bin_dir(root)?
