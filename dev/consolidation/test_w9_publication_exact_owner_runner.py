@@ -115,6 +115,7 @@ class ExactOwnerIndexTests(unittest.TestCase):
             5, "Span{source_id:SourceId(0),start:60,len:5}", "again"
         ))
 
+
     def test_rejects_missing_expression_or_record_field_coverage(self):
         missing_expression = owner_index().replace(
             f'expr\tExprId(6)\t{span(60, 5)}\tIdent\t"again"\n', ""
@@ -237,6 +238,19 @@ class ExactOwnerIndexTests(unittest.TestCase):
         for candidate, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(exact_runner.ExactOwnerError, message):
                 exact_runner.parse_exact_owner_index(candidate)
+
+
+class ExactOwnerHelperSourceTests(unittest.TestCase):
+    def test_helper_path_is_relative_to_the_controller_module_and_hash_is_pinned(self):
+        expected_helper = pathlib.Path(exact_runner.__file__).with_name(
+            "w9-publication-exact-owners.rs"
+        )
+
+        self.assertEqual(exact_runner.EXACT_OWNER_HELPER, expected_helper)
+        self.assertEqual(
+            hashlib.sha256(expected_helper.read_bytes()).hexdigest(),
+            exact_runner.EXACT_OWNER_HELPER_SHA256,
+        )
 
 
 class ExactOwnerHashOutputTests(unittest.TestCase):
