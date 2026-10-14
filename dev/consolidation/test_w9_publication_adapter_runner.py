@@ -17,6 +17,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import w9_publication_adapter_runner as adapter_runner
 import test_w9_publication_sources as source_fixtures
 
+FIXTURE_INITIALIZER_STATEMENT_START = 470
+FIXTURE_INITIALIZER_EXPRESSION_START = 472
+
 
 class AdapterRawOutcomeTests(unittest.TestCase):
     def test_scratch_overlay_identity_accepts_only_the_recorded_source_change(self):
@@ -1635,6 +1638,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             source_fixtures.publication(source_fixtures.CURRENT_SOURCE)[0], "current"
         )
         current_statement_start = source_fixtures.CURRENT_SOURCE.index(b"export pure reset") + 1
+        initializer_statement_span = source_fixtures.span(
+            5, FIXTURE_INITIALIZER_STATEMENT_START, 4
+        )
+        initializer_expression_span = source_fixtures.span(
+            5, FIXTURE_INITIALIZER_EXPRESSION_START, 1
+        )
         current_statement_rows = {
             "StmtId(20)": (source_fixtures.span(5, current_statement_start, 1), "stmt:Assert"),
             "StmtId(21)": (
@@ -1671,20 +1680,6 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             if replaced != set(replacements):
                 raise AssertionError((struct_name, set(replacements) - replaced))
             return f"{prefix}{{{','.join(changed)}}}"
-
-        def add_field(rendered, struct_name, name, value):
-            prefix, entries = adapter_runner.adapter._struct_parts(rendered, struct_name)
-            if any(adapter_runner.adapter._field(entry)[0] == name for entry in entries):
-                raise AssertionError((struct_name, name))
-            entries.append(f"{name}:{value}")
-            return f"{prefix}{{{','.join(entries)}}}"
-
-        base_reference_publication = add_field(
-            base_reference_publication, "CheckOutput", "static_callable_aliases", "{}"
-        )
-        base_candidate_publication = add_field(
-            base_candidate_publication, "CheckOutput", "static_callable_aliases", "{}"
-        )
 
         def add_statement_flow(rendered, current_schema):
             fields = adapter_runner.adapter._fields(rendered, "CheckOutput")
@@ -1779,6 +1774,25 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 )
                 for span, kind in statement_rows.values():
                     owners.setdefault(span, set()).add(kind)
+                initializer_owner_spans = (
+                    initializer_statement_span,
+                    initializer_expression_span,
+                )
+                if source == source_fixtures.OLD_SOURCE:
+                    initializer_owner_spans = (
+                        source_fixtures.span(
+                            5,
+                            FIXTURE_INITIALIZER_STATEMENT_START - source_fixtures.DELTA,
+                            4,
+                        ),
+                        source_fixtures.span(
+                            5,
+                            FIXTURE_INITIALIZER_EXPRESSION_START - source_fixtures.DELTA,
+                            1,
+                        ),
+                    )
+                owners.setdefault(initializer_owner_spans[0], set()).add("stmt:Let")
+                owners.setdefault(initializer_owner_spans[1], set()).add("expr:Ident")
             lines = [
                 f"source\tSourceId({source_id})\t{size}"
                 for source_id, size in sorted(sizes.items())
@@ -1872,9 +1886,19 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             )
 
         candidate_start = source_fixtures.CURRENT_SOURCE.index(b"export pure reset")
+        initializer_expression = (
+            (initializer_expression_span, "Ident", "initializer")
+            if scenario == "statement-flow"
+            else (source_fixtures.span(5, candidate_start, 1), "Ident", "reset")
+        )
+        binding_initializers = (
+            {(33, "%dest"): (initializer_statement_span, 0)}
+            if scenario == "statement-flow"
+            else {}
+        )
         candidate_exact_owners = {
             "exprs": {
-                0: (source_fixtures.span(5, candidate_start, 1), "Ident", "reset")
+                0: initializer_expression
             },
             "runs": {},
             "records": {},
@@ -1882,12 +1906,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "tails": {},
             "calls": {},
             "field_accesses": {},
-            "binding_initializers": {
-                (33, "%dest"): (
-                    source_fixtures.span(5, current_statement_start + 4, 1),
-                    0,
-                )
-            },
+            "binding_initializers": binding_initializers,
         }
         exact_owner_projection = {
             "reference": {
@@ -2011,10 +2030,22 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             observed[0][1]["candidate_exact_owners"]["binding_initializers"],
             {
                 (33, "%dest"): (
-                    source_fixtures.span(5, reference_start + 4, 1),
+                    source_fixtures.span(
+                        5,
+                        FIXTURE_INITIALIZER_STATEMENT_START - source_fixtures.DELTA,
+                        4,
+                    ),
                     0,
                 )
             },
+        )
+        self.assertEqual(
+            observed[0][1]["candidate_exact_owners"]["exprs"][0][0],
+            source_fixtures.span(
+                5,
+                FIXTURE_INITIALIZER_EXPRESSION_START - source_fixtures.DELTA,
+                1,
+            ),
         )
         self.assertEqual(
             progress,
@@ -2256,6 +2287,7 @@ class TuiPublicationRunnerAlignmentTests(unittest.TestCase):
             ]
         entries.extend(
             (
+                "static_callable_aliases:{}",
                 "resolved_bindings:ResolvedBindings{declarations:{},value_sites:{},tails:{}}",
                 "prepared_constants:PreparedConstants{binding_values:{},values:{},"
                 + ("global_bindings:{},tail_bindings:{}," if schema == "legacy" else "")
