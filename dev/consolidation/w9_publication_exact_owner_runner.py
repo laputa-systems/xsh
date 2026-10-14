@@ -1,0 +1,1539 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.util
+import os
+import pathlib
+import re
+import stat
+import subprocess
+import sys
+import time
+from collections.abc import Mapping
+
+import w9_publication_adapter as adapter
+import w9_publication_adapter_runner as adapter_runner
+
+
+EXACT_OWNER_TEST = "sema::w9_exact_repository_owners_receipt"
+EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
+EXACT_OWNER_HELPER = pathlib.Path(
+    "/home/josh/d/laputa-systems/xsh/.work/wt/w9-exact-owners-56580/"
+    "dev/consolidation/w9-publication-exact-owners.rs"
+)
+EXACT_OWNER_HELPER_SHA256 = "8193b802c8b0bec05404b6bf287f7a0e75d9ad61566ff349e34470691e57c6bb"
+EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t1\n"
+EXACT_PROOF_FIELDS = (
+    "schema",
+    "role",
+    "source_root",
+    "source_commit",
+    "source_tree",
+    "build_receipt",
+    "build_receipt_sha256",
+    "binary",
+    "binary_sha256",
+    "helper_sha256",
+    "exact_helper_path",
+    "exact_helper_sha256",
+    "owner_helper_sha256",
+    "input_root",
+    "input_manifest",
+    "input_manifest_sha256",
+    "corpus_blake3",
+    "legacy_capture_receipt",
+    "legacy_capture_receipt_sha256",
+    "capture_receipt",
+    "capture_receipt_sha256",
+    "capture_root",
+    "raw_root",
+    "receipt_directory",
+    "range_count",
+    "owner_count",
+    "ledger_sha256",
+    "owner_hashes_sha256",
+)
+EXACT_RECEIPT_FIELDS = (
+    "corpus",
+    "shard",
+    "range",
+    "shard_size",
+    "input_digest",
+)
+EXACT_CAPTURE_FIELDS = (
+    "schema",
+    "role",
+    "source_root",
+    "source_commit",
+    "source_tree",
+    "binary",
+    "binary_sha256",
+    "build_receipt",
+    "build_receipt_sha256",
+    "helper_sha256",
+    "exact_helper_sha256",
+    "input_root",
+    "input_manifest",
+    "input_manifest_sha256",
+    "corpus_blake3",
+    "legacy_capture_receipt",
+    "legacy_capture_receipt_sha256",
+    "capture_root",
+    "raw_root",
+    "receipt_directory",
+    "range_count",
+    "owner_count",
+    "ledger_sha256",
+)
+EXPR_ID = re.compile(r"ExprId\(([1-9][0-9]*)\)\Z")
+RUN_FORM_ID = re.compile(r"RunFormId\(([1-9][0-9]*)\)\Z")
+STMT_ID = re.compile(r"StmtId\(([1-9][0-9]*)\)\Z")
+DECIMAL = re.compile(r"(0|[1-9][0-9]*)\Z")
+HEX256 = re.compile(r"[0-9a-f]{64}\Z")
+IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+LEGACY_OWNER_ROWS = {"source", "stmt", "tail", "owner"}
+EXACT_OWNER_ROWS = {
+    "exact-counts",
+    "expr",
+    "run",
+    "record",
+    "record-field",
+    "record-shorthand-alias",
+}
+
+
+class ExactOwnerError(ValueError):
+    pass
+
+
+def _decimal(value: str, label: str) -> int:
+    match = DECIMAL.fullmatch(value)
+    if match is None:
+        raise ExactOwnerError(f"malformed {label}")
+    return int(match.group(1))
+
+
+def _expr_id(value: str, label: str) -> int:
+    match = EXPR_ID.fullmatch(value)
+    if match is None:
+        raise ExactOwnerError(f"malformed {label}")
+    return int(match.group(1)) - 1
+
+
+def _run_id(value: str, label: str) -> int:
+    match = RUN_FORM_ID.fullmatch(value)
+    if match is None:
+        raise ExactOwnerError(f"malformed {label}")
+    return int(match.group(1)) - 1
+
+
+def _stmt_id(value: str) -> int:
+    match = STMT_ID.fullmatch(value)
+    if match is None:
+        raise ExactOwnerError("malformed statement id")
+    return int(match.group(1)) - 1
+
+
+def _span(value: str, source_sizes: Mapping[int, int], label: str) -> str:
+    try:
+        canonical, source_id, start, length = adapter._canonicalize_span(value)
+    except adapter.AdapterError as error:
+        raise ExactOwnerError(f"{label}: malformed Span: {error}") from None
+    if source_id not in source_sizes or start + length > source_sizes[source_id]:
+        raise ExactOwnerError(f"{label}: Span is outside its source")
+    return canonical
+
+
+def _field_name(kind: str, value: str, label: str) -> str:
+    if kind in {"computed", "spread"}:
+        if value:
+            raise ExactOwnerError(f"{label}: {kind} field has an unexpected name")
+        return ""
+    if not value or any(character in value for character in "\t\r\n"):
+        raise ExactOwnerError(f"{label}: malformed field name")
+    if kind == "path" and any(not part for part in value.split(".")):
+        raise ExactOwnerError(f"{label}: malformed field path")
+    return value
+
+
+def parse_exact_owner_index(
+    contents: str,
+) -> tuple[
+    tuple[
+        dict[int, int],
+        dict[str, set[str]],
+        dict[str, tuple[str, str, str]],
+        dict[str, tuple[str, str]],
+    ],
+    dict[str, object],
+]:
+    legacy_lines: list[str] = []
+    run_owner_spans: list[str] = []
+    exact_count: tuple[int, int] | None = None
+    expressions: dict[int, tuple[str, str, str]] = {}
+    runs: dict[int, tuple[str, bool]] = {}
+    record_headers: dict[int, tuple[str, int]] = {}
+    record_fields: dict[int, dict[int, tuple[str, str, str, int | None, int | None]]] = {}
+    aliases: dict[tuple[int, int], tuple[int, str, str]] = {}
+    for line_number, line in enumerate(contents.splitlines(), 1):
+        fields = line.split("\t")
+        if fields[0] in {"source", "stmt", "tail"}:
+            legacy_lines.append(line)
+        elif fields[0] == "owner" and len(fields) == 3 and fields[2] == "run:RunForm":
+            run_owner_spans.append(fields[1])
+        elif fields[0] == "owner":
+            legacy_lines.append(line)
+        elif fields[0] not in EXACT_OWNER_ROWS:
+            raise ExactOwnerError(f"owner index line {line_number}: unrecognized row {fields[0]!r}")
+        elif fields[0] == "exact-counts":
+            if len(fields) != 3 or exact_count is not None:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed or duplicate exact-counts row")
+            exact_count = (
+                _decimal(fields[1], "expression count"),
+                _decimal(fields[2], "record field count"),
+            )
+        elif fields[0] == "expr":
+            if len(fields) != 5:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed expr row")
+            expression_id = _expr_id(fields[1], "expression id")
+            if expression_id in expressions:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate expression id")
+            tag, name = fields[3], fields[4]
+            if IDENTIFIER.fullmatch(tag) is None:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed expression tag")
+            if tag == "Ident":
+                if not name or any(character in name for character in "\t\r\n"):
+                    raise ExactOwnerError(f"owner index line {line_number}: malformed identifier spelling")
+            elif name:
+                raise ExactOwnerError(f"owner index line {line_number}: non-identifier expression has a spelling")
+            expressions[expression_id] = (fields[2], tag, name)
+        elif fields[0] == "run":
+            if len(fields) != 4:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed run row")
+            run_id = _run_id(fields[1], "run form id")
+            if run_id in runs:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate run form id")
+            if fields[3] not in {"true", "false"}:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed run propagation flag")
+            runs[run_id] = (fields[2], fields[3] == "true")
+        elif fields[0] == "record":
+            if len(fields) != 4:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed record row")
+            parent = _expr_id(fields[1], "record parent id")
+            if parent in record_headers:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate record parent")
+            record_headers[parent] = (fields[2], _decimal(fields[3], "record field count"))
+            record_fields[parent] = {}
+        elif fields[0] == "record-field":
+            if len(fields) != 8:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed record-field row")
+            parent = _expr_id(fields[1], "record field parent id")
+            field_index = _decimal(fields[2], "record field index")
+            kind = fields[3]
+            if kind not in {"computed", "path", "named", "shorthand", "spread"}:
+                raise ExactOwnerError(f"owner index line {line_number}: unknown record field kind")
+            fields_by_index = record_fields.setdefault(parent, {})
+            if field_index in fields_by_index or any(
+                field_index in other for other_parent, other in record_fields.items() if other_parent != parent
+            ):
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate global record field index")
+            name = _field_name(kind, fields[4], f"owner index line {line_number}")
+            key_expr = None if not fields[6] else _expr_id(fields[6], "record field key expression")
+            value_expr = None if not fields[7] else _expr_id(fields[7], "record field value expression")
+            fields_by_index[field_index] = (kind, name, fields[5], key_expr, value_expr)
+        elif fields[0] == "record-shorthand-alias":
+            if len(fields) != 6:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed record shorthand alias row")
+            parent = _expr_id(fields[1], "record alias parent id")
+            field_index = _decimal(fields[2], "record alias field index")
+            alias_id = _expr_id(fields[3], "record alias expression id")
+            name = fields[5]
+            if (parent, field_index) in aliases:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate record shorthand alias")
+            if not name or any(character in name for character in "\t\r\n"):
+                raise ExactOwnerError(f"owner index line {line_number}: malformed record shorthand alias name")
+            aliases[(parent, field_index)] = (alias_id, fields[4], name)
+
+    try:
+        legacy = adapter.parse_owner_index("\n".join(legacy_lines) + "\n")
+    except adapter.AdapterError as error:
+        raise ExactOwnerError(f"legacy owner rows are invalid: {error}") from None
+    source_sizes = legacy[0]
+    if exact_count is None:
+        raise ExactOwnerError("exact owner index is missing its exact-counts row")
+    expr_count, record_field_count = exact_count
+    if set(expressions) != set(range(expr_count)):
+        raise ExactOwnerError("exact expression ids do not cover the declared arena table")
+    if set(runs) != set(range(len(runs))):
+        raise ExactOwnerError("exact run form ids are not contiguous")
+    if set(expressions) != set(range(len(expressions))):
+        raise ExactOwnerError("exact expression ids are not contiguous")
+
+    for expression_id, (raw_span, tag, _name) in expressions.items():
+        span = _span(raw_span, source_sizes, f"expression {expression_id}")
+        if f"expr:{tag}" not in legacy[1].get(span, set()):
+            raise ExactOwnerError(f"expression {expression_id} has no matching generic AST owner")
+        expressions[expression_id] = (span, tag, _name)
+    for run_id, (raw_span, propagate) in runs.items():
+        runs[run_id] = (_span(raw_span, source_sizes, f"run form {run_id}"), propagate)
+    normalized_run_owners = {
+        _span(raw_span, source_sizes, "run AST owner") for raw_span in run_owner_spans
+    }
+    if len(normalized_run_owners) != len(run_owner_spans) or normalized_run_owners != {
+        span for span, _propagate in runs.values()
+    }:
+        raise ExactOwnerError("run AST owners do not match exact run forms")
+
+    record_tags = {expression_id for expression_id, (_span_value, tag, _name) in expressions.items() if tag == "Record"}
+    if set(record_fields) - set(record_headers):
+        raise ExactOwnerError("exact record field rows have no parent record row")
+    if set(record_headers) != record_tags:
+        raise ExactOwnerError("exact record rows do not match the Record expression table")
+    normalized_records: dict[int, dict[str, object]] = {}
+    all_field_indexes: set[int] = set()
+    for parent, (raw_span, declared_count) in record_headers.items():
+        span = _span(raw_span, source_sizes, f"record {parent}")
+        expression_span = expressions[parent][0]
+        if span != expression_span:
+            raise ExactOwnerError(f"record {parent} span differs from its Record expression")
+        fields_by_index = record_fields[parent]
+        indexes = sorted(fields_by_index)
+        if len(indexes) != declared_count:
+            raise ExactOwnerError(f"record {parent} field count differs from its row count")
+        if indexes and indexes != list(range(indexes[0], indexes[0] + declared_count)):
+            raise ExactOwnerError(f"record {parent} field indexes are not contiguous")
+        normalized_fields = {}
+        for field_index, (kind, name, raw_field_span, key_expr, value_expr) in fields_by_index.items():
+            if field_index in all_field_indexes:
+                raise ExactOwnerError("duplicate global record field index")
+            all_field_indexes.add(field_index)
+            field_span = _span(raw_field_span, source_sizes, f"record field {parent}:{field_index}")
+            for expression_ref in (key_expr, value_expr):
+                if expression_ref is not None and expression_ref not in expressions:
+                    raise ExactOwnerError(f"record field {parent}:{field_index} references a missing expression")
+            if kind == "computed" and (not name == "" or key_expr is None or value_expr is None):
+                raise ExactOwnerError(f"record field {parent}:{field_index} has malformed computed data")
+            if kind in {"path", "named"} and (not name or key_expr is not None or value_expr is None):
+                raise ExactOwnerError(f"record field {parent}:{field_index} has malformed named data")
+            if kind == "shorthand" and (not name or key_expr is not None or value_expr is not None):
+                raise ExactOwnerError(f"record field {parent}:{field_index} has malformed shorthand data")
+            if kind == "spread" and (name or key_expr is not None or value_expr is None):
+                raise ExactOwnerError(f"record field {parent}:{field_index} has malformed spread data")
+            normalized_fields[field_index] = (kind, name, field_span, key_expr, value_expr)
+        normalized_records[parent] = {"span": span, "count": declared_count, "fields": normalized_fields}
+    if any(field_index >= record_field_count for field_index in all_field_indexes):
+        raise ExactOwnerError("exact record field id is outside the declared arena table")
+    if all_field_indexes != set(range(record_field_count)):
+        raise ExactOwnerError("exact record field ids do not cover the declared arena table")
+
+    expected_aliases: dict[tuple[int, int], tuple[int, str, str]] = {}
+    for parent, record in normalized_records.items():
+        fields_by_index = record["fields"]
+        for field_index, (kind, name, field_span, _key_expr, _value_expr) in fields_by_index.items():
+            if kind != "shorthand":
+                continue
+            candidates = [
+                expression_id
+                for expression_id, (span, tag, spelling) in expressions.items()
+                if tag == "Ident" and span == field_span and spelling == name
+            ]
+            if len(candidates) == 1:
+                expected_aliases[(parent, field_index)] = (candidates[0], field_span, name)
+    normalized_aliases: dict[tuple[int, int], tuple[int, str, str]] = {}
+    for (parent, field_index), (alias_id, raw_span, name) in aliases.items():
+        if parent not in normalized_records or field_index not in normalized_records[parent]["fields"]:
+            raise ExactOwnerError("record shorthand alias references an unknown field")
+        field = normalized_records[parent]["fields"][field_index]
+        span = _span(raw_span, source_sizes, f"record shorthand alias {parent}:{field_index}")
+        if field[0] != "shorthand" or field[1] != name or field[2] != span:
+            raise ExactOwnerError("record shorthand alias disagrees with its shorthand field")
+        if alias_id not in expressions or expressions[alias_id] != (span, "Ident", name):
+            raise ExactOwnerError("record shorthand alias does not identify the exact matching expression")
+        normalized_aliases[(parent, field_index)] = (alias_id, span, name)
+    if normalized_aliases != expected_aliases:
+        raise ExactOwnerError("record shorthand aliases do not match unique Ident expressions")
+
+    exact_owners: dict[str, object] = {
+        "exprs": expressions,
+        "runs": runs,
+        "records": normalized_records,
+        "aliases": normalized_aliases,
+        "expr_count": expr_count,
+        "record_field_count": record_field_count,
+        "tails": {
+            _stmt_id(statement_id): (span, name, kind)
+            for statement_id, (span, name, kind) in legacy[2].items()
+        },
+    }
+    return legacy, exact_owners
+
+
+def parse_exact_owner_hash_output(stdout: str, count: int) -> dict[int, str]:
+    hashes: dict[int, str] = {}
+    for line in stdout.splitlines():
+        if line.startswith("w9exacthash"):
+            row = line
+        elif "w9exacthash" in line:
+            if not line.startswith(EXACT_OWNER_HASH_LIBTEST_PREFIX):
+                raise ExactOwnerError("native exact-owner hash output has an unknown prefix")
+            row = line[len(EXACT_OWNER_HASH_LIBTEST_PREFIX) :]
+        else:
+            continue
+        fields = row.split("\t")
+        if len(fields) != 3 or fields[0] != "w9exacthash":
+            raise ExactOwnerError("native exact-owner hash output has a malformed row")
+        index = _decimal(fields[1], "native exact-owner hash index")
+        if index >= count or not HEX256.fullmatch(fields[2]):
+            raise ExactOwnerError("native exact-owner hash output contains an unexpected key or digest")
+        if index in hashes:
+            raise ExactOwnerError(f"native exact-owner hash output repeats input {index}")
+        hashes[index] = fields[2]
+    if set(hashes) != set(range(count)):
+        raise ExactOwnerError(
+            f"native exact-owner hash output coverage differs: missing={count - len(hashes)}"
+        )
+    return hashes
+
+
+def _read_exact_owner_receipt(
+    path: pathlib.Path,
+    start: int,
+    end: int,
+    reference,
+    runner,
+) -> dict[int, str]:
+    return parse_exact_owner_range_receipt(
+        runner.read_regular_text(path), start, end, reference, runner.CORPUS_BLAKE3, path
+    )
+
+
+def parse_exact_owner_range_receipt(
+    contents: str,
+    start: int,
+    end: int,
+    reference,
+    corpus_digest: str,
+    path: pathlib.Path | None = None,
+) -> dict[int, str]:
+    label = str(path or "exact-owner range receipt")
+    lines = contents.splitlines()
+    if len(lines) < len(EXACT_RECEIPT_FIELDS) + 1:
+        raise ExactOwnerError(f"{label}: incomplete exact-owner range receipt")
+    expected_shard_count = (len(reference.inputs) + 99) // 100
+    expected_header = {
+        "corpus": str(len(reference.inputs)),
+        "shard": f"{start // 100}/{expected_shard_count}",
+        "range": f"{start}..{end}",
+        "shard_size": "100",
+        "input_digest": corpus_digest,
+    }
+    for line, field in zip(lines, EXACT_RECEIPT_FIELDS):
+        parts = line.split("=", 1)
+        if len(parts) != 2 or parts[0] != field or parts[1] != expected_header[field]:
+            raise ExactOwnerError(f"{label}: malformed or stale exact-owner {field}")
+    rows = lines[len(EXACT_RECEIPT_FIELDS):-1]
+    terminal = lines[-1].split("=", 1)
+    if len(terminal) != 2 or terminal[0] != "complete" or terminal[1] != str(end - start):
+        raise ExactOwnerError(f"{label}: exact-owner completion count differs")
+    if len(rows) != end - start:
+        raise ExactOwnerError(f"{label}: exact-owner row count differs")
+    hashes: dict[int, str] = {}
+    for row, index in zip(rows, range(start, end)):
+        fields = row.split("\t")
+        if len(fields) != 5 or fields[0] != "owner":
+            raise ExactOwnerError(f"{label}: malformed exact-owner row for input {index}")
+        if _decimal(fields[1], "exact-owner input index") != index:
+            raise ExactOwnerError(f"{label}: exact-owner inputs are out of order")
+        source = reference.inputs[index]
+        if fields[2] != source.relative_path or fields[3] != source.blake3:
+            raise ExactOwnerError(f"{label}: exact-owner source differs at input {index}")
+        if not HEX256.fullmatch(fields[4]):
+            raise ExactOwnerError(f"{label}: malformed owner digest at input {index}")
+        hashes[index] = fields[4]
+    return hashes
+
+
+def _exact_range_receipt_path(directory: pathlib.Path, start: int, end: int) -> pathlib.Path:
+    return directory / f"range-{start}-{end}.tsv"
+
+
+def _exact_capture_record(
+    role: str,
+    build_receipt: pathlib.Path,
+    build: dict[str, str],
+    legacy_capture_receipt: pathlib.Path,
+    capture_root: pathlib.Path,
+    raw_root: pathlib.Path,
+    receipt_directory: pathlib.Path,
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    range_receipts: dict[tuple[int, int], pathlib.Path],
+    owner_hashes: dict[int, str],
+    exact_helper_sha256: str,
+    runner,
+) -> dict[str, str]:
+    range_rows = [
+        f"range\t{start}\t{end}\t{runner.sha256_file(path)}\n"
+        for (start, end), path in sorted(range_receipts.items())
+    ]
+    record = {
+        "schema": "1",
+        "role": role,
+        "source_root": build["source_root"],
+        "source_commit": build["source_commit"],
+        "source_tree": build["source_tree"],
+        "binary": build["binary"],
+        "binary_sha256": build["binary_sha256"],
+        "build_receipt": str(build_receipt),
+        "build_receipt_sha256": runner.sha256_file(build_receipt),
+        "helper_sha256": build["helper_sha256"],
+        "exact_helper_sha256": exact_helper_sha256,
+        "input_root": str(input_root),
+        "input_manifest": str(input_manifest),
+        "input_manifest_sha256": runner.INPUT_MANIFEST_SHA256,
+        "corpus_blake3": runner.CORPUS_BLAKE3,
+        "legacy_capture_receipt": str(legacy_capture_receipt),
+        "legacy_capture_receipt_sha256": runner.sha256_file(legacy_capture_receipt),
+        "capture_root": str(capture_root),
+        "raw_root": str(raw_root),
+        "receipt_directory": str(receipt_directory),
+        "range_count": str(len(range_receipts)),
+        "owner_count": str(len(owner_hashes)),
+        "ledger_sha256": hashlib.sha256("".join(range_rows).encode()).hexdigest(),
+    }
+    if set(record) != set(EXACT_CAPTURE_FIELDS):
+        raise ExactOwnerError("exact-owner capture receipt fields differ")
+    return record
+
+
+def parse_exact_owner_ledger(
+    range_lines: list[str],
+    expected_ranges: list[tuple[int, int]],
+    label: str = "exact-owner capture receipt",
+) -> tuple[list[tuple[int, int, str]], str]:
+    rows: list[tuple[int, int, str]] = []
+    for row_number, line in enumerate(range_lines, len(EXACT_CAPTURE_FIELDS) + 1):
+        fields = line.split("\t")
+        if len(fields) != 4 or fields[0] != "range":
+            raise ExactOwnerError(f"{label}: malformed range row {row_number}")
+        start = _decimal(fields[1], "exact-owner range start")
+        end = _decimal(fields[2], "exact-owner range end")
+        if not HEX256.fullmatch(fields[3]):
+            raise ExactOwnerError(f"{label}: malformed range receipt hash at row {row_number}")
+        rows.append((start, end, fields[3]))
+    if [(start, end) for start, end, _digest in rows] != expected_ranges:
+        raise ExactOwnerError(f"{label}: range set differs from all source shards")
+    canonical = "".join(f"range\t{start}\t{end}\t{digest}\n" for start, end, digest in rows)
+    return rows, hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _write_exact_capture_receipt(
+    path: pathlib.Path,
+    record: dict[str, str],
+    range_receipts: dict[tuple[int, int], pathlib.Path],
+    runner,
+) -> None:
+    if set(record) != set(EXACT_CAPTURE_FIELDS):
+        raise ExactOwnerError("exact-owner capture receipt fields differ")
+    lines = [f"{field}\t{record[field]}\n" for field in EXACT_CAPTURE_FIELDS]
+    lines.extend(
+        f"range\t{start}\t{end}\t{runner.sha256_file(receipt)}\n"
+        for (start, end), receipt in sorted(range_receipts.items())
+    )
+    adapter_runner._write_new_file(path, "".join(lines).encode("utf-8"), runner)
+
+
+def _parse_exact_capture_receipt(
+    path: pathlib.Path,
+    role: str,
+    expected_build_receipt: pathlib.Path,
+    expected_build: dict[str, str],
+    expected_inputs: dict[int, object],
+    reference,
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    exact_helper_sha256: str,
+    runner,
+) -> tuple[dict[str, str], dict[tuple[int, int], pathlib.Path], dict[int, str]]:
+    receipt = runner.regular_file(path, f"{role} exact-owner capture receipt")
+    lines = runner.read_regular_text(receipt).splitlines()
+    record, range_lines = adapter_runner._parse_receipt_header(
+        receipt, lines, EXACT_CAPTURE_FIELDS, "exact-owner capture"
+    )
+    if record["schema"] != "1" or record["role"] != role:
+        raise ExactOwnerError(f"{receipt}: exact-owner capture schema or role differs")
+    for field in (
+        "source_root", "source_commit", "source_tree", "binary", "binary_sha256", "helper_sha256",
+    ):
+        if record[field] != expected_build[field]:
+            raise ExactOwnerError(f"{receipt}: {field} differs from exact-owner build receipt")
+    expected_build_receipt = runner.regular_file(
+        expected_build_receipt, f"{role} exact-owner build receipt"
+    )
+    if record["build_receipt"] != str(expected_build_receipt):
+        raise ExactOwnerError(f"{receipt}: build receipt path differs")
+    if runner.sha256_file(expected_build_receipt) != record["build_receipt_sha256"]:
+        raise ExactOwnerError(f"{receipt}: build receipt hash differs")
+    if record["exact_helper_sha256"] != exact_helper_sha256:
+        raise ExactOwnerError(f"{receipt}: exact helper hash differs")
+    if record["input_root"] != str(input_root) or record["input_manifest"] != str(input_manifest):
+        raise ExactOwnerError(f"{receipt}: frozen input paths differ")
+    if (
+        record["input_manifest_sha256"] != runner.INPUT_MANIFEST_SHA256
+        or record["corpus_blake3"] != runner.CORPUS_BLAKE3
+    ):
+        raise ExactOwnerError(f"{receipt}: frozen corpus pins differ")
+    count = len(expected_inputs)
+    expected_ranges = runner.expected_ranges(count)
+    if record["range_count"] != str(len(expected_ranges)) or record["owner_count"] != str(count):
+        raise ExactOwnerError(f"{receipt}: complete owner coverage differs")
+    capture_root = runner.real_directory(record["capture_root"], f"{role} exact-owner capture root")
+    raw_root = runner.real_directory(record["raw_root"], f"{role} exact-owner sidecars")
+    receipt_directory = runner.real_directory(record["receipt_directory"], f"{role} exact-owner range receipts")
+    if (
+        receipt.parent != capture_root
+        or capture_root != receipt.parent
+        or raw_root != capture_root / "owners"
+        or receipt_directory != capture_root / "receipts"
+    ):
+        raise ExactOwnerError(f"{receipt}: exact-owner output paths differ")
+    range_rows, ledger_sha256 = parse_exact_owner_ledger(
+        range_lines, expected_ranges, str(receipt)
+    )
+    if ledger_sha256 != record["ledger_sha256"]:
+        raise ExactOwnerError(f"{receipt}: range ledger hash differs")
+    range_receipts: dict[tuple[int, int], pathlib.Path] = {}
+    owner_hashes: dict[int, str] = {}
+    for (start, end), (_row_start, _row_end, digest) in zip(expected_ranges, range_rows):
+        range_path = _exact_range_receipt_path(receipt_directory, start, end)
+        if runner.sha256_file(range_path) != digest:
+            raise ExactOwnerError(f"{receipt}: range receipt hash differs for {start}..{end}")
+        range_receipts[(start, end)] = range_path
+        observed = _read_exact_owner_receipt(range_path, start, end, reference, runner)
+        if set(owner_hashes) & set(observed):
+            raise ExactOwnerError(f"{receipt}: duplicated owner index")
+        owner_hashes.update(observed)
+    if set(owner_hashes) != set(range(count)):
+        raise ExactOwnerError(f"{receipt}: owner index coverage differs")
+    return record, range_receipts, owner_hashes
+
+
+def _open_append_only(path: pathlib.Path, contents: bytes, runner) -> None:
+    parent = runner.open_absolute_nofollow(path.parent, directory=True)
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            path.name,
+            os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent,
+        )
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ExactOwnerError(f"derived helper is not a regular file: {path}")
+        with os.fdopen(descriptor, "ab") as output:
+            descriptor = -1
+            output.write(contents)
+            output.flush()
+            os.fsync(output.fileno())
+        os.fsync(parent)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def _load_exact_helper(runner) -> tuple[pathlib.Path, bytes, str]:
+    helper = runner.regular_file(EXACT_OWNER_HELPER, "approved exact-owner Rust helper")
+    contents = runner.read_regular_bytes(helper)
+    digest = hashlib.sha256(contents).hexdigest()
+    if not EXACT_OWNER_HELPER_SHA256 or digest != EXACT_OWNER_HELPER_SHA256:
+        raise ExactOwnerError("approved exact-owner Rust helper SHA-256 differs from its pin")
+    return helper, contents, digest
+
+
+def _check_exact_harness_listing(
+    builder: pathlib.Path,
+    candidate_root: pathlib.Path,
+    binary: pathlib.Path,
+    docker_environment: dict[str, str],
+) -> None:
+    try:
+        result = subprocess.run(
+            [str(builder), str(candidate_root), "run", str(binary), "--list"],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=docker_environment,
+        )
+    except OSError as error:
+        raise ExactOwnerError(f"could not list exact-owner harness tests: {error}") from error
+    if result.returncode != 0:
+        raise ExactOwnerError(
+            f"exact-owner harness list failed with status {result.returncode}: "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    test_names = [line.split(":", 1)[0] for line in result.stdout.splitlines() if line.endswith(": test")]
+    if test_names.count(EXACT_OWNER_TEST) != 1:
+        raise ExactOwnerError(
+            f"exact-owner harness listing contains {test_names.count(EXACT_OWNER_TEST)} exact proof tests"
+        )
+
+
+def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> None:
+    candidate_root = bootstrap_runner.real_directory(args.candidate_root, "candidate source")
+    source_receipt = bootstrap_runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
+    runner = adapter_runner._load_candidate_publication_runner(
+        candidate_root, source_receipt, bootstrap_runner
+    )
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise ExactOwnerError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise ExactOwnerError("candidate source identity differs from its source receipt")
+    expected_inputs, _paths_by_name, _reference = runner.validate_all_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
+    reference_root = adapter_runner._prepare_reference_source(
+        candidate_root, pathlib.Path(args.reference_source_root), runner
+    )
+    runner.candidate_scratch_parent(candidate_root)
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    owner_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
+    helper_attempt = adapter_runner._new_derived_helper_directory(candidate_root, runner)
+    previous_root = adapter_runner.ROOT
+    try:
+        adapter_runner.ROOT = candidate_root
+        helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = (
+            adapter_runner.derive_helper(
+                owner_helper=owner_helper_source,
+                output_directory=helper_attempt,
+                output_root=candidate_root,
+            )
+        )
+    finally:
+        adapter_runner.ROOT = previous_root
+    base_helper = runner.read_regular_bytes(helper)
+    separator = b"" if base_helper.endswith(b"\n") else b"\n"
+    _open_append_only(helper, separator + exact_helper_bytes, runner)
+    helper_sha256 = hashlib.sha256(runner.read_regular_bytes(helper)).hexdigest()
+    docker_environment = runner.local_docker_environment()
+    builds = {}
+    for role, source_root in (("reference", reference_root), ("candidate", candidate_root)):
+        binary, build_receipt = adapter_runner.build_adapter_harness(
+            source_root,
+            candidate_root,
+            role,
+            helper,
+            helper_sha256,
+            owner_helper_sha256,
+            owner_helper_source_sha256,
+            runner,
+        )
+        runner.run_harness_test_listing(
+            runner.regular_file(runner.APPROVED_BUILD_RUNNER, "pinned build runner", executable=True),
+            candidate_root,
+            binary,
+            docker_environment,
+        )
+        _check_exact_harness_listing(
+            runner.regular_file(runner.APPROVED_BUILD_RUNNER, "pinned build runner", executable=True),
+            candidate_root,
+            binary,
+            docker_environment,
+        )
+        build = adapter_runner._parse_adapter_build_receipt(
+            build_receipt, role, runner, owner_helper_source
+        )
+        if build["helper_sha256"] != helper_sha256:
+            raise ExactOwnerError(f"{role} build receipt helper hash differs")
+        if not runner.read_regular_bytes(pathlib.Path(build["helper_path"])).endswith(exact_helper_bytes):
+            raise ExactOwnerError(f"{role} build helper does not contain the pinned exact-owner helper")
+        builds[role] = (binary, build_receipt)
+    print(
+        f"exact_helper={owner_helper_path} sha256={exact_helper_sha256}\n"
+        f"reference_binary={builds['reference'][0]}\nreference_build_receipt={builds['reference'][1]}\n"
+        f"candidate_binary={builds['candidate'][0]}\ncandidate_build_receipt={builds['candidate'][1]}"
+    )
+
+
+def _legacy_capture(
+    capture_receipt: pathlib.Path,
+    role: str,
+    source_root: pathlib.Path,
+    candidate_root: pathlib.Path,
+    expected_inputs: dict[int, object],
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    reference,
+    runner,
+) -> tuple[dict[str, str], pathlib.Path, pathlib.Path]:
+    capture_receipt = runner.regular_file(capture_receipt, f"{role} original capture receipt")
+    capture_root = runner.real_directory(
+        adapter_runner._capture_field(capture_receipt, "capture_root", runner),
+        f"{role} original capture root",
+    )
+    raw_root = runner.real_directory(
+        adapter_runner._capture_field(capture_receipt, "raw_root", runner),
+        f"{role} original owner sidecars",
+    )
+    receipt_directory = runner.real_directory(
+        adapter_runner._capture_field(capture_receipt, "receipt_directory", runner),
+        f"{role} original range receipts",
+    )
+    if capture_receipt.parent != capture_root or capture_receipt.name != "capture.receipt":
+        raise ExactOwnerError(f"{role} original capture receipt path differs")
+    raw_descriptor = runner.open_absolute_nofollow(raw_root, directory=True)
+    try:
+        raw_names = set(os.listdir(raw_descriptor))
+    finally:
+        os.close(raw_descriptor)
+    if raw_names != (
+        {"schema"}
+        | {f"owners-{index}.tsv" for index in range(len(expected_inputs))}
+        | {
+            f"record-{index}-{profile}"
+            for index in range(len(expected_inputs))
+            for profile in adapter_runner.PROFILES
+        }
+    ):
+        raise ExactOwnerError(f"{role} original raw sidecar set differs")
+    raw_descriptor = runner.open_absolute_nofollow(raw_root, directory=True)
+    try:
+        if adapter_runner._read_regular_at(raw_descriptor, "schema") != adapter_runner.RAW_SCHEMA:
+            raise ExactOwnerError(f"{role} original raw schema differs")
+    finally:
+        os.close(raw_descriptor)
+    lines = runner.read_regular_text(capture_receipt).splitlines()
+    original_record, _range_lines = adapter_runner._parse_receipt_header(
+        capture_receipt, lines, adapter_runner.CAPTURE_FIELDS, "original adapter capture"
+    )
+    if original_record["role"] != role:
+        raise ExactOwnerError(f"{role} original capture receipt has the wrong role")
+    original_build_receipt = runner.regular_file(
+        original_record["build_receipt"], f"{role} original adapter build receipt"
+    )
+    original_build = adapter_runner._parse_adapter_build_receipt(
+        original_build_receipt,
+        role,
+        runner,
+        candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
+    )
+    if pathlib.Path(original_record["build_receipt"]) != original_build_receipt:
+        raise ExactOwnerError(f"{role} original capture names a noncanonical build receipt")
+    parsed_capture = adapter_runner._parse_capture_receipt(
+        capture_receipt,
+        role,
+        receipt_directory,
+        capture_root,
+        raw_root,
+        original_build,
+        expected_inputs,
+        input_root,
+        input_manifest,
+        runner,
+    )
+    if (
+        pathlib.Path(parsed_capture["source_root"]) != source_root
+        or parsed_capture["source_commit"] != runner.source_identity(source_root)[0]
+        or parsed_capture["source_tree"] != runner.source_identity(source_root)[1]
+        or parsed_capture["input_manifest_sha256"] != runner.INPUT_MANIFEST_SHA256
+        or parsed_capture["corpus_blake3"] != runner.CORPUS_BLAKE3
+    ):
+        raise ExactOwnerError(f"{role} original capture source or corpus identity differs")
+    if set(reference.inputs) != set(range(len(expected_inputs))):
+        raise ExactOwnerError("pinned reference input coverage is incomplete")
+    return original_build, raw_root, receipt_directory
+
+
+def _run_exact_owner_hashes(
+    binary: pathlib.Path,
+    raw_root: pathlib.Path,
+    source_record: dict[str, str],
+    capture_output: pathlib.Path,
+    role: str,
+    pass_number: int,
+    docker_environment: dict[str, str],
+    runner,
+) -> dict[int, str]:
+    wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
+    wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
+    runner.validate_wrapper_root(wrapper_root, pathlib.Path(source_record["candidate_root"]))
+    runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
+    if not runner.under(raw_root, pathlib.Path(source_record["candidate_root"]) / ".work"):
+        raise ExactOwnerError(f"exact-owner sidecars are outside candidate .work/: {raw_root}")
+    job_dir = capture_output / "hashjobs" / f"{role}-{pass_number}"
+    adapter_runner._mkdir_new_directory(job_dir.parent, runner)
+    adapter_runner._mkdir_new_directory(job_dir, runner)
+    container = f"w9exact-{os.getpid()}-{role}-hash-{pass_number}"
+    if runner.existing_container(container, docker_environment):
+        raise ExactOwnerError(f"exact-owner hash Docker container already exists: {container}")
+    shim_dir = runner.docker_shim(
+        job_dir, container, 0, pathlib.Path(source_record["input_root"])
+    )
+    log = job_dir / "worker.log"
+    descriptor = os.open(
+        log,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    output = os.fdopen(descriptor, "wb")
+    output.write(
+        f"hash_role={role} cpu=0 memory_limit=1GiB input_count=1690 owners={raw_root} "
+        f"binary_sha256={runner.sha256_file(binary)}\n".encode()
+    )
+    output.flush()
+    environment = dict(docker_environment)
+    environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
+    command = [
+        "timeout", "900s", str(wrapper), str(wrapper_root), "run", "env",
+        f"W9_EXACT_OWNER_HASH_ROOT={raw_root}",
+        "taskset", "-c", "0", str(binary), "--exact", EXACT_OWNER_TEST, "--nocapture",
+    ]
+    job = {
+        "worker": role, "cpu": 0, "start": 0, "end": 1690, "container": container,
+        "receipt": log, "timing": log, "log": log, "process": None, "output": output,
+    }
+    active: list[dict[str, object]] = []
+    try:
+        runner.start_and_register_job(job, active, command, str(wrapper_root), environment)
+        process = job["process"]
+        while process.poll() is None:
+            time.sleep(1)
+        if not output.closed:
+            output.close()
+        if process.returncode != 0:
+            raise ExactOwnerError(
+                f"native {role} exact-owner sidecar hashing failed with status {process.returncode}; log={log}"
+            )
+        leftovers = runner.inspect_owned_containers(
+            f"^w9exact-{os.getpid()}-{role}-hash-{pass_number}$", docker_environment
+        )
+        if leftovers:
+            runner.stop_jobs(active, docker_environment)
+            raise ExactOwnerError(f"exact-owner hash container remained: {', '.join(leftovers)}")
+        active.remove(job)
+        return parse_exact_owner_hash_output(runner.read_regular_text(log), 1690)
+    except BaseException as primary_error:
+        if not output.closed:
+            output.close()
+        if active:
+            try:
+                runner.stop_jobs(active, docker_environment)
+            except runner.CleanupFailure as cleanup_error:
+                raise runner.CleanupFailure(
+                    f"{role} exact-owner hash failed: {primary_error}; {cleanup_error}"
+                ) from primary_error
+        raise
+
+
+def _launch_exact_owner_job(
+    runner,
+    source_record: dict[str, str],
+    role: str,
+    output: pathlib.Path,
+    build: dict[str, str],
+    raw_root: pathlib.Path,
+    receipt_directory: pathlib.Path,
+    start: int,
+    end: int,
+    worker: str,
+    active: list[dict[str, object]],
+    docker_environment: dict[str, str],
+) -> dict[str, object]:
+    cpu = {"A": 0, "B": 1, "C": 2, "D": 3}[worker]
+    job_dir = output / "jobs" / worker / f"{start}-{end}"
+    job_dir.mkdir(mode=0o700, exist_ok=False)
+    receipt = _exact_range_receipt_path(receipt_directory, start, end)
+    log = job_dir / "worker.log"
+    if any(path.exists() or path.is_symlink() for path in (receipt, log)):
+        raise ExactOwnerError(f"refusing to overwrite exact-owner shard artifact {worker}/{start}..{end}")
+    container = f"w9exact-{os.getpid()}-{worker}-{start}"
+    if runner.existing_container(container, docker_environment):
+        raise ExactOwnerError(f"exact-owner Docker container already exists: {container}")
+    shim_dir = runner.docker_shim(
+        job_dir, container, cpu, pathlib.Path(source_record["input_root"])
+    )
+    descriptor = os.open(
+        log,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    output_handle = os.fdopen(descriptor, "wb")
+    output_handle.write(
+        f"role={role} cpu={cpu} memory_limit=1GiB range={start}..{end} "
+        f"source={build['source_commit']}:{build['source_tree']} "
+        f"binary_sha256={build['binary_sha256']} corpus={runner.CORPUS_BLAKE3}\n".encode()
+    )
+    output_handle.flush()
+    environment = dict(docker_environment)
+    environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
+    command = [
+        "timeout", "900s", source_record["wrapper"], source_record["wrapper_root"], "run", "env",
+        f"W9_INPUT_ROOT={source_record['input_root']}",
+        f"W9_EXACT_OWNER_OUTPUT_DIR={raw_root}",
+        f"W9_EXACT_OWNER_RECEIPT={receipt}",
+        f"W9_SHARD_INDEX={start // 100}",
+        "W9_SHARD_SIZE=100",
+        f"W9_START={start}",
+        f"W9_END={end}",
+        "taskset", "-c", str(cpu), build["binary"], "--exact", EXACT_OWNER_TEST, "--nocapture",
+    ]
+    job = {
+        "worker": worker,
+        "cpu": cpu,
+        "start": start,
+        "end": end,
+        "container": container,
+        "receipt": receipt,
+        "timing": log,
+        "log": log,
+        "process": None,
+        "output": output_handle,
+    }
+    try:
+        runner.start_and_register_job(
+            job, active, command, source_record["wrapper_root"], environment
+        )
+    except BaseException:
+        if not output_handle.closed:
+            output_handle.close()
+        raise
+    return job
+
+
+def _capture_exact_owner_role(
+    runner,
+    source_record: dict[str, str],
+    role: str,
+    build_receipt: pathlib.Path,
+    build: dict[str, str],
+    legacy_capture_receipt: pathlib.Path,
+    exact_helper_sha256: str,
+    expected_inputs: dict[int, object],
+    reference,
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    output: pathlib.Path,
+    completed: list[tuple[int, int]],
+    docker_environment: dict[str, str],
+) -> dict[str, str]:
+    raw_root = output / "owners"
+    receipt_directory = output / "receipts"
+    jobs_root = output / "jobs"
+    for directory in (raw_root, receipt_directory, jobs_root):
+        adapter_runner._mkdir_new_directory(directory, runner)
+    for worker in ("A", "B", "C", "D"):
+        adapter_runner._mkdir_new_directory(jobs_root / worker, runner)
+    expected_ranges, queues = adapter_runner._capture_plan(len(expected_inputs), runner)
+    active: list[dict[str, object]] = []
+    range_receipts: dict[tuple[int, int], pathlib.Path] = {}
+    owner_hashes: dict[int, str] = {}
+    try:
+        for worker in queues:
+            start, end = queues[worker].pop(0)
+            _launch_exact_owner_job(
+                runner, source_record, role, output, build, raw_root,
+                receipt_directory, start, end, worker, active, docker_environment,
+            )
+        while active:
+            changed = False
+            for job in list(active):
+                process = job["process"]
+                status = process.poll()
+                if status is None:
+                    continue
+                changed = True
+                output_handle = job["output"]
+                if not output_handle.closed:
+                    output_handle.close()
+                start, end = int(job["start"]), int(job["end"])
+                if status != 0:
+                    raise ExactOwnerError(
+                        f"{role} exact-owner worker {job['worker']} range {start}..{end} "
+                        f"failed with status {status}; log={job['log']}"
+                    )
+                receipt = runner.regular_file(job["receipt"], f"{role} exact-owner range receipt")
+                observed = _read_exact_owner_receipt(receipt, start, end, reference, runner)
+                if set(owner_hashes) & set(observed):
+                    raise ExactOwnerError(f"{role} exact-owner ranges duplicate an input index")
+                owner_hashes.update(observed)
+                range_receipts[(start, end)] = receipt
+                completed.append((start, end))
+                runner.write_status(
+                    output,
+                    "incomplete",
+                    completed,
+                    f"completed_owner_range={start}..{end}",
+                )
+                active.remove(job)
+                worker = str(job["worker"])
+                if queues[worker]:
+                    next_start, next_end = queues[worker].pop(0)
+                    _launch_exact_owner_job(
+                        runner, source_record, role, output, build, raw_root,
+                        receipt_directory, next_start, next_end, worker, active, docker_environment,
+                    )
+            if not changed:
+                time.sleep(1)
+        leftovers = runner.inspect_owned_containers(f"^w9exact-{os.getpid()}-{role}-", docker_environment)
+        if leftovers:
+            stranded = [{"container": name, "process": None, "output": None} for name in leftovers]
+            runner.stop_jobs(stranded, docker_environment)
+            raise ExactOwnerError(f"exact-owner containers remained after {role} capture: {', '.join(leftovers)}")
+        if sorted(range_receipts) != expected_ranges or set(owner_hashes) != set(range(len(expected_inputs))):
+            raise ExactOwnerError(f"{role} exact-owner capture coverage differs")
+        runner.validate_all_inputs(source_record)
+        if runner.source_identity(pathlib.Path(build["source_root"])) != (
+            build["source_commit"], build["source_tree"]
+        ):
+            raise ExactOwnerError(f"{role} source identity changed during exact-owner capture")
+        record = _exact_capture_record(
+            role, build_receipt, build, legacy_capture_receipt, output, raw_root,
+            receipt_directory, input_root, input_manifest, range_receipts, owner_hashes,
+            exact_helper_sha256, runner,
+        )
+        capture_receipt = output / "capture.receipt"
+        _write_exact_capture_receipt(capture_receipt, record, range_receipts, runner)
+        return record
+    except BaseException as primary_error:
+        if active:
+            try:
+                runner.stop_jobs(active, docker_environment)
+            except runner.CleanupFailure as cleanup_error:
+                raise runner.CleanupFailure(
+                    f"{role} exact-owner capture failed: {primary_error}; {cleanup_error}"
+                ) from primary_error
+        raise
+
+
+def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
+    candidate_root = bootstrap_runner.real_directory(args.candidate_root, "candidate source")
+    source_receipt = bootstrap_runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
+    runner = adapter_runner._load_candidate_publication_runner(
+        candidate_root, source_receipt, bootstrap_runner
+    )
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise ExactOwnerError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise ExactOwnerError("candidate source identity differs from its source receipt")
+    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
+    reference_root = adapter_runner._prepare_reference_source(
+        candidate_root, pathlib.Path(args.reference_source_root), runner
+    )
+    role = args.role
+    source_root = reference_root if role == "reference" else candidate_root
+    build_receipt = runner.regular_file(args.build_receipt, f"{role} exact-owner build receipt")
+    build = adapter_runner._parse_adapter_build_receipt(
+        build_receipt,
+        role,
+        runner,
+        candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
+    )
+    if pathlib.Path(build["source_root"]) != source_root:
+        raise ExactOwnerError(f"{role} exact-owner build source differs")
+    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
+    helper_path = runner.regular_file(build["helper_path"], f"{role} exact-owner derived helper")
+    if not runner.under(helper_path, candidate_root / ".work"):
+        raise ExactOwnerError(f"{role} exact-owner helper is outside candidate .work/: {helper_path}")
+    helper_bytes = runner.read_regular_bytes(helper_path)
+    if hashlib.sha256(helper_bytes).hexdigest() != build["helper_sha256"] or not helper_bytes.endswith(exact_helper_bytes):
+        raise ExactOwnerError(f"{role} exact-owner helper does not match its build receipt")
+    runner.require_sha256(pathlib.Path(build["binary"]), build["binary_sha256"], f"{role} exact-owner harness")
+    legacy_capture_receipt = runner.regular_file(
+        args.legacy_capture_receipt, f"{role} original capture receipt"
+    )
+    legacy_build, _legacy_raw, _legacy_receipts = _legacy_capture(
+        legacy_capture_receipt,
+        role,
+        source_root,
+        candidate_root,
+        expected_inputs,
+        pathlib.Path(source_record["input_root"]),
+        pathlib.Path(source_record["input_manifest"]),
+        reference,
+        runner,
+    )
+    if (legacy_build["source_commit"], legacy_build["source_tree"]) != (
+        build["source_commit"], build["source_tree"]
+    ):
+        raise ExactOwnerError(f"{role} original capture and exact-owner build source identities differ")
+    output = runner.require_output_path(args.output, candidate_root)
+    if args.dry_run:
+        print(
+            f"preflight ok: role={role} source={build['source_commit']} tree={build['source_tree']} "
+            f"corpus=1690 ranges={len(runner.expected_ranges(len(expected_inputs)))} "
+            f"workers=4 cpus=0,1,2,3 memory_per_worker=1GiB output={output}"
+        )
+        return 0
+    completed: list[tuple[int, int]] = []
+    docker_environment = runner.local_docker_environment()
+    with runner.claim_run_resources(candidate_root, output, completed):
+        runner.write_status(output, "incomplete", completed)
+        record = _capture_exact_owner_role(
+            runner,
+            source_record,
+            role,
+            build_receipt,
+            build,
+            legacy_capture_receipt,
+            exact_helper_sha256,
+            expected_inputs,
+            reference,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            output,
+            completed,
+            docker_environment,
+        )
+        runner.write_status(output, "complete", completed, f"role={role} owners={record['owner_count']}")
+    print(f"role={role} owners=1690 capture_receipt={output / 'capture.receipt'}")
+    return 0
+
+
+def _validate_owner_projections(
+    exact_raw_root: pathlib.Path,
+    legacy_raw_root: pathlib.Path,
+    expected_inputs: dict[int, object],
+    exact_hashes: dict[int, str],
+    runner,
+) -> dict[int, tuple[object, dict[str, object]]]:
+    exact_descriptor = runner.open_absolute_nofollow(exact_raw_root, directory=True)
+    legacy_descriptor = runner.open_absolute_nofollow(legacy_raw_root, directory=True)
+    try:
+        exact_names = set(os.listdir(exact_descriptor))
+        legacy_names = set(os.listdir(legacy_descriptor))
+        expected_exact_names = {f"owners-{index}.tsv" for index in range(len(expected_inputs))}
+        if exact_names != expected_exact_names:
+            raise ExactOwnerError("exact-owner sidecar set differs from complete native hash input")
+        if not expected_exact_names <= legacy_names:
+            raise ExactOwnerError("original owner sidecar set is incomplete")
+        validated: dict[int, tuple[object, dict[str, object]]] = {}
+        for index in range(len(expected_inputs)):
+            exact_bytes = adapter_runner._read_regular_bytes_at(
+                exact_descriptor, f"owners-{index}.tsv"
+            )
+            legacy_text = adapter_runner._read_regular_at(
+                legacy_descriptor, f"owners-{index}.tsv"
+            )
+            try:
+                exact_text = exact_bytes.decode("utf-8")
+                legacy_projection = adapter.parse_owner_index(legacy_text)
+                exact_projection, exact_owners = parse_exact_owner_index(exact_text)
+            except (UnicodeError, adapter.AdapterError, ExactOwnerError) as error:
+                raise ExactOwnerError(f"owner {index}: invalid owner projection: {error}") from error
+            if exact_projection != legacy_projection:
+                raise ExactOwnerError(
+                    f"owner {index}: original source, generic, tail, or statement rows differ"
+                )
+            if index not in exact_hashes:
+                raise ExactOwnerError(f"owner {index}: native exact-owner digest is missing")
+            if not HEX256.fullmatch(exact_hashes[index]):
+                raise ExactOwnerError(f"owner {index}: native exact-owner digest is malformed")
+            validated[index] = (exact_projection, exact_owners)
+        return validated
+    finally:
+        os.close(exact_descriptor)
+        os.close(legacy_descriptor)
+
+
+def _proof_record(
+    role: str,
+    build_receipt: pathlib.Path,
+    build: dict[str, str],
+    exact_helper_path: pathlib.Path,
+    exact_helper_sha256: str,
+    legacy_capture_receipt: pathlib.Path,
+    exact_capture_receipt: pathlib.Path,
+    capture: dict[str, str],
+    owner_hashes: dict[int, str],
+    runner,
+) -> dict[str, str]:
+    record = {
+        "schema": "1",
+        "role": role,
+        "source_root": build["source_root"],
+        "source_commit": build["source_commit"],
+        "source_tree": build["source_tree"],
+        "build_receipt": str(build_receipt),
+        "build_receipt_sha256": runner.sha256_file(build_receipt),
+        "binary": build["binary"],
+        "binary_sha256": build["binary_sha256"],
+        "helper_sha256": build["helper_sha256"],
+        "exact_helper_path": str(exact_helper_path),
+        "exact_helper_sha256": exact_helper_sha256,
+        "owner_helper_sha256": build["owner_helper_sha256"],
+        "input_root": capture["input_root"],
+        "input_manifest": capture["input_manifest"],
+        "input_manifest_sha256": capture["input_manifest_sha256"],
+        "corpus_blake3": capture["corpus_blake3"],
+        "legacy_capture_receipt": str(legacy_capture_receipt),
+        "legacy_capture_receipt_sha256": runner.sha256_file(legacy_capture_receipt),
+        "capture_receipt": str(exact_capture_receipt),
+        "capture_receipt_sha256": runner.sha256_file(exact_capture_receipt),
+        "capture_root": capture["capture_root"],
+        "raw_root": capture["raw_root"],
+        "receipt_directory": capture["receipt_directory"],
+        "range_count": capture["range_count"],
+        "owner_count": capture["owner_count"],
+        "ledger_sha256": capture["ledger_sha256"],
+        "owner_hashes_sha256": hashlib.sha256(
+            "".join(f"{index}\t{owner_hashes[index]}\n" for index in sorted(owner_hashes)).encode()
+        ).hexdigest(),
+    }
+    if set(record) != set(EXACT_PROOF_FIELDS):
+        raise ExactOwnerError("exact-owner proof receipt fields differ")
+    return record
+
+
+def _write_proof_receipt(path: pathlib.Path, record: dict[str, str], runner) -> None:
+    if set(record) != set(EXACT_PROOF_FIELDS):
+        raise ExactOwnerError("exact-owner proof receipt fields differ")
+    adapter_runner._write_new_file(
+        path,
+        (EXACT_PROOF_SCHEMA + "".join(f"{field}\t{record[field]}\n" for field in EXACT_PROOF_FIELDS)).encode(),
+        runner,
+    )
+
+
+def validate_proof(
+    candidate_root: pathlib.Path,
+    source_receipt: pathlib.Path,
+    reference_source_root: pathlib.Path,
+    role: str,
+    build_receipt: pathlib.Path,
+    exact_capture_receipt: pathlib.Path,
+    output: pathlib.Path,
+    bootstrap_runner,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    candidate_root = bootstrap_runner.real_directory(candidate_root, "candidate source")
+    source_receipt = bootstrap_runner.regular_file(source_receipt, "candidate source receipt")
+    runner = adapter_runner._load_candidate_publication_runner(
+        candidate_root, source_receipt, bootstrap_runner
+    )
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise ExactOwnerError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise ExactOwnerError("candidate source identity differs from its source receipt")
+    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
+    reference_root = adapter_runner._prepare_reference_source(
+        candidate_root, reference_source_root, runner
+    )
+    selected_source_root = reference_root if role == "reference" else candidate_root
+    build_receipt = runner.regular_file(build_receipt, f"{role} exact-owner build receipt")
+    build = adapter_runner._parse_adapter_build_receipt(
+        build_receipt,
+        role,
+        runner,
+        candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
+    )
+    if pathlib.Path(build["source_root"]) != selected_source_root:
+        raise ExactOwnerError(f"{role} exact-owner build source differs")
+    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
+    helper_path = runner.regular_file(build["helper_path"], f"{role} exact-owner derived helper")
+    if not runner.under(helper_path, candidate_root / ".work"):
+        raise ExactOwnerError(f"{role} exact-owner helper is outside candidate .work/: {helper_path}")
+    helper_bytes = runner.read_regular_bytes(helper_path)
+    if hashlib.sha256(helper_bytes).hexdigest() != build["helper_sha256"] or not helper_bytes.endswith(exact_helper_bytes):
+        raise ExactOwnerError(f"{role} exact-owner helper does not match its build receipt")
+    binary = runner.regular_file(build["binary"], f"{role} exact-owner harness", executable=True)
+    runner.require_sha256(binary, build["binary_sha256"], f"{role} exact-owner harness")
+    exact_capture_receipt = runner.regular_file(
+        exact_capture_receipt, f"{role} exact-owner capture receipt"
+    )
+    capture_record_lines = runner.read_regular_text(exact_capture_receipt).splitlines()
+    capture, _range_rows = adapter_runner._parse_receipt_header(
+        exact_capture_receipt, capture_record_lines, EXACT_CAPTURE_FIELDS, "exact-owner capture"
+    )
+    legacy_capture_receipt = runner.regular_file(
+        capture["legacy_capture_receipt"], f"{role} original capture receipt"
+    )
+    if runner.sha256_file(legacy_capture_receipt) != capture["legacy_capture_receipt_sha256"]:
+        raise ExactOwnerError(f"{role} original capture receipt hash differs")
+    original_build, legacy_raw_root, _legacy_receipt_directory = _legacy_capture(
+        legacy_capture_receipt,
+        role,
+        selected_source_root,
+        candidate_root,
+        expected_inputs,
+        pathlib.Path(source_record["input_root"]),
+        pathlib.Path(source_record["input_manifest"]),
+        reference,
+        runner,
+    )
+    if (original_build["source_commit"], original_build["source_tree"]) != (
+        build["source_commit"], build["source_tree"]
+    ):
+        raise ExactOwnerError(f"{role} original capture and exact-owner build source identities differ")
+    _, range_receipts, receipt_hashes = _parse_exact_capture_receipt(
+        exact_capture_receipt,
+        role,
+        build_receipt,
+        build,
+        expected_inputs,
+        reference,
+        pathlib.Path(source_record["input_root"]),
+        pathlib.Path(source_record["input_manifest"]),
+        exact_helper_sha256,
+        runner,
+    )
+    output = runner.require_output_path(output, candidate_root)
+    if dry_run:
+        print(
+            f"preflight ok: role={role} source={build['source_commit']} tree={build['source_tree']} "
+            f"owners={len(receipt_hashes)} ranges={len(range_receipts)} output={output}"
+        )
+        return {"capture": capture, "range_receipts": range_receipts, "owner_hashes": receipt_hashes}
+    completed: list[tuple[int, int]] = []
+    docker_environment = runner.local_docker_environment()
+    with runner.claim_run_resources(candidate_root, output, completed):
+        runner.write_status(output, "incomplete", completed)
+        native_hashes = _run_exact_owner_hashes(
+            binary, pathlib.Path(capture["raw_root"]), source_record, output, role, 1,
+            docker_environment, runner,
+        )
+        if native_hashes != receipt_hashes:
+            differing = [
+                index for index in range(len(expected_inputs))
+                if native_hashes.get(index) != receipt_hashes.get(index)
+            ][:10]
+            raise ExactOwnerError(f"{role} native and range-receipt owner hashes differ: {differing}")
+        runner.validate_all_inputs(source_record)
+        if runner.source_identity(selected_source_root) != (
+            build["source_commit"], build["source_tree"]
+        ):
+            raise ExactOwnerError(f"{role} source identity changed before exact-owner sidecar validation")
+        validated = _validate_owner_projections(
+            pathlib.Path(capture["raw_root"]), legacy_raw_root, expected_inputs, native_hashes, runner
+        )
+        confirmed_hashes = _run_exact_owner_hashes(
+            binary, pathlib.Path(capture["raw_root"]), source_record, output, role, 2,
+            docker_environment, runner,
+        )
+        if confirmed_hashes != native_hashes:
+            raise ExactOwnerError(f"{role} exact-owner sidecars changed during validation")
+        runner.validate_all_inputs(source_record)
+        if runner.source_identity(selected_source_root) != (
+            build["source_commit"], build["source_tree"]
+        ):
+            raise ExactOwnerError(f"{role} source identity changed during exact-owner proof")
+        record = _proof_record(
+            role,
+            build_receipt,
+            build,
+            exact_helper_path,
+            exact_helper_sha256,
+            legacy_capture_receipt,
+            exact_capture_receipt,
+            capture,
+            confirmed_hashes,
+            runner,
+        )
+        proof_receipt = output / "proof.receipt"
+        _write_proof_receipt(proof_receipt, record, runner)
+        runner.write_status(output, "complete", completed, f"role={role} owners={len(validated)}")
+    print(f"role={role} owners={len(validated)} proof_receipt={proof_receipt}")
+    return {
+        "proof_receipt": proof_receipt,
+        "capture": capture,
+        "range_receipts": range_receipts,
+        "owner_hashes": confirmed_hashes,
+        "sidecar_root": pathlib.Path(capture["raw_root"]),
+        "owners": validated,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    bootstrap_runner = adapter_runner._load_publication_runner(
+        adapter_runner.ROOT / "dev/consolidation/w9-publication-run.py"
+    )
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+    build = commands.add_parser("build-harnesses")
+    build.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    build.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    build.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    build.add_argument("--dry-run", action="store_true")
+    capture = commands.add_parser("capture")
+    capture.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    capture.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    capture.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    capture.add_argument("--role", choices=("reference", "candidate"), required=True)
+    capture.add_argument("--build-receipt", type=pathlib.Path, required=True)
+    capture.add_argument("--legacy-capture-receipt", type=pathlib.Path, required=True)
+    capture.add_argument("--output", required=True)
+    capture.add_argument("--dry-run", action="store_true")
+    validate = commands.add_parser("validate")
+    validate.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    validate.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    validate.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    validate.add_argument("--role", choices=("reference", "candidate"), required=True)
+    validate.add_argument("--build-receipt", type=pathlib.Path, required=True)
+    validate.add_argument("--capture-receipt", type=pathlib.Path, required=True)
+    validate.add_argument("--output", required=True)
+    validate.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "build-harnesses":
+            if args.dry_run:
+                candidate_root = bootstrap_runner.real_directory(args.candidate_root, "candidate source")
+                source_receipt = bootstrap_runner.regular_file(
+                    args.candidate_source_receipt, "candidate source receipt"
+                )
+                runner = adapter_runner._load_candidate_publication_runner(
+                    candidate_root, source_receipt, bootstrap_runner
+                )
+                record = runner.parse_candidate_receipt(source_receipt)
+                expected_inputs, _paths_by_name, _reference = runner.validate_all_inputs(record)
+                if len(expected_inputs) != 1690:
+                    raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
+                _helper, _bytes, digest = _load_exact_helper(runner)
+                print(
+                    f"preflight ok: candidate={record['candidate_commit']}:{record['candidate_tree']} "
+                    f"corpus=1690 exact_helper_sha256={digest} reference={args.reference_source_root}"
+                )
+                return 0
+            build_exact_owner_harnesses(args, bootstrap_runner)
+            return 0
+        if args.command == "capture":
+            return capture_exact_owner_role(args, bootstrap_runner)
+        result = validate_proof(
+            args.candidate_root,
+            args.candidate_source_receipt,
+            args.reference_source_root,
+            args.role,
+            args.build_receipt,
+            args.capture_receipt,
+            pathlib.Path(args.output),
+            bootstrap_runner,
+            args.dry_run,
+        )
+        return 0 if result else 1
+    except (
+        ExactOwnerError,
+        adapter.AdapterError,
+        adapter_runner.PublicationError,
+        bootstrap_runner.PublicationError,
+        bootstrap_runner.CleanupFailure,
+        OSError,
+        subprocess.SubprocessError,
+    ) as error:
+        print(f"W9 exact-owner proof failed: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
