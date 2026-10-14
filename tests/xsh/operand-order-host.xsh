@@ -8,7 +8,7 @@ test test_filesystem_paths_and_walks_evaluate_operands_once { |ctx|
 
   let output = test.expect(
     ctx,
-    r"""proc path(label: Str, value: Path) [io] -> Path {
+    r"""proc mark_path(label: Str, value: Path) [io] -> Path {
   print $label
   return value
 }
@@ -26,7 +26,7 @@ proc data(label: Str, value: Str) [io] -> Str {
 }
 let root = Path(args[0])
 let files = fs.files(
-  path("files-path", root),
+  mark_path("files-path", root),
   hidden: flag("files-hidden", false),
   exts: exts("files-exts", ["txt"]),
   stat: flag("files-stat", false),
@@ -35,29 +35,29 @@ let files = fs.files(
 assert files |> any .name == "payload.txt"
 assert ! (files |> any .name == ".hidden.txt")
 let walked = fs.walk(
-  path("walk-path", root),
+  mark_path("walk-path", root),
   hidden: flag("walk-hidden", false),
   stat: flag("walk-stat", false),
   gitignore: flag("walk-gitignore", false),
 )?.collect()
 assert walked |> any .name == "payload.txt"
 let children = fs.children(
-  path("list-path", root),
+  mark_path("list-path", root),
   ordered: flag("list-ordered", true),
   stat: flag("list-stat", true),
 )?.collect()
 assert children |> any .name == "payload.txt"
-assert path("read-text-path", p"{root}/payload.txt").read_text()? == "payload"
-assert path("read-bytes-path", p"{root}/payload.bin").read_bytes()? == b"raw\0bytes"
-assert path("exists-path", p"{root}/payload.txt").exists()?
-assert path("executable-path", Path(args[1])).executable()?
-assert path("du-path", root).du()? >= 0
-assert path("metadata-path", p"{root}/payload.txt").metadata()?.size == 7
-assert path("readlink-path", p"{root}/link").readlink()? == p"payload.txt"
-assert path("resolve-path", p"{root}/payload.txt").resolve()?.name() == "payload.txt"
-path("write-path", p"{root}/written").write(data("write-data", "written"))
-path("mkdir-path", p"{root}/made").mkdir()
-path("remove-path", p"{root}/remove-me").remove(missing_ok: false)
+assert mark_path("read-text-path", fp"{root}/payload.txt").read_text()? == "payload"
+assert mark_path("read-bytes-path", fp"{root}/payload.bin").read_bytes()? == b"raw\0bytes"
+assert mark_path("exists-path", fp"{root}/payload.txt").exists()?
+assert mark_path("executable-path", Path(args[1])).executable()?
+assert mark_path("du-path", root).du()? >= 0
+assert mark_path("metadata-path", fp"{root}/payload.txt").metadata()?.size == 7
+assert mark_path("readlink-path", fp"{root}/link").readlink()? == p"payload.txt"
+assert mark_path("resolve-path", fp"{root}/payload.txt").resolve()?.name() == "payload.txt"
+mark_path("write-path", fp"{root}/written").write(data("write-data", "written"))
+mark_path("mkdir-path", fp"{root}/made").mkdir()
+mark_path("remove-path", fp"{root}/remove-me").remove(missing_ok: false)
 print "complete"
 """,
     status: 0,
@@ -136,19 +136,22 @@ proc made(prefix: Str) [io] -> OperandFailure {
   )
 }
 let success: Result[Str, OperandFailure] = Ok(mark("ok-value", "ok"))
-let failure: Result[Str, OperandFailure] =
-  Err(cause: made("cause"), made("value"))
+let failure: Result[Str, OperandFailure] = Err(cause: made("cause"), made("value"))
 assert success? == "ok"
 match failure {
-  Err(problem) => print problem.first problem.second
-  _ => print "wrong-result"
+  Err(OperandFailure.Failed {first, second}) => print $first $second
+  Ok(_) => print "wrong-result"
 }
 let direct = OperandFailure.Failed(
   second: mark("direct-second", "two"),
   first: mark("direct-first", "one"),
 )
-assert direct.first == "one"
-assert direct.second == "two"
+match direct {
+  OperandFailure.Failed {first, second} => {
+    assert first == "one"
+    assert second == "two"
+  }
+}
 """,
     status: 0,
   )?

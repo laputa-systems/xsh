@@ -382,8 +382,8 @@ proc count() [io] -> UInt {
 }
 match Err(CountError.Invalid(count())) {
   Err(CountError.Invalid {count}) => assert count == 7
-  Err(error) => fail error.message
-  Ok(_) => fail "expected an error"
+  Err(error) => assert false, error.message
+  Ok(_) => assert false, "expected an error"
 }
 """,
     status: 0,

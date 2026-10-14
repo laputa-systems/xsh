@@ -102,7 +102,7 @@ test test_comprehensions_and_pipeline_visit_sources_and_items_in_order { |ctx|
   let output = test.expect(
     ctx,
     r"""proc source(label: Str) [io] -> List[Int] {
-  print label
+  print $label
   return [1, 2, 3]
 }
 proc keep(label: Str, value: Int) [io] -> Bool {
@@ -119,9 +119,9 @@ proc key(label: Str, value: Int) [io] -> Str {
 }
 
 let list = [project("list:value", value) for value in source("list:source") if keep("list:filter", value)]
-let map = {key("map:key", value): project("map:value", value) for value in source("map:source") if keep("map:filter", value)}
+let mapped = {[key("map:key", value)]: project("map:value", value) for value in source("map:source") if keep("map:filter", value)}
 let pipeline = source("pipeline:source") |> map { |value| project("pipeline:map", value) }
-print f"list={list[0]},{list[1]} map={map["item-1"]},{map["item-3"]} pipeline={pipeline[0]},{pipeline[1]},{pipeline[2]}"
+print f"list={list[0]},{list[1]} map={mapped["item-1"]},{mapped["item-3"]} pipeline={pipeline[0]},{pipeline[1]},{pipeline[2]}"
 """,
     status: 0,
   )?
@@ -151,8 +151,8 @@ test test_calls_methods_and_module_operations_preserve_argument_order { |ctx|
   let output = test.expect(
     ctx,
     r"""type OrderedPair = proc(left: Int, right: Int) [io] -> Int
-proc integer(label: Str, value: Int) [io] -> Int { print label; return value }
-proc string(label: Str, value: Str) [io] -> Str { print label; return value }
+proc integer(label: Str, value: Int) [io] -> Int { print $label; return value }
+proc string(label: Str, value: Str) [io] -> Str { print $label; return value }
 proc add(left: Int, right: Int) [io] -> Int { print "call:body"; return left + right }
 pure pure_add(left: Int, right: Int) -> Int { left + right }
 proc receiver() [io] -> Str { print "method:receiver"; return "abc" }
@@ -232,14 +232,14 @@ proc mark_vars() [io] -> Map[Str] {
 }
 
 ## Renders values returned by the two marked arguments.
-export proc render() [io] -> Result[Str] {
+export proc render() [io] -> Result[Str, Error] {
   template.render(mark_template(), mark_vars())
 }
 """)
   let output = test.expect(
     ctx,
     f"""type Renderer = module {{
-  export proc render() [io] -> Result[Str]
+  export proc render() [io] -> Result[Str, Error]
 }}
 
 let loaded = module.load(p"{implementation}")?.require(Renderer)?
@@ -257,9 +257,9 @@ test test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order
   let output = test.expect(
     ctx,
     r"""error RetryError = Again(message: Str)
-proc text(label: Str, value: Str) [io] -> Str { print label; return value }
-proc number(label: Str, value: Int) [io] -> Int { print label; return value }
-proc delay(label: Str) [io] -> Duration { print label; return 0ms }
+proc text(label: Str, value: Str) [io] -> Str { print $label; return value }
+proc number(label: Str, value: Int) [io] -> Int { print $label; return value }
+proc delay(label: Str) [io] -> Duration { print $label; return 0ms }
 
 let block = {
   print "value-block:statement"
@@ -299,10 +299,14 @@ let retried = retry [delay("retry:delay:first"), delay("retry:delay:second")] {
 }?
 print f"retry={retried}"
 
-let captured = try {
-  fail text("try:fail-message", "captured")
-  number("try:unreachable", 0)
+proc capture() -> Result[Int, Error] {
+  let captured: Result[Int, Error] = try {
+    fail text("try:fail-message", "captured")
+    number("try:unreachable", 0)
+  }
+  captured
 }
+let captured = capture()
 match captured {
   Err(error) => print f"try:captured:{error.message}"
   Ok(_) => print "try:wrong"
@@ -348,13 +352,13 @@ test test_guard_with_and_statement_branches_evaluate_selected_payloads_once { |c
     r"""enum Choice { Chosen(Int), Other }
 error ParseError = Failed(message: Str)
 proc parsed(label: Str, succeeds: Bool) [io] -> Result[Int, ParseError] {
-  print label
+  print $label
   if succeeds { return Ok(4) }
   return Err(ParseError.Failed(message: "missing"))
 }
-proc flag(label: Str, value: Bool) [io] -> Bool { print label; return value }
-proc choice(label: Str, value: Choice) [io] -> Choice { print label; return value }
-proc text(label: Str, value: Str) [io] -> Str { print label; return value }
+proc flag(label: Str, value: Bool) [io] -> Bool { print $label; return value }
+proc choice(label: Str, value: Choice) [io] -> Choice { print $label; return value }
+proc text(label: Str, value: Str) [io] -> Str { print $label; return value }
 
 proc guarded() [io] {
   guard let value = parsed("guard:subject", false) else { |failure|
@@ -520,7 +524,7 @@ defer:first
 test test_default_parameters_run_only_for_omitted_arguments_in_parameter_order { |ctx|
   let output = test.expect(
     ctx,
-    r"""proc mark(label: Str, value: Int) [io] -> Int { print label; return value }
+    r"""proc mark(label: Str, value: Int) [io] -> Int { print $label; return value }
 proc combine(left = mark("default:left", 1), right = mark("default:right", 2)) [io] -> Int {
   print "default:body"
   return left + right
