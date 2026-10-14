@@ -553,6 +553,8 @@ def align_tui_publications(
     candidate_declarations = []
     parsed_reference = []
     parsed_candidate = []
+    reference_publication_cache: dict[str, _ParsedPublication] = {}
+    candidate_publication_cache: dict[str, _ParsedPublication] = {}
     declaration_profiles = []
     for reference, candidate in zip(reference_publications, candidate_publications):
         if not reference or not candidate:
@@ -563,8 +565,14 @@ def align_tui_publications(
             parsed_reference.append(None)
             parsed_candidate.append(None)
             continue
-        reference_parsed = _parse_publication(reference)
-        candidate_parsed = _parse_publication(candidate)
+        reference_parsed = reference_publication_cache.get(reference)
+        if reference_parsed is None:
+            reference_parsed = _parse_publication(reference)
+            reference_publication_cache[reference] = reference_parsed
+        candidate_parsed = candidate_publication_cache.get(candidate)
+        if candidate_parsed is None:
+            candidate_parsed = _parse_publication(candidate)
+            candidate_publication_cache[candidate] = candidate_parsed
         reference_functions = _tui_function_declarations(reference_parsed.values)
         candidate_functions = _tui_function_declarations(candidate_parsed.values)
         if bool(reference_functions) != bool(candidate_functions):

@@ -1,6 +1,7 @@
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 import w9_publication_adapter as publication_adapter
 import w9_publication_sources as publication_sources
@@ -146,6 +147,69 @@ def aligned(*, reference=None, candidate=None, reference_owners=None, candidate_
 
 
 class TuiPublicationSourceAlignmentTests(unittest.TestCase):
+    def test_publication_parse_memo_is_call_local_and_uses_exact_text(self):
+        def labelled_publication(label, reverse_maps=False):
+            rendered = publication(
+                OLD_SOURCE, reverse_maps=reverse_maps, include_tui=False
+            )[0]
+            return rendered.replace(
+                'literal:"Span{source_id:SourceId(5),start:999,len:2}"',
+                f'literal:"{label}"',
+                1,
+            )
+
+        def align(reference_publications, candidate_publications):
+            return align_tui_publications(
+                reference_publications=reference_publications,
+                candidate_publications=candidate_publications,
+                reference_source_sizes=source_sizes(OLD_SOURCE),
+                reference_source_owners=owner_index(OLD_SOURCE),
+                candidate_source_sizes=source_sizes(OLD_SOURCE),
+                candidate_source_owners=owner_index(OLD_SOURCE),
+                reference_tui_source=OLD_SOURCE,
+                candidate_tui_source=OLD_SOURCE,
+            )
+
+        reference_first = labelled_publication("reference-first")
+        reference_second = labelled_publication("reference-second", reverse_maps=True)
+        candidate_first = labelled_publication("candidate-first")
+        candidate_second = labelled_publication("candidate-second", reverse_maps=True)
+        repeated_reference = [reference_first, reference_first, reference_second, reference_second]
+        repeated_candidate = [candidate_first, candidate_first, candidate_second, candidate_second]
+
+        with patch.object(
+            publication_sources,
+            "_parse_publication",
+            wraps=publication_sources._parse_publication,
+        ) as parse_publication:
+            align(repeated_reference, repeated_candidate)
+        self.assertEqual(parse_publication.call_count, 4)
+
+        distinct_reference = [
+            labelled_publication(f"reference-{index}", reverse_maps=bool(index % 2))
+            for index in range(4)
+        ]
+        distinct_candidate = [
+            labelled_publication(f"candidate-{index}", reverse_maps=bool(index % 2))
+            for index in range(4)
+        ]
+        with patch.object(
+            publication_sources,
+            "_parse_publication",
+            wraps=publication_sources._parse_publication,
+        ) as parse_publication:
+            align(distinct_reference, distinct_candidate)
+        self.assertEqual(parse_publication.call_count, 8)
+
+        with patch.object(
+            publication_sources,
+            "_parse_publication",
+            wraps=publication_sources._parse_publication,
+        ) as parse_publication:
+            align(repeated_reference, repeated_candidate)
+            align(repeated_reference, repeated_candidate)
+        self.assertEqual(parse_publication.call_count, 8)
+
     def test_span_rewriter_preserves_quote_and_identifier_boundaries(self):
         edit = publication_sources._known_source_edit(OLD_SOURCE, CURRENT_SOURCE)
         start = CURRENT_SOURCE.index(b"export pure reset")
