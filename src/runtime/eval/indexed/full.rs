@@ -16082,6 +16082,9 @@ pipeline_stage_schema! {
 mod tests {
     use super::*;
     use crate::runtime::eval::Evaluator;
+    use crate::runtime::eval::route_witness::{
+        RouteWitnessMode, RouteWitnessRoute, RouteWitnessSink,
+    };
     use crate::runtime::value::Value;
     use crate::sema::check::{CheckBundleView, CheckOptions, Checker};
     use crate::syntax::parser::Parser;
@@ -17764,16 +17767,42 @@ proc main() [env, error] -> Result[Unit] {
 
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
         evaluator.indexed_program = Some(Arc::clone(&program));
-        for (flag, expected) in [(true, 1), (false, 2)] {
-            let result = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "selected")),
-                    LoweredFunctionKind::Pure,
-                    &[Value::Bool(flag)],
-                    Span::new(program.store.source_id, 0, 0),
-                )
-                .expect("selection function exists");
-            assert_eq!(result.unwrap(), Value::Int(expected));
+        let sink = RouteWitnessSink::default();
+        evaluator.install_route_witness_sink(sink.clone());
+        for (forced, route, mode) in [
+            (
+                false,
+                RouteWitnessRoute::InPlaceEvaluatorPath,
+                RouteWitnessMode::Normal,
+            ),
+            (
+                true,
+                RouteWitnessRoute::ExplicitFrameControlPath,
+                RouteWitnessMode::Forced,
+            ),
+        ] {
+            evaluator.force_frames = forced;
+            for (flag, expected) in [(true, 1), (false, 2)] {
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "selected")),
+                        LoweredFunctionKind::Pure,
+                        &[Value::Bool(flag)],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("selection function exists");
+                assert_eq!(result.unwrap(), Value::Int(expected));
+
+                let records = sink.take_records();
+                let selection_records = records
+                    .iter()
+                    .filter(|record| record.tag.name == "ExprIf")
+                    .collect::<Vec<_>>();
+                assert_eq!(selection_records.len(), 1);
+                assert_eq!(selection_records[0].tag.ordinal, FullTag::ExprIf as u32);
+                assert_eq!(selection_records[0].route, route);
+                assert_eq!(selection_records[0].mode, mode);
+            }
         }
     }
 
