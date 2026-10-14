@@ -4,9 +4,8 @@ Status: active 2026-10-14.
 
 ## Current closure checks, 2026-10-14
 
-Master now integrates the reviewed closure batch from
-`8c0352f02e5a76e809e669d5bc214209a97fe4b2` in
-`.work/wt/closure-batch-integration`. Final acceptance remains pending.
+Master integrates the reviewed closure batch from `8c0352f02` and the
+corrections through `97fb9b8ee`. Final acceptance remains pending.
 The pinned x86_64 Linux musl image and platform exclusions remain unchanged.
 
 The batch's products and required unit, integration, and soundness
@@ -22,10 +21,11 @@ selection, product selection, removal of the root XSHT dev dependency, and
 the shared musl linker contract are included. Timing speedups are not measured.
 
 The optimized scanner reproduces the archived start report over 306 sources,
-13 metrics, and 45 allowances exactly. The current production scan has zero
-manual payload calls, optional raw calls, and blanket allowance lines.
-Its one remaining wide wildcard has a compiled exhaustive replacement.
-The final structural recount remains pending. Source totals remain advisory.
+13 metrics, and 45 allowances exactly. The definitive scan at `865fa955`
+covers 370 sources and passes all four required zero metrics: manual payload
+calls, optional raw calls, blanket allowance lines, and wide arena wildcards.
+No structural metric rises. Source totals remain advisory. Later corrections
+still need qualification against the final freeze.
 
 The current synthetic compiler probe records 38 XSH and 18 XSHT demanded
 matches and a successful combined check after isolated placeholder arms.
@@ -39,8 +39,30 @@ records. The validator remains strict. Direct-IR If selection now checks
 both branch values and the actual normal and forced routes.
 
 W9's corrected helper harness builds and lists exactly one parity test.
-The shared-import lint probe checks the helper once and reuses it once.
-Final W9 publication still needs the frozen 1,690-input, four-profile run.
+Its strict comparison found the approved schema changes: retired constant
+indexes and new selected-callee and flow facts. A versioned adapter is under
+independent review. The original helper, reference pins, and mismatch remain
+preserved. Parser-derived owner metadata and focused flow-fact corruption
+oracles are separate lanes. Final publication still needs all 1,690 inputs
+and four profiles.
+
+Current-source cache traces have zero repeated shared module keys. XSH check
+prepares and checks 1,675 keys; default lint 1,533. Laputa check has 379 and
+default lint 316. Fresh private probe caches remain separate. The official
+measurement stopped on two XSH diagnostics, both since corrected; the
+remaining captures are partial evidence, not a passing measurement receipt.
+
+The combined pinned check at `0384ffc1` passes 1,521 files. Its lint run
+returns zero with six warnings, all subsequently fixed and covered by three
+focused development tests. Earlier lint fixes pass 99 contract tests in normal
+mode and 110 route-related tests in each scheduler mode. The collect mutation fixture
+used invalid multiline syntax before lint; the corrected supported form
+passes its exact test. Full final-source acceptance remains required.
+
+Architecture and Testing now describe compiler-demanded feature updates.
+The generated CLI reference includes `xsht ir-tags`. The scoped Markdown
+check did not retain a completion status; generated freshness belongs to the
+final canonical gate.
 Six semantic review rows have supporting evidence. The remaining rows,
 normal and forced full-suite acceptance, generated docs, supplemental Linux
 checks, size, memory, and isolated performance gates remain open.
