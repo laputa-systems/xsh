@@ -2,7 +2,73 @@
 
 Status: active 2026-10-14.
 
-## Current closure checks, 2026-10-14
+## Current W4 and W9 closure batch, 2026-10-14
+
+Master integrates the accepted W4 source at `0ab236324`, the statement-fact
+repair from `213585aac`, and the reviewed W9 controller and correction pipeline.
+The campaign remains incomplete. Full publication parity and final acceptance
+are pending.
+
+W4 passes 34 focused compiler tests, 242 native tests, and 62 integration tests.
+The native count includes 121 tests in each scheduler mode across eight files.
+The changed-path scan covers ten Rust files and finds identical structural
+metric values and evidence. The four required-zero metrics remain zero.
+Production lines across those files fall by 23. The final full scan remains open.
+
+The statement-fact repair moves span publication after automatic Result[Unit]
+propagation. Its new regression fails before the repair and passes afterward.
+The 28 existing statement-value tests also pass on the prebuilt 56580 binaries.
+Those native results establish the existing behavior, not the repaired metadata.
+
+The merged publication tooling passes 179 focused Python tests. The failed-profile
+cache preserves each profile's raw checks and mismatch row while parsing an
+identical pair once per input. The derived-reference controller passes independent
+review, including a real caller-path delta-file test. Updated source-pin tests
+pass 50 cases. No measured speedup is claimed.
+
+The original e240 source, binaries, captures, receipts, and input manifest remain
+unchanged. Both original roles capture 1,690 inputs across four profiles.
+Their exact-owner proofs and all 6,760 raw hashes per role pass validation.
+The a4 comparison stops intentionally with exit 130 after finding known differences.
+It is incomplete and supplies no passing parity receipt.
+
+The differences have three source causes. The approved iteration-propagation
+repair adds the missing error effect for Result list, set, and stream sources.
+The approved tail-match repair combines resource facts already present on arm
+blocks. AST-only captures map both resource witnesses to their exact source blocks.
+The statement-span difference is the refactor regression repaired in this batch.
+A complete diagnostic-byte comparison finds four differences, all profiles of
+input 1678. That original wait-until fixture lacks the success-type annotation
+already added by `9791736eb`.
+
+The separately derived reference at `bb29697265b29540f7d3a944a2454d2a4152dcc7`
+backports the approved iteration, resource, and no-success flow corrections.
+The original corpus remains fixed. Independent review accepts the source changes.
+Eleven focused flow tests pass in the pinned Linux environment. The added iteration
+and resource fixtures still require execution on the combined reference.
+The reference proof distinguishes captured error values from automatic propagation
+and excludes effectful or fallible literals from guaranteed control transfers.
+The correction pipeline compares all 6,760 outcomes and diagnostics strictly.
+Its source, patch, and parent pins live in `w9_publication_reference_correction.py`.
+Follow `w9-reference-correction.md` for the build, capture, and comparison sequence.
+
+The 56580 cache measurement passes all eight normal and traced repository and
+Laputa check and lint runs. Diagnostics agree and repeated shared module keys
+are zero. Final-source cache qualification remains required after W4 integration.
+The feature probe at 0ab records 38 XSH and 18 XSHT compiler demands. The original
+15 witnesses resolve to 13 compiler-demanded and two catalog-derived decisions.
+Two test expectations require updates when a real expression kind is added.
+The probe uses synthetic placeholders and proves no new runtime behavior.
+
+Do not start stricter performance gates before functional W4 and W9 acceptance.
+The final launcher preflight passes after fixing executable mode, scratch-directory
+symlink checks, disk-backed build temporaries, and retry-path validation.
+The canonical correctness batch, full forced-frame suite, profile matrix,
+scheduler comparison, comparative workloads, docs, memory, size, and final
+structural and semantic qualification remain open. Lean still lacks a frozen
+source identity and Rust conformance evidence.
+
+## Earlier closure checks, 2026-10-14
 
 Master integrates the reviewed closure batch from `8c0352f02` and the
 corrections through `97fb9b8ee`. Final acceptance remains pending.
