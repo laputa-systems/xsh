@@ -39,6 +39,7 @@ pub mod host {
         };
     }
 }
+pub mod ir;
 pub mod frontend;
 pub(crate) mod loader;
 /// Tooling-only allocation counters used by the `xsht` statistics commands.

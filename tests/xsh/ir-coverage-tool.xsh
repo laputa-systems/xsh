@@ -112,10 +112,23 @@ let values = [1, 2] |> batch(count: 1)
   let diagnostic = stderr_path.read_text()?
   assert succeeded, diagnostic
   let report = json.read(report_path)?.require(IRWireReport)?
+  let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+  let instruction_tag_json = run.text $xsht ir-tags --json ?
+  let instruction_tags = json.decode(instruction_tag_json)?.require(List[Str])?
+  let statement_tags = [name for name in instruction_tags if name.starts_with("Stmt")]
+  let expression_tags = [name for name in instruction_tags if name.starts_with("Expr")]
   assert report.rows.len() == 5
   assert report.rows[0].total == 2
   assert report.rows[0].unsupported == ["Command"]
-  assert report.lowered_nodes == {statements: 1, expressions: 1, pipeline_stages: 1, types: 1}
+  assert instruction_tags.len() == 152
+  assert instruction_tags[0] == "IntInt"
+  assert instruction_tags.last() == "StmtDefaultParameter"
+  assert report.lowered_nodes == {
+    statements: statement_tags.len(),
+    expressions: expression_tags.len(),
+    pipeline_stages: 1,
+    types: 1,
+  }
   assert report.pattern_variants == 2
   assert report.lowered_methods == ["len"]
   assert report.corpus.total == 1
@@ -324,9 +337,9 @@ let value = helper("OK")
   }
 }
 
-test test_ir_coverage_reads_the_repository_schema_source { |ctx|
+test test_ir_coverage_uses_compiled_instruction_tags { |ctx|
   let repo = fs.cwd()?
-  let root = test.temp_dir(ctx, name: "ir-coverage-source")?.resolve()?
+  let root = test.temp_dir(ctx, name: "ir-coverage-compiled")?.resolve()?
   fp"{root}/src/syntax".mkdir()
   fp"{root}/src/sema".mkdir()
   fp"{root}/src/sema/records.rs".write_atomic("")
@@ -345,9 +358,18 @@ pub enum AssignOp { Set }
 enum LoweredType { Int }
 const LOWERED_METHOD_NAMES: &[&str] = &["len"];
 """)
-  fp"{root}/src/runtime/eval/indexed/full/schema.rs".write_atomic(
-    fp"{repo}/src/runtime/eval/indexed/full/schema.rs".read_text()?,
-  )
+  fp"{root}/src/runtime/eval/indexed/full/schema.rs".write_atomic("""
+instruction_schema! {
+    BuildExprRow => ExprView [Expr] {
+        Int(value: i64) => ExprInt = 1 [0; Operands];
+    }
+}
+pattern_schema! {
+    enum FullPatternTag {
+        Wildcard = 0 [Normal, None],
+    }
+}
+""")
   fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic(
     fp"{repo}/src/runtime/eval/indexed/full.rs".read_text()?,
   )
@@ -366,12 +388,17 @@ const LOWERED_METHOD_NAMES: &[&str] = &["len"];
   let diagnostic = stderr_path.read_text()?
   assert status.exited_with(0), diagnostic
   let report = json.read(report_path)?.require(IRWireReport)?
-  assert report.lowered_nodes.statements > 0
-  assert report.lowered_nodes.expressions > 0
+  let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+  let instruction_tag_json = run.text $xsht ir-tags --json ?
+  let instruction_tags = json.decode(instruction_tag_json)?.require(List[Str])?
+  let statement_tags = [name for name in instruction_tags if name.starts_with("Stmt")]
+  let expression_tags = [name for name in instruction_tags if name.starts_with("Expr")]
+  assert report.lowered_nodes.statements == statement_tags.len()
+  assert report.lowered_nodes.expressions == expression_tags.len()
   assert report.lowered_nodes.pipeline_stages == 46
-  assert report.pattern_variants == 17
+  assert report.pattern_variants == 1
   assert "pipeline stages: 46" in stdout_path.read_text()?
-  assert "pattern variants: 17" in stdout_path.read_text()?
+  assert "pattern variants: 1" in stdout_path.read_text()?
 }
 
 test test_ir_coverage_report_validation_rejects_incomplete_wire_data {

@@ -118,40 +118,6 @@ pure schema_code_line(line: Str) -> Str {
   line.split("//", maxsplit: 1).get(0) ?? line
 }
 
-pure instruction_schema_variants(source: Str) -> List[Str] {
-  var variants = []
-  var in_schema = false
-  var depth = 0
-
-  for raw in source.lines() {
-    let line = schema_code_line(raw).trim()
-
-    if ! in_schema {
-      if line == "instruction_schema! {" {
-        in_schema = true
-        depth = 1
-      }
-
-      continue
-    }
-
-    if line.split("=>", maxsplit: 1).len() == 2 and line.ends_with(";") {
-      let right = line.split("=>", maxsplit: 1).get(1) ?? ""
-      let tag = (right.split("=", maxsplit: 1).get(0) ?? "").trim()
-
-      if tag != "" {
-        variants += [tag]
-      }
-    }
-
-    depth += brace_delta(line)
-
-    return variants when depth <= 0
-  }
-
-  variants
-}
-
 pure pipeline_stage_schema_variants(source: Str) -> List[Str] {
   var variants = []
   var in_schema = false
@@ -1685,9 +1651,10 @@ let expr_variants = enum_variants(arena_source, "ArenaExprKind")
 let type_variants = enum_variants(arena_source, "ArenaTypeExprTag")
 let binary_variants = enum_variants(node_source, "BinaryOp")
 let assign_variants = enum_variants(node_source, "AssignOp")
-let indexed_variants = instruction_schema_variants(indexed_source)
+let indexed_tag_json = run.text xsht ir-tags --json ?
+let indexed_variants = json.decode(indexed_tag_json)?.require(List[Str])?
 let pattern_variants = enum_variants(indexed_source, "FullPatternTag")
-assert ! indexed_variants.is_empty(), "instruction_schema! has no readable rows"
+assert ! indexed_variants.is_empty(), "xsht ir-tags returned no compiled instruction tags"
 assert ! pattern_variants.is_empty(), "pattern_schema! has no readable FullPatternTag rows"
 var indexed_stmt_variants: List[Str] = []
 var indexed_expr_variants: List[Str] = []

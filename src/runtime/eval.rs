@@ -50,6 +50,11 @@ use xsh_root::Root;
 mod call_plan;
 use call_plan::ModuleCallPlan;
 mod indexed;
+
+pub(crate) fn full_instruction_tag_names() -> &'static [&'static str] {
+    indexed::full::schema::INSTRUCTION_TAG_NAMES
+}
+
 mod lower;
 use indexed::full::{
     BuildBoolRow, BuildExprRow, BuildIntRow, BuildPatternRow, BuildStmtRow, FullBuilder,

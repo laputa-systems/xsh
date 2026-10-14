@@ -180,6 +180,7 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "desugar" => parse_desugar(&args[1..]),
         "trace" => parse_trace(&args[1..]),
         "api" => parse_api(&args[1..]),
+        "ir-tags" => parse_ir_tags(&args[1..]),
         "test" => parse_test(&args[1..]),
         "grep" => parse_grep(&args[1..]),
         "refactor" => parse_refactor(&args[1..]),
@@ -481,6 +482,26 @@ fn parse_api(args: &[String]) -> Result<Command, String> {
                 details,
             },
         })
+    })
+}
+
+fn parse_ir_tags(args: &[String]) -> Result<Command, String> {
+    parse_command("ir-tags", args, |parsed| {
+        if !parsed.positionals.is_empty() {
+            return Err("`xsht ir-tags` takes no arguments".to_string());
+        }
+        let tags = xsh::ir::full_instruction_tag_names();
+        let output = if parsed.flag("--json") {
+            let values = tags
+                .iter()
+                .map(|tag| miniserde::json::to_string(*tag))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("[{values}]\n")
+        } else {
+            format!("{}\n", tags.join("\n"))
+        };
+        Ok(Command::Text(output))
     })
 }
 

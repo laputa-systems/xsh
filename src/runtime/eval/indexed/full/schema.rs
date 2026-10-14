@@ -541,6 +541,10 @@ macro_rules! instruction_schema {
             $($(FullTag::$tag,)*)*
         ];
 
+        pub(in crate::runtime::eval) const INSTRUCTION_TAG_NAMES: &[&str] = &[
+            $($(stringify!($tag),)*)*
+        ];
+
         $(
             #[derive(Clone, Debug)]
             pub(in crate::runtime::eval) enum $row {
