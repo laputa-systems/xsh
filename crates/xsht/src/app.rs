@@ -355,11 +355,16 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
         if positionals.next().is_some() {
             return Err("`xsht test` accepts at most one FILTER".to_string());
         }
+        let list = parsed.flag("--list");
+        let exact = parsed.flag("--exact");
+        if exact && filter.is_none() {
+            return Err("`--exact` requires FILTER".to_string());
+        }
         Ok(Command::Test {
             options: TestOptions {
                 filter,
-                list: parsed.flag("--list"),
-                exact: parsed.flag("--exact"),
+                list,
+                exact,
                 nocapture: parsed.flag("--nocapture"),
                 fail_fast: parsed.flag("--fail-fast"),
                 keep_temp: parsed.flag("--keep-temp"),

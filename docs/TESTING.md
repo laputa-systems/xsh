@@ -43,7 +43,10 @@ Repository tests inherit the `module_path` roots in `xsht-config.ini`, including
 
 - `xsht test --list FILTER` lists matching native tests. `FILTER` is a path
   prefix (`tests/xsh/stdlib`) or a test-name substring (`map_iteration`);
-  `--exact PATH::TEST_NAME` selects one test.
+  `--exact PATH::TEST_NAME` selects one test and requires a filter even with
+  `--list`. `xsht test --list --exact PATH::TEST_NAME` succeeds with no output
+  when unmatched; executing `xsht test --exact PATH::TEST_NAME` exits 2 and
+  reports `xsht: no native tests matched exact filter: PATH::TEST_NAME`.
 - Native test files are named for the feature (`tests/xsh/retry.xsh`) or the
   module (`tests/xsh/stdlib/json.xsh`); applet, automation, and showcase
   tests are named `test-` plus the program name in the sibling `tests/`
@@ -110,6 +113,7 @@ is `dev/cargo_steps.xsh`.
 | sugar forms, `xsht desugar` | `cargo test -p xsht --lib sugar_expansion_tests`; `cargo test -p xsht --lib desugar_tests` | `cargo test --profile verification --target "$TARGET" -p xsht --test integration desugar::` (desugars every native test file that holds sugar, in a copy of the workspace, and requires the same check diagnostics and test results) |
 | lowering, verifier | `cargo test -p xsh --lib runtime::eval::indexed::full::tests::NAME` | `cargo test -p xsh --lib runtime::eval` |
 | checked annotation and binding facts | `cargo test -p xsh --lib corpus_annotations_agree_with_binding_facts` (checks the corpus and embedded stdlib for annotation/binding type mismatches and storage-kind disagreements) | `tests/xsh/lowering-coverage.xsh`; full native suite |
+| route witness (`src/runtime/eval/route_witness.rs`) | `cargo dev gate src/runtime/eval/route_witness.rs` selects the eight route-witness and two inherited-environment `xsh` unit tests, three `xsht` integration tests matching `route_witness`, and the exact native environment test | shared runtime source paths use the runtime gate below |
 | runtime | native module, then `cargo test --profile verification --target "$TARGET" --test integration runtime::NAME` | `cargo test --profile verification --target "$TARGET" --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::` |
 | frames, stack depth | `cargo test --profile verification --target "$TARGET" --test integration runtime::stack_depth` | runtime gate |
 | lint, tooling | `target/$TARGET/verification/xsht test tests/xsh/tooling-NAME.xsh` (the `check`, `fmt`, `lint`, and `test` command lines, the lint migration fixes, and help); `cargo test --profile verification --target "$TARGET" -p xsht --test integration lint::NAME` | `cargo test --profile verification --target "$TARGET" -p xsht` |

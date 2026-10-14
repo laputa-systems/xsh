@@ -7,7 +7,7 @@ use stage_contract as contract
 use test_workflows as tests
 
 ## Gate families owned by the repository's testing contract.
-export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness }
+export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness }
 
 ## A path that has no known verification owner.
 export error GateError = UnmappedPath(path: Str)
@@ -28,6 +28,7 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Memory] when changed_path == "src/frontend_stats.rs"
   return [Checker] when changed_path.starts_with("src/sema/") or changed_path == "src/sema.rs" or changed_path == "tests/sema.rs" or changed_path == "src/loader.rs"
   return [Lowering] when changed_path.starts_with("src/runtime/eval/indexed/") or changed_path == "src/runtime/eval/indexed.rs" or changed_path.starts_with("src/runtime/eval/lower.") or changed_path.starts_with("src/runtime/eval/lower/")
+  return [RouteWitness] when changed_path == "src/runtime/eval/route_witness.rs"
   return [Runtime] when changed_path.starts_with("src/runtime/") or changed_path == "src/runtime.rs" or changed_path.starts_with("src/trace") or changed_path == "src/runner.rs" or changed_path.starts_with("tests/runtime/") or changed_path == "tests/runtime.rs"
   return [Sugar] when changed_path.starts_with("crates/xsht/src/sugar_") or changed_path.starts_with("crates/xsht/src/desugar")
   return [Tooling] when changed_path.starts_with("crates/xsht/src/") or changed_path.starts_with("crates/xsht/tests/")
@@ -73,6 +74,11 @@ pure native_gate(ctx: context.Context, profile: tests.TestProfile, filter: Str) 
   stages.command(f"native-{filter}", ctx.target.triple, xsht, [xsht, "test", filter], ctx.root, {})
 }
 
+pure native_exact_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, exact_test: Str) -> contract.CommandSpec {
+  let xsht = tests.product_path(ctx, profile, "xsht").display()
+  stages.command(f"native-{name}", ctx.target.triple, xsht, [xsht, "test", "--exact", exact_test], ctx.root, {})
+}
+
 ## Maps each selected area to its focused compiler or Rust gate and native
 ## behavioral module. No area runs the whole native corpus.
 export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selection: Selection) -> Result[List[contract.CommandSpec], Error] {
@@ -90,6 +96,12 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
       Checker => plan += [rust_gate(ctx, profile, "test-sema", [@root_target, "sema::"])?, native_gate(ctx, profile, "tests/xsh/checker-")],
       Lowering => plan += [rust_gate(ctx, profile, "test-lowering", [@root_lib, "runtime::eval"], debug: true)?, rust_gate(ctx, profile, "test-type-agreement", [@root_lib, "corpus_annotations_agree_with_binding_facts"], debug: true)?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
       Runtime => plan += [rust_gate(ctx, profile, "test-runtime", [@root_target, "runtime::", "--", "--skip", "runtime::coverage::", "--skip", "runtime::examples::"])?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
+      RouteWitness => {
+        plan += [rust_gate(ctx, profile, "test-route-witness-unit", [@root_lib, "runtime::eval::route_witness::tests"], debug: true)?]
+        plan += [rust_gate(ctx, profile, "test-route-witness-inherited-env", [@root_lib, "runtime_env_route_witness_tests"], debug: true)?]
+        plan += [rust_gate(ctx, profile, "test-route-witness-cli", [@xsht_target, "route_witness"])?] when Tooling not in selection.areas
+        plan += [native_exact_gate(ctx, profile, "route-witness-env", "tests/xsh/stdlib/env.xsh::test_route_witness_prefix_names_are_ordinary_environment_entries")] when "tests/xsh/stdlib/env.xsh" not in selection.native_files
+      },
       Sugar => plan += [rust_gate(ctx, profile, "test-sugar", ["-p", "xsht", "--lib", "sugar_expansion_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar-unit", ["-p", "xsht", "--lib", "desugar_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar", [@xsht_target, "desugar::"])?, native_gate(ctx, profile, "tests/xsh/desugar.xsh")],
       Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_xsht_exclusions])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
       Api => plan += [rust_gate(ctx, profile, "test-libxsh-api", [@root_target, "libxsh_api"])?, rust_gate(ctx, profile, "test-registry", ["-p", "xsh-registry", "--lib"], debug: true)?, rust_gate(ctx, profile, "test-signatures", [@root_lib, "modules::signature"], debug: true)?, rust_gate(ctx, profile, "test-api", [@xsht_target, "api::"])?, native_gate(ctx, profile, "tests/xsh/api-tool.xsh"), stages.command("check-api-snippets", ctx.target.triple, tests.product_path(ctx, profile, "xsht").display(), [tests.product_path(ctx, profile, "xsht").display(), "check", "docs/snippets/api"], ctx.root, {})],

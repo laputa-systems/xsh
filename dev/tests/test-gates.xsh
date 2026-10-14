@@ -17,6 +17,73 @@ test test_changed_paths_select_and_deduplicate_their_verification_owners {
   }
 }
 
+test test_route_witness_leaf_selects_its_direct_unit_cli_and_native_cases {
+  let ctx = fixtures.linux_context(/repo)?
+  let selection = gates.select(["src/runtime/eval/route_witness.rs"])?
+  assert selection.areas == [gates.RouteWitness]
+  assert selection.native_files.is_empty()
+
+  let plan = gates.lane_plan(ctx, tests.Verification, selection)?
+  let stages = [spec.stage for spec in plan]
+  assert stages == [
+    "test-products",
+    "test-route-witness-unit",
+    "test-route-witness-inherited-env",
+    "test-route-witness-cli",
+    "native-route-witness-env",
+  ]
+  assert "test-runtime" not in stages
+
+  let unit = [spec for spec in plan |> where .stage == "test-route-witness-unit"][0]
+  assert "--lib" in unit.argv
+  assert "runtime::eval::route_witness::tests" in unit.argv
+  assert "--profile" not in unit.argv
+
+  let inherited = [spec for spec in plan |> where .stage == "test-route-witness-inherited-env"][0]
+  assert "--lib" in inherited.argv
+  assert "runtime_env_route_witness_tests" in inherited.argv
+  assert "--profile" not in inherited.argv
+
+  let cli_gate = [spec for spec in plan |> where .stage == "test-route-witness-cli"][0]
+  assert cli_gate.argv[1..] == [
+    "test", "--locked", "--target", ctx.target.triple, "--profile", "verification",
+    "-p", "xsht", "--test", "integration", "route_witness",
+  ]
+
+  let native = [spec for spec in plan |> where .stage.starts_with("native-route-witness-")]
+  assert native.len() == 1
+  assert native[0].argv[1..] == [
+    "test", "--exact",
+    "tests/xsh/stdlib/env.xsh::test_route_witness_prefix_names_are_ordinary_environment_entries",
+  ]
+}
+
+test test_route_witness_selector_preserves_broad_shared_runtime_gates {
+  let ctx = fixtures.linux_context(/repo)?
+  let selected = gates.select(["src/runtime/eval.rs"])?
+  assert selected.areas == [gates.Runtime]
+  let plan = gates.lane_plan(ctx, tests.Verification, selected)?
+  let runtime = [spec for spec in plan |> where .stage == "test-runtime"]
+  assert runtime.len() == 1
+  assert "runtime::" in runtime[0].argv
+  assert "--skip" in runtime[0].argv
+}
+
+test test_route_witness_selector_avoids_duplicate_cli_and_native_runs {
+  let ctx = fixtures.linux_context(/repo)?
+  let selected = gates.select([
+    "src/runtime/eval/route_witness.rs",
+    "crates/xsht/tests/cli.rs",
+    "tests/xsh/stdlib/env.xsh",
+  ])?
+  let plan = gates.lane_plan(ctx, tests.Verification, selected)?
+  let stages = [spec.stage for spec in plan]
+  assert "test-tooling" in stages
+  assert "test-route-witness-cli" not in stages
+  assert "native-route-witness-env" not in stages
+  assert "native-tests/xsh/stdlib/env.xsh" in stages
+}
+
 test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
   for ctx in [fixtures.linux_context(/repo)?, fixtures.linux_aarch64_context(/repo)?] {
     for profile in [tests.Verification, tests.Release] {
