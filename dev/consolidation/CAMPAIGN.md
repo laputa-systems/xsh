@@ -741,7 +741,7 @@ decided after the others.
 | D7 | On-disk checked-interface cache | Not in this campaign; in-process only |
 | D8 | In-process script tests | Deferred; reconsider only if gate time is still the bottleneck after workstream 9 |
 | D9 | Comparators for the workload suite | dash, Bash, Nushell, YSH, Elvish, Python |
-| D10 | Test build profile; splitting the root crate | Profile yes; no crate split |
+| D10 | Test build profile; splitting the root crate | Profile yes; no crate split. Ordinary verification retains opt3/no LTO/64 codegen units. |
 | D11 | Coordinator model | The session model |
 | D12 | Whether `FsRoot` and `FsLock` are released when their owner scope exits, as process handles and network jobs are | Yes, after the scope's defers, so a defer can still use them; `with` stays as the way to observe a failed release. The condition was a count of sites where a root or lock is left open while only a value derived from it escapes: of 731 sites on 2026-10-10 there are none. The integrator recounts at the start commit; above five, the campaign builds the alternative without asking: a check that every root and lock is released, escapes, or is bound by `with` |
 
@@ -777,9 +777,11 @@ within each workstream's stated end state:
 | `traversal.md` | The child enumerators |
 
 Decided here and needing no file: affine checking does not go past one scope
-in this campaign, so no parameter syntax is designed; the test build profile
-is whichever of the candidates Setup measures gives the lowest sum of build
-time and native-suite time, with thin LTO excluded.
+in this campaign, so no parameter syntax is designed. On 2026-10-14, the owner
+waived the test-profile selection measurement for final acceptance. Ordinary
+verification retains opt3 with LTO disabled and 64 codegen units. Final release
+evidence uses opt3 with thin LTO and 16 codegen units. No measured profile
+selection or fastest-profile claim is required.
 
 ## Review traceability
 

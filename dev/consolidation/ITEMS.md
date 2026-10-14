@@ -117,7 +117,7 @@ an exact additional adapter carve-out for imported command words.
 | S0 | Integrator: approvals, baseline commit, ownership and handoff | owner approval | active |
 | S1 | Integrator: pinned Linux environment, baseline correctness gates and coverage | S0 | native baseline green; Rust and coverage pending |
 | S2 | Integrator: XSH structural scanner, baseline JSON, evidence for each metric | S0; verified binaries to run | 13 fixtures green; exact-source baseline measured; CLI/ratchet wiring active |
-| S3 | Integrator: measured no-LTO optimized test profile and path-mapped lane gate | S1 | tooling integrated be681661; 51 automation tests green; profile measurements pending |
+| S3 | Integrator: measured no-LTO optimized test profile and path-mapped lane gate | S1 | tooling integrated be681661; 51 automation tests green; on 2026-10-14 the owner waived profile-selection measurement for final acceptance; ordinary verification retains opt3/no LTO/64 codegen units; path-mapped gate remains integrated; final release opt3 gate remains pending |
 | S4 | Pure partitions of lower, indexed executor, module executor, and lint | coverage; baseline gates | four partitions integrated; body proofs and compiler gates green; combined coverage acceptance pending |
 | S5 | Integrator: instruction-table, traversal, and lint-rule designs; campaign skill | revalidation | designs and campaign skill established |
 | D1 | `src/diagnostic.rs`, new native diagnostic-rendering coverage | recorded contract below; S1 for execution | integrated 053a546b; 4 native, 18 parser and 7 renderer tests green |
