@@ -2,7 +2,8 @@
 
 **Status:** Active staggered foundations, authorized 2026-10-13 after preflight.
 The pinned toolchain, finite private bridge fixtures, provisional inventory,
-scalar and base-machine fragments, validation, nominal identity/provenance,
+scalar, base-machine, and observed-machine fragments, validation, nominal
+identity/provenance,
 union-membership, byte-lexical RelPath, and recursive `.require` fragments,
 bounded refinements, non-empty filtering, environment/store, effects including
 bounded failure witnesses, edge-order laws, and five bounded primitive
@@ -37,9 +38,14 @@ mutation witness. This does not close G7a or establish Rust decoder/verifier
 correspondence. The effects checker bridge consumes already-classified
 `FactSet` summaries and checks their body-site obligations through the finite
 lexical model; it does not establish Rust classification/runtime correspondence
-or close `EFF-LATENT`/`EFF-SEMANTIC`. The inventory now names 623 fragment roots across 89 owners;
-its 50 Python tests check inventory consistency, mutation controls, and finite-case evidence
-boundaries. The new RelPath roots cover the independent byte-list model only;
+or close `EFF-LATENT`/`EFF-SEMANTIC`. The inventory now names 631 fragment
+roots across 89 owners; its 51 Python tests check inventory consistency,
+mutation controls, and finite-case evidence boundaries. The observed-machine
+fragment wraps the accepted scalar/integer BaseMachine in an ordered
+observation trace; progress preserves the link between a pending typed wait
+and its emitted request. It adds no source, raw-IR/lowering, Rust, or
+concrete-clock correspondence and closes no full BASE-* obligation or G1. The
+new RelPath roots cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,
 or full G2 validation closure. Five observation
 fragments pair caller-supplied emissions with classified obligations, require
@@ -545,6 +551,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | Lean batch integration | Reviewed commits `cd73dbf45`, `53301e4cf`, `8793555a3`, `fe8eb939c`, `e1bda02c1`, `f93a7d169`, and `1892b0b7b`, followed by corrected Integer commit `b7f28bd77`, were cherry-picked in that order. JSON encoding keeps its twelve root names while generalizing control-scalar escaping, Unicode preservation, and arbitrary object-field sorting; enum conversion now validates finite declarations and replaces seventeen old roots with twelve. Five modules add twelve roots each for Boolean short-circuit evaluation, raw `Bytes` access, effectful List splicing, ordered Set algebra, and bounded List matching. `Xsh.ByteCodecs.Integer` adds twelve roots for the independent integer pack/unpack definitions over widths 1, 2, 4, and 8, including lower-width unsigned limits, the signed width-eight limit, endian order, and offset-zero round trips. The root imports each module once. Static inventory checks and all 50 Python inventory tests pass; the inventory has 599 roots, 89 owner sets, and 72 planned obligations. Full `lake build` and the fresh kernel check pass; the transitive axiom allowlist accepts 11,614 project declarations, all three negative controls are rejected, and the prohibited-term scan is clean. Schema 2 stays provisional with null `source_identity`, empty finite-conformance cases, and no full universal obligation closed. | These are `SPEC_PROVED` fragments over independent mathematical models, not Rust conformance: JSON tree encoding excludes Float formatting, parsing, and I/O; `Bytes` is modeled as raw lists without UTF-8 decoding; Boolean and splice expressions use supplied outcomes rather than a general evaluator or checker; Set algebra uses ordinal keys and excludes first-insertion history; List matching supports only recursive scalar/List pattern forms; and Integer byte codecs use independent `IntValue`, `UIntValue`, and `List (Fin 256)` definitions. The Integer fragment does not prove runtime or Rust correspondence, including negative-offset validation. None establishes XSH runtime or Rust correspondence. Schema 2 stays provisional with null `source_identity`, empty finite-conformance cases, and no full universal obligation closed. |
 
 | Raw decoder schema and effects checker bridge | Reviewed source commits `7e3a3db5` and `dc25d4d0` were cherry-picked as `50d786e2b` and `da453be39`. `Xsh.IR.Raw.DecoderSoundness` adds 12 roots for the finite four-tag row schema, successful payload constraints, malformed-row rejection, and a dropped-guard mutation witness. `Xsh.Effects.CheckerBridge` adds 12 roots that project already classified `FactSet` summaries to body-site obligations and exercise lexical creation charging, aliases, delegation, and conditional arms. The root imports both modules once. The inventory checker and all 50 Python tests pass; the inventory has 623 roots across 89 owner sets and all 72 theorem obligations remain planned. The full Lake build and guarded fresh kernel check pass. The axiom allowlist accepts 11,850 project declarations; all three negative controls are rejected; the prohibited-term scan and diff check pass. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | The decoder is a finite model of four tag kinds, not full raw-IR coverage or Rust decoder/verifier correspondence and does not close G7a. The effects bridge consumes classified summaries with captures fixed to the empty fixture; it proves no Rust classifier, checker, or runtime correspondence and closes neither EFF-LATENT nor EFF-SEMANTIC. |
+| Observed scalar/integer machine foundation | Reviewed source commit `c7e25db9` was cherry-picked as `ba30fa948`. `Xsh.Semantics.Foundation.ObservedMachine` and `Xsh.Proofs.Foundation.ObservedMachine` add eight `SPEC_PROVED` roots for accepted evaluated BaseExpr configurations, observed preservation, terminal/typed-host-wait/labeled-step progress, runner non-stuckness, and arithmetic/timeNow witnesses; `formal/Xsh.lean` imports each module once. The inventory checker, all 51 inventory tests, the full Lake root build, the axiom allowlist (11,912 declarations), all three negative controls, prohibited-term scan, guarded fresh checker, and diff check pass. Coverage remains provisional at 631 roots across 89 owners with `source_identity: null`, zero finite conformance cases, and all 72 universal obligations planned. | A pending wait remains tied to its emitted typed request by `BaseHostTrace`. The fragment establishes no source, raw-IR/lowering, Rust, or concrete clock correspondence and closes no full BASE-* obligation or G1. |
 
 ## For the owner afterwards
 

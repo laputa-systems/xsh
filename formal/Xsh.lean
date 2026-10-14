@@ -40,6 +40,8 @@ import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace
 import Xsh.Proofs.BaseHostTrace
 import Xsh.Proofs.BaseHostRunnerLaws
+import Xsh.Semantics.Foundation.ObservedMachine
+import Xsh.Proofs.Foundation.ObservedMachine
 import Xsh.Validation.Boundary
 import Xsh.Validation.Store
 import Xsh.Validation.Nominal

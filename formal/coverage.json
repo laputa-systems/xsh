@@ -8593,6 +8593,78 @@
       "status": "fragment",
       "scope": "A conditional source is rejected when one arm is blocked at creation.",
       "boundary": "Consumes already classified finite FactSet summaries and fixed empty-capture fixtures through the existing lexical checker model. It excludes Rust effect classification, checker or runtime correspondence, producer execution, and full EFF-LATENT or EFF-SEMANTIC closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ObservedMachine.initial_configuration_is_wellFormed",
+      "module": "Xsh.Proofs.Foundation.ObservedMachine",
+      "declaration": "Xsh.Proofs.Foundation.ObservedMachine.initial_configuration_is_wellFormed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Starts an observed configuration from a well-formed accepted evaluated BaseExpr machine state.",
+      "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ObservedMachine.observed_step_preserves_wellFormed",
+      "module": "Xsh.Proofs.Foundation.ObservedMachine",
+      "declaration": "Xsh.Proofs.Foundation.ObservedMachine.observed_step_preserves_wellFormed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Preserves machine well-formedness and the ordered host trace across one labeled transition.",
+      "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ObservedMachine.common_configuration_progress",
+      "module": "Xsh.Proofs.Foundation.ObservedMachine",
+      "declaration": "Xsh.Proofs.Foundation.ObservedMachine.common_configuration_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An observed configuration is terminal, has a labeled step, or has a pending typed host wait recorded in its BaseHostTrace.",
+      "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ObservedMachine.wellFormed_runner_never_internalStuck",
+      "module": "Xsh.Proofs.Foundation.ObservedMachine",
+      "declaration": "Xsh.Proofs.Foundation.ObservedMachine.wellFormed_runner_never_internalStuck",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A finite runner from a well-formed BaseMachine state cannot return internalStuck.",
+      "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ObservedMachine.accepted_arithmetic_term_runs_to_exact_value",
+      "module": "Xsh.Proofs.Foundation.ObservedMachine",
+      "declaration": "Xsh.Proofs.Foundation.ObservedMachine.accepted_arithmetic_term_runs_to_exact_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted checked integer addition runs to its exact typed value in the observed machine.",
+      "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ObservedMachine.out_of_range_integer_term_is_rejected",
+      "module": "Xsh.Proofs.Foundation.ObservedMachine",
+      "declaration": "Xsh.Proofs.Foundation.ObservedMachine.out_of_range_integer_term_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A signed-range overflow integer literal is rejected by the existing BaseExpr checker.",
+      "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ObservedMachine.request_relabel_mutation_is_rejected",
+      "module": "Xsh.Proofs.Foundation.ObservedMachine",
+      "declaration": "Xsh.Proofs.Foundation.ObservedMachine.request_relabel_mutation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Relabeling a typed timeNow request as an internal edge is rejected, and an unlogged wait is not well formed.",
+      "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ObservedMachine.wrong_host_response_is_a_preserved_specified_failure",
+      "module": "Xsh.Proofs.Foundation.ObservedMachine",
+      "declaration": "Xsh.Proofs.Foundation.ObservedMachine.wrong_host_response_is_a_preserved_specified_failure",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Boolean reply to typed timeNow is rejected as a specified failure with its observation trace preserved.",
+      "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
     }
   ],
   "source_identity": null

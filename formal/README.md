@@ -4,7 +4,8 @@ This is the Lean foundation for the XSH soundness campaign. It is pinned to
 Lean 4.34.1 and uses only Lean's bundled libraries; no XSH runtime or product
 build depends on it. The current `Xsh` root imports every module under
 `formal/Xsh/`. These modules define and prove fragments for exact scalar and
-word representations; lexical environments, activations, and captured cells;
+word representations; observed scalar/integer machine progress with typed host
+observations; lexical environments, activations, and captured cells;
 checked integer outcomes and millisecond-duration operations over typed scalar
 values; finite map-presence and primitive key-order laws; checked call argument
 ordering; checked record updates and finite Map literal evaluation; JSON-tree
@@ -100,7 +101,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 623 fragment
+G0b source freeze remain pending. The provisional inventory has 631 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -397,8 +398,8 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 623 rooted Lean fragment declarations across 89 core owner
-sets. Its 50 Python tests check inventory shape, root reachability, mutation
+The inventory names 631 rooted Lean fragment declarations across 89 core owner
+sets. Its 51 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
 G1, G2, or G3 closure or whole-language soundness claim is made.
@@ -416,8 +417,20 @@ with 5; a Boolean response is labeled and rejected with a type-mismatch
 fault. `Xsh.Proofs.BaseHostRunnerLaws` proves that terminal runs ignore extra
 fuel and appended responses and that empty scripts leave waiting machines
 unchanged. Its finite witnesses show that a valid response resumes a wait and
-that changing response order changes the returned value. These results concern
-only the finite scripted formal runner. They do
+that changing response order changes the returned value.
+`Xsh.Semantics.Foundation.ObservedMachine` wraps the checked scalar/integer
+machine in a configuration that keeps its accepted evaluated `BaseExpr` entry,
+current machine state, and ordered host observations together.
+`Xsh.Proofs.Foundation.ObservedMachine` proves initial and labeled-step
+preservation, progress to a terminal outcome, labeled step, or pending typed
+host wait, and that the finite runner cannot return internal stuck from a
+well-formed state. Its witnesses cover checked integer addition, rejected
+out-of-range input, a request-relabel mutation, and a wrong-typed `time.now()`
+response. The invariant retains the `BaseHostTrace` that links a pending wait
+to its emitted typed request. This fragment establishes no source, raw-IR,
+lowering, Rust, or concrete-clock correspondence and closes no full `BASE-*`
+obligation or G1. These base-machine results concern only the independent
+scalar/integer and finite scripted-host models. They do
 not establish source or whole-language soundness, Rust or OS conformance,
 concrete host behavior, or clock accuracy; clock correspondence remains an
 external assumption. The Lean comparator in `Xsh.Values.FloatEquality` takes
