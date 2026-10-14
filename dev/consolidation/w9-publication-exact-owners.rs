@@ -242,6 +242,19 @@ pub fn w9_write_exact_adapter_owners(
         "exact-counts\t{}\t{record_field_count}",
         expression_rows.len()
     )?;
+    writeln!(
+        output,
+        "structured-stage-count\t{}",
+        program.arena.stream_stages.len()
+    )?;
+    for (table_index, stage) in program.arena.stream_stages.iter().enumerate() {
+        let span = program.arena.span(stage.span);
+        let kind = format!("{:?}", stage.kind);
+        writeln!(
+            output,
+            "structured-stage\t{table_index}\t{span:?}\t{kind}"
+        )?;
+    }
     output.flush()?;
     let file = output
         .into_inner()
