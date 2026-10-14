@@ -511,6 +511,65 @@ def _load_candidate_publication_runner(
     return _load_publication_runner(candidate_runner)
 
 
+def _load_exact_owner_runner(runner):
+    path = runner.regular_file(
+        pathlib.Path(__file__).with_name("w9_publication_exact_owner_runner.py"),
+        "controller exact-owner validator",
+    )
+    name = "_w9_publication_exact_owner_runner"
+    loaded = sys.modules.get(name)
+    if loaded is not None and pathlib.Path(loaded.__file__) == path:
+        return loaded
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise PublicationError(f"could not load controller exact-owner validator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
+    return module
+
+
+def _validated_exact_owners(proof: dict[str, object], role: str, count: int):
+    owners = proof.get("owners")
+    if not isinstance(owners, dict) or set(owners) != set(range(count)):
+        raise PublicationError(f"exact-owner {role} proof does not cover all {count} inputs")
+    for index, owner in owners.items():
+        if (
+            not isinstance(owner, tuple)
+            or len(owner) != 2
+            or not isinstance(owner[0], tuple)
+            or len(owner[0]) != 4
+            or not isinstance(owner[1], dict)
+        ):
+            raise PublicationError(f"exact-owner {role} proof has malformed owner {index}")
+    return owners
+
+
+def _require_exact_capture_binding(
+    proof: dict[str, object], role: str, expected_capture: pathlib.Path, runner
+) -> None:
+    capture = proof.get("capture")
+    if not isinstance(capture, dict):
+        raise PublicationError(f"exact-owner {role} proof has no capture binding")
+    recorded_capture = runner.regular_file(
+        capture.get("legacy_capture_receipt", ""),
+        f"exact-owner {role} bound legacy capture receipt",
+    )
+    if recorded_capture != expected_capture:
+        raise PublicationError(
+            f"exact-owner {role} proof names a different legacy capture receipt"
+        )
+    recorded_hash = capture.get("legacy_capture_receipt_sha256", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", recorded_hash):
+        raise PublicationError(f"exact-owner {role} proof has a malformed legacy capture hash")
+    if runner.sha256_file(expected_capture) != recorded_hash:
+        raise PublicationError(f"exact-owner {role} proof legacy capture hash differs")
+
+
 def _mkdir_new_directory(path: pathlib.Path, runner) -> None:
     parent = runner.open_absolute_nofollow(path.parent, directory=True)
     try:
@@ -1645,8 +1704,17 @@ def compare_full_publications(
     input_root: pathlib.Path,
     input_manifest: pathlib.Path,
     docker_environment: dict[str, str],
+    *,
+    reference_exact_owners: dict[int, tuple[object, dict[str, object]]],
+    candidate_exact_owners: dict[int, tuple[object, dict[str, object]]],
 ) -> tuple[int, int]:
     count = len(expected_inputs)
+    expected_owner_indexes = set(range(count))
+    if (
+        set(reference_exact_owners) != expected_owner_indexes
+        or set(candidate_exact_owners) != expected_owner_indexes
+    ):
+        raise PublicationError("exact-owner proof coverage differs from the comparison corpus")
     input_manifest = runner.regular_file(input_manifest, "approved input manifest")
     runner.require_sha256(input_manifest, runner.INPUT_MANIFEST_SHA256, "approved input manifest")
     if input_root != runner.REFERENCE_INPUT_ROOT:
@@ -1760,6 +1828,13 @@ def compare_full_publications(
             except (adapter.AdapterError, PublicationError, UnicodeError) as error:
                 owner_error = True
                 mismatches.append(f"{index}\towner-index\t{type(error).__name__}\t{error}")
+            if not owner_error:
+                if reference_owner != reference_exact_owners[index][0]:
+                    owner_error = True
+                    mismatches.append(f"{index}\treference-exact-owner-legacy-projection")
+                if candidate_owner != candidate_exact_owners[index][0]:
+                    owner_error = True
+                    mismatches.append(f"{index}\tcandidate-exact-owner-legacy-projection")
             profile_records = []
             profile_error = False
             for profile in PROFILES:
@@ -1818,6 +1893,12 @@ def compare_full_publications(
                     reference_tui_source,
                     candidate_tui_source,
                 )
+                aligned_candidate_exact_owners = source_alignment.align_tui_exact_owners(
+                    exact_owners=candidate_exact_owners[index][1],
+                    tui_source_id=aligned.tui_source_id,
+                    reference_tui_source=reference_tui_source,
+                    candidate_tui_source=candidate_tui_source,
+                )
             except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
                 mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
                 continue
@@ -1842,6 +1923,7 @@ def compare_full_publications(
                         aligned.candidate_publications[profile_index],
                         aligned.candidate_source_sizes,
                         aligned.candidate_source_owners,
+                        candidate_exact_owners=aligned_candidate_exact_owners,
                     )
                 except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
@@ -1875,6 +1957,18 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
     candidate_capture_path = runner.regular_file(
         args.candidate_capture_receipt, "candidate adapter capture receipt"
     )
+    reference_exact_build_path = runner.regular_file(
+        args.reference_exact_build_receipt, "reference exact-owner build receipt"
+    )
+    candidate_exact_build_path = runner.regular_file(
+        args.candidate_exact_build_receipt, "candidate exact-owner build receipt"
+    )
+    reference_exact_capture_path = runner.regular_file(
+        args.reference_exact_capture_receipt, "reference exact-owner capture receipt"
+    )
+    candidate_exact_capture_path = runner.regular_file(
+        args.candidate_exact_capture_receipt, "candidate exact-owner capture receipt"
+    )
     input_root = pathlib.Path(source_record["input_root"])
     input_manifest = pathlib.Path(source_record["input_manifest"])
     reference_raw_root = runner.real_directory(
@@ -1890,33 +1984,108 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
         "candidate adapter range receipts",
     )
     output = runner.require_output_path(args.output, candidate_root)
-    completed: list[tuple[int, int]] = []
-    docker_environment = runner.local_docker_environment()
-    with runner.claim_run_resources(candidate_root, output, completed):
-        runner.write_status(output, "incomplete", completed)
-        mismatch_path = runner.new_work_file_path(
-            output / "mismatches.tsv", candidate_root, "adapter mismatch report"
+    _mkdir_new_directory(output, runner)
+    runner.write_status(output, "incomplete", [])
+    reference_exact_output = output / "exact-reference"
+    candidate_exact_output = output / "exact-candidate"
+    comparison_output = output / "comparison"
+    try:
+        exact_owner_runner = _load_exact_owner_runner(runner)
+
+        def validate_exact_owner_proof(
+            role: str,
+            build_receipt: pathlib.Path,
+            exact_capture_receipt: pathlib.Path,
+            proof_output: pathlib.Path,
+        ) -> dict[str, object]:
+            try:
+                proof = exact_owner_runner.validate_proof(
+                    candidate_root,
+                    source_receipt,
+                    reference_source_root,
+                    role,
+                    build_receipt,
+                    exact_capture_receipt,
+                    proof_output,
+                    runner,
+                    dry_run=False,
+                )
+            except exact_owner_runner.ExactOwnerError as error:
+                raise PublicationError(f"{role} exact-owner proof failed: {error}") from error
+            return proof
+
+        reference_exact_proof = validate_exact_owner_proof(
+            "reference",
+            reference_exact_build_path,
+            reference_exact_capture_path,
+            reference_exact_output,
         )
-        outcomes, mismatches = compare_full_publications(
-            runner,
-            pathlib.Path(source_record["reference_receipt"]),
-            candidate_receipt_directory,
-            reference_raw_root,
-            candidate_raw_root,
-            expected_inputs,
-            mismatch_path,
-            reference_capture_path,
-            candidate_capture_path,
-            candidate_root,
-            reference_source_root,
-            source_record,
-            input_root,
-            input_manifest,
-            docker_environment,
+        _require_exact_capture_binding(
+            reference_exact_proof, "reference", reference_capture_path, runner
         )
-        summary = f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches}"
-        runner.write_status(output, "complete", completed, summary)
-    print(f"{summary}\nreference_capture={reference_capture_path}\ncandidate_capture={candidate_capture_path}\nmismatch_file={mismatch_path}")
+        reference_exact_owners = _validated_exact_owners(
+            reference_exact_proof, "reference", len(expected_inputs)
+        )
+        candidate_exact_proof = validate_exact_owner_proof(
+            "candidate",
+            candidate_exact_build_path,
+            candidate_exact_capture_path,
+            candidate_exact_output,
+        )
+        _require_exact_capture_binding(
+            candidate_exact_proof, "candidate", candidate_capture_path, runner
+        )
+        candidate_exact_owners = _validated_exact_owners(
+            candidate_exact_proof, "candidate", len(expected_inputs)
+        )
+
+        comparison_output = runner.require_output_path(
+            str(comparison_output), candidate_root
+        )
+        completed: list[tuple[int, int]] = []
+        docker_environment = runner.local_docker_environment()
+        with runner.claim_run_resources(candidate_root, comparison_output, completed):
+            runner.write_status(comparison_output, "incomplete", completed)
+            mismatch_path = runner.new_work_file_path(
+                comparison_output / "mismatches.tsv",
+                candidate_root,
+                "adapter mismatch report",
+            )
+            outcomes, mismatches = compare_full_publications(
+                runner,
+                pathlib.Path(source_record["reference_receipt"]),
+                candidate_receipt_directory,
+                reference_raw_root,
+                candidate_raw_root,
+                expected_inputs,
+                mismatch_path,
+                reference_capture_path,
+                candidate_capture_path,
+                candidate_root,
+                reference_source_root,
+                source_record,
+                input_root,
+                input_manifest,
+                docker_environment,
+                reference_exact_owners=reference_exact_owners,
+                candidate_exact_owners=candidate_exact_owners,
+            )
+            summary = f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches}"
+            runner.write_status(comparison_output, "complete", completed, summary)
+        runner.write_status(output, "complete", [], summary)
+    except BaseException as error:
+        try:
+            runner.write_status(output, "incomplete", [], f"{type(error).__name__}: {error}")
+        except BaseException as status_error:
+            print(f"could not record incomplete adapter comparison status: {status_error}", file=sys.stderr)
+        raise
+    print(
+        f"{summary}\nreference_capture={reference_capture_path}\n"
+        f"candidate_capture={candidate_capture_path}\n"
+        f"reference_exact_proof={reference_exact_output}\n"
+        f"candidate_exact_proof={candidate_exact_output}\n"
+        f"mismatch_file={comparison_output / 'mismatches.tsv'}"
+    )
     return 0 if mismatches == 0 else 1
 
 
@@ -1951,8 +2120,12 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("--candidate-root", type=pathlib.Path, required=True)
     compare.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     compare.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    compare.add_argument("--reference-exact-build-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--candidate-exact-build-receipt", type=pathlib.Path, required=True)
     compare.add_argument("--reference-capture-receipt", type=pathlib.Path, required=True)
     compare.add_argument("--candidate-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--reference-exact-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--candidate-exact-capture-receipt", type=pathlib.Path, required=True)
     compare.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:

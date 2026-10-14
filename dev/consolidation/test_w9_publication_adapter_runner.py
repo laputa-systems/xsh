@@ -705,12 +705,22 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             self.artifact_root / "candidate-capture",
             role="candidate",
         )
+        reference_exact_capture = self.artifact_root / "reference-exact-capture.receipt"
+        candidate_exact_capture = self.artifact_root / "candidate-exact-capture.receipt"
+        reference_exact_capture.write_text("reference exact capture fixture\n", encoding="utf-8")
+        candidate_exact_capture.write_text("candidate exact capture fixture\n", encoding="utf-8")
         source_receipt = self.artifact_root / "candidate-source.receipt"
         source_receipt.write_text("fixture\n", encoding="utf-8")
         return {
             "candidate_source_receipt": source_receipt,
+            "reference_build_receipt": reference_build_path,
+            "candidate_build_receipt": candidate_build_path,
+            "reference_exact_build_receipt": reference_build_path,
+            "candidate_exact_build_receipt": candidate_build_path,
             "reference_capture_receipt": reference_capture,
             "candidate_capture_receipt": candidate_capture,
+            "reference_exact_capture_receipt": reference_exact_capture,
+            "candidate_exact_capture_receipt": candidate_exact_capture,
             "reference_ranges": reference_ranges,
             "candidate_ranges": candidate_ranges,
             "source_record": self._candidate_source_record(),
@@ -721,14 +731,22 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             candidate_root=self.candidate_root,
             candidate_source_receipt=case["candidate_source_receipt"],
             reference_source_root=self.reference_root,
+            reference_exact_build_receipt=case["reference_exact_build_receipt"],
+            candidate_exact_build_receipt=case["candidate_exact_build_receipt"],
             reference_capture_receipt=case["reference_capture_receipt"],
             candidate_capture_receipt=case["candidate_capture_receipt"],
+            reference_exact_capture_receipt=case["reference_exact_capture_receipt"],
+            candidate_exact_capture_receipt=case["candidate_exact_capture_receipt"],
             output=str(self.artifact_root / suffix),
         )
 
     def _run_compare(self, case):
+        return self._run_compare_to(case, "compare")
+
+    def _run_compare_to(self, case, suffix):
+        args = self._compare_args(case, suffix)
         return adapter_runner.compare_captured_publications(
-            self._compare_args(case),
+            args,
             self.runner,
         )
 
@@ -770,6 +788,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 pathlib.Path(case["source_record"]["input_root"]),
                 input_manifest,
                 {"PATH": os.environ["PATH"]},
+                reference_exact_owners={
+                    index: (({}, {}, {}, {}), {}) for index in self.expected_inputs
+                },
+                candidate_exact_owners={
+                    index: (({}, {}, {}, {}), {}) for index in self.expected_inputs
+                },
             )
         hash_raw.assert_not_called()
         return result
@@ -1111,9 +1135,45 @@ class AdapterReferenceReuseTests(unittest.TestCase):
     def test_compare_captures_rechecks_source_and_routes_both_roles_to_comparator(self):
         case = self._compare_case()
         comparisons = []
+        proof_calls = []
+        reference_exact_owners = {
+            index: (({}, {}, {}, {}), {"exprs": {index: ("reference", "Call", "")}})
+            for index in self.expected_inputs
+        }
+        candidate_exact_owners = {
+            index: (({}, {}, {}, {}), {"exprs": {index: ("candidate", "Call", "")}})
+            for index in self.expected_inputs
+        }
 
-        def compare(*args):
-            comparisons.append(args)
+        def validate_proof(
+            candidate_root,
+            source_receipt,
+            reference_source_root,
+            role,
+            build_receipt,
+            exact_capture_receipt,
+            output,
+            _bootstrap_runner,
+            dry_run=False,
+        ):
+            self.assertFalse(dry_run)
+            output.mkdir()
+            legacy_capture = (
+                case["reference_capture_receipt"]
+                if role == "reference"
+                else case["candidate_capture_receipt"]
+            )
+            proof_calls.append((role, build_receipt, exact_capture_receipt, output))
+            return {
+                "capture": {
+                    "legacy_capture_receipt": str(legacy_capture),
+                    "legacy_capture_receipt_sha256": self.runner.sha256_file(legacy_capture),
+                },
+                "owners": reference_exact_owners if role == "reference" else candidate_exact_owners,
+            }
+
+        def compare(*args, **kwargs):
+            comparisons.append((args, kwargs))
             args[6].write_text("", encoding="utf-8")
             return len(self.expected_inputs) * len(adapter_runner.PROFILES), 0
 
@@ -1126,20 +1186,383 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             ),
             patch.object(self.runner, "parse_receipt", side_effect=self._parse_shard),
             patch.object(self.runner, "local_docker_environment", return_value={"PATH": os.environ["PATH"]}),
+            patch.object(
+                adapter_runner,
+                "_load_exact_owner_runner",
+                return_value=SimpleNamespace(
+                    validate_proof=validate_proof,
+                    ExactOwnerError=ValueError,
+                ),
+            ),
             patch.object(adapter_runner, "compare_full_publications", side_effect=compare),
         ):
             result = self._run_compare(case)
 
         self.assertEqual(result, 0)
         self.assertEqual(len(comparisons), 1)
-        self.assertEqual(comparisons[0][2], case["candidate_capture_receipt"].parent / "receipts")
-        self.assertEqual(comparisons[0][3], case["reference_capture_receipt"].parent / "raw")
-        self.assertEqual(comparisons[0][4], case["candidate_capture_receipt"].parent / "raw")
+        self.assertEqual(comparisons[0][0][2], case["candidate_capture_receipt"].parent / "receipts")
+        self.assertEqual(comparisons[0][0][3], case["reference_capture_receipt"].parent / "raw")
+        self.assertEqual(comparisons[0][0][4], case["candidate_capture_receipt"].parent / "raw")
+        self.assertEqual(
+            comparisons[0][1]["reference_exact_owners"], reference_exact_owners
+        )
+        self.assertEqual(
+            comparisons[0][1]["candidate_exact_owners"], candidate_exact_owners
+        )
+        self.assertEqual(
+            proof_calls,
+            [
+                (
+                    "reference",
+                    case["reference_exact_build_receipt"],
+                    case["reference_exact_capture_receipt"],
+                    self.artifact_root / "compare/exact-reference",
+                ),
+                (
+                    "candidate",
+                    case["candidate_exact_build_receipt"],
+                    case["candidate_exact_capture_receipt"],
+                    self.artifact_root / "compare/exact-candidate",
+                ),
+            ],
+        )
         output = self.artifact_root / "compare"
         self.assertEqual(
             (output / "attempt-status.txt").read_text(encoding="utf-8").splitlines()[0],
             "status=complete",
         )
+        self.assertTrue((output / "comparison/attempt-status.txt").is_file())
+
+    def test_compare_captures_rejects_exact_proof_for_a_different_legacy_capture(self):
+        case = self._compare_case()
+        wrong_capture = self.artifact_root / "unrelated-capture.receipt"
+        wrong_capture.write_text("unrelated\n", encoding="utf-8")
+        proof_calls = []
+
+        def validate_proof(*args, **kwargs):
+            role = args[3]
+            proof_calls.append(role)
+            args[6].mkdir()
+            return {
+                "capture": {
+                    "legacy_capture_receipt": str(wrong_capture),
+                    "legacy_capture_receipt_sha256": self.runner.sha256_file(wrong_capture),
+                },
+                "owners": {index: (({}, {}, {}, {}), {}) for index in self.expected_inputs},
+            }
+
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=case["source_record"]),
+            patch.object(
+                self.runner,
+                "validate_all_inputs",
+                return_value=(self.expected_inputs, {}, self.reference),
+            ),
+            patch.object(
+                adapter_runner,
+                "_load_exact_owner_runner",
+                return_value=SimpleNamespace(
+                    validate_proof=validate_proof,
+                    ExactOwnerError=ValueError,
+                ),
+            ),
+            patch.object(adapter_runner, "compare_full_publications") as compare,
+        ):
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "exact-owner reference proof names a different legacy capture receipt",
+            ):
+                self._run_compare_to(case, "wrong-capture")
+
+        self.assertEqual(proof_calls, ["reference"])
+        compare.assert_not_called()
+        self.assertEqual(
+            (self.artifact_root / "wrong-capture/attempt-status.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()[0],
+            "status=incomplete",
+        )
+
+    def test_compare_captures_rejects_stale_exact_proof_capture_hash(self):
+        case = self._compare_case()
+        proof_calls = []
+
+        def validate_proof(*args, **kwargs):
+            role = args[3]
+            proof_calls.append(role)
+            args[6].mkdir()
+            legacy_capture = case["reference_capture_receipt"]
+            return {
+                "capture": {
+                    "legacy_capture_receipt": str(legacy_capture),
+                    "legacy_capture_receipt_sha256": "f" * 64,
+                },
+                "owners": {index: (({}, {}, {}, {}), {}) for index in self.expected_inputs},
+            }
+
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=case["source_record"]),
+            patch.object(
+                self.runner,
+                "validate_all_inputs",
+                return_value=(self.expected_inputs, {}, self.reference),
+            ),
+            patch.object(
+                adapter_runner,
+                "_load_exact_owner_runner",
+                return_value=SimpleNamespace(
+                    validate_proof=validate_proof,
+                    ExactOwnerError=ValueError,
+                ),
+            ),
+            patch.object(adapter_runner, "compare_full_publications") as compare,
+        ):
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "exact-owner reference proof legacy capture hash differs",
+            ):
+                self._run_compare_to(case, "stale-capture-hash")
+
+        self.assertEqual(proof_calls, ["reference"])
+        compare.assert_not_called()
+
+    def test_full_compare_aligns_candidate_exact_owner_spans_before_comparison(self):
+        expected_inputs = self.expected_inputs
+        reference_receipt = self.reference
+        original_profiles = adapter_runner.PROFILES
+        adapter_runner.PROFILES = ("default",)
+        self.addCleanup(setattr, adapter_runner, "PROFILES", original_profiles)
+        self.expected_inputs = {0: expected_inputs[0]}
+        self.runner.exclude_work_from_git(self.candidate_root)
+        input_manifest = pathlib.Path(self._candidate_source_record()["input_manifest"])
+        input_manifest.write_text("fixture manifest\n", encoding="utf-8")
+        reference_tui_path = self.reference_root / "stdlib/tui.xsh"
+        candidate_tui_path = self.candidate_root / "stdlib/tui.xsh"
+        candidate_tui_path.parent.mkdir(parents=True, exist_ok=True)
+        candidate_tui_path.write_bytes(source_fixtures.CURRENT_SOURCE)
+        subprocess.run(
+            ["git", "-C", str(self.candidate_root), "add", "stdlib/tui.xsh"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.candidate_root),
+                "commit",
+                "--quiet",
+                "-m",
+                "test(fixtures): add tui source",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.candidate_commit, self.candidate_tree = self.runner.source_identity(
+            self.candidate_root
+        )
+        self.assertEqual(reference_tui_path.read_bytes(), source_fixtures.OLD_SOURCE)
+
+        reference_build_path, reference_build = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+        )
+        candidate_build_path, candidate_build = self._write_build_receipt(
+            "candidate",
+            self.candidate_root,
+            self.candidate_commit,
+            self.candidate_tree,
+        )
+        reference_capture, _reference_ranges = self._capture_receipt(
+            reference_build_path,
+            reference_build,
+            self.artifact_root / "full-reference-capture",
+            outcome_count=1,
+        )
+        candidate_capture, _candidate_ranges = self._capture_receipt(
+            candidate_build_path,
+            candidate_build,
+            self.artifact_root / "full-candidate-capture",
+            role="candidate",
+            outcome_count=1,
+        )
+        reference_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
+            source_fixtures.publication(source_fixtures.OLD_SOURCE)[0], "legacy"
+        )
+        candidate_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
+            source_fixtures.publication(source_fixtures.CURRENT_SOURCE)[0], "current"
+        )
+        diagnostics = "[]"
+        reference_hashes = (
+            hashlib.sha256(diagnostics.encode()).hexdigest(),
+            hashlib.sha256(reference_publication.encode()).hexdigest(),
+        )
+        candidate_hashes = (
+            hashlib.sha256(diagnostics.encode()).hexdigest(),
+            hashlib.sha256(candidate_publication.encode()).hexdigest(),
+        )
+
+        def owner_text(source):
+            sizes = source_fixtures.source_sizes(source)
+            sizes.update(
+                {source_id: sizes.get(source_id, 0) for source_id in range(max(sizes) + 1)}
+            )
+            owners = source_fixtures.owner_index(source)
+            lines = [
+                f"source\tSourceId({source_id})\t{size}"
+                for source_id, size in sorted(sizes.items())
+            ]
+            lines.extend(
+                f"owner\t{span}\t{kind}"
+                for span, kinds in sorted(owners.items())
+                for kind in sorted(kinds)
+            )
+            return "\n".join(lines) + "\n"
+
+        reference_owner_text = owner_text(source_fixtures.OLD_SOURCE)
+        candidate_owner_text = owner_text(source_fixtures.CURRENT_SOURCE)
+        reference_projection = adapter_runner.adapter.parse_owner_index(reference_owner_text)
+        candidate_projection = adapter_runner.adapter.parse_owner_index(candidate_owner_text)
+
+        def write_raw(capture, publication, hashes, owners):
+            raw_root = capture.parent / "raw"
+            (raw_root / "owners-0.tsv").write_text(owners, encoding="utf-8")
+            (raw_root / "schema").write_text(adapter_runner.RAW_SCHEMA, encoding="utf-8")
+            record = raw_root / "record-0-default"
+            record.mkdir()
+            (record / "kind").write_text("checked", encoding="utf-8")
+            (record / "diagnostics").write_text(diagnostics, encoding="utf-8")
+            (record / "publication").write_text(publication, encoding="utf-8")
+            (record / "receipt-hashes").write_text("\t".join(hashes), encoding="utf-8")
+            return raw_root
+
+        reference_raw = write_raw(
+            reference_capture, reference_publication, reference_hashes, reference_owner_text
+        )
+        candidate_raw = write_raw(
+            candidate_capture, candidate_publication, candidate_hashes, candidate_owner_text
+        )
+        reference_outcomes = {
+            (0, self.expected_inputs[0].relative_path, "default"): reference_hashes
+        }
+        candidate_outcomes = {
+            (0, self.expected_inputs[0].relative_path, "default"): candidate_hashes
+        }
+        self.reference = self.runner.ParsedReceipt(
+            (),
+            {0: self.runner.ReceiptSource(
+                self.expected_inputs[0].relative_path, "b" * 64
+            )},
+            reference_outcomes,
+            (),
+        )
+
+        def parse_shard(path, _expected_inputs):
+            match = re.fullmatch(r"parallel-(\d+)-(\d+)-all\.receipt", path.name)
+            if match is None:
+                raise AssertionError(path)
+            start, end = int(match.group(1)), int(match.group(2)) + 1
+            outcomes = reference_outcomes if "full-reference-capture" in str(path) else candidate_outcomes
+            return self.runner.ParsedReceipt(
+                (
+                    "corpus=1",
+                    "shard=0/1",
+                    f"range={start}..{end}",
+                    "shard_size=100",
+                    f"input_digest={self.runner.CORPUS_BLAKE3}",
+                    self.runner.OPTION_HEADER,
+                ),
+                {0: self.reference.inputs[0]},
+                outcomes,
+                ("terminal\tshard=0\tcompleted=1",),
+            )
+
+        candidate_start = source_fixtures.CURRENT_SOURCE.index(b"export pure reset")
+        candidate_exact_owners = {
+            "exprs": {
+                0: (source_fixtures.span(5, candidate_start, 1), "Ident", "reset")
+            },
+            "runs": {},
+            "records": {},
+            "aliases": {},
+            "tails": {},
+            "calls": {},
+            "field_accesses": {},
+        }
+        exact_owner_projection = {
+            "reference": {0: (reference_projection, {})},
+            "candidate": {0: (candidate_projection, candidate_exact_owners)},
+        }
+        observed = []
+        original_regular_file = self.runner.regular_file
+        original_require_sha256 = self.runner.require_sha256
+
+        def regular_file(path, kind, executable=False):
+            if pathlib.Path(path) == input_manifest:
+                return input_manifest
+            return original_regular_file(path, kind, executable)
+
+        def require_sha256(path, expected, kind):
+            if pathlib.Path(path) == input_manifest:
+                self.assertEqual(expected, self.runner.INPUT_MANIFEST_SHA256)
+                return expected
+            return original_require_sha256(path, expected, kind)
+
+        def compare_adapter(*args, **kwargs):
+            observed.append((args, kwargs))
+
+        with (
+            patch.object(self.runner, "regular_file", side_effect=regular_file),
+            patch.object(self.runner, "require_sha256", side_effect=require_sha256),
+            patch.object(self.runner, "validate_reference_receipt", return_value=self.reference),
+            patch.object(self.runner, "parse_receipt", side_effect=parse_shard),
+            patch.object(self.runner, "PROFILES", ("default",)),
+            patch.object(adapter_runner, "_load_publication_runner", return_value=self.runner),
+            patch.object(adapter_runner, "_hash_raw_outcomes", side_effect=lambda binary, *_args, **_kwargs: (
+                {
+                    (index, profile, field): digest
+                    for outcomes in (
+                        reference_outcomes if "reference" in binary.name else candidate_outcomes,
+                    )
+                    for (index, relative_path, profile), pair in outcomes.items()
+                    for field, digest in zip(("diagnostics", "publication"), pair)
+                }
+            )),
+            patch.object(adapter_runner.adapter, "compare_publications", side_effect=compare_adapter),
+        ):
+            result = adapter_runner.compare_full_publications(
+                self.runner,
+                pathlib.Path(self._candidate_source_record()["reference_receipt"]),
+                candidate_capture.parent / "receipts",
+                reference_raw,
+                candidate_raw,
+                self.expected_inputs,
+                self.artifact_root / "full-mismatches.tsv",
+                reference_capture,
+                candidate_capture,
+                self.candidate_root,
+                self.reference_root,
+                self._candidate_source_record(),
+                pathlib.Path(self._candidate_source_record()["input_root"]),
+                input_manifest,
+                {"PATH": os.environ["PATH"]},
+                reference_exact_owners=exact_owner_projection["reference"],
+                candidate_exact_owners=exact_owner_projection["candidate"],
+            )
+
+        self.assertEqual(result, (1, 0))
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(
+            observed[0][1]["candidate_exact_owners"]["exprs"][0][0],
+            source_fixtures.span(5, candidate_start - source_fixtures.DELTA, 1),
+        )
+        self.assertNotIn("reference_exact_owners", observed[0][1])
+        self.expected_inputs = expected_inputs
+        self.reference = reference_receipt
 
     def test_compare_captures_rejects_candidate_source_drift(self):
         case = self._compare_case()
@@ -1189,10 +1612,10 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             self._run_full_compare(case)
 
     def test_compare_cli_loads_publication_runner_from_candidate_source(self):
+        case = self._compare_case()
         candidate_runner = object()
         loaded = []
-        source_receipt = self.artifact_root / "source.receipt"
-        source_receipt.write_text("fixture\n", encoding="utf-8")
+        source_receipt = case["candidate_source_receipt"]
         candidate_runner_path = (
             self.candidate_root / "dev/consolidation/w9-publication-run.py"
         )
@@ -1222,10 +1645,18 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                     str(source_receipt),
                     "--reference-source-root",
                     str(self.reference_root),
+                    "--reference-exact-build-receipt",
+                    str(case["reference_exact_build_receipt"]),
+                    "--candidate-exact-build-receipt",
+                    str(case["candidate_exact_build_receipt"]),
                     "--reference-capture-receipt",
                     str(self.artifact_root / "reference/capture.receipt"),
                     "--candidate-capture-receipt",
                     str(self.artifact_root / "candidate/capture.receipt"),
+                    "--reference-exact-capture-receipt",
+                    str(case["reference_exact_capture_receipt"]),
+                    "--candidate-exact-capture-receipt",
+                    str(case["candidate_exact_capture_receipt"]),
                     "--output",
                     str(self.artifact_root / "compare-cli"),
                 ]
@@ -1233,6 +1664,20 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(loaded[1], self.candidate_root / "dev/consolidation/w9-publication-run.py")
+
+    def test_exact_owner_validator_loads_from_controller_not_candidate_source(self):
+        candidate_validator = (
+            self.candidate_root / "dev/consolidation/w9_publication_exact_owner_runner.py"
+        )
+        candidate_validator.write_text("raise RuntimeError('candidate validator loaded')\n")
+
+        loaded = adapter_runner._load_exact_owner_runner(self.runner)
+
+        controller_validator = pathlib.Path(adapter_runner.__file__).with_name(
+            "w9_publication_exact_owner_runner.py"
+        )
+        self.assertEqual(pathlib.Path(loaded.__file__).resolve(), controller_validator.resolve())
+        self.assertNotEqual(pathlib.Path(loaded.__file__).resolve(), candidate_validator.resolve())
 
 
 class TuiPublicationRunnerAlignmentTests(unittest.TestCase):
