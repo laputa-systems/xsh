@@ -72,7 +72,7 @@ order; the `xsh` executable does not read the rest of the `xsht` configuration.
 | Semantic checking and published facts | `src/sema/check.rs`, `src/sema/check/`, `src/sema/check/module_driver.rs` |
 | Lowering | `src/runtime/eval/lower.rs` |
 | Indexed schema and verification | `src/runtime/eval/indexed/full/schema.rs`, `src/runtime/eval/indexed/full.rs` |
-| Execution and stage scheduling | `src/runtime/eval/lowered_run/indexed_run/` |
+| Execution and stage scheduling | `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_run/indexed_run/` |
 
 **Grammar and syntax.** `src/syntax/grammar.rs` owns syntax productions and the
 tables shared by the lexer and parser. The parser writes typed rows into
