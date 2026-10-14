@@ -377,10 +377,47 @@ def _split_first_top_level(value: str, separator: str) -> tuple[str, str] | None
 
 def _map_entries(value: str) -> dict[str, str]:
     value = value.strip()
-    if not value.startswith("{") or _group_end(value, 0) != len(value) - 1:
+    if not value.startswith("{"):
         raise AdapterError("expected Rust Debug map")
+
+    entries_list = []
+    closes = {"{": "}", "[": "]", "(": ")"}
+    stack = ["}"]
+    entry_start = 1
+    closing_start = None
+    index = 1
+    while match := _search_debug_token(_DEBUG_COMMA_TOKENS, value, index):
+        character = match.group()
+        if character in {"\"", "'"}:
+            quoted = _quoted_end(value, match.start())
+            if quoted is not None:
+                index = quoted
+                continue
+        if character in closes:
+            stack.append(closes[character])
+        elif character in "}])":
+            if not stack or stack.pop() != character:
+                raise AdapterError("unbalanced Rust Debug value")
+            if not stack:
+                closing_start = match.start()
+                if value[match.end() :].strip():
+                    raise AdapterError("expected Rust Debug map")
+                break
+        elif character == "," and len(stack) == 1:
+            entry = value[entry_start : match.start()].strip()
+            if entry:
+                entries_list.append(entry)
+            entry_start = match.end()
+        index = match.end()
+
+    if closing_start is None:
+        raise AdapterError("unterminated Rust Debug value")
+    final_entry = value[entry_start:closing_start].strip()
+    if final_entry:
+        entries_list.append(final_entry)
+
     entries = {}
-    for entry in _split_top_level(value[1:-1], ","):
+    for entry in entries_list:
         pair = _split_first_top_level(entry, ":")
         if pair is None or pair[0] in entries:
             raise AdapterError("malformed or duplicate Rust Debug map entry")

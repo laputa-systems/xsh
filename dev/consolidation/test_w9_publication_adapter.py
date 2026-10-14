@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import w9_publication_adapter as adapter
 from w9_publication_adapter import (
@@ -835,6 +836,64 @@ def exact_native_error_failure_publication(field="failure", return_type="Error")
 
 
 class PublicationAdapterTests(unittest.TestCase):
+    def test_map_entries_match_the_two_scan_parser_for_valid_and_malformed_values(self):
+        def previous_map_entries(value):
+            value = value.strip()
+            if (
+                not value.startswith("{")
+                or adapter._group_end(value, 0) != len(value) - 1
+            ):
+                raise AdapterError("expected Rust Debug map")
+            entries = {}
+            for entry in adapter._split_top_level(value[1:-1], ","):
+                pair = adapter._split_first_top_level(entry, ":")
+                if pair is None or pair[0] in entries:
+                    raise AdapterError("malformed or duplicate Rust Debug map entry")
+                entries[pair[0]] = pair[1]
+            return entries
+
+        def result(parser, value):
+            try:
+                return "value", parser(value)
+            except Exception as error:
+                return "error", type(error), str(error)
+
+        cases = (
+            "{}",
+            "{a:1,b:Pair{nested:[2,3]},c:\"comma, colon: { }\"}",
+            r'{Name("comma, colon: { }"):Some([a,b]), escaped:"quote \" } , :"}',
+            "{a:1,b:2,}",
+            "not a map",
+            "{a:1} trailing",
+            "{a:Pair[1,2)}",
+            "{a:1",
+            "{a:1,a:2}",
+            "{missing}",
+            "{a:[1,2}}",
+            "{a:\"unterminated}",
+        )
+        for value in cases:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    result(adapter._map_entries, value),
+                    result(previous_map_entries, value),
+                )
+
+    def test_map_entries_does_not_rescan_the_outer_map(self):
+        with (
+            patch.object(adapter, "_group_end", wraps=adapter._group_end) as group_end,
+            patch.object(
+                adapter, "_split_top_level", wraps=adapter._split_top_level
+            ) as split_top_level,
+        ):
+            self.assertEqual(
+                adapter._map_entries("{a:Pair{nested:[1,2]},b:3}"),
+                {"a": "Pair{nested:[1,2]}", "b": "3"},
+            )
+
+        group_end.assert_not_called()
+        split_top_level.assert_not_called()
+
     def test_top_level_separator_skips_nested_and_escaped_delimiters(self):
         cases = (
             (
