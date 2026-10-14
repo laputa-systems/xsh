@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from w9_publication_adapter import AdapterError
 from w9_publication_reference_facts import validate_function_reference_targets
@@ -10,6 +11,7 @@ TAIL_SPAN = "Span{source_id:SourceId(0),start:30,len:6}"
 RETAINED_DECLARATION_BODY = "Span{len:290,source_id:SourceId(2),start:6423}"
 REORDERED_IDENT_SPAN = "Span{len:6,source_id:SourceId(0),start:10}"
 REORDERED_CALL_SPAN = "Span{len:8,source_id:SourceId(1),start:50}"
+TOUR_USAGE_SPAN = "Span{source_id:SourceId(0),start:374,len:5}"
 
 PURE_SIGNATURE = (
     "Some(CompactFunctionSig { params: [], parameter_schemas: [], return_ty: Int, "
@@ -23,6 +25,23 @@ PURE_DECLARATION = (
 TARGET = (
     "CheckedFunctionTarget { definition: FunctionDefId(1), namespace: None, "
     "name: Name(\"render\") }"
+)
+TOUR_USAGE_TARGET = (
+    "CheckedFunctionTarget { definition: FunctionDefId(1), namespace: None, "
+    "name: Name(\"usage\") }"
+)
+TOUR_USAGE_DECLARATION = (
+    'CheckedFunctionDeclaration{body:Span{len:27,source_id:SourceId(0),start:220},'
+    'internal:false,kind:Pure,name:Name("usage"),namespace:None,'
+    'parameter_spans:[Span{source_id:SourceId(0),start:211,len:7}],'
+    'signature:Some(CompactFunctionSig{params:[CallableParamType{name:Name("d"),'
+    'ty:Record({Name("mount"):Str,Name("size"):Int,Name("used"):Int}),'
+    'defaulted:false,rest:false}],parameter_schemas:[Some(SchemaExpectation{'
+    'instances:[SchemaInstance{definition:TypeDefId(1),arguments:[]}],children:{'
+    'Field(Name("mount")):SchemaExpectation{children:{},instances:[]},'
+    'Field(Name("size")):SchemaExpectation{children:{},instances:[]},'
+    'Field(Name("used")):SchemaExpectation{children:{},instances:[]}}})],'
+    'return_ty:Int,return_type_expr:TypeExprId(7),inferred_effects:false,effects:None})}'
 )
 
 
@@ -76,6 +95,36 @@ class FunctionReferenceFactTests(unittest.TestCase):
 
     def test_direct_identifier_uses_exact_name_and_checked_pure_type(self):
         _validate(_fields())
+
+    def test_untyped_direct_identifier_uses_checked_declared_function_kind(self):
+        _validate(_fields(types="{}"))
+
+    def test_tour_record_1162_untyped_usage_has_checked_pure_declaration(self):
+        source = (
+            Path(__file__).resolve().parents[2] / "docs/snippets/tour/18-inference.xsh"
+        ).read_bytes()
+        self.assertEqual(source[374:379], b"usage")
+        self.assertIn(b"sort-by(desc: true, block: usage)", source)
+        exact_owners = {
+            "exprs": {0: (TOUR_USAGE_SPAN, "Ident", "usage")},
+            "records": {},
+            "aliases": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+            "tails": {},
+        }
+        fields = _fields(
+            selected_span=TOUR_USAGE_SPAN,
+            selected=TOUR_USAGE_TARGET,
+            declaration=TOUR_USAGE_DECLARATION,
+            types="{}",
+        )
+        _validate(
+            fields,
+            owners={TOUR_USAGE_SPAN: {"expr:Ident"}},
+            exact_owners=exact_owners,
+            sizes={0: 732},
+        )
 
     def test_selected_reference_and_static_call_partition_normalizes_span_keys(self):
         selected = (
@@ -165,9 +214,12 @@ class FunctionReferenceFactTests(unittest.TestCase):
         fields = _fields(declaration=declaration, types=f"{{{IDENT_SPAN}: {callable_type}}}")
         _validate(fields)
 
-    def test_rejects_missing_checked_type(self):
+    def test_untyped_reference_still_requires_checked_declaration_signature(self):
+        declaration = PURE_DECLARATION.replace(
+            f"signature: {PURE_SIGNATURE}", "signature: None"
+        )
         with self.assertRaises(AdapterError):
-            _validate(_fields(types="{}"))
+            _validate(_fields(declaration=declaration, types="{}"))
 
     def test_rejects_target_that_names_a_different_declaration(self):
         target = TARGET.replace('Name("render")', 'Name("other")')
@@ -180,6 +232,20 @@ class FunctionReferenceFactTests(unittest.TestCase):
         )
         with self.assertRaises(AdapterError):
             _validate(_fields(declaration=declaration))
+
+    def test_rejects_target_without_a_checked_declaration(self):
+        fields = _fields(types="{}")
+        fields["checked_declarations"] = "CheckedDeclarations { functions: {} }"
+        with self.assertRaises(AdapterError):
+            _validate(fields)
+
+    def test_rejects_present_invalid_checked_type(self):
+        with self.assertRaises(AdapterError):
+            _validate(_fields(types=f"{{{IDENT_SPAN}: Invalid}}"))
+
+    def test_rejects_present_checked_type_with_wrong_function_kind(self):
+        with self.assertRaises(AdapterError):
+            _validate(_fields(types=f"{{{IDENT_SPAN}: Proc}}"))
 
     def test_rejects_target_with_a_different_namespace(self):
         target = TARGET.replace("namespace: None", 'namespace: Some(Name("module"))')

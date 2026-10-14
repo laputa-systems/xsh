@@ -534,7 +534,5 @@ def validate_function_reference_targets(
         if name != target_name:
             raise AdapterError(f"selected ExprIdent name disagrees with its target at {span}")
         _validate_source_span(span, "selected ExprIdent", source_sizes, source_owners, {"expr:Ident"})
-        checked_type = expression_types.get(span)
-        if checked_type is None:
-            raise AdapterError(f"selected ExprIdent has no checked type: {span}")
+        checked_type = expression_types.get(span, target_kind)
         _validate_reference_type(checked_type, target_kind, f"selected ExprIdent at {span}")
