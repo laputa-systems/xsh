@@ -95,6 +95,50 @@ fn block_never_falls_through_arena(arena: &ArenaProgram, block: BlockId) -> bool
         .any(|id| stmt_never_falls_through_arena(arena, id))
 }
 
+fn block_guarantees_escaping_control_arena(arena: &ArenaProgram, block: BlockId) -> bool {
+    let mut statements = arena
+        .arena
+        .stmt_ids(arena.arena.block(block).statements);
+    let Some(statement) = statements.next() else {
+        return false;
+    };
+    if statements.next().is_some() {
+        return false;
+    }
+    stmt_guarantees_escaping_control_arena(arena, arena.arena.core_stmt_id(statement))
+}
+
+fn stmt_guarantees_escaping_control_arena(arena: &ArenaProgram, statement: StmtId) -> bool {
+    match arena.arena.stmt(statement).kind {
+        ArenaStmtKind::Sugar { expansion, .. } => {
+            stmt_guarantees_escaping_control_arena(arena, expansion)
+        }
+        ArenaStmtKind::Return(value) => value
+            .is_none_or(|value| matches!(value, ArenaExprOrRun::Expr(expr) if expr_is_literal_arena(arena, expr))),
+        ArenaStmtKind::Break { value } => value
+            .is_none_or(|expr| expr_is_literal_arena(arena, expr)),
+        ArenaStmtKind::Continue => true,
+        ArenaStmtKind::Exit(status) => expr_is_literal_arena(arena, status),
+        _ => false,
+    }
+}
+
+fn expr_is_literal_arena(arena: &ArenaProgram, expression: ExprId) -> bool {
+    matches!(
+        arena.arena.expr(expression).kind,
+        ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Int(_)
+            | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_)
+            | ArenaExprKind::Str(_)
+            | ArenaExprKind::PathStr(_)
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+    )
+}
+
 fn block_has_reachable_break_target_arena(arena: &ArenaProgram, block: BlockId) -> bool {
     for id in arena.arena.stmt_ids(arena.arena.block(block).statements) {
         if stmt_has_reachable_break_target_arena(arena, id) {
@@ -186,7 +230,11 @@ fn stmt_has_reachable_break_target_arena(arena: &ArenaProgram, id: StmtId) -> bo
 
 fn expr_never_falls_through_arena(arena: &ArenaProgram, id: ExprId) -> bool {
     match arena.arena.expr(id).kind {
-        ArenaExprKind::Try(inner) => expr_never_falls_through_arena(arena, inner),
+        ArenaExprKind::Try(inner) => result_wrapper_block_arena(arena, inner)
+            .map_or_else(
+                || expr_never_falls_through_arena(arena, inner),
+                |block| block_never_falls_through_arena(arena, block),
+            ),
         ArenaExprKind::If {
             branches,
             else_value,
@@ -210,15 +258,25 @@ fn expr_never_falls_through_arena(arena: &ArenaProgram, id: ExprId) -> bool {
             }
             expr_never_falls_through_arena(arena, else_value)
         }
-        ArenaExprKind::Capture(block)
-        | ArenaExprKind::ValueBlock(block)
+        ArenaExprKind::Capture(block) => block_guarantees_escaping_control_arena(arena, block),
+        ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => false,
+        ArenaExprKind::ValueBlock(block)
         | ArenaExprKind::Collect { block }
-        | ArenaExprKind::ErrorContext { block, .. }
-        | ArenaExprKind::ContextScope { block, .. }
-        | ArenaExprKind::TempDirScope { block, .. }
-        | ArenaExprKind::ResourceScope { block, .. } => block_never_falls_through_arena(arena, block),
+        | ArenaExprKind::ErrorContext { block, .. } => block_never_falls_through_arena(arena, block),
         ArenaExprKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
         _ => false,
+    }
+}
+
+fn result_wrapper_block_arena(arena: &ArenaProgram, expression: ExprId) -> Option<BlockId> {
+    match arena.arena.expr(expression).kind {
+        ArenaExprKind::Capture(block)
+        | ArenaExprKind::ContextScope { block, .. }
+        | ArenaExprKind::TempDirScope { block, .. }
+        | ArenaExprKind::ResourceScope { block, .. } => Some(block),
+        _ => None,
     }
 }
 
@@ -3870,12 +3928,46 @@ impl Checker {
         let always_returns = if self.inferred_returns.is_some() {
             self.return_inference_block_returns(arena, block_id)
         } else {
-            block_always_returns_arena(arena, block_id)
+            self.block_always_returns_checked_arena(arena, block_id)
         };
         if !reachable || always_returns {
             Type::Unknown
         } else {
             result
+        }
+    }
+
+    fn block_always_returns_checked_arena(&self, arena: &ArenaProgram, block_id: BlockId) -> bool {
+        block_always_returns_arena(arena, block_id)
+            || arena
+                .arena
+                .stmt_ids(arena.arena.block(block_id).statements)
+                .any(|id| self.stmt_result_wrapper_without_success_arena(arena, id))
+    }
+
+    fn stmt_result_wrapper_without_success_arena(
+        &self,
+        arena: &ArenaProgram,
+        id: StmtId,
+    ) -> bool {
+        let id = arena.arena.core_stmt_id(id);
+        let stmt = arena.arena.stmt(id);
+        match stmt.kind {
+            ArenaStmtKind::Sugar { expansion, .. } => {
+                self.stmt_result_wrapper_without_success_arena(arena, expansion)
+            }
+            ArenaStmtKind::Expr(expression) => {
+                self.statement_positions.get(&stmt.span)
+                    == Some(&super::StatementPosition::Statement)
+                    && self.propagating_statements.contains(&stmt.span)
+                    && self
+                        .expr_types
+                        .get(&arena.arena.expr(expression).span)
+                        .is_some_and(Type::is_result_unit)
+                    && result_wrapper_block_arena(arena, expression)
+                        .is_some_and(|block| block_never_falls_through_arena(arena, block))
+            }
+            _ => false,
         }
     }
 
@@ -4817,10 +4909,11 @@ fn copy_update_mistake(
 #[cfg(test)]
 mod termination_tests {
     use super::block_always_returns_arena;
+    use super::Type;
     use crate::diagnostic::DiagnosticCode;
     use crate::sema::check::Checker;
     use crate::source::SourceId;
-    use crate::syntax::arena::{ArenaProgram, ArenaStmtKind};
+    use crate::syntax::arena::{ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind};
     use crate::syntax::parser::Parser;
 
     fn parse(source: &str) -> ArenaProgram {
@@ -4843,6 +4936,73 @@ mod termination_tests {
     fn proc_never_completes(source: &str) -> bool {
         let program = parse(source);
         block_always_returns_arena(&program, first_proc_body(&program))
+    }
+
+    fn value_block_type(source: &str) -> Type {
+        let program = parse(source);
+        let statement = program
+            .arena
+            .stmt_ids(program.statements)
+            .next()
+            .expect("source must declare a binding");
+        let ArenaStmtKind::Let {
+            initializer: ArenaExprOrRun::Expr(expression),
+            ..
+        } = program.arena.stmt(statement).kind
+        else {
+            panic!("source must start with a binding expression");
+        };
+        assert!(matches!(
+            program.arena.expr(expression).kind,
+            ArenaExprKind::ValueBlock(_)
+        ));
+        let span = program.arena.expr(expression).span;
+        let checked = program
+            .symbol_owner()
+            .with_current(|| Checker::check_arena(&program, source));
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
+            "{:?}",
+            checked.diagnostics
+        );
+        checked
+            .expr_types
+            .get(&span)
+            .cloned()
+            .expect("value block should have a checked type")
+    }
+
+    #[test]
+    fn captured_failure_value_block_completes_with_result_error() {
+        assert_eq!(
+            value_block_type(
+                "let result: Result[Unit] = { try { loop { assert false } } }\n"
+            ),
+            Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
+        );
+    }
+
+    #[test]
+    fn within_timeout_value_block_completes_with_result_error() {
+        assert_eq!(
+            value_block_type(
+                "let result: Result[Unit] = { within 50ms { loop {} } }\n"
+            ),
+            Type::Result(Box::new(Type::Unknown), Box::new(Type::Error))
+        );
+    }
+
+    #[test]
+    fn unit_position_scope_without_success_prevents_a_later_value() {
+        assert_eq!(
+            value_block_type(
+                "let result: Result[Unit] = {\n  within 50ms { loop {} }\n  Ok()\n}\n"
+            ),
+            Type::Unknown
+        );
     }
 
     #[test]
@@ -4922,6 +5082,13 @@ mod termination_tests {
                 .all(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckMissingReturn)),
             "{diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn captured_error_before_return_keeps_the_enclosing_loop_break_reachable() {
+        assert!(!proc_never_completes(
+            "proc value() [] { loop { try { assert false; return 1 }; break } }"
+        ));
     }
 
     #[test]
