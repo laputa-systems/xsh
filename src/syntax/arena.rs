@@ -289,6 +289,70 @@ mod child_tests {
     }
 
     #[test]
+    fn named_call_arguments_visit_values_in_source_order_without_labels() {
+        use ArenaChild::Expr;
+        let owner = crate::symbol::SymbolOwner::new();
+        let mut lowerer = ArenaLowerer::default();
+        let callee = lowerer.push_expr_kind(ArenaExprKind::Ident(owner.intern("invoke")), span());
+        let first = lowerer.push_expr_kind(ArenaExprKind::Ident(owner.intern("first_value")), span());
+        let second = lowerer.push_expr_kind(ArenaExprKind::Ident(owner.intern("second_value")), span());
+        let args = lowerer.commit_call_arg_input_range(&[
+            ArenaCallArgInput::Named {
+                name: owner.intern("first"),
+                value: first,
+                span: span(),
+            },
+            ArenaCallArgInput::Named {
+                name: owner.intern("second"),
+                value: second,
+                span: span(),
+            },
+        ]);
+
+        assert_eq!(
+            expr_children(&mut lowerer, ArenaExprKind::Call { callee, args }),
+            [Expr(callee), Expr(first), Expr(second)],
+        );
+    }
+
+    #[test]
+    fn computed_record_fields_visit_each_key_before_its_value() {
+        use ArenaChild::Expr;
+        let owner = crate::symbol::SymbolOwner::new();
+        let mut lowerer = ArenaLowerer::default();
+        let [first_key, first_value, named_value, second_key, second_value] =
+            std::array::from_fn(|_| lowerer.push_expr_kind(ArenaExprKind::Null, span()));
+        let fields = lowerer.lower_record_field_input_range(&[
+            ArenaRecordFieldInput::Computed {
+                key: first_key,
+                value: first_value,
+                span: span(),
+            },
+            ArenaRecordFieldInput::Named {
+                name: owner.intern("middle"),
+                value: named_value,
+                span: span(),
+            },
+            ArenaRecordFieldInput::Computed {
+                key: second_key,
+                value: second_value,
+                span: span(),
+            },
+        ]);
+
+        assert_eq!(
+            expr_children(&mut lowerer, ArenaExprKind::Record(fields)),
+            [
+                Expr(first_key),
+                Expr(first_value),
+                Expr(named_value),
+                Expr(second_key),
+                Expr(second_value),
+            ],
+        );
+    }
+
+    #[test]
     fn comprehensions_and_match_arms_include_bindings_patterns_and_guards_in_order() {
         use ArenaChild::{BindingTarget, Expr, Pattern};
         let mut lowerer = ArenaLowerer::default();
@@ -481,6 +545,82 @@ mod child_tests {
         children.clear();
         lowerer.arena.for_each_stmt_child(stmt, SugarView::Source, |child| children.push(child));
         assert_eq!(children, [TypeExpr(parameter_ty), TypeExpr(return_ty), Expr(default)]);
+    }
+
+    #[test]
+    fn module_contract_defaults_follow_parameter_and_entry_order() {
+        use ArenaChild::{Expr, TypeExpr};
+        let owner = crate::symbol::SymbolOwner::new();
+        let mut lowerer = ArenaLowerer::default();
+        let first_default = lowerer.push_expr_kind(ArenaExprKind::Null, span());
+        let second_default = lowerer.push_expr_kind(ArenaExprKind::Null, span());
+        let [first_param_ty, first_return_ty, second_param_ty, second_return_ty] =
+            std::array::from_fn(TypeExprId::from_index);
+        let span_id = lowerer.span(span());
+        lowerer.arena.params.extend([
+            ArenaParam {
+                name: owner.intern("first_arg"),
+                ty: first_param_ty,
+                ty_defaulted: false,
+                default: Some(first_default),
+                rest: false,
+                span: span_id,
+            },
+            ArenaParam {
+                name: owner.intern("second_arg"),
+                ty: second_param_ty,
+                ty_defaulted: false,
+                default: Some(second_default),
+                rest: false,
+                span: span_id,
+            },
+        ]);
+        lowerer.arena.module_contract_entries.extend([
+            ArenaModuleContractEntry {
+                name: owner.intern("first"),
+                optional: false,
+                kind: ArenaModuleContractEntryKind::Proc {
+                    params: ArenaRange::new(0, 1),
+                    effects: None,
+                    return_ty: first_return_ty,
+                },
+                span: span_id,
+            },
+            ArenaModuleContractEntry {
+                name: owner.intern("second"),
+                optional: false,
+                kind: ArenaModuleContractEntryKind::Pure {
+                    params: ArenaRange::new(1, 1),
+                    return_ty: second_return_ty,
+                },
+                span: span_id,
+            },
+        ]);
+        lowerer.arena.type_defs.push(ArenaTypeDef {
+            name: owner.intern("Contract"),
+            type_parameters: ArenaRange::default(),
+            body: ArenaTypeDefBody::ModuleContract {
+                entries: ArenaRange::new(0, 2),
+                exact: false,
+            },
+            nominal: false,
+            bounds: None,
+        });
+        let stmt = lowerer.push_stmt_kind(ArenaStmtKind::TypeDef(TypeDefId::from_index(0)), span());
+        let mut children = Vec::new();
+        lowerer.arena.for_each_stmt_child(stmt, SugarView::Source, |child| children.push(child));
+
+        assert_eq!(
+            children,
+            [
+                TypeExpr(first_param_ty),
+                Expr(first_default),
+                TypeExpr(first_return_ty),
+                TypeExpr(second_param_ty),
+                Expr(second_default),
+                TypeExpr(second_return_ty),
+            ],
+        );
     }
 
     #[test]
