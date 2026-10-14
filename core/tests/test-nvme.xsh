@@ -868,7 +868,7 @@ test test_nvme_id_ns_rejects_short_vendor_response_before_output { |ctx|
   let log = quiet_log(ctx)?
   var page = ns_page()?
   page = put(page, 384, b"NSVENDOR")?
-  let short_page = page.slice(0, length: 4095)
+  let short_page = page[..4095]
   let ran = nvme(ctx, [identify_line(7, 0, short_page)], ["id-ns", "-n", "7", "-V", "/dev/null"], log)?
   assert ran.status == 1
   assert ran.stdout == ""

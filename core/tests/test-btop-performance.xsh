@@ -184,16 +184,17 @@ test test_btop_preloaded_model_render_and_diff_profile_at_one_thousand_processes
   let initial_surface = surface.from_lines(120, 40, initial_screen.lines)?
   let initial_update = surface.prepare(surface.initial(), initial_surface)
   var committed = surface.complete(initial_update, initial_update.bytes.byte_len())
-  var samples = []
-  repeat 20 times {
-    let started_ns = time.monotonic()?
-    let updated = model.step_cached(current, previous, model.empty_metadata_cache("profile"))
-    let screen = renderer.render(updated.value, 120, 40)?
-    let desired = surface.from_lines(120, 40, screen.lines)?
-    let delta = surface.prepare(committed, desired)
-    let written_bytes = delta.bytes.byte_len()
-    committed = surface.complete(delta, written_bytes)
-    samples += [time.monotonic()? - started_ns]
+  let samples = collect {
+    repeat 20 times {
+      let started_ns = time.monotonic()?
+      let updated = model.step_cached(current, previous, model.empty_metadata_cache("profile"))
+      let screen = renderer.render(updated.value, 120, 40)?
+      let desired = surface.from_lines(120, 40, screen.lines)?
+      let delta = surface.prepare(committed, desired)
+      let written_bytes = delta.bytes.byte_len()
+      committed = surface.complete(delta, written_bytes)
+      yield time.monotonic()? - started_ns
+    }
   }
   let ordered = samples |> sort
   let p95_ns = ordered[(ordered.len() * 95 + 99) / 100 - 1]

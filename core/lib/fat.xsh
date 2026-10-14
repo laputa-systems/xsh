@@ -200,14 +200,20 @@ export proc label(image: Path, label: Str? = null) -> Result[Str, Error] {
   let layout = loaded.layout
   let table = image_io.table(image, layout)?
   var slot = null
-  var labels = []
   var ended = false
-  for offset in image_io.root_offsets(layout, table)? {
-    let chunk = image_io.read_region(image, offset, image_io.root_length(layout))?
-    for index in range(chunk.len() / 32) {
-      let entry = chunk[index * 32..(index + 1) * 32]
-      let first = geom.byte(entry, 0)?
-      if ended or first in [0, 229] { if slot == null { slot = offset + index * 32 }; if first == 0 { ended = true } } else if geom.byte(entry, 11)? == 8 { labels += [offset + index * 32] }
+  let labels = collect {
+    for offset in image_io.root_offsets(layout, table)? {
+      let chunk = image_io.read_region(image, offset, image_io.root_length(layout))?
+      for index in range(chunk.len() / 32) {
+        let entry = chunk[index * 32..(index + 1) * 32]
+        let first = geom.byte(entry, 0)?
+        if ended or first in [0, 229] {
+          if slot == null { slot = offset + index * 32 }
+          if first == 0 { ended = true }
+        } else if geom.byte(entry, 11)? == 8 {
+          yield offset + index * 32
+        }
+      }
     }
   }
   var chosen = slot

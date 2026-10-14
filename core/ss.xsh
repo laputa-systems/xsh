@@ -1243,7 +1243,6 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   let context: Context = Context(...ports, devices:, cgroups: group_ids)
 
   let want_info = config.info
-  var found: List[sockets.DiagSocket] = []
   var incomplete = false
 
   let unix_tables = collect {
@@ -1251,29 +1250,31 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
       yield table when table in tables
     }
   }
-  if !unix_tables.is_empty() {
-    let listed = sockets.collect_unix(channel, states, config.memory, config.extended)
-    if let Ok(list) = listed {
-      for item in list {
-        if item.netid in unix_tables { found += [item] }
-      }
-    } else if let Err(failure) = listed {
-      eprint f"ss: cannot list unix sockets: {gnu.strerror(failure)}"
-      incomplete = true
-    }
-  }
-  for table in inet_tables {
-    continue when table not in tables
-    for family in [sockets.AF_INET, sockets.AF_INET6] {
-      continue when family_is_inet and config.family != family
-      let listed = sockets.collect_inet(channel, family, sockets.protocol_number(table), states, config.memory, want_info)
+  let found: List[sockets.DiagSocket] = collect {
+    if !unix_tables.is_empty() {
+      let listed = sockets.collect_unix(channel, states, config.memory, config.extended)
       if let Ok(list) = listed {
         for item in list {
-          if item.netid == table { found += [item] }
+          yield item when item.netid in unix_tables
         }
       } else if let Err(failure) = listed {
-        eprint f"ss: cannot list {table} sockets: {gnu.strerror(failure)}"
+        eprint f"ss: cannot list unix sockets: {gnu.strerror(failure)}"
         incomplete = true
+      }
+    }
+    for table in inet_tables {
+      continue when table not in tables
+      for family in [sockets.AF_INET, sockets.AF_INET6] {
+        continue when family_is_inet and config.family != family
+        let listed = sockets.collect_inet(channel, family, sockets.protocol_number(table), states, config.memory, want_info)
+        if let Ok(list) = listed {
+          for item in list {
+            yield item when item.netid == table
+          }
+        } else if let Err(failure) = listed {
+          eprint f"ss: cannot list {table} sockets: {gnu.strerror(failure)}"
+          incomplete = true
+        }
       }
     }
   }

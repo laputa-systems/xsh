@@ -269,10 +269,11 @@ proc send_route(request: Request) [fs, process, net, env, error] {
   var priority = request.metric ?? 0
   if inet6 and request.metric == null { priority = 1 }
   if priority > 0 { attributes += [int_attribute(6, priority)] }
-  var metrics = []
-  if let mss = request.mss { metrics += [int_attribute(8, mss - 40)] }
-  if let window = request.window { metrics += [int_attribute(3, window)] }
-  if let irtt = request.irtt { metrics += [int_attribute(4, irtt * 8)] }
+  let metrics = collect {
+    if let mss = request.mss { yield int_attribute(8, mss - 40) }
+    if let window = request.window { yield int_attribute(3, window) }
+    if let irtt = request.irtt { yield int_attribute(4, irtt * 8) }
+  }
   if !metrics.is_empty() { attributes += [raw_attribute(8, bytes.concat(metrics))] }
 
   let family = if inet6 { c.AF_INET6 } else { c.AF_INET }

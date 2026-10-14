@@ -76,10 +76,11 @@ pure option_events(argv: List[Str]) -> List[Event] {
       let equals = body.find("=")
       let name = if equals == null { body } else { body.byte_slice(0, length: equals) }
       var resolved = ""
-      var candidates = []
-      for known in LONGS {
-        if known == name { resolved = known }
-        if known.starts_with(name) { candidates += [known] }
+      let candidates = collect {
+        for known in LONGS {
+          if known == name { resolved = known }
+          yield known when known.starts_with(name)
+        }
       }
       if resolved == "" and candidates.len() == 1 { resolved = candidates[0] }
       if resolved == "verbose" {

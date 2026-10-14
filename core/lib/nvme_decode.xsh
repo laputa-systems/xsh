@@ -187,16 +187,17 @@ pure decimal_of(digits: List[Int]) -> Str {
 ## Exact decimal and minimal hexadecimal text of a little-endian unsigned
 ## value of any width.
 export pure wide(data: Bytes, offset: Int, width: Int) -> Wide {
-  var big_endian = []
-  var started = false
-  var index = width - 1
-  while index >= 0 {
-    let byte = u8(data, offset + index)
-    if byte != 0 or started {
-      big_endian += [byte]
-      started = true
+  let big_endian = collect {
+    var started = false
+    var index = width - 1
+    while index >= 0 {
+      let byte = u8(data, offset + index)
+      if byte != 0 or started {
+        started = true
+        yield byte
+      }
+      index -= 1
     }
-    index -= 1
   }
   var digits = ""
   for position in range(big_endian.len()) {

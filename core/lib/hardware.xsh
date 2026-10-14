@@ -597,10 +597,11 @@ export pure sensor_lines(channels: List[report.SensorChannel], fahrenheit: Bool,
         if channel.alarm != null { lines += [f"  {channel.channel}_alarm: {if channel.alarm { 1 } else { 0 }}"] }
       } else {
         var line = f"{label}: {if channel.value != null { sensor_value(channel, channel.value, fahrenheit) } else { "N/A" }}"
-        var limits = []
-        if channel.minimum != null { limits += [f"low = {sensor_value(channel, channel.minimum, fahrenheit)}"] }
-        if channel.maximum != null { limits += [f"high = {sensor_value(channel, channel.maximum, fahrenheit)}"] }
-        if channel.critical != null { limits += [f"crit = {sensor_value(channel, channel.critical, fahrenheit)}"] }
+        let limits = collect {
+          if channel.minimum != null { yield f"low = {sensor_value(channel, channel.minimum, fahrenheit)}" }
+          if channel.maximum != null { yield f"high = {sensor_value(channel, channel.maximum, fahrenheit)}" }
+          if channel.critical != null { yield f"crit = {sensor_value(channel, channel.critical, fahrenheit)}" }
+        }
         if ! limits.is_empty() { line += "  (" + limits.join(", ") + ")" }
         if channel.alarm == true { line += "  ALARM" }
         lines += [line]
