@@ -541,14 +541,16 @@ macro_rules! instruction_schema {
             pub(in crate::runtime::eval) fn expression_test_tag(suffix: &str) -> Option<Self> {
                 let mut candidate = None;
                 $(
-                    if InstructionKind::$kind == InstructionKind::Expr
-                        && expression_tag_test_prefix_matches(stringify!($tag), suffix)
-                    {
-                        let specificity = stringify!($tag).len();
-                        if candidate.is_none_or(|(_, current)| specificity > current) {
-                            candidate = Some((Self::$tag, specificity));
+                    $(
+                        if InstructionKind::$kind == InstructionKind::Expr
+                            && expression_tag_test_prefix_matches(stringify!($tag), suffix)
+                        {
+                            let specificity = stringify!($tag).len();
+                            if candidate.is_none_or(|(_, current)| specificity > current) {
+                                candidate = Some((Self::$tag, specificity));
+                            }
                         }
-                    }
+                    )*
                 )*
                 candidate.map(|(tag, _)| tag)
             }
@@ -581,6 +583,10 @@ macro_rules! instruction_schema {
         #[cfg(test)]
         pub(in crate::runtime::eval) const INSTRUCTION_TAGS: &[FullTag] = &[
             $($(FullTag::$tag,)*)*
+        ];
+
+        pub(in crate::runtime::eval) const INSTRUCTION_TAG_NAMES: &[&str] = &[
+            $($(stringify!($tag),)*)*
         ];
 
         $(

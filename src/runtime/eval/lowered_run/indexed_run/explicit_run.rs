@@ -9378,7 +9378,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::WrapOk(next) => match value {
                 FrameValue::Value(value) => self.push_value(
                     index,
-                    FrameValue::Value(LoweredValue::ResultOk(Box::new(value))),
+                    FrameValue::Value(lowered_result_ok(value)),
                     *next,
                 ),
                 FrameValue::Break(value) => {
