@@ -4571,6 +4571,51 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.push_resolved_target(index, resolved, values, span, next)
     }
 
+    fn publish_caller_bindings(
+        &mut self,
+        index: usize,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match self.calls[index].owner {
+            FrameOwner::Block { .. } => {
+                let call = &mut self.calls[index];
+                self.evaluator
+                    .sync_indexed_root_slots(&mut call.slots, span)
+            }
+            FrameOwner::Function(function, kind) => {
+                let header = {
+                    let call = &self.calls[index];
+                    Self::function_header(call.execution.program(), function, kind, span)?
+                };
+                self.evaluator
+                    .write_back_lowered_captures(&header, &self.calls[index].slots, span)
+            }
+        }
+    }
+
+    fn refresh_caller_bindings(
+        &mut self,
+        index: usize,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match self.calls[index].owner {
+            FrameOwner::Block { .. } => {
+                let call = &mut self.calls[index];
+                self.evaluator
+                    .sync_indexed_root_slots(&mut call.slots, span)
+            }
+            FrameOwner::Function(function, kind) => {
+                let header = {
+                    let call = &self.calls[index];
+                    Self::function_header(call.execution.program(), function, kind, span)?
+                };
+                let call = &mut self.calls[index];
+                self.evaluator
+                    .hydrate_lowered_captures(&header, &mut call.slots, span)
+            }
+        }
+    }
+
     fn push_resolved_target(
         &mut self,
         index: usize,
@@ -4579,6 +4624,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        self.publish_caller_bindings(index, span)?;
         let target = resolved.program.program();
         let stream_call = match target.function_view(resolved.function, resolved.kind)
             .map_err(|error| indexed_error(error, span))? {
@@ -11164,11 +11210,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             match call.return_to {
                 Some(next) => {
                     let parent = self.calls.len() - 1;
-                    if let FrameOwner::Block { .. } = self.calls[parent].owner {
-                        let call = &mut self.calls[parent];
-                        self.evaluator
-                            .sync_indexed_root_slots(&mut call.slots, call.call_span)?;
-                    }
+                    self.refresh_caller_bindings(parent, call.call_span)?;
                     self.push_value(parent, FrameValue::Value(value), next);
                 }
                 None => self.result = Some(Ok(value)),
@@ -11184,6 +11226,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             error.scope_cleanup = false;
         }
         if let Some(parent) = self.calls.len().checked_sub(1) {
+            self.refresh_caller_bindings(parent, call.call_span)?;
             self.unwind_error_frame(parent)?;
         } else {
             self.result = Some(Err(self
@@ -11296,16 +11339,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         match (call.return_to, value) {
             (Some(next), Ok(value)) => {
                 let parent = self.calls.len() - 1;
-                // A callee may have written a script binding back; a block
-                // frame running top-level statements reads it from its slots.
-                if let FrameOwner::Block { .. } = self.calls[parent].owner {
-                    let call = &mut self.calls[parent];
-                    self.evaluator
-                        .sync_indexed_root_slots(&mut call.slots, call.call_span)?;
-                }
+                self.refresh_caller_bindings(parent, call.call_span)?;
                 self.push_value(parent, FrameValue::Value(value), next);
             }
             (Some(next), Err(error)) => {
+                let parent = self.calls.len() - 1;
+                self.refresh_caller_bindings(parent, call.call_span)?;
                 if let FrameContinuation::UtilsCacheResult { span, .. } = next {
                     self.evaluator.trace_lowered_utils_cache_result(span);
                 }
