@@ -1,8 +1,6 @@
 # Observable return and loop flow at the checker boundary.
 type FlowCase = {name: Str, source: Str, diagnostics: List[Str]}
 
-# Checks each source separately so a missing diagnostic cannot be hidden by
-# another case in the batch.
 proc expect_flow_cases(ctx: TestContext, cases: List[FlowCase]) [fs, process, error] {
   let root = test.temp_dir(ctx, name: "flow-cases")?
   for item in cases {

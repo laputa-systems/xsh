@@ -87,9 +87,10 @@ export pure product_builds(
 ) -> Result[List[contract.CommandSpec], Error] {
   return [] when products.is_empty()
 
-  var product_arguments = []
-  for product in products {
-    product_arguments += product_build_arguments(product)
+  let product_arguments = collect {
+    for product in products {
+      yield @product_build_arguments(product)
+    }
   }
   [stages.command(
     "test-products", ctx.target.triple, "cargo",

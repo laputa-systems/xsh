@@ -1,5 +1,5 @@
-use fixtures
 use docker
+use fixtures
 use gates
 use test_workflows as tests
 

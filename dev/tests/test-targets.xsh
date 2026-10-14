@@ -583,13 +583,13 @@ printf '%s\\n' "$@" > "$XSH_LINKER_ARGS"
   let repository = fs.cwd()?
   let adapter = fp"{repository}/dev/musl-linker.sh"
   let command = process.command_argv(
-    adapter.display(),
-    [adapter.display(), "--defsym=__isoc23_sscanf=sscanf", "a path with spaces", "-Wl,--defsym=already=passed"],
+    adapter,
+    [adapter, "--defsym=__isoc23_sscanf=sscanf", "a path with spaces", "-Wl,--defsym=already=passed"],
     cwd: root,
     env: {
-      PATH: tools.display(),
+      PATH: tools,
       TARGET: "x86_64-unknown-linux-musl",
-      XSH_LINKER_ARGS: args_path.display(),
+      XSH_LINKER_ARGS: args_path,
     },
   )
   assert process.run(command)?.exited_with(0)
