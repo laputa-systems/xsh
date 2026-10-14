@@ -19,7 +19,7 @@ PATHS = {
 CONTROL_FLOW_OWNERS = {
     "builtin_range_calls": {"expr:Call"},
     "cardinality_preserving_collection_calls": {"expr:Call"},
-    "propagating_error_spans": {"expr", "stmt:Command"},
+    "propagating_error_spans": {"expr", "stmt:Command", "stmt:Expr"},
     "latent_stream_error_spans": {"expr"},
     "fallible_pipeline_stage_spans": {"stage:Range", "stage:Repeat"},
     "propagating_stage_callback_spans": {"stage"},
@@ -359,32 +359,29 @@ def _canonical_cli_plan_key(value: str, source_schema: str) -> str:
         key_parts = _tuple_items(value, "CLI plan key")
         if len(key_parts) != 2:
             raise AdapterError("malformed key")
-        origin, namespace_or_applet = key_parts
+        origin, applet = key_parts
         if source_schema == "legacy":
             expression = re.fullmatch(r"ExprId\((\d+)\)", origin)
             if expression is None or str(int(expression.group(1))) != expression.group(1):
                 raise AdapterError("malformed key")
             origin = f"ExprId({expression.group(1)})"
-            namespace = None
+            field_selector = None
         else:
             origin_parts = _tuple_items(origin, "current CLI plan origin")
             expression = re.fullmatch(r"ExprId\((\d+)\)", origin_parts[0]) if len(origin_parts) == 2 else None
             if expression is None or str(int(expression.group(1))) != expression.group(1):
                 raise AdapterError("malformed key")
             origin = f"ExprId({expression.group(1)})"
-            namespace = origin_parts[1]
-            if namespace != "None":
-                symbol = re.fullmatch(r"Some\(Name\(Symbol\((\d+)\)\)\)", namespace)
-                if symbol is None or str(int(symbol.group(1))) != symbol.group(1):
+            field_selector = origin_parts[1]
+            if field_selector != "None":
+                if re.fullmatch(r'Some\(Name\("(?:\\.|[^"\\])*"\)\)', field_selector) is None:
                     raise AdapterError("malformed key")
-                namespace = f"Some(Name(Symbol({symbol.group(1)})))"
-        applet = namespace_or_applet
         if applet not in {"true", "false"}:
             raise AdapterError("malformed key")
     except AdapterError:
         raise AdapterError(f"malformed {source_schema} CLI plan key") from None
-    if source_schema == "current" and namespace != "None":
-        raise AdapterError("current CLI plan Some namespace has no legacy comparison key")
+    if source_schema == "current" and field_selector != "None":
+        raise AdapterError("current CLI plan Some field selector has no legacy comparison key")
     return f"({origin},{applet})"
 
 
@@ -542,6 +539,43 @@ def _validate_source_span(
     return canonical_span
 
 
+def _project_propagating_statements(
+    value: str,
+    source_schema: str,
+    fields: Mapping[str, str],
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+) -> str:
+    _set_items(value)
+    raw_spans = _split_top_level(value.strip()[1:-1], ",")
+    seen = set()
+    retained = []
+    if source_schema == "current":
+        statement_positions = _canonical_span_map(fields["statement_positions"], "checked statement position")
+    for raw_span in raw_spans:
+        try:
+            canonical_span, source_id, start, length = _canonicalize_span(raw_span)
+        except AdapterError:
+            raise AdapterError(f"malformed propagating statement span {raw_span}") from None
+        if canonical_span in seen:
+            raise AdapterError(f"duplicate normalized propagating statement span: {canonical_span}")
+        seen.add(canonical_span)
+        if source_id not in source_sizes or start + length > source_sizes[source_id]:
+            raise AdapterError(f"propagating statement span is outside its source: {canonical_span}")
+        owners = source_owners.get(canonical_span, set())
+        if not any(owner.startswith("stmt:") for owner in owners):
+            raise AdapterError(f"propagating statement span has no statement AST owner: {canonical_span}")
+        if source_schema == "legacy":
+            if "stmt:Command" in owners:
+                raise AdapterError(f"legacy propagating statements include a command: {canonical_span}")
+        elif "stmt:Command" in owners:
+            if canonical_span not in statement_positions:
+                raise AdapterError(f"propagating statement command has no checked statement position: {canonical_span}")
+            continue
+        retained.append(raw_span)
+    return "{" + ",".join(retained) + "}"
+
+
 def _current_fact_owners(
     fields: Mapping[str, str],
     source_sizes: Mapping[int, int],
@@ -602,7 +636,7 @@ def _current_fact_owners(
                 owner_kinds = source_owners.get(span, set())
                 if any(owner.startswith("expr:") for owner in owner_kinds) and span not in expression_types:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked expression type: {span}")
-                if "stmt:Command" in owner_kinds and span not in statement_positions:
+                if owner_kinds & {"stmt:Command", "stmt:Expr"} and span not in statement_positions:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked statement position: {span}")
             elif field in {"builtin_range_calls", "latent_stream_error_spans"}:
                 if span not in expression_types:
@@ -673,6 +707,13 @@ def project_publication(
         raise AdapterError("current publication validation requires source sizes and AST owners")
     else:
         _current_fact_owners(fields, source_sizes, source_owners)
+    common = _rewrite_field_path(
+        common,
+        (("CheckOutput", "propagating_statements"),),
+        lambda value: _project_propagating_statements(
+            value, source_schema, fields, source_sizes, source_owners
+        ),
+    )
     return common
 
 

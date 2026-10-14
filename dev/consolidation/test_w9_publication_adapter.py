@@ -15,6 +15,11 @@ TAIL_CONST_SPAN = "Span{source_id:SourceId(0),start:30,len:6}"
 TAIL_SPAN = "Span{source_id:SourceId(0),start:40,len:6}"
 RUNTIME_TAIL_SPAN = "Span{source_id:SourceId(0),start:50,len:7}"
 RUN_GLOBAL_SPAN = "Span{source_id:SourceId(0),start:60,len:7}"
+COMMAND_SPAN = "Span{source_id:SourceId(0),start:36,len:40}"
+CAPTURED_COMMAND_SPAN = "Span{source_id:SourceId(0),start:10728,len:74}"
+CAPTURED_RUN_FORM_SPAN = "Span{source_id:SourceId(0),start:10728,len:73}"
+SERVICE_STOP_SPAN = "Span{source_id:SourceId(0),start:458,len:15}"
+SERVICE_START_SPAN = "Span{source_id:SourceId(0),start:479,len:16}"
 UNPREPARED_TAIL_DECL_SPAN = "Span{source_id:SourceId(0),start:70,len:6}"
 UNPREPARED_TAIL_SPAN = "Span{source_id:SourceId(0),start:76,len:6}"
 MISSING_VALUE_DECL_SPAN = "Span{source_id:SourceId(0),start:82,len:6}"
@@ -52,7 +57,7 @@ COMMON = (
     ",tails:{StmtId(3):" + TAIL_BINDING + ",StmtId(5):" + RUNTIME_BINDING
     + ",StmtId(13):" + UNPREPARED_TAIL_BINDING
     + ",StmtId(15):" + MISSING_VALUE_TAIL_BINDING + "}},"
-    f"statement_positions:{{{SPAN}:Value}},"
+    f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}},"
     "prepared_constants:PreparedConstants{"
     f"binding_values:{{{BINDING}:{EXPR},{TAIL_BINDING}:{TAIL_EXPR},"
     f"{MISSING_VALUE_TAIL_BINDING}:{MISSING_VALUE_EXPR}}},"
@@ -61,6 +66,7 @@ COMMON = (
 )
 COMMON_OUTPUT_FIELDS = (
     "},diagnostics:[],opaque:Other{global_bindings:\"keep\"},"
+    "propagating_statements:{},"
     f"expr_types:{{{CALL_SPAN}:Bool}},stream_stage_types:{{}},"
     "statically_resolved_call_spans:{"
     + CALL_SPAN
@@ -72,7 +78,7 @@ LEGACY_PUBLICATION = (
     + f",global_bindings:{{(None,Name(\"answer\")):{EXPR}}},tail_bindings:{{{TAIL_SPAN}:{TAIL_EXPR}}}"
     + COMMON_OUTPUT_FIELDS
     + "}"
-)
+).replace("propagating_statements:{}", f"propagating_statements:{{{SPAN}}}")
 CURRENT_PUBLICATION = (
     COMMON.replace("(ExprId(2),false)", "((ExprId(2),None),false)")
     + COMMON_OUTPUT_FIELDS
@@ -84,6 +90,12 @@ CURRENT_PUBLICATION = (
     + "cardinality_preserving_collection_calls:{},propagating_error_spans:{},"
     + "latent_stream_error_spans:{},fallible_pipeline_stage_spans:{},"
     + "propagating_stage_callback_spans:{}}}"
+).replace(
+    "propagating_statements:{}",
+    f"propagating_statements:{{{SPAN},{COMMAND_SPAN}}}",
+).replace(
+    "propagating_error_spans:{}",
+    f"propagating_error_spans:{{{COMMAND_SPAN}}}",
 )
 OWNER_INDEX = (
     "source\tSourceId(0)\t100\n"
@@ -91,6 +103,7 @@ OWNER_INDEX = (
     f"owner\t{TAIL_CONST_SPAN}\tstmt:Const\n"
     f"owner\t{SPAN}\tstmt:Match\n"
     f"owner\t{CALL_SPAN}\texpr:Call\n"
+    f"owner\t{COMMAND_SPAN}\tstmt:Command\n"
     f"owner\t{TAIL_SPAN}\tstmt:TailBareIdent\n"
     f"owner\t{RUNTIME_TAIL_SPAN}\tstmt:TailBareIdent\n"
     f"owner\t{RUN_GLOBAL_SPAN}\tstmt:Const\n"
@@ -101,6 +114,7 @@ OWNER_INDEX = (
     f"stmt\tStmtId(1)\t{CONST_SPAN}\tstmt:Const\n"
     f"stmt\tStmtId(4)\t{TAIL_CONST_SPAN}\tstmt:Const\n"
     f"stmt\tStmtId(6)\t{SPAN}\tstmt:Match\n"
+    f"stmt\tStmtId(17)\t{COMMAND_SPAN}\tstmt:Command\n"
     f"stmt\tStmtId(3)\t{TAIL_SPAN}\tstmt:TailBareIdent\n"
     f"stmt\tStmtId(5)\t{RUNTIME_TAIL_SPAN}\tstmt:TailBareIdent\n"
     f"stmt\tStmtId(12)\t{RUN_GLOBAL_SPAN}\tstmt:Const\n"
@@ -327,22 +341,19 @@ class PublicationAdapterTests(unittest.TestCase):
         current = CURRENT_PUBLICATION.replace(
             "propagating_error_spans:{}",
             f"propagating_error_spans:{{{command_span}}}",
-        ).replace(
-            f"statement_positions:{{{SPAN}:Value}}",
-            f"statement_positions:{{{SPAN}:Value,{command_span}:Value}}",
         )
         owners = {**SOURCE_OWNERS, command_span: {"stmt:Command"}}
 
         project_publication("current", current, SOURCE_SIZES, owners)
 
         expression_error = CURRENT_PUBLICATION.replace(
-            "propagating_error_spans:{}",
+            f"propagating_error_spans:{{{COMMAND_SPAN}}}",
             f"propagating_error_spans:{{{CALL_SPAN}}}",
         )
         project_publication("current", expression_error, SOURCE_SIZES, SOURCE_OWNERS)
 
         without_statement_position = current.replace(
-            f"statement_positions:{{{SPAN}:Value,{command_span}:Value}}",
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
             f"statement_positions:{{{SPAN}:Value}}",
         )
         with self.assertRaisesRegex(AdapterError, "no checked statement position"):
@@ -352,7 +363,7 @@ class PublicationAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(AdapterError, "no matching AST owner"):
             project_publication("current", current, SOURCE_SIZES, unsupported_statement)
 
-    def test_current_cli_plan_none_namespace_normalizes_only_its_typed_key(self):
+    def test_current_cli_plan_none_field_selector_normalizes_only_its_typed_key(self):
         current_key = "((ExprId(2),None),false)"
         legacy_key = "(ExprId(2),false)"
         current = CURRENT_PUBLICATION
@@ -370,13 +381,100 @@ class PublicationAdapterTests(unittest.TestCase):
             project_publication("current", changed_payload, SOURCE_SIZES, SOURCE_OWNERS),
         )
 
-        namespaced_key = "((ExprId(3),Some(Name(Symbol(7)))),false)"
-        namespaced = current.replace(
+        field_key = '((ExprId(3),Some(Name("field"))),false)'
+        field_selected = current.replace(
             f"data:{{{current_key}:Ok(Plan(\"payload\"))}}",
-            f"data:{{{current_key}:Ok(Plan(\"payload\")),{namespaced_key}:Err(error)}}",
+            f"data:{{{current_key}:Ok(Plan(\"payload\")),{field_key}:Err(error)}}",
         )
-        with self.assertRaisesRegex(AdapterError, "Some namespace has no legacy comparison key"):
-            project_publication("current", namespaced, SOURCE_SIZES, SOURCE_OWNERS)
+        with self.assertRaisesRegex(AdapterError, "Some field selector has no legacy comparison key"):
+            project_publication("current", field_selected, SOURCE_SIZES, SOURCE_OWNERS)
+
+        wrong_field_type = current.replace(
+            current_key, '((ExprId(2),Some(Name(Symbol(7)))),false)'
+        )
+        with self.assertRaisesRegex(AdapterError, "malformed current CLI plan key"):
+            project_publication("current", wrong_field_type, SOURCE_SIZES, SOURCE_OWNERS)
+
+    def test_propagating_statement_command_projection_uses_statement_owner_and_position(self):
+        legacy = project_legacy(LEGACY_PUBLICATION)
+        current = project_publication(
+            "current", CURRENT_PUBLICATION, SOURCE_SIZES, SOURCE_OWNERS
+        )
+
+        self.assertEqual(legacy, current)
+        self.assertIn(f"propagating_statements:{{{SPAN}}}", current)
+
+        without_statement_position = CURRENT_PUBLICATION.replace(
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+            f"statement_positions:{{{SPAN}:Value}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "no checked statement position"):
+            project_publication(
+                "current", without_statement_position, SOURCE_SIZES, SOURCE_OWNERS
+            )
+
+        without_error_producer = CURRENT_PUBLICATION.replace(
+            f"propagating_error_spans:{{{COMMAND_SPAN}}}",
+            "propagating_error_spans:{}",
+        )
+        self.assertEqual(
+            legacy,
+            project_publication("current", without_error_producer, SOURCE_SIZES, SOURCE_OWNERS),
+        )
+
+        legacy_command = LEGACY_PUBLICATION.replace(
+            f"propagating_statements:{{{SPAN}}}",
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN}}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "legacy propagating statements include a command"):
+            project_legacy(legacy_command)
+
+    def test_propagating_error_expr_statement_requires_exact_position_and_owner(self):
+        current = CURRENT_PUBLICATION.replace(
+            f"propagating_error_spans:{{{COMMAND_SPAN}}}",
+            f"propagating_error_spans:{{{COMMAND_SPAN},{SERVICE_STOP_SPAN},{SERVICE_START_SPAN}}}",
+        ).replace(
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value,{SERVICE_STOP_SPAN}:Value,{SERVICE_START_SPAN}:Value}}",
+        )
+        owners = {
+            **SOURCE_OWNERS,
+            SERVICE_STOP_SPAN: {"stmt:Expr"},
+            SERVICE_START_SPAN: {"stmt:Expr"},
+        }
+        project_publication("current", current, {0: 600}, owners)
+
+        without_position = current.replace(
+            f",{SERVICE_STOP_SPAN}:Value",
+            "",
+        )
+        with self.assertRaisesRegex(AdapterError, "no checked statement position"):
+            project_publication("current", without_position, {0: 600}, owners)
+
+        wrong_owner = {**owners, SERVICE_START_SPAN: {"stmt:Const"}}
+        with self.assertRaisesRegex(AdapterError, "no matching AST owner"):
+            project_publication("current", current, {0: 600}, wrong_owner)
+
+        with self.assertRaisesRegex(AdapterError, "outside its source"):
+            project_publication(
+                "current", current, {0: 494}, owners
+            )
+
+    def test_run_form_error_does_not_inherit_command_owner_from_nearby_span(self):
+        current = CURRENT_PUBLICATION.replace(
+            f"propagating_error_spans:{{{COMMAND_SPAN}}}",
+            f"propagating_error_spans:{{{CAPTURED_RUN_FORM_SPAN}}}",
+        ).replace(
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN}}}",
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN},{CAPTURED_COMMAND_SPAN}}}",
+        ).replace(
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value,{CAPTURED_COMMAND_SPAN}:Value}}",
+        )
+        owners = {**SOURCE_OWNERS, CAPTURED_COMMAND_SPAN: {"stmt:Command"}}
+
+        with self.assertRaisesRegex(AdapterError, "no matching AST owner"):
+            project_publication("current", current, {0: 40000}, owners)
 
     def test_cli_plan_map_order_does_not_depend_on_schema_hash_order(self):
         legacy_data = (
