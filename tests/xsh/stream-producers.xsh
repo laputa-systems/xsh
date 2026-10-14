@@ -147,6 +147,15 @@ stream delegated_values() -> Stream[Int] {
   yield delegated
 }
 stream delegated_parent() -> Stream[Int] { yield @delegated_values() }
+var cancelled = 0
+stream cancelled_values() [io] -> Stream[Int] {
+  defer {
+    print f"closed:{cancelled}"
+    cancelled += 100
+  }
+  cancelled += 1
+  yield cancelled
+}
 proc observe_pipeline() -> Int {
   let rows = values() |> collect()
   print f"pipeline:{rows[0]}:{checks}"
@@ -182,11 +191,21 @@ proc observe_delegated() -> Int {
   }
   delegated
 }
+proc observe_cancelled() [io] -> Int {
+  for item in cancelled_values() {
+    print f"cancelled:{item}:{cancelled}"
+    cancelled += 10
+    break
+  }
+  print f"cancelled-after:{cancelled}"
+  cancelled
+}
 let results = [observe_pipeline(), observe_method(), observe_for(), observe_comprehension()]
 print f"returns:{results[0]},{results[1]},{results[2]},{results[3]}"
 print f"checks:{checks}"
 print f"resumed-return:{observe_resumed()}"
 print f"delegated-return:{observe_delegated()}"
+print f"cancelled-return:{observe_cancelled()}"
 """,
   )?
   assert output.success, output.stderr
@@ -203,6 +222,10 @@ print f"delegated-return:{observe_delegated()}"
     "delegated:1:1",
     "delegated:12:12",
     "delegated-return:22",
+    "cancelled:1:1",
+    "closed:11",
+    "cancelled-after:111",
+    "cancelled-return:111",
     "",
   ].join("\n"), output.stdout
   assert output.stderr == "", output.stderr

@@ -500,6 +500,11 @@ impl Evaluator {
             .expect("a started producer owns its frame")
             .open_scopes();
         self.reattach_owned_host_scopes(&scopes);
+        producer
+            .frame
+            .as_mut()
+            .expect("a started producer owns its frame")
+            .hydrate_captures(self, &producer.header, span)?;
         let program = Arc::clone(&producer.program);
         let outcome = {
             let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));

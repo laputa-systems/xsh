@@ -5190,7 +5190,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_value(index, FrameValue::Value(value), next);
                 Ok(())
             }
-            FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
+            FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(index, streams),
             FrameWork::Statements { .. } => unreachable!("statement lists step in place"),
             FrameWork::Expr {
                 instruction,
@@ -10355,22 +10355,105 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn cleanup_comp_streams(&mut self, streams: CompStreams) -> Result<(), RuntimeError> {
+    fn with_caller_bindings(
+        &mut self,
+        index: usize,
+        span: Span,
+        action: impl FnOnce(&mut Evaluator) -> Result<(), RuntimeError>,
+    ) -> Result<(), RuntimeError> {
+        let publication = self.publish_caller_bindings(index, span);
+        let publication_traceback = if publication.is_err() {
+            self.evaluator.pending_traceback.take()
+        } else {
+            None
+        };
+        let cancellation = action(self.evaluator);
+        let action_traceback = if cancellation.is_err() {
+            self.evaluator.pending_traceback.take()
+        } else {
+            None
+        };
+        let refresh = self.refresh_caller_bindings(index, span);
+        let refresh_traceback = if refresh.is_err() {
+            self.evaluator.pending_traceback.take()
+        } else {
+            None
+        };
+        let mut failure = None;
+        for (result, traceback) in [
+            (publication, publication_traceback),
+            (cancellation, action_traceback),
+            (refresh, refresh_traceback),
+        ] {
+            if let Err(error) = result {
+                let force = error.abort.as_ref().is_some_and(|signal| signal.force);
+                let replace = failure.as_ref().is_none_or(|(previous, _)| {
+                    force && !previous.abort.as_ref().is_some_and(|signal| signal.force)
+                });
+                if replace {
+                    if let Some((previous, _)) = failure.replace((error, traceback)) {
+                        self.evaluator.report_cleanup_error(&previous, span);
+                    }
+                } else {
+                    self.evaluator.report_cleanup_error(&error, span);
+                }
+            }
+        }
+        if let Some((error, traceback)) = failure {
+            self.evaluator.pending_traceback = traceback;
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn cancel_stream_with_bindings(
+        &mut self,
+        index: usize,
+        stream: &mut StreamValue,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        self.with_caller_bindings(index, span, |evaluator| evaluator.stream_cancel(stream, span))
+    }
+
+    fn cleanup_comp_streams(
+        &mut self,
+        index: usize,
+        streams: CompStreams,
+    ) -> Result<(), RuntimeError> {
         let mut first_error = None;
+        let mut first_traceback = None;
         for stream in streams
             .lock()
             .expect("comprehension stream state poisoned")
             .iter_mut()
             .rev()
         {
-            if let Some((mut stream, span)) = stream.take()
-                && let Err(error) = self.evaluator.stream_cancel(&mut stream, span)
-                && first_error.is_none()
-            {
-                first_error = Some(error);
+            if let Some((mut stream, span)) = stream.take() {
+                let Err(error) = self.cancel_stream_with_bindings(index, &mut stream, span) else {
+                    continue;
+                };
+                let traceback = self.evaluator.pending_traceback.take();
+                let force = error.abort.as_ref().is_some_and(|signal| signal.force);
+                let replace = first_error.as_ref().is_none_or(|previous: &RuntimeError| {
+                    force && !previous.abort.as_ref().is_some_and(|signal| signal.force)
+                });
+                if replace {
+                    if let Some(previous) = first_error.replace(error) {
+                        self.evaluator.report_cleanup_error(&previous, span);
+                    }
+                    first_traceback = traceback;
+                } else {
+                    self.evaluator.report_cleanup_error(&error, span);
+                }
             }
         }
-        first_error.map_or(Ok(()), Err)
+        if let Some(error) = first_error {
+            self.evaluator.pending_traceback = first_traceback;
+            Err(error)
+        } else {
+            Ok(())
+        }
     }
 
     fn step_comp_qualifier(
@@ -10516,7 +10599,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             unreachable!("finished comprehension owns its stream cleanup");
         };
         debug_assert!(Arc::ptr_eq(&streams, &state.streams));
-        self.cleanup_comp_streams(streams)?;
+        self.cleanup_comp_streams(index, streams)?;
         let value = if state.map {
             LoweredValue::Map(Arc::new(state.map_values))
         } else {
@@ -12049,7 +12132,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     ) -> Result<(), RuntimeError> {
         self.evaluator.service_pending_signal(span)?;
         if self.evaluator.shutting_down() {
-            self.evaluator.stream_cancel(&mut stream, span)?;
+            self.cancel_stream_with_bindings(index, &mut stream, span)?;
             return Ok(());
         }
         self.publish_caller_bindings(index, span)?;
@@ -12068,7 +12151,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if let Err(error) =
             bind_lowered_comp_target(&target, item, &mut self.calls[index].slots, span)
         {
-            self.evaluator.stream_cancel(&mut stream, span)?;
+            self.cancel_stream_with_bindings(index, &mut stream, span)?;
             return Err(error);
         }
         // Re-arm before running the body, so a `continue` reaches the next item
@@ -12092,11 +12175,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if let Err(error) = self.evaluator.service_pending_signal(span) {
-            let _ = pipeline.finish(self.evaluator, Some(&error));
+            if let Err(cleanup) = self.with_caller_bindings(index, span, |evaluator| {
+                pipeline.finish(evaluator, Some(&error))
+            }) {
+                if cleanup.abort.as_ref().is_some_and(|signal| signal.force) {
+                    return Err(cleanup);
+                }
+                let contexts = self.evaluator.cleanup_error_contexts.clone();
+                self.report_cleanup_error_with_contexts(&cleanup, span, &contexts);
+            }
             return Err(error);
         }
         if self.evaluator.shutting_down() {
-            return pipeline.finish(self.evaluator, None);
+            return self.with_caller_bindings(index, span, |evaluator| {
+                pipeline.finish(evaluator, None)
+            });
         }
         self.publish_caller_bindings(index, span)?;
         let pulled = {
@@ -12116,7 +12209,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, body, span)
             }
             Ok(IndexedSerialStep::Item(None)) => {
-                pipeline.finish(self.evaluator, None)
+                self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, None)
+                })
             }
             Ok(IndexedSerialStep::Expr(expression)) => {
                 self.calls[index].work.push(FrameWork::ForPipeline {
@@ -12138,14 +12233,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, block, span)
             }
             Ok(IndexedSerialStep::Break(value)) => {
-                pipeline.finish(self.evaluator, None)?;
+                self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, None)
+                })?;
                 self.complete_call(index, StmtFlow::Return(value))
             }
             Err(error) => {
                 let stage_item = pipeline
                     .pending_map_error_item()
                     .map(|item_index| ("map", item_index));
-                let _ = pipeline.finish(self.evaluator, Some(&error));
+                if let Err(cleanup) = self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, Some(&error))
+                }) {
+                    if cleanup.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(cleanup);
+                    }
+                    let contexts = self.evaluator.cleanup_error_contexts.clone();
+                    self.report_cleanup_error_with_contexts(&cleanup, span, &contexts);
+                }
                 Err(match stage_item {
                     Some((stage, item_index)) => self
                         .evaluator
@@ -12164,11 +12269,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         if let Err(error) = self.evaluator.service_pending_signal(span) {
-            let _ = pipeline.finish(self.evaluator, Some(&error));
+            if let Err(cleanup) = self.with_caller_bindings(index, span, |evaluator| {
+                pipeline.finish(evaluator, Some(&error))
+            }) {
+                if cleanup.abort.as_ref().is_some_and(|signal| signal.force) {
+                    return Err(cleanup);
+                }
+                let contexts = self.evaluator.cleanup_error_contexts.clone();
+                self.report_cleanup_error_with_contexts(&cleanup, span, &contexts);
+            }
             return Err(error);
         }
         if self.evaluator.shutting_down() {
-            return pipeline.finish(self.evaluator, None);
+            return self.with_caller_bindings(index, span, |evaluator| {
+                pipeline.finish(evaluator, None)
+            });
         }
         self.publish_caller_bindings(index, span)?;
         let pulled = {
@@ -12178,7 +12293,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.refresh_caller_bindings(index, span)?;
         match pulled {
             Ok(IndexedStageStep::Done(value)) => {
-                pipeline.finish(self.evaluator, None)?;
+                self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, None)
+                })?;
                 self.push_value(index, FrameValue::Value(value), next);
                 Ok(())
             }
@@ -12200,13 +12317,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, block, span)
             }
             Ok(IndexedStageStep::Break(value)) => {
-                pipeline.finish(self.evaluator, None)?;
+                self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, None)
+                })?;
                 self.push_value(index, FrameValue::Break(value), next);
                 Ok(())
             }
             Err(error) => {
                 let stage_item = pipeline.pending_item_error();
-                let _ = pipeline.finish(self.evaluator, Some(&error));
+                if let Err(cleanup) = self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, Some(&error))
+                }) {
+                    if cleanup.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(cleanup);
+                    }
+                    let contexts = self.evaluator.cleanup_error_contexts.clone();
+                    self.report_cleanup_error_with_contexts(&cleanup, span, &contexts);
+                }
                 Err(match stage_item {
                     Some((stage, item_index)) => self
                         .evaluator
@@ -13363,7 +13490,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FrameWork::CompCleanup(streams) => {
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
-                if let Err(error) = self.cleanup_comp_streams(streams) {
+                if let Err(error) = self.cleanup_comp_streams(index, streams) {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
                         return Err(error);
                     }
@@ -13422,7 +13549,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 mut stream, span, ..
             } => {
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
-                if let Err(error) = self.evaluator.stream_cancel(&mut stream, span) {
+                if let Err(error) = self.cancel_stream_with_bindings(index, &mut stream, span) {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
                         return Err(error);
                     }
@@ -13434,9 +13561,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.calls[index].work.push(FrameWork::Discard(state));
                 }
             }
-            FrameWork::ForPipeline { mut pipeline, .. } => {
+            FrameWork::ForPipeline {
+                mut pipeline, span, ..
+            } => {
                 let pending = state.primary_error.as_ref().or(self.pending_error.as_ref());
-                let result = pipeline.finish(self.evaluator, pending);
+                let result = self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, pending)
+                });
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
                 if let Err(error) = result {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
@@ -13451,10 +13582,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FrameWork::StageValue {
-                mut pipeline, ..
+                mut pipeline, span, ..
             } => {
                 let pending = state.primary_error.as_ref().or(self.pending_error.as_ref());
-                let result = pipeline.finish(self.evaluator, pending);
+                let result = self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, pending)
+                });
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
                 if let Err(error) = result {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
