@@ -27,6 +27,7 @@ REFERENCE_TREE = "a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08"
 RECORD_NAME = re.compile(r"record-(0|[1-9][0-9]*)-(default|reveal|execution|check-cli)\Z")
 PROFILES = ("default", "reveal", "execution", "check-cli")
 RAW_SCHEMA = "w9-publication-adapter\t1\n"
+RAW_HASH_LIBTEST_PREFIX = "test sema::w9_repository_parity_receipt ... "
 ADAPTER_BUILD_FIELDS = (
     "schema",
     "role",
@@ -482,6 +483,33 @@ def _load_publication_runner(path: pathlib.Path):
     return module
 
 
+def _load_candidate_publication_runner(
+    candidate_root: pathlib.Path,
+    source_receipt: pathlib.Path,
+    runner,
+):
+    candidate_root = runner.real_directory(candidate_root, "candidate source")
+    source_receipt = runner.regular_file(source_receipt, "candidate source and binary receipt")
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record.get("candidate_root", "")) != candidate_root:
+        raise PublicationError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record.get("candidate_commit"), source_record.get("candidate_tree")
+    ):
+        raise PublicationError("candidate source identity differs from its source receipt")
+    candidate_runner = runner.regular_file(
+        candidate_root / "dev/consolidation/w9-publication-run.py",
+        "candidate publication runner",
+    )
+    if source_record.get("runner") != str(candidate_runner):
+        raise PublicationError("candidate source receipt publication runner path differs")
+    if not re.fullmatch(r"[0-9a-f]{64}", source_record.get("runner_sha256", "")):
+        raise PublicationError("candidate source receipt publication runner hash is malformed")
+    if runner.sha256_file(candidate_runner) != source_record["runner_sha256"]:
+        raise PublicationError("candidate publication runner hash differs from its source receipt")
+    return _load_publication_runner(candidate_runner)
+
+
 def _mkdir_new_directory(path: pathlib.Path, runner) -> None:
     parent = runner.open_absolute_nofollow(path.parent, directory=True)
     try:
@@ -590,9 +618,15 @@ def _parse_raw_hash_output(stdout: str, count: int) -> dict[tuple[int, str, str]
     hashes: dict[tuple[int, str, str], str] = {}
     expected_profiles = set(PROFILES)
     for line in stdout.splitlines():
-        if not line.startswith("w9rawhash"):
+        if line.startswith("w9rawhash"):
+            row = line
+        elif "w9rawhash" in line:
+            if not line.startswith(RAW_HASH_LIBTEST_PREFIX):
+                raise PublicationError("native raw hash output has an unknown prefix")
+            row = line[len(RAW_HASH_LIBTEST_PREFIX):]
+        else:
             continue
-        fields = line.split("\t")
+        fields = row.split("\t")
         if len(fields) != 5 or fields[0] != "w9rawhash":
             raise PublicationError("native raw hash output has a malformed row")
         try:
@@ -843,7 +877,12 @@ def _parse_receipt_header(
     return record, lines[len(fields):]
 
 
-def _parse_adapter_build_receipt(path: pathlib.Path, role: str, runner) -> dict[str, str]:
+def _parse_adapter_build_receipt(
+    path: pathlib.Path,
+    role: str,
+    runner,
+    owner_helper_source: pathlib.Path | None = None,
+) -> dict[str, str]:
     receipt = runner.regular_file(path, f"{role} adapter build receipt")
     record, remainder = _parse_receipt_header(
         receipt, runner.read_regular_text(receipt).splitlines(), ADAPTER_BUILD_FIELDS, "adapter build"
@@ -889,7 +928,8 @@ def _parse_adapter_build_receipt(path: pathlib.Path, role: str, runner) -> dict[
     if runner.sha256_file(owner_helper_path) != record["owner_helper_sha256"]:
         raise PublicationError(f"{receipt}: derived owner helper hash differs")
     owner_helper_source = runner.regular_file(record["owner_helper_source_path"], "pinned W9 owner helper source")
-    if pathlib.Path(record["owner_helper_source_path"]) != OWNER_HELPER:
+    expected_owner_source = OWNER_HELPER if owner_helper_source is None else owner_helper_source
+    if pathlib.Path(record["owner_helper_source_path"]) != expected_owner_source:
         raise PublicationError(f"{receipt}: owner helper source path differs from its pin")
     if runner.sha256_file(owner_helper_source) != OWNER_HELPER_SHA256 or record["owner_helper_source_sha256"] != OWNER_HELPER_SHA256:
         raise PublicationError(f"{receipt}: owner helper source hash differs from its pin")
@@ -1227,8 +1267,13 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
     )
     reference_build_path = runner.regular_file(args.reference_build_receipt, "reference adapter build receipt")
     candidate_build_path = runner.regular_file(args.candidate_build_receipt, "candidate adapter build receipt")
-    reference_build = _parse_adapter_build_receipt(reference_build_path, "reference", runner)
-    candidate_build = _parse_adapter_build_receipt(candidate_build_path, "candidate", runner)
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    reference_build = _parse_adapter_build_receipt(
+        reference_build_path, "reference", runner, owner_helper_source
+    )
+    candidate_build = _parse_adapter_build_receipt(
+        candidate_build_path, "candidate", runner, owner_helper_source
+    )
     if pathlib.Path(reference_build["source_root"]) != reference_source_root:
         raise PublicationError("reference adapter build receipt names a different source root")
     if pathlib.Path(candidate_build["source_root"]) != candidate_root:
@@ -1437,7 +1482,9 @@ def build_adapter_harness(
         "helper_sha256": helper_sha256,
         "owner_helper_path": str(adapter_helper.parent / "w9-publication-owner-helper.rs"),
         "owner_helper_sha256": owner_helper_sha256,
-        "owner_helper_source_path": str(OWNER_HELPER),
+        "owner_helper_source_path": str(
+            candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        ),
         "owner_helper_source_sha256": owner_helper_source_sha256,
         "overlay_sha256": overlay_sha256,
         "builder_image": contract["W9_CACHE_BUILD_IMAGE"],
@@ -1466,7 +1513,9 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
         raise PublicationError("candidate source identity differs from its source receipt")
     runner.candidate_scratch_parent(candidate_root)
     derived_directory = _new_derived_helper_directory(candidate_root, runner)
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
     adapter_helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
+        owner_helper=owner_helper_source,
         output_directory=derived_directory,
         output_root=candidate_root,
     )
@@ -1486,8 +1535,9 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
         reference_receipt = runner.regular_file(
             reference_build_receipt, "reference adapter build receipt"
         )
+        owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
         reference_build = _parse_adapter_build_receipt(
-            reference_receipt, "reference", runner
+            reference_receipt, "reference", runner, owner_helper_source
         )
         if pathlib.Path(reference_build["source_root"]) != reference_root:
             raise PublicationError("reference adapter build receipt names a different source root")
@@ -1579,8 +1629,13 @@ def compare_full_publications(
         _capture_field(candidate_capture_receipt, "build_receipt", runner),
         "candidate adapter build receipt",
     )
-    reference_build = _parse_adapter_build_receipt(reference_build_path, "reference", runner)
-    candidate_build = _parse_adapter_build_receipt(candidate_build_path, "candidate", runner)
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    reference_build = _parse_adapter_build_receipt(
+        reference_build_path, "reference", runner, owner_helper_source
+    )
+    candidate_build = _parse_adapter_build_receipt(
+        candidate_build_path, "candidate", runner, owner_helper_source
+    )
     expected_reference_root = runner.real_directory(
         reference_source_root, "clean reference source clone"
     )
@@ -1634,7 +1689,9 @@ def compare_full_publications(
     if reference.inputs != candidate.inputs:
         raise PublicationError("reference and candidate receipt input path or digest differs")
     mismatches: list[str] = []
-    runner_for_paths = _load_publication_runner(ROOT / "dev/consolidation/w9-publication-run.py")
+    runner_for_paths = _load_publication_runner(
+        candidate_root / "dev/consolidation/w9-publication-run.py"
+    )
     reference_root = runner_for_paths.open_absolute_nofollow(reference_raw, directory=True)
     candidate_root = runner_for_paths.open_absolute_nofollow(candidate_raw, directory=True)
     try:
@@ -1714,6 +1771,73 @@ def compare_full_publications(
     return len(keys), len(mismatches)
 
 
+def compare_captured_publications(args: argparse.Namespace, runner) -> int:
+    candidate_root = runner.real_directory(args.candidate_root, "candidate source")
+    source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source and binary receipt")
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise PublicationError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise PublicationError("candidate source identity differs from its source receipt")
+    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise PublicationError(f"candidate source receipt input count differs: {len(expected_inputs)}")
+    reference_source_root = _prepare_reference_source(
+        candidate_root, pathlib.Path(args.reference_source_root), runner
+    )
+    reference_capture_path = runner.regular_file(
+        args.reference_capture_receipt, "reference adapter capture receipt"
+    )
+    candidate_capture_path = runner.regular_file(
+        args.candidate_capture_receipt, "candidate adapter capture receipt"
+    )
+    input_root = pathlib.Path(source_record["input_root"])
+    input_manifest = pathlib.Path(source_record["input_manifest"])
+    reference_raw_root = runner.real_directory(
+        _capture_field(reference_capture_path, "raw_root", runner),
+        "reference adapter raw outcomes",
+    )
+    candidate_raw_root = runner.real_directory(
+        _capture_field(candidate_capture_path, "raw_root", runner),
+        "candidate adapter raw outcomes",
+    )
+    candidate_receipt_directory = runner.real_directory(
+        _capture_field(candidate_capture_path, "receipt_directory", runner),
+        "candidate adapter range receipts",
+    )
+    output = runner.require_output_path(args.output, candidate_root)
+    completed: list[tuple[int, int]] = []
+    docker_environment = runner.local_docker_environment()
+    with runner.claim_run_resources(candidate_root, output, completed):
+        runner.write_status(output, "incomplete", completed)
+        mismatch_path = runner.new_work_file_path(
+            output / "mismatches.tsv", candidate_root, "adapter mismatch report"
+        )
+        outcomes, mismatches = compare_full_publications(
+            runner,
+            pathlib.Path(source_record["reference_receipt"]),
+            candidate_receipt_directory,
+            reference_raw_root,
+            candidate_raw_root,
+            expected_inputs,
+            mismatch_path,
+            reference_capture_path,
+            candidate_capture_path,
+            candidate_root,
+            reference_source_root,
+            source_record,
+            input_root,
+            input_manifest,
+            docker_environment,
+        )
+        summary = f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches}"
+        runner.write_status(output, "complete", completed, summary)
+    print(f"{summary}\nreference_capture={reference_capture_path}\ncandidate_capture={candidate_capture_path}\nmismatch_file={mismatch_path}")
+    return 0 if mismatches == 0 else 1
+
+
 def _capture_field(path: pathlib.Path, field: str, runner) -> str:
     receipt = runner.regular_file(path, "adapter capture receipt")
     for line in runner.read_regular_text(receipt).splitlines()[:len(CAPTURE_FIELDS)]:
@@ -1741,11 +1865,26 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--reference-capture-receipt", type=pathlib.Path)
     run.add_argument("--output", required=True)
     run.add_argument("--dry-run", action="store_true")
+    compare = commands.add_parser("compare-captures")
+    compare.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    compare.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    compare.add_argument("--reference-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--candidate-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == "compare-captures":
+            runner = _load_candidate_publication_runner(
+                args.candidate_root,
+                args.candidate_source_receipt,
+                runner,
+            )
         if args.command == "build-harnesses":
             build_adapter_harnesses(args, runner)
             return 0
+        if args.command == "compare-captures":
+            return compare_captured_publications(args, runner)
         return execute_adapter_publication(args, runner)
     except (PublicationError, runner.PublicationError, runner.CleanupFailure, OSError, subprocess.SubprocessError) as error:
         print(f"W9 publication adapter failed: {error}", file=sys.stderr)

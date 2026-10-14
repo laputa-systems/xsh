@@ -145,6 +145,25 @@ class AdapterRawOutcomeTests(unittest.TestCase):
         with self.assertRaisesRegex(adapter_runner.PublicationError, "repeats"):
             adapter_runner._parse_raw_hash_output(duplicate + duplicate, 1)
 
+    def test_native_raw_hash_output_accepts_only_the_libtest_progress_prefix(self):
+        rows = [
+            f"w9rawhash\t{index}\t{profile}\t{field}\t{'a' * 64}"
+            for index in range(1690)
+            for profile in adapter_runner.PROFILES
+            for field in ("diagnostics", "publication")
+        ]
+        progress = "test sema::w9_repository_parity_receipt ... "
+        hashes = adapter_runner._parse_raw_hash_output(
+            progress + rows[0] + "\n" + "\n".join(rows[1:]), 1690
+        )
+        self.assertEqual(len(hashes), 13520)
+
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "unknown prefix"):
+            adapter_runner._parse_raw_hash_output(
+                "test sema::different_test ... " + rows[0] + "\n" + "\n".join(rows[1:]),
+                1690,
+            )
+
     def test_build_and_capture_receipt_headers_keep_order_and_reject_missing_fields(self):
         for fields, label in (
             (adapter_runner.ADAPTER_BUILD_FIELDS, "adapter build"),
@@ -459,8 +478,14 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.addCleanup(self._cleanup)
         self.addCleanup(self.allocate_helper_patch.stop)
         self.candidate_root = self.case_root
+        self.owner_helper_source = (
+            self.candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        )
         self.candidate_commit, self.candidate_tree = self._initialize_source(
-            self.candidate_root, b"#[test]\nfn candidate_source() {}\n"
+            self.candidate_root,
+            b"#[test]\nfn candidate_source() {}\n",
+            adapter_runner.OWNER_HELPER.read_bytes(),
+            b"candidate publication runner",
         )
         self.runner.exclude_work_from_git(self.candidate_root)
         self.artifact_root = self.candidate_root / ".work/test"
@@ -493,16 +518,27 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             shutil.rmtree(attempt, ignore_errors=True)
         shutil.rmtree(self.case_root, ignore_errors=True)
 
-    def _initialize_source(self, root, source):
+    def _initialize_source(self, root, source, owner_helper=None, publication_runner=None):
         root.mkdir(parents=True, exist_ok=True)
         tests = root / "tests/sema.rs"
         tests.parent.mkdir(parents=True)
         tests.write_bytes(source)
+        add_paths = ["tests/sema.rs"]
+        if owner_helper is not None:
+            helper_source = root / "dev/consolidation/w9-publication-owner-helper.rs"
+            helper_source.parent.mkdir(parents=True)
+            helper_source.write_bytes(owner_helper)
+            add_paths.append("dev/consolidation/w9-publication-owner-helper.rs")
+        if publication_runner is not None:
+            runner_source = root / "dev/consolidation/w9-publication-run.py"
+            runner_source.parent.mkdir(parents=True, exist_ok=True)
+            runner_source.write_bytes(publication_runner)
+            add_paths.append("dev/consolidation/w9-publication-run.py")
         for command in (
             ["git", "init", "--quiet", str(root)],
             ["git", "-C", str(root), "config", "user.name", "Test"],
             ["git", "-C", str(root), "config", "user.email", "test@example.invalid"],
-            ["git", "-C", str(root), "add", "tests/sema.rs"],
+            ["git", "-C", str(root), "add", *add_paths],
             ["git", "-C", str(root), "commit", "--quiet", "-m", "source"],
         ):
             subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -567,7 +603,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             self.runner.APPROVED_BUILD_RUNNER, "pinned adapter build runner", executable=True
         )
         contract = self.runner.w9_build_contract()
-        source_path = pathlib.Path(owner_source_path or adapter_runner.OWNER_HELPER)
+        source_path = pathlib.Path(owner_source_path or self.owner_helper_source)
         source_tests = self.runner.read_regular_bytes(source_root / "tests/sema.rs")
         record = {
             "schema": "1",
@@ -611,7 +647,9 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "wrapper_root": "/home/josh/d/laputa-systems/xsh",
         }
 
-    def _capture_receipt(self, build_path, build_record, capture_root, outcome_count=6760):
+    def _capture_receipt(
+        self, build_path, build_record, capture_root, role="reference", outcome_count=6760
+    ):
         raw_root = capture_root / "raw"
         receipt_directory = capture_root / "receipts"
         raw_root.mkdir(parents=True)
@@ -625,7 +663,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         receipt = capture_root / "capture.receipt"
         adapter_runner._write_capture_receipt(
             receipt,
-            "reference",
+            role,
             build_path,
             build_record,
             capture_root,
@@ -641,6 +679,99 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             lines[adapter_runner.CAPTURE_FIELDS.index("outcome_count")] = f"outcome_count\t{outcome_count}"
             receipt.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return receipt, range_receipts
+
+    def _compare_case(self):
+        reference_build_path, reference_build = self._write_build_receipt(
+            "reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+        )
+        candidate_build_path, _candidate_build = self._write_build_receipt(
+            "candidate",
+            self.candidate_root,
+            self.candidate_commit,
+            self.candidate_tree,
+        )
+        reference_capture, reference_ranges = self._capture_receipt(
+            reference_build_path,
+            reference_build,
+            self.artifact_root / "reference-capture",
+        )
+        candidate_capture, candidate_ranges = self._capture_receipt(
+            candidate_build_path,
+            _candidate_build,
+            self.artifact_root / "candidate-capture",
+            role="candidate",
+        )
+        source_receipt = self.artifact_root / "candidate-source.receipt"
+        source_receipt.write_text("fixture\n", encoding="utf-8")
+        return {
+            "candidate_source_receipt": source_receipt,
+            "reference_capture_receipt": reference_capture,
+            "candidate_capture_receipt": candidate_capture,
+            "reference_ranges": reference_ranges,
+            "candidate_ranges": candidate_ranges,
+            "source_record": self._candidate_source_record(),
+        }
+
+    def _compare_args(self, case, suffix="compare"):
+        return argparse.Namespace(
+            candidate_root=self.candidate_root,
+            candidate_source_receipt=case["candidate_source_receipt"],
+            reference_source_root=self.reference_root,
+            reference_capture_receipt=case["reference_capture_receipt"],
+            candidate_capture_receipt=case["candidate_capture_receipt"],
+            output=str(self.artifact_root / suffix),
+        )
+
+    def _run_compare(self, case):
+        return adapter_runner.compare_captured_publications(
+            self._compare_args(case),
+            self.runner,
+        )
+
+    def _run_full_compare(self, case):
+        original_regular_file = self.runner.regular_file
+        original_require_sha256 = self.runner.require_sha256
+        input_manifest = pathlib.Path(case["source_record"]["input_manifest"])
+
+        def regular_file(path, kind, executable=False):
+            if pathlib.Path(path) == input_manifest:
+                return input_manifest
+            return original_regular_file(path, kind, executable)
+
+        def require_sha256(path, expected, _kind):
+            if pathlib.Path(path) == input_manifest:
+                self.assertEqual(expected, self.runner.INPUT_MANIFEST_SHA256)
+                return expected
+            return original_require_sha256(path, expected, _kind)
+
+        with (
+            patch.object(self.runner, "regular_file", side_effect=regular_file),
+            patch.object(self.runner, "require_sha256", side_effect=require_sha256),
+            patch.object(self.runner, "validate_reference_receipt", return_value=self.reference),
+            patch.object(adapter_runner, "_hash_raw_outcomes") as hash_raw,
+        ):
+            result = adapter_runner.compare_full_publications(
+                self.runner,
+                pathlib.Path(case["source_record"]["reference_receipt"]),
+                case["candidate_capture_receipt"].parent / "receipts",
+                case["reference_capture_receipt"].parent / "raw",
+                case["candidate_capture_receipt"].parent / "raw",
+                self.expected_inputs,
+                self.artifact_root / "mismatches.tsv",
+                case["reference_capture_receipt"],
+                case["candidate_capture_receipt"],
+                self.candidate_root,
+                self.reference_root,
+                case["source_record"],
+                pathlib.Path(case["source_record"]["input_root"]),
+                input_manifest,
+                {"PATH": os.environ["PATH"]},
+            )
+        hash_raw.assert_not_called()
+        return result
 
     def _parse_shard(self, path, _expected_inputs):
         match = re.fullmatch(r"parallel-(\d+)-(\d+)-all\.receipt", path.name)
@@ -673,7 +804,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         return self.runner.ParsedReceipt(header, inputs, outcomes, terminals)
 
     def test_build_reuses_only_a_fully_pinned_reference_harness(self):
-        owner_source = adapter_runner.OWNER_HELPER
+        owner_source = self.owner_helper_source
         reference_receipt, _record = self._write_build_receipt(
             "reference",
             self.reference_root,
@@ -712,7 +843,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(build_roles, ["candidate"])
 
     def test_build_reuse_rejects_wrong_reference_root_and_helper(self):
-        owner_source = adapter_runner.OWNER_HELPER
+        owner_source = self.owner_helper_source
         reference_receipt, _record = self._write_build_receipt(
             "reference",
             self.reference_root,
@@ -805,7 +936,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(build_roles, [])
 
     def test_reference_capture_reuse_rejects_partial_coverage(self):
-        owner_source = adapter_runner.OWNER_HELPER
+        owner_source = self.owner_helper_source
         build_path, build = self._write_build_receipt(
             "reference",
             self.reference_root,
@@ -896,7 +1027,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 )
 
     def test_run_reuses_reference_capture_and_captures_only_the_candidate(self):
-        owner_source = adapter_runner.OWNER_HELPER
+        owner_source = self.owner_helper_source
         reference_build_path, reference_build = self._write_build_receipt(
             "reference",
             self.reference_root,
@@ -975,6 +1106,132 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             (output / "attempt-status.txt").read_text(encoding="utf-8").splitlines()[0],
             "status=complete",
         )
+
+    def test_compare_captures_rechecks_source_and_routes_both_roles_to_comparator(self):
+        case = self._compare_case()
+        comparisons = []
+
+        def compare(*args):
+            comparisons.append(args)
+            args[6].write_text("", encoding="utf-8")
+            return len(self.expected_inputs) * len(adapter_runner.PROFILES), 0
+
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=case["source_record"]),
+            patch.object(
+                self.runner,
+                "validate_all_inputs",
+                return_value=(self.expected_inputs, {}, self.reference),
+            ),
+            patch.object(self.runner, "parse_receipt", side_effect=self._parse_shard),
+            patch.object(self.runner, "local_docker_environment", return_value={"PATH": os.environ["PATH"]}),
+            patch.object(adapter_runner, "compare_full_publications", side_effect=compare),
+        ):
+            result = self._run_compare(case)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(comparisons), 1)
+        self.assertEqual(comparisons[0][2], case["candidate_capture_receipt"].parent / "receipts")
+        self.assertEqual(comparisons[0][3], case["reference_capture_receipt"].parent / "raw")
+        self.assertEqual(comparisons[0][4], case["candidate_capture_receipt"].parent / "raw")
+        output = self.artifact_root / "compare"
+        self.assertEqual(
+            (output / "attempt-status.txt").read_text(encoding="utf-8").splitlines()[0],
+            "status=complete",
+        )
+
+    def test_compare_captures_rejects_candidate_source_drift(self):
+        case = self._compare_case()
+        stale_record = dict(case["source_record"])
+        stale_record["candidate_tree"] = "f" * 40
+
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=stale_record),
+            patch.object(
+                self.runner,
+                "validate_all_inputs",
+                return_value=(self.expected_inputs, {}, self.reference),
+            ),
+            patch.object(adapter_runner, "compare_full_publications") as compare,
+        ):
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "candidate source identity differs from its source receipt",
+            ):
+                self._run_compare(case)
+
+        compare.assert_not_called()
+
+    def test_compare_captures_rejects_incomplete_range_receipt_before_hashing(self):
+        case = self._compare_case()
+        receipt = case["reference_capture_receipt"]
+        lines = receipt.read_text(encoding="utf-8").splitlines()
+        lines[adapter_runner.CAPTURE_FIELDS.index("range_count")] = "range_count\t67"
+        lines[adapter_runner.CAPTURE_FIELDS.index("outcome_count")] = "outcome_count\t6700"
+        receipt.write_text("\n".join(lines[:-1]) + "\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "required source/profile coverage differs",
+        ):
+            self._run_full_compare(case)
+
+    def test_compare_captures_rejects_range_hash_drift_before_hashing(self):
+        case = self._compare_case()
+        changed_range = next(iter(case["candidate_ranges"].values()))
+        changed_range.write_bytes(b"range receipt changed after capture")
+
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "range receipt hash differs",
+        ):
+            self._run_full_compare(case)
+
+    def test_compare_cli_loads_publication_runner_from_candidate_source(self):
+        candidate_runner = object()
+        loaded = []
+        source_receipt = self.artifact_root / "source.receipt"
+        source_receipt.write_text("fixture\n", encoding="utf-8")
+        candidate_runner_path = (
+            self.candidate_root / "dev/consolidation/w9-publication-run.py"
+        )
+        source_record = self._candidate_source_record()
+        source_record["runner"] = str(candidate_runner_path)
+        source_record["runner_sha256"] = self.runner.sha256_file(candidate_runner_path)
+
+        def load(path):
+            loaded.append(pathlib.Path(path))
+            return self.runner if len(loaded) == 1 else candidate_runner
+
+        def compare(_args, runner):
+            self.assertIs(runner, candidate_runner)
+            return 0
+
+        with (
+            patch.object(adapter_runner, "_load_publication_runner", side_effect=load),
+            patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
+            patch.object(adapter_runner, "compare_captured_publications", side_effect=compare),
+        ):
+            result = adapter_runner.main(
+                [
+                    "compare-captures",
+                    "--candidate-root",
+                    str(self.candidate_root),
+                    "--candidate-source-receipt",
+                    str(source_receipt),
+                    "--reference-source-root",
+                    str(self.reference_root),
+                    "--reference-capture-receipt",
+                    str(self.artifact_root / "reference/capture.receipt"),
+                    "--candidate-capture-receipt",
+                    str(self.artifact_root / "candidate/capture.receipt"),
+                    "--output",
+                    str(self.artifact_root / "compare-cli"),
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(loaded[1], self.candidate_root / "dev/consolidation/w9-publication-run.py")
 
 
 if __name__ == "__main__":
