@@ -292,10 +292,32 @@ def _align_tui_owner_facts(
             name,
         )
     runs = aligned["runs"]
-    for run_id, (span_value, propagate) in runs.items():
+    for run_id, (span_value, propagate, head_kind) in runs.items():
         runs[run_id] = (
             _aligned_exact_owner_span(span_value, tui_source_id, edit),
             propagate,
+            head_kind,
+        )
+    structured_stages = aligned.get("structured_stages", {})
+    if not isinstance(structured_stages, Mapping):
+        raise SourceAlignmentError("exact structured stages are malformed")
+    for stage_id, row in structured_stages.items():
+        if (
+            type(stage_id) is not int
+            or stage_id < 0
+            or not isinstance(row, tuple)
+            or len(row) != 4
+            or not isinstance(row[0], str)
+            or not isinstance(row[1], str)
+            or type(row[2]) is not bool
+            or type(row[3]) is not bool
+        ):
+            raise SourceAlignmentError("exact structured stage row is malformed")
+        structured_stages[stage_id] = (
+            _aligned_exact_owner_span(row[0], tui_source_id, edit),
+            row[1],
+            row[2],
+            row[3],
         )
     for record in aligned["records"].values():
         record["span"] = _aligned_exact_owner_span(record["span"], tui_source_id, edit)

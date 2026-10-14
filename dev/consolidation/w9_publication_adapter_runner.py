@@ -2416,6 +2416,7 @@ def compare_full_publications(
                             aligned.candidate_publications[profile_index],
                             aligned.candidate_source_sizes,
                             aligned.candidate_source_owners,
+                            reference_exact_owners=reference_exact_owners[index][1],
                             candidate_exact_owners=aligned_candidate_exact_owners,
                             candidate_statement_owners=aligned_candidate_statement_owners,
                         )
@@ -2433,6 +2434,7 @@ def compare_full_publications(
                             tuple(field.rendered for field in candidate_parsed.fields),
                             aligned.candidate_source_sizes,
                             aligned.candidate_source_owners,
+                            reference_exact_owners=reference_exact_owners[index][1],
                             candidate_exact_owners=aligned_candidate_exact_owners,
                             candidate_statement_owners=aligned_candidate_statement_owners,
                         )

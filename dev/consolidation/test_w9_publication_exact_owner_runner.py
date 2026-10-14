@@ -43,7 +43,9 @@ def owner_index():
             f"owner\t{tail_span}\tstmt:TailBareIdent",
             "exact-counts\t6\t4",
             "binding-initializer-count\t0",
+            "run-form-count\t0",
             "structured-stage-count\t0",
+            "structured-stage-callback-count\t0",
             f"record\tExprId(1)\t{span(0, 50)}\t2",
         f'record-field\tExprId(1)\t0\tnamed\t"first"\t{span(1, 4)}\t\tExprId(2)',
         f'record-field\tExprId(1)\t1\tshorthand\t"alias"\t{span(10, 5)}\t\t',
@@ -71,7 +73,9 @@ def call_and_field_owner_index():
         "call\tExprId(2)\tExprId(1)",
         "field-access\tExprId(4)\tExprId(3)\t" + r'"a\tb\n\r\0\\\"\u{1f642}"',
         "exact-counts\t4\t0",
+        "run-form-count\t0",
         "structured-stage-count\t0",
+        "structured-stage-callback-count\t0",
         "binding-initializer-count\t0",
     ]
     return "\n".join(rows) + "\n"
@@ -90,7 +94,9 @@ def named_and_path_owner_index():
         f'record-field\tExprId(1)\t2\tnamed\t""\t{span(41, 5)}\t\tExprId(2)',
         f'record-field\tExprId(1)\t3\tpath\t[""]\t{span(47, 2)}\t\tExprId(2)',
         "exact-counts\t2\t4",
+        "run-form-count\t0",
         "structured-stage-count\t0",
+        "structured-stage-callback-count\t0",
         "binding-initializer-count\t0",
     ]
     return "\n".join(rows) + "\n"
@@ -101,7 +107,9 @@ def named_keys_with_nonidentifier_names_owner_index():
     rows = [
         "source\tSourceId(0)\t512",
         "exact-counts\t15\t7",
+        "run-form-count\t0",
         "structured-stage-count\t0",
+        "structured-stage-callback-count\t0",
         "binding-initializer-count\t0",
     ]
     record_span = span(0, 512)
@@ -135,12 +143,64 @@ def structured_stage_owner_index():
             "source\tSourceId(0)\t100",
             f"owner\t{span(1, 8)}\tstage:Range",
             "exact-counts\t0\t0",
+            "run-form-count\t0",
             "structured-stage-count\t2",
+            "structured-stage-callback-count\t0",
             "binding-initializer-count\t0",
-            f"structured-stage\t0\t{span(10, 5)}\tRange",
-            f"structured-stage\t1\t{span(20, 5)}\tRepeat",
+            f"structured-stage\t0\t{span(10, 5)}\tRange\tfalse\tfalse\t0",
+            f"structured-stage\t1\t{span(20, 5)}\tRepeat\tfalse\tfalse\t0",
         )
     ) + "\n"
+
+
+def structured_stage_callback_owner_index(
+    arg_rows,
+    *,
+    stage_kind="Map",
+    inline_block="false",
+    accepts="true",
+    callback_rows=None,
+    arg_count=None,
+    extra_expression_rows=(),
+):
+    callback_rows = callback_rows if callback_rows is not None else ("structured-stage-callback\t0\tExprId(1)",)
+    arg_count = len(arg_rows) if arg_count is None else arg_count
+    rows = [
+        "source\tSourceId(0)\t100",
+        f"owner\t{span(20, 5)}\texpr:Ident",
+        f'expr\tExprId(1)\t{span(20, 5)}\tIdent\t"usage"',
+        f"exact-counts\t{1 + sum(row.startswith('expr') for row in extra_expression_rows)}\t0",
+        "run-form-count\t0",
+        "structured-stage-count\t1",
+        f"structured-stage-callback-count\t{len(callback_rows)}",
+        "binding-initializer-count\t0",
+        f"structured-stage\t0\t{span(10, 30)}\t{stage_kind}\t{inline_block}\t{accepts}\t{arg_count}",
+        *arg_rows,
+        *callback_rows,
+        *extra_expression_rows,
+    ]
+    return "\n".join(rows) + "\n"
+
+
+def run_form_owner_index(run_rows=None):
+    run_span = span(10, 20)
+    rows = [
+        "source\tSourceId(0)\t100",
+        f"owner\t{run_span}\tstmt:Command",
+        f"owner\t{run_span}\trun:RunForm",
+        f"stmt\tStmtId(1)\t{run_span}\tstmt:Command",
+        "exact-counts\t0\t0",
+        "run-form-count\t1",
+        "structured-stage-count\t0",
+        "structured-stage-callback-count\t0",
+        "binding-initializer-count\t0",
+    ]
+    rows.extend(
+        run_rows
+        if run_rows is not None
+        else (f"run\tRunFormId(1)\t{run_span}\tfalse\tPlain",)
+    )
+    return "\n".join(rows) + "\n"
 
 
 def binding_initializer_owner_index(
@@ -160,7 +220,9 @@ def binding_initializer_owner_index(
             f"owner\t{expression_span}\texpr:Ident",
             f'expr\tExprId(1)\t{expression_span}\tIdent\t"value"',
             "exact-counts\t1\t0",
+            "run-form-count\t0",
             "structured-stage-count\t0",
+            "structured-stage-callback-count\t0",
             "binding-initializer-count\t1",
             f'binding-initializer\tStmtId(1)\t{json.dumps(binding_name)}\tExprId(1)',
         )
@@ -194,6 +256,57 @@ class ExactOwnerIndexTests(unittest.TestCase):
             variants.append(tag)
 
         self.assertEqual(exact_runner.STREAM_STAGE_TAGS, frozenset(variants))
+
+    def test_run_form_head_kinds_match_the_rust_enum(self):
+        source_path = adapter_runner.ROOT / "src/syntax/node.rs"
+        source = source_path.read_text(encoding="utf-8")
+        enum_start = source.index("pub enum RunKind {") + len("pub enum RunKind {")
+        enum_end = source.index("\n}", enum_start)
+        body = source[enum_start:enum_end]
+        variants = []
+        for line in body.splitlines():
+            entry = line.strip()
+            if not entry:
+                continue
+            self.assertTrue(entry.endswith(","), "RunKind entries must stay simple variants")
+            tag = entry[:-1]
+            self.assertTrue(tag.isidentifier(), "RunKind entries must expose Rust Debug variant names")
+            variants.append(tag)
+
+        self.assertEqual(exact_runner.adapter.RUN_FORM_KINDS, frozenset(variants))
+
+    def test_run_form_rows_bind_head_kind_and_propagation_to_exact_ids(self):
+        legacy, exact = exact_runner.parse_exact_owner_index(run_form_owner_index())
+
+        self.assertEqual(
+            legacy[3]["StmtId(1)"],
+            ("Span{source_id:SourceId(0),start:10,len:20}", "stmt:Command"),
+        )
+        self.assertEqual(
+            exact["runs"],
+            {0: ("Span{source_id:SourceId(0),start:10,len:20}", False, "Plain")},
+        )
+
+    def test_run_form_rows_reject_missing_or_malformed_head_kind_evidence(self):
+        valid = run_form_owner_index()
+        cases = (
+            (valid.replace("\tfalse\tPlain", "\tfalse"), "malformed run row"),
+            (valid.replace("\tfalse\tPlain", "\tfalse\tPlainish"), "unknown run form head kind"),
+            (valid.replace("run\tRunFormId(1)", "run\tRunFormId(0)"), "malformed run form id"),
+            (valid + "run\t" + valid.split("run\t", 1)[1], "duplicate run form id"),
+            (valid.replace("run-form-count\t1\n", ""), "missing its run-form-count row"),
+            (
+                valid.replace("run-form-count\t1\n", "run-form-count\t1\nrun-form-count\t1\n"),
+                "malformed or duplicate run-form-count row",
+            ),
+            (valid.replace("run-form-count\t1", "run-form-count\t0"), "rows do not cover the declared table"),
+            (valid.replace("run\tRunFormId(1)", "run\tRunFormId(2)"), "exact run form ids are not contiguous"),
+            (valid.replace("run\tRunFormId(1)\t" + span(10, 20) + "\tfalse\tPlain\n", ""), "run form rows do not cover the declared table"),
+            (valid.replace(f"owner\t{span(10, 20)}\trun:RunForm\n", ""), "run AST owners do not match exact run forms"),
+        )
+        for contents, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(exact_runner.ExactOwnerError, message):
+                exact_runner.parse_exact_owner_index(contents)
 
     def test_parses_exact_binding_initializer_ids_without_changing_legacy_projection(self):
         legacy, exact = exact_runner.parse_exact_owner_index(binding_initializer_owner_index())
@@ -249,19 +362,81 @@ class ExactOwnerIndexTests(unittest.TestCase):
         self.assertEqual(
             exact["structured_stages"],
             {
-                0: ("Span{source_id:SourceId(0),start:10,len:5}", "Range"),
-                1: ("Span{source_id:SourceId(0),start:20,len:5}", "Repeat"),
+                0: ("Span{source_id:SourceId(0),start:10,len:5}", "Range", False, False),
+                1: ("Span{source_id:SourceId(0),start:20,len:5}", "Repeat", False, False),
             },
         )
+
+    def test_parses_named_and_first_positional_stage_callbacks(self):
+        cases = (
+            (
+                (
+                    'structured-stage-arg\t0\t0\tNamed\t"desc"\tExprId(2)',
+                    'structured-stage-arg\t0\t1\tNamed\t"block"\tExprId(1)',
+                    'structured-stage-arg\t0\t2\tPositional\t-\tExprId(2)',
+                ),
+                ((0, "Named", "desc", 1), (1, "Named", "block", 0), (2, "Positional", None, 1)),
+            ),
+            (("structured-stage-arg\t0\t0\tPositional\t-\tExprId(1)",), ((0, "Positional", None, 0),)),
+        )
+        for arg_rows, expected_args in cases:
+            with self.subTest(expected_args=expected_args):
+                _legacy, exact = exact_runner.parse_exact_owner_index(
+                    structured_stage_callback_owner_index(
+                        arg_rows,
+                        extra_expression_rows=(
+                            f"owner\t{span(26, 5)}\texpr:Ident",
+                            f'expr\tExprId(2)\t{span(26, 5)}\tIdent\t"descending"',
+                        ) if expected_args[0][1] == "Named" else (),
+                    )
+                )
+                self.assertEqual(
+                    exact["structured_stages"],
+                    {0: ("Span{source_id:SourceId(0),start:10,len:30}", "Map", False, True)},
+                )
+                self.assertEqual(exact["stage_arguments"], {0: expected_args})
+                self.assertEqual(exact["stage_callbacks"], {0: 0})
+
+    def test_stage_callback_graph_rejects_inconsistent_or_ambiguous_edges(self):
+        valid_arg = 'structured-stage-arg\t0\t0\tNamed\t"block"\tExprId(1)'
+        valid = structured_stage_callback_owner_index((valid_arg,))
+        stage_row = f"structured-stage\t0\t{span(10, 30)}\tMap\tfalse\ttrue\t1"
+        cases = (
+            (valid.replace("structured-stage-callback-count\t1", "structured-stage-callback-count\t0"), "do not cover the declared table"),
+            (valid.replace(stage_row, stage_row.replace("false\ttrue", "true\ttrue")), "inline block"),
+            (valid.replace(stage_row, stage_row.replace("false\ttrue", "false\tfalse")), "does not accept callable"),
+            (valid.replace(valid_arg, valid_arg.replace("ExprId(1)", "ExprId(2)")), "missing expression"),
+            (
+                valid.replace(f'{span(20, 5)}\tIdent\t"usage"', f'{span(20, 5)}\tStr\t""'),
+                "not a direct identifier or field",
+            ),
+            (valid.replace(valid_arg, valid_arg.replace('Named\t"block"', 'Named\t"workers"')), "does not identify its callback argument"),
+            (valid.replace(valid_arg, valid_arg.replace('Named\t"block"', "NamedSpread\t-")), "ambiguous spread arguments"),
+            (valid.replace(valid_arg, valid_arg.replace("\t0\tNamed", "\t1\tNamed")), "do not cover the declared argument table"),
+            (
+                valid.replace("exact-counts\t1\t0", "exact-counts\t2\t0")
+                .replace(
+                    "structured-stage-callback\t0\tExprId(1)",
+                    "structured-stage-callback\t0\tExprId(2)",
+                )
+                + f"owner\t{span(25, 3)}\texpr:Ident\nexpr\tExprId(2)\t{span(25, 3)}\tIdent\t\"other\"\n",
+                "does not match its argument graph",
+            ),
+            (valid.replace("structured-stage-callback-count\t1\n", ""), "missing its structured-stage-callback-count"),
+            (valid.replace(valid_arg + "\n", ""), "do not cover the declared argument table"),
+        )
+        for contents, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(exact_runner.ExactOwnerError, message):
+                exact_runner.parse_exact_owner_index(contents)
 
     def test_structured_stage_count_and_rows_fail_closed(self):
         valid = structured_stage_owner_index()
         cases = (
             (valid.replace("structured-stage-count\t2\n", ""), "is missing its structured-stage-count"),
-            (valid + f"structured-stage\t0\t{span(30, 5)}\tMap\n", "duplicate structured-stage index"),
-            (valid.replace(f"structured-stage\t0\t{span(10, 5)}\tRange", f"structured-stage\t0\t{span(10, 5)}\tUnknown"), "unknown structured-stage kind"),
-            (valid.replace(f"structured-stage\t0\t{span(10, 5)}\tRange", f"structured-stage\t0\t{span(96, 5)}\tRange"), "outside its source"),
-            (valid.replace(f"structured-stage\t1\t{span(20, 5)}\tRepeat\n", ""), "do not cover the declared table"),
+            (valid + f"structured-stage\t0\t{span(30, 5)}\tMap\tfalse\tfalse\t0\n", "duplicate structured-stage index"),
+            (valid.replace(f"structured-stage\t0\t{span(10, 5)}\tRange\tfalse\tfalse\t0", f"structured-stage\t0\t{span(10, 5)}\tUnknown\tfalse\tfalse\t0"), "unknown structured-stage kind"),
+            (valid.replace(f"structured-stage\t0\t{span(10, 5)}\tRange\tfalse\tfalse\t0", f"structured-stage\t0\t{span(96, 5)}\tRange\tfalse\tfalse\t0"), "outside its source"),
+            (valid.replace(f"structured-stage\t1\t{span(20, 5)}\tRepeat\tfalse\tfalse\t0\n", ""), "do not cover the declared table"),
         )
         for contents, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(exact_runner.ExactOwnerError, message):

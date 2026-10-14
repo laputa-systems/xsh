@@ -7,6 +7,18 @@ from typing import Callable, Mapping, NamedTuple, Sequence
 
 ADAPTER_SCHEMA = "w9-publication-adapter-v1"
 SOURCE_SCHEMAS = {"legacy", "current"}
+RUN_FORM_KINDS = frozenset(
+    {
+        "Plain",
+        "Status",
+        "CaptureText",
+        "CaptureBytes",
+        "CaptureTextRecord",
+        "CaptureBytesRecord",
+        "StreamText",
+        "StreamBytes",
+    }
+)
 _DEBUG_STRUCTURAL_TOKENS = re.compile(r'''['"{}()\[\]]''')
 _DEBUG_COMMA_TOKENS = re.compile(r'''['"{}()\[\],]''')
 _DEBUG_COLON_TOKENS = re.compile(r'''['"{}()\[\]:]''')
@@ -619,6 +631,7 @@ def _project_propagating_statements(
     fields: Mapping[str, str],
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
+    validated_stage_callback_statements: set[str] | frozenset[str] = frozenset(),
 ) -> str:
     raw_spans = _set_items_ordered(value)
     seen = set()
@@ -636,6 +649,11 @@ def _project_propagating_statements(
         if source_id not in source_sizes or start + length > source_sizes[source_id]:
             raise AdapterError(f"propagating statement span is outside its source: {canonical_span}")
         owners = source_owners.get(canonical_span, set())
+        if canonical_span in validated_stage_callback_statements:
+            if any(owner.startswith("stmt:") for owner in owners):
+                raise AdapterError(f"propagating stage callback overlaps a statement owner: {canonical_span}")
+            retained.append(raw_span)
+            continue
         if not any(owner.startswith("stmt:") for owner in owners):
             raise AdapterError(f"propagating statement span has no statement AST owner: {canonical_span}")
         if source_schema == "legacy":
@@ -655,7 +673,8 @@ def _current_fact_owners(
     source_owners: Mapping[str, set[str]],
     exact_owners: Mapping[str, object] | None = None,
     statement_owners: Mapping[str, tuple[str, str]] | None = None,
-) -> None:
+) -> set[str]:
+    validated_propagating_stage_callbacks: set[str] = set()
     declarations = _fields(fields["checked_declarations"], "CheckedDeclarations")
     functions = _map_entries(declarations["functions"])
     function_owners = {}
@@ -689,6 +708,20 @@ def _current_fact_owners(
     callable_aliases = _canonical_span_map(
         fields["static_callable_aliases"], "static callable alias"
     )
+    statement_positions = _canonical_span_map(
+        fields["statement_positions"], "checked statement position"
+    )
+    stream_stage_types_by_id = {}
+    for key, output_type in _map_entries(fields["stream_stage_types"]).items():
+        raw_stage_id, raw_stage_span = _pair_key(key)
+        stage_id_match = re.fullmatch(r"StreamStageId\((0|[1-9][0-9]*)\)", raw_stage_id)
+        if stage_id_match is None:
+            raise AdapterError("checked stream-stage table has a malformed stage id")
+        stage_id = int(stage_id_match.group(1))
+        stage_span = _canonicalize_span(raw_stage_span)[0]
+        if stage_id in stream_stage_types_by_id:
+            raise AdapterError("checked stream-stage table has duplicate stage ids")
+        stream_stage_types_by_id[stage_id] = (stage_span, output_type)
     resolved_bindings = (
         _parse_resolved_bindings(fields["resolved_bindings"])
         if exact_owners is not None and (selected or static - other_static_calls)
@@ -794,6 +827,8 @@ def _current_fact_owners(
     native_set_spans: set[str] = set()
     native_error_failure_spans: set[str] = set()
     selected_call_spans: set[str] = set()
+    validated_stage_callback_spans: set[str] = set()
+    stage_callback_edges: Mapping[str, object] = {}
     if exact_owners is not None:
         for span in selected:
             call_ids = [
@@ -813,8 +848,34 @@ def _current_fact_owners(
                 raise AdapterError(f"selected function-call has no exact callee link: {span}")
             selected_call_spans.add(span)
 
+        try:
+            from w9_publication_reference_facts import (
+                expected_stage_callback_position,
+                validate_function_reference_targets,
+            )
+        except ImportError as error:
+            raise AdapterError("function-reference validator is unavailable") from error
+        stage_callback_validation = validate_function_reference_targets(
+            fields=fields,
+            source_sizes=source_sizes,
+            source_owners=source_owners,
+            exact_owners=exact_owners,
+        )
+        validated_stage_callback_spans = getattr(
+            stage_callback_validation, "implicit_function_spans", None
+        )
+        stage_callback_edges = getattr(stage_callback_validation, "edges", None)
+        if not isinstance(validated_stage_callback_spans, (set, frozenset)) or any(
+            not isinstance(span, str) for span in validated_stage_callback_spans
+        ):
+            raise AdapterError("function-reference validator returned malformed stage callback spans")
+        if not isinstance(stage_callback_edges, Mapping) or any(
+            not isinstance(span, str) for span in stage_callback_edges
+        ):
+            raise AdapterError("function-reference validator returned malformed stage callback edges")
+
         for span in static - other_static_calls:
-            if span in selected_call_spans:
+            if span in selected_call_spans or span in validated_stage_callback_spans:
                 continue
             if resolved_bindings is None:
                 raise AdapterError("static call-site validation has no parsed resolver facts")
@@ -838,6 +899,10 @@ def _current_fact_owners(
             source_sizes,
             source_owners,
             static,
+            stage_callback_edges,
+            statement_positions,
+            stream_stage_types_by_id,
+            expected_stage_callback_position,
         )
         missing_static_calls = (
             (static - other_static_calls)
@@ -845,23 +910,18 @@ def _current_fact_owners(
             - native_set_spans
             - native_error_failure_spans
             - validated_alias_spans
+            - validated_stage_callback_spans
         )
         if missing_static_calls:
             raise AdapterError(
                 "static call-site facts have no selected function call or validated native intrinsic route: "
                 + ",".join(sorted(missing_static_calls))
             )
-        if selected:
-            try:
-                from w9_publication_reference_facts import validate_function_reference_targets
-            except ImportError as error:
-                raise AdapterError("function-reference validator is unavailable") from error
-            validate_function_reference_targets(
-                fields=fields,
-                source_sizes=source_sizes,
-                source_owners=source_owners,
-                exact_owners=exact_owners,
-            )
+        validated_propagating_stage_callbacks = {
+            span
+            for span in validated_stage_callback_spans | validated_alias_spans
+            if getattr(stage_callback_edges.get(span), "stage_kind", None) in {"Each", "Tee"}
+        }
     control_flow = _fields(fields["checked_control_flow"], "CheckedControlFlowFacts")
     expected_fields = {"complete", *CONTROL_FLOW_OWNERS}
     if set(control_flow) != expected_fields:
@@ -874,11 +934,7 @@ def _current_fact_owners(
         fields["propagating_statements"], "propagating statement"
     )
     api_calls = _canonical_span_map(fields["api_calls"], "checked API call")
-    statement_positions = _canonical_span_map(fields["statement_positions"], "checked statement position")
-    stage_spans = {
-        _canonicalize_span(_pair_key(key)[1])[0]
-        for key in _map_entries(fields["stream_stage_types"])
-    }
+    stage_spans = {span for span, _kind in stream_stage_types_by_id.values()}
     control_flow_owners = dict(source_owners)
     structured_stage_owners = {}
     if exact_owners is not None:
@@ -886,9 +942,17 @@ def _current_fact_owners(
         if not isinstance(runs, Mapping):
             raise AdapterError("exact run-form facts are malformed")
         for run_id, row in runs.items():
-            if type(run_id) is not int or not isinstance(row, tuple) or len(row) != 2 or type(row[1]) is not bool:
+            if (
+                type(run_id) is not int
+                or not isinstance(row, tuple)
+                or len(row) != 3
+                or not isinstance(row[0], str)
+                or type(row[1]) is not bool
+                or not isinstance(row[2], str)
+                or row[2] not in RUN_FORM_KINDS
+            ):
                 raise AdapterError("exact run-form row is malformed")
-            run_span, _propagates = row
+            run_span, _propagates, _head_kind = row
             canonical_run_span, source_id, start, length = _canonicalize_span(run_span)
             if source_id not in source_sizes or start + length > source_sizes[source_id]:
                 raise AdapterError(f"exact run form span is outside its source: {canonical_run_span}")
@@ -899,11 +963,16 @@ def _current_fact_owners(
         ) or set(structured_stages) != set(range(len(structured_stages))):
             raise AdapterError("exact structured stream-stage facts are malformed")
         for stage_id, row in structured_stages.items():
-            if not isinstance(row, tuple) or len(row) != 2 or not all(
-                isinstance(value, str) for value in row
+            if (
+                not isinstance(row, tuple)
+                or len(row) != 4
+                or not isinstance(row[0], str)
+                or not isinstance(row[1], str)
+                or type(row[2]) is not bool
+                or type(row[3]) is not bool
             ):
                 raise AdapterError(f"exact structured stream-stage row is malformed: {stage_id}")
-            raw_stage_span, kind = row
+            raw_stage_span, kind, _inline_block, _accepts_callable = row
             canonical_stage_span, source_id, start, length = _canonicalize_span(raw_stage_span)
             if source_id not in source_sizes or start + length > source_sizes[source_id]:
                 raise AdapterError(
@@ -949,13 +1018,14 @@ def _current_fact_owners(
                     matching_runs = [
                         row
                         for row in runs.values()
-                        if isinstance(row, tuple) and len(row) == 2 and row[0] == span
+                        if row[0] == span
                     ]
                     if len(matching_runs) == 1 and matching_runs[0][1] is True:
                         continue
                     if (
                         len(matching_runs) != 1
                         or matching_runs[0][1] is not False
+                        or matching_runs[0][2] != "Plain"
                         or "stmt:Command" not in owner_kinds
                     ):
                         raise AdapterError(f"propagating run-form span has no exact propagating run: {span}")
@@ -987,6 +1057,7 @@ def _current_fact_owners(
                     raise AdapterError(f"exhaustive match expression has no checked expression type: {span}")
                 if "stmt:Match" in owner_kinds and span not in statement_positions:
                     raise AdapterError(f"exhaustive match statement has no checked statement position: {span}")
+    return validated_propagating_stage_callbacks
 
 
 def _is_native_set_call(
@@ -1051,6 +1122,10 @@ def _validate_static_callable_alias_facts(
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
     static_calls: set[str],
+    stage_callback_edges: Mapping[str, object],
+    statement_positions: Mapping[str, str],
+    stream_stage_types_by_id: Mapping[int, tuple[str, str]],
+    expected_stage_callback_position: Callable[[str], str],
 ) -> set[str]:
     call_spans_by_callee = {}
     for call_id, callee_id in calls.items():
@@ -1077,6 +1152,22 @@ def _validate_static_callable_alias_facts(
         if not isinstance(alias_expression, tuple) or len(alias_expression) != 3:
             raise AdapterError(f"static callable alias expression owner is malformed: {alias_span}")
         _, alias_kind, _ = alias_expression
+        stage_edge = stage_callback_edges.get(alias_span)
+        if stage_edge is not None and (
+            getattr(stage_edge, "expression_id", None) != alias_id
+            or getattr(stage_edge, "expression_span", None) != alias_span
+            or getattr(stage_edge, "expression_kind", None) != alias_kind
+            or type(getattr(stage_edge, "stage_id", None)) is not int
+            or not isinstance(getattr(stage_edge, "stage_span", None), str)
+            or not isinstance(getattr(stage_edge, "stage_kind", None), str)
+        ):
+            raise AdapterError(f"static callable alias disagrees with its exact stage callback edge: {alias_span}")
+        if stage_edge is not None:
+            stage_id = getattr(stage_edge, "stage_id")
+            stage_span = _canonicalize_span(getattr(stage_edge, "stage_span"))[0]
+            stage_kind = getattr(stage_edge, "stage_kind")
+            if stream_stage_types_by_id.get(stage_id, (None,))[0] != stage_span:
+                raise AdapterError(f"static callable alias stage callback has no matching checked stream stage: {alias_span}")
         _validate_source_span(
             alias_span, "static callable alias", source_sizes, source_owners, {f"expr:{alias_kind}"}
         )
@@ -1143,8 +1234,36 @@ def _validate_static_callable_alias_facts(
         linked_calls = call_spans_by_callee.get(alias_id, [])
         if len(linked_calls) > 1:
             raise AdapterError(f"static callable alias has ambiguous exact Call links: {alias_span}")
-        if alias["method_call"] == "true" and not linked_calls:
+        if alias["method_call"] == "true" and not linked_calls and stage_edge is None:
             raise AdapterError(f"static callable alias method call has no exact Call link: {alias_span}")
+        if stage_edge is not None and alias_span in static_calls:
+            expected_position = expected_stage_callback_position(stage_kind)
+            if statement_positions.get(alias_span) != expected_position:
+                raise AdapterError(
+                    f"static callable alias stage callback has no checked {expected_position} position: {alias_span}"
+                )
+            checked_type = expression_types.get(alias_span)
+            if checked_type is None:
+                raise AdapterError(f"static callable alias stage callback has no checked expression type: {alias_span}")
+            if checked_type != signature["return_ty"]:
+                raise AdapterError(f"static callable alias stage callback type disagrees with its signature: {alias_span}")
+            alias_name = _debug_name_value(alias["name"])
+            if alias_kind == "Ident" and alias_expression[2] != alias_name:
+                raise AdapterError(f"static callable alias stage callback name disagrees with its exact identifier: {alias_span}")
+            if alias_kind == "Field" and alias["method_call"] == "true":
+                if not isinstance(field_access, tuple) or len(field_access) != 2:
+                    raise AdapterError(f"static callable alias stage method call has no exact Field link: {alias_span}")
+                base_id, method = field_access
+                base = expressions.get(base_id)
+                if (
+                    method != "call"
+                    or not isinstance(base, tuple)
+                    or len(base) != 3
+                    or base[1] != "Ident"
+                    or base[2] != alias_name
+                ):
+                    raise AdapterError(f"static callable alias stage method call has an invalid base: {alias_span}")
+            alias_calls.add(alias_span)
         if linked_calls:
             if alias["method_call"] == "false" and alias_kind not in {"Ident", "Field"}:
                 raise AdapterError(f"static callable alias Call has an unsupported callee kind: {alias_span}")
@@ -1802,6 +1921,7 @@ def project_publication(
     statement_owners: Mapping[str, tuple[str, str]] | None = None,
     *,
     candidate_exact_owners: Mapping[str, object] | None = None,
+    reference_exact_owners: Mapping[str, object] | None = None,
 ) -> str:
     if source_schema not in SOURCE_SCHEMAS:
         raise AdapterError(f"unsupported source schema {source_schema!r}")
@@ -1815,6 +1935,7 @@ def project_publication(
         tail_statement_owners,
         statement_owners,
         candidate_exact_owners=candidate_exact_owners,
+        reference_exact_owners=reference_exact_owners,
     )
 
 
@@ -1828,12 +1949,14 @@ def _project_publication_parts(
     statement_owners: Mapping[str, tuple[str, str]] | None = None,
     *,
     candidate_exact_owners: Mapping[str, object] | None = None,
+    reference_exact_owners: Mapping[str, object] | None = None,
 ) -> str:
     if source_schema not in SOURCE_SCHEMAS:
         raise AdapterError(f"unsupported source schema {source_schema!r}")
     common_fields, fields = _parse_struct_fields(entries, "CheckOutput")
     for path in PATHS[source_schema]:
         common_fields, _ = _remove_field_pairs(common_fields, path)
+    validated_propagating_stage_callbacks: set[str] | frozenset[str] = frozenset()
     common_fields = _rewrite_field_pairs(
         common_fields,
         (("CheckOutput", "prepared_constants"), ("PreparedConstants", "cli_plans")),
@@ -1845,17 +1968,41 @@ def _project_publication_parts(
         _legacy_redundancy(
             fields, source_sizes, source_owners, tail_statement_owners, statement_owners
         )
+        if reference_exact_owners is not None:
+            try:
+                from w9_publication_reference_facts import validate_stage_callback_edges
+            except ImportError as error:
+                raise AdapterError("stage callback validator is unavailable") from error
+            edges = validate_stage_callback_edges(
+                source_sizes=source_sizes,
+                source_owners=source_owners,
+                exact_owners=reference_exact_owners,
+            )
+            statement_positions = _canonical_span_map(
+                fields["statement_positions"], "legacy checked statement position"
+            )
+            validated_propagating_stage_callbacks = {
+                span
+                for span, edge in edges.items()
+                if getattr(edge, "stage_kind", None) in {"Each", "Tee"}
+                and statement_positions.get(span) == "Statement"
+            }
     elif source_sizes is None or source_owners is None:
         raise AdapterError("current publication validation requires source sizes and AST owners")
     else:
-        _current_fact_owners(
+        validated_propagating_stage_callbacks = _current_fact_owners(
             fields, source_sizes, source_owners, candidate_exact_owners, statement_owners
         )
     common_fields = _rewrite_field_pairs(
         common_fields,
         (("CheckOutput", "propagating_statements"),),
         lambda value: _project_propagating_statements(
-            value, source_schema, fields, source_sizes, source_owners
+            value,
+            source_schema,
+            fields,
+            source_sizes,
+            source_owners,
+            validated_propagating_stage_callbacks,
         ),
     )
     return _format_struct_fields(prefix, common_fields)
@@ -1876,6 +2023,7 @@ def _compare_parsed_publications(
     current_source_owners: Mapping[str, set[str]],
     *,
     candidate_exact_owners: Mapping[str, object] | None = None,
+    reference_exact_owners: Mapping[str, object] | None = None,
     candidate_statement_owners: Mapping[str, tuple[str, str]] | None = None,
 ) -> None:
     if legacy_diagnostics != current_diagnostics:
@@ -1888,6 +2036,7 @@ def _compare_parsed_publications(
         legacy_source_owners,
         legacy_tail_statement_owners,
         legacy_statement_owners,
+        reference_exact_owners=reference_exact_owners,
     ) != _project_publication_parts(
         "current",
         current_prefix,
@@ -1913,13 +2062,15 @@ def compare_publications(
     current_source_owners: Mapping[str, set[str]],
     *,
     candidate_exact_owners: Mapping[str, object] | None = None,
+    reference_exact_owners: Mapping[str, object] | None = None,
     candidate_statement_owners: Mapping[str, tuple[str, str]] | None = None,
 ) -> None:
     if legacy_diagnostics != current_diagnostics:
         raise AdapterError("diagnostic mismatch")
     if project_publication(
         "legacy", legacy_rendered, legacy_source_sizes, legacy_source_owners,
-        legacy_tail_statement_owners, legacy_statement_owners
+        legacy_tail_statement_owners, legacy_statement_owners,
+        reference_exact_owners=reference_exact_owners,
     ) != project_publication(
         "current", current_rendered, current_source_sizes, current_source_owners,
         statement_owners=candidate_statement_owners,

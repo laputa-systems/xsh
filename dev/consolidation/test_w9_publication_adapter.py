@@ -1,5 +1,6 @@
 import unittest
 
+import w9_publication_adapter as adapter
 from w9_publication_adapter import (
     AdapterError,
     _split_first_top_level,
@@ -169,6 +170,19 @@ def project_legacy(rendered, tail_statement_owners=TAIL_STATEMENT_OWNERS):
     )
 
 
+def projected_propagating_statements(rendered):
+    return set(adapter._set_items_ordered(
+        adapter._fields(rendered, "CheckOutput")["propagating_statements"]
+    ))
+
+
+def replace_check_output_field(rendered, field_name, field_value):
+    prefix, entries = adapter._struct_parts(rendered, "CheckOutput")
+    fields = [adapter._field(entry) for entry in entries]
+    replaced = [(name, field_value if name == field_name else value) for name, value in fields]
+    return adapter._format_struct_fields(prefix, replaced)
+
+
 def exact_call_owners(extra_call_span=None):
     expressions = {
         0: (CALL_SPAN, "Call", ""),
@@ -192,6 +206,9 @@ def exact_call_owners(extra_call_span=None):
         "aliases": {},
         "tails": {},
         "binding_initializers": {},
+        "structured_stages": {},
+        "stage_arguments": {},
+        "stage_callbacks": {},
         "expr_count": len(expressions),
         "record_field_count": 0,
     }
@@ -199,6 +216,7 @@ def exact_call_owners(extra_call_span=None):
 
 def exact_stage_publication(kind="Range", include_type=True):
     current, owners = exact_current_call_publication()
+    owners[STAGE_SPAN] = {f"stage:{kind}"}
     stage_type = f"(StreamStageId(0),{STAGE_SPAN}):Range" if include_type else ""
     current = current.replace(
         "stream_stage_types:{}", f"stream_stage_types:{{{stage_type}}}"
@@ -207,8 +225,82 @@ def exact_stage_publication(kind="Range", include_type=True):
         f"fallible_pipeline_stage_spans:{{{STAGE_SPAN}}}",
     )
     exact_owners = exact_call_owners()
-    exact_owners["structured_stages"] = {0: (STAGE_SPAN, kind)}
+    exact_owners["structured_stages"] = {0: (STAGE_SPAN, kind, False, False)}
+    exact_owners["stage_arguments"] = {0: ()}
+    exact_owners["stage_callbacks"] = {}
     return current, owners, exact_owners
+
+
+def exact_stage_callback_alias_publication(stage_kind="Each", position="Statement", return_type="Unit"):
+    current, owners = exact_current_call_publication()
+    callback_span = ALIAS_IDENT_SPAN
+    alias = (
+        'StaticCallableAlias{definition:None,method_call:false,name:Name("usage"),pure:true,'
+        f"signature:CallableType{{effects:None,params:[],return_ty:{return_type}" "}}"
+    )
+    current = current.replace(
+        f"statically_resolved_call_spans:{{{CALL_SPAN}}}",
+        f"statically_resolved_call_spans:{{{callback_span}}}",
+    ).replace(
+        f"expr_types:{{{CALL_SPAN}:Bool}}",
+        f"expr_types:{{{CALL_SPAN}:Bool,{callback_span}:{return_type}}}",
+    ).replace(
+        f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+        f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value,{callback_span}:{position}}}",
+    ).replace(
+        "static_callable_aliases:{}",
+        f"static_callable_aliases:{{{callback_span}:{alias}}}",
+    ).replace(
+        f"propagating_statements:{{{SPAN},{COMMAND_SPAN}}}",
+        f"propagating_statements:{{{SPAN},{COMMAND_SPAN},{callback_span}}}",
+    ).replace(
+        "stream_stage_types:{}",
+        f"stream_stage_types:{{(StreamStageId(0),{STAGE_SPAN}):Stream(Str)}}",
+    ).replace(
+        f"selected_function_calls:{{{CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(1),namespace:None,name:Name(\"run\")}}}}",
+        "selected_function_calls:{}",
+    )
+    owners[callback_span] = {"expr:Ident"}
+    owners[STAGE_SPAN] = {f"stage:{stage_kind}"}
+    exact_owners = exact_call_owners()
+    exact_owners["exprs"][2] = (callback_span, "Ident", "usage")
+    exact_owners["expr_count"] = 3
+    exact_owners["structured_stages"] = {
+        0: (STAGE_SPAN, stage_kind, False, True),
+    }
+    exact_owners["stage_arguments"] = {
+        0: ((0, "Named", "block", 2),),
+    }
+    exact_owners["stage_callbacks"] = {0: 2}
+    return current, owners, exact_owners, callback_span
+
+
+def exact_stage_callback_legacy_publication(callback_span, return_type="Unit"):
+    alias = (
+        'StaticCallableAlias{definition:None,method_call:false,name:Name("usage"),pure:true,'
+        f"signature:CallableType{{effects:None,params:[],return_ty:{return_type}" "}}"
+    )
+    return (
+        LEGACY_PUBLICATION.replace(
+            "propagating_statements:{" + SPAN + "}",
+            "propagating_statements:{" + SPAN + "," + callback_span + "}",
+        ).replace(
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value,{callback_span}:Statement}}",
+        ).replace(
+            f"expr_types:{{{CALL_SPAN}:Bool}}",
+            f"expr_types:{{{CALL_SPAN}:Bool,{callback_span}:{return_type}}}",
+        ).replace(
+            f"statically_resolved_call_spans:{{{CALL_SPAN}}}",
+            f"statically_resolved_call_spans:{{{callback_span}}}",
+        ).replace(
+            "static_callable_aliases:{}",
+            f"static_callable_aliases:{{{callback_span}:{alias}}}",
+        ).replace(
+            "stream_stage_types:{}",
+            f"stream_stage_types:{{(StreamStageId(0),{STAGE_SPAN}):Stream(Str)}}",
+        )
+    )
 
 
 def exact_current_call_publication(extra_call_span=None):
@@ -1388,6 +1480,154 @@ class PublicationAdapterTests(unittest.TestCase):
                 candidate_exact_owners=reexported_exact,
             )
 
+    def test_propagating_stage_callback_alias_uses_exact_stage_edge(self):
+        for stage_kind in ("Each", "Tee"):
+            for return_type in ("Unit", "Result(Unit, Error)", "Bool"):
+                with self.subTest(stage_kind=stage_kind, return_type=return_type):
+                    current, owners, exact_owners, callback_span = exact_stage_callback_alias_publication(
+                        stage_kind=stage_kind,
+                        return_type=return_type,
+                    )
+                    projected = project_publication(
+                        "current",
+                        current,
+                        SOURCE_SIZES,
+                        owners,
+                        candidate_exact_owners=exact_owners,
+                    )
+                    propagating_field = projected_propagating_statements(projected)
+                    self.assertIn(callback_span, propagating_field)
+                    legacy = exact_stage_callback_legacy_publication(callback_span, return_type)
+                    legacy = replace_check_output_field(
+                        legacy,
+                        "checked_declarations",
+                        adapter._fields(current, "CheckOutput")["checked_declarations"],
+                    )
+                    legacy = replace_check_output_field(
+                        legacy,
+                        "resolved_bindings",
+                        adapter._fields(current, "CheckOutput")["resolved_bindings"],
+                    )
+                    legacy_projected = project_publication(
+                        "legacy",
+                        legacy,
+                        SOURCE_SIZES,
+                        owners,
+                        TAIL_STATEMENT_OWNERS,
+                        STATEMENT_OWNERS,
+                        reference_exact_owners=exact_owners,
+                    )
+                    legacy_propagating_field = projected_propagating_statements(
+                        legacy_projected
+                    )
+                    self.assertIn(callback_span, legacy_propagating_field)
+                    self.assertEqual(propagating_field, legacy_propagating_field)
+
+            wrong_position, owners, exact_owners, _callback_span = exact_stage_callback_alias_publication(
+                stage_kind=stage_kind,
+                position="Value",
+            )
+            with self.assertRaisesRegex(AdapterError, "no checked Statement position"):
+                project_publication(
+                    "current",
+                    wrong_position,
+                    SOURCE_SIZES,
+                    owners,
+                    candidate_exact_owners=exact_owners,
+                )
+
+            wrong_result, owners, exact_owners, callback_span = exact_stage_callback_alias_publication(
+                stage_kind=stage_kind, return_type="Unit"
+            )
+            mismatched_result = wrong_result.replace(
+                f"{callback_span}:Unit", f"{callback_span}:Bool"
+            )
+            with self.assertRaisesRegex(AdapterError, "type disagrees with its signature"):
+                project_publication(
+                    "current",
+                    mismatched_result,
+                    SOURCE_SIZES,
+                    owners,
+                    candidate_exact_owners=exact_owners,
+                )
+
+            missing_edge = dict(exact_owners)
+            missing_edge["stage_callbacks"] = {}
+            with self.assertRaisesRegex(AdapterError, "static call-site facts"):
+                project_publication(
+                    "current", wrong_result, SOURCE_SIZES, owners,
+                    candidate_exact_owners=missing_edge,
+                )
+
+            wrong_kind = dict(exact_owners)
+            wrong_kind["structured_stages"] = {
+                0: (STAGE_SPAN, "Map", False, True),
+            }
+            wrong_kind_owners = {**owners, STAGE_SPAN: {"stage:Map"}}
+            with self.assertRaisesRegex(AdapterError, "no checked Value position"):
+                project_publication(
+                    "current", wrong_result, SOURCE_SIZES, wrong_kind_owners,
+                    candidate_exact_owners=wrong_kind,
+                )
+
+            legacy = exact_stage_callback_legacy_publication(callback_span)
+            legacy = replace_check_output_field(
+                legacy,
+                "checked_declarations",
+                adapter._fields(wrong_result, "CheckOutput")["checked_declarations"],
+            )
+            legacy = replace_check_output_field(
+                legacy,
+                "resolved_bindings",
+                adapter._fields(wrong_result, "CheckOutput")["resolved_bindings"],
+            )
+            with self.assertRaisesRegex(AdapterError, "no statement AST owner"):
+                project_publication(
+                    "legacy", legacy, SOURCE_SIZES, owners,
+                    TAIL_STATEMENT_OWNERS, STATEMENT_OWNERS,
+                    reference_exact_owners=missing_edge,
+                )
+
+            with self.assertRaisesRegex(AdapterError, "no statement AST owner"):
+                project_publication(
+                    "legacy", legacy, SOURCE_SIZES, wrong_kind_owners,
+                    TAIL_STATEMENT_OWNERS, STATEMENT_OWNERS,
+                    reference_exact_owners=wrong_kind,
+                )
+
+            compare_publications(
+                "diagnostic",
+                legacy,
+                SOURCE_SIZES,
+                owners,
+                TAIL_STATEMENT_OWNERS,
+                STATEMENT_OWNERS,
+                "diagnostic",
+                wrong_result,
+                SOURCE_SIZES,
+                owners,
+                reference_exact_owners=exact_owners,
+                candidate_exact_owners=exact_owners,
+            )
+            legacy_prefix, legacy_entries = adapter._struct_parts(legacy, "CheckOutput")
+            current_prefix, current_entries = adapter._struct_parts(wrong_result, "CheckOutput")
+            parsed_arguments = (
+                "diagnostic", legacy_prefix, legacy_entries, SOURCE_SIZES, owners,
+                TAIL_STATEMENT_OWNERS, STATEMENT_OWNERS, "diagnostic",
+                current_prefix, current_entries, SOURCE_SIZES, owners,
+            )
+            adapter._compare_parsed_publications(
+                *parsed_arguments,
+                reference_exact_owners=exact_owners,
+                candidate_exact_owners=exact_owners,
+            )
+            with self.assertRaisesRegex(AdapterError, "no statement AST owner"):
+                adapter._compare_parsed_publications(
+                    *parsed_arguments,
+                    reference_exact_owners=missing_edge,
+                    candidate_exact_owners=exact_owners,
+                )
+
     def test_static_callable_alias_routes_join_exact_callee_spans(self):
         for callee_kind, method_call in (("Field", False), ("Ident", False), ("Field", True)):
             with self.subTest(callee_kind=callee_kind, method_call=method_call):
@@ -1580,13 +1820,13 @@ class PublicationAdapterTests(unittest.TestCase):
             f"propagating_error_spans:{{{COMMAND_SPAN},{RUN_FORM_SPAN}}}",
         )
         exact_owners = exact_call_owners()
-        exact_owners["runs"] = {0: (RUN_FORM_SPAN, True)}
+        exact_owners["runs"] = {0: (RUN_FORM_SPAN, True, "CaptureText")}
         project_publication(
             "current", current, SOURCE_SIZES, owners,
             candidate_exact_owners=exact_owners,
         )
 
-        exact_owners["runs"] = {0: (RUN_FORM_SPAN, False)}
+        exact_owners["runs"] = {0: (RUN_FORM_SPAN, False, "CaptureText")}
         with self.assertRaisesRegex(AdapterError, "no exact propagating run"):
             project_publication(
                 "current", current, SOURCE_SIZES, owners,
@@ -1607,7 +1847,7 @@ class PublicationAdapterTests(unittest.TestCase):
         )
         owners[RUN_FORM_SPAN] = {"stmt:Command"}
         exact_owners = exact_call_owners()
-        exact_owners["runs"] = {0: (RUN_FORM_SPAN, False)}
+        exact_owners["runs"] = {0: (RUN_FORM_SPAN, False, "Plain")}
         statement_owners = {
             **STATEMENT_OWNERS,
             "StmtId(18)": (RUN_FORM_SPAN, "stmt:Command"),
@@ -1618,6 +1858,17 @@ class PublicationAdapterTests(unittest.TestCase):
             statement_owners=statement_owners,
             candidate_exact_owners=exact_owners,
         )
+
+        for head_kind in ("Status", "CaptureText", "StreamText"):
+            with self.subTest(head_kind=head_kind):
+                non_plain = exact_call_owners()
+                non_plain["runs"] = {0: (RUN_FORM_SPAN, False, head_kind)}
+                with self.assertRaisesRegex(AdapterError, "no exact propagating run"):
+                    project_publication(
+                        "current", current, SOURCE_SIZES, owners,
+                        statement_owners=statement_owners,
+                        candidate_exact_owners=non_plain,
+                    )
 
         without_statement_fact = current.replace(
             f"propagating_statements:{{{SPAN},{COMMAND_SPAN},{RUN_FORM_SPAN}}}",
@@ -1740,6 +1991,7 @@ class PublicationAdapterTests(unittest.TestCase):
 
         missing_stage = exact_stage_publication()
         missing_stage[2]["structured_stages"] = {}
+        missing_stage[2]["stage_arguments"] = {}
         with self.assertRaisesRegex(AdapterError, "no exact structured Range or Repeat stage"):
             project_publication(
                 "current", missing_stage[0], SOURCE_SIZES, missing_stage[1],

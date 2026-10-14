@@ -19,6 +19,17 @@ import test_w9_publication_sources as source_fixtures
 
 FIXTURE_INITIALIZER_STATEMENT_START = 470
 FIXTURE_INITIALIZER_EXPRESSION_START = 472
+EMPTY_EXACT_OWNER_FACTS = {
+    "exprs": {},
+    "expr_count": 0,
+    "record_field_count": 0,
+    "records": {},
+    "aliases": {},
+    "tails": {},
+    "structured_stages": {},
+    "stage_arguments": {},
+    "stage_callbacks": {},
+}
 
 
 class AdapterRawOutcomeTests(unittest.TestCase):
@@ -2225,6 +2236,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "exprs": {
                 0: initializer_expression
             },
+            "expr_count": 1,
+            "record_field_count": 0,
             "runs": {},
             "records": {},
             "aliases": {},
@@ -2232,10 +2245,14 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "calls": {},
             "field_accesses": {},
             "binding_initializers": binding_initializers,
+            "structured_stages": {},
+            "stage_arguments": {},
+            "stage_callbacks": {},
         }
         exact_owner_projection = {
             "reference": {
-                index: (reference_projection, {}) for index in self.expected_inputs
+                index: (reference_projection, EMPTY_EXACT_OWNER_FACTS)
+                for index in self.expected_inputs
             },
             "candidate": {
                 index: (candidate_projection, candidate_exact_owners)
@@ -2323,7 +2340,10 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             observed[0][1]["candidate_exact_owners"]["exprs"][0][0],
             source_fixtures.span(5, candidate_start - source_fixtures.DELTA, 1),
         )
-        self.assertNotIn("reference_exact_owners", observed[0][1])
+        self.assertEqual(
+            observed[0][1]["reference_exact_owners"],
+            EMPTY_EXACT_OWNER_FACTS,
+        )
         self.assertEqual(
             progress,
             "comparison_progress inputs=1/1 outcomes=1/1 mismatches=0\n",

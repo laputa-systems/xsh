@@ -19,7 +19,7 @@ import w9_publication_adapter_runner as adapter_runner
 EXACT_OWNER_TEST = "sema::w9_exact_repository_owners_receipt"
 EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
 EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owners.rs")
-EXACT_OWNER_HELPER_SHA256 = "65376626a1b7d56020211bc16d8e2e5a2d85db625b8be30ef7401921936dcd8e"
+EXACT_OWNER_HELPER_SHA256 = "8160d27f4edadeff5ecd177fc7d1313156bf6b582c67b9399ffe1381732a03ce"
 EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t1\n"
 EXACT_PROOF_FIELDS = (
     "schema",
@@ -136,13 +136,17 @@ EXACT_OWNER_ROWS = {
     "exact-counts",
     "expr",
     "run",
+    "run-form-count",
     "record",
     "record-field",
     "record-shorthand-alias",
     "call",
     "field-access",
     "structured-stage-count",
+    "structured-stage-callback-count",
     "structured-stage",
+    "structured-stage-arg",
+    "structured-stage-callback",
 }
 
 
@@ -293,8 +297,10 @@ def parse_exact_owner_index(
     binding_initializers: dict[tuple[int, str], int] = {}
     binding_initializer_statements: set[int] = set()
     structured_stage_count: int | None = None
+    structured_stage_callback_count: int | None = None
+    run_form_count: int | None = None
     expressions: dict[int, tuple[str, str, str]] = {}
-    runs: dict[int, tuple[str, bool]] = {}
+    runs: dict[int, tuple[str, bool, str]] = {}
     record_headers: dict[int, tuple[str, int]] = {}
     record_fields: dict[
         int,
@@ -303,7 +309,9 @@ def parse_exact_owner_index(
     aliases: dict[tuple[int, int], tuple[int, str, str]] = {}
     calls: dict[int, int] = {}
     field_accesses: dict[int, tuple[int, str]] = {}
-    structured_stages: dict[int, tuple[str, str]] = {}
+    structured_stages: dict[int, tuple[str, str, bool, bool, int]] = {}
+    structured_stage_arguments: dict[int, dict[int, tuple[str, str | None, int]]] = {}
+    structured_stage_callbacks: dict[int, int] = {}
     for line_number, line in enumerate(contents.splitlines(), 1):
         fields = line.split("\t")
         if fields[0] in {"source", "stmt", "tail"}:
@@ -327,6 +335,18 @@ def parse_exact_owner_index(
                     f"owner index line {line_number}: malformed or duplicate structured-stage-count row"
                 )
             structured_stage_count = _decimal(fields[1], "structured-stage count")
+        elif fields[0] == "structured-stage-callback-count":
+            if len(fields) != 2 or structured_stage_callback_count is not None:
+                raise ExactOwnerError(
+                    f"owner index line {line_number}: malformed or duplicate structured-stage-callback-count row"
+                )
+            structured_stage_callback_count = _decimal(fields[1], "structured-stage callback count")
+        elif fields[0] == "run-form-count":
+            if len(fields) != 2 or run_form_count is not None:
+                raise ExactOwnerError(
+                    f"owner index line {line_number}: malformed or duplicate run-form-count row"
+                )
+            run_form_count = _decimal(fields[1], "run form count")
         elif fields[0] == "binding-initializer-count":
             if len(fields) != 2 or binding_initializer_count is not None:
                 raise ExactOwnerError(
@@ -347,7 +367,7 @@ def parse_exact_owner_index(
             binding_initializers[key] = initializer_id
             binding_initializer_statements.add(statement_id)
         elif fields[0] == "structured-stage":
-            if len(fields) != 4:
+            if len(fields) != 7:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed structured-stage row")
             stage_index = _decimal(fields[1], "structured-stage index")
             if stage_index in structured_stages:
@@ -355,7 +375,41 @@ def parse_exact_owner_index(
             tag = fields[3]
             if tag not in STREAM_STAGE_TAGS:
                 raise ExactOwnerError(f"owner index line {line_number}: unknown structured-stage kind")
-            structured_stages[stage_index] = (fields[2], tag)
+            if fields[4] not in {"true", "false"} or fields[5] not in {"true", "false"}:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed structured-stage flag")
+            structured_stages[stage_index] = (
+                fields[2], tag, fields[4] == "true", fields[5] == "true",
+                _decimal(fields[6], "structured-stage argument count"),
+            )
+        elif fields[0] == "structured-stage-arg":
+            if len(fields) != 6:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed structured-stage-arg row")
+            stage_index = _decimal(fields[1], "structured-stage argument owner")
+            argument_index = _decimal(fields[2], "structured-stage argument index")
+            kind = fields[3]
+            if kind not in {"Positional", "Named", "NamedSpread", "Splice"}:
+                raise ExactOwnerError(f"owner index line {line_number}: unknown structured-stage argument kind")
+            if kind == "Named":
+                name = _decode_rust_string(fields[4], f"owner index line {line_number} argument name")
+                if IDENTIFIER.fullmatch(name) is None:
+                    raise ExactOwnerError(f"owner index line {line_number}: malformed structured-stage argument name")
+            else:
+                if fields[4] != "-":
+                    raise ExactOwnerError(f"owner index line {line_number}: non-named argument has a name")
+                name = None
+            expression_id = _expr_id(fields[5], "structured-stage argument expression id")
+            arguments = structured_stage_arguments.setdefault(stage_index, {})
+            if argument_index in arguments:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate structured-stage argument index")
+            arguments[argument_index] = (kind, name, expression_id)
+        elif fields[0] == "structured-stage-callback":
+            if len(fields) != 3:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed structured-stage-callback row")
+            stage_index = _decimal(fields[1], "structured-stage callback owner")
+            expression_id = _expr_id(fields[2], "structured-stage callback expression id")
+            if stage_index in structured_stage_callbacks:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate structured-stage callback owner")
+            structured_stage_callbacks[stage_index] = expression_id
         elif fields[0] == "expr":
             if len(fields) != 5:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed expr row")
@@ -370,14 +424,16 @@ def parse_exact_owner_index(
                 raise ExactOwnerError(f"owner index line {line_number}: non-identifier expression has a spelling")
             expressions[expression_id] = (fields[2], tag, name)
         elif fields[0] == "run":
-            if len(fields) != 4:
+            if len(fields) != 5:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed run row")
             run_id = _run_id(fields[1], "run form id")
             if run_id in runs:
                 raise ExactOwnerError(f"owner index line {line_number}: duplicate run form id")
             if fields[3] not in {"true", "false"}:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed run propagation flag")
-            runs[run_id] = (fields[2], fields[3] == "true")
+            if fields[4] not in adapter.RUN_FORM_KINDS:
+                raise ExactOwnerError(f"owner index line {line_number}: unknown run form head kind")
+            runs[run_id] = (fields[2], fields[3] == "true", fields[4])
         elif fields[0] == "record":
             if len(fields) != 4:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed record row")
@@ -454,12 +510,73 @@ def parse_exact_owner_index(
         range(len(structured_stages))
     ):
         raise ExactOwnerError("structured-stage rows do not cover the declared table")
+    if structured_stage_callback_count is None:
+        raise ExactOwnerError("exact owner index is missing its structured-stage-callback-count row")
+    if structured_stage_callback_count != len(structured_stage_callbacks):
+        raise ExactOwnerError("structured-stage callback rows do not cover the declared table")
+    if set(structured_stage_arguments) - set(structured_stages):
+        raise ExactOwnerError("structured-stage arguments reference an unknown stage")
+    if set(structured_stage_callbacks) - set(structured_stages):
+        raise ExactOwnerError("structured-stage callbacks reference an unknown stage")
+    if any(stage_index not in structured_stage_arguments for stage_index in structured_stages):
+        structured_stage_arguments.update(
+            (stage_index, {})
+            for stage_index in structured_stages
+            if stage_index not in structured_stage_arguments
+        )
+    for stage_index, (_raw_span, _tag, _inline_block, _accepts_callable, argument_count) in structured_stages.items():
+        arguments = structured_stage_arguments[stage_index]
+        if len(arguments) != argument_count or set(arguments) != set(range(argument_count)):
+            raise ExactOwnerError("structured-stage argument rows do not cover the declared argument table")
+    if run_form_count is None:
+        raise ExactOwnerError("exact owner index is missing its run-form-count row")
+    if len(runs) != run_form_count:
+        raise ExactOwnerError("run form rows do not cover the declared table")
+    if set(runs) != set(range(run_form_count)):
+        raise ExactOwnerError("exact run form ids are not contiguous")
     if set(expressions) != set(range(expr_count)):
         raise ExactOwnerError("exact expression ids do not cover the declared arena table")
-    if set(runs) != set(range(len(runs))):
-        raise ExactOwnerError("exact run form ids are not contiguous")
     if set(expressions) != set(range(len(expressions))):
         raise ExactOwnerError("exact expression ids are not contiguous")
+
+    normalized_stage_arguments: dict[int, tuple[tuple[int, str, str | None, int], ...]] = {}
+    for stage_index, arguments in structured_stage_arguments.items():
+        normalized_rows = []
+        for argument_index in range(len(arguments)):
+            kind, name, expression_id = arguments[argument_index]
+            if expression_id not in expressions:
+                raise ExactOwnerError(
+                    f"structured-stage argument {stage_index}:{argument_index} references a missing expression"
+                )
+            normalized_rows.append((argument_index, kind, name, expression_id))
+        normalized_stage_arguments[stage_index] = tuple(normalized_rows)
+
+    for stage_index, expression_id in structured_stage_callbacks.items():
+        raw_span, tag, inline_block, accepts_callable, _argument_count = structured_stages[stage_index]
+        if inline_block:
+            raise ExactOwnerError(f"structured-stage callback {stage_index} has an inline block")
+        if not accepts_callable:
+            raise ExactOwnerError(f"structured-stage callback {stage_index} is on a stage that does not accept callable")
+        if expression_id not in expressions:
+            raise ExactOwnerError(f"structured-stage callback {stage_index} references a missing expression")
+        expression_tag = expressions[expression_id][1]
+        if expression_tag not in {"Ident", "Field"}:
+            raise ExactOwnerError(f"structured-stage callback {stage_index} is not a direct identifier or field")
+        arguments = normalized_stage_arguments[stage_index]
+        if any(kind in {"NamedSpread", "Splice"} for _index, kind, _name, _expr in arguments):
+            raise ExactOwnerError(f"structured-stage callback {stage_index} has ambiguous spread arguments")
+        named_blocks = [row for row in arguments if row[1] == "Named" and row[2] == "block"]
+        positionals = [row for row in arguments if row[1] == "Positional"]
+        if len(named_blocks) == 1 and all(
+            index > named_blocks[0][0] for index, _kind, _name, _expression_id in positionals
+        ):
+            candidate_id = named_blocks[0][3]
+        elif not named_blocks and positionals and positionals[0][0] == 0:
+            candidate_id = positionals[0][3]
+        else:
+            raise ExactOwnerError(f"structured-stage callback {stage_index} does not identify its callback argument")
+        if candidate_id != expression_id:
+            raise ExactOwnerError(f"structured-stage callback {stage_index} does not match its argument graph")
 
     call_ids = {
         expression_id
@@ -485,8 +602,10 @@ def parse_exact_owner_index(
         stage_index: (
             _span(raw_span, source_sizes, f"structured stage {stage_index}"),
             tag,
+            inline_block,
+            accepts_callable,
         )
-        for stage_index, (raw_span, tag) in structured_stages.items()
+        for stage_index, (raw_span, tag, inline_block, accepts_callable, _argument_count) in structured_stages.items()
     }
 
     for expression_id, (raw_span, tag, _name) in expressions.items():
@@ -517,13 +636,13 @@ def parse_exact_owner_index(
         if statement_source != initializer_source:
             raise ExactOwnerError(f"binding initializer {statement_id} crosses source ownership")
         validated_binding_initializers[(statement_id, name)] = (statement_span, initializer_id)
-    for run_id, (raw_span, propagate) in runs.items():
-        runs[run_id] = (_span(raw_span, source_sizes, f"run form {run_id}"), propagate)
+    for run_id, (raw_span, propagate, head_kind) in runs.items():
+        runs[run_id] = (_span(raw_span, source_sizes, f"run form {run_id}"), propagate, head_kind)
     normalized_run_owners = {
         _span(raw_span, source_sizes, "run AST owner") for raw_span in run_owner_spans
     }
     if len(normalized_run_owners) != len(run_owner_spans) or normalized_run_owners != {
-        span for span, _propagate in runs.values()
+        span for span, _propagate, _head_kind in runs.values()
     }:
         raise ExactOwnerError("run AST owners do not match exact run forms")
 
@@ -608,6 +727,8 @@ def parse_exact_owner_index(
         "calls": calls,
         "field_accesses": field_accesses,
         "structured_stages": structured_stages,
+        "stage_arguments": normalized_stage_arguments,
+        "stage_callbacks": structured_stage_callbacks,
         "binding_initializers": validated_binding_initializers,
         "tails": {
             _stmt_id(statement_id): (span, name, kind)

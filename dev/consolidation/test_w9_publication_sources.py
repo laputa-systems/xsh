@@ -262,9 +262,15 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
                 4: (unrelated_span, "Ident", "other"),
             },
             "runs": {
-                0: (debug_span(source_id, run_start, 1), True),
-                1: (unrelated_span, False),
+                0: (debug_span(source_id, run_start, 1), True, "CaptureText"),
+                1: (unrelated_span, False, "Plain"),
             },
+            "structured_stages": {
+                0: (debug_span(source_id, candidate_start + 4, 1), "Map", False, True),
+                1: (unrelated_span, "Range", False, False),
+            },
+            "stage_arguments": {0: ((0, "Named", "block", 1),), 1: ()},
+            "stage_callbacks": {0: 1},
             "records": {
                 0: {
                     "span": span(source_id, candidate_start, 1),
@@ -315,8 +321,20 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
         self.assertEqual(aligned["exprs"][2], (unrelated_span, "Ident", "spare"))
         self.assertEqual(
             aligned["runs"],
-            {0: (debug_span(source_id, expected_start + 2, 1), True), 1: (unrelated_span, False)},
+            {
+                0: (debug_span(source_id, expected_start + 2, 1), True, "CaptureText"),
+                1: (unrelated_span, False, "Plain"),
+            },
         )
+        self.assertEqual(
+            aligned["structured_stages"],
+            {
+                0: (debug_span(source_id, expected_start + 4, 1), "Map", False, True),
+                1: (unrelated_span, "Range", False, False),
+            },
+        )
+        self.assertEqual(aligned["stage_arguments"], exact_owners["stage_arguments"])
+        self.assertEqual(aligned["stage_callbacks"], exact_owners["stage_callbacks"])
         self.assertEqual(aligned["records"][0]["span"], span(source_id, expected_start, 1))
         self.assertEqual(
             aligned["records"][0]["fields"][0],

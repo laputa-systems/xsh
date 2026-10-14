@@ -6,7 +6,7 @@ pub fn w9_write_exact_adapter_owners(
 ) -> std::io::Result<()> {
     use std::io::Write as _;
     use xsh::frontend::syntax::arena::{
-        ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind,
+        ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind,
         ArenaRecordFieldKind, ArenaStmtKind, ExprId, StmtId,
     };
 
@@ -155,6 +155,89 @@ pub fn w9_write_exact_adapter_owners(
             })
             .collect::<Vec<_>>()
     });
+    let structured_stages = program.symbol_owner().with_current(|| {
+        program
+            .arena
+            .stream_stages
+            .iter()
+            .enumerate()
+            .map(|(stage_id, stage)| {
+                let arguments = program.arena.call_args(stage.args);
+                let argument_rows = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(argument_id, argument)| {
+                        let (kind, name, expression) = match &argument.kind {
+                            ArenaCallArgKind::Positional(expression) => ("Positional", None, *expression),
+                            ArenaCallArgKind::NamedSpread { value, .. } => ("NamedSpread", None, *value),
+                            ArenaCallArgKind::Splice { value, .. } => ("Splice", None, *value),
+                            ArenaCallArgKind::Named { name, value, .. } => (
+                                "Named",
+                                Some(name.as_str().as_str().to_owned()),
+                                *value,
+                            ),
+                        };
+                        (argument_id, kind, name, expression)
+                    })
+                    .collect::<Vec<_>>();
+                let accepts_callable =
+                    xsh_registry::stream_parameters::stage_accepts_callable(stage.kind.as_str());
+                let has_spread = arguments.iter().any(|argument| {
+                    matches!(
+                        &argument.kind,
+                        ArenaCallArgKind::NamedSpread { .. } | ArenaCallArgKind::Splice { .. }
+                    )
+                });
+                let named_blocks = arguments
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(argument_id, argument)| match &argument.kind {
+                        ArenaCallArgKind::Named { name, value, .. }
+                            if name.as_str().as_str() == "block" => Some((argument_id, *value)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let positionals = arguments
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(argument_id, argument)| match &argument.kind {
+                        ArenaCallArgKind::Positional(expression) => Some((argument_id, *expression)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let callback = if accepts_callable && stage.block.is_none() && !has_spread {
+                    match (named_blocks.as_slice(), positionals.as_slice()) {
+                        ([block], positionals)
+                            if positionals.iter().all(|(argument_id, _)| *argument_id > block.0) =>
+                        {
+                            Some(block.1)
+                        }
+                        ([], positionals) if positionals.first().is_some_and(|(argument_id, _)| *argument_id == 0) => {
+                            positionals.first().map(|(_, expression)| *expression)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+                .filter(|expression| {
+                    matches!(
+                        &program.arena.expr(*expression).kind,
+                        ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
+                    )
+                });
+                (
+                    stage_id,
+                    stage.span,
+                    format!("{:?}", stage.kind),
+                    stage.block.is_some(),
+                    accepts_callable,
+                    argument_rows,
+                    callback,
+                )
+            })
+            .collect::<Vec<_>>()
+    });
 
     for (_, span, tag, ident) in &expression_rows {
         let ident = format!("{ident:?}");
@@ -210,7 +293,17 @@ pub fn w9_write_exact_adapter_owners(
     for (raw, run_form) in program.arena.run_forms.iter().enumerate() {
         let id = xsh::frontend::syntax::arena::RunFormId::from_index(raw);
         let span = program.arena.span(run_form.span);
-        writeln!(output, "run\t{id:?}\t{span:?}\t{}", run_form.propagate)?;
+        let head = program
+            .arena
+            .run_segments(run_form.segments)
+            .first()
+            .ok_or_else(|| w9_exact_invalid_data("run form has no head segment"))?;
+        writeln!(
+            output,
+            "run\t{id:?}\t{span:?}\t{}\t{:?}",
+            run_form.propagate,
+            head.kind
+        )?;
     }
 
     let mut identifier_aliases = std::collections::BTreeMap::new();
@@ -266,18 +359,43 @@ pub fn w9_write_exact_adapter_owners(
         "exact-counts\t{}\t{record_field_count}",
         expression_rows.len()
     )?;
-    writeln!(
-        output,
-        "structured-stage-count\t{}",
-        program.arena.stream_stages.len()
-    )?;
-    for (table_index, stage) in program.arena.stream_stages.iter().enumerate() {
-        let span = program.arena.span(stage.span);
-        let kind = format!("{:?}", stage.kind);
+    writeln!(output, "run-form-count\t{}", program.arena.run_forms.len())?;
+    writeln!(output, "structured-stage-count\t{}", structured_stages.len())?;
+    let callback_count = structured_stages
+        .iter()
+        .filter(|(_, _, _, _, _, _, callback)| callback.is_some())
+        .count();
+    writeln!(output, "structured-stage-callback-count\t{callback_count}")?;
+    for (
+        table_index,
+        stage_span,
+        kind,
+        inline_block,
+        accepts_callable,
+        arguments,
+        callback,
+    ) in &structured_stages
+    {
+        let span = program.arena.span(*stage_span);
         writeln!(
             output,
-            "structured-stage\t{table_index}\t{span:?}\t{kind}"
+            "structured-stage\t{table_index}\t{span:?}\t{kind}\t{inline_block}\t{accepts_callable}\t{}",
+            arguments.len()
         )?;
+        for (argument_index, kind, name, expression) in arguments {
+            let name = match name {
+                Some(name) => format!("{name:?}"),
+                None => "-".to_owned(),
+            };
+            w9_exact_validate_tsv_text(&name)?;
+            writeln!(
+                output,
+                "structured-stage-arg\t{table_index}\t{argument_index}\t{kind}\t{name}\t{expression:?}"
+            )?;
+        }
+        if let Some(callback) = callback {
+            writeln!(output, "structured-stage-callback\t{table_index}\t{callback:?}")?;
+        }
     }
     writeln!(output, "binding-initializer-count\t{}", binding_initializers.len())?;
     for (statement, name, initializer) in binding_initializers {
