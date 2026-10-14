@@ -77,7 +77,7 @@ pub fn w9_write_exact_adapter_owners(
                                 program
                                     .arena
                                     .names(*path)
-                                    .map(|name| name.as_str().as_str())
+                                    .map(|name| name.as_str().as_str().to_owned())
                                     .collect::<Vec<_>>()
                                     .join("."),
                                 *span,
