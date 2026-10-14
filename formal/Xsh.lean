@@ -19,11 +19,13 @@ import Xsh.Paths.Normalize
 import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps
 import Xsh.Calls.ArgumentOrder
+import Xsh.Collect.Block
 import Xsh.Semantics.Argv
 import Xsh.Semantics.ListAccess
 import Xsh.Semantics.ListExecution
 import Xsh.Iteration.Snapshot
 import Xsh.Loops.ControlFlow
+import Xsh.Matches.Selection
 import Xsh.Strings.Slice
 import Xsh.Strings.Search
 import Xsh.Strings.ByteAccess

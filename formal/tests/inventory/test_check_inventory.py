@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(508, len(result["fragment_roots"]))
+        self.assertEqual(532, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -667,6 +667,48 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Values.OrderedSet.insertion_order_mutation_detected",
             },
             ordered_set_roots,
+        )
+        collect_block_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Collect.Block"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Collect.Block.single_yield_appends_one_item",
+                "Xsh.Collect.Block.delegated_list_keeps_its_order",
+                "Xsh.Collect.Block.yields_follow_execution_order",
+                "Xsh.Collect.Block.normal_exit_publishes_the_accumulator",
+                "Xsh.Collect.Block.empty_normal_exit_publishes_an_empty_list",
+                "Xsh.Collect.Block.nested_collect_uses_an_independent_accumulator",
+                "Xsh.Collect.Block.err_is_an_ordinary_collected_item",
+                "Xsh.Collect.Block.escaping_break_discards_the_partial_list",
+                "Xsh.Collect.Block.escaping_continue_discards_the_partial_list",
+                "Xsh.Collect.Block.escaping_return_discards_the_partial_list",
+                "Xsh.Collect.Block.escaping_failure_discards_the_partial_list",
+                "Xsh.Collect.Block.reversing_delegated_items_changes_the_list",
+            },
+            collect_block_roots,
+        )
+        match_selection_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Matches.Selection"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Matches.Selection.subject_expression_is_evaluated_once",
+                "Xsh.Matches.Selection.pattern_tests_follow_arm_order",
+                "Xsh.Matches.Selection.pattern_miss_skips_guard",
+                "Xsh.Matches.Selection.pattern_miss_advances_to_next_arm",
+                "Xsh.Matches.Selection.successful_pattern_precedes_guard",
+                "Xsh.Matches.Selection.false_guard_advances_to_next_arm",
+                "Xsh.Matches.Selection.true_guard_selects_current_arm",
+                "Xsh.Matches.Selection.selected_arm_skips_later_tests",
+                "Xsh.Matches.Selection.else_runs_after_prior_rejections",
+                "Xsh.Matches.Selection.exhausted_arms_produce_no_arm_fault",
+                "Xsh.Matches.Selection.captures_are_published_only_after_pattern_success",
+                "Xsh.Matches.Selection.reordered_else_mutation_changes_selection",
+            },
+            match_selection_roots,
         )
 
     def test_missing_fragment_module_root_fails(self) -> None:

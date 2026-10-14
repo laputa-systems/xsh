@@ -7558,6 +7558,222 @@
       "status": "fragment",
       "scope": "A witness distinguishes clamping a parent at the absolute root from retaining it.",
       "boundary": "Native-byte lexical stack abstraction only; arbitrary byte inputs bypass runtime NUL admission. It excludes cwd resolution, filesystem lookup, symlinks, confinement, path fields, construction, interpolation, and XSH runtime or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.single_yield_appends_one_item",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.single_yield_appends_one_item",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One yield appends exactly its value to the collected list.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.delegated_list_keeps_its_order",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.delegated_list_keeps_its_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Delegating a finite list retains the order of its items.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.yields_follow_execution_order",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.yields_follow_execution_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Interleaved yields and delegated lists follow event execution order.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.normal_exit_publishes_the_accumulator",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.normal_exit_publishes_the_accumulator",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Normal completion publishes the list accumulated from all finite events.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.empty_normal_exit_publishes_an_empty_list",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.empty_normal_exit_publishes_an_empty_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A normally completed empty block publishes an empty list.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.nested_collect_uses_an_independent_accumulator",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.nested_collect_uses_an_independent_accumulator",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A nested collect owns an independent accumulator and contributes its list as one outer item.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.err_is_an_ordinary_collected_item",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.err_is_an_ordinary_collected_item",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An Err value is appended as ordinary list data.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.escaping_break_discards_the_partial_list",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.escaping_break_discards_the_partial_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A preclassified escaping break discards the in-progress list.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.escaping_continue_discards_the_partial_list",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.escaping_continue_discards_the_partial_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A preclassified escaping continue discards the in-progress list.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.escaping_return_discards_the_partial_list",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.escaping_return_discards_the_partial_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A preclassified escaping return discards the in-progress list.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.escaping_failure_discards_the_partial_list",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.escaping_failure_discards_the_partial_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A preclassified escaping failure discards the in-progress list.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Collect.Block.reversing_delegated_items_changes_the_list",
+      "module": "Xsh.Collect.Block",
+      "declaration": "Xsh.Collect.Block.reversing_delegated_items_changes_the_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Reversing a delegated list changes the result for a non-palindromic event trace.",
+      "boundary": "Finite collect events, list accumulation, and publication on normal exit. Escaping transfers are already classified and record only their kind, without target identity or return/error payload. Loop-local control classification, effects, cleanup, streams, retry, checker/type inference, AST evaluation, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.subject_expression_is_evaluated_once",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.subject_expression_is_evaluated_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The subject expression is evaluated once before the first arm test.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.pattern_tests_follow_arm_order",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.pattern_tests_follow_arm_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Pattern tests run in source order until one matches.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.pattern_miss_skips_guard",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.pattern_miss_skips_guard",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A pattern miss skips the guard and advances to later arms.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.pattern_miss_advances_to_next_arm",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.pattern_miss_advances_to_next_arm",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A pattern miss advances selection to the next arm.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.successful_pattern_precedes_guard",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.successful_pattern_precedes_guard",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A successful pattern publishes its captures to the following guard.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.false_guard_advances_to_next_arm",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.false_guard_advances_to_next_arm",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A false guard rejects its arm and resumes selection in source order.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.true_guard_selects_current_arm",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.true_guard_selects_current_arm",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A true guard selects the arm whose pattern matched.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.selected_arm_skips_later_tests",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.selected_arm_skips_later_tests",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A selected arm prevents all later patterns and guards from running.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.else_runs_after_prior_rejections",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.else_runs_after_prior_rejections",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The catch-all arm runs after prior patterns miss or guards reject.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.exhausted_arms_produce_no_arm_fault",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.exhausted_arms_produce_no_arm_fault",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exhausting a finite arm list without a catch-all yields an explicit no-arm fault.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.captures_are_published_only_after_pattern_success",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.captures_are_published_only_after_pattern_success",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Only captures from a complete matching pattern reach its guard and selected outcome.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Matches.Selection.reordered_else_mutation_changes_selection",
+      "module": "Xsh.Matches.Selection",
+      "declaration": "Xsh.Matches.Selection.reordered_else_mutation_changes_selection",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Moving a catch-all ahead of an earlier pattern changes selection and trace.",
+      "boundary": "Finite ordered match-arm selection after subject evaluation, using abstract pattern decisions and a supplied Boolean guard result. Actual pattern matching, guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH runtime or Rust correspondence are excluded."
     }
   ],
   "source_identity": null

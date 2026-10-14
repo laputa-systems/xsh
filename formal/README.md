@@ -12,7 +12,8 @@ paths, bounded JSON compatibility projection, and compact JSON text encoding;
 byte-lexical path components, POSIX lexical path fields, and lexical path
 normalization; Str-backed enum wire conversion; List index and slice bounds,
 bounded List-comprehension execution, eager finite loop snapshots, and finite
-loop-local control traces;
+loop-local control traces, finite collect-block publication, and ordered
+match-arm selection;
 Unicode scalar text-slice laws and UTF-8 byte search; Result `?` propagation
 boundaries and returned-Result data; finite
 `.require(Set[T])` validation and array conversion; validated
@@ -85,7 +86,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 508 fragment
+G0b source freeze remain pending. The provisional inventory has 532 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -122,6 +123,24 @@ and break, nested loop targets, return and failure propagation, one-time repeat
 count evaluation, finite ranges, and exact traces. It excludes checker target
 validity, stage callbacks, divergence, effects, cleanup, streams, and runtime
 or Rust correspondence.
+
+`Xsh.Collect.Block` has twelve roots for finite collect event traces. Yields
+append individual values, delegated lists retain their order, nested collects
+have separate accumulators, and only normal completion publishes the collected
+list. Escaping transfers are supplied as already classified and retain only
+their kind, without target identity or return/error payload. Loop-local
+transfer classification, effects, cleanup, streams, retry, checker/type
+inference, AST evaluation, and XSH runtime or Rust correspondence are outside
+the model.
+
+`Xsh.Matches.Selection` has twelve roots for finite ordered match-arm selection
+after one subject evaluation. Abstract pattern results control source order; a
+miss skips its guard, a successful match passes complete captures to the
+supplied Boolean guard result, false resumes later arms, and true selects the
+current arm. The `else` arm and no-arm fault are explicit, and a mutation
+witness shows that moving `else` changes selection. Actual pattern matching,
+guard expression evaluation, type diagnostics, exhaustiveness, parsing, and XSH
+runtime or Rust correspondence are outside the model.
 
 `Xsh.Paths.Normalize` has twelve roots for native-byte lexical stack
 normalization. It removes empty and dot components, cancels ordinary components
@@ -320,7 +339,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 508 rooted Lean fragment declarations across 89 core owner
+The inventory names 532 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
