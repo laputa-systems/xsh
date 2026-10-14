@@ -2344,7 +2344,12 @@ def _run_parallel_publication_comparisons(
                 previous_handlers[signum] = signal.getsignal(signum)
 
                 def interrupt(_signum, _frame):
-                    if _signum == signal.SIGTERM:
+                    previous_handler = previous_handlers[_signum]
+                    if previous_handler is signal.SIG_IGN:
+                        return
+                    if callable(previous_handler):
+                        return previous_handler(_signum, _frame)
+                    if _signum == signal.SIGTERM and previous_handler is signal.SIG_DFL:
                         raise _PublicationComparisonTermination(_signum)
                     raise KeyboardInterrupt("publication comparison interrupted")
 

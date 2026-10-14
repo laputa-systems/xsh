@@ -2800,22 +2800,56 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         signum = signal.SIGINT
         existing_children = {process.pid for process in multiprocessing.active_children()}
         previous_handler = signal.getsignal(signum)
+        observed_signals = []
 
-        def interrupt_parent(_index, _comparison_context):
-            os.kill(os.getppid(), signum)
+        def previous_interrupt_handler(received_signal, _frame):
+            observed_signals.append(received_signal)
+            raise KeyboardInterrupt(f"received signal {received_signal}")
+
+        signal.signal(signum, previous_interrupt_handler)
+
+        def interrupt_parent(index, _comparison_context):
+            if index == 0:
+                os.kill(os.getppid(), signum)
             signal.pause()
 
-        with patch.object(adapter_runner, "_compare_publication_input", side_effect=interrupt_parent):
-            with self.assertRaisesRegex(KeyboardInterrupt, "publication comparison interrupted"):
-                adapter_runner._run_parallel_publication_comparisons(
-                    self._parallel_test_context(), 2, lambda _index, _result: None
-                )
+        try:
+            with patch.object(adapter_runner, "_compare_publication_input", side_effect=interrupt_parent):
+                with self.assertRaisesRegex(KeyboardInterrupt, "received signal 2"):
+                    adapter_runner._run_parallel_publication_comparisons(
+                        self._parallel_test_context(), 2, lambda _index, _result: None
+                    )
 
-        self.assertIs(signal.getsignal(signum), previous_handler)
+            self.assertIs(signal.getsignal(signum), previous_interrupt_handler)
+            self.assertEqual(observed_signals, [signum])
+        finally:
+            signal.signal(signum, previous_handler)
         self.assertEqual(
             {process.pid for process in multiprocessing.active_children()},
             existing_children,
         )
+
+    def test_parallel_comparison_preserves_ignored_sigterm(self):
+        previous_handler = signal.getsignal(signal.SIGTERM)
+
+        def interrupt_parent(index, _comparison_context):
+            if index == 0:
+                os.kill(os.getppid(), signal.SIGTERM)
+            return ()
+
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        try:
+            with patch.object(adapter_runner, "_compare_publication_input", side_effect=interrupt_parent):
+                results = []
+                adapter_runner._run_parallel_publication_comparisons(
+                    self._parallel_test_context(),
+                    2,
+                    lambda index, result: results.append((index, result)),
+                )
+            self.assertEqual(results, [(0, ()), (1, ())])
+            self.assertIs(signal.getsignal(signal.SIGTERM), signal.SIG_IGN)
+        finally:
+            signal.signal(signal.SIGTERM, previous_handler)
 
     def test_parallel_comparison_reaps_workers_after_sigterm_and_preserves_exit(self):
         script = """
@@ -2831,26 +2865,37 @@ import w9_publication_adapter_runner as runner
 publication_runner = runner._load_publication_runner(
     runner.ROOT / "dev/consolidation/w9-publication-run.py"
 )
-scratch_parent = runner.ROOT / ".work/tmp"
-scratch_parent.mkdir(parents=True, exist_ok=True)
 candidate_root = pathlib.Path(sys.argv[1]) / "candidate"
+mode = sys.argv[2]
 candidate_root.mkdir()
 (candidate_root / ".work").mkdir()
 subprocess.run(["git", "init", "--quiet", str(candidate_root)], check=True)
 output = candidate_root / ".work" / "comparison"
 context = runner._PublicationComparisonContext(-1, -1, {}, None, {}, {}, {}, {}, {}, b"", b"")
 original_kill = os.kill
+original_excepthook = sys.excepthook
 
 def observe_termination(pid, signum):
     if pid == os.getpid() and signum == signal.SIGTERM:
+        reaped = len(multiprocessing.active_children()) == 0
+        restored = signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+        print(f"default=reaped={reaped} restored={restored}", flush=True)
+    original_kill(pid, signum)
+
+def observe_exception(error_type, error, traceback):
+    if issubclass(error_type, KeyboardInterrupt):
         reaped = len(multiprocessing.active_children()) == 0
         restored = signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
         locks_released = not publication_runner.global_runner_lock_path(candidate_root).exists()
         locks_released = locks_released and not publication_runner.output_lock_path(output).exists()
         status = (output / "attempt-status.txt").read_text()
         incomplete = "status=incomplete\\n" in status
-        print(f"reaped={reaped} restored={restored} locks_released={locks_released} incomplete={incomplete}", flush=True)
-    original_kill(pid, signum)
+        print(
+            f"claimed={error_type.__name__}: {error} reaped={reaped} restored={restored} "
+            f"locks_released={locks_released} incomplete={incomplete}",
+            flush=True,
+        )
+    original_excepthook(error_type, error, traceback)
 
 def interrupt_parent(index, _context):
     if index == 0:
@@ -2858,9 +2903,14 @@ def interrupt_parent(index, _context):
     signal.pause()
 
 os.kill = observe_termination
+sys.excepthook = observe_exception
 def compare(args, active_runner):
-    with active_runner.claim_run_resources(args.candidate_root, output, []):
-        active_runner.write_status(output, "incomplete", [])
+    if mode == "claimed":
+        with active_runner.claim_run_resources(args.candidate_root, output, []):
+            active_runner.write_status(output, "incomplete", [])
+            with patch.object(runner, "_compare_publication_input", side_effect=interrupt_parent):
+                runner._run_parallel_publication_comparisons(context, 2, lambda _index, _result: None)
+    else:
         with patch.object(runner, "_compare_publication_input", side_effect=interrupt_parent):
             runner._run_parallel_publication_comparisons(context, 2, lambda _index, _result: None)
 
@@ -2879,27 +2929,38 @@ arguments = [
     "--candidate-exact-capture-receipt", str(candidate_root / "candidate-exact.receipt"),
     "--output", str(output),
 ]
-runner.main(arguments)
+raise SystemExit(runner.main(arguments))
 """
         scratch_parent = adapter_runner.ROOT / ".work/tmp"
         scratch_parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(
-            prefix="w9-parallel-sigterm-", dir=scratch_parent
-        ) as scratch:
-            completed = subprocess.run(
-                [sys.executable, "-c", script, scratch],
-                cwd=pathlib.Path(__file__).parent,
-                capture_output=True,
-                text=True,
-                timeout=12,
-            )
+        def run(mode):
+            with tempfile.TemporaryDirectory(
+                prefix=f"w9-parallel-sigterm-{mode}-", dir=scratch_parent
+            ) as scratch:
+                return subprocess.run(
+                    [sys.executable, "-c", script, scratch, mode],
+                    cwd=pathlib.Path(__file__).parent,
+                    capture_output=True,
+                    text=True,
+                    timeout=12,
+                )
 
-        self.assertEqual(completed.returncode, -signal.SIGTERM)
+        claimed = run("claimed")
+        self.assertEqual(claimed.returncode, -signal.SIGINT)
         self.assertEqual(
-            completed.stdout,
-            "reaped=True restored=True locks_released=True incomplete=True\n",
+            claimed.stdout,
+            "claimed=KeyboardInterrupt: received signal 15 reaped=True restored=True "
+            "locks_released=True incomplete=True\n",
         )
-        self.assertEqual(completed.stderr, "")
+        self.assertIn(
+            "KeyboardInterrupt: received signal 15",
+            claimed.stderr,
+        )
+
+        default = run("default")
+        self.assertEqual(default.returncode, -signal.SIGTERM)
+        self.assertEqual(default.stdout, "default=reaped=True restored=True\n")
+        self.assertEqual(default.stderr, "")
 
     def test_full_compare_reuses_failed_profile_pairs_and_reports_each_mismatch(self):
         result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
