@@ -124,6 +124,53 @@ test test_zero_argument_stream_producers_run_from_every_call_position { |ctx|
   assert output.stderr == "", output.stderr
 }
 
+test test_stream_producer_mutations_refresh_consumer_captures { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""var checks = 0
+stream values() -> Stream[Int] {
+  checks += 1
+  yield checks
+}
+proc observe_pipeline() -> Int {
+  let rows = values() |> collect()
+  print f"pipeline:{rows[0]}:{checks}"
+  checks
+}
+proc observe_method() -> Int {
+  let rows = values().collect()
+  print f"method:{rows[0]}:{checks}"
+  checks
+}
+proc observe_for() -> Int {
+  for item in values() {
+    print f"for:{item}:{checks}"
+  }
+  checks
+}
+proc observe_comprehension() -> Int {
+  let rows = [item for item in values()]
+  print f"comprehension:{rows[0]}:{checks}"
+  checks
+}
+let results = [observe_pipeline(), observe_method(), observe_for(), observe_comprehension()]
+print f"returns:{results[0]},{results[1]},{results[2]},{results[3]}"
+print f"checks:{checks}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == [
+    "pipeline:1:1",
+    "method:2:2",
+    "for:3:3",
+    "comprehension:4:4",
+    "returns:1,2,3,4",
+    "checks:4",
+    "",
+  ].join("\n"), output.stdout
+  assert output.stderr == "", output.stderr
+}
+
 # The worker stages are consumers too: `par-map` and the fused
 # `par-map | flat-map | reduce-by` path pull a producer's rows through the same
 # machinery as any other consumer, so the body runs at consumption, the stage
