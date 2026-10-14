@@ -1,4 +1,5 @@
 use super::indexed::full::FullTag;
+use super::indexed::full::schema::RouteWitnessCapability;
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs;
@@ -99,11 +100,12 @@ impl ChildCaptureContext {
         if !self.output_dir.is_dir() {
             return Err("route-witness output directory is unavailable".to_string());
         }
+        let sink = RouteWitnessSink::for_tag(route_oracle_tag(&self.test_id)?);
         Ok(ChildCapture {
             artifact: self.output_dir.join(ARTIFACT_FILE),
             test_id: self.test_id,
             source_hash: self.source_hash,
-            sink: RouteWitnessSink::default(),
+            sink,
         })
     }
 }
@@ -564,54 +566,129 @@ pub(crate) fn validate_artifact(
     if artifact.source_hash != source_sha256(source) {
         return Err("route-witness artifact has a stale source hash".to_string());
     }
-    if artifact.records.is_empty() {
-        return Err("route-witness artifact has no route records".to_string());
+    if artifact.records.len() != 1 {
+        return Err("route-witness artifact must contain one expression oracle record".to_string());
     }
-    let expected_mode = if forced { "forced" } else { "normal" };
+    let expected_mode = if forced {
+        RouteWitnessMode::Forced
+    } else {
+        RouteWitnessMode::Normal
+    };
+    let target_tag = route_oracle_tag(test_id)?;
     for record in &artifact.records {
-        if !FullTag::matches_identity(&record.tag_name, record.tag_ordinal) {
-            return Err(
-                "route-witness artifact has an unknown or inconsistent FullTag identity"
-                    .to_string(),
-            );
+        let tag = FullTag::from_identity(&record.tag_name, record.tag_ordinal).ok_or_else(|| {
+            "route-witness artifact has an unknown or inconsistent FullTag identity".to_string()
+        })?;
+        let capability = tag.route_witness_capability().ok_or_else(|| {
+            "route-witness artifact has a tag without expression route capability".to_string()
+        })?;
+        let route = RouteWitnessRoute::from_name(&record.route).ok_or_else(|| {
+            "route-witness artifact has an unknown route".to_string()
+        })?;
+        let mode = RouteWitnessMode::from_name(&record.mode).ok_or_else(|| {
+            "route-witness artifact has an unknown scheduler mode".to_string()
+        })?;
+        if mode != expected_mode {
+            return Err("route-witness artifact has the wrong scheduler mode".to_string());
         }
-        if record.tag_name != "ExprEmptyMap" || record.tag_ordinal != 49 {
-            return Err("route-witness artifact has an unsupported FullTag record".to_string());
-        }
-        if !matches!(
-            (record.route.as_str(), record.mode.as_str()),
-            ("recursive_bridge_to_explicit_frames", "normal")
-                | ("generic_operand_apply_path", "forced")
-        ) {
+        if !capability_accepts_route(capability, route, forced) {
             return Err(
                 "route-witness artifact has an inconsistent route and scheduler mode".to_string(),
             );
         }
-        if record.mode != expected_mode {
-            return Err("route-witness artifact has the wrong scheduler mode".to_string());
-        }
-    }
-    if test_id == "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map" {
-        let expected_route = if forced {
-            "generic_operand_apply_path"
-        } else {
-            "recursive_bridge_to_explicit_frames"
-        };
-        let exact_evidence = artifact.records.len() == 1
-            && artifact.records.first().is_some_and(|record| {
-                record.tag_name == "ExprEmptyMap"
-                    && record.tag_ordinal == 49
-                    && record.route == expected_route
-                    && record.mode == expected_mode
-            });
-        if !exact_evidence {
-            return Err(
-                "route-witness artifact does not contain exactly the expected empty-map route"
-                    .to_string(),
-            );
+        if target_tag != tag {
+            return Err("route-witness artifact does not match its expression oracle".to_string());
         }
     }
     Ok(())
+}
+
+fn route_oracle_tag(test_id: &str) -> Result<FullTag, String> {
+    let (_, test_name) = test_id
+        .rsplit_once("::")
+        .ok_or_else(|| "route-witness test identity has no test name".to_string())?;
+    let suffix = test_name
+        .strip_prefix("test_expr_")
+        .or_else(|| (test_name == "test_frame_apply_empty_map").then_some("empty_map"))
+        .ok_or_else(|| "route-witness test identity is not an expression oracle".to_string())?;
+    FullTag::expression_test_tag(suffix)
+        .ok_or_else(|| "route-witness test identity does not map to a FullTag".to_string())
+}
+
+pub(in crate::runtime::eval) fn recursive_route(
+    tag: FullTag,
+    in_place: bool,
+) -> Option<RouteWitnessRoute> {
+    match tag.route_witness_capability()? {
+        RouteWitnessCapability::RecursiveApply | RouteWitnessCapability::RecursiveControl => {
+            Some(if in_place {
+                RouteWitnessRoute::InPlaceEvaluatorPath
+            } else {
+                RouteWitnessRoute::RecursiveEvaluatorPath
+            })
+        }
+        RouteWitnessCapability::ScheduledApply | RouteWitnessCapability::ScheduledControl => None,
+    }
+}
+
+pub(in crate::runtime::eval) fn frame_route(
+    tag: FullTag,
+    forced: bool,
+) -> Option<RouteWitnessRoute> {
+    match tag.route_witness_capability()? {
+        RouteWitnessCapability::RecursiveApply | RouteWitnessCapability::ScheduledApply => {
+            Some(if forced && tag.is_eager_atom() {
+                RouteWitnessRoute::EagerFrameApplyPath
+            } else if forced {
+                RouteWitnessRoute::GenericOperandApplyPath
+            } else {
+                RouteWitnessRoute::ExplicitFrameApplyPath
+            })
+        }
+        RouteWitnessCapability::RecursiveControl | RouteWitnessCapability::ScheduledControl => {
+            Some(RouteWitnessRoute::ExplicitFrameControlPath)
+        }
+    }
+}
+
+fn capability_accepts_route(
+    capability: RouteWitnessCapability,
+    route: RouteWitnessRoute,
+    forced: bool,
+) -> bool {
+    match (capability, forced) {
+        (
+            RouteWitnessCapability::RecursiveApply | RouteWitnessCapability::ScheduledApply,
+            true,
+        ) => matches!(
+            route,
+            RouteWitnessRoute::GenericOperandApplyPath | RouteWitnessRoute::EagerFrameApplyPath
+        ),
+        (
+            RouteWitnessCapability::RecursiveControl | RouteWitnessCapability::ScheduledControl,
+            true,
+        ) => {
+            route == RouteWitnessRoute::ExplicitFrameControlPath
+        }
+        (RouteWitnessCapability::RecursiveApply, false) => matches!(
+            route,
+            RouteWitnessRoute::InPlaceEvaluatorPath
+                | RouteWitnessRoute::RecursiveEvaluatorPath
+                | RouteWitnessRoute::ExplicitFrameApplyPath
+        ),
+        (RouteWitnessCapability::RecursiveControl, false) => matches!(
+            route,
+            RouteWitnessRoute::InPlaceEvaluatorPath
+                | RouteWitnessRoute::RecursiveEvaluatorPath
+                | RouteWitnessRoute::ExplicitFrameControlPath
+        ),
+        (RouteWitnessCapability::ScheduledApply, false) => {
+            route == RouteWitnessRoute::ExplicitFrameApplyPath
+        }
+        (RouteWitnessCapability::ScheduledControl, false) => {
+            route == RouteWitnessRoute::ExplicitFrameControlPath
+        }
+    }
 }
 
 pub(crate) fn source_sha256(source: &[u8]) -> String {
@@ -649,19 +726,47 @@ impl RouteWitnessMode {
             Self::Forced => "forced",
         }
     }
+
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "normal" => Some(Self::Normal),
+            "forced" => Some(Self::Forced),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RouteWitnessRoute {
-    RecursiveBridgeToExplicitFrames,
+    InPlaceEvaluatorPath,
+    RecursiveEvaluatorPath,
+    ExplicitFrameApplyPath,
+    ExplicitFrameControlPath,
     GenericOperandApplyPath,
+    EagerFrameApplyPath,
 }
 
 impl RouteWitnessRoute {
     pub(crate) const fn name(self) -> &'static str {
         match self {
-            Self::RecursiveBridgeToExplicitFrames => "recursive_bridge_to_explicit_frames",
+            Self::InPlaceEvaluatorPath => "in_place_evaluator_path",
+            Self::RecursiveEvaluatorPath => "recursive_evaluator_path",
+            Self::ExplicitFrameApplyPath => "explicit_frame_apply_path",
+            Self::ExplicitFrameControlPath => "explicit_frame_control_path",
             Self::GenericOperandApplyPath => "generic_operand_apply_path",
+            Self::EagerFrameApplyPath => "eager_frame_apply_path",
+        }
+    }
+
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "in_place_evaluator_path" => Some(Self::InPlaceEvaluatorPath),
+            "recursive_evaluator_path" => Some(Self::RecursiveEvaluatorPath),
+            "explicit_frame_apply_path" => Some(Self::ExplicitFrameApplyPath),
+            "explicit_frame_control_path" => Some(Self::ExplicitFrameControlPath),
+            "generic_operand_apply_path" => Some(Self::GenericOperandApplyPath),
+            "eager_frame_apply_path" => Some(Self::EagerFrameApplyPath),
+            _ => None,
         }
     }
 }
@@ -691,15 +796,26 @@ pub(crate) struct RouteWitnessRecord {
 #[derive(Clone, Default)]
 pub(crate) struct RouteWitnessSink {
     records: Arc<Mutex<Vec<RouteWitnessRecord>>>,
+    tag_filter: Option<FullTag>,
 }
 
 impl RouteWitnessSink {
+    fn for_tag(tag: FullTag) -> Self {
+        Self {
+            records: Arc::default(),
+            tag_filter: Some(tag),
+        }
+    }
+
     pub(in crate::runtime::eval) fn record(
         &self,
         tag: FullTag,
         route: RouteWitnessRoute,
         mode: RouteWitnessMode,
     ) {
+        if self.tag_filter.is_some_and(|tag_filter| tag_filter != tag) {
+            return;
+        }
         self.records
             .lock()
             .expect("route witness sink mutex poisoned")
@@ -759,12 +875,32 @@ mod tests {
 
         first.record(
             FullTag::ExprEmptyMap,
-            RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
+            RouteWitnessRoute::ExplicitFrameApplyPath,
             RouteWitnessMode::Normal,
         );
 
         assert_eq!(first.take_records().len(), 1);
         assert!(second.take_records().is_empty());
+    }
+
+    #[test]
+    fn route_oracle_identity_resolves_schema_tags_without_guessing_frame_tests() {
+        assert_eq!(
+            route_oracle_tag(
+                "tests/xsh/expression-route-oracles.xsh::test_expr_if_non_in_place_selection",
+            )
+            .expect("expression oracle maps to its schema tag"),
+            FullTag::ExprIf,
+        );
+        assert_eq!(
+            route_oracle_tag("tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map")
+                .expect("empty-map frame oracle maps to its schema tag"),
+            FullTag::ExprEmptyMap,
+        );
+        assert!(route_oracle_tag(
+            "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_bytes_concat_keeps_element_order"
+        )
+        .is_err());
     }
 
     #[test]
@@ -964,7 +1100,7 @@ mod tests {
         for (forced, route, mode) in [
             (
                 false,
-                RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
+                RouteWitnessRoute::ExplicitFrameApplyPath,
                 RouteWitnessMode::Normal,
             ),
             (
@@ -1000,7 +1136,7 @@ mod tests {
     fn artifact_validation_rejects_malformed_and_wrong_mode_records() {
         let directory = route_witness_tempdir();
         let artifact = directory.path().join(ARTIFACT_FILE);
-        let test_id = "tests/a.xsh::case";
+        let test_id = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map";
         let source = b"assert true\n";
         fs::write(&artifact, b"not JSON").expect("write malformed artifact");
         assert!(validate_artifact(directory.path(), test_id, source, false).is_err());
@@ -1021,7 +1157,7 @@ mod tests {
         capture
             .write_records(&[RouteWitnessRecord {
                 tag: FullTag::ExprEmptyMap.into(),
-                route: RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
+                route: RouteWitnessRoute::ExplicitFrameApplyPath,
                 mode: RouteWitnessMode::Forced,
             }])
             .expect("write valid artifact");
@@ -1036,7 +1172,7 @@ mod tests {
         let normal = r#"{
             "tag_name":"ExprEmptyMap",
             "tag_ordinal":49,
-            "route":"recursive_bridge_to_explicit_frames",
+            "route":"explicit_frame_apply_path",
             "mode":"normal"
         }"#;
         let forced = r#"{
@@ -1065,30 +1201,30 @@ mod tests {
     #[test]
     fn artifact_validation_rejects_unknown_and_inconsistent_tag_identities() {
         let directory = route_witness_tempdir();
-        let test_id = "tests/a.xsh::case";
+        let test_id = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map";
         let source = b"assert true\n";
         let normal = r#"{
             "tag_name":"ExprEmptyMap",
             "tag_ordinal":49,
-            "route":"recursive_bridge_to_explicit_frames",
+            "route":"explicit_frame_apply_path",
             "mode":"normal"
         }"#;
         let unknown = r#"{
             "tag_name":"UnknownTag",
             "tag_ordinal":49,
-            "route":"recursive_bridge_to_explicit_frames",
+            "route":"explicit_frame_apply_path",
             "mode":"normal"
         }"#;
         let wrong_ordinal = r#"{
             "tag_name":"ExprEmptyMap",
             "tag_ordinal":50,
-            "route":"recursive_bridge_to_explicit_frames",
+            "route":"explicit_frame_apply_path",
             "mode":"normal"
         }"#;
         let known_but_unobserved = r#"{
             "tag_name":"StmtReturn",
             "tag_ordinal":150,
-            "route":"recursive_bridge_to_explicit_frames",
+            "route":"explicit_frame_apply_path",
             "mode":"normal"
         }"#;
 

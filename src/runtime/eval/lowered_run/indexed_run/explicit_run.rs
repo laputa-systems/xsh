@@ -55,7 +55,7 @@ use crate::runtime::eval::{
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
 use crate::runtime::eval::route_witness::{
-    RouteWitnessMode, RouteWitnessRoute,
+    RouteWitnessMode, frame_route,
 };
 use crate::runtime::value::{DurationValue, Value};
 use crate::trace::Traceback;
@@ -476,7 +476,7 @@ fn expr_if_branches<'e>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::eval::route_witness::RouteWitnessSink;
+    use crate::runtime::eval::route_witness::{RouteWitnessRoute, RouteWitnessSink};
     use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep, Value};
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
@@ -551,7 +551,7 @@ mod tests {
             for (forced, expected_route, expected_mode) in [
                 (
                     false,
-                    RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
+                    RouteWitnessRoute::ExplicitFrameApplyPath,
                     RouteWitnessMode::Normal,
                 ),
                 (
@@ -6438,6 +6438,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             return Ok(());
         }
+        if let Some(sink) = &self.evaluator.route_witness_sink
+            && let Some(route) = frame_route(tag, self.evaluator.force_frames)
+        {
+            sink.record(
+                tag,
+                route,
+                if self.evaluator.force_frames {
+                    RouteWitnessMode::Forced
+                } else {
+                    RouteWitnessMode::Normal
+                },
+            );
+        }
         let strategy = tag.frame_strategy();
         if tag.is_eager_atom() {
             let call = &mut self.calls[index];
@@ -6465,22 +6478,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             );
         }
         if super::indexed_frame_apply_tag(tag) {
-            if tag == FullTag::ExprEmptyMap
-                && let Some(sink) = &self.evaluator.route_witness_sink
-            {
-                let (route, mode) = if self.evaluator.force_frames {
-                    (
-                        RouteWitnessRoute::GenericOperandApplyPath,
-                        RouteWitnessMode::Forced,
-                    )
-                } else {
-                    (
-                        RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
-                        RouteWitnessMode::Normal,
-                    )
-                };
-                sink.record(tag, route, mode);
-            }
             let mut view = super::ExprView::decode(&execution, tag, payload)
                 .map_err(|error| indexed_error(error, span))?;
             let first = super::indexed_frame_apply_child(tag, &mut view, 0, None, None, span)?;

@@ -43,6 +43,49 @@ test test_fs_path_frame_apply_executes_live_host_rows { |ctx|
   assert ! removed.exists()?
 }
 
+test test_fs_files_and_walk_evaluate_named_operands_in_written_order { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-path-frame-operand-order")?
+  fp"{root}/visible.txt".write("visible")
+  fp"{root}/.hidden.txt".write("hidden")
+
+  let output = test.expect(
+    ctx,
+    r"""proc mark_bool(label: Str, value: Bool) [io] -> Bool {
+  print $label
+  return value
+}
+proc mark_exts(label: Str, value: List[Str]) [io] -> List[Str] {
+  print $label
+  return value
+}
+let root = Path(args[0])
+let files = fs.files(
+  root,
+  hidden: mark_bool("files-hidden", false),
+  exts: mark_exts("files-exts", ["txt"]),
+)?.collect()
+let walked = fs.walk(
+  root,
+  hidden: mark_bool("walk-hidden", false),
+  stat: mark_bool("walk-stat", false),
+)?.collect()
+assert files |> any .name == "visible.txt"
+assert ! (files |> any .name == ".hidden.txt")
+assert walked |> any .name == "visible.txt"
+assert ! (walked |> any .name == ".hidden.txt")
+print "complete"
+""",
+    status: 0,
+    args: [root],
+  )?
+  assert output.stdout == """files-hidden
+files-exts
+walk-hidden
+walk-stat
+complete
+""", output.stdout
+}
+
 test test_fs_path_frame_apply_evaluates_source_operands_before_host_creation { |ctx|
   let root = test.temp_dir(ctx, name: "fs-path-frame-order")?
   let source = fp"{root}/source"

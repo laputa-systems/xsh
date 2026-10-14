@@ -45,7 +45,9 @@ use super::{
 };
 use crate::map_key::MapKey;
 use crate::runtime::eval::BuildExprId;
-use crate::runtime::eval::route_witness::{RouteWitnessMode, RouteWitnessRoute};
+use crate::runtime::eval::route_witness::{
+    RouteWitnessMode, recursive_route,
+};
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::decode::{
     ErrorExprView, FmtPartView, ListPosition, ListView, RecordEntryView,
@@ -1361,6 +1363,14 @@ impl Evaluator {
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+        let in_place = execution.is_in_place(instruction);
+        if !indexed_frame_apply_tag(tag)
+            && (in_place || !matches!(tag, FullTag::ExprIf | FullTag::ExprMatch))
+            && let Some(sink) = &self.route_witness_sink
+            && let Some(route) = recursive_route(tag, in_place)
+        {
+            sink.record(tag, route, RouteWitnessMode::Normal);
+        }
         if is_typed_int_tag(tag) {
             return self
                 .eval_indexed_typed_int(execution, instruction, slots, call_span)

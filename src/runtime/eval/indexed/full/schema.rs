@@ -483,13 +483,24 @@ macro_rules! instruction_schema {
             FrameControl,
         }
 
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub(in crate::runtime::eval) enum RouteWitnessCapability {
+            RecursiveApply,
+            RecursiveControl,
+            ScheduledApply,
+            ScheduledControl,
+        }
+
         impl FullTag {
-            pub(in crate::runtime::eval) fn matches_identity(name: &str, ordinal: u32) -> bool {
+            pub(in crate::runtime::eval) fn from_identity(
+                name: &str,
+                ordinal: u32,
+            ) -> Option<Self> {
                 match (name, ordinal) {
                     $(
-                        $((stringify!($tag), $ordinal) => true,)*
+                        $((stringify!($tag), $ordinal) => Some(Self::$tag),)*
                     )*
-                    _ => false,
+                    _ => None,
                 }
             }
 
@@ -503,6 +514,43 @@ macro_rules! instruction_schema {
                 match self {
                     $($(Self::$tag => FrameStrategy::$strategy,)*)*
                 }
+            }
+
+            pub(in crate::runtime::eval) fn route_witness_capability(
+                self,
+            ) -> Option<RouteWitnessCapability> {
+                if self.kind() != InstructionKind::Expr {
+                    return None;
+                }
+                Some(match (self.in_place_class(), self.frame_strategy()) {
+                    (InPlaceClass::Operands, FrameStrategy::FrameApply) => {
+                        RouteWitnessCapability::RecursiveApply
+                    }
+                    (InPlaceClass::Operands, FrameStrategy::FrameControl) => {
+                        RouteWitnessCapability::RecursiveControl
+                    }
+                    (InPlaceClass::Scheduled, FrameStrategy::FrameApply) => {
+                        RouteWitnessCapability::ScheduledApply
+                    }
+                    (InPlaceClass::Scheduled, FrameStrategy::FrameControl) => {
+                        RouteWitnessCapability::ScheduledControl
+                    }
+                })
+            }
+
+            pub(in crate::runtime::eval) fn expression_test_tag(suffix: &str) -> Option<Self> {
+                let mut candidate = None;
+                $(
+                    if InstructionKind::$kind == InstructionKind::Expr
+                        && expression_tag_test_prefix_matches(stringify!($tag), suffix)
+                    {
+                        let specificity = stringify!($tag).len();
+                        if candidate.is_none_or(|(_, current)| specificity > current) {
+                            candidate = Some((Self::$tag, specificity));
+                        }
+                    }
+                )*
+                candidate.map(|(tag, _)| tag)
             }
 
             pub(in crate::runtime::eval) fn is_eager_atom(self) -> bool {
@@ -533,10 +581,6 @@ macro_rules! instruction_schema {
         #[cfg(test)]
         pub(in crate::runtime::eval) const INSTRUCTION_TAGS: &[FullTag] = &[
             $($(FullTag::$tag,)*)*
-        ];
-
-        pub(in crate::runtime::eval) const INSTRUCTION_TAG_NAMES: &[&str] = &[
-            $($(stringify!($tag),)*)*
         ];
 
         $(
@@ -1480,6 +1524,27 @@ pattern_schema! {
     }
 }
 
+fn expression_tag_test_prefix_matches(tag_name: &str, test_suffix: &str) -> bool {
+    let Some(expression_name) = tag_name.strip_prefix("Expr") else {
+        return false;
+    };
+    let mut prefix = String::with_capacity(expression_name.len() + 2);
+    for (index, byte) in expression_name.bytes().enumerate() {
+        if byte.is_ascii_uppercase() {
+            if index != 0 {
+                prefix.push('_');
+            }
+            prefix.push(char::from(byte.to_ascii_lowercase()));
+        } else {
+            prefix.push(char::from(byte));
+        }
+    }
+    test_suffix == prefix
+        || test_suffix
+            .strip_prefix(&prefix)
+            .is_some_and(|remaining| remaining.starts_with('_'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1715,6 +1780,38 @@ mod tests {
         ] {
             assert_eq!(tag.frame_strategy(), FrameStrategy::FrameControl, "{}", tag.name());
         }
+    }
+
+    #[test]
+    fn route_witness_capabilities_follow_expression_schema_rows() {
+        for tag in INSTRUCTION_TAGS {
+            assert_eq!(
+                tag.route_witness_capability().is_some(),
+                tag.kind() == InstructionKind::Expr,
+                "{}",
+                tag.name(),
+            );
+        }
+        for (tag, capability) in [
+            (FullTag::ExprList, RouteWitnessCapability::RecursiveApply),
+            (FullTag::ExprEmptyMap, RouteWitnessCapability::ScheduledApply),
+            (FullTag::ExprIf, RouteWitnessCapability::RecursiveControl),
+            (FullTag::ExprLoop, RouteWitnessCapability::ScheduledControl),
+        ] {
+            assert_eq!(tag.route_witness_capability(), Some(capability));
+        }
+        assert_eq!(
+            FullTag::expression_test_tag("if_non_in_place_selection"),
+            Some(FullTag::ExprIf),
+        );
+        assert_eq!(
+            FullTag::expression_test_tag("match_non_in_place_selection"),
+            Some(FullTag::ExprMatch),
+        );
+        assert_eq!(
+            FullTag::expression_test_tag("path_fmt_string"),
+            Some(FullTag::ExprPathFmtString),
+        );
     }
 
     #[test]
