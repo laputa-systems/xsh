@@ -41,6 +41,7 @@ import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace
 import Xsh.Proofs.BaseHostTrace
 import Xsh.Proofs.BaseHostRunnerLaws
+import Xsh.Proofs.BaseMachineComposition
 import Xsh.Semantics.Foundation.ObservedMachine
 import Xsh.Semantics.Foundation.ResolvedBinding
 import Xsh.Proofs.Foundation.ObservedMachine
@@ -57,6 +58,7 @@ import Xsh.Validation.NonEmptyFiltering
 import Xsh.Effects.Lattice
 import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
+import Xsh.Effects.DelayedCausality
 import Xsh.Effects.PrimitiveClassification
 import Xsh.Effects.ExpressionBridge
 import Xsh.Effects.CheckerBridge

@@ -8719,6 +8719,159 @@
       "status": "fragment",
       "scope": "Rejects a wrong-type write with the original store unchanged.",
       "boundary": "Finite type-mismatch witness over the existing typed store and observed scalar machine; no source/lowering/Rust correspondence or full G1/BASE closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachineComposition.checked_binding_and_host_run_compose",
+      "module": "Xsh.Proofs.BaseMachineComposition",
+      "declaration": "Xsh.Proofs.BaseMachineComposition.checked_binding_and_host_run_compose",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checks a bound identifier through the typed store, consumes a scripted time.now response, and preserves the machine and observed-trace invariants for 4 + 3 = 7.",
+      "boundary": "Independent finite BaseMachine, typed-store, and scripted-host models only; excludes source, raw IR/lowering, Rust/OS, concrete clock, full BASE-* and G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachineComposition.arithmetic_operator_mutation_changes_the_result",
+      "module": "Xsh.Proofs.BaseMachineComposition",
+      "declaration": "Xsh.Proofs.BaseMachineComposition.arithmetic_operator_mutation_changes_the_result",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Changing addition to subtraction remains checker-accepted but changes the scripted run result from 7 to 1.",
+      "boundary": "Independent finite BaseMachine, typed-store, and scripted-host models only; excludes source, raw IR/lowering, Rust/OS, concrete clock, full BASE-* and G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachineComposition.inactive_binding_mutation_is_rejected_and_observable",
+      "module": "Xsh.Proofs.BaseMachineComposition",
+      "declaration": "Xsh.Proofs.BaseMachineComposition.inactive_binding_mutation_is_rejected_and_observable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Redirecting the checked name to a binder with no active cell fails before the time.now request and exposes the inactive-binder fault.",
+      "boundary": "Independent finite BaseMachine, typed-store, and scripted-host models only; excludes source, raw IR/lowering, Rust/OS, concrete clock, full BASE-* and G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.BaseMachineComposition.wrong_host_response_mutation_is_rejected_in_the_run",
+      "module": "Xsh.Proofs.BaseMachineComposition",
+      "declaration": "Xsh.Proofs.BaseMachineComposition.wrong_host_response_mutation_is_rejected_in_the_run",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Boolean response to time.now is recorded and rejected as a host-response type mismatch.",
+      "boundary": "Independent finite BaseMachine, typed-store, and scripted-host models only; excludes source, raw IR/lowering, Rust/OS, concrete clock, full BASE-* and G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.runPulls_observes_pending_prefix",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.runPulls_observes_pending_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite pulls observe exactly the first fuel producer instructions in order.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.runPulls_preserves_observation_order",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.runPulls_preserves_observation_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite pull traces preserve the per-item producer-action then callback-action order.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.producer_observation_keeps_creation_and_body_sites",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.producer_observation_keeps_creation_and_body_sites",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A producer observation retains the operation body site and its creation-site effect charge.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.callback_observation_keeps_its_lexical_site",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.callback_observation_keeps_its_lexical_site",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callback observation retains its operation's lexical site and required effect.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.checked_producer_pays_each_body_instruction",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.checked_producer_pays_each_body_instruction",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every instruction in an accepted producer body has its required effect permitted at creation.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.checked_consumer_pays_each_callback_operation",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.checked_consumer_pays_each_callback_operation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every callback operation in an accepted consumer has its required effect permitted in the consumer context.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.suspended_pending_instruction_belongs_to_body",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.suspended_pending_instruction_belongs_to_body",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A pending suspended instruction remains a member of its producer's finite body.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.suspended_pending_instruction_is_permitted_at_creation",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.suspended_pending_instruction_is_permitted_at_creation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Suspension preserves creation-context permission for every pending instruction's required effect.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.accepted_outside_creation_and_restricted_callback",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.accepted_outside_creation_and_restricted_callback",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepts a network producer created outside `without net` with a filesystem-only callback in the restricted context.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.pull_emits_both_causal_host_observations",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.pull_emits_both_causal_host_observations",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One pull emits the producer network request followed by the callback filesystem read.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.pull_keeps_distinct_lexical_charges",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.pull_keeps_distinct_lexical_charges",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One pull charges the producer network effect at creation and the callback filesystem effect at its body site.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.consumer_recharge_mutation_is_rejected",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.consumer_recharge_mutation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Moving a producer network charge to the restricted consumer invocation changes its lexical site and violates consumer permission.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Effects.DelayedCausality.dropped_producer_observation_changes_the_pull_trace",
+      "module": "Xsh.Effects.DelayedCausality",
+      "declaration": "Xsh.Semantics.Effects.DelayedCausality.dropped_producer_observation_changes_the_pull_trace",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Dropping the producer network request changes the two-event pull trace to only the callback filesystem read.",
+      "boundary": "Finite modeled operations/sites and list execution only; excludes aliases, delegation, close semantics, divergence, Rust/source correspondence, and EFF-LATENT, EFF-SEMANTIC, or universal G3 closure."
     }
   ],
   "source_identity": null

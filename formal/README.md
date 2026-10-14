@@ -63,7 +63,14 @@ fact in the finite solver graph. These laws and witnesses concern represented
 summaries and graph edges only; they do not establish Rust checker
 classification or propagation, complete solver behavior, full `EFF-CAPTURE`,
 `EFF-LATENT`, or `EFF-SEMANTIC` semantics, or conformance. Together, the effect
-fragments close neither `EFF-LATENT` nor `EFF-SEMANTIC`. The raw IR layer models typed pool IDs,
+fragments close neither `EFF-LATENT` nor `EFF-SEMANTIC`. `Xsh.Effects.DelayedCausality`
+adds thirteen roots over finite producer instructions and callback operations.
+Its list model preserves pull order, charges producer effects at creation, and
+charges callback effects at their operation sites; witnesses distinguish the
+two-event trace, consumer-side recharge, and a dropped producer event. It
+establishes no source or Rust correspondence, aliases, delegation, close
+semantics, divergence, or full `EFF-LATENT`, `EFF-SEMANTIC`, or universal G3
+closure. The raw IR layer models typed pool IDs,
 optional IDs, ranges, tables, and row decoding. Its decoder fragments prove
 successful sequential read length, successful payload length and table bounds,
 and rejection of one concrete out-of-bounds payload range. The finite
@@ -101,7 +108,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 637 fragment
+G0b source freeze remain pending. The provisional inventory has 654 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -403,7 +410,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 637 rooted Lean fragment declarations across 89 core owner
+The inventory names 654 rooted Lean fragment declarations across 89 core owner
 sets. Its 51 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
@@ -438,7 +445,13 @@ obligation or G1. These base-machine results concern only the independent
 scalar/integer and finite scripted-host models. They do
 not establish source or whole-language soundness, Rust or OS conformance,
 concrete host behavior, or clock accuracy; clock correspondence remains an
-external assumption. The Lean comparator in `Xsh.Values.FloatEquality` takes
+external assumption. `Xsh.Proofs.BaseMachineComposition` adds four roots that
+compose checked name lookup through a typed store with a scripted clock
+response and observed machine trace. Its mutation witnesses distinguish an
+arithmetic change, an inactive binding, and a wrong-typed response; the finite
+models establish no source, raw-IR/lowering, Rust/OS, or concrete clock
+correspondence, and close no full BASE-* or G1 obligation. The Lean comparator
+in `Xsh.Values.FloatEquality` takes
 raw 64-bit Float encodings and computes IEEE value equality. Its specification
 proves symmetry, transitivity, and reflexivity exactly for non-NaNs. Signed
 zeros compare equal while retaining distinct raw bits, transport encodings,

@@ -38,8 +38,13 @@ mutation witness. This does not close G7a or establish Rust decoder/verifier
 correspondence. The effects checker bridge consumes already-classified
 `FactSet` summaries and checks their body-site obligations through the finite
 lexical model; it does not establish Rust classification/runtime correspondence
-or close `EFF-LATENT`/`EFF-SEMANTIC`. The inventory now names 637 fragment
-roots across 89 owners; its 51 Python tests check inventory consistency,
+or close `EFF-LATENT`/`EFF-SEMANTIC`. `Xsh.Effects.DelayedCausality` adds 13
+roots over finite producer instructions and callback operations. Its list model
+preserves pull order and keeps producer creation-site charges distinct from
+callback operation-site charges; it does not establish source or Rust
+correspondence, aliases, delegation, close semantics, divergence, or full
+`EFF-LATENT`, `EFF-SEMANTIC`, or universal G3 closure. The inventory now names
+654 roots across 89 owners; its 51 Python tests check inventory consistency,
 mutation controls, and finite-case evidence boundaries. The observed-machine
 fragment wraps the accepted scalar/integer BaseMachine in an ordered
 observation trace; progress preserves the link between a pending typed wait
@@ -48,7 +53,12 @@ while resolving the same raw name in distinct checked declaration contexts,
 then reads or writes the corresponding active typed cell. It proves no
 source-site table or source-site uniqueness and no whole lexical-shadowing
 semantics. It establishes no source, raw-IR/lowering, Rust, or concrete-clock
-correspondence, and closes no full BASE-* obligation or G1. The RelPath roots
+correspondence, and closes no full BASE-* obligation or G1. `Xsh.Proofs.BaseMachineComposition`
+adds four roots composing checked lookup through a typed store with a scripted
+clock response and observed machine trace. Its mutations distinguish arithmetic,
+inactive-binding, and wrong-response behavior; it establishes no source,
+raw-IR/lowering, Rust/OS, or concrete clock correspondence and closes no full
+BASE-* or G1 obligation. The RelPath roots
 cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,
 or full G2 validation closure. Five observation
