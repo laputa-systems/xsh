@@ -7,11 +7,12 @@ build depends on it. The current `Xsh` root imports every module under
 word representations; lexical environments, activations, and captured cells;
 checked integer outcomes and millisecond-duration operations over typed scalar
 values; finite map-presence and primitive key-order laws; checked call argument
-ordering; checked record updates and finite Map literal evaluation; byte-lexical
-path components; Str-backed enum wire conversion; List index and slice bounds;
-Unicode scalar text-slice laws and UTF-8 byte search; Result `?` propagation
-boundaries and returned-Result data; finite `.require(Set[T])` validation and
-array conversion; validated
+ordering; checked record updates and finite Map literal evaluation; JSON-tree
+paths and bounded JSON compatibility projection; byte-lexical path components;
+Str-backed enum wire conversion; List index and slice bounds and bounded
+List-comprehension execution; Unicode scalar text-slice laws and UTF-8 byte
+search; Result `?` propagation boundaries and returned-Result data; finite
+`.require(Set[T])` validation and array conversion; validated
 boundaries and atomic typed-store writes; and effect lattices, recursive
 summaries, lexical bounds, and delayed-work origins. Failed typed writes
 preserve the old store and produce an uncatchable type error; `.require(UInt)`
@@ -79,7 +80,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 396 fragment
+G0b source freeze remain pending. The provisional inventory has 424 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -93,6 +94,15 @@ normalization, and clamped slice bounds. Literal negative reads count from the
 end while computed negative indices and negative assignment indices are rejected.
 The model does not cover parsing, diagnostic phases, store updates, String or
 Bytes slicing, signed overflow, or the Rust evaluator.
+
+`Xsh.Semantics.ListExecution` has fourteen roots for eager execution of a
+finite two-source List comprehension. The model records source, filter, and
+projection invocations; evaluates the inner source for each outer binding;
+preserves filter and loop-nesting order; and publishes only a complete result.
+Its mutation witness detects hoisting an inner source that depends on the outer
+binding. It uses abstract finite expression functions and does not model
+parsing, general expression effects, streams, cleanup, or XSH runtime
+correspondence.
 
 `Xsh.Calls.ArgumentOrder` has fourteen roots for already-checked finite call
 layouts. The model preserves receiver, written argument-source, and omitted
@@ -134,6 +144,16 @@ mutation witness detects extension beyond an existing list index. The model
 does not cover non-String Map-key validation, key uniqueness policy, source
 integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime
 or Rust correspondence, or full G1/G2/G3 closure.
+
+`Xsh.Json.Compatibility` has fourteen roots for recursive projection of a
+bounded value fragment into a JSON tree. It preserves scalar and list values,
+sorts record and Map fields, requires string Map keys and finite Float leaves,
+uses prepared enum wire spellings, requires an explicit conversion for paths,
+and does not publish partial output after failure. Record and Map entries are
+assumed unique. The Set theorem is only an ordered ordinal-key abstraction that
+emits ordinals as a JSON integer array; it does not model general `Set[T]`
+serialization. The fragment excludes JSON text encoding/parsing, source-width
+validation, diagnostics, runtime, and Rust correspondence.
 
 `Xsh.Records.Update` has twelve roots for checked functional updates to existing
 record paths. The model covers path-prefix overlap checks, one evaluation of the
@@ -247,7 +267,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 396 rooted Lean fragment declarations across 89 core owner
+The inventory names 424 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full

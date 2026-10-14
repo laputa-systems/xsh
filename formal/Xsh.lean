@@ -8,6 +8,7 @@ import Xsh.Values.MapPresence
 import Xsh.Results.Fallback
 import Xsh.Results.Propagation
 import Xsh.Json.Path
+import Xsh.Json.Compatibility
 import Xsh.Records.Update
 import Xsh.Maps.Literal
 import Xsh.Paths.Components
@@ -16,6 +17,7 @@ import Xsh.Values.DurationOps
 import Xsh.Calls.ArgumentOrder
 import Xsh.Semantics.Argv
 import Xsh.Semantics.ListAccess
+import Xsh.Semantics.ListExecution
 import Xsh.Strings.Slice
 import Xsh.Strings.Search
 import Xsh.Semantics.Environments

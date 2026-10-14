@@ -6550,6 +6550,258 @@
       "status": "fragment",
       "scope": "Finite `.require(Set[T])` validation for existing sets and decoded arrays, membership preservation, primitive-key iteration, and invalid-item and duplicate mutations.",
       "boundary": "Assumes a finite order-preserving key table and target predicate; excludes JSON parsing, diagnostic text, checker/runtime and Rust correspondence, and full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.null_projects_to_json_null",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.null_projects_to_json_null",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.scalar_projection_preserves_value",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.scalar_projection_preserves_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.finite_float_is_accepted",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.finite_float_is_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.nonfinite_float_is_rejected",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.nonfinite_float_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.list_projection_preserves_order",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.list_projection_preserves_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.record_projection_sorts_fields",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.record_projection_sorts_fields",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.map_projection_requires_string_keys",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.map_projection_requires_string_keys",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.map_projection_checks_values_recursively",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.map_projection_checks_values_recursively",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.set_projects_as_key_ordered_array",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.set_projects_as_key_ordered_array",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.str_enum_projects_to_wire_spelling",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.str_enum_projects_to_wire_spelling",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.nested_incompatible_value_rejects_root",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.nested_incompatible_value_rejects_root",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.path_requires_explicit_json_conversion",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.path_requires_explicit_json_conversion",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.failure_publishes_no_partial_tree",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.failure_publishes_no_partial_tree",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Json.Compatibility.nonfinite_acceptance_mutation_is_detected",
+      "module": "Xsh.Json.Compatibility",
+      "declaration": "Xsh.Json.Compatibility.nonfinite_acceptance_mutation_is_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Finite JSON compatibility projection for bounded values, including string-key Map checks, enum wire spellings, and explicit Path conversion.",
+      "boundary": "Record and Map entries are assumed unique; Set models only ordered ordinal keys emitted as ordinal integers and is not general Set[T] serialization. Excludes JSON text encoding/parsing, source-width validation, diagnostics, runtime, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.outer_source_is_first_event",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.outer_source_is_first_event",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.dependent_inner_source_runs_once_per_outer_binding",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.dependent_inner_source_runs_once_per_outer_binding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.inner_source_precedes_filter_and_projection_per_outer_binding",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.inner_source_precedes_filter_and_projection_per_outer_binding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.filters_run_in_written_order",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.filters_run_in_written_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.false_filter_skips_later_filters_and_projection",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.false_filter_skips_later_filters_and_projection",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.projection_runs_once_per_survivor",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.projection_runs_once_per_survivor",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.output_follows_loop_nesting_order",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.output_follows_loop_nesting_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.empty_outer_skips_inner_source_filters_and_projection",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.empty_outer_skips_inner_source_filters_and_projection",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.outer_source_failure_stops_without_partial_publication",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.outer_source_failure_stops_without_partial_publication",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.inner_source_failure_stops_later_outer_bindings",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.inner_source_failure_stops_later_outer_bindings",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.filter_failure_stops_later_filters_and_projection",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.filter_failure_stops_later_filters_and_projection",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.projection_failure_stops_without_partial_publication",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.projection_failure_stops_without_partial_publication",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.hoisted_inner_source_mutation_changes_trace_and_output",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.hoisted_inner_source_mutation_changes_trace_and_output",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListExecution.rejecting_all_bindings_returns_empty_list",
+      "module": "Xsh.Semantics.ListExecution",
+      "declaration": "Xsh.Semantics.ListExecution.rejecting_all_bindings_returns_empty_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
+      "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
     }
   ],
   "source_identity": null

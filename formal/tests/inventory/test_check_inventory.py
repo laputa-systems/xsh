@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(396, len(result["fragment_roots"]))
+        self.assertEqual(424, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -176,6 +176,52 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Semantics.ListAccess.computed_negative_from_end_mutation_is_detectable",
             },
             list_access_roots,
+        )
+        json_compatibility_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Json.Compatibility"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Json.Compatibility.null_projects_to_json_null",
+                "Xsh.Json.Compatibility.scalar_projection_preserves_value",
+                "Xsh.Json.Compatibility.finite_float_is_accepted",
+                "Xsh.Json.Compatibility.nonfinite_float_is_rejected",
+                "Xsh.Json.Compatibility.list_projection_preserves_order",
+                "Xsh.Json.Compatibility.record_projection_sorts_fields",
+                "Xsh.Json.Compatibility.map_projection_requires_string_keys",
+                "Xsh.Json.Compatibility.map_projection_checks_values_recursively",
+                "Xsh.Json.Compatibility.set_projects_as_key_ordered_array",
+                "Xsh.Json.Compatibility.str_enum_projects_to_wire_spelling",
+                "Xsh.Json.Compatibility.nested_incompatible_value_rejects_root",
+                "Xsh.Json.Compatibility.path_requires_explicit_json_conversion",
+                "Xsh.Json.Compatibility.failure_publishes_no_partial_tree",
+                "Xsh.Json.Compatibility.nonfinite_acceptance_mutation_is_detected",
+            },
+            json_compatibility_roots,
+        )
+        list_execution_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Semantics.ListExecution"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Semantics.ListExecution.outer_source_is_first_event",
+                "Xsh.Semantics.ListExecution.dependent_inner_source_runs_once_per_outer_binding",
+                "Xsh.Semantics.ListExecution.inner_source_precedes_filter_and_projection_per_outer_binding",
+                "Xsh.Semantics.ListExecution.filters_run_in_written_order",
+                "Xsh.Semantics.ListExecution.false_filter_skips_later_filters_and_projection",
+                "Xsh.Semantics.ListExecution.projection_runs_once_per_survivor",
+                "Xsh.Semantics.ListExecution.output_follows_loop_nesting_order",
+                "Xsh.Semantics.ListExecution.empty_outer_skips_inner_source_filters_and_projection",
+                "Xsh.Semantics.ListExecution.outer_source_failure_stops_without_partial_publication",
+                "Xsh.Semantics.ListExecution.inner_source_failure_stops_later_outer_bindings",
+                "Xsh.Semantics.ListExecution.filter_failure_stops_later_filters_and_projection",
+                "Xsh.Semantics.ListExecution.projection_failure_stops_without_partial_publication",
+                "Xsh.Semantics.ListExecution.hoisted_inner_source_mutation_changes_trace_and_output",
+                "Xsh.Semantics.ListExecution.rejecting_all_bindings_returns_empty_list",
+            },
+            list_execution_roots,
         )
         duration_roots = {
             root["declaration"] for root in roots
