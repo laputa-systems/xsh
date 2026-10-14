@@ -72,6 +72,35 @@ print format(prefix: "item:", value: "two")
 """
 }
 
+test test_callable_alias_keeps_imported_targets_and_lexical_shadowing { |ctx|
+  let root = test.temp_dir(ctx, name: "callable-alias-imported-targets")?
+  fp"{root}/left.xsh".write("""
+##! Left callables.
+## Returns the left module's value.
+export pure render() -> Str { "left" }
+""")
+  fp"{root}/right.xsh".write("""
+##! Right callables.
+## Returns the right module's value.
+export pure render() -> Str { "right" }
+""")
+  let entry = fp"{root}/entry.xsh"
+  entry.write("""
+use left as left
+use right as right
+let selected = left.render
+proc choose(shadow: Bool) [] -> Str {
+  if shadow { let selected = right.render; return selected() }
+  selected()
+}
+print choose(true) choose(false)
+""")
+  let result = test.run_xsh(ctx, entry.read_text()?, env: {XSH_MODULE_PATH: root})?
+  assert result.success, result.stderr
+  assert result.stdout == """right left
+"""
+}
+
 test test_callable_alias_keeps_effects_and_erased_boundaries { |ctx|
   for source in [
     """pure inferred(value: Int) { value }; export let public = inferred

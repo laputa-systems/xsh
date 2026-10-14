@@ -266,10 +266,12 @@ impl Checker {
         {
             return Type::Tag(info.type_name);
         }
-        if self.procs.contains_key(&name) {
+        if let Some(signature) = self.procs.get(&name).cloned() {
+            self.record_selected_function_call(span, &signature);
             return Type::Proc;
         }
-        if self.pures.contains_key(&name) {
+        if let Some(signature) = self.pures.get(&name).cloned() {
+            self.record_selected_function_call(span, &signature);
             return Type::Pure;
         }
         if api_spec().module(&name.as_str()).is_some() {
@@ -366,6 +368,9 @@ impl Checker {
 
     pub(super) fn lookup_record_shorthand(&mut self, name: Name, span: Span) -> Type {
         let ty = self.lookup_expr_ident(name, span);
+        if matches!(ty, Type::Pure | Type::Proc) {
+            self.record_expr_type(span, ty.clone());
+        }
         if name == "ARGV"
             && let Some(diagnostic) = self.diagnostics.last_mut()
             && diagnostic.code == Some(DiagnosticCode::CheckCompatibilityVocabulary)

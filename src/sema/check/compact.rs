@@ -92,9 +92,11 @@ pub struct CompactBodyFacts {
     /// Registered method and module function calls keyed by call expression;
     /// a stage callable's plan is keyed by its callee.
     pub api_calls: FxHashMap<ExprId, super::CheckedApiCall>,
-    /// Checker-selected user declarations for static function calls.
+    /// Checker-selected user declarations for calls and function values.
     pub(crate) selected_function_calls:
         FxHashMap<ExprId, super::CheckedFunctionTarget>,
+    pub(crate) selected_function_references:
+        BTreeMap<Span, (super::CheckedFunctionTarget, Option<Type>)>,
     pub module_commands: BTreeMap<Span, super::CheckedModuleCommand>,
     /// User callable calls and structured stages keyed by their source span.
     pub argument_bindings: BTreeMap<Span, super::CheckedArguments>,
@@ -162,6 +164,7 @@ impl CompactBodyFacts {
             checked_control_flow: checked.checked_control_flow.clone(),
             ..Self::default()
         };
+        let mut selected_function_expr_spans = FxHashSet::default();
         facts.expr_types.reserve(checked.expr_types.len());
         for index in 0..arena.expr_tags.len() {
             let id = ExprId::from_index(index);
@@ -187,6 +190,7 @@ impl CompactBodyFacts {
             }
             if let Some(target) = checked.selected_function_calls.get(&span) {
                 facts.selected_function_calls.insert(id, *target);
+                selected_function_expr_spans.insert(span);
             }
             if matches!(expression.kind, ArenaExprKind::Call { .. })
                 && let Some(instance) = checked.resolved_type_expressions.instantiations.get(&span) {
@@ -299,6 +303,14 @@ impl CompactBodyFacts {
                 {
                     facts.handler_input_types.insert(id, ty.clone());
                 }
+            }
+        }
+        for (&span, &target) in &checked.selected_function_calls {
+            if !selected_function_expr_spans.contains(&span) {
+                facts.selected_function_references.insert(
+                    span,
+                    (target, checked.expr_types.get(&span).cloned()),
+                );
             }
         }
         facts
