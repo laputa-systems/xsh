@@ -19,12 +19,12 @@ for standard modules, `core/tests/test-*.xsh` for applets,
 `test.run_xsh`, `test.run_xsht_trace`, temporary resources, and mocks to reach
 process and CLI behavior from XSH.
 
-Rust tests are reserved for boundaries native XSH cannot own: fixture servers,
+Use Rust tests for host boundaries native XSH cannot reach: fixture servers,
 exact process or byte lifecycles, PTYs, privileges, platform behavior,
-allocation accounting, and small-stack limits. A Rust harness for such a
-boundary supplies fixture inputs and invokes the disk-backed native test;
-assertions about the language stay in XSH. Embedding XSH source in Rust needs an
-adjacent comment explaining why a native test cannot express it.
+allocation accounting, and small-stack limits. Keep language assertions in
+XSH. When a Rust test needs XSH source to reach the host boundary, invoke a
+disk-backed native test; embed the source only when the in-process Rust API
+must inspect or construct it.
 
 | Suite | Location |
 |---|---|

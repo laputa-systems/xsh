@@ -59,28 +59,48 @@ line always computes. Three things found while porting the rest:
 
 ## Defects
 
-The earlier 1,690-input, 6,760-outcome W9 parity run is historical evidence,
-not final-source acceptance. Tracing on earlier sources counted one
+Earlier 1,690-input, 6,760-outcome W9 comparisons are historical evidence, not
+final-source acceptance. The source-qualified 8ca cache receipt counts one
 preparation and check per full module-record key in each shared session: XSH
-check 1,661 and default lint 1,518; Laputa check 379 and default lint 316.
-Default lint also created 288 fresh candidate-probe caches in XSH (905
-records) and 77 in Laputa (347 records). The latest [consolidation handoff](dev/consolidation/HANDOFF.md#current-closure-checks-2026-10-14)
-records the pinned helper build and shared-import count probe. The frozen-source
-1,690-input, four-profile publication run remains open.
+check 1,675 and default lint 1,533; Laputa check 379 and default lint 316. No
+shared key repeats. Candidate-probe caches are private and separate from those
+shared session counts. The latest [consolidation handoff](dev/consolidation/HANDOFF.md#current-w4-and-w9-closure-batch-2026-10-14)
+records the corrected-reference comparison process. Final W9 parity remains
+pending until all 1,690 inputs across four profiles pass strict comparison of
+all 6,760 outcomes.
 
 ### Current consolidation acceptance gates
 
-The structural recount passed all four required zero metrics with no rises on
-the `865fa955` source snapshot. Its synthetic feature-touch probe recorded 38
-XSH and 18 XSHT exhaustive-match demands, then compiled after isolated
-placeholder arms. That probe does not establish runtime reachability or replace
-the original witness review. Final-source qualification remains open. The
-current-source fixed-seed and XSHT integration gates, full native suite,
-repository and documentation checks, and Linux privileged plan also remain
-open. The final report must state cumulative campaign fuzz seeds and upstream
-compatibility results. `cargo dev gate --batch` owns the fixed-seed and tooling
-checks plus one full native suite. See the [consolidation handoff](dev/consolidation/HANDOFF.md)
-for the source freeze and other close requirements.
+The current 8ca structural report covers 370 source files, matches the 11
+non-source values from 6ec, and leaves all four required-zero metrics at zero.
+Source totals remain advisory. The feature-touch probe records 38 XSH and 18
+XSHT compiler demands. It compiled isolated placeholder arms; it does not prove
+runtime reachability. The source-qualified 0ab-to-8ca review found 25 of 27
+selected blobs identical and confirms the changed statement-flow sites are
+unchanged.
+
+The 152-tag dispatch review classified four defensive error fallback paths and
+found no concrete route divergence. The 74 authenticated route receipts cover
+36 of 92 expression tags. The focused statement and typed-scalar suites cover
+42 and 31 cases. No paired runtime run covers all tags.
+
+The review of all 46 generated stage rows is complete. An allocation probe on
+8ca is retained separately from the Rust allocation test filter, which remains
+pending. Current full runtime gates remain pending.
+
+Sixty focused lint tests are source-qualified from an earlier run and do not
+replace the final lint gate. These reviews do not close the ten acceptance
+rows.
+
+The final canonical fixed-seed, integration, normal and forced runtime, full
+native, repository, documentation, Linux privileged, size, memory, and guarded
+performance gates remain pending. The canonical integration run owns the
+22,768-candidate deep grammar proof; do not run it twice. The batch gate
+(`cargo dev gate --batch`) owns fixed-seed and tooling checks plus one full
+native suite. The final report must state cumulative campaign fuzz seeds and
+upstream compatibility results. See the
+[consolidation handoff](dev/consolidation/HANDOFF.md) for the source freeze and
+close requirements.
 
 ### Lint migration
 
@@ -173,36 +193,34 @@ when a spelling is removed.
 
 ## Iteration speed
 
-Gates and builds are the slowest part of a change. On a 32-thread x86_64
-Alpine machine the whole gate sequence takes about eight minutes: a minute
-for the native suite (about 3,440 tests), three and a half for the `xsht`
-integration target, and under a minute each for the release build, the root
-integration target, and the unit tests. On a ten-core M1 Pro a release
-rebuild alone takes about two minutes.
+Use `cargo dev gate PATH...` for focused changes. It selects gate families for
+changed paths, deduplicates them, and runs focused native tests with the
+required hard checks. Cargo reuses up-to-date build artifacts. Use
+`cargo dev gate --batch` when you need the full process suite, debug tests,
+tooling, fixed-seed soundness, one full native suite, repository checks, and
+documentation checks. It also runs the source-bound consolidation ratchet.
+Linux also runs the privileged test plan. See
+[Testing](docs/TESTING.md) for gate owners and commands.
 
-- On a musl host `rustc` uses musl's allocator and spends most of a thin-LTO
-  build in the kernel; `cargo dev` preloads jemalloc into its build steps
-  there (`XSH_DEV_BUILD_PRELOAD`). A plain `cargo build` does not: a release
-  rebuild of `xsh` takes 163 s without the preload and 33 s with it.
-- The `xsht` integration target is dominated by the corpus tests (lint and
-  format invariance over this repository and Laputa) and competes with
-  itself for the lint budget test.
-- A build for running tests need not be the release profile (thin LTO,
-  `opt-level = 3`): optimization without LTO, with more codegen units, would
-  probably do. `src/runtime/eval/lower.rs` is 16,000 lines and
-  `crates/xsht/src/lint.rs` 15,000, and a change to either recompiles its
-  crate. The root package's unit tests cannot be built with `--release` at
-  all (LLVM recursion).
-- About 1,300 native tests run a whole script through a fresh `xsh` process;
-  the few `system-report` tests take five to eight seconds each. Running a
-  script test in process is undesigned.
-- The `xsht` lint wall-budget test has historical failures under concurrent
-  integration load and an older standalone `xsht lint` measurement of about
-  17 s against its 15 s budget. The scheduler and lint sources have changed
-  since those measurements; current standalone status is unmeasured, so keep
-  the existing gate authoritative and rerun it on the current release binary.
-- Run only the gates a change can affect: map changed paths to the rows of
-  the table in `docs/TESTING.md`, as one `cargo dev` command.
+Process and native tests use the optimized `verification` profile, which has
+no LTO and 64 codegen units. Debug `--lib` tests retain debug-only assertions.
+`cargo dev check` uses release products for repository checks. The root
+package's `--lib` test target can trigger LLVM `ScalarEvolution` recursion in
+release; select root integration targets with `--test`. Build only the needed
+package and binary. The `dist` profile is for release packaging. On qualifying
+musl hosts, `cargo dev` preloads jemalloc for compilation only; see
+[Testing](docs/TESTING.md) for the exact policy.
+
+The earlier `src/runtime/eval/lower.rs` and `crates/xsht/src/lint.rs` estimates
+of 16,000 and 15,000 lines are historical. Those files are module roots with
+implementation split across `src/runtime/eval/lower/` and `crates/xsht/src/lint_*.rs`.
+File size does not establish current rebuild time.
+
+The documented release lint gate has a 15-second budget. The earlier 17-second
+standalone result and failures under concurrent integration load are
+historical. Current standalone status is unmeasured, so keep the documented
+gate authoritative. Final comparative performance results are pending, and
+guarded performance gates have not started.
 
 ## Deferred and rejected
 

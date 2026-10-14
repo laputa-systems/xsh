@@ -141,8 +141,9 @@ directly to native runtime operations.
    generated docs as described in [`TESTING.md`](TESTING.md).
 2. Add grammar, an arena variant, and parsing under `src/syntax/`. Preserve the
    CST and add the node's logical children to the exhaustive `AstArena` child
-   enumerator for each affected node family. Keep each recursive consumer's
-   traversal policy explicit.
+   enumerator. Update each owning traversal for binding order, callable edges,
+   command boundaries, and scope transitions; a generic child walk cannot
+   preserve those rules.
 3. Check the behavior in `src/sema/check/` and publish any facts later stages
    need.
 4. If the feature has an indexed representation, add its row to
@@ -228,11 +229,13 @@ Network jobs cross into `NetRuntimeOwner` as plain Rust requests. The network
 worker does not run XSH code or own evaluator values, source spans, or trace
 buffers. Job ownership and trace events stay with the evaluator.
 
-The indexed stage engine owns serial pipeline order, item-at-a-time pulls, and
-stages that materialize their complete input; `par-map` is the worker boundary.
-Stages resume through evaluator continuations. Yield delegation and
-cancellation remain iterative so producer depth does not become native stack
-depth.
+`IndexedSerialPipeline` owns item-at-a-time pulls. For-loop sources use it when
+no materialized or terminal boundary applies. Ordinary value pipelines use
+`IndexedStageEngine` to join serial groups with `IndexedMaterializedStage`,
+which handles stages that materialize input and keyed work. `par-map` is the
+worker boundary. Stages resume through evaluator continuations. Yield
+delegation and cancellation remain iterative so producer depth does not become
+native stack depth.
 
 A new host integration names its owner, checkpoint behavior, cleanup
 responsibility, signal interaction, result shape, and trace evidence before it
