@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from w9_publication_adapter import (
     AdapterError,
     _canonical_span_map,
-    _canonical_span_set,
     _canonicalize_span,
     _fields,
     _group_end,
@@ -381,21 +380,26 @@ def _exact_owner_tables(
     return normalized_exprs, normalized_records, normalized_aliases, normalized_tails
 
 
-def _static_call_spans(fields: Mapping[str, str]) -> set[str]:
-    static = _canonical_span_set(
-        fields["statically_resolved_call_spans"], "statically resolved function call"
-    )
-    other_static = set()
-    for name in (
-        "standard_call_spans",
-        "api_calls",
-        "module_commands",
-        "record_constructor_instances",
-        "message_payload_constructors",
-        "error_constructors",
-    ):
-        other_static.update(_canonical_span_map(fields[name], name.replace("_", " ")))
-    return static - other_static
+def _selected_call_expression_spans(
+    selected_spans: set[str],
+    expressions: Mapping[int, tuple[str, str, str]],
+    source_owners: Mapping[str, set[str]],
+) -> set[str]:
+    calls_by_span: dict[str, list[int]] = {}
+    for expression_id, (span, tag, _name) in expressions.items():
+        if tag == "Call":
+            calls_by_span.setdefault(span, []).append(expression_id)
+    call_spans: set[str] = set()
+    for span in selected_spans:
+        call_ids = calls_by_span.get(span, [])
+        has_call_owner = "expr:Call" in source_owners.get(span, set())
+        if call_ids and not has_call_owner:
+            raise AdapterError(f"selected Call AST site has no exact expr:Call owner: {span}")
+        if has_call_owner:
+            if len(call_ids) != 1:
+                raise AdapterError(f"selected expr:Call owner has no unique exact AST identity: {span}")
+            call_spans.add(span)
+    return call_spans
 
 
 def _record_field_type(parent_type: str, field_name: str, label: str) -> str:
@@ -444,10 +448,13 @@ def validate_function_reference_targets(
     exact_owners: Mapping[str, object],
 ) -> None:
     selected = _canonical_span_map(fields["selected_function_calls"], "selected function reference")
-    reference_spans = set(selected) - _static_call_spans(fields)
-    if not reference_spans:
+    if not selected:
         return
     exprs, records, aliases, tails = _exact_owner_tables(exact_owners, source_sizes)
+    call_spans = _selected_call_expression_spans(set(selected), exprs, source_owners)
+    reference_spans = set(selected) - call_spans
+    if not reference_spans:
+        return
     checked_declarations = _fields(fields["checked_declarations"], "CheckedDeclarations")
     functions = _map_entries(checked_declarations["functions"])
     expression_types = _canonical_span_map(fields["expr_types"], "checked expression type")

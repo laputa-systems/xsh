@@ -43,10 +43,26 @@ TOUR_USAGE_DECLARATION = (
     'Field(Name("used")):SchemaExpectation{children:{},instances:[]}}})],'
     'return_ty:Int,return_type_expr:TypeExprId(7),inferred_effects:false,effects:None})}'
 )
+IFDOWN_CALL_SPAN = "Span{source_id:SourceId(0),start:12208,len:35}"
+IFDOWN_CALL_TARGET = (
+    'CheckedFunctionTarget{definition:FunctionDefId(21),'
+    'name:Name("state_configured_ifaces"),namespace:None}'
+)
+IFDOWN_STREAM_DECLARATION = (
+    'CheckedFunctionDeclaration{body:Span{len:290,source_id:SourceId(0),start:11270},'
+    'internal:false,kind:Stream,name:Name("state_configured_ifaces"),namespace:None,'
+    'parameter_spans:[Span{source_id:SourceId(0),start:11210,len:16}],'
+    'signature:Some(CompactFunctionSig{params:[CallableParamType{name:Name("state_path"),'
+    'ty:Path,defaulted:false,rest:false}],parameter_schemas:[Some(SchemaExpectation{'
+    'instances:[],children:{}})],return_ty:Stream(Record({Name("logical"):Str,'
+    'Name("physical"):Str})),return_type_expr:TypeExprId(100),inferred_effects:false,'
+    'effects:Some([Fs,Error])})}'
+)
+IFDOWN_STREAM_TYPE = "Stream(Record({Name(\"logical\"):Str,Name(\"physical\"):Str}))"
 
 
 def _fields(*, selected_span=IDENT_SPAN, selected=TARGET, declaration=PURE_DECLARATION, types=None,
-            static_spans="{}"):
+            static_spans="{}", declaration_id="1"):
     return {
         "selected_function_calls": f"{{{selected_span}: {selected}}}",
         "statically_resolved_call_spans": static_spans,
@@ -57,7 +73,7 @@ def _fields(*, selected_span=IDENT_SPAN, selected=TARGET, declaration=PURE_DECLA
         "message_payload_constructors": "{}",
         "error_constructors": "{}",
         "checked_declarations": (
-            "CheckedDeclarations { functions: {FunctionDefId(1): "
+            f"CheckedDeclarations {{ functions: {{FunctionDefId({declaration_id}): "
             + declaration
             + "} }"
         ),
@@ -126,28 +142,93 @@ class FunctionReferenceFactTests(unittest.TestCase):
             sizes={0: 732},
         )
 
-    def test_selected_reference_and_static_call_partition_normalizes_span_keys(self):
+    def test_selected_reference_and_call_partition_normalizes_span_keys(self):
         selected = (
             f"{{{REORDERED_IDENT_SPAN}: {TARGET}, "
             f"{REORDERED_CALL_SPAN}: {TARGET}}}"
         )
         fields = _fields()
         fields["selected_function_calls"] = selected
-        fields["statically_resolved_call_spans"] = f"{{{REORDERED_CALL_SPAN}}}"
+        fields["statically_resolved_call_spans"] = "{}"
         fields["expr_types"] = (
             f"{{{REORDERED_IDENT_SPAN}: Pure, {REORDERED_CALL_SPAN}: Bool}}"
         )
+        exact_owners = {
+            "exprs": {
+                0: (IDENT_SPAN, "Ident", "render"),
+                1: ("Span{source_id:SourceId(1),start:50,len:8}", "Call", ""),
+            },
+            "records": {},
+            "aliases": {},
+            "expr_count": 2,
+            "record_field_count": 0,
+            "tails": {},
+        }
         _validate(
             fields,
-            owners={IDENT_SPAN: {"expr:Ident"}, REORDERED_CALL_SPAN: {"expr:Call"}},
+            owners={
+                IDENT_SPAN: {"expr:Ident"},
+                "Span{source_id:SourceId(1),start:50,len:8}": {"expr:Call"},
+            },
+            exact_owners=exact_owners,
             sizes={0: 128, 1: 100, 2: 10000},
         )
 
-    def test_static_function_call_does_not_require_reference_owner_rows(self):
+    def test_call_target_does_not_require_reference_type_facts(self):
+        exact_owners = {
+            "exprs": {0: (IDENT_SPAN, "Call", "")},
+            "records": {},
+            "aliases": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+            "tails": {},
+        }
         _validate(
-            _fields(static_spans=f"{{{IDENT_SPAN}}}"),
-            owners={},
-            exact_owners={},
+            _fields(types="{}"),
+            owners={IDENT_SPAN: {"expr:Call"}},
+            exact_owners=exact_owners,
+        )
+
+    def test_rejects_call_owner_without_matching_exact_call_identity(self):
+        exact_owners = {
+            "exprs": {0: (IDENT_SPAN, "Ident", "render")},
+            "records": {},
+            "aliases": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+            "tails": {},
+        }
+        with self.assertRaises(AdapterError):
+            _validate(
+                _fields(),
+                owners={IDENT_SPAN: {"expr:Call"}},
+                exact_owners=exact_owners,
+            )
+
+    def test_ifdown_stream_call_target_uses_exact_call_owner(self):
+        source = (Path(__file__).resolve().parents[2] / "core/ifdown.xsh").read_bytes()
+        self.assertEqual(source[12208:12243], b"state_configured_ifaces(state_path)")
+        exact_owners = {
+            "exprs": {0: (IFDOWN_CALL_SPAN, "Call", "")},
+            "records": {},
+            "aliases": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+            "tails": {},
+        }
+        fields = _fields(
+            selected_span=IFDOWN_CALL_SPAN,
+            selected=IFDOWN_CALL_TARGET,
+            declaration=IFDOWN_STREAM_DECLARATION,
+            declaration_id="21",
+            types=f"{{{IFDOWN_CALL_SPAN}: {IFDOWN_STREAM_TYPE}}}",
+            static_spans="{}",
+        )
+        _validate(
+            fields,
+            owners={IFDOWN_CALL_SPAN: {"expr:Call"}},
+            exact_owners=exact_owners,
+            sizes={0: 12516},
         )
 
     def test_record_shorthand_uses_its_exact_parent_field(self):
@@ -264,6 +345,22 @@ class FunctionReferenceFactTests(unittest.TestCase):
                     "record_field_count": 0,
                     "tails": {},
                 },
+            )
+
+    def test_rejects_selected_dangling_unknown_owner(self):
+        exact_owners = {
+            "exprs": {0: (IDENT_SPAN, "Unknown", "")},
+            "records": {},
+            "aliases": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+            "tails": {},
+        }
+        with self.assertRaises(AdapterError):
+            _validate(
+                _fields(),
+                owners={IDENT_SPAN: {"expr:Unknown"}},
+                exact_owners=exact_owners,
             )
 
     def test_rejects_wrong_checked_callable_kind(self):
