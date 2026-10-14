@@ -17479,18 +17479,50 @@ proc main() [env, error] -> Result[Unit] {
         });
     }
 
-    fn append_if_expression_chain(program: &mut FullProgram, wrappers: usize) -> Vec<usize> {
-        program.store.in_place.take();
+    fn duplicate_fixture_leaf_expression(program: &mut FullProgram, instruction: usize) -> usize {
+        let tag = program.store.tags[instruction];
+        assert!(matches!(tag, FullTag::ExprParam | FullTag::ExprInt));
+        let payload = program
+            .store
+            .payload(program.store.data[instruction].range())
+            .expect("fixture leaf payload is in bounds")
+            .to_vec();
+        let start = u32::try_from(program.store.extra.len()).expect("fixture payload fits");
+        let len = u32::try_from(payload.len()).expect("fixture payload fits");
+        let resource_transfer = program.store.resource_transfers[instruction];
+        let checked_call_target_required = program.store.checked_call_target_required[instruction];
+        program.store.extra.extend(payload);
+        let duplicate = program.store.tags.len();
+        program.store.data.push(IrData::new(start, len));
+        program.store.tags.push(tag);
+        program.store.resource_transfers.push(resource_transfer);
+        program
+            .store
+            .checked_call_target_required
+            .push(checked_call_target_required);
+        duplicate
+    }
+
+    fn append_if_expression_chain(
+        program: &mut FullProgram,
+        function_name: &str,
+        wrappers: usize,
+    ) -> Vec<usize> {
         let function_index = program
             .store
             .functions
             .iter()
-            .position(|row| program.store.string(row.name).is_ok_and(|name| name == "make_text"))
-            .expect("string fixture function exists");
+            .position(|row| {
+                program
+                    .store
+                    .string(row.name)
+                    .is_ok_and(|name| name == function_name)
+            })
+            .expect("fixture function exists");
         let mut range = program
             .store
             .function_instruction_range(function_index)
-            .expect("string fixture function range exists");
+            .expect("fixture function range exists");
         assert_eq!(function_index + 1, program.store.functions.len());
         assert_eq!(range.end, program.store.tags.len());
         let old_instruction_end = u32::try_from(program.store.tags.len()).expect("fixture fits");
@@ -17503,28 +17535,61 @@ proc main() [env, error] -> Result[Unit] {
             .clone()
             .find(|instruction| program.store.tags[*instruction] == FullTag::ExprIf)
             .expect("if fixture contains an if expression");
+        assert!(
+            program
+                .store
+                .in_place
+                .get()
+                .expect("direct if fixture is verified")[template_index],
+            "height-two if fixture is marked in place"
+        );
+        program.store.in_place.take();
         let template_range = program.store.data[template_index]
             .range()
             .bounds(program.store.extra.len())
             .expect("if expression payload is in bounds");
         let template = program.store.extra[template_range].to_vec();
-        let execution = schema_execution(&program.store);
+        let function = &program.store.functions[function_index];
+        let execution = schema_execution_with_owner(
+            &program.store,
+            IrFunctionId::new(function_index)
+                .expect("fixture function id fits")
+                .raw(),
+            function.slot_count,
+        );
         let mut template_payload = FullCursor::new(&template);
         let context = DecodeContext::new(&execution);
-        assert_eq!(template_payload.raw().unwrap(), 1);
-        let _condition = BuildExprId::borrow(context, &mut template_payload)
-            .expect("if condition belongs to the fixture function");
-        let _then_value = BuildExprId::borrow(context, &mut template_payload)
-            .expect("if branch belongs to the fixture function");
+        let branch_offset = template_payload.index;
+        let mut branches =
+            Vec::<(BuildExprId, BuildExprId)>::borrow(context, &mut template_payload)
+                .expect("if branch list belongs to the fixture function");
+        let branch_handle = branches.block_identity_for_test();
+        let (condition, then_value) = branches
+            .next()
+            .expect("if expression has one branch")
+            .expect("if branch expressions belong to the fixture function");
+        assert!(branches.next().is_none(), "if expression has one branch");
+        let condition = condition.raw() as usize;
+        let then_value = then_value.raw() as usize;
+        assert_eq!(program.store.tags[condition], FullTag::ExprParam);
+        assert_eq!(program.store.tags[then_value], FullTag::ExprInt);
+        let template_branch_block = program.store.blocks[branch_handle.index()];
+        let template_branch_words = program
+            .store
+            .payload(template_branch_block.instructions)
+            .expect("if branch block payload is in bounds")
+            .to_vec();
+        assert_eq!(
+            template_branch_words.as_slice(),
+            &[1, condition as u32, then_value as u32]
+        );
         let else_offset = template_payload.index;
-        let else_template = BuildExprId::borrow(context, &mut template_payload)
-            .expect("if else value belongs to the fixture function")
-            .raw() as usize;
+        let _else_value = BuildExprId::borrow(context, &mut template_payload)
+            .expect("if else value belongs to the fixture function");
         Span::decode(&execution.decoder(), &mut template_payload).expect("if source span decodes");
         template_payload
             .finish()
             .expect("if expression payload has no trailing fields");
-        assert_eq!(program.store.tags[else_template], FullTag::ExprStr);
         let return_index = range
             .find(|instruction| program.store.tags[*instruction] == FullTag::StmtReturn)
             .expect("if fixture returns its expression");
@@ -17535,8 +17600,24 @@ proc main() [env, error] -> Result[Unit] {
         let mut child = template_index as u32;
         let mut appended = Vec::with_capacity(wrappers);
         for _ in 0..wrappers {
+            let condition = duplicate_fixture_leaf_expression(program, condition);
+            let then_value = duplicate_fixture_leaf_expression(program, then_value);
+            let mut branch_words = template_branch_words.clone();
+            branch_words[1] = u32::try_from(condition).expect("fixture expression ID fits");
+            branch_words[2] = u32::try_from(then_value).expect("fixture expression ID fits");
+            let branch_block = IrBlockId::new(program.store.blocks.len())
+                .expect("fixture branch block ID fits");
+            let branch_start =
+                u32::try_from(program.store.extra.len()).expect("fixture branch payload fits");
+            let branch_len = u32::try_from(branch_words.len()).expect("fixture branch payload fits");
+            program.store.extra.extend_from_slice(&branch_words);
+            program.store.blocks.push(FullBlock {
+                instructions: IrRange::new(branch_start, branch_len),
+                ..template_branch_block
+            });
             let instruction = program.store.tags.len();
             let mut payload = template.clone();
+            payload[branch_offset] = branch_block.raw();
             payload[else_offset] = child;
             let start = u32::try_from(program.store.extra.len()).expect("fixture payload fits");
             let len = u32::try_from(payload.len()).expect("fixture payload fits");
@@ -17747,15 +17828,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
 
     #[test]
     fn in_place_height_limit_marks_128_and_rejects_129_and_ancestors() {
-        let mut program = fixture(
-            "in-place-height.xsh",
-            r#"
-pure make_text(text: Str, flag: Bool) -> Str {
-  return if flag { text } else { "x" }
-}
-"#,
-        );
-        let appended = append_if_expression_chain(&mut program, 128);
+        let mut program = direct_if_fixture();
+        let appended = append_if_expression_chain(&mut program, "selected", 128);
         FullVerifier::verify(&program).unwrap();
         let marks = program.store.in_place.get().expect("verification installs marks");
         assert!(marks[appended[125]]);
