@@ -13,6 +13,7 @@ import tempfile
 import time
 
 import w9_publication_adapter as adapter
+import w9_publication_sources as source_alignment
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -26,7 +27,9 @@ OWNER_HELPER_SHA256 = "23fafe5b4140396242543bb4c59b0bcc1e0d4b59280f1f0e8dabf0cbd
 REFERENCE_TREE = "a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08"
 RECORD_NAME = re.compile(r"record-(0|[1-9][0-9]*)-(default|reveal|execution|check-cli)\Z")
 PROFILES = ("default", "reveal", "execution", "check-cli")
+CAPTURE_SLOTS = (("A", 0), ("B", 1), ("C", 2), ("D", 3))
 RAW_SCHEMA = "w9-publication-adapter\t1\n"
+RAW_HASH_LIBTEST_PREFIX = "test sema::w9_repository_parity_receipt ... "
 ADAPTER_BUILD_FIELDS = (
     "schema",
     "role",
@@ -482,6 +485,92 @@ def _load_publication_runner(path: pathlib.Path):
     return module
 
 
+def _load_candidate_publication_runner(
+    candidate_root: pathlib.Path,
+    source_receipt: pathlib.Path,
+    runner,
+):
+    candidate_root = runner.real_directory(candidate_root, "candidate source")
+    source_receipt = runner.regular_file(source_receipt, "candidate source and binary receipt")
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record.get("candidate_root", "")) != candidate_root:
+        raise PublicationError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record.get("candidate_commit"), source_record.get("candidate_tree")
+    ):
+        raise PublicationError("candidate source identity differs from its source receipt")
+    candidate_runner = runner.regular_file(
+        candidate_root / "dev/consolidation/w9-publication-run.py",
+        "candidate publication runner",
+    )
+    if source_record.get("runner") != str(candidate_runner):
+        raise PublicationError("candidate source receipt publication runner path differs")
+    if not re.fullmatch(r"[0-9a-f]{64}", source_record.get("runner_sha256", "")):
+        raise PublicationError("candidate source receipt publication runner hash is malformed")
+    if runner.sha256_file(candidate_runner) != source_record["runner_sha256"]:
+        raise PublicationError("candidate publication runner hash differs from its source receipt")
+    return _load_publication_runner(candidate_runner)
+
+
+def _load_exact_owner_runner(runner):
+    path = runner.regular_file(
+        pathlib.Path(__file__).with_name("w9_publication_exact_owner_runner.py"),
+        "controller exact-owner validator",
+    )
+    name = "_w9_publication_exact_owner_runner"
+    loaded = sys.modules.get(name)
+    if loaded is not None and pathlib.Path(loaded.__file__) == path:
+        return loaded
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise PublicationError(f"could not load controller exact-owner validator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
+    return module
+
+
+def _validated_exact_owners(proof: dict[str, object], role: str, count: int):
+    owners = proof.get("owners")
+    if not isinstance(owners, dict) or set(owners) != set(range(count)):
+        raise PublicationError(f"exact-owner {role} proof does not cover all {count} inputs")
+    for index, owner in owners.items():
+        if (
+            not isinstance(owner, tuple)
+            or len(owner) != 2
+            or not isinstance(owner[0], tuple)
+            or len(owner[0]) != 4
+            or not isinstance(owner[1], dict)
+        ):
+            raise PublicationError(f"exact-owner {role} proof has malformed owner {index}")
+    return owners
+
+
+def _require_exact_capture_binding(
+    proof: dict[str, object], role: str, expected_capture: pathlib.Path, runner
+) -> None:
+    capture = proof.get("capture")
+    if not isinstance(capture, dict):
+        raise PublicationError(f"exact-owner {role} proof has no capture binding")
+    recorded_capture = runner.regular_file(
+        capture.get("legacy_capture_receipt", ""),
+        f"exact-owner {role} bound legacy capture receipt",
+    )
+    if recorded_capture != expected_capture:
+        raise PublicationError(
+            f"exact-owner {role} proof names a different legacy capture receipt"
+        )
+    recorded_hash = capture.get("legacy_capture_receipt_sha256", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", recorded_hash):
+        raise PublicationError(f"exact-owner {role} proof has a malformed legacy capture hash")
+    if runner.sha256_file(expected_capture) != recorded_hash:
+        raise PublicationError(f"exact-owner {role} proof legacy capture hash differs")
+
+
 def _mkdir_new_directory(path: pathlib.Path, runner) -> None:
     parent = runner.open_absolute_nofollow(path.parent, directory=True)
     try:
@@ -590,9 +679,15 @@ def _parse_raw_hash_output(stdout: str, count: int) -> dict[tuple[int, str, str]
     hashes: dict[tuple[int, str, str], str] = {}
     expected_profiles = set(PROFILES)
     for line in stdout.splitlines():
-        if not line.startswith("w9rawhash"):
+        if line.startswith("w9rawhash"):
+            row = line
+        elif "w9rawhash" in line:
+            if not line.startswith(RAW_HASH_LIBTEST_PREFIX):
+                raise PublicationError("native raw hash output has an unknown prefix")
+            row = line[len(RAW_HASH_LIBTEST_PREFIX):]
+        else:
             continue
-        fields = line.split("\t")
+        fields = row.split("\t")
         if len(fields) != 5 or fields[0] != "w9rawhash":
             raise PublicationError("native raw hash output has a malformed row")
         try:
@@ -843,7 +938,12 @@ def _parse_receipt_header(
     return record, lines[len(fields):]
 
 
-def _parse_adapter_build_receipt(path: pathlib.Path, role: str, runner) -> dict[str, str]:
+def _parse_adapter_build_receipt(
+    path: pathlib.Path,
+    role: str,
+    runner,
+    owner_helper_source: pathlib.Path | None = None,
+) -> dict[str, str]:
     receipt = runner.regular_file(path, f"{role} adapter build receipt")
     record, remainder = _parse_receipt_header(
         receipt, runner.read_regular_text(receipt).splitlines(), ADAPTER_BUILD_FIELDS, "adapter build"
@@ -889,7 +989,8 @@ def _parse_adapter_build_receipt(path: pathlib.Path, role: str, runner) -> dict[
     if runner.sha256_file(owner_helper_path) != record["owner_helper_sha256"]:
         raise PublicationError(f"{receipt}: derived owner helper hash differs")
     owner_helper_source = runner.regular_file(record["owner_helper_source_path"], "pinned W9 owner helper source")
-    if pathlib.Path(record["owner_helper_source_path"]) != OWNER_HELPER:
+    expected_owner_source = OWNER_HELPER if owner_helper_source is None else owner_helper_source
+    if pathlib.Path(record["owner_helper_source_path"]) != expected_owner_source:
         raise PublicationError(f"{receipt}: owner helper source path differs from its pin")
     if runner.sha256_file(owner_helper_source) != OWNER_HELPER_SHA256 or record["owner_helper_source_sha256"] != OWNER_HELPER_SHA256:
         raise PublicationError(f"{receipt}: owner helper source hash differs from its pin")
@@ -1006,13 +1107,131 @@ def _parse_capture_receipt(
     return record
 
 
-def _capture_plan(count: int, runner) -> tuple[list[tuple[int, int]], dict[str, list[tuple[int, int]]]]:
+def _reuse_reference_capture(
+    capture_receipt: pathlib.Path,
+    build_receipt: pathlib.Path,
+    build: dict[str, str],
+    expected_inputs: dict[int, object],
+    reference,
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    runner,
+) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[tuple[int, int], pathlib.Path]]:
+    receipt = runner.regular_file(capture_receipt, "reference adapter capture receipt")
+    capture_root = pathlib.Path(_capture_field(receipt, "capture_root", runner))
+    raw_root = pathlib.Path(_capture_field(receipt, "raw_root", runner))
+    receipt_directory = pathlib.Path(_capture_field(receipt, "receipt_directory", runner))
+    capture_root = runner.real_directory(capture_root, "reference adapter capture root")
+    raw_root = runner.real_directory(raw_root, "reference adapter raw outcomes")
+    receipt_directory = runner.real_directory(receipt_directory, "reference adapter range receipts")
+    if receipt.parent != capture_root or receipt.name != "capture.receipt":
+        raise PublicationError("reference capture receipt is outside its recorded capture root")
+    record = _parse_capture_receipt(
+        receipt,
+        "reference",
+        receipt_directory,
+        capture_root,
+        raw_root,
+        build,
+        expected_inputs,
+        input_root,
+        input_manifest,
+        runner,
+    )
+    expected_build_receipt = runner.regular_file(build_receipt, "reference adapter build receipt")
+    if pathlib.Path(record["build_receipt"]) != expected_build_receipt:
+        raise PublicationError("reference capture names a different adapter build receipt")
+    if runner.sha256_file(expected_build_receipt) != record["build_receipt_sha256"]:
+        raise PublicationError("reference capture adapter build receipt hash differs")
+    captured_reference = aggregate_candidate_receipts(
+        runner, receipt_directory, expected_inputs, reference
+    )
+    if captured_reference.outcomes != reference.outcomes:
+        raise PublicationError("reused reference harness outcomes differ from the pinned reference receipt")
+    range_receipts = {
+        interval: runner.candidate_receipt_path(receipt_directory, *interval)
+        for interval in runner.expected_ranges(len(expected_inputs))
+    }
+    return raw_root, receipt_directory, receipt, range_receipts
+
+
+def _capture_plan(
+    count: int,
+    runner,
+    publication_bytes_by_range: dict[tuple[int, int], int] | None = None,
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     ranges = runner.expected_ranges(count)
-    workers = {worker: ranges[index::4] for index, worker in enumerate(("A", "B", "C", "D"))}
-    flattened = sorted(interval for worker_ranges in workers.values() for interval in worker_ranges)
-    if flattened != ranges or sum(end - start for start, end in flattened) != count:
+    next_start = 0
+    for start, end in ranges:
+        if start != next_start or end <= start:
+            raise PublicationError("adapter capture plan does not cover each input exactly once")
+        next_start = end
+    if next_start != count:
         raise PublicationError("adapter capture plan does not cover each input exactly once")
-    return ranges, workers
+    if publication_bytes_by_range is None:
+        return ranges, list(ranges)
+    if set(publication_bytes_by_range) != set(ranges) or any(
+        type(size) is not int or size < 0 for size in publication_bytes_by_range.values()
+    ):
+        raise PublicationError("reference publication byte counts do not cover each capture range")
+    return ranges, sorted(
+        ranges,
+        key=lambda interval: (-publication_bytes_by_range[interval], interval),
+    )
+
+
+def _publication_bytes_by_range(
+    raw_root: pathlib.Path,
+    count: int,
+    ranges: list[tuple[int, int]],
+    runner,
+) -> dict[tuple[int, int], int]:
+    if ranges != runner.expected_ranges(count):
+        raise PublicationError("reference publication sizes require canonical capture ranges")
+    range_by_index = {
+        index: interval
+        for interval in ranges
+        for index in range(interval[0], interval[1])
+    }
+    if set(range_by_index) != set(range(count)):
+        raise PublicationError("reference publication sizes do not cover every input")
+    sizes = {interval: 0 for interval in ranges}
+    root_descriptor = runner.open_absolute_nofollow(raw_root, directory=True)
+    try:
+        for index, interval in range_by_index.items():
+            for profile in PROFILES:
+                record_name = f"record-{index}-{profile}"
+                record_descriptor = _open_directory_at(root_descriptor, record_name)
+                try:
+                    if set(os.listdir(record_descriptor)) != {
+                        "kind", "diagnostics", "publication", "receipt-hashes"
+                    }:
+                        raise PublicationError(f"{record_name}: outcome fields differ")
+                    try:
+                        publication_descriptor = os.open(
+                            "publication",
+                            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+                            | getattr(os, "O_CLOEXEC", 0),
+                            dir_fd=record_descriptor,
+                        )
+                    except OSError as error:
+                        raise PublicationError(
+                            f"cannot open reference publication bytes for {record_name}: {error}"
+                        ) from error
+                    try:
+                        publication_metadata = os.fstat(publication_descriptor)
+                        if not stat.S_ISREG(publication_metadata.st_mode):
+                            raise PublicationError(
+                                f"{record_name}: publication is not a regular file"
+                            )
+                        sizes[interval] += publication_metadata.st_size
+                    finally:
+                        os.close(publication_descriptor)
+                finally:
+                    os.close(record_descriptor)
+    finally:
+        os.close(root_descriptor)
+    return sizes
 
 
 def _launch_capture_job(
@@ -1030,7 +1249,9 @@ def _launch_capture_job(
     active: list[dict[str, object]],
     docker_environment: dict[str, str],
 ) -> dict[str, object]:
-    cpu = {"A": 0, "B": 1, "C": 2, "D": 3}[worker]
+    cpu = next((cpu for slot, cpu in CAPTURE_SLOTS if slot == worker), None)
+    if cpu is None:
+        raise PublicationError(f"unknown adapter capture worker {worker!r}")
     job_dir = output / role / "jobs" / worker / f"{start}-{end}"
     job_dir.mkdir(parents=True, exist_ok=False)
     receipt = runner.candidate_receipt_path(receipt_directory, start, end)
@@ -1100,6 +1321,8 @@ def _run_capture_role(
     binary: pathlib.Path,
     count: int,
     docker_environment: dict[str, str],
+    *,
+    publication_bytes_by_range: dict[tuple[int, int], int] | None = None,
 ) -> tuple[pathlib.Path, pathlib.Path, dict[tuple[int, int], pathlib.Path]]:
     role_root = output / role
     role_root.mkdir()
@@ -1107,12 +1330,14 @@ def _run_capture_role(
     receipt_directory = role_root / "receipts"
     receipt_directory.mkdir()
     (role_root / "jobs").mkdir()
-    ranges, queues = _capture_plan(count, runner)
+    ranges, pending_ranges = _capture_plan(count, runner, publication_bytes_by_range)
     active: list[dict[str, object]] = []
     completed: list[tuple[int, int]] = []
     try:
-        for worker in queues:
-            start, end = queues[worker].pop(0)
+        for worker, _cpu in CAPTURE_SLOTS:
+            if not pending_ranges:
+                break
+            start, end = pending_ranges.pop(0)
             (role_root / "jobs" / worker).mkdir()
             _launch_capture_job(
                 runner, source_record, output, role, build_record, binary, raw_root, receipt_directory,
@@ -1139,8 +1364,8 @@ def _run_capture_role(
                 completed.append((int(job["start"]), int(job["end"])))
                 active.remove(job)
                 worker = str(job["worker"])
-                if queues[worker]:
-                    start, end = queues[worker].pop(0)
+                if pending_ranges:
+                    start, end = pending_ranges.pop(0)
                     _launch_capture_job(
                         runner, source_record, output, role, build_record, binary, raw_root, receipt_directory,
                         start, end, worker, active, docker_environment,
@@ -1166,6 +1391,10 @@ def _run_capture_role(
 
 
 def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
+    if not getattr(args, "capture_only", False):
+        raise PublicationError(
+            "run requires --capture-only; then capture exact owners and use compare-captures"
+        )
     candidate_root = runner.real_directory(args.candidate_root, "candidate source")
     source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source and binary receipt")
     source_record = runner.parse_candidate_receipt(source_receipt)
@@ -1179,8 +1408,13 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
     )
     reference_build_path = runner.regular_file(args.reference_build_receipt, "reference adapter build receipt")
     candidate_build_path = runner.regular_file(args.candidate_build_receipt, "candidate adapter build receipt")
-    reference_build = _parse_adapter_build_receipt(reference_build_path, "reference", runner)
-    candidate_build = _parse_adapter_build_receipt(candidate_build_path, "candidate", runner)
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    reference_build = _parse_adapter_build_receipt(
+        reference_build_path, "reference", runner, owner_helper_source
+    )
+    candidate_build = _parse_adapter_build_receipt(
+        candidate_build_path, "candidate", runner, owner_helper_source
+    )
     if pathlib.Path(reference_build["source_root"]) != reference_source_root:
         raise PublicationError("reference adapter build receipt names a different source root")
     if pathlib.Path(candidate_build["source_root"]) != candidate_root:
@@ -1193,14 +1427,29 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
         raise PublicationError("reference and candidate adapter helpers differ")
     if reference_build["owner_helper_sha256"] != candidate_build["owner_helper_sha256"]:
         raise PublicationError("reference and candidate owner helpers differ")
-    ranges, workers = _capture_plan(len(expected_inputs), runner)
+    reference_capture = None
+    reference_capture_receipt = getattr(args, "reference_capture_receipt", None)
+    if reference_capture_receipt is not None:
+        reference_capture = _reuse_reference_capture(
+            reference_capture_receipt,
+            reference_build_path,
+            reference_build,
+            expected_inputs,
+            reference,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            runner,
+        )
+    ranges, _pending_ranges = _capture_plan(len(expected_inputs), runner)
     output = runner.require_output_path(args.output, candidate_root)
     if args.dry_run:
         print(
             f"adapter preflight ok: reference={reference_build['source_commit']}:{reference_build['source_tree']} "
             f"candidate={candidate_build['source_commit']}:{candidate_build['source_tree']} "
             f"inputs={len(expected_inputs)} profiles={len(PROFILES)} outcomes={len(expected_inputs) * len(PROFILES)} "
-            f"ranges={len(ranges)} workers={len(workers)} cpus=0,1,2,3 memory_per_worker=1GiB output={output}"
+            f"ranges={len(ranges)} workers={len(CAPTURE_SLOTS)} "
+            f"cpus={','.join(str(cpu) for _worker, cpu in CAPTURE_SLOTS)} "
+            f"memory_per_worker=1GiB output={output}"
         )
         return 0
     wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
@@ -1212,10 +1461,20 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
     with runner.claim_run_resources(candidate_root, output, completed):
         runner.write_status(output, "incomplete", completed)
         captures: dict[str, tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[tuple[int, int], pathlib.Path]]] = {}
+        publication_bytes_by_range = None
+        if reference_capture is not None:
+            captures["reference"] = reference_capture
+            publication_bytes_by_range = _publication_bytes_by_range(
+                reference_capture[0], len(expected_inputs), ranges, runner
+            )
+            completed.extend(ranges)
+            runner.write_status(output, "incomplete", completed, "reused_capture=reference")
         for role, build_path, build in (
             ("reference", reference_build_path, reference_build),
             ("candidate", candidate_build_path, candidate_build),
         ):
+            if role == "reference" and reference_capture is not None:
+                continue
             binary = runner.regular_file(build["binary"], f"{role} adapter harness", executable=True)
             raw_root, receipt_directory, range_receipts = _run_capture_role(
                 runner,
@@ -1226,6 +1485,7 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
                 binary,
                 len(expected_inputs),
                 docker_environment,
+                publication_bytes_by_range=publication_bytes_by_range,
             )
             capture_receipt = output / role / "capture.receipt"
             _write_capture_receipt(
@@ -1244,28 +1504,13 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
             captures[role] = (raw_root, receipt_directory, capture_receipt, range_receipts)
             completed.extend(ranges)
             runner.write_status(output, "incomplete", completed, f"completed_capture={role}")
-        mismatch_path = runner.new_work_file_path(output / "mismatches.tsv", candidate_root, "adapter mismatch report")
-        outcomes, mismatches = compare_full_publications(
-            runner,
-            pathlib.Path(source_record["reference_receipt"]),
-            captures["candidate"][1],
-            captures["reference"][0],
-            captures["candidate"][0],
-            expected_inputs,
-            mismatch_path,
-            captures["reference"][2],
-            captures["candidate"][2],
-            candidate_root,
-            reference_source_root,
-            source_record,
-            pathlib.Path(source_record["input_root"]),
-            pathlib.Path(source_record["input_manifest"]),
-            docker_environment,
+        summary = f"capture-only corpus={len(expected_inputs)} outcomes={len(expected_inputs) * len(PROFILES)}"
+        runner.write_status(output, "capture-complete", completed, summary)
+        print(
+            f"{summary}\nreference_capture={captures['reference'][2]}\n"
+            f"candidate_capture={captures['candidate'][2]}\ncomparison=not_run"
         )
-        summary = f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches}"
-        runner.write_status(output, "complete", completed, summary)
-        print(f"{summary}\nreference_capture={captures['reference'][2]}\ncandidate_capture={captures['candidate'][2]}\nmismatch_file={mismatch_path}")
-        return 0 if mismatches == 0 else 1
+        return 0
 
 
 def build_adapter_harness(
@@ -1370,7 +1615,9 @@ def build_adapter_harness(
         "helper_sha256": helper_sha256,
         "owner_helper_path": str(adapter_helper.parent / "w9-publication-owner-helper.rs"),
         "owner_helper_sha256": owner_helper_sha256,
-        "owner_helper_source_path": str(OWNER_HELPER),
+        "owner_helper_source_path": str(
+            candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        ),
         "owner_helper_source_sha256": owner_helper_source_sha256,
         "overlay_sha256": overlay_sha256,
         "builder_image": contract["W9_CACHE_BUILD_IMAGE"],
@@ -1399,20 +1646,39 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
         raise PublicationError("candidate source identity differs from its source receipt")
     runner.candidate_scratch_parent(candidate_root)
     derived_directory = _new_derived_helper_directory(candidate_root, runner)
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
     adapter_helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
+        owner_helper=owner_helper_source,
         output_directory=derived_directory,
         output_root=candidate_root,
     )
-    reference_binary, reference_receipt = build_adapter_harness(
-        reference_root,
-        candidate_root,
-        "reference",
-        adapter_helper,
-        helper_sha256,
-        owner_helper_sha256,
-        owner_helper_source_sha256,
-        runner,
-    )
+    reference_build_receipt = getattr(args, "reference_build_receipt", None)
+    if reference_build_receipt is None:
+        reference_binary, reference_receipt = build_adapter_harness(
+            reference_root,
+            candidate_root,
+            "reference",
+            adapter_helper,
+            helper_sha256,
+            owner_helper_sha256,
+            owner_helper_source_sha256,
+            runner,
+        )
+    else:
+        reference_receipt = runner.regular_file(
+            reference_build_receipt, "reference adapter build receipt"
+        )
+        owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        reference_build = _parse_adapter_build_receipt(
+            reference_receipt, "reference", runner, owner_helper_source
+        )
+        if pathlib.Path(reference_build["source_root"]) != reference_root:
+            raise PublicationError("reference adapter build receipt names a different source root")
+        if reference_build["helper_sha256"] != helper_sha256:
+            raise PublicationError("reused reference adapter helper differs from the current helper")
+        if reference_build["owner_helper_sha256"] != owner_helper_sha256:
+            raise PublicationError("reused reference owner helper differs from the current helper")
+        reference_binary = pathlib.Path(reference_build["binary"])
     candidate_binary, candidate_receipt = build_adapter_harness(
         candidate_root,
         candidate_root,
@@ -1463,6 +1729,54 @@ def aggregate_candidate_receipts(
     return runner.ParsedReceipt(reference.header, all_inputs, all_outcomes, reference.terminals)
 
 
+def _align_profile_publications(
+    reference_publications: list[str],
+    candidate_publications: list[str],
+    reference_owner: tuple[
+        dict[int, int],
+        dict[str, set[str]],
+        dict[str, tuple[str, str, str]],
+        dict[str, tuple[str, str]],
+    ],
+    candidate_owner: tuple[
+        dict[int, int],
+        dict[str, set[str]],
+        dict[str, tuple[str, str, str]],
+        dict[str, tuple[str, str]],
+    ],
+    reference_tui_source: bytes,
+    candidate_tui_source: bytes,
+):
+    if len(reference_publications) != len(PROFILES) or len(candidate_publications) != len(PROFILES):
+        raise PublicationError("TUI source alignment requires all four publication profiles")
+    return source_alignment.align_tui_publications(
+        reference_publications=reference_publications,
+        candidate_publications=candidate_publications,
+        reference_source_sizes=reference_owner[0],
+        reference_source_owners=reference_owner[1],
+        candidate_source_sizes=candidate_owner[0],
+        candidate_source_owners=candidate_owner[1],
+        reference_tui_source=reference_tui_source,
+        candidate_tui_source=candidate_tui_source,
+    )
+
+
+def _report_comparison_progress(
+    processed_inputs: int,
+    total_inputs: int,
+    total_outcomes: int,
+    mismatch_count: int,
+) -> None:
+    if processed_inputs % 25 == 0 or processed_inputs == total_inputs:
+        processed_outcomes = processed_inputs * len(PROFILES)
+        print(
+            f"comparison_progress inputs={processed_inputs}/{total_inputs} "
+            f"outcomes={processed_outcomes}/{total_outcomes} mismatches={mismatch_count}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def compare_full_publications(
     runner,
     reference_receipt_path: pathlib.Path,
@@ -1479,8 +1793,17 @@ def compare_full_publications(
     input_root: pathlib.Path,
     input_manifest: pathlib.Path,
     docker_environment: dict[str, str],
+    *,
+    reference_exact_owners: dict[int, tuple[object, dict[str, object]]],
+    candidate_exact_owners: dict[int, tuple[object, dict[str, object]]],
 ) -> tuple[int, int]:
     count = len(expected_inputs)
+    expected_owner_indexes = set(range(count))
+    if (
+        set(reference_exact_owners) != expected_owner_indexes
+        or set(candidate_exact_owners) != expected_owner_indexes
+    ):
+        raise PublicationError("exact-owner proof coverage differs from the comparison corpus")
     input_manifest = runner.regular_file(input_manifest, "approved input manifest")
     runner.require_sha256(input_manifest, runner.INPUT_MANIFEST_SHA256, "approved input manifest")
     if input_root != runner.REFERENCE_INPUT_ROOT:
@@ -1496,8 +1819,13 @@ def compare_full_publications(
         _capture_field(candidate_capture_receipt, "build_receipt", runner),
         "candidate adapter build receipt",
     )
-    reference_build = _parse_adapter_build_receipt(reference_build_path, "reference", runner)
-    candidate_build = _parse_adapter_build_receipt(candidate_build_path, "candidate", runner)
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    reference_build = _parse_adapter_build_receipt(
+        reference_build_path, "reference", runner, owner_helper_source
+    )
+    candidate_build = _parse_adapter_build_receipt(
+        candidate_build_path, "candidate", runner, owner_helper_source
+    )
     expected_reference_root = runner.real_directory(
         reference_source_root, "clean reference source clone"
     )
@@ -1551,10 +1879,21 @@ def compare_full_publications(
     if reference.inputs != candidate.inputs:
         raise PublicationError("reference and candidate receipt input path or digest differs")
     mismatches: list[str] = []
-    runner_for_paths = _load_publication_runner(ROOT / "dev/consolidation/w9-publication-run.py")
+    runner_for_paths = _load_publication_runner(
+        candidate_root / "dev/consolidation/w9-publication-run.py"
+    )
     reference_root = runner_for_paths.open_absolute_nofollow(reference_raw, directory=True)
     candidate_root = runner_for_paths.open_absolute_nofollow(candidate_raw, directory=True)
     try:
+        reference_tui_path = runner_for_paths.regular_file(
+            expected_reference_root / "stdlib/tui.xsh", "pinned reference TUI source"
+        )
+        candidate_source_root = pathlib.Path(candidate_build["source_root"])
+        candidate_tui_path = runner_for_paths.regular_file(
+            candidate_source_root / "stdlib/tui.xsh", "candidate TUI source"
+        )
+        reference_tui_source = runner_for_paths.read_regular_bytes(reference_tui_path)
+        candidate_tui_source = runner_for_paths.read_regular_bytes(candidate_tui_path)
         _mkdir_new_directory(mismatch_path.parent / "hashjobs", runner_for_paths)
         reference_raw_hashes = _hash_raw_outcomes(
             pathlib.Path(reference_build["binary"]), reference_raw, candidate_source_record,
@@ -1566,6 +1905,7 @@ def compare_full_publications(
         )
         if len(keys) != count * len(PROFILES):
             raise PublicationError(f"receipt outcome count differs: {len(keys)}")
+
         for index in range(count):
             owner_error = False
             try:
@@ -1575,11 +1915,18 @@ def compare_full_publications(
                 candidate_owner = adapter.parse_owner_index(
                     _read_regular_at(candidate_root, f"owners-{index}.tsv")
                 )
-                if reference_owner[:2] != candidate_owner[:2]:
-                    raise PublicationError(f"owner source/span AST differs at input {index}")
             except (adapter.AdapterError, PublicationError, UnicodeError) as error:
                 owner_error = True
                 mismatches.append(f"{index}\towner-index\t{type(error).__name__}\t{error}")
+            if not owner_error:
+                if reference_owner != reference_exact_owners[index][0]:
+                    owner_error = True
+                    mismatches.append(f"{index}\treference-exact-owner-legacy-projection")
+                if candidate_owner != candidate_exact_owners[index][0]:
+                    owner_error = True
+                    mismatches.append(f"{index}\tcandidate-exact-owner-legacy-projection")
+            profile_records = []
+            profile_error = False
             for profile in PROFILES:
                 key = (index, expected_inputs[index].relative_path, profile)
                 try:
@@ -1602,33 +1949,263 @@ def compare_full_publications(
                         )
                     if reference_kind != candidate_kind:
                         mismatches.append(f"{key}\tkind\t{reference_kind}\t{candidate_kind}")
+                        profile_error = True
                         continue
                     if reference_kind == "load-error":
                         if reference_publication or candidate_publication:
                             mismatches.append(f"{key}\tload-error-has-publication")
+                            profile_error = True
                         continue
-                    if owner_error:
-                        continue
+                    profile_records.append(
+                        (profile, key, reference_diagnostics, reference_publication,
+                         candidate_diagnostics, candidate_publication)
+                    )
+                except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+                    mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
+                    profile_error = True
+            if owner_error or profile_error:
+                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
+                continue
+            if not profile_records:
+                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
+                continue
+            try:
+                profile_by_name = {record[0]: record for record in profile_records}
+                aligned = _align_profile_publications(
+                    [
+                        profile_by_name[profile][3] if profile in profile_by_name else ""
+                        for profile in PROFILES
+                    ],
+                    [
+                        profile_by_name[profile][5] if profile in profile_by_name else ""
+                        for profile in PROFILES
+                    ],
+                    reference_owner,
+                    candidate_owner,
+                    reference_tui_source,
+                    candidate_tui_source,
+                )
+                (
+                    aligned_candidate_exact_owners,
+                    aligned_candidate_statement_owners,
+                ) = source_alignment._align_tui_owner_facts(
+                    exact_owners=candidate_exact_owners[index][1],
+                    statement_owners=candidate_exact_owners[index][0][3],
+                    tui_source_id=aligned.tui_source_id,
+                    reference_tui_source=reference_tui_source,
+                    candidate_tui_source=candidate_tui_source,
+                )
+            except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+                mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
+                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
+                continue
+            comparison_outcomes: dict[
+                tuple[str, str, str, str], tuple[type[Exception], str] | None
+            ] = {}
+            for (
+                profile,
+                key,
+                reference_diagnostics,
+                _reference_publication,
+                candidate_diagnostics,
+                _candidate_publication,
+            ) in profile_records:
+                profile_index = PROFILES.index(profile)
+                comparison_pair = (
+                    reference_diagnostics,
+                    aligned.reference_publications[profile_index],
+                    candidate_diagnostics,
+                    aligned.candidate_publications[profile_index],
+                )
+                if comparison_pair in comparison_outcomes:
+                    cached_error = comparison_outcomes[comparison_pair]
+                    if cached_error is not None:
+                        error_type, error_text = cached_error
+                        mismatches.append(
+                            f"{key}\tadapter\t{error_type.__name__}\t{error_text}"
+                        )
+                    continue
+                try:
                     adapter.compare_publications(
                         reference_diagnostics,
-                        reference_publication,
+                        aligned.reference_publications[profile_index],
                         reference_owner[0],
                         reference_owner[1],
                         reference_owner[2],
                         reference_owner[3],
                         candidate_diagnostics,
-                        candidate_publication,
-                        candidate_owner[0],
-                        candidate_owner[1],
+                        aligned.candidate_publications[profile_index],
+                        aligned.candidate_source_sizes,
+                        aligned.candidate_source_owners,
+                        candidate_exact_owners=aligned_candidate_exact_owners,
+                        candidate_statement_owners=aligned_candidate_statement_owners,
                     )
                 except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+                    comparison_outcomes[comparison_pair] = (type(error), str(error))
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
+                else:
+                    comparison_outcomes[comparison_pair] = None
+            _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
     finally:
         os.close(reference_root)
         os.close(candidate_root)
     payload = "\n".join(mismatches) + ("\n" if mismatches else "")
     _write_new_file(mismatch_path, payload.encode("utf-8"), runner_for_paths)
     return len(keys), len(mismatches)
+
+
+def compare_captured_publications(args: argparse.Namespace, runner) -> int:
+    candidate_root = runner.real_directory(args.candidate_root, "candidate source")
+    source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source and binary receipt")
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise PublicationError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise PublicationError("candidate source identity differs from its source receipt")
+    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise PublicationError(f"candidate source receipt input count differs: {len(expected_inputs)}")
+    reference_source_root = _prepare_reference_source(
+        candidate_root, pathlib.Path(args.reference_source_root), runner
+    )
+    reference_capture_path = runner.regular_file(
+        args.reference_capture_receipt, "reference adapter capture receipt"
+    )
+    candidate_capture_path = runner.regular_file(
+        args.candidate_capture_receipt, "candidate adapter capture receipt"
+    )
+    reference_exact_build_path = runner.regular_file(
+        args.reference_exact_build_receipt, "reference exact-owner build receipt"
+    )
+    candidate_exact_build_path = runner.regular_file(
+        args.candidate_exact_build_receipt, "candidate exact-owner build receipt"
+    )
+    reference_exact_capture_path = runner.regular_file(
+        args.reference_exact_capture_receipt, "reference exact-owner capture receipt"
+    )
+    candidate_exact_capture_path = runner.regular_file(
+        args.candidate_exact_capture_receipt, "candidate exact-owner capture receipt"
+    )
+    input_root = pathlib.Path(source_record["input_root"])
+    input_manifest = pathlib.Path(source_record["input_manifest"])
+    reference_raw_root = runner.real_directory(
+        _capture_field(reference_capture_path, "raw_root", runner),
+        "reference adapter raw outcomes",
+    )
+    candidate_raw_root = runner.real_directory(
+        _capture_field(candidate_capture_path, "raw_root", runner),
+        "candidate adapter raw outcomes",
+    )
+    candidate_receipt_directory = runner.real_directory(
+        _capture_field(candidate_capture_path, "receipt_directory", runner),
+        "candidate adapter range receipts",
+    )
+    output = runner.require_output_path(args.output, candidate_root)
+    _mkdir_new_directory(output, runner)
+    runner.write_status(output, "incomplete", [])
+    reference_exact_output = output / "exact-reference"
+    candidate_exact_output = output / "exact-candidate"
+    comparison_output = output / "comparison"
+    try:
+        exact_owner_runner = _load_exact_owner_runner(runner)
+
+        def validate_exact_owner_proof(
+            role: str,
+            build_receipt: pathlib.Path,
+            exact_capture_receipt: pathlib.Path,
+            proof_output: pathlib.Path,
+        ) -> dict[str, object]:
+            try:
+                proof = exact_owner_runner.validate_proof(
+                    candidate_root,
+                    source_receipt,
+                    reference_source_root,
+                    role,
+                    build_receipt,
+                    exact_capture_receipt,
+                    proof_output,
+                    runner,
+                    dry_run=False,
+                )
+            except exact_owner_runner.ExactOwnerError as error:
+                raise PublicationError(f"{role} exact-owner proof failed: {error}") from error
+            return proof
+
+        reference_exact_proof = validate_exact_owner_proof(
+            "reference",
+            reference_exact_build_path,
+            reference_exact_capture_path,
+            reference_exact_output,
+        )
+        _require_exact_capture_binding(
+            reference_exact_proof, "reference", reference_capture_path, runner
+        )
+        reference_exact_owners = _validated_exact_owners(
+            reference_exact_proof, "reference", len(expected_inputs)
+        )
+        candidate_exact_proof = validate_exact_owner_proof(
+            "candidate",
+            candidate_exact_build_path,
+            candidate_exact_capture_path,
+            candidate_exact_output,
+        )
+        _require_exact_capture_binding(
+            candidate_exact_proof, "candidate", candidate_capture_path, runner
+        )
+        candidate_exact_owners = _validated_exact_owners(
+            candidate_exact_proof, "candidate", len(expected_inputs)
+        )
+
+        comparison_output = runner.require_output_path(
+            str(comparison_output), candidate_root
+        )
+        completed: list[tuple[int, int]] = []
+        docker_environment = runner.local_docker_environment()
+        with runner.claim_run_resources(candidate_root, comparison_output, completed):
+            runner.write_status(comparison_output, "incomplete", completed)
+            mismatch_path = runner.new_work_file_path(
+                comparison_output / "mismatches.tsv",
+                candidate_root,
+                "adapter mismatch report",
+            )
+            outcomes, mismatches = compare_full_publications(
+                runner,
+                pathlib.Path(source_record["reference_receipt"]),
+                candidate_receipt_directory,
+                reference_raw_root,
+                candidate_raw_root,
+                expected_inputs,
+                mismatch_path,
+                reference_capture_path,
+                candidate_capture_path,
+                candidate_root,
+                reference_source_root,
+                source_record,
+                input_root,
+                input_manifest,
+                docker_environment,
+                reference_exact_owners=reference_exact_owners,
+                candidate_exact_owners=candidate_exact_owners,
+            )
+            summary = f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches}"
+            runner.write_status(comparison_output, "complete", completed, summary)
+        runner.write_status(output, "complete", [], summary)
+    except BaseException as error:
+        try:
+            runner.write_status(output, "incomplete", [], f"{type(error).__name__}: {error}")
+        except BaseException as status_error:
+            print(f"could not record incomplete adapter comparison status: {status_error}", file=sys.stderr)
+        raise
+    print(
+        f"{summary}\nreference_capture={reference_capture_path}\n"
+        f"candidate_capture={candidate_capture_path}\n"
+        f"reference_exact_proof={reference_exact_output}\n"
+        f"candidate_exact_proof={candidate_exact_output}\n"
+        f"mismatch_file={comparison_output / 'mismatches.tsv'}"
+    )
+    return 0 if mismatches == 0 else 1
 
 
 def _capture_field(path: pathlib.Path, field: str, runner) -> str:
@@ -1648,19 +2225,52 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--candidate-root", type=pathlib.Path, required=True)
     build.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     build.add_argument("--reference-source-root", type=pathlib.Path, required=True)
-    run = commands.add_parser("run")
+    build.add_argument("--reference-build-receipt", type=pathlib.Path)
+    run = commands.add_parser(
+        "run",
+        help="capture legacy outcomes before exact-owner comparison",
+        description=(
+            "Capture legacy outcomes with --capture-only, then capture or reuse exact-owner "
+            "proofs and call compare-captures."
+        ),
+    )
     run.add_argument("--candidate-root", type=pathlib.Path, required=True)
     run.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     run.add_argument("--reference-source-root", type=pathlib.Path, required=True)
     run.add_argument("--reference-build-receipt", type=pathlib.Path, required=True)
     run.add_argument("--candidate-build-receipt", type=pathlib.Path, required=True)
+    run.add_argument("--reference-capture-receipt", type=pathlib.Path)
+    run.add_argument(
+        "--capture-only",
+        action="store_true",
+        help="write capture receipts for a later exact-owner comparison",
+    )
     run.add_argument("--output", required=True)
     run.add_argument("--dry-run", action="store_true")
+    compare = commands.add_parser("compare-captures")
+    compare.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    compare.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    compare.add_argument("--reference-exact-build-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--candidate-exact-build-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--reference-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--candidate-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--reference-exact-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--candidate-exact-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == "compare-captures":
+            runner = _load_candidate_publication_runner(
+                args.candidate_root,
+                args.candidate_source_receipt,
+                runner,
+            )
         if args.command == "build-harnesses":
             build_adapter_harnesses(args, runner)
             return 0
+        if args.command == "compare-captures":
+            return compare_captured_publications(args, runner)
         return execute_adapter_publication(args, runner)
     except (PublicationError, runner.PublicationError, runner.CleanupFailure, OSError, subprocess.SubprocessError) as error:
         print(f"W9 publication adapter failed: {error}", file=sys.stderr)
