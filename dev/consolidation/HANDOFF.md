@@ -2,6 +2,49 @@
 
 Status: active 2026-10-14.
 
+## Full publication acceptance, 2026-10-14
+
+W9's strict full comparison completed successfully: 1,690 inputs across four
+profiles, 6,760 outcomes, and zero mismatches. Both exact-owner proofs cover
+all 1,690 inputs. The mismatch file is empty. Evidence is in
+`.work/consolidation/w9-derived-reference-f105-compare-a1/`. The separate
+original-to-derived-reference report scans all 6,760 outcomes and records its
+first publication difference at input 36, `bench/stdlib-port/native_control.xsh`.
+It does not count all reference differences; earlier descriptions of 36 as a
+difference count were incorrect. The approved reference repairs and original
+evidence remain preserved.
+
+The captured compiler source is clean `f105936cd`. The comparison uses that
+source's controller with the reviewed Python decoders from `5c59c0d8e`, whose
+integration checkpoint is `43250d7a0`. The parser and subsequent campaign-doc
+changes leave all eleven final review source owners unchanged. Original
+captures, the fresh candidate capture, both fresh exact-owner captures, and
+the fresh corrected-reference capture remain preserved with their receipts.
+
+W4's accepted 0ab evidence remains 34 compiler, 242 native, and 62 integration
+tests. The later statement and named-callback publication repairs have their
+own regressions and the full W9 comparison above. Final current-source
+correctness, normal and forced-frame suites, documentation, platform,
+structural, and performance acceptance remain open. Consolidation is not done.
+
+The owner retained the existing verification profile: opt3, no LTO, and 64
+codegen units. Alternative-profile selection measurement is waived; no
+fastest-profile claim is made. Final release acceptance uses opt3 with thin
+LTO and 16 codegen units. Removing unused release opt1/opt2 runs leaves nine
+serialized full native suites. The narrowed launchers passed focused receipt,
+signal-cleanup, and observer checks, plus independent review. Their active
+artifact pins and inventory validate.
+
+The comparison controller now uses at most three forked workers with three
+inputs in flight. The parent validates captures and proofs, orders results,
+and publishes receipts. Workers read the inherited context without copying
+it into each task. Serial/parallel mismatch and ordering tests, real-process
+failure and signal-cleanup tests, and one saved real captured pair pass.
+The integrated five-module Python check passed all 188 tests.
+Independent review accepts the corrected implementation. Existing claimed
+signal handling is preserved. The completed full W9 run above used the serial
+controller; no parallel full-corpus timing or speedup is claimed.
+
 ## Current publication repair batch, 2026-10-14
 
 The f105 smoke exposed one further parser error: Rust publishes
