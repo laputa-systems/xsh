@@ -4252,12 +4252,16 @@ impl Evaluator {
         )
         .map_err(|error| {
             let span = error.span.unwrap_or_else(zero_span);
+            let message = match error.detail.as_deref() {
+                Some(detail) if error.construct == "full_ir_verification" => {
+                    format!("indexed IR could not encode `{}`: {detail}", error.construct)
+                }
+                Some(detail) => format!("this function cannot be compiled yet: {detail}"),
+                None => format!("indexed IR could not encode `{}`", error.construct),
+            };
             compact_lowerability_diagnostic(
                 span,
-                &match &error.detail {
-                    Some(detail) => format!("this function cannot be compiled yet: {detail}"),
-                    None => format!("indexed IR could not encode `{}`", error.construct),
-                },
+                &message,
                 DiagnosticCode::CompactIndexedBuild,
             )
         })?;
