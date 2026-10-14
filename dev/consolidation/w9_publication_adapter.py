@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Callable, Mapping
 
@@ -19,7 +20,10 @@ PATHS = {
 CONTROL_FLOW_OWNERS = {
     "builtin_range_calls": {"expr:Call"},
     "cardinality_preserving_collection_calls": {"expr:Call"},
-    "propagating_error_spans": {"expr", "stmt:Command", "stmt:Expr", "run:RunForm"},
+    "propagating_error_spans": {
+        "expr", "stmt:Assert", "stmt:AssertBare", "stmt:Command", "stmt:DeferExpr",
+        "stmt:Expr", "run:RunForm",
+    },
     "latent_stream_error_spans": {"expr"},
     "fallible_pipeline_stage_spans": {"stage:Range", "stage:Repeat"},
     "propagating_stage_callback_spans": {"stage"},
@@ -591,6 +595,7 @@ def _current_fact_owners(
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
     exact_owners: Mapping[str, object] | None = None,
+    statement_owners: Mapping[str, tuple[str, str]] | None = None,
 ) -> None:
     declarations = _fields(fields["checked_declarations"], "CheckedDeclarations")
     functions = _map_entries(declarations["functions"])
@@ -643,6 +648,7 @@ def _current_fact_owners(
         ]
         if exact_owners is not None and "expr:Call" in source_owners.get(span, set()) and not exact_call_ids:
             raise AdapterError(f"selected expr:Call owner has no unique exact AST identity: {span}")
+        callee_id = None
         if exact_owners is None or exact_call_ids:
             span = _validate_source_span(span, "selected function-call", source_sizes, source_owners, {"expr:Call"})
             if span not in expression_types:
@@ -661,6 +667,14 @@ def _current_fact_owners(
         owner = function_owners.get(target_fields["definition"])
         if owner != (target_fields["namespace"], target_fields["name"]):
             raise AdapterError(f"selected function-call target disagrees with its declaration at {span}")
+        if exact_owners is not None and callee_id is not None:
+            matching_definitions = [
+                definition
+                for definition, declaration in function_owners.items()
+                if declaration == (target_fields["namespace"], target_fields["name"])
+            ]
+            if matching_definitions != [target_fields["definition"]]:
+                raise AdapterError(f"selected function-call target has ambiguous checked declaration identity at {span}")
         if exact_owners is not None:
             declaration = function_declarations[target_fields["definition"]]
             if set(declaration) != {
@@ -685,6 +699,11 @@ def _current_fact_owners(
             _canonical = _canonicalize_span(declaration["body"])
             if _canonical[1] not in source_sizes or _canonical[2] + _canonical[3] > source_sizes[_canonical[1]]:
                 raise AdapterError(f"selected function-call declaration body is outside its source at {span}")
+            if exact_owners is not None and callee_id is not None:
+                _validate_selected_callee_identity(
+                    span, callee_id, target_fields, exact_exprs, exact_fields, fields,
+                    source_sizes, source_owners,
+                )
 
     native_set_spans: set[str] = set()
     native_error_failure_spans: set[str] = set()
@@ -721,11 +740,26 @@ def _current_fact_owners(
                 expression_types, selected, other_static_calls,
             ):
                 native_error_failure_spans.add(span)
+        callable_alias_spans = _canonical_span_map(
+            fields["static_callable_aliases"], "static callable alias"
+        )
+        validated_alias_spans = _validate_static_callable_alias_facts(
+            expression_ids_by_span,
+            exact_exprs,
+            exact_calls,
+            exact_fields,
+            callable_alias_spans,
+            expression_types,
+            source_sizes,
+            source_owners,
+            static,
+        )
         missing_static_calls = (
             (static - other_static_calls)
             - selected_call_spans
             - native_set_spans
             - native_error_failure_spans
+            - validated_alias_spans
         )
         if missing_static_calls:
             raise AdapterError(
@@ -758,6 +792,7 @@ def _current_fact_owners(
         for key in _map_entries(fields["stream_stage_types"])
     }
     control_flow_owners = dict(source_owners)
+    structured_stage_owners = {}
     if exact_owners is not None:
         runs = exact_owners.get("runs")
         if not isinstance(runs, Mapping):
@@ -770,8 +805,37 @@ def _current_fact_owners(
             if source_id not in source_sizes or start + length > source_sizes[source_id]:
                 raise AdapterError(f"exact run form span is outside its source: {canonical_run_span}")
             control_flow_owners.setdefault(canonical_run_span, set()).add("run:RunForm")
+        structured_stages = exact_owners.get("structured_stages", {})
+        if not isinstance(structured_stages, Mapping) or any(
+            type(stage_id) is not int or stage_id < 0 for stage_id in structured_stages
+        ) or set(structured_stages) != set(range(len(structured_stages))):
+            raise AdapterError("exact structured stream-stage facts are malformed")
+        for stage_id, row in structured_stages.items():
+            if not isinstance(row, tuple) or len(row) != 2 or not all(
+                isinstance(value, str) for value in row
+            ):
+                raise AdapterError(f"exact structured stream-stage row is malformed: {stage_id}")
+            raw_stage_span, kind = row
+            canonical_stage_span, source_id, start, length = _canonicalize_span(raw_stage_span)
+            if source_id not in source_sizes or start + length > source_sizes[source_id]:
+                raise AdapterError(
+                    f"exact structured stream-stage span is outside its source: {canonical_stage_span}"
+                )
+            if kind in {"Range", "Repeat"}:
+                if canonical_stage_span in structured_stage_owners:
+                    raise AdapterError(
+                        f"exact structured fallible stage span is ambiguous: {canonical_stage_span}"
+                    )
+                structured_stage_owners[canonical_stage_span] = kind
+                control_flow_owners.setdefault(canonical_stage_span, set()).add(f"stage:{kind}")
     for field, allowed_owners in CONTROL_FLOW_OWNERS.items():
         for span in _canonical_span_set(control_flow[field], field.replace("_", " ")):
+            if field == "fallible_pipeline_stage_spans" and structured_stage_owners.get(span) not in {
+                "Range", "Repeat"
+            }:
+                raise AdapterError(
+                    f"{field.replace('_', ' ')} span has no exact structured Range or Repeat stage: {span}"
+                )
             span = _validate_source_span(
                 span, field.replace("_", " "), source_sizes, control_flow_owners, allowed_owners
             )
@@ -779,8 +843,13 @@ def _current_fact_owners(
                 owner_kinds = control_flow_owners.get(span, set())
                 if any(owner.startswith("expr:") for owner in owner_kinds) and span not in expression_types:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked expression type: {span}")
-                if owner_kinds & {"stmt:Command", "stmt:Expr"} and span not in statement_positions:
+                if owner_kinds & {"stmt:Command", "stmt:Expr", "stmt:Assert", "stmt:AssertBare", "stmt:DeferExpr"} and span not in statement_positions:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked statement position: {span}")
+                statement_owner_kinds = owner_kinds & {"stmt:Assert", "stmt:AssertBare", "stmt:DeferExpr"}
+                if statement_owner_kinds and not _has_unique_statement_owner(
+                    span, statement_owner_kinds, statement_owners
+                ):
+                    raise AdapterError(f"propagating error span has no unique exact statement owner: {span}")
                 if "run:RunForm" in owner_kinds:
                     runs = exact_owners.get("runs") if exact_owners is not None else None
                     if not isinstance(runs, Mapping) or not any(
@@ -851,12 +920,239 @@ def _is_native_set_call(
     )
     resolved = _fields(fields["resolved_bindings"], "ResolvedBindings")
     expression_namespaces = _map_entries(resolved["expression_namespaces"])
-    expression_key = f"ExprId({base_id})"
+    expression_key = f"ExprId({base_id + 1})"
     if expression_key not in expression_namespaces:
         raise AdapterError(f"native Set module identifier has no checked namespace fact: {span}")
     if expression_key in _map_entries(resolved["expressions"]):
         raise AdapterError(f"native Set module identifier is shadowed by a binding: {span}")
     return True
+
+
+def _validate_static_callable_alias_facts(
+    expression_ids_by_span: Mapping[str, list[int]],
+    expressions: Mapping[object, object],
+    calls: Mapping[object, object],
+    fields_accessed: Mapping[object, object],
+    aliases: Mapping[str, str],
+    expression_types: Mapping[str, str],
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+    static_calls: set[str],
+) -> set[str]:
+    call_spans_by_callee = {}
+    for call_id, callee_id in calls.items():
+        call = expressions.get(call_id)
+        if (
+            type(call_id) is not int
+            or type(callee_id) is not int
+            or not isinstance(call, tuple)
+            or len(call) != 3
+            or call[1] != "Call"
+            or callee_id not in expressions
+        ):
+            raise AdapterError("exact callable-alias call link is malformed")
+        call_span = _canonicalize_span(call[0])[0]
+        call_spans_by_callee.setdefault(callee_id, []).append(call_span)
+
+    alias_calls = set()
+    for alias_span, alias_value in aliases.items():
+        expression_ids = expression_ids_by_span.get(alias_span, [])
+        if len(expression_ids) != 1:
+            raise AdapterError(f"static callable alias has no unique exact expression owner: {alias_span}")
+        alias_id = expression_ids[0]
+        alias_expression = expressions[alias_id]
+        if not isinstance(alias_expression, tuple) or len(alias_expression) != 3:
+            raise AdapterError(f"static callable alias expression owner is malformed: {alias_span}")
+        _, alias_kind, _ = alias_expression
+        _validate_source_span(
+            alias_span, "static callable alias", source_sizes, source_owners, {f"expr:{alias_kind}"}
+        )
+        alias = _fields(alias_value, "StaticCallableAlias")
+        if set(alias) != {"definition", "method_call", "name", "pure", "signature"}:
+            raise AdapterError(f"static callable alias has unexpected fields at {alias_span}")
+        if alias["method_call"] not in {"true", "false"} or alias["pure"] not in {"true", "false"}:
+            raise AdapterError(f"static callable alias has malformed flags at {alias_span}")
+        if _debug_name_value(alias["name"]) is None:
+            raise AdapterError(f"static callable alias has a malformed name at {alias_span}")
+        definition = alias["definition"]
+        if definition != "None":
+            if not definition.startswith("Some(") or not definition.endswith(")"):
+                raise AdapterError(f"static callable alias has a malformed definition at {alias_span}")
+            definition_span = _canonicalize_span(definition[5:-1])[0]
+            _, source_id, start, length = _canonicalize_span(definition_span)
+            if source_id not in source_sizes or start + length > source_sizes[source_id]:
+                raise AdapterError(f"static callable alias definition is outside its source: {alias_span}")
+        signature = _fields(alias["signature"], "CallableType")
+        if set(signature) != {"effects", "params", "return_ty"}:
+            raise AdapterError(f"static callable alias has an incomplete signature at {alias_span}")
+        effects = signature["effects"]
+        if effects != "None":
+            if not effects.startswith("Some([") or not effects.endswith("])"):
+                raise AdapterError(f"static callable alias has malformed effects at {alias_span}")
+            effect_names = _split_top_level(effects[6:-2], ",")
+            if any(re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", effect) is None for effect in effect_names):
+                raise AdapterError(f"static callable alias has malformed effects at {alias_span}")
+        params = signature["params"]
+        if not params.startswith("[") or _group_end(params, 0) != len(params) - 1:
+            raise AdapterError(f"static callable alias has malformed parameters at {alias_span}")
+        for param in _split_top_level(params[1:-1], ","):
+            param_fields = _fields(param, "CallableParamType")
+            if set(param_fields) != {"name", "ty", "defaulted", "rest"}:
+                raise AdapterError(f"static callable alias has malformed parameter fields at {alias_span}")
+            if _debug_name_value(param_fields["name"]) is None:
+                raise AdapterError(f"static callable alias has a malformed parameter name at {alias_span}")
+            if param_fields["ty"] == "":
+                raise AdapterError(f"static callable alias has a malformed parameter type at {alias_span}")
+            if param_fields["defaulted"] not in {"true", "false"} or param_fields["rest"] not in {"true", "false"}:
+                raise AdapterError(f"static callable alias has malformed parameter flags at {alias_span}")
+        if signature["return_ty"] == "":
+            raise AdapterError(f"static callable alias has no checked signature at {alias_span}")
+
+        field_access = fields_accessed.get(alias_id) if alias_kind == "Field" else None
+        if alias_kind == "Field":
+            if not isinstance(field_access, tuple) or len(field_access) != 2:
+                raise AdapterError(f"static callable alias field has no exact base link: {alias_span}")
+            base_id, member_name = field_access
+            if type(base_id) is not int or base_id not in expressions or not isinstance(member_name, str):
+                raise AdapterError(f"static callable alias field has an invalid exact base link: {alias_span}")
+            base = expressions[base_id]
+            if not isinstance(base, tuple) or len(base) != 3:
+                raise AdapterError(f"static callable alias base expression is malformed: {alias_span}")
+            _validate_source_span(
+                base[0], "static callable alias base", source_sizes, source_owners,
+                {f"expr:{base[1]}"},
+            )
+            if alias["method_call"] == "true" and member_name != "call":
+                raise AdapterError(f"static callable alias method call has the wrong field: {alias_span}")
+            if alias["method_call"] == "false" and member_name == "call":
+                raise AdapterError(f"static callable alias call field has a false method flag: {alias_span}")
+        elif alias["method_call"] == "true":
+            raise AdapterError(f"static callable alias method call has no exact Field callee: {alias_span}")
+
+        linked_calls = call_spans_by_callee.get(alias_id, [])
+        if len(linked_calls) > 1:
+            raise AdapterError(f"static callable alias has ambiguous exact Call links: {alias_span}")
+        if alias["method_call"] == "true" and not linked_calls:
+            raise AdapterError(f"static callable alias method call has no exact Call link: {alias_span}")
+        if linked_calls:
+            if alias["method_call"] == "false" and alias_kind not in {"Ident", "Field"}:
+                raise AdapterError(f"static callable alias Call has an unsupported callee kind: {alias_span}")
+            call_span = linked_calls[0]
+            _validate_source_span(
+                call_span, "static callable alias call", source_sizes, source_owners, {"expr:Call"}
+            )
+            if call_span not in expression_types:
+                raise AdapterError(f"static callable alias Call has no checked type: {call_span}")
+            if call_span in static_calls:
+                alias_calls.add(call_span)
+    return alias_calls
+
+
+def _debug_name_value(value: str) -> str | None:
+    matched = re.fullmatch(r'Name\(("(?:\\.|[^"\\])*")\)', value)
+    if matched is None:
+        return None
+    try:
+        decoded = json.loads(matched.group(1))
+    except json.JSONDecodeError:
+        return None
+    return decoded if isinstance(decoded, str) else None
+
+
+def _validate_selected_callee_identity(
+    span: str,
+    callee_id: int,
+    target: Mapping[str, str],
+    expressions: Mapping[object, object],
+    fields_accessed: Mapping[object, object],
+    check_fields: Mapping[str, str],
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+) -> None:
+    callee = expressions.get(callee_id)
+    if not isinstance(callee, tuple) or len(callee) != 3:
+        raise AdapterError(f"selected function-call has no exact callee expression at {span}")
+    callee_span, callee_kind, callee_name = callee
+    callee_owner = "expr:Ident" if callee_kind == "Ident" else "expr:Field"
+    _validate_source_span(
+        callee_span, "selected function-call callee", source_sizes, source_owners,
+        {callee_owner},
+    )
+    resolved = _fields(check_fields["resolved_bindings"], "ResolvedBindings")
+    expression_namespaces = _map_entries(resolved["expression_namespaces"])
+    target_name = _debug_name_value(target["name"])
+    if target_name is None:
+        raise AdapterError(f"selected function-call target has a malformed name at {span}")
+    if callee_kind == "Ident":
+        expression_id = f"ExprId({callee_id + 1})"
+        if expression_id not in expression_namespaces:
+            raise AdapterError(f"selected function-call callee has no resolver namespace at {span}")
+        if callee_name != target_name or expression_namespaces[expression_id] != target["namespace"]:
+            raise AdapterError(f"selected function-call callee identity disagrees with its target at {span}")
+        return
+    if callee_kind != "Field":
+        raise AdapterError(f"selected function-call callee has unsupported exact AST kind at {span}")
+    field = fields_accessed.get(callee_id)
+    if not isinstance(field, tuple) or len(field) != 2:
+        raise AdapterError(f"selected function-call field callee has no exact access link at {span}")
+    base_id, member_name = field
+    if type(base_id) is not int or member_name != target_name:
+        raise AdapterError(f"selected function-call callee identity disagrees with its target at {span}")
+    base = expressions.get(base_id)
+    if not isinstance(base, tuple) or len(base) != 3 or base[1] != "Ident":
+        raise AdapterError(f"selected function-call module base is not an exact identifier at {span}")
+    _validate_source_span(
+        base[0], "selected function-call module base", source_sizes, source_owners,
+        {"expr:Ident"},
+    )
+    base_key = f"ExprId({base_id + 1})"
+    bindings = _map_entries(resolved["expressions"])
+    if base_key not in expression_namespaces or base_key not in bindings:
+        raise AdapterError(f"selected function-call module base has no resolver binding at {span}")
+    declarations = _map_entries(resolved["declarations"])
+    binding = bindings[base_key]
+    declaration = declarations.get(binding)
+    if declaration is None:
+        raise AdapterError(f"selected function-call module binding has no declaration at {span}")
+    declaration_fields = _fields(declaration, "BindingDeclaration")
+    if set(declaration_fields) != {
+        "exported", "global", "kind", "name", "namespace", "span"
+    }:
+        raise AdapterError(f"selected function-call module binding has unexpected fields at {span}")
+    binding_name = _debug_name_value(declaration_fields.get("name", ""))
+    module = re.fullmatch(r"Module\((Name\(.*\))\)", declaration_fields.get("kind", ""))
+    target_namespace = re.fullmatch(r"Some\((Name\(.*\))\)", target["namespace"])
+    module_name = _debug_name_value(module.group(1)) if module is not None else None
+    target_module_name = (
+        _debug_name_value(target_namespace.group(1)) if target_namespace is not None else None
+    )
+    if (
+        binding_name != base[2]
+        or declaration_fields.get("namespace") != expression_namespaces[base_key]
+        or module_name is None
+        or target_module_name is None
+        or module_name != target_module_name
+    ):
+        raise AdapterError(f"selected function-call module binding namespace disagrees with its target at {span}")
+
+
+def _has_unique_statement_owner(
+    span: str,
+    owner_kinds: set[str],
+    statement_owners: Mapping[str, tuple[str, str]] | None,
+) -> bool:
+    if statement_owners is None:
+        return False
+    matching_ids = []
+    for statement_id, row in statement_owners.items():
+        if re.fullmatch(r"StmtId\(\d+\)", statement_id) is None:
+            raise AdapterError("statement owner index has a malformed statement id")
+        if not isinstance(row, tuple) or len(row) != 2 or not isinstance(row[0], str) or not isinstance(row[1], str):
+            raise AdapterError("statement owner index has a malformed statement row")
+        statement_span = _canonicalize_span(row[0])[0]
+        if statement_span == span and row[1] in owner_kinds:
+            matching_ids.append(statement_id)
+    return len(matching_ids) == 1
 
 
 def _is_native_error_failure_call(
@@ -870,7 +1166,7 @@ def _is_native_error_failure_call(
     selected: Mapping[str, str],
     other_static_calls: set[str],
 ) -> bool:
-    if span in selected or span in other_static_calls or expression_types.get(span) != "Error":
+    if span in selected or span in other_static_calls:
         return False
     call_ids = [
         expression_id
@@ -883,10 +1179,12 @@ def _is_native_error_failure_call(
     callee_id = calls.get(call_id)
     field_row = fields_accessed.get(callee_id)
     callee_row = expressions.get(callee_id)
+    if not isinstance(field_row, tuple) or len(field_row) != 2:
+        return False
+    expected_type = {"fail": "Result(Unit,Error)", "failure": "Error"}.get(field_row[1])
     if (
-        not isinstance(field_row, tuple)
-        or len(field_row) != 2
-        or field_row[1] != "failure"
+        expected_type is None
+        or expression_types.get(span) != expected_type
         or not isinstance(callee_row, tuple)
         or len(callee_row) != 3
         or callee_row[1] != "Field"
@@ -1010,7 +1308,9 @@ def project_publication(
     elif source_sizes is None or source_owners is None:
         raise AdapterError("current publication validation requires source sizes and AST owners")
     else:
-        _current_fact_owners(fields, source_sizes, source_owners, candidate_exact_owners)
+        _current_fact_owners(
+            fields, source_sizes, source_owners, candidate_exact_owners, statement_owners
+        )
     common_fields = _rewrite_field_pairs(
         common_fields,
         (("CheckOutput", "propagating_statements"),),
@@ -1034,6 +1334,7 @@ def compare_publications(
     current_source_owners: Mapping[str, set[str]],
     *,
     candidate_exact_owners: Mapping[str, object] | None = None,
+    candidate_statement_owners: Mapping[str, tuple[str, str]] | None = None,
 ) -> None:
     if legacy_diagnostics != current_diagnostics:
         raise AdapterError("diagnostic mismatch")
@@ -1042,6 +1343,7 @@ def compare_publications(
         legacy_tail_statement_owners, legacy_statement_owners
     ) != project_publication(
         "current", current_rendered, current_source_sizes, current_source_owners,
+        statement_owners=candidate_statement_owners,
         candidate_exact_owners=candidate_exact_owners,
     ):
         raise AdapterError("common checked facts mismatch")

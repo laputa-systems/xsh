@@ -21,13 +21,18 @@ SET_IDENT_SPAN = "Span{source_id:SourceId(0),start:70,len:3}"
 ERROR_FAILURE_SPAN = "Span{source_id:SourceId(0),start:70,len:12}"
 ERROR_FAILURE_FIELD_SPAN = "Span{source_id:SourceId(0),start:70,len:8}"
 ERROR_FAILURE_IDENT_SPAN = "Span{source_id:SourceId(0),start:70,len:5}"
+ALIAS_FIELD_SPAN = "Span{source_id:SourceId(0),start:70,len:8}"
+ALIAS_IDENT_SPAN = "Span{source_id:SourceId(0),start:70,len:3}"
+ALIAS_DEFINITION_SPAN = "Span{source_id:SourceId(5),start:0,len:17}"
 RUN_FORM_SPAN = "Span{source_id:SourceId(0),start:90,len:7}"
 RUN_GLOBAL_SPAN = "Span{source_id:SourceId(0),start:60,len:7}"
+STAGE_SPAN = "Span{source_id:SourceId(0),start:80,len:7}"
 COMMAND_SPAN = "Span{source_id:SourceId(0),start:36,len:40}"
 CAPTURED_COMMAND_SPAN = "Span{source_id:SourceId(0),start:10728,len:74}"
 CAPTURED_RUN_FORM_SPAN = "Span{source_id:SourceId(0),start:10728,len:73}"
 SERVICE_STOP_SPAN = "Span{source_id:SourceId(0),start:458,len:15}"
 SERVICE_START_SPAN = "Span{source_id:SourceId(0),start:479,len:16}"
+PROPAGATING_STATEMENT_SPAN = "Span{source_id:SourceId(0),start:70,len:7}"
 UNPREPARED_TAIL_DECL_SPAN = "Span{source_id:SourceId(0),start:70,len:6}"
 UNPREPARED_TAIL_SPAN = "Span{source_id:SourceId(0),start:76,len:6}"
 MISSING_VALUE_DECL_SPAN = "Span{source_id:SourceId(0),start:82,len:6}"
@@ -79,7 +84,8 @@ COMMON_OUTPUT_FIELDS = (
     "statically_resolved_call_spans:{"
     + CALL_SPAN
     + "},standard_call_spans:{},api_calls:{},module_commands:{},"
-    + "record_constructor_instances:{},message_payload_constructors:{},error_constructors:{}"
+    + "record_constructor_instances:{},message_payload_constructors:{},error_constructors:{},"
+    + "static_callable_aliases:{}"
 )
 LEGACY_PUBLICATION = (
     COMMON
@@ -176,6 +182,20 @@ def exact_call_owners(extra_call_span=None):
     }
 
 
+def exact_stage_publication(kind="Range", include_type=True):
+    current, owners = exact_current_call_publication()
+    stage_type = f"(StreamStageId(0),{STAGE_SPAN}):Range" if include_type else ""
+    current = current.replace(
+        "stream_stage_types:{}", f"stream_stage_types:{{{stage_type}}}"
+    ).replace(
+        "fallible_pipeline_stage_spans:{}",
+        f"fallible_pipeline_stage_spans:{{{STAGE_SPAN}}}",
+    )
+    exact_owners = exact_call_owners()
+    exact_owners["structured_stages"] = {0: (STAGE_SPAN, kind)}
+    return current, owners, exact_owners
+
+
 def exact_current_call_publication(extra_call_span=None):
     declaration = (
         'CheckedFunctionDeclaration{namespace:None,name:Name("run"),internal:false,kind:Pure,'
@@ -186,6 +206,15 @@ def exact_current_call_publication(extra_call_span=None):
     current = CURRENT_PUBLICATION.replace(
         'CheckedFunctionDeclaration{namespace:None,name:Name("run")}', declaration
     )
+    resolver_namespaces = ["ExprId(2):None"]
+    if extra_call_span is not None:
+        resolver_namespaces.append("ExprId(4):None")
+    tails_end = "StmtId(15):" + MISSING_VALUE_TAIL_BINDING + "}},statement_positions:"
+    current = current.replace(
+        tails_end,
+        "StmtId(15):" + MISSING_VALUE_TAIL_BINDING + "},declaration_sites:{},expressions:{},expression_namespaces:{"
+        + ",".join(resolver_namespaces) + "}},statement_positions:",
+    )
     owners = dict(SOURCE_OWNERS)
     owners["Span{source_id:SourceId(0),start:20,len:3}"] = {"expr:Ident"}
     if extra_call_span is not None:
@@ -195,9 +224,13 @@ def exact_current_call_publication(extra_call_span=None):
             "parameter_schemas:[],return_ty:Stream(Str),return_type_expr:TypeExprId(2),"
             "inferred_effects:false,effects:None}),body:" + CONST_SPAN + ",parameter_spans:[]}"
         )
+        alternate_declaration = stream_declaration.replace(
+            "FunctionDefId(2)", "FunctionDefId(3)"
+        ).replace('name:Name("lines")', 'name:Name("alternate")')
         current = current.replace(
             "FunctionDefId(1):" + declaration + "}},resolved_bindings:",
-            "FunctionDefId(1):" + declaration + "," + stream_declaration + "}},resolved_bindings:",
+            "FunctionDefId(1):" + declaration + "," + stream_declaration + ","
+            + alternate_declaration + "}},resolved_bindings:",
         )
         extra_ident = "Span{source_id:SourceId(0),start:70,len:3}"
         owners[extra_call_span] = {"expr:Call"}
@@ -226,15 +259,13 @@ def exact_native_set_publication(shadowed=False):
         f"expr_types:{{{CALL_SPAN}:Bool,{SET_CALL_SPAN}:Set(Int)}}",
     )
     bindings = (
-        "expressions:{ExprId(4):BindingId(Import(UseStmtId(9)))}"
+        "ExprId(5):BindingId(Import(UseStmtId(9)))"
         if shadowed
-        else "expressions:{}"
+        else ""
     )
-    tails_end = "StmtId(15):" + MISSING_VALUE_TAIL_BINDING + "}},statement_positions:"
     current = current.replace(
-        tails_end,
-        "StmtId(15):" + MISSING_VALUE_TAIL_BINDING + "}," + bindings + ","
-        "expression_namespaces:{ExprId(4):None}},statement_positions:",
+        "expressions:{},expression_namespaces:{ExprId(2):None}",
+        "expressions:{" + bindings + "},expression_namespaces:{ExprId(2):None,ExprId(5):None}",
     )
     owners.update(
         {
@@ -262,14 +293,90 @@ def exact_native_set_publication(shadowed=False):
     }
 
 
-def exact_native_error_failure_publication():
+def exact_static_alias_publication(callee_kind="Field", method_call=False, definition="None"):
+    current, owners = exact_current_call_publication(EXTRA_CALL_SPAN)
+    current = current.replace(
+        f"statically_resolved_call_spans:{{{CALL_SPAN}}}",
+        f"statically_resolved_call_spans:{{{CALL_SPAN},{EXTRA_CALL_SPAN}}}",
+    ).replace(
+        f"expr_types:{{{CALL_SPAN}:Bool,{EXTRA_CALL_SPAN}:Stream(Str)}}",
+        f"expr_types:{{{CALL_SPAN}:Bool,{EXTRA_CALL_SPAN}:Bool}}",
+    ).replace(
+        f'{EXTRA_CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(2),namespace:None,name:Name("lines")}},',
+        "",
+    )
+    alias_span = ALIAS_FIELD_SPAN if callee_kind == "Field" else ALIAS_IDENT_SPAN
+    alias_value = (
+        f"StaticCallableAlias{{definition:{definition},method_call:{str(method_call).lower()},"
+        'name:Name("render"),pure:true,'
+        "signature:CallableType{effects:None,params:[],return_ty:Bool}}"
+    )
+    current = current.replace(
+        "static_callable_aliases:{}",
+        f"static_callable_aliases:{{{alias_span}:{alias_value}}}",
+    )
+    if callee_kind == "Field":
+        owners.update({ALIAS_FIELD_SPAN: {"expr:Field"}, ALIAS_IDENT_SPAN: {"expr:Ident"}})
+        exact_expression_rows = {
+            3: (ALIAS_FIELD_SPAN, "Field", ""),
+            4: (ALIAS_IDENT_SPAN, "Ident", "targets"),
+        }
+        exact_field_accesses = {3: (4, "call" if method_call else "native_execution")}
+    else:
+        owners.update({ALIAS_IDENT_SPAN: {"expr:Ident"}})
+        exact_expression_rows = {3: (ALIAS_IDENT_SPAN, "Ident", "render")}
+        exact_field_accesses = {}
+    exact_owners = exact_call_owners(EXTRA_CALL_SPAN)
+    exact_owners["exprs"].update(exact_expression_rows)
+    exact_owners["field_accesses"] = exact_field_accesses
+    exact_owners["expr_count"] = len(exact_owners["exprs"])
+    return current, owners, exact_owners
+
+
+def exact_qualified_call_publication():
+    current, owners = exact_current_call_publication()
+    current = current.replace(
+        'namespace:None,name:Name("run")',
+        'namespace:Some(Name("module.xsh")),name:Name("run")',
+    ).replace(
+        'kind:Constant(StmtId(12)),name:Name("not_prepared")',
+        'kind:Module(Name("module.xsh")),name:Name("mod")',
+    ).replace(
+        "expressions:{},expression_namespaces:{ExprId(2):None}",
+        "expressions:{ExprId(3):" + RUN_GLOBAL_BINDING + "},"
+        "expression_namespaces:{ExprId(2):None,ExprId(3):None}",
+    )
+    owners.update(
+        {
+            "Span{source_id:SourceId(0),start:20,len:8}": {"expr:Field"},
+            "Span{source_id:SourceId(0),start:20,len:3}": {"expr:Ident"},
+        }
+    )
+    return current, owners, {
+        "exprs": {
+            0: (CALL_SPAN, "Call", ""),
+            1: ("Span{source_id:SourceId(0),start:20,len:8}", "Field", ""),
+            2: ("Span{source_id:SourceId(0),start:20,len:3}", "Ident", "mod"),
+        },
+        "calls": {0: 1},
+        "field_accesses": {1: (2, "run")},
+        "runs": {},
+        "records": {},
+        "aliases": {},
+        "tails": {},
+        "expr_count": 3,
+        "record_field_count": 0,
+    }
+
+
+def exact_native_error_failure_publication(field="failure", return_type="Error"):
     current, owners = exact_current_call_publication()
     current = current.replace(
         f"statically_resolved_call_spans:{{{CALL_SPAN}}}",
         f"statically_resolved_call_spans:{{{CALL_SPAN},{ERROR_FAILURE_SPAN}}}",
     ).replace(
         f"expr_types:{{{CALL_SPAN}:Bool}}",
-        f"expr_types:{{{CALL_SPAN}:Bool,{ERROR_FAILURE_SPAN}:Error}}",
+        f"expr_types:{{{CALL_SPAN}:Bool,{ERROR_FAILURE_SPAN}:{return_type}}}",
     )
     owners.update(
         {
@@ -287,7 +394,7 @@ def exact_native_error_failure_publication():
             4: (ERROR_FAILURE_IDENT_SPAN, "Ident", "error"),
         },
         "calls": {0: 1, 2: 3},
-        "field_accesses": {3: (4, "failure")},
+        "field_accesses": {3: (4, field)},
         "runs": {},
         "records": {},
         "aliases": {},
@@ -478,6 +585,47 @@ class PublicationAdapterTests(unittest.TestCase):
                 candidate_exact_owners=exact_call_owners(EXTRA_CALL_SPAN),
             )
 
+        same_signature_target = current.replace(
+            f'{EXTRA_CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(2),namespace:None,name:Name("lines")}}',
+            f'{EXTRA_CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(3),namespace:None,name:Name("alternate")}}',
+        )
+        with self.assertRaisesRegex(AdapterError, "callee identity disagrees"):
+            project_publication(
+                "current", same_signature_target, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_call_owners(EXTRA_CALL_SPAN),
+            )
+
+        wrong_resolver_namespace = current.replace(
+            "expression_namespaces:{ExprId(2):None,ExprId(4):None}",
+            'expression_namespaces:{ExprId(2):Some(Name("other.xsh")),ExprId(4):None}',
+        )
+        with self.assertRaisesRegex(AdapterError, "callee identity disagrees"):
+            project_publication(
+                "current", wrong_resolver_namespace, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_call_owners(EXTRA_CALL_SPAN),
+            )
+
+        run_declaration = (
+            'CheckedFunctionDeclaration{namespace:None,name:Name("run"),internal:false,kind:Pure,'
+            "signature:Some(CompactFunctionSig{params:[],parameter_schemas:[],return_ty:Bool,"
+            "return_type_expr:TypeExprId(1),inferred_effects:false,effects:None}),body:"
+            + CONST_SPAN
+            + ",parameter_spans:[]}"
+        )
+        duplicate = "FunctionDefId(4):" + run_declaration
+        ambiguous_target = current.replace(
+            "FunctionDefId(1):" + run_declaration + ",FunctionDefId(2):",
+            "FunctionDefId(1):" + run_declaration + "," + duplicate + ",FunctionDefId(2):",
+        ).replace(
+            f'{CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(1),namespace:None,name:Name("run")}}',
+            f'{CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(4),namespace:None,name:Name("run")}}',
+        )
+        with self.assertRaisesRegex(AdapterError, "ambiguous checked declaration identity"):
+            project_publication(
+                "current", ambiguous_target, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_call_owners(EXTRA_CALL_SPAN),
+            )
+
         missing_callee = exact_call_owners(EXTRA_CALL_SPAN)
         missing_callee["calls"] = {0: 1}
         with self.assertRaisesRegex(AdapterError, "no exact callee link"):
@@ -503,6 +651,124 @@ class PublicationAdapterTests(unittest.TestCase):
                 candidate_exact_owners=missing_call_id,
             )
 
+    def test_exact_qualified_call_uses_its_resolved_module_binding(self):
+        current, owners, exact_owners = exact_qualified_call_publication()
+        project_publication(
+            "current", current, SOURCE_SIZES, owners,
+            candidate_exact_owners=exact_owners,
+        )
+
+        wrong_module = current.replace(
+            'kind:Module(Name("module.xsh")),name:Name("mod")',
+            'kind:Module(Name("other.xsh")),name:Name("mod")',
+        )
+        with self.assertRaisesRegex(AdapterError, "module binding namespace disagrees"):
+            project_publication(
+                "current", wrong_module, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+    def test_static_callable_alias_routes_join_exact_callee_spans(self):
+        for callee_kind, method_call in (("Field", False), ("Ident", False), ("Field", True)):
+            with self.subTest(callee_kind=callee_kind, method_call=method_call):
+                current, owners, exact_owners = exact_static_alias_publication(
+                    callee_kind=callee_kind,
+                    method_call=method_call,
+                )
+                projected = project_publication(
+                    "current", current, SOURCE_SIZES, owners,
+                    candidate_exact_owners=exact_owners,
+                )
+                self.assertIn("static_callable_aliases:{", projected)
+
+        no_alias_fact = exact_static_alias_publication()
+        no_alias_fact_current = no_alias_fact[0].replace(
+            f"static_callable_aliases:{{{ALIAS_FIELD_SPAN}:"
+            "StaticCallableAlias{definition:None,method_call:false,name:Name(\"render\"),pure:true,"
+            "signature:CallableType{effects:None,params:[],return_ty:Bool}}}",
+            "static_callable_aliases:{}",
+        )
+        with self.assertRaisesRegex(AdapterError, "static call-site facts"):
+            project_publication(
+                "current", no_alias_fact_current, SOURCE_SIZES, no_alias_fact[1],
+                candidate_exact_owners=no_alias_fact[2],
+            )
+
+        wrong_callee = exact_static_alias_publication()
+        wrong_callee[2]["calls"][2] = 1
+        with self.assertRaisesRegex(AdapterError, "static call-site facts"):
+            project_publication(
+                "current", wrong_callee[0], SOURCE_SIZES, wrong_callee[1],
+                candidate_exact_owners=wrong_callee[2],
+            )
+
+        wrong_method_flag = exact_static_alias_publication(method_call=True)
+        wrong_method_flag_current = wrong_method_flag[0].replace(
+            "method_call:true", "method_call:false"
+        )
+        with self.assertRaisesRegex(AdapterError, "false method flag"):
+            project_publication(
+                "current", wrong_method_flag_current, SOURCE_SIZES, wrong_method_flag[1],
+                candidate_exact_owners=wrong_method_flag[2],
+            )
+
+        wrong_method_field = exact_static_alias_publication(method_call=True)
+        wrong_method_field[2]["field_accesses"][3] = (4, "native_execution")
+        with self.assertRaisesRegex(AdapterError, "wrong field"):
+            project_publication(
+                "current", wrong_method_field[0], SOURCE_SIZES, wrong_method_field[1],
+                candidate_exact_owners=wrong_method_field[2],
+            )
+
+        malformed_method_flag = exact_static_alias_publication()
+        malformed_method_flag_current = malformed_method_flag[0].replace(
+            "method_call:false", "method_call:maybe"
+        )
+        with self.assertRaisesRegex(AdapterError, "malformed flags"):
+            project_publication(
+                "current", malformed_method_flag_current, SOURCE_SIZES, malformed_method_flag[1],
+                candidate_exact_owners=malformed_method_flag[2],
+            )
+
+        malformed_signature = exact_static_alias_publication()
+        malformed_signature_current = malformed_signature[0].replace(
+            "signature:CallableType{effects:None,params:[],return_ty:Bool}",
+            "signature:CallableType{effects:Bad,params:[],return_ty:Bool}",
+        )
+        with self.assertRaisesRegex(AdapterError, "malformed effects"):
+            project_publication(
+                "current", malformed_signature_current, SOURCE_SIZES, malformed_signature[1],
+                candidate_exact_owners=malformed_signature[2],
+            )
+
+        missing_call_type = exact_static_alias_publication()
+        missing_call_type_current = missing_call_type[0].replace(
+            f",{EXTRA_CALL_SPAN}:Bool", ""
+        )
+        with self.assertRaisesRegex(AdapterError, "no checked type"):
+            project_publication(
+                "current", missing_call_type_current, SOURCE_SIZES, missing_call_type[1],
+                candidate_exact_owners=missing_call_type[2],
+            )
+
+        module_contract_alias = exact_static_alias_publication(
+            definition=f"Some({ALIAS_DEFINITION_SPAN})"
+        )
+        source_sizes = {**SOURCE_SIZES, 5: 100}
+        project_publication(
+            "current", module_contract_alias[0], source_sizes, module_contract_alias[1],
+            candidate_exact_owners=module_contract_alias[2],
+        )
+        out_of_bounds_definition = module_contract_alias[0].replace(
+            ALIAS_DEFINITION_SPAN,
+            "Span{source_id:SourceId(5),start:90,len:20}",
+        )
+        with self.assertRaisesRegex(AdapterError, "outside its source"):
+            project_publication(
+                "current", out_of_bounds_definition, source_sizes, module_contract_alias[1],
+                candidate_exact_owners=module_contract_alias[2],
+            )
+
     def test_native_set_call_requires_exact_unshadowed_module_resolution(self):
         current, owners, exact_owners = exact_native_set_publication()
         project_publication(
@@ -517,18 +783,32 @@ class PublicationAdapterTests(unittest.TestCase):
                 candidate_exact_owners=shadowed_exact,
             )
 
-    def test_error_failure_intrinsic_requires_exact_call_shape_type_and_links(self):
+    def test_error_intrinsics_require_exact_call_shape_type_and_links(self):
         current, owners, exact_owners = exact_native_error_failure_publication()
         project_publication(
             "current", current, SOURCE_SIZES, owners,
             candidate_exact_owners=exact_owners,
         )
 
+        fail_call = exact_native_error_failure_publication("fail", "Result(Unit,Error)")
+        project_publication(
+            "current", fail_call[0], SOURCE_SIZES, fail_call[1],
+            candidate_exact_owners=fail_call[2],
+        )
+
         wrong_type = current.replace(f"{ERROR_FAILURE_SPAN}:Error", f"{ERROR_FAILURE_SPAN}:Bool")
+        wrong_fail_type = fail_call[0].replace(
+            f"{ERROR_FAILURE_SPAN}:Result(Unit,Error)",
+            f"{ERROR_FAILURE_SPAN}:Result(Unit,Bool)",
+        )
         wrong_field = exact_native_error_failure_publication()[2]
         wrong_field["field_accesses"][3] = (4, "failed")
+        wrong_case = exact_native_error_failure_publication()[2]
+        wrong_case["field_accesses"][3] = (4, "Failure")
         wrong_name = exact_native_error_failure_publication()[2]
         wrong_name["exprs"][4] = (ERROR_FAILURE_IDENT_SPAN, "Ident", "err")
+        wrong_name_case = exact_native_error_failure_publication()[2]
+        wrong_name_case["exprs"][4] = (ERROR_FAILURE_IDENT_SPAN, "Ident", "Error")
         wrong_call_link = exact_native_error_failure_publication()[2]
         wrong_call_link["calls"][2] = 4
         wrong_field_link = exact_native_error_failure_publication()[2]
@@ -536,8 +816,11 @@ class PublicationAdapterTests(unittest.TestCase):
 
         for publication, exact in (
             (wrong_type, exact_native_error_failure_publication()[2]),
+            (wrong_fail_type, exact_native_error_failure_publication("fail", "Result(Unit,Error)")[2]),
             (current, wrong_field),
+            (current, wrong_case),
             (current, wrong_name),
+            (current, wrong_name_case),
             (current, wrong_call_link),
             (current, wrong_field_link),
         ):
@@ -547,6 +830,22 @@ class PublicationAdapterTests(unittest.TestCase):
                         "current", publication, SOURCE_SIZES, owners,
                         candidate_exact_owners=exact,
                     )
+
+        shadowed_error = current.replace(
+            "ResolvedBindings{declarations:{",
+            "ResolvedBindings{declarations:{BindingId(Target(BindingTargetId(99))):"
+            'BindingDeclaration{exported:false,global:false,kind:Runtime,name:Name("error"),'
+            f"namespace:None,span:{CONST_SPAN}}},",
+            1,
+        ).replace(
+            "declaration_sites:{},expressions:{},expression_namespaces:{ExprId(2):None}",
+            "declaration_sites:{},expressions:{ExprId(5):BindingId(Target(BindingTargetId(99)))},"
+            "expression_namespaces:{ExprId(2):None,ExprId(5):None}",
+        )
+        project_publication(
+            "current", shadowed_error, SOURCE_SIZES, owners,
+            candidate_exact_owners=exact_native_error_failure_publication()[2],
+        )
 
     def test_propagating_run_form_requires_exact_producer_and_true_flag(self):
         current, owners = exact_current_call_publication()
@@ -579,6 +878,9 @@ class PublicationAdapterTests(unittest.TestCase):
         ).replace(
             f"expr_types:{{{CALL_SPAN}:Bool}}",
             f"expr_types:{{{CALL_SPAN}:Bool,{reference_span}:Pure}}",
+        ).replace(
+            "expression_namespaces:{ExprId(2):None}",
+            "expression_namespaces:{ExprId(2):None,ExprId(3):None}",
         )
         exact_owners = exact_call_owners()
         exact_owners["exprs"][2] = (reference_span, "Ident", "run")
@@ -639,6 +941,37 @@ class PublicationAdapterTests(unittest.TestCase):
         owners = {**SOURCE_OWNERS, TAIL_SPAN: {"stmt:TailBareIdent"}}
         with self.assertRaisesRegex(AdapterError, "no matching AST owner"):
             project_publication("current", wrong_kind, SOURCE_SIZES, owners)
+
+    def test_fallible_range_and_repeat_stages_require_structured_stage_proof(self):
+        for kind in ("Range", "Repeat"):
+            with self.subTest(kind=kind):
+                current, owners, exact_owners = exact_stage_publication(kind)
+                project_publication(
+                    "current", current, SOURCE_SIZES, owners,
+                    candidate_exact_owners=exact_owners,
+                )
+
+        wrong_kind = exact_stage_publication("Map")
+        with self.assertRaisesRegex(AdapterError, "no exact structured Range or Repeat stage"):
+            project_publication(
+                "current", wrong_kind[0], SOURCE_SIZES, wrong_kind[1],
+                candidate_exact_owners=wrong_kind[2],
+            )
+
+        missing_stage = exact_stage_publication()
+        missing_stage[2]["structured_stages"] = {}
+        with self.assertRaisesRegex(AdapterError, "no exact structured Range or Repeat stage"):
+            project_publication(
+                "current", missing_stage[0], SOURCE_SIZES, missing_stage[1],
+                candidate_exact_owners=missing_stage[2],
+            )
+
+        missing_type = exact_stage_publication(include_type=False)
+        with self.assertRaisesRegex(AdapterError, "no checked stream stage"):
+            project_publication(
+                "current", missing_type[0], SOURCE_SIZES, missing_type[1],
+                candidate_exact_owners=missing_type[2],
+            )
 
     def test_propagating_error_command_span_joins_statement_position(self):
         command_span = "Span{source_id:SourceId(0),start:36,len:40}"
@@ -763,6 +1096,48 @@ class PublicationAdapterTests(unittest.TestCase):
             project_publication(
                 "current", current, {0: 494}, owners
             )
+
+    def test_propagating_assert_and_defer_require_exact_statement_id_join(self):
+        for owner_kind in ("stmt:Assert", "stmt:AssertBare", "stmt:DeferExpr"):
+            with self.subTest(owner_kind=owner_kind):
+                current = CURRENT_PUBLICATION.replace(
+                    f"propagating_error_spans:{{{COMMAND_SPAN}}}",
+                    f"propagating_error_spans:{{{PROPAGATING_STATEMENT_SPAN}}}",
+                ).replace(
+                    f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+                    f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value,"
+                    f"{PROPAGATING_STATEMENT_SPAN}:Value}}",
+                )
+                owners = {**SOURCE_OWNERS, PROPAGATING_STATEMENT_SPAN: {owner_kind}}
+                statement_owners = {"StmtId(20)": (PROPAGATING_STATEMENT_SPAN, owner_kind)}
+
+                project_publication(
+                    "current", current, SOURCE_SIZES, owners,
+                    statement_owners=statement_owners,
+                )
+
+                without_position = current.replace(
+                    f",{PROPAGATING_STATEMENT_SPAN}:Value", ""
+                )
+                with self.assertRaisesRegex(AdapterError, "no checked statement position"):
+                    project_publication(
+                        "current", without_position, SOURCE_SIZES, owners,
+                        statement_owners=statement_owners,
+                    )
+
+                for invalid_owners in (
+                    None,
+                    {"StmtId(20)": (PROPAGATING_STATEMENT_SPAN, "stmt:Const")},
+                    {
+                        "StmtId(20)": (PROPAGATING_STATEMENT_SPAN, owner_kind),
+                        "StmtId(21)": (PROPAGATING_STATEMENT_SPAN, owner_kind),
+                    },
+                ):
+                    with self.assertRaisesRegex(AdapterError, "no unique exact statement owner"):
+                        project_publication(
+                            "current", current, SOURCE_SIZES, owners,
+                            statement_owners=invalid_owners,
+                        )
 
     def test_run_form_error_does_not_inherit_command_owner_from_nearby_span(self):
         current = CURRENT_PUBLICATION.replace(
@@ -892,6 +1267,38 @@ class PublicationAdapterTests(unittest.TestCase):
                 "diagnostic", changed_common,
                 SOURCE_SIZES, SOURCE_OWNERS
             )
+
+    def test_comparison_passes_candidate_statement_owners(self):
+        legacy = LEGACY_PUBLICATION.replace(
+            f"propagating_statements:{{{SPAN}}}",
+            f"propagating_statements:{{{SPAN},{PROPAGATING_STATEMENT_SPAN}}}",
+        ).replace(
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value,"
+            f"{PROPAGATING_STATEMENT_SPAN}:Value}}",
+        )
+        current = CURRENT_PUBLICATION.replace(
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN}}}",
+            f"propagating_statements:{{{SPAN},{PROPAGATING_STATEMENT_SPAN}}}",
+        ).replace(
+            f"propagating_error_spans:{{{COMMAND_SPAN}}}",
+            f"propagating_error_spans:{{{PROPAGATING_STATEMENT_SPAN}}}",
+        ).replace(
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value,"
+            f"{PROPAGATING_STATEMENT_SPAN}:Value}}",
+        )
+        owners = {**SOURCE_OWNERS, PROPAGATING_STATEMENT_SPAN: {"stmt:Assert"}}
+        candidate_statement_owners = {
+            "StmtId(20)": (PROPAGATING_STATEMENT_SPAN, "stmt:Assert")
+        }
+
+        compare_publications(
+            "diagnostic", legacy, SOURCE_SIZES, owners,
+            TAIL_STATEMENT_OWNERS, STATEMENT_OWNERS,
+            "diagnostic", current, SOURCE_SIZES, owners,
+            candidate_statement_owners=candidate_statement_owners,
+        )
 
     def test_projection_rejects_schema_shape_mismatch(self):
         with self.assertRaisesRegex(AdapterError, "matched 0 times"):
