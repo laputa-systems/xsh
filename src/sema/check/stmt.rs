@@ -1673,7 +1673,7 @@ fn expression_cardinality_uncached(
         }
         ArenaExprKind::Str(value) => {
             if arena.arena.string_literal(value).is_empty() {
-                StreamCardinality::Maybe
+                StreamCardinality::Empty
             } else {
                 StreamCardinality::NonEmpty
             }

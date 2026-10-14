@@ -182,6 +182,11 @@ test test_loop_no_break_uses_only_reachable_breaks { |ctx|
         diagnostics: [],
       },
       {
+        name: "empty-string-loop-body-return-is-unreachable",
+        source: "pure never_returns() -> Int { loop { for _ in \"\" { return 1 } } }\n",
+        diagnostics: ["check.loop-no-break"],
+      },
+      {
         name: "false-branch-break-is-unreachable",
         source: "proc spin() [] { loop { if false { break } } }\n",
         diagnostics: ["check.loop-no-break"],
