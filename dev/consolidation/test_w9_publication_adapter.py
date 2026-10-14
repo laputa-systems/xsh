@@ -217,7 +217,12 @@ def exact_call_owners(extra_call_span=None):
 def exact_stage_publication(kind="Range", include_type=True):
     current, owners = exact_current_call_publication()
     owners[STAGE_SPAN] = {f"stage:{kind}"}
-    stage_type = f"(StreamStageId(0),{STAGE_SPAN}):Range" if include_type else ""
+    stage_type = (
+        f"(None,{STAGE_SPAN}):CheckedStreamStage"
+        "{input:Stream(Str),output:Stream(Str)}"
+        if include_type
+        else ""
+    )
     current = current.replace(
         "stream_stage_types:{}", f"stream_stage_types:{{{stage_type}}}"
     ).replace(
@@ -255,7 +260,8 @@ def exact_stage_callback_alias_publication(stage_kind="Each", position="Statemen
         f"propagating_statements:{{{SPAN},{COMMAND_SPAN},{callback_span}}}",
     ).replace(
         "stream_stage_types:{}",
-        f"stream_stage_types:{{(StreamStageId(0),{STAGE_SPAN}):Stream(Str)}}",
+        f"stream_stage_types:{{(None,{STAGE_SPAN}):CheckedStreamStage"
+        "{input:Stream(Int),output:Stream(Int)}}",
     ).replace(
         f"selected_function_calls:{{{CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(1),namespace:None,name:Name(\"run\")}}}}",
         "selected_function_calls:{}",
@@ -298,7 +304,8 @@ def exact_stage_callback_legacy_publication(callback_span, return_type="Unit"):
             f"static_callable_aliases:{{{callback_span}:{alias}}}",
         ).replace(
             "stream_stage_types:{}",
-            f"stream_stage_types:{{(StreamStageId(0),{STAGE_SPAN}):Stream(Str)}}",
+            f"stream_stage_types:{{(None,{STAGE_SPAN}):CheckedStreamStage"
+            "{input:Stream(Int),output:Stream(Int)}}",
         )
     )
 
@@ -855,6 +862,71 @@ class PublicationAdapterTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AdapterError, "unterminated Rust Debug collection"):
             _split_first_top_level("Span{source_id:SourceId(5):value", ":")
+
+    def test_checked_stream_stage_table_uses_option_namespace_and_span_keys(self):
+        checked_stages = (
+            '{(None,Span{source_id:SourceId(0),start:11499,len:7}):'
+            'CheckedStreamStage{input:Stream(Str),output:Stream(Str)},'
+            '(Some(Name("module")),Span{source_id:SourceId(1),start:40,len:8}):'
+            'CheckedStreamStage{input:Stream(Int),output:Stream(Str)}}'
+        )
+
+        self.assertEqual(
+            adapter._checked_stream_stage_types(checked_stages),
+            {
+                "Span{source_id:SourceId(0),start:11499,len:7}": (
+                    None,
+                    "Stream(Str)",
+                    "Stream(Str)",
+                ),
+                "Span{source_id:SourceId(1),start:40,len:8}": (
+                    "module",
+                    "Stream(Int)",
+                    "Stream(Str)",
+                ),
+            },
+        )
+
+    def test_checked_stream_stage_table_rejects_malformed_keys_and_values(self):
+        good_span = "Span{source_id:SourceId(0),start:10,len:6}"
+        malformed = (
+            (
+                f"{{(StreamStageId(0),{good_span}):CheckedStreamStage"
+                "{input:Stream(Str),output:Stream(Str)}}",
+                "namespace",
+            ),
+            (
+                f"{{(Some(None),{good_span}):CheckedStreamStage"
+                "{input:Stream(Str),output:Stream(Str)}}",
+                "namespace",
+            ),
+            (
+                f"{{(None,{good_span}):CheckedStreamStage{{input:Stream(Str)}}}}",
+                "fields",
+            ),
+            (
+                f"{{(None,{good_span}):CheckedStreamStage{{input:,output:Stream(Str)}}}}",
+                "Debug struct field",
+            ),
+            (
+                f"{{(None,{good_span}):CheckedStreamStage{{input:Stream(Str),output:}}}}",
+                "Debug struct field",
+            ),
+        )
+        for value, message in malformed:
+            with self.subTest(value=value), self.assertRaisesRegex(AdapterError, message):
+                adapter._checked_stream_stage_types(value)
+
+    def test_checked_stream_stage_table_rejects_ambiguous_normalized_spans(self):
+        stage = "CheckedStreamStage{input:Stream(Str),output:Stream(Str)}"
+        value = (
+            "{(None,Span{source_id:SourceId(0),start:10,len:6}):"
+            f"{stage},(Some(Name(\"module\")),Span{{len:6,start:10,source_id:SourceId(0)}}):"
+            f"{stage}}}"
+        )
+
+        with self.assertRaisesRegex(AdapterError, "span is ambiguous"):
+            adapter._checked_stream_stage_types(value)
 
     def test_owner_index_rows_must_be_typed_unique_and_source_bounded(self):
         self.assertEqual(SOURCE_SIZES, {0: 100})

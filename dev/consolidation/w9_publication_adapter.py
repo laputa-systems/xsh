@@ -440,6 +440,38 @@ def _tuple_items(value: str, label: str) -> tuple[str, ...]:
     return tuple(_split_top_level(value[1:-1], ","))
 
 
+def _checked_stream_stage_types(value: str) -> dict[str, tuple[str | None, str, str]]:
+    stages = {}
+    for key, checked_stage in _map_entries(value).items():
+        key_parts = _tuple_items(key, "checked stream-stage key")
+        if len(key_parts) != 2:
+            raise AdapterError("checked stream-stage key has an unexpected tuple length")
+        raw_namespace, raw_span = key_parts
+        if raw_namespace == "None":
+            namespace = None
+        elif (
+            raw_namespace.startswith("Some(")
+            and _group_end(raw_namespace, 4) == len(raw_namespace) - 1
+        ):
+            namespace = _debug_name_value(raw_namespace[5:-1])
+            if namespace is None:
+                raise AdapterError("checked stream-stage key has a malformed namespace")
+        else:
+            raise AdapterError("checked stream-stage key has a malformed namespace")
+        stage_span = _canonicalize_span(raw_span)[0]
+        if stage_span in stages:
+            raise AdapterError(f"checked stream-stage span is ambiguous: {stage_span}")
+        stage_fields = _fields(checked_stage, "CheckedStreamStage")
+        if set(stage_fields) != {"input", "output"}:
+            raise AdapterError("checked stream-stage fields are incomplete")
+        input_type = stage_fields["input"]
+        output_type = stage_fields["output"]
+        _split_top_level(input_type, "\x00")
+        _split_top_level(output_type, "\x00")
+        stages[stage_span] = (namespace, input_type, output_type)
+    return stages
+
+
 def _canonical_cli_plan_key(value: str, source_schema: str) -> str:
     try:
         key_parts = _tuple_items(value, "CLI plan key")
@@ -711,17 +743,13 @@ def _current_fact_owners(
     statement_positions = _canonical_span_map(
         fields["statement_positions"], "checked statement position"
     )
-    stream_stage_types_by_id = {}
-    for key, output_type in _map_entries(fields["stream_stage_types"]).items():
-        raw_stage_id, raw_stage_span = _pair_key(key)
-        stage_id_match = re.fullmatch(r"StreamStageId\((0|[1-9][0-9]*)\)", raw_stage_id)
-        if stage_id_match is None:
-            raise AdapterError("checked stream-stage table has a malformed stage id")
-        stage_id = int(stage_id_match.group(1))
-        stage_span = _canonicalize_span(raw_stage_span)[0]
-        if stage_id in stream_stage_types_by_id:
-            raise AdapterError("checked stream-stage table has duplicate stage ids")
-        stream_stage_types_by_id[stage_id] = (stage_span, output_type)
+    stream_stage_types_by_span = _checked_stream_stage_types(fields["stream_stage_types"])
+    for stage_span in stream_stage_types_by_span:
+        canonical_span, source_id, start, length = _canonicalize_span(stage_span)
+        if source_id not in source_sizes or start + length > source_sizes[source_id]:
+            raise AdapterError(
+                f"checked stream-stage span is outside its source: {canonical_span}"
+            )
     resolved_bindings = (
         _parse_resolved_bindings(fields["resolved_bindings"])
         if exact_owners is not None and (selected or static - other_static_calls)
@@ -901,7 +929,7 @@ def _current_fact_owners(
             static,
             stage_callback_edges,
             statement_positions,
-            stream_stage_types_by_id,
+            stream_stage_types_by_span,
             expected_stage_callback_position,
         )
         missing_static_calls = (
@@ -934,7 +962,7 @@ def _current_fact_owners(
         fields["propagating_statements"], "propagating statement"
     )
     api_calls = _canonical_span_map(fields["api_calls"], "checked API call")
-    stage_spans = {span for span, _kind in stream_stage_types_by_id.values()}
+    stage_spans = set(stream_stage_types_by_span)
     control_flow_owners = dict(source_owners)
     structured_stage_owners = {}
     if exact_owners is not None:
@@ -1124,7 +1152,7 @@ def _validate_static_callable_alias_facts(
     static_calls: set[str],
     stage_callback_edges: Mapping[str, object],
     statement_positions: Mapping[str, str],
-    stream_stage_types_by_id: Mapping[int, tuple[str, str]],
+    stream_stage_types_by_span: Mapping[str, tuple[str | None, str, str]],
     expected_stage_callback_position: Callable[[str], str],
 ) -> set[str]:
     call_spans_by_callee = {}
@@ -1163,10 +1191,9 @@ def _validate_static_callable_alias_facts(
         ):
             raise AdapterError(f"static callable alias disagrees with its exact stage callback edge: {alias_span}")
         if stage_edge is not None:
-            stage_id = getattr(stage_edge, "stage_id")
             stage_span = _canonicalize_span(getattr(stage_edge, "stage_span"))[0]
             stage_kind = getattr(stage_edge, "stage_kind")
-            if stream_stage_types_by_id.get(stage_id, (None,))[0] != stage_span:
+            if stage_span not in stream_stage_types_by_span:
                 raise AdapterError(f"static callable alias stage callback has no matching checked stream stage: {alias_span}")
         _validate_source_span(
             alias_span, "static callable alias", source_sizes, source_owners, {f"expr:{alias_kind}"}

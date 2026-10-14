@@ -10,6 +10,7 @@ from w9_publication_adapter import (
     _canonical_span_map,
     _canonical_span_set,
     _canonicalize_span,
+    _checked_stream_stage_types as _stream_stage_types,
     _fields,
     _group_end,
     _map_entries,
@@ -21,7 +22,6 @@ from w9_publication_adapter import (
 
 
 _FUNCTION_ID = re.compile(r"FunctionDefId\((\d+)\)\Z")
-_STREAM_STAGE_ID = re.compile(r"StreamStageId\((\d+)\)\Z")
 _TYPE_EXPR_ID = re.compile(r"TypeExprId\((\d+)\)\Z")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _EFFECTS = {"Fs", "Net", "Process", "Env", "Time", "Error", "Io"}
@@ -533,22 +533,6 @@ def _validate_reference_type(
         raise AdapterError(f"{label} checked type disagrees with its declaration kind")
 
 
-def _stream_stage_types(value: str) -> dict[int, str]:
-    types = {}
-    for key in _map_entries(value):
-        parts = _tuple_items(key, "stream-stage type key")
-        if len(parts) != 2:
-            raise AdapterError("stream-stage type key has an unexpected tuple length")
-        match = _STREAM_STAGE_ID.fullmatch(parts[0])
-        if match is None:
-            raise AdapterError("stream-stage type key has a malformed stage id")
-        stage_id = int(match.group(1))
-        if stage_id in types:
-            raise AdapterError(f"stream-stage type id is ambiguous: {stage_id}")
-        types[stage_id] = _canonicalize_span(parts[1])[0]
-    return types
-
-
 def expected_stage_callback_position(stage_kind: str) -> str:
     return "Statement" if stage_kind in {"Each", "Tee"} else "Value"
 
@@ -713,7 +697,7 @@ def validate_function_reference_targets(
     reference_spans = set(selected) - call_spans
     if not reference_spans:
         return StageCallbackValidation(frozenset(), MappingProxyType(stage_callbacks))
-    checked_stage_types: dict[int, str] | None = None
+    checked_stage_types: dict[str, tuple[str | None, str, str]] | None = None
     checked_declarations = _fields(fields["checked_declarations"], "CheckedDeclarations")
     functions = _map_entries(checked_declarations["functions"])
     expression_types = _canonical_span_map(fields["expr_types"], "checked expression type")
@@ -811,7 +795,13 @@ def validate_function_reference_targets(
                 checked_stage_types = _stream_stage_types(
                     fields.get("stream_stage_types", "{}")
                 )
-            if checked_stage_types.get(stage_callback.stage_id) != stage_callback.stage_span:
+                for checked_stage_span in checked_stage_types:
+                    _check_span_bounds(
+                        checked_stage_span,
+                        "checked stream-stage",
+                        source_sizes,
+                    )
+            if stage_callback.stage_span not in checked_stage_types:
                 raise AdapterError(f"selected stage callback has no checked stream-stage type: {span}")
             if span not in static_calls:
                 raise AdapterError(f"selected stage callback has no static call fact: {span}")

@@ -4,6 +4,7 @@ from pathlib import Path
 from w9_publication_adapter import AdapterError
 from w9_publication_reference_facts import (
     _exact_owner_tables,
+    _stream_stage_types,
     validate_function_reference_targets,
     validate_stage_callback_edges,
 )
@@ -258,7 +259,7 @@ def _stage_callback_fields(
         f"{{{IDENT_SPAN}: Value}}" if positions is None else positions
     )
     fields["stream_stage_types"] = (
-        f"{{(StreamStageId(0),{STAGE_SPAN}):CheckedStreamStage"
+        f"{{(None,{STAGE_SPAN}):CheckedStreamStage"
         "{input:Stream(Int),output:Stream(Int)}}"
     )
     return fields
@@ -277,6 +278,45 @@ def _validate_stage_callback(fields, *, exact_owners=None, owners=None):
 
 
 class FunctionReferenceFactTests(unittest.TestCase):
+    def test_checked_stage_table_matches_real_debug_key_and_type(self):
+        checked_stages = (
+            '{(None,Span{source_id:SourceId(0),start:11499,len:7}):'
+            'CheckedStreamStage{input:Stream(Str),output:Stream(Str)},'
+            '(Some(Name("module")),Span{source_id:SourceId(1),start:40,len:8}):'
+            'CheckedStreamStage{input:Stream(Int),output:Stream(Str)}}'
+        )
+
+        self.assertEqual(
+            _stream_stage_types(checked_stages),
+            {
+                "Span{source_id:SourceId(0),start:11499,len:7}": (
+                    None,
+                    "Stream(Str)",
+                    "Stream(Str)",
+                ),
+                "Span{source_id:SourceId(1),start:40,len:8}": (
+                    "module",
+                    "Stream(Int)",
+                    "Stream(Str)",
+                ),
+            },
+        )
+
+    def test_exact_stage_ids_remain_contiguous_without_checker_ids(self):
+        exact_owners = _stage_callback_owners()
+        exact_owners["structured_stages"] = {
+            1: exact_owners["structured_stages"][0]
+        }
+        exact_owners["stage_arguments"] = {1: exact_owners["stage_arguments"][0]}
+        exact_owners["stage_callbacks"] = {1: 0}
+
+        with self.assertRaisesRegex(AdapterError, "argument rows do not cover"):
+            validate_stage_callback_edges(
+                source_sizes={0: 128},
+                source_owners=_owners(),
+                exact_owners=exact_owners,
+            )
+
     def test_retained_declaration_accepts_reordered_source_span_fields(self):
         _validate(_fields())
 
@@ -435,7 +475,7 @@ class FunctionReferenceFactTests(unittest.TestCase):
     def test_named_stage_callback_requires_exact_checked_stage_identity(self):
         fields = _stage_callback_fields()
         fields["stream_stage_types"] = (
-            f"{{(StreamStageId(1),{STAGE_SPAN}):CheckedStreamStage"
+            "{(None,Span{source_id:SourceId(0),start:70,len:8}):CheckedStreamStage"
             "{input:Stream(Int),output:Stream(Int)}}"
         )
         with self.assertRaises(AdapterError):
