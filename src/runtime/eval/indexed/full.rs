@@ -21102,20 +21102,45 @@ pure selected() -> Str {
             .into_iter()
             .next()
             .expect("function has an independent let statement");
+        let return_statement =
+            function_instruction_indices(&program, "pipeline", FullTag::StmtReturn)
+                .into_iter()
+                .next()
+                .expect("function has a return statement");
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|row| {
+                program
+                    .store
+                    .string(row.name)
+                    .is_ok_and(|name| name == "pipeline")
+            })
+            .expect("fixture function exists");
+        let body = IrBlockId::from_raw(program.store.functions[function].body)
+            .expect("function body block exists");
+        let body_range = program.store.blocks[body.index()].instructions;
+        let body_start = body_range.start as usize;
+        assert_eq!(program.store.extra[body_start], 2);
+        assert_eq!(program.store.extra[body_start + 1] as usize, statement);
+        assert_eq!(
+            program.store.extra[body_start + 2] as usize,
+            return_statement
+        );
         let payload = program.store.data[pipeline]
             .range()
             .bounds(program.store.extra.len())
             .unwrap();
 
         let mut missing_input = program;
+        missing_input.store.extra[body_start] = 1;
+        missing_input.store.extra[body_start + 1] =
+            u32::try_from(return_statement).expect("instruction index fits in the IR");
+        missing_input.store.blocks[body.index()].instructions.len = 2;
         missing_input.store.extra[payload.start] =
             u32::try_from(statement).expect("instruction index fits in the IR");
-        assert!(FullVerifier::verify(&missing_input).is_err());
-        let decoder = unverified_return_analysis_decoder(&missing_input, "pipeline");
-        let error = decoder
-            .expression_view(pipeline)
-            .err()
-            .expect("pipeline input decoder rejects a statement instruction");
+        let error = FullVerifier::verify(&missing_input).unwrap_err();
         assert!(
             error.message.contains("wrong category"),
             "{}",
