@@ -332,7 +332,30 @@ fn stmt_direct_run_has_splice_name(arena: &AstArena, stmt: super::StmtId, name: 
         ArenaStmtKind::Assign { value, .. } => Some(value),
         ArenaStmtKind::Return(value) => value,
         ArenaStmtKind::Yield(value) | ArenaStmtKind::Defer(value, _) => Some(value),
-        _ => None,
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::Export(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => None,
     };
     matches!(value, Some(ArenaExprOrRun::Run(run)) if run_form_has_splice_name(arena, run, name))
 }
