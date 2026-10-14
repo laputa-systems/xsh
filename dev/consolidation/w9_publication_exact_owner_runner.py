@@ -89,6 +89,7 @@ STMT_ID = re.compile(r"StmtId\(([1-9][0-9]*)\)\Z")
 DECIMAL = re.compile(r"(0|[1-9][0-9]*)\Z")
 HEX256 = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+BINDING_NAME = re.compile(r"(?:[A-Za-z_][A-Za-z0-9_]*|%(?:dest|delay|cap))\Z")
 STREAM_STAGE_TAGS = frozenset(
     {
         "Where",
@@ -337,7 +338,7 @@ def parse_exact_owner_index(
                 raise ExactOwnerError(f"owner index line {line_number}: malformed binding-initializer row")
             statement_id = _stmt_id(fields[1])
             name = _decode_rust_string(fields[2], f"owner index line {line_number} binding name")
-            if IDENTIFIER.fullmatch(name) is None:
+            if BINDING_NAME.fullmatch(name) is None:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed binding initializer name")
             initializer_id = _expr_id(fields[3], "binding initializer expression id")
             key = (statement_id, name)
@@ -493,7 +494,8 @@ def parse_exact_owner_index(
         if f"expr:{tag}" not in legacy[1].get(span, set()):
             raise ExactOwnerError(f"expression {expression_id} has no matching generic AST owner")
         expressions[expression_id] = (span, tag, _name)
-    for (statement_id, _name), initializer_id in binding_initializers.items():
+    validated_binding_initializers: dict[tuple[int, str], tuple[str, int]] = {}
+    for (statement_id, name), initializer_id in binding_initializers.items():
         statement_key = f"StmtId({statement_id + 1})"
         statement = statement_owners.get(statement_key)
         if statement is None:
@@ -514,6 +516,7 @@ def parse_exact_owner_index(
         _, initializer_source, _, _ = adapter._canonicalize_span(initializer_span)
         if statement_source != initializer_source:
             raise ExactOwnerError(f"binding initializer {statement_id} crosses source ownership")
+        validated_binding_initializers[(statement_id, name)] = (statement_span, initializer_id)
     for run_id, (raw_span, propagate) in runs.items():
         runs[run_id] = (_span(raw_span, source_sizes, f"run form {run_id}"), propagate)
     normalized_run_owners = {
@@ -605,7 +608,7 @@ def parse_exact_owner_index(
         "calls": calls,
         "field_accesses": field_accesses,
         "structured_stages": structured_stages,
-        "binding_initializers": binding_initializers,
+        "binding_initializers": validated_binding_initializers,
         "tails": {
             _stmt_id(statement_id): (span, name, kind)
             for statement_id, (span, name, kind) in legacy[2].items()

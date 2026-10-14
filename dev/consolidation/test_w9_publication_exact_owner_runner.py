@@ -143,7 +143,9 @@ def structured_stage_owner_index():
     ) + "\n"
 
 
-def binding_initializer_owner_index(statement_kind="LetExprNoTy", expression_source=SOURCE):
+def binding_initializer_owner_index(
+    statement_kind="LetExprNoTy", expression_source=SOURCE, binding_name="format"
+):
     statement_span = span(0, 12)
     expression_span = f"Span {{ source_id: {expression_source}, start: 8, len: 3 }}"
     rows = [
@@ -160,7 +162,7 @@ def binding_initializer_owner_index(statement_kind="LetExprNoTy", expression_sou
             "exact-counts\t1\t0",
             "structured-stage-count\t0",
             "binding-initializer-count\t1",
-            'binding-initializer\tStmtId(1)\t"format"\tExprId(1)',
+            f'binding-initializer\tStmtId(1)\t{json.dumps(binding_name)}\tExprId(1)',
         )
     )
     return "\n".join(rows) + "\n"
@@ -200,7 +202,25 @@ class ExactOwnerIndexTests(unittest.TestCase):
             legacy[3]["StmtId(1)"],
             ("Span{source_id:SourceId(0),start:0,len:12}", "stmt:LetExprNoTy"),
         )
-        self.assertEqual(exact["binding_initializers"], {(0, "format"): 0})
+        self.assertEqual(
+            exact["binding_initializers"],
+            {(0, "format"): ("Span{source_id:SourceId(0),start:0,len:12}", 0)},
+        )
+
+    def test_parses_parser_generated_binding_names_without_widening_call_names(self):
+        for name in ("%dest", "%delay", "%cap"):
+            with self.subTest(name=name):
+                _legacy, exact = exact_runner.parse_exact_owner_index(
+                    binding_initializer_owner_index(binding_name=name)
+                )
+                self.assertEqual(
+                    exact["binding_initializers"],
+                    {(0, name): ("Span{source_id:SourceId(0),start:0,len:12}", 0)},
+                )
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "malformed binding initializer name"):
+            exact_runner.parse_exact_owner_index(
+                binding_initializer_owner_index(binding_name="%unknown")
+            )
 
     def test_binding_initializer_rows_fail_closed(self):
         valid = binding_initializer_owner_index()
