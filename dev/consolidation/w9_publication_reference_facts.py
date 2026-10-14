@@ -2,24 +2,55 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
 
 from w9_publication_adapter import (
     AdapterError,
     _canonical_span_map,
+    _canonical_span_set,
     _canonicalize_span,
     _fields,
     _group_end,
     _map_entries,
+    _parse_resolved_bindings,
     _split_top_level,
     _validate_source_span,
+    _validate_selected_module_binding,
 )
 
 
 _FUNCTION_ID = re.compile(r"FunctionDefId\((\d+)\)\Z")
+_STREAM_STAGE_ID = re.compile(r"StreamStageId\((\d+)\)\Z")
 _TYPE_EXPR_ID = re.compile(r"TypeExprId\((\d+)\)\Z")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _EFFECTS = {"Fs", "Net", "Process", "Env", "Time", "Error", "Io"}
 _RECORD_FIELD_KINDS = {"computed", "path", "named", "shorthand", "spread"}
+
+
+@dataclass(frozen=True)
+class StageCallbackEdge:
+    expression_id: int
+    expression_span: str
+    stage_id: int
+    stage_span: str
+    expression_kind: str
+    stage_kind: str
+    arguments: tuple[tuple[int, str, str | None, int], ...]
+
+
+@dataclass(frozen=True)
+class StageCallbackValidation:
+    implicit_function_spans: frozenset[str]
+    edges: Mapping[str, StageCallbackEdge]
+
+
+@dataclass(frozen=True)
+class _StructuredStreamStage:
+    span: str
+    kind: str
+    inline_block: bool
+    accepts_callable: bool
 
 
 def _tuple_payload(value: str, expected: str, label: str) -> str:
@@ -502,21 +533,170 @@ def _validate_reference_type(
         raise AdapterError(f"{label} checked type disagrees with its declaration kind")
 
 
+def _stream_stage_types(value: str) -> dict[int, str]:
+    types = {}
+    for key in _map_entries(value):
+        parts = _tuple_items(key, "stream-stage type key")
+        if len(parts) != 2:
+            raise AdapterError("stream-stage type key has an unexpected tuple length")
+        match = _STREAM_STAGE_ID.fullmatch(parts[0])
+        if match is None:
+            raise AdapterError("stream-stage type key has a malformed stage id")
+        stage_id = int(match.group(1))
+        if stage_id in types:
+            raise AdapterError(f"stream-stage type id is ambiguous: {stage_id}")
+        types[stage_id] = _canonicalize_span(parts[1])[0]
+    return types
+
+
+def _stage_callback_references(
+    exact_owners: Mapping[str, object],
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+    expressions: Mapping[int, tuple[str, str, str]],
+) -> dict[str, StageCallbackEdge]:
+    if "stage_callbacks" not in exact_owners:
+        return {}
+    raw_stages = exact_owners.get("structured_stages")
+    raw_arguments = exact_owners.get("stage_arguments")
+    raw_callbacks = exact_owners["stage_callbacks"]
+    if not all(isinstance(value, Mapping) for value in (raw_stages, raw_arguments, raw_callbacks)):
+        raise AdapterError("exact stage-callback proof tables are incomplete")
+    stages = raw_stages
+    arguments = raw_arguments
+    callbacks = raw_callbacks
+    if set(stages) != set(range(len(stages))) or set(arguments) != set(stages):
+        raise AdapterError("exact stage-callback argument rows do not cover the stage table")
+    normalized_stages: dict[int, _StructuredStreamStage] = {}
+    stages_by_span: dict[str, int] = {}
+    normalized_arguments: dict[int, tuple[tuple[int, str, str | None, int], ...]] = {}
+    for stage_id, row in stages.items():
+        if type(stage_id) is not int or not isinstance(row, tuple) or len(row) != 4:
+            raise AdapterError("exact structured stream-stage row is malformed")
+        raw_span, kind, inline_block, accepts_callable = row
+        if (
+            not isinstance(raw_span, str)
+            or not isinstance(kind, str)
+            or re.fullmatch(r"[A-Z][A-Za-z0-9]*", kind) is None
+            or type(inline_block) is not bool
+            or type(accepts_callable) is not bool
+        ):
+            raise AdapterError(f"exact structured stream-stage row is malformed: {stage_id}")
+        _check_span_bounds(raw_span, f"exact structured stream stage {stage_id}", source_sizes)
+        span = _canonicalize_span(raw_span)[0]
+        if span in stages_by_span:
+            raise AdapterError(f"exact structured stream-stage span is ambiguous: {span}")
+        _validate_source_span(
+            span,
+            "exact structured stream stage",
+            source_sizes,
+            source_owners,
+            {f"stage:{kind}"},
+        )
+        stages_by_span[span] = stage_id
+        normalized_stages[stage_id] = _StructuredStreamStage(
+            span, kind, inline_block, accepts_callable
+        )
+        raw_stage_arguments = arguments[stage_id]
+        if not isinstance(raw_stage_arguments, tuple):
+            raise AdapterError(f"exact stream-stage arguments are malformed: {stage_id}")
+        normalized_stage_arguments = []
+        for expected_index, argument in enumerate(raw_stage_arguments):
+            if not isinstance(argument, tuple) or len(argument) != 4:
+                raise AdapterError(f"exact stream-stage argument is malformed: {stage_id}")
+            index, argument_kind, name, expression_id = argument
+            if (
+                type(index) is not int
+                or index != expected_index
+                or not isinstance(argument_kind, str)
+                or argument_kind not in {"Positional", "Named", "NamedSpread", "Splice"}
+                or (name is not None and not isinstance(name, str))
+                or type(expression_id) is not int
+                or expression_id not in expressions
+            ):
+                raise AdapterError(f"exact stream-stage argument is malformed: {stage_id}:{expected_index}")
+            if argument_kind == "Named" and (
+                name is None or _IDENTIFIER.fullmatch(name) is None
+            ):
+                raise AdapterError(f"exact named stream-stage argument is malformed: {stage_id}:{index}")
+            if argument_kind != "Named" and name is not None:
+                raise AdapterError(f"non-named stream-stage argument has a name: {stage_id}:{index}")
+            normalized_stage_arguments.append((index, argument_kind, name, expression_id))
+        normalized_arguments[stage_id] = tuple(normalized_stage_arguments)
+    if any(type(stage_id) is not int or stage_id not in stages for stage_id in callbacks):
+        raise AdapterError("exact stage-callback row refers to an unknown stage")
+    result: dict[str, StageCallbackEdge] = {}
+    callback_expr_ids: set[int] = set()
+    for stage_id, expression_id in callbacks.items():
+        stage = normalized_stages[stage_id]
+        stage_arguments = normalized_arguments[stage_id]
+        if type(expression_id) is not int or expression_id not in expressions:
+            raise AdapterError(f"exact stage-callback row has an unknown expression: {stage_id}")
+        if expression_id in callback_expr_ids:
+            raise AdapterError("exact stage-callback expression is linked to multiple stages")
+        callback_expr_ids.add(expression_id)
+        if not stage.accepts_callable or stage.inline_block:
+            raise AdapterError(f"exact stage does not accept this named callback: {stage.span}")
+        if any(kind in {"NamedSpread", "Splice"} for _, kind, _, _ in stage_arguments):
+            raise AdapterError(f"exact stage callback has ambiguous spread arguments: {stage.span}")
+        matches = [argument for argument in stage_arguments if argument[3] == expression_id]
+        if len(matches) != 1:
+            raise AdapterError(f"exact stage callback has no unique direct argument link: {stage.span}")
+        argument_index, argument_kind, argument_name, _ = matches[0]
+        if argument_kind == "Positional":
+            if argument_index != 0 or any(
+                kind == "Named" and name == "block"
+                for _, kind, name, _ in stage_arguments
+            ):
+                raise AdapterError(f"exact positional stage callback is ambiguous: {stage.span}")
+        elif argument_kind == "Named":
+            if argument_name != "block" or sum(
+                kind == "Named" and name == "block"
+                for _, kind, name, _ in stage_arguments
+            ) != 1 or any(
+                index < argument_index and kind == "Positional"
+                for index, kind, _, _ in stage_arguments
+            ):
+                raise AdapterError(f"exact named stage callback is ambiguous: {stage.span}")
+        else:
+            raise AdapterError(f"exact stage callback is not a direct callable argument: {stage.span}")
+        callback_span, callback_kind, _ = expressions[expression_id]
+        if callback_kind not in {"Ident", "Field"}:
+            raise AdapterError(f"exact stage callback is not a named function expression: {stage.span}")
+        canonical_callback_span = _canonicalize_span(callback_span)[0]
+        if canonical_callback_span in result:
+            raise AdapterError(f"exact stage callback identifier is ambiguous: {canonical_callback_span}")
+        result[canonical_callback_span] = StageCallbackEdge(
+            expression_id=expression_id,
+            expression_span=canonical_callback_span,
+            stage_id=stage_id,
+            stage_span=stage.span,
+            expression_kind=callback_kind,
+            stage_kind=stage.kind,
+            arguments=stage_arguments,
+        )
+    return result
+
+
 def validate_function_reference_targets(
     *,
     fields: Mapping[str, str],
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
     exact_owners: Mapping[str, object],
-) -> None:
+) -> StageCallbackValidation:
     selected = _canonical_span_map(fields["selected_function_calls"], "selected function reference")
-    if not selected:
-        return
     exprs, records, aliases, tails = _exact_owner_tables(exact_owners, source_sizes)
+    stage_callbacks = _stage_callback_references(
+        exact_owners, source_sizes, source_owners, exprs
+    )
+    if not selected:
+        return StageCallbackValidation(frozenset(), MappingProxyType(stage_callbacks))
     call_spans = _selected_call_expression_spans(set(selected), exprs, source_owners)
     reference_spans = set(selected) - call_spans
     if not reference_spans:
-        return
+        return StageCallbackValidation(frozenset(), MappingProxyType(stage_callbacks))
+    checked_stage_types: dict[int, str] | None = None
     checked_declarations = _fields(fields["checked_declarations"], "CheckedDeclarations")
     functions = _map_entries(checked_declarations["functions"])
     expression_types = _canonical_span_map(fields["expr_types"], "checked expression type")
@@ -524,6 +704,13 @@ def validate_function_reference_targets(
     resolved_expressions = _map_entries(resolved_bindings["expressions"])
     expression_namespaces = _map_entries(resolved_bindings["expression_namespaces"])
     value_site_keys = _value_site_keys(resolved_bindings["value_sites"])
+    statement_positions = _canonical_span_map(
+        fields.get("statement_positions", "{}"), "checked statement position"
+    )
+    static_calls = _canonical_span_set(
+        fields.get("statically_resolved_call_spans", "{}"), "statically resolved call"
+    )
+    validated_stage_callbacks: set[str] = set()
     ident_rows: dict[str, list[tuple[int, str]]] = {}
     for expr_id, (span, tag, name) in exprs.items():
         if tag == "Ident":
@@ -534,8 +721,12 @@ def validate_function_reference_targets(
     tails_by_span: dict[str, list[tuple[int, str, str]]] = {}
     for statement, (span, name, _kind) in tails.items():
         tails_by_span.setdefault(span, []).append((statement, name, _kind))
+    exact_field_accesses = exact_owners.get("field_accesses", {})
+    if not isinstance(exact_field_accesses, Mapping):
+        raise AdapterError("exact field-access owner facts are malformed")
+    parsed_resolved_bindings = None
     for span in sorted(reference_spans):
-        target_kind, target_declaration, _signature = _target_declaration(
+        target_kind, target_declaration, signature = _target_declaration(
             selected[span], functions, source_sizes, f"selected function reference at {span}"
         )
         shorthand_matches = aliases_by_span.get(span, [])
@@ -543,6 +734,81 @@ def validate_function_reference_targets(
         identifiers = ident_rows.get(span, [])
         if shorthand_matches and tail_matches:
             raise AdapterError(f"selected function reference has ambiguous AST site: {span}")
+        stage_callback = stage_callbacks.get(span)
+        if stage_callback is not None and (shorthand_matches or tail_matches):
+            raise AdapterError(f"selected stage callback has an ambiguous AST site: {span}")
+        if stage_callback is not None:
+            expression_id = stage_callback.expression_id
+            expression_span, expression_kind, expression_name = exprs[expression_id]
+            target_fields = _fields(selected[span], "CheckedFunctionTarget")
+            target_name = _name(
+                target_fields["name"], f"selected stage callback target at {span}"
+            )
+            if expression_span != span:
+                raise AdapterError(f"selected stage callback span disagrees with its exact AST site: {span}")
+            if expression_kind == "Ident":
+                if expression_name != target_name or ident_rows.get(span) != [(expression_id, expression_name)]:
+                    raise AdapterError(f"selected stage callback name disagrees with its target: {span}")
+                expression_key = f"ExprId({expression_id + 1})"
+                if expression_key in resolved_expressions:
+                    raise AdapterError(f"selected stage callback resolves to a value binding: {span}")
+                _validate_reference_namespace(
+                    expression_id,
+                    target_declaration,
+                    expression_namespaces,
+                    f"selected stage callback at {span}",
+                )
+                callback_owners = {"expr:Ident"}
+            else:
+                field_access = exact_field_accesses.get(expression_id)
+                if (
+                    not isinstance(field_access, tuple)
+                    or len(field_access) != 2
+                    or type(field_access[0]) is not int
+                    or field_access[0] not in exprs
+                    or field_access[1] != target_name
+                ):
+                    raise AdapterError(f"selected stage callback has no exact target field: {span}")
+                base_id, member_name = field_access
+                base_span, base_kind, base_name = exprs[base_id]
+                if base_kind != "Ident" or not base_name or member_name != target_name:
+                    raise AdapterError(f"selected stage callback field has no exact module identifier: {span}")
+                if parsed_resolved_bindings is None:
+                    parsed_resolved_bindings = _parse_resolved_bindings(fields["resolved_bindings"])
+                _validate_selected_module_binding(
+                    span,
+                    target_fields,
+                    base_id,
+                    base_span,
+                    base_name,
+                    parsed_resolved_bindings,
+                    source_sizes,
+                    source_owners,
+                    target_may_be_reexported=True,
+                )
+                callback_owners = {"expr:Field"}
+            _validate_source_span(
+                span, "selected stage callback", source_sizes, source_owners, callback_owners
+            )
+            if checked_stage_types is None:
+                checked_stage_types = _stream_stage_types(
+                    fields.get("stream_stage_types", "{}")
+                )
+            if checked_stage_types.get(stage_callback.stage_id) != stage_callback.stage_span:
+                raise AdapterError(f"selected stage callback has no checked stream-stage type: {span}")
+            if span not in static_calls:
+                raise AdapterError(f"selected stage callback has no static call fact: {span}")
+            if statement_positions.get(span) != "Value":
+                raise AdapterError(f"selected stage callback has no Value statement position: {span}")
+            checked_type = expression_types.get(span)
+            if checked_type is None:
+                raise AdapterError(f"selected stage callback has no checked result type: {span}")
+            if checked_type != signature["return_ty"]:
+                raise AdapterError(
+                    f"selected stage callback result type disagrees with its checked declaration: {span}"
+                )
+            validated_stage_callbacks.add(span)
+            continue
         if shorthand_matches:
             if len(shorthand_matches) != 1 or len(identifiers) != 1:
                 raise AdapterError(f"selected Record shorthand has ambiguous expression identity: {span}")
@@ -627,3 +893,6 @@ def validate_function_reference_targets(
         _validate_source_span(span, "selected ExprIdent", source_sizes, source_owners, {"expr:Ident"})
         checked_type = expression_types.get(span, target_kind)
         _validate_reference_type(checked_type, target_kind, f"selected ExprIdent at {span}")
+    return StageCallbackValidation(
+        frozenset(validated_stage_callbacks), MappingProxyType(stage_callbacks)
+    )

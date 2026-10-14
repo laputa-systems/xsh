@@ -8,6 +8,7 @@ from w9_publication_reference_facts import _exact_owner_tables, validate_functio
 IDENT_SPAN = "Span{source_id:SourceId(0),start:10,len:6}"
 PARENT_SPAN = "Span{source_id:SourceId(0),start:8,len:12}"
 TAIL_SPAN = "Span{source_id:SourceId(0),start:30,len:6}"
+STAGE_SPAN = "Span{source_id:SourceId(0),start:60,len:8}"
 RETAINED_DECLARATION_BODY = "Span{len:290,source_id:SourceId(2),start:6423}"
 REORDERED_IDENT_SPAN = "Span{len:6,source_id:SourceId(0),start:10}"
 REORDERED_CALL_SPAN = "Span{len:8,source_id:SourceId(1),start:50}"
@@ -16,6 +17,11 @@ TOUR_USAGE_SPAN = "Span{source_id:SourceId(0),start:374,len:5}"
 PURE_SIGNATURE = (
     "Some(CompactFunctionSig { params: [], parameter_schemas: [], return_ty: Int, "
     "return_type_expr: TypeExprId(1), inferred_effects: true, effects: None })"
+)
+STAGE_CALLBACK_SIGNATURE = (
+    "Some(CompactFunctionSig { params: [CallableParamType { name: Name(\"item\"), "
+    "ty: Int, defaulted: false, rest: false }], parameter_schemas: [None], "
+    "return_ty: Int, return_type_expr: TypeExprId(1), inferred_effects: true, effects: None })"
 )
 PURE_DECLARATION = (
     "CheckedFunctionDeclaration { namespace: None, name: Name(\"render\"), internal: false, "
@@ -42,6 +48,11 @@ TOUR_USAGE_DECLARATION = (
     'Field(Name("size")):SchemaExpectation{children:{},instances:[]},'
     'Field(Name("used")):SchemaExpectation{children:{},instances:[]}}})],'
     'return_ty:Int,return_type_expr:TypeExprId(7),inferred_effects:false,effects:None})}'
+)
+STAGE_CALLBACK_DECLARATION = (
+    "CheckedFunctionDeclaration { namespace: None, name: Name(\"render\"), internal: false, "
+    f"kind: Pure, signature: {STAGE_CALLBACK_SIGNATURE}, "
+    f"body: {RETAINED_DECLARATION_BODY}, parameter_spans: [{IDENT_SPAN}] }}"
 )
 IFDOWN_CALL_SPAN = "Span{source_id:SourceId(0),start:12208,len:35}"
 IFDOWN_CALL_TARGET = (
@@ -109,6 +120,34 @@ def _direct_owners():
         "expr_count": 1,
         "record_field_count": 0,
         "tails": {},
+    }
+
+
+def _stage_callback_owners(
+    *, stage_kind="SortBy", argument_expr_id=0, callback_expr_id=0,
+    argument_kind="Positional", argument_name=None, inline_block=False,
+    expression_kind="Ident",
+):
+    return {
+        "exprs": {
+            0: (
+                IDENT_SPAN,
+                expression_kind,
+                "render" if expression_kind == "Ident" else "",
+            )
+        },
+        "records": {},
+        "aliases": {},
+        "expr_count": 1,
+        "record_field_count": 0,
+        "tails": {},
+        "structured_stages": {
+            0: (STAGE_SPAN, stage_kind, inline_block, stage_kind == "SortBy")
+        },
+        "stage_arguments": {
+            0: ((0, argument_kind, argument_name, argument_expr_id),)
+        },
+        "stage_callbacks": {0: callback_expr_id},
     }
 
 
@@ -189,11 +228,42 @@ def _shorthand_exact_owners():
 
 
 def _validate(fields, owners=None, exact_owners=None, sizes=None):
-    validate_function_reference_targets(
+    return validate_function_reference_targets(
         fields=fields,
         source_sizes={0: 128, 1: 100, 2: 10000} if sizes is None else sizes,
         source_owners=_owners() if owners is None else owners,
         exact_owners=_direct_owners() if exact_owners is None else exact_owners,
+    )
+
+
+def _stage_callback_fields(*, types=None, static_spans=None, positions=None):
+    fields = _fields(
+        declaration=STAGE_CALLBACK_DECLARATION,
+        types=f"{{{IDENT_SPAN}: Int}}" if types is None else types,
+        static_spans=f"{{{IDENT_SPAN}}}" if static_spans is None else static_spans,
+    )
+    fields["statement_positions"] = (
+        f"{{{IDENT_SPAN}: Value}}" if positions is None else positions
+    )
+    fields["stream_stage_types"] = (
+        f"{{(StreamStageId(0),{STAGE_SPAN}):CheckedStreamStage"
+        "{input:Stream(Int),output:Stream(Int)}}"
+    )
+    return fields
+
+
+def _validate_stage_callback(fields, *, exact_owners=None, owners=None):
+    exact_owners = _stage_callback_owners() if exact_owners is None else exact_owners
+    expression_kind = exact_owners["exprs"][0][1]
+    return _validate(
+        fields,
+        owners={
+            IDENT_SPAN: {f"expr:{expression_kind}"},
+            STAGE_SPAN: {f"stage:{exact_owners['structured_stages'][0][1]}"},
+        }
+        if owners is None
+        else owners,
+        exact_owners=exact_owners,
     )
 
 
@@ -203,6 +273,177 @@ class FunctionReferenceFactTests(unittest.TestCase):
 
     def test_direct_identifier_uses_exact_name_and_checked_pure_type(self):
         _validate(_fields())
+
+    def test_named_stage_callback_validates_implicit_call_facts(self):
+        self.assertEqual(
+            _validate_stage_callback(_stage_callback_fields()).implicit_function_spans,
+            frozenset({IDENT_SPAN}),
+        )
+        edge = _validate_stage_callback(_stage_callback_fields()).edges[IDENT_SPAN]
+        self.assertEqual(edge.expression_id, 0)
+        self.assertEqual(edge.expression_span, IDENT_SPAN)
+        self.assertEqual(edge.stage_id, 0)
+        self.assertEqual(edge.stage_span, STAGE_SPAN)
+        self.assertEqual(edge.expression_kind, "Ident")
+        self.assertEqual(edge.stage_kind, "SortBy")
+        self.assertEqual(edge.arguments, ((0, "Positional", None, 0),))
+
+    def test_named_stage_callback_argument_uses_named_block_parameter(self):
+        exact_owners = _stage_callback_owners(
+            argument_kind="Named", argument_name="block"
+        )
+        result = _validate_stage_callback(
+            _stage_callback_fields(), exact_owners=exact_owners
+        )
+        self.assertEqual(result.implicit_function_spans, frozenset({IDENT_SPAN}))
+        self.assertEqual(result.edges[IDENT_SPAN].arguments, ((0, "Named", "block", 0),))
+
+    def test_named_stage_callback_allows_later_positional_stage_parameters(self):
+        exact_owners = _stage_callback_owners(
+            argument_kind="Named", argument_name="block"
+        )
+        extra_span = "Span{source_id:SourceId(0),start:80,len:1}"
+        exact_owners["exprs"][1] = (extra_span, "Bool", "")
+        exact_owners["expr_count"] = 2
+        exact_owners["stage_arguments"][0] = (
+            (0, "Named", "block", 0),
+            (1, "Positional", None, 1),
+        )
+        result = _validate_stage_callback(
+            _stage_callback_fields(), exact_owners=exact_owners
+        )
+        self.assertEqual(result.implicit_function_spans, frozenset({IDENT_SPAN}))
+
+    def test_named_stage_callback_rejects_prior_positional_stage_parameter(self):
+        exact_owners = _stage_callback_owners(
+            argument_kind="Named", argument_name="block"
+        )
+        extra_span = "Span{source_id:SourceId(0),start:80,len:1}"
+        exact_owners["exprs"][1] = (extra_span, "Bool", "")
+        exact_owners["expr_count"] = 2
+        exact_owners["stage_arguments"][0] = (
+            (0, "Positional", None, 1),
+            (1, "Named", "block", 0),
+        )
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(_stage_callback_fields(), exact_owners=exact_owners)
+
+    def test_stage_callback_rejects_spread_arguments(self):
+        exact_owners = _stage_callback_owners()
+        extra_span = "Span{source_id:SourceId(0),start:80,len:1}"
+        exact_owners["exprs"][1] = (extra_span, "Record", "")
+        exact_owners["expr_count"] = 2
+        exact_owners["records"][1] = {
+            "span": extra_span,
+            "count": 0,
+            "fields": {},
+        }
+        exact_owners["stage_arguments"][0] = (
+            (0, "Positional", None, 0),
+            (1, "NamedSpread", None, 1),
+        )
+        fields = _stage_callback_fields()
+        fields["selected_function_calls"] = "{}"
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(fields, exact_owners=exact_owners)
+
+    def test_stage_callback_without_selected_target_remains_an_ast_edge(self):
+        fields = _stage_callback_fields()
+        fields["selected_function_calls"] = "{}"
+        fields["statically_resolved_call_spans"] = "{}"
+        result = _validate_stage_callback(fields)
+        self.assertEqual(result.implicit_function_spans, frozenset())
+        self.assertEqual(result.edges[IDENT_SPAN].expression_id, 0)
+
+    def test_qualified_stage_callback_remains_an_ast_edge(self):
+        fields = _stage_callback_fields()
+        fields["selected_function_calls"] = "{}"
+        exact_owners = _stage_callback_owners(expression_kind="Field")
+        result = _validate_stage_callback(fields, exact_owners=exact_owners)
+        self.assertEqual(result.implicit_function_spans, frozenset())
+        self.assertEqual(result.edges[IDENT_SPAN].expression_kind, "Field")
+
+    def test_named_stage_callback_requires_declared_return_type(self):
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(_stage_callback_fields(types=f"{{{IDENT_SPAN}: Str}}"))
+
+    def test_named_stage_callback_requires_value_statement_position(self):
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(_stage_callback_fields(positions="{}"))
+
+    def test_named_stage_callback_requires_static_call_membership(self):
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(_stage_callback_fields(static_spans="{}"))
+
+    def test_named_stage_callback_requires_exact_checked_stage_identity(self):
+        fields = _stage_callback_fields()
+        fields["stream_stage_types"] = (
+            f"{{(StreamStageId(1),{STAGE_SPAN}):CheckedStreamStage"
+            "{input:Stream(Int),output:Stream(Int)}}"
+        )
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(fields)
+
+    def test_named_stage_callback_requires_callable_stage_kind(self):
+        owners = _stage_callback_owners(stage_kind="Range")
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(
+                _stage_callback_fields(),
+                exact_owners=owners,
+                owners={IDENT_SPAN: {"expr:Ident"}, STAGE_SPAN: {"stage:Range"}},
+            )
+
+    def test_named_stage_callback_rejects_inline_block_ambiguity(self):
+        exact_owners = _stage_callback_owners(inline_block=True)
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(_stage_callback_fields(), exact_owners=exact_owners)
+
+    def test_named_stage_callback_rejects_non_block_named_argument(self):
+        exact_owners = _stage_callback_owners(
+            argument_kind="Named", argument_name="desc"
+        )
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(_stage_callback_fields(), exact_owners=exact_owners)
+
+    def test_named_stage_callback_rejects_wrong_checked_target(self):
+        fields = _stage_callback_fields()
+        fields["selected_function_calls"] = (
+            f"{{{IDENT_SPAN}: CheckedFunctionTarget{{definition:FunctionDefId(2),"
+            'namespace:None,name:Name("render")}}}'
+        )
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(fields)
+
+    def test_named_stage_callback_rejects_target_from_wrong_namespace(self):
+        namespace = 'Some(Name("module"))'
+        fields = _stage_callback_fields()
+        target = TARGET.replace("namespace: None", f"namespace: {namespace}")
+        declaration = STAGE_CALLBACK_DECLARATION.replace(
+            "namespace: None", f"namespace: {namespace}"
+        )
+        fields["selected_function_calls"] = f"{{{IDENT_SPAN}: {target}}}"
+        fields["checked_declarations"] = (
+            "CheckedDeclarations { functions: {FunctionDefId(1): "
+            + declaration
+            + " } }"
+        )
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(fields)
+
+    def test_named_stage_callback_requires_exact_argument_link(self):
+        owners = _stage_callback_owners(argument_expr_id=1)
+        owners["exprs"][1] = ("Span{source_id:SourceId(0),start:80,len:2}", "Int", "")
+        owners["expr_count"] = 2
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(_stage_callback_fields(), exact_owners=owners)
+
+    def test_named_stage_callback_rejects_shadowed_value_binding(self):
+        fields = _stage_callback_fields()
+        fields["resolved_bindings"] = _resolved_bindings(
+            expressions="{ExprId(1): BindingId(Parameter(FunctionDefId(2),0))}"
+        )
+        with self.assertRaises(AdapterError):
+            _validate_stage_callback(fields)
 
     def test_selected_function_reference_still_requires_identifier_spelling(self):
         exact_owners = {
