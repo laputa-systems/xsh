@@ -1,5 +1,5 @@
 # These measurements use the pinned Linux verification build only.
-readonly W9_CACHE_BUILD_SCHEMA=1
+readonly W9_CACHE_BUILD_SCHEMA=2
 readonly W9_CACHE_BUILD_TARGET=x86_64-unknown-linux-musl
 readonly W9_CACHE_BUILD_PROFILE=verification
 readonly W9_CACHE_BUILD_IMAGE=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c

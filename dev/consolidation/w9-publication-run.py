@@ -12,10 +12,12 @@ import pathlib
 import re
 import secrets
 import shlex
+import shutil
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from functools import lru_cache
@@ -43,6 +45,8 @@ APPROVED_BUILD_RUNNER = pathlib.Path(
 )
 HELPER_RELATIVE_PATH = pathlib.Path(".work/consolidation/w9-repository-parity.rs")
 BUILD_ARTIFACT_KIND = "repository-parity-integration-test"
+PARITY_TEST_NAME = "sema::w9_repository_parity_receipt"
+PARITY_TEST_INCLUDE = b'include!("../.work/consolidation/w9-repository-parity.rs");'
 RUNNER_LOCK_NAME = ".w9-publication-run.lock"
 DOCKER_LOCAL_ENDPOINT = "unix:///var/run/docker.sock"
 DOCKER_INSPECT_TIMEOUT_SECONDS = 10
@@ -120,6 +124,7 @@ BUILD_RECEIPT_FIELDS = (
     "builder_path",
     "builder_sha256",
     "helper_sha256",
+    "overlay_sha256",
 )
 RECEIPT_NAME = re.compile(r"parallel-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-all\.receipt\Z")
 
@@ -269,7 +274,7 @@ def parse_build_receipt(path: pathlib.Path) -> dict[str, str]:
     for field in ("source_commit", "source_tree"):
         if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", record[field]):
             raise PublicationError(f"{path}: malformed W9 build receipt {field}")
-    for field in ("binary_sha256", "builder_sha256", "helper_sha256"):
+    for field in ("binary_sha256", "builder_sha256", "helper_sha256", "overlay_sha256"):
         if not re.fullmatch(r"[0-9a-f]{64}", record[field]):
             raise PublicationError(f"{path}: malformed W9 build receipt {field}")
     for field in ("binary_path", "builder_path"):
@@ -306,6 +311,167 @@ def cargo_integration_executable(messages: str, candidate_root: pathlib.Path) ->
     if len(executables) != 1:
         raise PublicationError(f"cargo reported {len(executables)} integration test harness executables; expected one")
     return executables[0]
+
+
+def parity_overlay_bytes(source: bytes) -> bytes:
+    if PARITY_TEST_INCLUDE in source:
+        raise PublicationError("source tests/sema.rs already includes the parity helper")
+    separator = b"" if source.endswith(b"\n") else b"\n"
+    return source + separator + PARITY_TEST_INCLUDE + b"\n"
+
+
+def parity_overlay_sha256(root: pathlib.Path) -> str:
+    source = regular_file(root / "tests/sema.rs", "candidate semantic integration tests")
+    return hashlib.sha256(parity_overlay_bytes(read_regular_bytes(source))).hexdigest()
+
+
+def validate_overlay_binding(record: dict[str, str], root: pathlib.Path) -> None:
+    expected = parity_overlay_sha256(root)
+    if record["overlay_sha256"] != expected:
+        raise PublicationError(
+            f"candidate build receipt overlay hash mismatch: receipt={record['overlay_sha256']} actual={expected}"
+        )
+
+
+def validate_harness_test_listing(output: str) -> None:
+    expected = f"{PARITY_TEST_NAME}: test"
+    matches = output.splitlines().count(expected)
+    if matches != 1:
+        raise PublicationError(f"harness list expected exactly one {expected!r} entry, found {matches}")
+
+
+def candidate_scratch_parent(root: pathlib.Path) -> pathlib.Path:
+    root_descriptor = open_absolute_nofollow(root, directory=True)
+    work_descriptor = -1
+    temporary_descriptor = -1
+    try:
+        work_descriptor = open_or_create_child_directory(root_descriptor, ".work", "candidate .work")
+        temporary_descriptor = open_or_create_child_directory(work_descriptor, "tmp", "candidate .work/tmp")
+    finally:
+        if temporary_descriptor >= 0:
+            os.close(temporary_descriptor)
+        if work_descriptor >= 0:
+            os.close(work_descriptor)
+        os.close(root_descriptor)
+    return real_directory(root / ".work/tmp", "candidate scratch directory")
+
+
+def exclude_work_from_git(root: pathlib.Path) -> None:
+    path = regular_file(root / ".git/info/exclude", "scratch git exclude rules")
+    contents = read_regular_bytes(path)
+    if b"/.work/" in contents.splitlines():
+        return
+    parent_descriptor = open_absolute_nofollow(path.parent, directory=True)
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            path.name,
+            os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise PublicationError(f"scratch git exclude rules are not a regular file: {path}")
+        suffix = b"" if not contents or contents.endswith(b"\n") else b"\n"
+        payload = suffix + b"/.work/\n"
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            if written == 0:
+                raise OSError("short write while excluding scratch .work")
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent_descriptor)
+
+
+@contextlib.contextmanager
+def scratch_directory(parent: pathlib.Path):
+    directory = pathlib.Path(tempfile.mkdtemp(prefix="w9-harness-overlay-", dir=parent))
+    try:
+        yield directory
+    except BaseException as primary_error:
+        try:
+            shutil.rmtree(directory)
+        except OSError as cleanup_error:
+            raise CleanupFailure(
+                f"{primary_error}; scratch cleanup failed for {directory}: {cleanup_error}"
+            ) from primary_error
+        raise
+    else:
+        try:
+            shutil.rmtree(directory)
+        except OSError as cleanup_error:
+            raise CleanupFailure(f"scratch cleanup failed for {directory}: {cleanup_error}") from cleanup_error
+
+
+def copy_executable(source: pathlib.Path, destination: pathlib.Path) -> pathlib.Path:
+    source = regular_file(source, "built integration test harness", executable=True)
+    source_descriptor = open_absolute_nofollow(source)
+    destination_parent_descriptor = open_absolute_nofollow(destination.parent, directory=True)
+    destination_descriptor = -1
+    destination_created = False
+    try:
+        source_metadata = os.fstat(source_descriptor)
+        if not stat.S_ISREG(source_metadata.st_mode) or not source_metadata.st_mode & 0o111:
+            raise PublicationError(f"built integration test harness is not executable: {source}")
+        mode = stat.S_IMODE(source_metadata.st_mode)
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+        destination_descriptor = os.open(destination.name, flags, mode, dir_fd=destination_parent_descriptor)
+        destination_created = True
+        while True:
+            block = os.read(source_descriptor, 1024 * 1024)
+            if not block:
+                break
+            view = memoryview(block)
+            while view:
+                written = os.write(destination_descriptor, view)
+                if written == 0:
+                    raise OSError("short write while copying integration test harness")
+                view = view[written:]
+        os.fchmod(destination_descriptor, mode)
+        os.fsync(destination_descriptor)
+        os.close(destination_descriptor)
+        destination_descriptor = -1
+        os.fsync(destination_parent_descriptor)
+    except BaseException:
+        if destination_descriptor >= 0:
+            os.close(destination_descriptor)
+        if destination_created:
+            try:
+                os.unlink(destination.name, dir_fd=destination_parent_descriptor)
+                os.fsync(destination_parent_descriptor)
+            except FileNotFoundError:
+                pass
+        raise
+    finally:
+        os.close(source_descriptor)
+        os.close(destination_parent_descriptor)
+    return regular_file(destination, "candidate integration test harness", executable=True)
+
+
+def run_harness_test_listing(
+    builder: pathlib.Path,
+    task_tree: pathlib.Path,
+    binary: pathlib.Path,
+    docker_environment: dict[str, str],
+) -> None:
+    try:
+        result = subprocess.run(
+            [str(builder), str(task_tree), "run", str(binary), "--list"],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=docker_environment,
+        )
+    except OSError as error:
+        raise PublicationError(f"could not list pinned integration harness tests: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise PublicationError(f"pinned integration harness list failed with status {result.returncode}: {detail}")
+    validate_harness_test_listing(result.stdout)
 
 
 def require_sha256(path: pathlib.Path, expected: str, label: str) -> str:
@@ -491,6 +657,12 @@ def git_output(root: pathlib.Path, *args: str) -> str:
         detail = getattr(error, "stderr", "")
         raise PublicationError(f"git {' '.join(args)} failed for {root}: {detail or error}") from error
     return result.stdout.strip()
+
+
+def require_only_parity_overlay(root: pathlib.Path, failure_message: str) -> None:
+    status = git_output(root, "status", "--porcelain", "--untracked-files=all")
+    if status != "M tests/sema.rs":
+        raise PublicationError(failure_message)
 
 
 def source_identity(root: pathlib.Path) -> tuple[str, str]:
@@ -897,6 +1069,7 @@ def validate_build_receipt_binding(
         raise PublicationError("candidate build receipt binary hash mismatch")
     if record["helper_sha256"] != HELPER_SHA256:
         raise PublicationError("candidate build receipt helper hash is not pinned")
+    validate_overlay_binding(record, candidate_root)
     contract = w9_build_contract()
     if record["builder_sha256"] != contract["W9_CACHE_BUILD_RUNNER_SHA256"]:
         raise PublicationError("candidate build receipt builder hash is not pinned")
@@ -965,6 +1138,10 @@ def build_harness(args: argparse.Namespace) -> None:
     commit, tree = source_identity(root)
     helper = regular_file(root / HELPER_RELATIVE_PATH, "staged parity helper")
     helper_sha256 = require_sha256(helper, HELPER_SHA256, "staged parity helper")
+    source_tests = regular_file(root / "tests/sema.rs", "candidate semantic integration tests")
+    source_tests_bytes = read_regular_bytes(source_tests)
+    overlay_bytes = parity_overlay_bytes(source_tests_bytes)
+    overlay_sha256 = hashlib.sha256(overlay_bytes).hexdigest()
     builder = regular_file(APPROVED_BUILD_RUNNER, "pinned candidate build runner", executable=True)
     contract = w9_build_contract()
     builder_sha256 = require_sha256(builder, contract["W9_CACHE_BUILD_RUNNER_SHA256"], "pinned candidate build runner")
@@ -972,39 +1149,90 @@ def build_harness(args: argparse.Namespace) -> None:
         raise PublicationError("pinned candidate build runner does not name the approved image")
     receipt_path = new_work_file_path(args.receipt, root, "candidate build receipt")
     docker_environment = local_docker_environment()
-    command = [
-        str(builder),
-        str(root),
-        "build",
-        "cargo",
-        "test",
-        "--locked",
-        "--profile",
-        contract["W9_CACHE_BUILD_PROFILE"],
-        "--target",
-        contract["W9_CACHE_BUILD_TARGET"],
-        "-p",
-        "xsh",
-        "--test",
-        "integration",
-        "--no-run",
-        "--message-format=json-render-diagnostics",
-    ]
-    try:
-        result = subprocess.run(
-            command,
+    scratch_parent = candidate_scratch_parent(root)
+    binary = new_work_file_path(
+        root / ".work/consolidation" / f"w9-parity-harness-{secrets.token_hex(8)}",
+        root,
+        "candidate integration test harness",
+    )
+    with scratch_directory(scratch_parent) as scratch_directory_path:
+        scratch_root = scratch_directory_path / "source"
+        clone = subprocess.run(
+            ["git", "clone", "--quiet", "--no-local", "--no-checkout", "--depth=1", str(root), str(scratch_root)],
             check=False,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=docker_environment,
         )
-    except OSError as error:
-        raise PublicationError(f"could not start pinned integration harness build: {error}") from error
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip()
-        raise PublicationError(f"pinned integration harness build failed with status {result.returncode}: {detail}")
-    binary = cargo_integration_executable(result.stdout, root)
+        if clone.returncode != 0:
+            detail = clone.stderr.strip() or clone.stdout.strip()
+            raise PublicationError(f"could not create source-matched harness checkout: {detail}")
+        git_output(scratch_root, "checkout", "--quiet", "--detach", commit)
+        scratch_commit = git_output(scratch_root, "rev-parse", "HEAD")
+        scratch_tree = git_output(scratch_root, "rev-parse", "HEAD^{tree}")
+        if (scratch_commit, scratch_tree) != (commit, tree):
+            raise PublicationError("scratch harness checkout source identity differs from candidate")
+        if git_output(scratch_root, "status", "--porcelain", "--untracked-files=all"):
+            raise PublicationError("scratch harness checkout is dirty before applying the parity overlay")
+        exclude_work_from_git(scratch_root)
+        scratch_tests = regular_file(scratch_root / "tests/sema.rs", "scratch semantic integration tests")
+        if read_regular_bytes(scratch_tests) != source_tests_bytes:
+            raise PublicationError("scratch harness checkout semantic tests differ from candidate source")
+        scratch_helper = stage_helper(scratch_root, helper, helper_sha256)
+        scratch_tests.write_bytes(overlay_bytes)
+        if sha256_file(scratch_tests) != overlay_sha256:
+            raise PublicationError("scratch parity overlay hash differs from the recorded overlay")
+        require_only_parity_overlay(
+            scratch_root,
+            "scratch harness checkout contains changes outside the parity overlay",
+        )
+        command = [
+            str(builder),
+            str(scratch_root),
+            "build",
+            "cargo",
+            "test",
+            "--locked",
+            "--profile",
+            contract["W9_CACHE_BUILD_PROFILE"],
+            "--target",
+            contract["W9_CACHE_BUILD_TARGET"],
+            "-p",
+            "xsh",
+            "--test",
+            "integration",
+            "--no-run",
+            "--message-format=json-render-diagnostics",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=docker_environment,
+            )
+        except OSError as error:
+            raise PublicationError(f"could not start pinned integration harness build: {error}") from error
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            raise PublicationError(f"pinned integration harness build failed with status {result.returncode}: {detail}")
+        scratch_binary = cargo_integration_executable(result.stdout, scratch_root)
+        if (git_output(scratch_root, "rev-parse", "HEAD"),
+                git_output(scratch_root, "rev-parse", "HEAD^{tree}")) != (commit, tree):
+            raise PublicationError("scratch harness source identity changed during build")
+        require_only_parity_overlay(
+            scratch_root,
+            "scratch harness changes escaped the parity overlay during build",
+        )
+        if sha256_file(scratch_helper) != helper_sha256 or sha256_file(scratch_tests) != overlay_sha256:
+            raise PublicationError("scratch parity overlay or helper changed during build")
+        run_harness_test_listing(builder, scratch_root, scratch_binary, docker_environment)
+        scratch_binary_sha256 = sha256_file(scratch_binary)
+        binary = copy_executable(scratch_binary, binary)
+        require_sha256(binary, scratch_binary_sha256, "copied candidate integration test harness")
+        run_harness_test_listing(builder, root, binary, docker_environment)
     if source_identity(root) != (commit, tree):
         raise PublicationError("candidate source changed during integration harness build")
     require_sha256(builder, builder_sha256, "pinned candidate build runner")
@@ -1023,6 +1251,7 @@ def build_harness(args: argparse.Namespace) -> None:
         "builder_path": str(builder),
         "builder_sha256": builder_sha256,
         "helper_sha256": helper_sha256,
+        "overlay_sha256": overlay_sha256,
     }
     write_new_receipt(receipt_path, record, BUILD_RECEIPT_FIELDS, "candidate build receipt")
     validate_build_receipt_binding(receipt_path, root, commit, tree, binary, binary_sha256)

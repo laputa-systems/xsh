@@ -139,6 +139,7 @@ class PublicationRunnerTests(unittest.TestCase):
             "builder_path": str(runner.APPROVED_BUILD_RUNNER),
             "builder_sha256": contract["W9_CACHE_BUILD_RUNNER_SHA256"],
             "helper_sha256": runner.HELPER_SHA256,
+            "overlay_sha256": "6" * 64,
         }
 
     def candidate_run_fixture(self, name):
@@ -655,6 +656,7 @@ class PublicationRunnerTests(unittest.TestCase):
 
     def test_w9_build_contract_rejects_target_profile_and_builder_pin_drift(self):
         contract = runner.w9_build_contract()
+        self.assertEqual(contract["W9_CACHE_BUILD_SCHEMA"], "2")
         self.assertEqual(contract["W9_CACHE_BUILD_TARGET"], "x86_64-unknown-linux-musl")
         self.assertEqual(contract["W9_CACHE_BUILD_PROFILE"], "verification")
         self.assertEqual(
@@ -684,6 +686,53 @@ class PublicationRunnerTests(unittest.TestCase):
                     ):
                         runner.w9_build_contract()
         runner.w9_build_contract.cache_clear()
+
+    def test_parity_build_overlay_is_source_derived_and_adds_one_test(self):
+        source = b"use std::path::PathBuf;\n"
+        overlay = runner.parity_overlay_bytes(source)
+        self.assertEqual(
+            overlay,
+            source + b'include!("../.work/consolidation/w9-repository-parity.rs");\n',
+        )
+        with self.assertRaisesRegex(runner.PublicationError, "already includes the parity helper"):
+            runner.parity_overlay_bytes(overlay)
+
+    def test_scratch_overlay_guard_accepts_git_status_normalization_only(self):
+        tests = self.root / "tests"
+        tests.mkdir()
+        semantic_tests = tests / "sema.rs"
+        semantic_tests.write_bytes(b"fn existing_test() {}\n")
+        subprocess.run(["git", "-C", str(self.root), "config", "user.name", "synthetic"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.email", "synthetic@example.invalid"], check=True
+        )
+        subprocess.run(["git", "-C", str(self.root), "add", "tests/sema.rs"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "--quiet", "-m", "source"], check=True)
+
+        semantic_tests.write_bytes(b"fn existing_test() {}\ninclude!(\"overlay.rs\");\n")
+        runner.require_only_parity_overlay(self.root, "unexpected scratch changes")
+
+        (self.root / "outside.rs").write_text("fn outside() {}\n", encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "unexpected scratch changes"):
+            runner.require_only_parity_overlay(self.root, "unexpected scratch changes")
+
+    def test_harness_listing_requires_the_exact_parity_test_once(self):
+        listing = "sema::w9_repository_parity_receipt: test\nother::test: test\n"
+        runner.validate_harness_test_listing(listing)
+        with self.assertRaisesRegex(runner.PublicationError, "expected exactly one"):
+            runner.validate_harness_test_listing("other::test: test\n")
+        with self.assertRaisesRegex(runner.PublicationError, "expected exactly one"):
+            runner.validate_harness_test_listing(listing + "sema::w9_repository_parity_receipt: test\n")
+
+    def test_build_receipt_overlay_hash_is_bound_to_committed_test_source(self):
+        (self.root / "tests").mkdir()
+        (self.root / "tests/sema.rs").write_bytes(b"use std::path::PathBuf;\n")
+        receipt = self.build_receipt_fields()
+        receipt["overlay_sha256"] = runner.parity_overlay_sha256(self.root)
+        runner.validate_overlay_binding(receipt, self.root)
+        receipt["overlay_sha256"] = "f" * 64
+        with self.assertRaisesRegex(runner.PublicationError, "overlay hash mismatch"):
+            runner.validate_overlay_binding(receipt, self.root)
 
     def test_build_receipt_binding_rejects_source_tree_and_binary_mismatches(self):
         path = self.root / ".work/build.receipt"
