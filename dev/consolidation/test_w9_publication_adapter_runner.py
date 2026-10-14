@@ -1466,6 +1466,149 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         )
         self.assertTrue((output / "comparison/attempt-status.txt").is_file())
 
+    def test_compare_derived_captures_writes_delta_before_hashing_receipt(self):
+        case = self._compare_case()
+        derived_build_path, derived_build = self._write_build_receipt(
+            "derived-reference",
+            self.reference_root,
+            self.reference_commit,
+            self.reference_tree,
+        )
+        derived_capture_path, _derived_ranges = self._capture_receipt(
+            derived_build_path,
+            derived_build,
+            self.artifact_root / "derived-reference-capture",
+            role="derived-reference",
+        )
+        correction_receipt = self.artifact_root / "correction.receipt"
+        correction_receipt.write_text("correction fixture\n", encoding="utf-8")
+        correction = adapter_runner.reference_correction
+        correction_source = {
+            "base_commit": correction.BASE_COMMIT,
+            "base_tree": correction.BASE_TREE,
+            "patch_path": str(correction.PATCH_PATH),
+            "patch_sha256": correction.PATCH_SHA256,
+            "source_root": str(self.reference_root),
+            "source_commit": self.reference_commit,
+            "source_tree": self.reference_tree,
+            "source_parent": correction.SOURCE_PARENT,
+            "source_state": "clean",
+        }
+        correction_record = {
+            **correction_source,
+            "original_capture_receipt": str(case["reference_capture_receipt"]),
+            "original_exact_capture_receipt": str(case["reference_exact_capture_receipt"]),
+            "build_receipt": str(derived_build_path),
+            "capture_receipt": str(derived_capture_path),
+        }
+        proof_calls = []
+        reference_exact_owners = {
+            index: (({}, {}, {}, {}), {"exprs": {index: ("reference", "Call", "")}})
+            for index in self.expected_inputs
+        }
+        candidate_exact_owners = {
+            index: (({}, {}, {}, {}), {"exprs": {index: ("candidate", "Call", "")}})
+            for index in self.expected_inputs
+        }
+        first_delta = (
+            "0",
+            self.expected_inputs[0].relative_path,
+            "default",
+            "diagnostics",
+            "a" * 64,
+            "b" * 64,
+        )
+
+        def validate_proof(
+            _candidate_root,
+            _source_receipt,
+            _reference_source_root,
+            role,
+            build_receipt,
+            exact_capture_receipt,
+            output,
+            _bootstrap_runner,
+            dry_run=False,
+        ):
+            self.assertFalse(dry_run)
+            output.mkdir()
+            legacy_capture = (
+                case["reference_capture_receipt"]
+                if role == "reference"
+                else case["candidate_capture_receipt"]
+            )
+            proof_calls.append((role, build_receipt, exact_capture_receipt))
+            return {
+                "capture": {
+                    "legacy_capture_receipt": str(legacy_capture),
+                    "legacy_capture_receipt_sha256": self.runner.sha256_file(legacy_capture),
+                },
+                "owners": reference_exact_owners if role == "reference" else candidate_exact_owners,
+            }
+
+        def compare(*args, **_kwargs):
+            self.assertEqual(args[6], self.artifact_root / "derived-compare/comparison/mismatches.tsv")
+            adapter_runner._write_new_file(args[6], b"", self.runner)
+            return 6760, 0, first_delta
+
+        args = self._compare_args(case, "derived-compare")
+        args.derived_reference_source_root = self.reference_root
+        args.derived_reference_correction_receipt = correction_receipt
+        args.original_capture_receipt = case["reference_capture_receipt"]
+
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=case["source_record"]),
+            patch.object(
+                self.runner,
+                "validate_all_inputs",
+                return_value=(self.expected_inputs, {}, self.reference),
+            ),
+            patch.object(
+                adapter_runner.reference_correction,
+                "validate_source",
+                return_value=correction_source,
+            ),
+            patch.object(
+                adapter_runner.reference_correction,
+                "parse_receipt",
+                return_value=correction_record,
+            ),
+            patch.object(adapter_runner.reference_correction, "validate_receipt_associations"),
+            patch.object(self.runner, "local_docker_environment", return_value={"PATH": os.environ["PATH"]}),
+            patch.object(
+                adapter_runner,
+                "_load_exact_owner_runner",
+                return_value=SimpleNamespace(
+                    validate_proof=validate_proof,
+                    ExactOwnerError=ValueError,
+                ),
+            ),
+            patch.object(adapter_runner, "compare_full_publications", side_effect=compare),
+            patch("builtins.print"),
+        ):
+            result = adapter_runner.compare_captured_publications(args, self.runner)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            proof_calls,
+            [
+                ("reference", case["reference_exact_build_receipt"], case["reference_exact_capture_receipt"]),
+                ("candidate", case["candidate_exact_build_receipt"], case["candidate_exact_capture_receipt"]),
+            ],
+        )
+        output = self.artifact_root / "derived-compare/comparison"
+        delta_path = output / "original-to-derived-reference.tsv"
+        comparison_receipt = output / "derived-reference-comparison.receipt"
+        self.assertEqual(
+            delta_path.read_bytes(), correction.first_difference_bytes(first_delta)
+        )
+        receipt = dict(
+            line.split("\t", 1) for line in comparison_receipt.read_text(encoding="utf-8").splitlines()
+        )
+        self.assertEqual(receipt["delta_file"], str(delta_path))
+        self.assertEqual(receipt["delta_file_sha256"], self.runner.sha256_file(delta_path))
+        self.assertEqual(receipt["outcome_count"], "6760")
+
     def test_compare_captures_rejects_exact_proof_for_a_different_legacy_capture(self):
         case = self._compare_case()
         wrong_capture = self.artifact_root / "unrelated-capture.receipt"
