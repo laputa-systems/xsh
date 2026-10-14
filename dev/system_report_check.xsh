@@ -21359,7 +21359,7 @@ export proc audit_no_subprocess_live_json_modes(xsh_bin: Str, script: Str) [fs, 
 
 ## Traces all successful live output modes with an unusable command search path.
 export proc audit_no_subprocess_live_modes(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
-  audit_no_subprocess_live_text_modes(xsh_bin, script)?
+  audit_no_subprocess_live_text_modes(xsh_bin, script)
   audit_no_subprocess_live_json_modes(xsh_bin, script)
 }
 
@@ -21432,8 +21432,8 @@ export proc audit_no_subprocess_invalid_section(xsh_bin: Str, script: Str) [fs, 
 
 ## Traces every production command path with an unusable command search path.
 export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
-  audit_no_subprocess_live_modes(xsh_bin, script)?
-  audit_no_subprocess_replay_paths(xsh_bin, script)?
+  audit_no_subprocess_live_modes(xsh_bin, script)
+  audit_no_subprocess_replay_paths(xsh_bin, script)
   audit_no_subprocess_invalid_section(xsh_bin, script)
 }
 

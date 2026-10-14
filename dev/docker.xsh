@@ -7,7 +7,7 @@ use targets
 export type HostLinkTools = {mold: Path, kache: Path}
 
 proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTools?, Error] {
-  return null when ctx.host_os != targets.Linux or ctx.host_arch != targets.X86_64
+  return null when ctx.host_os != .Linux or ctx.host_arch != .X86_64
   return null when ctx.target.triple != "x86_64-unknown-linux-musl"
 
   let mold = /usr/local/bin/mold
@@ -216,7 +216,7 @@ export proc run_internal(
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
-  let host_link_tools = host_link_tools(ctx)?
+  let available_link_tools = host_link_tools(ctx)?
   var common_git = null
   if operation in ["gate-lane", "gate-batch"] {
     cd (ctx.root) {
@@ -235,7 +235,7 @@ export proc run_internal(
     stress_repeat,
     extra,
     git_common_dir: common_git,
-    host_link_tools:,
+    host_link_tools: available_link_tools,
   )?
   stages.execute(
     stages.command(

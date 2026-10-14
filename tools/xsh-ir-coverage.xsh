@@ -1651,7 +1651,7 @@ let expr_variants = enum_variants(arena_source, "ArenaExprKind")
 let type_variants = enum_variants(arena_source, "ArenaTypeExprTag")
 let binary_variants = enum_variants(node_source, "BinaryOp")
 let assign_variants = enum_variants(node_source, "AssignOp")
-let indexed_tag_json = run.text xsht ir-tags --json ?
+let indexed_tag_json = run.text xsht ir-tags --json
 let indexed_variants = json.decode(indexed_tag_json)?.require(List[Str])?
 let pattern_variants = enum_variants(indexed_source, "FullPatternTag")
 assert ! indexed_variants.is_empty(), "xsht ir-tags returned no compiled instruction tags"
