@@ -1886,6 +1886,43 @@ fn fold_complete_accumulator_contracts_match_full_and_compact_facts() {
 }
 
 #[test]
+fn named_stream_stage_callbacks_publish_implicit_call_facts() {
+    use xsh::frontend::check::{StatementPosition, Type};
+    use xsh::frontend::syntax::arena::{ArenaExprKind, ExprId};
+
+    let source = "pure by_key(value: Int) -> Int { value }\nlet positional = [1, 2] |> sort-by(by_key)\nlet named = [1, 2] |> sort-by(block: by_key)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let call_spans = (0..parsed.arena.arena.expr_tags.len())
+        .map(ExprId::from_index)
+        .filter_map(|id| {
+            let expression = parsed.arena.arena.expr(id);
+            (matches!(expression.kind, ArenaExprKind::Ident(_))
+                && &source[expression.span.range()] == "by_key"
+                && expression.span.start() > source.find("sort-by(").unwrap())
+            .then_some(expression.span)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(call_spans.len(), 2);
+    let expected = (
+        Some(Type::Int),
+        Some(StatementPosition::Value),
+        true,
+    );
+    for span in call_spans {
+        let actual = (
+            checked.expr_types.get(&span).cloned(),
+            checked.statement_positions.get(&span).copied(),
+            checked.statically_resolved_call_spans.contains(&span),
+        );
+        assert_eq!(actual, expected, "{}", &source[span.range()]);
+    }
+}
+
+#[test]
 fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
     use xsh::frontend::check::Type;
     use xsh::frontend::symbols::Name;

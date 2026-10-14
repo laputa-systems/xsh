@@ -180,6 +180,7 @@ impl Checker {
                     used: true,
                     stage: true,
                 });
+                let call_diagnostics_before = self.diagnostics.len();
                 let mut callback_ty = self.check_call_with_checked_argument_arena(
                     arena,
                     source,
@@ -188,12 +189,16 @@ impl Checker {
                     item_span,
                     None,
                 );
+                self.record_expr_type(item_span, callback_ty.clone());
+                self.statement_positions
+                    .insert(item_span, super::StatementPosition::Value);
+                if self.diagnostics.len() == call_diagnostics_before {
+                    self.statically_resolved_call_spans.insert(item_span);
+                }
                 let callback_returns_result_unit =
                     matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee)
                         && callback_ty.is_result_unit();
                 if matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee) {
-                    self.statement_positions
-                        .insert(item_span, super::StatementPosition::Value);
                     self.propagating_statements.insert(item_span);
                     callback_ty = self.check_unit_statement_value_tail(
                         None,
