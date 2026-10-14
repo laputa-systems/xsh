@@ -2,11 +2,13 @@ import Xsh.Validation.Boundary
 import Lean.Elab.Tactic.Omega
 
 /-!
-Bounded integer values may move to a containing interval while keeping the
-same base representation. Narrowing checks membership in the smaller
-interval and can reject a value. These interval laws are independent Lean
-fragments; they do not close the full validated-type obligations or establish
-checker, runtime, or Rust correspondence.
+Same-base interval containment is an independent mathematical relation here:
+it transports a bounded value to a containing interval while preserving its
+payload. It does not model XSH assignability, where a validated value may flow
+to its base or eligible structural views, but distinct validations remain
+distinct types even when their bounded intervals are nested. Narrowing checks
+membership in the smaller interval and can reject a value. These laws do not
+establish checker, runtime, or Rust correspondence.
 -/
 
 namespace Xsh.Validation.BoundedRefinements

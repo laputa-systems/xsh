@@ -714,6 +714,10 @@ class InventoryCheckerTests(unittest.TestCase):
             root["declaration"] for root in roots
             if root["module"] == "Xsh.Validation.BoundedRefinements"
         }
+        bounded_refinement_evidence = [
+            root for root in roots
+            if root["module"] == "Xsh.Validation.BoundedRefinements"
+        ]
         self.assertEqual(
             {
                 "Xsh.Validation.BoundedRefinements.widen_preserves_exact_payload",
@@ -728,6 +732,18 @@ class InventoryCheckerTests(unittest.TestCase):
             },
             bounded_refinement_roots,
         )
+        for root in bounded_refinement_evidence:
+            self.assertIn("independent mathematical relation", root["scope"])
+            self.assertIn("not XSH assignability", root["scope"])
+            self.assertIn(
+                "Does not model XSH assignability or prove VAL-WIDEN",
+                root["boundary"],
+            )
+        widen_obligation = next(
+            obligation for obligation in coverage["universal_theorems"]
+            if obligation["id"] == "VAL-WIDEN"
+        )
+        self.assertEqual("planned", widen_obligation["status"])
         nonempty_filtering_roots = {
             root["declaration"] for root in roots
             if root["module"] == "Xsh.Validation.NonEmptyFiltering"

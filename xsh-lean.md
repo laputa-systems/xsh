@@ -268,6 +268,12 @@ separation while resource handles retain shared identity. Obligations:
 checker, constant, runtime and compiled-store routes without trusting Rust
 answers.
 
+The canonical widening rule carries a validated value to its base or an
+eligible structural view. A validated-to-validated assignment requires the
+exact same validation identity, so distinct bounded validations do not fit
+even when one accepted interval contains the other. The interval-containment
+fragment is an independent mathematical relation and does not prove that rule.
+
 ### G3 — Effects
 
 After G1 interfaces stabilize, own `formal/Xsh/Effects` and changes to

@@ -382,9 +382,14 @@ support, not a coverage root. The model assumes a finite order-preserving key
 table and target predicate; it excludes JSON parsing, diagnostic text,
 checker/runtime and Rust correspondence, and full G1/G2/G3 closure.
 
-`Xsh.Validation.BoundedRefinements` proves interval inclusion, exact-payload
-widening and composition, narrowing rejection, and a mutation witness for a
-missing upper-bound check. `Xsh.Validation.NonEmptyFiltering` relates a
+`Xsh.Validation.BoundedRefinements` proves same-base interval inclusion,
+exact-payload transport under that relation, composition, narrowing rejection,
+and a mutation witness for a missing upper-bound check. This is an independent
+mathematical relation, not XSH assignability and not evidence for the planned
+`VAL-WIDEN` obligation. XSH widening carries a validated value to its base or
+an eligible structural view; assigning to another validated type requires the
+exact same validation identity, even when one bounded interval contains the
+other. `Xsh.Validation.NonEmptyFiltering` relates a
 nonempty filtered list to a surviving input, preserves the filtered sequence
 after successful validation, and rejects an all-false filter. These 14 roots
 cover selected operations in the independent validation model; they do not

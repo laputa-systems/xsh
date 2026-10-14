@@ -4298,8 +4298,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.widen_preserves_exact_payload",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.BoundedRefinements.widening_composes",
@@ -4307,8 +4307,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.widening_composes",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.BoundedRefinements.widen_composition",
@@ -4316,8 +4316,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.widen_composition",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.BoundedRefinements.narrow_rejects_outside_smaller",
@@ -4325,8 +4325,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.narrow_rejects_outside_smaller",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.BoundedRefinements.zero_to_ten_widens_to_byte",
@@ -4334,8 +4334,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.zero_to_ten_widens_to_byte",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.BoundedRefinements.zero_to_ten_widening_witness_preserves_ten",
@@ -4343,8 +4343,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.zero_to_ten_widening_witness_preserves_ten",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.BoundedRefinements.byte_is_nested_in_zero_to_256",
@@ -4352,8 +4352,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.byte_is_nested_in_zero_to_256",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.BoundedRefinements.narrowing_256_to_byte_rejects",
@@ -4361,8 +4361,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.narrowing_256_to_byte_rejects",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.BoundedRefinements.dropping_high_bound_mutation_is_detected",
@@ -4370,8 +4370,8 @@
       "declaration": "Xsh.Validation.BoundedRefinements.dropping_high_bound_mutation_is_detected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Bounded interval inclusion, exact-payload widening, composition, and narrowing rejection in the shared validation model.",
-      "boundary": "Independent Lean fragment only; no Rust checker/runtime correspondence or full G2 validation closure."
+      "scope": "Same-base bounded interval inclusion and exact-payload transport, composition, and narrowing rejection as an independent mathematical relation; not XSH assignability.",
+      "boundary": "Does not model XSH assignability or prove VAL-WIDEN; no Rust checker/runtime correspondence or full G2 validation closure."
     },
     {
       "id": "fragment.Xsh.Validation.NonEmptyFiltering.filter_is_nonempty_iff_survivor",
