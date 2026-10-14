@@ -4,6 +4,7 @@ import os
 import hashlib
 import tempfile
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 
@@ -145,6 +146,99 @@ class ExactOwnerHashOutputTests(unittest.TestCase):
             exact_runner.parse_exact_owner_hash_output(
                 "test sema::different ... w9exacthash\t0\t" + "a" * 64, 1
             )
+
+
+class HarnessTestListingTests(unittest.TestCase):
+    def test_parses_qualified_rust_test_names(self):
+        listing = (
+            "sema::existing_test: test\n"
+            f"{exact_runner.EXACT_OWNER_TEST}: test\n"
+        )
+
+        names = exact_runner.parse_harness_test_names(listing)
+
+        self.assertEqual(names, ["sema::existing_test", exact_runner.EXACT_OWNER_TEST])
+
+    def test_rejects_duplicate_and_missing_exact_owner_tests(self):
+        duplicate = f"{exact_runner.EXACT_OWNER_TEST}: test\n" * 2
+        missing = "sema::existing_test: test\n"
+
+        for listing, count in ((duplicate, 2), (missing, 0)):
+            with self.subTest(count=count), self.assertRaisesRegex(
+                exact_runner.ExactOwnerError,
+                f"listing contains {count} exact proof tests",
+            ):
+                exact_runner.require_exact_owner_test_listing(listing)
+
+
+class ReferenceBuildReuseTests(unittest.TestCase):
+    def setUp(self):
+        self.receipt = pathlib.Path("/scratch/reference.receipt")
+        self.reference_root = pathlib.Path("/scratch/reference")
+        self.owner_helper_source = pathlib.Path("/source/owner-helper.rs")
+        self.derived_helper = pathlib.Path("/scratch/fresh-helper.rs")
+        self.build = {
+            "source_root": str(self.reference_root),
+            "binary": "/scratch/reference-test-binary",
+            "helper_path": "/scratch/retained-helper.rs",
+            "helper_sha256": "a" * 64,
+            "owner_helper_sha256": "b" * 64,
+            "owner_helper_source_sha256": "c" * 64,
+        }
+        self.runner = SimpleNamespace(
+            regular_file=lambda path, _label: pathlib.Path(path),
+            read_regular_bytes=lambda path: b"matching combined helper"
+            if pathlib.Path(path) in {self.derived_helper, pathlib.Path(self.build["helper_path"])}
+            else b"",
+        )
+
+    def test_reuses_a_receipt_only_when_source_and_fresh_helper_match(self):
+        with mock.patch.object(
+            exact_runner.adapter_runner,
+            "_parse_adapter_build_receipt",
+            return_value=self.build,
+        ) as parse_receipt:
+            result = exact_runner._reuse_reference_build(
+                self.receipt,
+                self.reference_root,
+                self.owner_helper_source,
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+                self.derived_helper,
+                self.runner,
+            )
+
+        self.assertEqual(result, (pathlib.Path(self.build["binary"]), self.receipt, self.build))
+        parse_receipt.assert_called_once_with(
+            self.receipt, "reference", self.runner, self.owner_helper_source
+        )
+
+    def test_rejects_a_stale_reference_source_or_helper(self):
+        for field, replacement in (
+            ("source_root", "/scratch/stale-reference"),
+            ("helper_sha256", "d" * 64),
+            ("owner_helper_sha256", "d" * 64),
+            ("owner_helper_source_sha256", "d" * 64),
+        ):
+            with self.subTest(field=field):
+                build = dict(self.build)
+                build[field] = replacement
+                with mock.patch.object(
+                    exact_runner.adapter_runner,
+                    "_parse_adapter_build_receipt",
+                    return_value=build,
+                ), self.assertRaises(exact_runner.ExactOwnerError):
+                    exact_runner._reuse_reference_build(
+                        self.receipt,
+                        self.reference_root,
+                        self.owner_helper_source,
+                        "a" * 64,
+                        "b" * 64,
+                        "c" * 64,
+                        self.derived_helper,
+                        self.runner,
+                    )
 
 
 class ExactOwnerReceiptTests(unittest.TestCase):

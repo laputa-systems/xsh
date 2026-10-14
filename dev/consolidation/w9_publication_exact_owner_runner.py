@@ -651,6 +651,48 @@ def _load_exact_helper(runner) -> tuple[pathlib.Path, bytes, str]:
     return helper, contents, digest
 
 
+def parse_harness_test_names(stdout: str) -> list[str]:
+    suffix = ": test"
+    return [line[: -len(suffix)] for line in stdout.splitlines() if line.endswith(suffix)]
+
+
+def require_exact_owner_test_listing(stdout: str) -> None:
+    test_names = parse_harness_test_names(stdout)
+    count = test_names.count(EXACT_OWNER_TEST)
+    if count != 1:
+        raise ExactOwnerError(f"harness listing contains {count} exact proof tests")
+
+
+def _reuse_reference_build(
+    receipt_path: pathlib.Path,
+    reference_root: pathlib.Path,
+    owner_helper_source: pathlib.Path,
+    expected_helper_sha256: str,
+    expected_owner_helper_sha256: str,
+    expected_owner_helper_source_sha256: str,
+    derived_helper: pathlib.Path,
+    runner,
+) -> tuple[pathlib.Path, pathlib.Path, dict[str, str]]:
+    receipt = runner.regular_file(receipt_path, "retained reference adapter build receipt")
+    build = adapter_runner._parse_adapter_build_receipt(
+        receipt, "reference", runner, owner_helper_source
+    )
+    if pathlib.Path(build["source_root"]) != reference_root:
+        raise ExactOwnerError("retained reference build source root differs")
+    if (
+        build["helper_sha256"] != expected_helper_sha256
+        or build["owner_helper_sha256"] != expected_owner_helper_sha256
+        or build["owner_helper_source_sha256"] != expected_owner_helper_source_sha256
+    ):
+        raise ExactOwnerError("retained reference build helper identity differs")
+    retained_helper = runner.read_regular_bytes(
+        runner.regular_file(build["helper_path"], "retained reference derived helper")
+    )
+    if retained_helper != runner.read_regular_bytes(derived_helper):
+        raise ExactOwnerError("retained reference derived helper differs from the fresh helper")
+    return pathlib.Path(build["binary"]), receipt, build
+
+
 def _check_exact_harness_listing(
     builder: pathlib.Path,
     candidate_root: pathlib.Path,
@@ -673,11 +715,7 @@ def _check_exact_harness_listing(
             f"exact-owner harness list failed with status {result.returncode}: "
             f"{result.stderr.strip() or result.stdout.strip()}"
         )
-    test_names = [line.split(":", 1)[0] for line in result.stdout.splitlines() if line.endswith(": test")]
-    if test_names.count(EXACT_OWNER_TEST) != 1:
-        raise ExactOwnerError(
-            f"exact-owner harness listing contains {test_names.count(EXACT_OWNER_TEST)} exact proof tests"
-        )
+    require_exact_owner_test_listing(result.stdout)
 
 
 def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> None:
@@ -722,16 +760,31 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
     docker_environment = runner.local_docker_environment()
     builds = {}
     for role, source_root in (("reference", reference_root), ("candidate", candidate_root)):
-        binary, build_receipt = adapter_runner.build_adapter_harness(
-            source_root,
-            candidate_root,
-            role,
-            helper,
-            helper_sha256,
-            owner_helper_sha256,
-            owner_helper_source_sha256,
-            runner,
-        )
+        if role == "reference" and args.reference_build_receipt is not None:
+            binary, build_receipt, build = _reuse_reference_build(
+                args.reference_build_receipt,
+                reference_root,
+                owner_helper_source,
+                helper_sha256,
+                owner_helper_sha256,
+                owner_helper_source_sha256,
+                helper,
+                runner,
+            )
+        else:
+            binary, build_receipt = adapter_runner.build_adapter_harness(
+                source_root,
+                candidate_root,
+                role,
+                helper,
+                helper_sha256,
+                owner_helper_sha256,
+                owner_helper_source_sha256,
+                runner,
+            )
+            build = adapter_runner._parse_adapter_build_receipt(
+                build_receipt, role, runner, owner_helper_source
+            )
         runner.run_harness_test_listing(
             runner.regular_file(runner.APPROVED_BUILD_RUNNER, "pinned build runner", executable=True),
             candidate_root,
@@ -743,9 +796,6 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
             candidate_root,
             binary,
             docker_environment,
-        )
-        build = adapter_runner._parse_adapter_build_receipt(
-            build_receipt, role, runner, owner_helper_source
         )
         if build["helper_sha256"] != helper_sha256:
             raise ExactOwnerError(f"{role} build receipt helper hash differs")
@@ -1466,6 +1516,7 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--candidate-root", type=pathlib.Path, required=True)
     build.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     build.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    build.add_argument("--reference-build-receipt", type=pathlib.Path)
     build.add_argument("--dry-run", action="store_true")
     capture = commands.add_parser("capture")
     capture.add_argument("--candidate-root", type=pathlib.Path, required=True)
