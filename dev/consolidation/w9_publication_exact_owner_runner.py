@@ -1092,6 +1092,24 @@ def _legacy_capture(
     return original_build, raw_root, receipt_directory
 
 
+def _exact_owner_hash_job_directory(
+    capture_output: pathlib.Path,
+    role: str,
+    pass_number: int,
+    runner,
+) -> pathlib.Path:
+    hash_jobs = capture_output / "hashjobs"
+    if pass_number == 1:
+        adapter_runner._mkdir_new_directory(hash_jobs, runner)
+    elif pass_number == 2:
+        os.close(runner.open_absolute_nofollow(hash_jobs, directory=True))
+    else:
+        raise ExactOwnerError(f"unsupported exact-owner hash pass {pass_number}")
+    job_dir = hash_jobs / f"{role}-{pass_number}"
+    adapter_runner._mkdir_new_directory(job_dir, runner)
+    return job_dir
+
+
 def _run_exact_owner_hashes(
     binary: pathlib.Path,
     raw_root: pathlib.Path,
@@ -1108,9 +1126,7 @@ def _run_exact_owner_hashes(
     runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
     if not runner.under(raw_root, pathlib.Path(source_record["candidate_root"]) / ".work"):
         raise ExactOwnerError(f"exact-owner sidecars are outside candidate .work/: {raw_root}")
-    job_dir = capture_output / "hashjobs" / f"{role}-{pass_number}"
-    adapter_runner._mkdir_new_directory(job_dir.parent, runner)
-    adapter_runner._mkdir_new_directory(job_dir, runner)
+    job_dir = _exact_owner_hash_job_directory(capture_output, role, pass_number, runner)
     container = f"w9exact-{os.getpid()}-{role}-hash-{pass_number}"
     if runner.existing_container(container, docker_environment):
         raise ExactOwnerError(f"exact-owner hash Docker container already exists: {container}")

@@ -488,6 +488,100 @@ class ReferenceBuildReuseTests(unittest.TestCase):
                     )
 
 
+class ExactOwnerHashJobDirectoryTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temporary.name)
+        self.output = self.root / "proof"
+        self.output.mkdir()
+        self.candidate_root = self.root / "candidate"
+        (self.candidate_root / ".work").mkdir(parents=True)
+        self.wrapper = self.root / "native-test-wrapper"
+        self.wrapper.write_text("wrapper")
+        self.wrapper_root = self.root / "wrapper-root"
+        self.wrapper_root.mkdir()
+        self.source_record = {
+            "wrapper": str(self.wrapper),
+            "wrapper_root": str(self.wrapper_root),
+            "candidate_root": str(self.candidate_root),
+            "input_root": str(self.root / "inputs"),
+        }
+        hash_rows = [f"w9exacthash\t{index}\t{'a' * 64}" for index in range(1690)]
+        self.hash_output = (
+            f"test {exact_runner.EXACT_OWNER_TEST} ... {hash_rows[0]}\n"
+            + "\n".join(hash_rows[1:])
+        )
+        self.runner = SimpleNamespace(
+            WRAPPER_SHA256="b" * 64,
+            CleanupFailure=RuntimeError,
+            regular_file=lambda path, _label, **_kwargs: pathlib.Path(path),
+            real_directory=lambda path, _label: pathlib.Path(path),
+            validate_wrapper_root=lambda *_args: None,
+            require_sha256=lambda *_args: None,
+            under=lambda *_args: True,
+            open_absolute_nofollow=self.open_directory,
+            existing_container=lambda *_args: False,
+            docker_shim=lambda *_args: self.root / "docker-shim",
+            sha256_file=lambda _path: "c" * 64,
+            start_and_register_job=self.start_job,
+            inspect_owned_containers=lambda *_args: [],
+            read_regular_text=lambda path: pathlib.Path(path).read_text(),
+            stop_jobs=lambda *_args: None,
+        )
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    @staticmethod
+    def open_directory(path, directory=True):
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        return os.open(path, flags)
+
+    def start_job(self, job, active, _command, _working_directory, _environment):
+        job["output"].write(self.hash_output.encode())
+        job["output"].flush()
+        job["process"] = SimpleNamespace(poll=lambda: 0, returncode=0)
+        active.append(job)
+
+    def run_pass(self, pass_number):
+        return exact_runner._run_exact_owner_hashes(
+            self.root / "harness",
+            self.candidate_root / ".work" / "owners",
+            self.source_record,
+            self.output,
+            "candidate",
+            pass_number,
+            {},
+            self.runner,
+        )
+
+    def test_both_passes_create_distinct_real_job_directories(self):
+        first = self.run_pass(1)
+        second = self.run_pass(2)
+
+        self.assertEqual(first, second)
+        self.assertTrue((self.output / "hashjobs" / "candidate-1" / "worker.log").is_file())
+        self.assertTrue((self.output / "hashjobs" / "candidate-2" / "worker.log").is_file())
+
+    def test_duplicate_passes_are_rejected(self):
+        self.run_pass(1)
+        with self.assertRaises(FileExistsError):
+            self.run_pass(1)
+        self.run_pass(2)
+        with self.assertRaises(FileExistsError):
+            self.run_pass(2)
+
+    def test_second_pass_rejects_symlinked_hashjobs_parent(self):
+        external = self.root / "external"
+        external.mkdir()
+        (self.output / "hashjobs").symlink_to(external, target_is_directory=True)
+
+        with self.assertRaises(OSError):
+            self.run_pass(2)
+
+        self.assertEqual(list(external.iterdir()), [])
+
+
 class ExactOwnerReceiptTests(unittest.TestCase):
     def setUp(self):
         self.reference = SimpleNamespace(
