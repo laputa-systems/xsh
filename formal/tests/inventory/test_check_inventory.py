@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(448, len(result["fragment_roots"]))
+        self.assertEqual(484, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -200,6 +200,27 @@ class InventoryCheckerTests(unittest.TestCase):
             },
             json_compatibility_roots,
         )
+        json_encoding_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Json.Encoding"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Json.Encoding.null_token",
+                "Xsh.Json.Encoding.boolean_tokens",
+                "Xsh.Json.Encoding.integer_token",
+                "Xsh.Json.Encoding.quote_is_escaped",
+                "Xsh.Json.Encoding.backslash_is_escaped",
+                "Xsh.Json.Encoding.control_characters_are_escaped",
+                "Xsh.Json.Encoding.noncontrol_unicode_is_preserved",
+                "Xsh.Json.Encoding.empty_array_is_compact",
+                "Xsh.Json.Encoding.array_order_is_preserved",
+                "Xsh.Json.Encoding.object_fields_are_sorted",
+                "Xsh.Json.Encoding.nested_shape_and_order_are_preserved",
+                "Xsh.Json.Encoding.raw_control_and_quote_mutation_are_distinguished",
+            },
+            json_encoding_roots,
+        )
         list_execution_roots = {
             root["declaration"] for root in roots
             if root["module"] == "Xsh.Semantics.ListExecution"
@@ -222,6 +243,27 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Semantics.ListExecution.rejecting_all_bindings_returns_empty_list",
             },
             list_execution_roots,
+        )
+        iteration_snapshot_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Iteration.Snapshot"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Iteration.Snapshot.source_evaluates_once",
+                "Xsh.Iteration.Snapshot.list_iterates_in_order",
+                "Xsh.Iteration.Snapshot.map_iterates_in_key_order",
+                "Xsh.Iteration.Snapshot.str_iterates_unicode_scalars",
+                "Xsh.Iteration.Snapshot.bytes_iterate_unsigned_values",
+                "Xsh.Iteration.Snapshot.result_error_skips_body",
+                "Xsh.Iteration.Snapshot.result_ok_iterates_wrapped_snapshot",
+                "Xsh.Iteration.Snapshot.source_rebinding_does_not_change_snapshot",
+                "Xsh.Iteration.Snapshot.captured_body_observes_item_value",
+                "Xsh.Iteration.Snapshot.item_binding_is_immutable",
+                "Xsh.Iteration.Snapshot.live_mutation_changes_iteration",
+                "Xsh.Iteration.Snapshot.snapshot_rejects_live_mutation",
+            },
+            iteration_snapshot_roots,
         )
         duration_roots = {
             root["declaration"] for root in roots
@@ -454,6 +496,27 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Validation.RelPath.treating_parent_as_name_is_detected",
             },
             relpath_roots,
+        )
+        path_fields_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Paths.Fields"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Paths.Fields.name_reads_final_component_after_trailing_separators",
+                "Xsh.Paths.Fields.root_name_posix_basename_and_mutation_witness",
+                "Xsh.Paths.Fields.posix_basename_ignores_trailing_separators",
+                "Xsh.Paths.Fields.posix_dirname_ignores_trailing_separators",
+                "Xsh.Paths.Fields.posix_dirname_of_bare_name_is_dot",
+                "Xsh.Paths.Fields.posix_dirname_of_root_is_root",
+                "Xsh.Paths.Fields.parent_preserves_written_components",
+                "Xsh.Paths.Fields.parent_of_single_relative_name_is_dot",
+                "Xsh.Paths.Fields.parent_of_root_is_root",
+                "Xsh.Paths.Fields.leading_dot_name_has_no_extension",
+                "Xsh.Paths.Fields.trailing_dot_has_empty_extension",
+                "Xsh.Paths.Fields.extension_uses_final_nonleading_dot",
+            },
+            path_fields_roots,
         )
         recursive_require_roots = {
             root["declaration"] for root in roots

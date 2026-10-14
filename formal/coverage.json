@@ -7018,6 +7018,330 @@
       "status": "fragment",
       "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
       "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.source_evaluates_once",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.source_evaluates_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The finite source expression is evaluated exactly once before loop execution.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.list_iterates_in_order",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.list_iterates_in_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List items are visited in original list order.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.map_iterates_in_key_order",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.map_iterates_in_key_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Map entries are visited according to the selected primitive key order.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.str_iterates_unicode_scalars",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.str_iterates_unicode_scalars",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Text iteration yields Unicode scalar values in text order.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.bytes_iterate_unsigned_values",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.bytes_iterate_unsigned_values",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Byte iteration yields each byte as an unsigned modeled value.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.result_error_skips_body",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.result_error_skips_body",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A Result source error returns before any loop body invocation.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.result_ok_iterates_wrapped_snapshot",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.result_ok_iterates_wrapped_snapshot",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A successful Result source iterates its wrapped snapshot.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.source_rebinding_does_not_change_snapshot",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.source_rebinding_does_not_change_snapshot",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Body rebinding of the source does not alter the captured iteration sequence.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.captured_body_observes_item_value",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.captured_body_observes_item_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The captured body observes the value bound to its current item frame.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.item_binding_is_immutable",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.item_binding_is_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The loop body result cannot replace the item immutable frame binding.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.live_mutation_changes_iteration",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.live_mutation_changes_iteration",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A live-read mutation differs from the finite source snapshot on a rebinding witness.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Iteration.Snapshot.snapshot_rejects_live_mutation",
+      "module": "Xsh.Iteration.Snapshot",
+      "declaration": "Xsh.Iteration.Snapshot.snapshot_rejects_live_mutation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Snapshot iteration retains original items under source mutation, distinguishing live iteration.",
+      "boundary": "Finite eager snapshots for List, finite Map, Str, Bytes, and Result sources. Bodies receive a frame whose current item is immutable; source rebinding does not change the captured sequence. Excludes streams and pipelines, loop control, typechecking, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.name_reads_final_component_after_trailing_separators",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.name_reads_final_component_after_trailing_separators",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A trailing separator run is ignored when reading a final nonempty name.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.root_name_posix_basename_and_mutation_witness",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.root_name_posix_basename_and_mutation_witness",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For the slash root, name is empty while POSIX basename is slash, distinguishing the replacement mutation.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.posix_basename_ignores_trailing_separators",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.posix_basename_ignores_trailing_separators",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "POSIX basename ignores a trailing separator after a named component.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.posix_dirname_ignores_trailing_separators",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.posix_dirname_ignores_trailing_separators",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "POSIX dirname ignores trailing separators before selecting the parent.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.posix_dirname_of_bare_name_is_dot",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.posix_dirname_of_bare_name_is_dot",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A bare path has dot as its POSIX lexical dirname.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.posix_dirname_of_root_is_root",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.posix_dirname_of_root_is_root",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A POSIX root has itself as dirname.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.parent_preserves_written_components",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.parent_preserves_written_components",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexical parent preserves a written parent component without resolving it.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.parent_of_single_relative_name_is_dot",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.parent_of_single_relative_name_is_dot",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A single relative name has dot as its lexical parent.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.parent_of_root_is_root",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.parent_of_root_is_root",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The lexical parent of a root remains the root.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.leading_dot_name_has_no_extension",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.leading_dot_name_has_no_extension",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A name whose only dot is leading has no extension.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.trailing_dot_has_empty_extension",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.trailing_dot_has_empty_extension",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A final non-leading dot introduces an empty extension.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Paths.Fields.extension_uses_final_nonleading_dot",
+      "module": "Xsh.Paths.Fields",
+      "declaration": "Xsh.Paths.Fields.extension_uses_final_nonleading_dot",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The extension follows the final non-leading dot in the final nonempty component.",
+      "boundary": "Uses native PathBytes and slash-separated bytes as a POSIX lexical model, with no text decoding or component normalization. It does not match every Rust-backed XSH Path.name, Path.ext, or Path.parent edge case, including foo/., foo/.., and component normalization; no XSH API/Rust correspondence is claimed. Filesystem resolution and with_ext are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.null_token",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.null_token",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "JSON null uses the compact null token.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.boolean_tokens",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.boolean_tokens",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Both Boolean values use lowercase compact JSON tokens.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.integer_token",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.integer_token",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Integer output uses a compact signed decimal token.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.quote_is_escaped",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.quote_is_escaped",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A quote receives its JSON string escape.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.backslash_is_escaped",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.backslash_is_escaped",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A backslash receives its JSON string escape.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.control_characters_are_escaped",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.control_characters_are_escaped",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Sample JSON control characters use short or lowercase Unicode escapes.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.noncontrol_unicode_is_preserved",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.noncontrol_unicode_is_preserved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Printable non-ASCII text survives string encoding unchanged.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.empty_array_is_compact",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.empty_array_is_compact",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An empty array uses compact brackets with no spaces.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.array_order_is_preserved",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.array_order_is_preserved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Array elements retain their input order in compact output.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.object_fields_are_sorted",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.object_fields_are_sorted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Object fields use the shared sorted string-key order.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.nested_shape_and_order_are_preserved",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.nested_shape_and_order_are_preserved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Nested arrays and objects retain shape and canonical object order.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
+    },
+    {
+      "id": "fragment.Xsh.Json.Encoding.raw_control_and_quote_mutation_are_distinguished",
+      "module": "Xsh.Json.Encoding",
+      "declaration": "Xsh.Json.Encoding.raw_control_and_quote_mutation_are_distinguished",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A mutation that exposes a raw line feed while retaining quote escaping is distinguished.",
+      "boundary": "Bounded compact encoding of the finite JSON tree, with ordered arrays and canonical string-key object ordering. Float leaves and exhausted fuel return no text. It does not establish runtime or Rust correspondence; Float formatting, pretty output, parsing, and I/O are excluded."
     }
   ],
   "source_identity": null

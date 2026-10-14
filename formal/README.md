@@ -8,9 +8,10 @@ word representations; lexical environments, activations, and captured cells;
 checked integer outcomes and millisecond-duration operations over typed scalar
 values; finite map-presence and primitive key-order laws; checked call argument
 ordering; checked record updates and finite Map literal evaluation; JSON-tree
-paths and bounded JSON compatibility projection; byte-lexical path components;
-Str-backed enum wire conversion; List index and slice bounds and bounded
-List-comprehension execution; Unicode scalar text-slice laws and UTF-8 byte
+paths, bounded JSON compatibility projection, and compact JSON text encoding;
+byte-lexical path components and POSIX lexical path fields; Str-backed enum
+wire conversion; List index and slice bounds, bounded List-comprehension
+execution, and eager finite loop snapshots; Unicode scalar text-slice laws and UTF-8 byte
 search; Result `?` propagation boundaries and returned-Result data; finite
 `.require(Set[T])` validation and array conversion; validated
 boundaries and atomic typed-store writes; and effect lattices, recursive
@@ -82,7 +83,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 448 fragment
+G0b source freeze remain pending. The provisional inventory has 484 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -104,6 +105,13 @@ preserves filter and loop-nesting order; and publishes only a complete result.
 Its mutation witness detects hoisting an inner source that depends on the outer
 binding. It uses abstract finite expression functions and does not model
 parsing, general expression effects, streams, cleanup, or XSH runtime
+correspondence.
+
+`Xsh.Iteration.Snapshot` has twelve roots for finite eager loop sources. It
+captures List order, the selected Map key order, Unicode scalar iteration for
+Str, unsigned values for Bytes, and Result success or error handling. Body
+frames preserve their current item when the loop source is rebound. The model
+excludes streams and pipelines, loop control, typechecking, and runtime or Rust
 correspondence.
 
 `Xsh.Calls.ArgumentOrder` has fourteen roots for already-checked finite call
@@ -156,6 +164,13 @@ assumed unique. The Set theorem is only an ordered ordinal-key abstraction that
 emits ordinals as a JSON integer array; it does not model general `Set[T]`
 serialization. The fragment excludes JSON text encoding/parsing, source-width
 validation, diagnostics, runtime, and Rust correspondence.
+
+`Xsh.Json.Encoding` has twelve roots for compact encoding of a bounded finite
+JSON tree. It preserves array order, sorts object fields by the shared string
+key order, escapes quotes, backslashes, and control characters, and preserves
+printable Unicode. Float leaves and exhausted fuel produce no text. The
+bounded fragment does not establish runtime or Rust correspondence; Float
+formatting, pretty output, parsing, and I/O are excluded.
 
 `Xsh.Records.Update` has twelve roots for checked functional updates to existing
 record paths. The model covers path-prefix overlap checks, one evaluation of the
@@ -234,6 +249,13 @@ non-UTF-8 name bytes, complete-component prefix/suffix behavior, and a raw-byte
 prefix mutation witness. They do not model filesystem access, normalization,
 name or parent queries, RelPath validation, or Rust correspondence.
 
+`Xsh.Paths.Fields` has twelve roots for final-name, POSIX basename and dirname,
+lexical parent, and extension queries over native bytes with `/` as the
+separator. The model performs no text decoding or component normalization. It
+does not match every Rust-backed XSH `Path.name`, `Path.ext`, or `Path.parent`
+edge case, including `foo/.` and `foo/..`; it establishes no correspondence
+with those XSH APIs. Filesystem resolution and `with_ext` are excluded.
+
 `Xsh.Enums.WireConversion` has seventeen roots for prepared Str-backed enum
 mappings layered over the shared recursive `.require` boundary. The model
 assumes each mapping is nonempty and has unique declaration names and wire
@@ -281,7 +303,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 448 rooted Lean fragment declarations across 89 core owner
+The inventory names 484 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
