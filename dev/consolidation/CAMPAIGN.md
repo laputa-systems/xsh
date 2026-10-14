@@ -1,6 +1,6 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete at checkpoint `56079e577` on 2026-10-14. The
+Status: active and incomplete on 2026-10-14. The
 current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start

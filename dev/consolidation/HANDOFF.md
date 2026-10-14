@@ -2,7 +2,52 @@
 
 Status: active 2026-10-14.
 
-## Current checkpoint — 2026-10-14 (`56079e577`)
+## Current closure checks, 2026-10-14
+
+Master's implementation checkpoint remains `56079e577`. The reviewed candidate is in
+`.work/wt/closure-batch-integration` at
+`e23d5b05def140d00bb16e4f23d9bc586ca64cdc`. It is not integrated or accepted.
+The pinned x86_64 Linux musl image and platform exclusions remain unchanged.
+
+The candidate's products and required unit, integration, and soundness
+harnesses built successfully. Capture regressions pass in both scheduler
+modes, including parallel callbacks, producer yield/resume, and cancellation
+defers. The forced-discard unit preserves child captures while skipping
+parent defers. The optional-field verifier regression passes, and its
+1,500-seed runtime property passes after the earlier 41 failures.
+
+The DNS integration passes with the test harness's nested Cargo build removed.
+Process tests now require explicitly prebuilt sibling products. Narrow gate
+selection, product selection, removal of the root XSHT dev dependency, and
+the shared musl linker contract are included. Timing speedups are not measured.
+
+The optimized scanner reproduces the archived start report over 306 sources,
+13 metrics, and 45 allowances exactly. The current production scan has zero
+manual payload calls, optional raw calls, and blanket allowance lines.
+Its one remaining wide wildcard has a compiled exhaustive replacement.
+The final structural recount remains pending. Source totals remain advisory.
+
+The current synthetic compiler probe records 38 XSH and 18 XSHT demanded
+matches and a successful combined check after isolated placeholder arms.
+The placeholders are not production code or runtime proof. Final source
+qualification and the original 15 manual-witness review remain required.
+
+Route lane `b85707e0` passes 226 tests in each mode and produces 74 authenticated
+receipts. Review still requires restoring the prepared-constant value
+assertion and retaining the nominal checked-error payload coverage after
+isolating repeated tag records. The validator remains strict.
+
+W9's corrected helper harness builds and lists exactly one parity test.
+The shared-import lint probe checks the helper once and reuses it once.
+Final W9 publication still needs the frozen 1,690-input, four-profile run.
+Six semantic review rows have supporting evidence. The remaining rows,
+normal and forced full-suite acceptance, generated docs, supplemental Linux
+checks, size, memory, and isolated performance gates remain open.
+
+Lean remains at 685 fragment roots across 89 owners. All 72 universal
+obligations are planned, with no source identity or conformance cases.
+
+## Earlier checkpoint — 2026-10-14 (`56079e577`, superseded)
 
 Consolidation remains active. Integration is on `master`; final acceptance is
 pending. Platform acceptance uses x86_64 Linux musl in the pinned image
