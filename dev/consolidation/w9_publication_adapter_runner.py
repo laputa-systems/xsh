@@ -9,6 +9,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 import w9_publication_adapter as adapter
@@ -115,6 +116,32 @@ def _prepare_reference_source(
     if runner.source_identity(clean_source) != (runner.REFERENCE_HEAD, REFERENCE_TREE):
         raise PublicationError("clean reference source clone identity differs from its pin")
     return clean_source
+
+
+def _require_scratch_overlay_identity(
+    scratch_root: pathlib.Path,
+    commit: str,
+    tree: str,
+    role: str,
+    runner,
+) -> None:
+    scratch_root = runner.real_directory(scratch_root, f"{role} adapter scratch source")
+    git_root = runner.real_directory(
+        runner.git_output(scratch_root, "rev-parse", "--show-toplevel"),
+        f"{role} adapter scratch git root",
+    )
+    if git_root != scratch_root:
+        raise PublicationError(f"{role} adapter scratch source root changed")
+    observed = (
+        runner.git_output(scratch_root, "rev-parse", "HEAD"),
+        runner.git_output(scratch_root, "rev-parse", "HEAD^{tree}"),
+    )
+    if observed != (commit, tree):
+        raise PublicationError(f"{role} adapter scratch source identity changed during build")
+    runner.require_only_parity_overlay(
+        scratch_root,
+        f"{role} scratch source changed outside its parity include",
+    )
 
 
 def derive_helper(
@@ -748,6 +775,47 @@ def _create_consolidation_directory(root: pathlib.Path, runner) -> pathlib.Path:
     return runner.real_directory(root / ".work/consolidation", "candidate consolidation directory")
 
 
+def _new_derived_helper_directory(root: pathlib.Path, runner) -> pathlib.Path:
+    consolidation = _create_consolidation_directory(root, runner)
+    attempt_directory = pathlib.Path(
+        tempfile.mkdtemp(prefix="w9-publication-adapter-v1-", dir=consolidation)
+    )
+    attempt_directory = runner.real_directory(attempt_directory, "new adapter helper attempt")
+    if not runner.under(attempt_directory, consolidation):
+        raise PublicationError("adapter helper attempt escaped candidate consolidation")
+    return attempt_directory / "derived"
+
+
+def _adapter_build_output_paths(
+    candidate_root: pathlib.Path,
+    adapter_helper: pathlib.Path,
+    role: str,
+    commit: str,
+    runner,
+) -> tuple[pathlib.Path, pathlib.Path]:
+    consolidation = _create_consolidation_directory(candidate_root, runner)
+    attempt_directory = runner.real_directory(
+        adapter_helper.parent.parent,
+        f"{role} adapter build attempt directory",
+    )
+    if (
+        not runner.under(attempt_directory, consolidation)
+        or adapter_helper != attempt_directory / "derived/w9-publication-adapter.rs"
+    ):
+        raise PublicationError(f"{role} adapter helper does not belong to its retained build attempt")
+    binary = runner.new_work_file_path(
+        attempt_directory / f"w9-publication-adapter-{role}-{commit[:12]}",
+        candidate_root,
+        f"{role} adapter harness",
+    )
+    receipt = runner.new_work_file_path(
+        attempt_directory / f"w9-publication-adapter-{role}-{commit[:12]}.receipt",
+        candidate_root,
+        f"{role} adapter build receipt",
+    )
+    return binary, receipt
+
+
 def _write_adapter_build_receipt(path: pathlib.Path, record: dict[str, str], runner) -> None:
     if set(record) != set(ADAPTER_BUILD_FIELDS):
         raise PublicationError("adapter build receipt fields differ")
@@ -1227,14 +1295,8 @@ def build_adapter_harness(
     )
     if runner.PINNED_IMAGE not in runner.read_regular_text(builder):
         raise PublicationError("pinned adapter build runner does not name the approved image")
-    consolidation = _create_consolidation_directory(candidate_root, runner)
-    binary_path = runner.new_work_file_path(
-        consolidation / f"w9-publication-adapter-{role}-{commit[:12]}", candidate_root, f"{role} adapter harness"
-    )
-    receipt_path = runner.new_work_file_path(
-        consolidation / f"w9-publication-adapter-{role}-{commit[:12]}.receipt",
-        candidate_root,
-        f"{role} adapter build receipt",
+    binary_path, receipt_path = _adapter_build_output_paths(
+        candidate_root, adapter_helper, role, commit, runner
     )
     scratch_parent = runner.candidate_scratch_parent(candidate_root)
     docker_environment = runner.local_docker_environment()
@@ -1282,9 +1344,7 @@ def build_adapter_harness(
         if result.returncode != 0:
             raise PublicationError(f"pinned {role} adapter harness build failed: {result.stderr.strip() or result.stdout.strip()}")
         scratch_binary = runner.cargo_integration_executable(result.stdout, scratch_root)
-        if runner.source_identity(scratch_root) != (commit, tree):
-            raise PublicationError(f"{role} source identity changed during adapter build")
-        runner.require_only_parity_overlay(scratch_root, f"{role} scratch source changed outside its parity include")
+        _require_scratch_overlay_identity(scratch_root, commit, tree, role, runner)
         if hashlib.sha256(runner.read_regular_bytes(scratch_tests)).hexdigest() != overlay_sha256:
             raise PublicationError(f"{role} parity overlay changed during adapter build")
         if hashlib.sha256(runner.read_regular_bytes(scratch_root / ".work/consolidation/w9-publication-adapter.rs")).hexdigest() != helper_sha256:
@@ -1338,7 +1398,7 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
     ):
         raise PublicationError("candidate source identity differs from its source receipt")
     runner.candidate_scratch_parent(candidate_root)
-    derived_directory = candidate_root / ".work/tmp/w9-publication-adapter-v1"
+    derived_directory = _new_derived_helper_directory(candidate_root, runner)
     adapter_helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
         output_directory=derived_directory,
         output_root=candidate_root,

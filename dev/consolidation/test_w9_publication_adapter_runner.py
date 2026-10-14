@@ -14,6 +14,55 @@ import w9_publication_adapter_runner as adapter_runner
 
 
 class AdapterRawOutcomeTests(unittest.TestCase):
+    def test_scratch_overlay_identity_accepts_only_the_recorded_source_change(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_parent = repository / ".work/tmp"
+        scratch_parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="w9-adapter-overlay-identity-", dir=scratch_parent) as scratch:
+            source_root = pathlib.Path(scratch)
+            tests_path = source_root / "tests/sema.rs"
+            tests_path.parent.mkdir()
+            tests_path.write_bytes(b"#[test]\nfn original_test() {}\n")
+            extra_source = source_root / "src/lib.rs"
+            extra_source.parent.mkdir()
+            extra_source.write_bytes(b"pub fn original() {}\n")
+            for command in (
+                ["git", "init", "--quiet", str(source_root)],
+                ["git", "-C", str(source_root), "config", "user.name", "Test"],
+                ["git", "-C", str(source_root), "config", "user.email", "test@example.invalid"],
+                ["git", "-C", str(source_root), "add", "tests/sema.rs", "src/lib.rs"],
+                ["git", "-C", str(source_root), "commit", "--quiet", "-m", "source"],
+            ):
+                subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            runner = adapter_runner._load_publication_runner(
+                repository / "dev/consolidation/w9-publication-run.py"
+            )
+            commit, tree = runner.source_identity(source_root)
+            tests_path.write_bytes(adapter_runner._adapter_overlay(tests_path.read_bytes(), runner))
+            adapter_runner._require_scratch_overlay_identity(
+                source_root, commit, tree, "candidate", runner
+            )
+
+            extra_source.write_bytes(b"pub fn unexpected() {}\n")
+            with self.assertRaisesRegex(
+                (adapter_runner.PublicationError, runner.PublicationError),
+                "outside its parity include",
+            ):
+                adapter_runner._require_scratch_overlay_identity(
+                    source_root, commit, tree, "candidate", runner
+                )
+            extra_source.write_bytes(b"pub fn original() {}\n")
+            subprocess.run(
+                ["git", "-C", str(source_root), "commit", "--quiet", "--allow-empty", "-m", "source drift"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            with self.assertRaisesRegex(adapter_runner.PublicationError, "source identity changed"):
+                adapter_runner._require_scratch_overlay_identity(
+                    source_root, commit, tree, "candidate", runner
+                )
+
     def test_reference_source_accepts_the_main_checkout_as_candidate(self):
         candidate = pathlib.Path("/checkout")
         reference = candidate / ".work/wt/w9-adapter-ref-e240"
@@ -152,6 +201,61 @@ class AdapterRawOutcomeTests(unittest.TestCase):
             self.assertIn("w9_hash_adapter_tree", source)
             self.assertNotIn("create_dir_all(outputdir)", owner)
             self.assertIn("w9_create_new_adapter_file", owner)
+
+    def test_retry_uses_a_new_retained_derived_helper_directory(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        case_root = pathlib.Path(tempfile.mkdtemp(prefix="w9-adapter-retry-", dir=scratch_root))
+        try:
+            first_directory = adapter_runner._new_derived_helper_directory(case_root, runner)
+            first_helper, first_hash, _, _ = adapter_runner.derive_helper(
+                output_directory=first_directory,
+                output_root=case_root,
+            )
+            first_contents = first_helper.read_bytes()
+            first_binary, first_receipt = adapter_runner._adapter_build_output_paths(
+                case_root,
+                first_helper,
+                "reference",
+                runner.REFERENCE_HEAD,
+                runner,
+            )
+            adapter_runner._write_new_file(first_binary, b"first binary", runner)
+            adapter_runner._write_new_file(first_receipt, b"first receipt", runner)
+
+            retry_directory = adapter_runner._new_derived_helper_directory(case_root, runner)
+            retry_helper, retry_hash, _, _ = adapter_runner.derive_helper(
+                output_directory=retry_directory,
+                output_root=case_root,
+            )
+            retry_binary, retry_receipt = adapter_runner._adapter_build_output_paths(
+                case_root,
+                retry_helper,
+                "reference",
+                runner.REFERENCE_HEAD,
+                runner,
+            )
+
+            self.assertNotEqual(first_directory, retry_directory)
+            self.assertEqual(first_directory.parent.parent, case_root / ".work/consolidation")
+            self.assertEqual(retry_directory.parent.parent, first_directory.parent.parent)
+            self.assertTrue(first_directory.is_dir())
+            self.assertTrue(retry_directory.is_dir())
+            self.assertNotEqual(first_binary, retry_binary)
+            self.assertNotEqual(first_receipt, retry_receipt)
+            self.assertEqual(first_binary.parent, first_directory.parent)
+            self.assertEqual(retry_binary.parent, retry_directory.parent)
+            self.assertEqual(first_binary.read_bytes(), b"first binary")
+            self.assertEqual(first_receipt.read_bytes(), b"first receipt")
+            self.assertEqual(first_helper.read_bytes(), first_contents)
+            self.assertEqual(len(first_hash), 64)
+            self.assertEqual(len(retry_hash), 64)
+        finally:
+            shutil.rmtree(case_root)
 
     def test_adapter_overlay_is_derived_from_clean_semantic_tests(self):
         repository = pathlib.Path(__file__).resolve().parents[2]
