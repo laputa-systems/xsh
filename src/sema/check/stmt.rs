@@ -2905,7 +2905,6 @@ impl Checker {
         copy_update: Option<CopyUpdateMistake>,
         discard_fix: bool,
     ) -> Type {
-        self.statement_expression_spans.insert(value);
         if actual.is_result() {
             self.reject_discarded_value(actual, statement, value, discard_fix, copy_update);
             if expr_ty_auto_propagates(actual) {
@@ -2914,6 +2913,7 @@ impl Checker {
                 return Type::Unit;
             }
         }
+        self.statement_expression_spans.insert(value);
         let rejected_bool = if let Some(source) = source {
             self.reject_bool_statement(source, actual, statement)
         } else {

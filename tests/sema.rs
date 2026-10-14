@@ -878,6 +878,36 @@ fn checker_records_value_and_statement_bool_positions() {
 }
 
 #[test]
+fn auto_propagated_result_unit_tail_is_not_a_statement_expression() {
+    use xsh::frontend::syntax::arena::ArenaStmtKind;
+
+    let source = "proc apply() [] -> Result[Unit] {}\nlet captured: Result[Unit] = try { apply() }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let (statement_span, expression_span) = parsed
+        .arena
+        .arena
+        .source_rows()
+        .stmt_ids(SourceId::new(0))
+        .find_map(|statement| {
+            let statement = parsed.arena.arena.stmt(statement);
+            let ArenaStmtKind::Expr(expression) = statement.kind else {
+                return None;
+            };
+            let expression_span = parsed.arena.arena.expr(expression).span;
+            (&source[expression_span.range()] == "apply()")
+                .then_some((statement.span, expression_span))
+        })
+        .expect("try tail call statement");
+
+    assert!(checked.propagating_statements.contains(&statement_span));
+    assert!(!checked.statement_expression_spans.contains(&expression_span));
+}
+
+#[test]
 fn checker_guarded_control_proofs_agree_on_full_and_compact_routes() {
     use xsh::frontend::check::Type;
     use xsh::frontend::syntax::arena::{ArenaExprKind, ExprId};
