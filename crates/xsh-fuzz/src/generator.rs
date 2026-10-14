@@ -2732,13 +2732,13 @@ mod tests {
         )
         .expect("finite signed-zero witnesses are evaluable");
 
-        assert!(generated.source.contains("assert (0.0 == -0.0) == true"));
-        assert!(generated.source.contains("assert (0.0 != -0.0) == false"));
+        assert!(generated.source.contains("assert 0.0 == -0.0 == true"));
+        assert!(generated.source.contains("assert 0.0 != -0.0 == false"));
         assert!(generated
             .source
-            .contains("assert ([[0.0]] == [[-0.0]]) == true"));
+            .contains("assert [[0.0]] == [[-0.0]] == true"));
         assert!(generated
             .source
-            .contains("assert ([[0.0]] != [[-0.0]]) == false"));
+            .contains("assert [[0.0]] != [[-0.0]] == false"));
     }
 }
