@@ -1372,7 +1372,7 @@ fn native_test_host(
                 .with_span(request.span)
         })?;
     }
-    fs::write(&script_path, request.source).map_err(|error| {
+    fs::write(&script_path, request.source.as_bytes()).map_err(|error| {
         RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
             .with_span(request.span)
     })?;
@@ -1442,14 +1442,14 @@ fn native_test_host(
     if let Some(module_path) = module_path {
         command.env(XSH_MODULE_PATH, module_path);
     }
-    let route_witness_harness_prefix =
-        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX;
-    command.env_remove(format!("{route_witness_harness_prefix}_TEST_ID"));
-    command.env_remove(format!("{route_witness_harness_prefix}_OUTPUT_DIR"));
     for (name, value) in &request.env {
         let value: &std::ffi::OsStr = std::os::unix::ffi::OsStrExt::from_bytes(value);
         command.env(name, value);
     }
+    let route_witness_harness_prefix =
+        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX;
+    command.env_remove(format!("{route_witness_harness_prefix}_TEST_ID"));
+    command.env_remove(format!("{route_witness_harness_prefix}_OUTPUT_DIR"));
     if request.force_frames {
         command.env(NATIVE_TEST_FORCE_FRAMES_ENV, "1");
     } else {
@@ -1463,7 +1463,16 @@ fn native_test_host(
         command.stdin(Stdio::piped());
     }
 
-    if request.attach_route_witness_transport(&mut command) {
+    let has_route_witness_transport = request
+        .attach_route_witness_transport(&mut command)
+        .map_err(|error| {
+            RuntimeError::new(
+                native_test_error_kind(request.kind),
+                format!("failed to attach route-witness descriptor: {error}"),
+            )
+            .with_span(request.span)
+        })?;
+    if has_route_witness_transport {
         if request.kind != NativeTestRunKind::Xsh || faked {
             return Err(RuntimeError::new(
                 native_test_error_kind(request.kind),

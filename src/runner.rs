@@ -484,7 +484,10 @@ fn prepare_entry_source(
     let byte_arguments = byte_argument_main(&arena, &check.parameter_types);
     let mut evaluator = evaluator_with_script_arguments(
         &options.args, byte_arguments, sources, script_command_name(&options.script),
-    ).map_err(RunAttempt::Output)?.with_module_roots(module_roots.clone());
+    )
+    .map_err(RunAttempt::Output)?
+    .with_module_roots(module_roots.clone())
+    .without_harness_control_env();
     if let Some(capture) = &route_witness {
         evaluator.install_route_witness_sink(capture.sink());
     }

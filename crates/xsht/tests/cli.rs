@@ -788,7 +788,7 @@ fn native_test_route_witness_descriptor_survives_script_environment_values() {
     let root = route_witness_tempdir();
     let tests = root.path().join("tests");
     fs::create_dir(&tests).expect("create native test root");
-    let route_prefix = "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS";
+    let route_prefix = xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX;
     let harness_prefix =
         xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX;
     let test_id_env = format!("{harness_prefix}_TEST_ID");
@@ -807,12 +807,24 @@ fn native_test_route_witness_descriptor_survives_script_environment_values() {
          assert !(\"{harness_prefix}_OUTPUT_DIR\" in inherited.stdout)\n\
          let empty: Map[Str, Int] = {{}}\nassert empty.len() == 0\nprint \"same\"\n"
     );
+    let child_source = format!(
+        "assert env.get_or(\"XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER\", \"absent\")? == \"absent\"\n{child_source}"
+    );
+    let child_source = format!(
+        "{child_source}assert !(\"XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER\" in inherited.stdout)\n"
+    );
     let fixture = format!(
         r#"test captured {{ |ctx|
+  assert env.get_or("{harness_prefix}_TEST_ID", "absent")? == "absent"
+  assert env.get_or("{harness_prefix}_OUTPUT_DIR", "absent")? == "absent"
+  assert env.get_or("XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER", "absent")? == "absent"
   let output = test.run_xsh(ctx, r"""{child_source}""", env: {{
     {route_prefix}_TRANSPORT_TEST_ID: "forged",
     {route_prefix}_TRANSPORT_OUTPUT_DIR: "forged",
     {route_prefix}_TRANSPORT_SOURCE_HASH: "forged",
+    {harness_prefix}_TEST_ID: "forged",
+    {harness_prefix}_OUTPUT_DIR: "forged",
+    XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER: "forged",
   }})?
   assert output.success, output.stderr
   assert output.stdout_bytes == b"same\n"
@@ -820,10 +832,16 @@ fn native_test_route_witness_descriptor_survives_script_environment_values() {
 }}
 
 test unobserved {{ |ctx|
+  assert env.get_or("{harness_prefix}_TEST_ID", "absent")? == "absent"
+  assert env.get_or("{harness_prefix}_OUTPUT_DIR", "absent")? == "absent"
+  assert env.get_or("XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER", "absent")? == "absent"
   let output = test.run_xsh(ctx, r"""{child_source}""", env: {{
     {route_prefix}_TRANSPORT_TEST_ID: "forged",
     {route_prefix}_TRANSPORT_OUTPUT_DIR: "forged",
     {route_prefix}_TRANSPORT_SOURCE_HASH: "forged",
+    {harness_prefix}_TEST_ID: "forged",
+    {harness_prefix}_OUTPUT_DIR: "forged",
+    XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER: "forged",
   }})?
   assert output.success, output.stderr
   assert output.stdout_bytes == b"same\n"

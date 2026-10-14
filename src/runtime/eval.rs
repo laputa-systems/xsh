@@ -201,7 +201,7 @@ pub enum NativeTestRunKind {
 }
 
 #[cfg(feature = "native-tests")]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NativeTestRunRequest {
     pub kind: NativeTestRunKind,
     pub script_path: PathValue,
@@ -219,8 +219,6 @@ pub struct NativeTestRunRequest {
     /// under the same fakes.
     pub linux_fake: Option<LinuxFake>,
     pub unix_fake: Option<UnixFake>,
-    #[doc(hidden)]
-    route_witness_transport: Option<route_witness::NativeTestRouteWitnessTransport>,
     /// The requesting test's cancellation, so the host can stop the child
     /// when that test times out.
     pub cancellation: Option<TestCancellation>,
@@ -231,12 +229,11 @@ pub struct NativeTestRunRequest {
 impl NativeTestRunRequest {
     /// Attaches the one-use route context to the direct child command.
     #[doc(hidden)]
-    pub fn attach_route_witness_transport(&self, command: &mut std::process::Command) -> bool {
-        let Some(transport) = &self.route_witness_transport else {
-            return false;
-        };
-        transport.attach_to(command);
-        true
+    pub fn attach_route_witness_transport(
+        &self,
+        command: &mut std::process::Command,
+    ) -> std::io::Result<bool> {
+        route_witness::attach_active_transport(command)
     }
 }
 
@@ -2580,10 +2577,16 @@ impl RuntimeEnv {
 
     fn get_owned(&self, key: &[u8]) -> Option<Vec<u8>> {
         match self {
+            Self::Inherited if route_witness::is_harness_control_env_name_bytes(key) => None,
             Self::Inherited => std::env::var_os(OsStr::from_bytes(key))
                 .map(|value| value.as_os_str().as_bytes().to_vec()),
             Self::Snapshot(env) => env.get(key).cloned(),
         }
+    }
+
+    fn remove_harness_control_env(&mut self) {
+        self.snapshot_mut()
+            .retain(|name, _| !route_witness::is_harness_control_env_name_bytes(name));
     }
 
     fn insert(&mut self, name: Vec<u8>, value: Vec<u8>) {
@@ -2860,6 +2863,7 @@ impl PreparedTestProgram {
                 for (name, value) in env_overlay {
                     evaluator = evaluator.with_env_var(name, value);
                 }
+                evaluator = evaluator.without_harness_control_env();
                 if trace_enabled {
                     evaluator = evaluator.with_tracing();
                     evaluator.eval_installed_indexed_test_inner(
@@ -2930,6 +2934,11 @@ impl Evaluator {
         sink: route_witness::RouteWitnessSink,
     ) {
         self.route_witness_sink = Some(sink);
+    }
+
+    pub(crate) fn without_harness_control_env(mut self) -> Self {
+        self.env.remove_harness_control_env();
+        self
     }
 
     pub fn new(argv: Vec<String>) -> Self {
@@ -7010,10 +7019,10 @@ pub(super) fn path_with_ext(path: &PathValue, ext: &str) -> Result<PathValue, Ru
 fn initial_env() -> BTreeMap<Vec<u8>, Vec<u8>> {
     let mut env = BTreeMap::new();
     for (name, value) in std::env::vars_os() {
-        env.insert(
-            name.as_os_str().as_bytes().to_vec(),
-            value.as_os_str().as_bytes().to_vec(),
-        );
+        let name = name.as_os_str().as_bytes().to_vec();
+        if !route_witness::is_harness_control_env_name_bytes(&name) {
+            env.insert(name, value.as_os_str().as_bytes().to_vec());
+        }
     }
     env
 }
@@ -7977,6 +7986,29 @@ mod runtime_env_route_witness_tests {
         let value = b"ordinary-value".to_vec();
         let env = RuntimeEnv::from_snapshot(BTreeMap::from([(name.clone(), value.clone())]));
         assert_eq!(env.get_owned(&name), Some(value));
+    }
+
+    #[test]
+    fn exact_harness_control_names_are_removed_after_environment_overlays() {
+        let control_names = [
+            b"XSHT_INTERNAL_ROUTE_WITNESS_TEST_ID".to_vec(),
+            b"XSHT_INTERNAL_ROUTE_WITNESS_OUTPUT_DIR".to_vec(),
+            b"XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER".to_vec(),
+        ];
+        let ordinary_name = b"XSHT_INTERNAL_ROUTE_WITNESS_EXTRA".to_vec();
+        let mut env = RuntimeEnv::from_snapshot(
+            control_names
+                .iter()
+                .cloned()
+                .map(|name| (name, b"hidden".to_vec()))
+                .chain([(ordinary_name.clone(), b"visible".to_vec())])
+                .collect(),
+        );
+        env.remove_harness_control_env();
+        for name in control_names {
+            assert_eq!(env.get_owned(&name), None);
+        }
+        assert_eq!(env.get_owned(&ordinary_name), Some(b"visible".to_vec()));
     }
 }
 

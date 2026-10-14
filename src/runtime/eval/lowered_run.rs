@@ -408,20 +408,21 @@ impl Evaluator {
                 .with_span(span));
             }
         };
-        let value = host(NativeTestRunRequest {
-            kind,
-            script_path,
-            source: source.to_string(),
-            tool_args: tool_args.to_vec(),
-            script_args: script_args.to_vec(),
-            env: env.clone(),
-            force_frames: self.force_frames,
-            stdin: stdin.to_vec(),
-            linux_fake: self.linux_fake.as_deref().cloned(),
-            unix_fake: self.unix_fake.as_deref().cloned(),
-            route_witness_transport,
-            cancellation: self.test_cancellation.clone(),
-            span,
+        let value = super::route_witness::with_transport(route_witness_transport, || {
+            host(NativeTestRunRequest {
+                kind,
+                script_path,
+                source: source.to_string(),
+                tool_args: tool_args.to_vec(),
+                script_args: script_args.to_vec(),
+                env: env.clone(),
+                force_frames: self.force_frames,
+                stdin: stdin.to_vec(),
+                linux_fake: self.linux_fake.as_deref().cloned(),
+                unix_fake: self.unix_fake.as_deref().cloned(),
+                cancellation: self.test_cancellation.clone(),
+                span,
+            })
         })?;
         if let Some(output_dir) = route_witness_output
             && matches!(

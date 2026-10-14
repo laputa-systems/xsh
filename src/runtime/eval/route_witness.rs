@@ -14,6 +14,7 @@
 //! paths, and cancellation handles are not substitutes.
 
 use super::indexed::full::FullTag;
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -34,11 +35,19 @@ pub(crate) const INVOCATION_OUTPUT_DIR_OVERLAY: &[u8] =
 
 const ARTIFACT_FILE: &str = "route-witness.json";
 const ARTIFACT_VERSION: u64 = 1;
+pub(crate) const ENV_PREFIX: &str = "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS";
 pub(crate) const HARNESS_ENV_PREFIX: &str = "XSHT_INTERNAL_ROUTE_WITNESS";
+const TRANSPORT_MARKER_ENV: &str = "XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER";
+const TRANSPORT_MARKER_ENV_BYTES: &[u8] = TRANSPORT_MARKER_ENV.as_bytes();
 const TRANSPORT_MAGIC: &[u8; 8] = b"XSHRWT01";
+const TRANSPORT_NONCE_BYTES: usize = 16;
 const TRANSPORT_SOURCE_HASH_BYTES: usize = 64;
 const MAX_TRANSPORT_BYTES: usize = 64 * 1024;
-const ROUTE_WITNESS_FD: RawFd = 198;
+const FIRST_INHERITABLE_FD: RawFd = 3;
+
+thread_local! {
+    static ACTIVE_TRANSPORTS: RefCell<Vec<Option<NativeTestRouteWitnessTransport>>> = const { RefCell::new(Vec::new()) };
+}
 
 /// The exact outer native-test invocation and its private output directory.
 /// This value travels only through harness-owned evaluator state.
@@ -65,22 +74,17 @@ pub(crate) struct ChildCaptureContext {
 
 impl ChildCaptureContext {
     pub(crate) fn from_inherited_descriptor() -> Result<Option<Self>, String> {
-        let flags = unsafe { libc::fcntl(ROUTE_WITNESS_FD, libc::F_GETFD) };
-        if flags == -1 {
-            let error = std::io::Error::last_os_error();
-            if error.raw_os_error() == Some(libc::EBADF) {
-                return Ok(None);
-            }
-            return Err(format!("failed to inspect route-witness descriptor: {error}"));
-        }
-        // SAFETY: a successful F_GETFD proves descriptor 198 is open. The
-        // runner consumes this reserved descriptor at startup and becomes its
-        // sole owner before reading any script-controlled input.
-        let fd = unsafe { OwnedFd::from_raw_fd(ROUTE_WITNESS_FD) };
-        Self::from_owned_descriptor(fd).map(Some)
+        let marker = std::env::var_os(TRANSPORT_MARKER_ENV);
+        let Some((fd, nonce)) = inherited_transport_descriptor(marker.as_deref())? else {
+            return Ok(None);
+        };
+        Self::from_owned_descriptor(fd, &nonce).map(Some)
     }
 
-    fn from_owned_descriptor(fd: OwnedFd) -> Result<Self, String> {
+    fn from_owned_descriptor(
+        fd: OwnedFd,
+        expected_nonce: &[u8; TRANSPORT_NONCE_BYTES],
+    ) -> Result<Self, String> {
         let file = std::fs::File::from(fd);
         let metadata = file
             .metadata()
@@ -99,7 +103,7 @@ impl ChildCaptureContext {
         if bytes.len() > MAX_TRANSPORT_BYTES {
             return Err("route-witness descriptor exceeds the transport limit".to_string());
         }
-        let (test_id, output_dir, source_hash) = decode_transport(&bytes)?;
+        let (test_id, output_dir, source_hash) = decode_transport(&bytes, expected_nonce)?;
         Ok(Self {
             test_id,
             output_dir,
@@ -123,12 +127,12 @@ impl ChildCaptureContext {
     }
 }
 
-/// Owns the one-use context descriptor until the direct child has been
-/// spawned and waited. Descriptor 198 is reserved for this handoff in that
-/// child.
+/// Owns the one-use context descriptor for one synchronous host callback.
+/// A per-handoff nonce authenticates the inherited descriptor.
 #[derive(Debug)]
 pub(crate) struct NativeTestRouteWitnessTransport {
     fd: OwnedFd,
+    nonce: [u8; TRANSPORT_NONCE_BYTES],
 }
 
 impl NativeTestRouteWitnessTransport {
@@ -155,9 +159,10 @@ impl NativeTestRouteWitnessTransport {
         let output_dir_len = u32::try_from(output_dir_bytes.len()).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "output path is too long")
         })?;
+        let nonce = random_nonce()?;
         let payload_len = TRANSPORT_MAGIC
             .len()
-            .checked_add(8 + TRANSPORT_SOURCE_HASH_BYTES)
+            .checked_add(TRANSPORT_NONCE_BYTES + 8 + TRANSPORT_SOURCE_HASH_BYTES)
             .and_then(|length| length.checked_add(test_id.len()))
             .and_then(|length| length.checked_add(output_dir_bytes.len()))
             .ok_or_else(|| {
@@ -175,6 +180,7 @@ impl NativeTestRouteWitnessTransport {
         let source_hash = source_sha256(source);
         let mut payload = Vec::with_capacity(payload_len);
         payload.extend_from_slice(TRANSPORT_MAGIC);
+        payload.extend_from_slice(&nonce);
         payload.extend_from_slice(&test_id_len.to_be_bytes());
         payload.extend_from_slice(&output_dir_len.to_be_bytes());
         payload.extend_from_slice(source_hash.as_bytes());
@@ -185,28 +191,166 @@ impl NativeTestRouteWitnessTransport {
         file.flush()?;
         file.seek(SeekFrom::Start(0))?;
         Ok(Self {
-            fd: duplicate_above_reserved_fd(file.as_raw_fd())?,
+            fd: duplicate_cloexec_fd(file.as_raw_fd())?,
+            nonce,
         })
     }
 
-    /// Adds the descriptor handoff to a command. The caller keeps this owner
-    /// alive until spawn has completed so the pre-exec source descriptor stays
-    /// valid.
-    pub(crate) fn attach_to(&self, command: &mut Command) {
-        let source_fd = self.fd.as_raw_fd();
-        debug_assert!(source_fd > ROUTE_WITNESS_FD);
-        // SAFETY: the closure only calls async-signal-safe `dup2`; `self` owns
-        // source_fd for the whole spawn, and descriptor 198 is reserved for
-        // this internal child handoff and may be replaced in that child.
+    fn attach_to(&self, command: &mut Command) -> std::io::Result<()> {
+        let child_fd = duplicate_cloexec_fd(self.fd.as_raw_fd())?;
+        let child_fd_number = child_fd.as_raw_fd();
+        command.env(
+            TRANSPORT_MARKER_ENV,
+            format!("{child_fd_number}:{}", encode_nonce(&self.nonce)),
+        );
+        // SAFETY: `fcntl(F_GETFD/F_SETFD)` only inspects and changes the
+        // descriptor flag in the forked child. The closure owns child_fd until
+        // spawn completes, and F_SETFD clears close-on-exec only in that child.
         unsafe {
             command.pre_exec(move || {
-                if libc::dup2(source_fd, ROUTE_WITNESS_FD) == -1 {
+                let flags = libc::fcntl(child_fd.as_raw_fd(), libc::F_GETFD);
+                if flags == -1 {
+                    Err(std::io::Error::last_os_error())
+                } else if libc::fcntl(
+                    child_fd.as_raw_fd(),
+                    libc::F_SETFD,
+                    flags & !libc::FD_CLOEXEC,
+                ) == -1
+                {
                     Err(std::io::Error::last_os_error())
                 } else {
                     Ok(())
                 }
             });
         }
+        Ok(())
+    }
+}
+
+struct ActiveTransportGuard;
+
+impl Drop for ActiveTransportGuard {
+    fn drop(&mut self) {
+        ACTIVE_TRANSPORTS.with(|transports| {
+            transports.borrow_mut().pop();
+        });
+    }
+}
+
+/// Keeps the descriptor available only while the evaluator's synchronous
+/// native-test host callback runs.
+pub(crate) fn with_transport<T>(
+    transport: Option<NativeTestRouteWitnessTransport>,
+    callback: impl FnOnce() -> T,
+) -> T {
+    ACTIVE_TRANSPORTS.with(|transports| transports.borrow_mut().push(transport));
+    let _guard = ActiveTransportGuard;
+    callback()
+}
+
+pub(crate) fn attach_active_transport(command: &mut Command) -> std::io::Result<bool> {
+    command.env_remove(TRANSPORT_MARKER_ENV);
+    ACTIVE_TRANSPORTS.with(|transports| {
+        let transports = transports.borrow();
+        let Some(Some(transport)) = transports.last() else {
+            return Ok(false);
+        };
+        transport.attach_to(command)?;
+        Ok(true)
+    })
+}
+
+pub(crate) fn is_harness_control_env_name_bytes(name: &[u8]) -> bool {
+    let Some(suffix) = name.strip_prefix(HARNESS_ENV_PREFIX.as_bytes()) else {
+        return name == TRANSPORT_MARKER_ENV_BYTES;
+    };
+    suffix == b"_TEST_ID" || suffix == b"_OUTPUT_DIR"
+}
+
+fn inherited_transport_descriptor(
+    marker: Option<&std::ffi::OsStr>,
+) -> Result<Option<(OwnedFd, [u8; TRANSPORT_NONCE_BYTES])>, String> {
+    let Some(marker) = marker else {
+        return Ok(None);
+    };
+    let marker = marker
+        .to_str()
+        .ok_or_else(|| "route-witness descriptor marker is not UTF-8".to_string())?;
+    let (fd, nonce) = marker
+        .split_once(':')
+        .ok_or_else(|| "route-witness descriptor marker is malformed".to_string())?;
+    let fd: RawFd = fd
+        .parse()
+        .map_err(|_| "route-witness descriptor marker has an invalid fd".to_string())?;
+    if fd < FIRST_INHERITABLE_FD {
+        return Err("route-witness descriptor marker has a reserved fd".to_string());
+    }
+    let nonce = decode_nonce(nonce)
+        .ok_or_else(|| "route-witness descriptor marker has an invalid nonce".to_string())?;
+
+    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(fd, metadata.as_mut_ptr()) } == -1 {
+        return Err(format!(
+            "failed to inspect route-witness descriptor: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: successful fstat initialized the stat structure.
+    let metadata = unsafe { metadata.assume_init() };
+    if metadata.st_mode & libc::S_IFMT != libc::S_IFREG
+        || metadata.st_size < (TRANSPORT_MAGIC.len() + TRANSPORT_NONCE_BYTES) as libc::off_t
+    {
+        return Ok(None);
+    }
+    let mut header = [0u8; TRANSPORT_MAGIC.len() + TRANSPORT_NONCE_BYTES];
+    let read = unsafe {
+        libc::pread(
+            fd,
+            header.as_mut_ptr().cast(),
+            header.len(),
+            0,
+        )
+    };
+    if read != header.len() as libc::ssize_t
+        || &header[..TRANSPORT_MAGIC.len()] != TRANSPORT_MAGIC
+        || header[TRANSPORT_MAGIC.len()..] != nonce
+    {
+        return Ok(None);
+    }
+
+    // SAFETY: the marker nonce and descriptor header authenticate this fd as
+    // the one installed by the harness. The caller now owns it and consumes it.
+    Ok(Some((unsafe { OwnedFd::from_raw_fd(fd) }, nonce)))
+}
+
+fn random_nonce() -> std::io::Result<[u8; TRANSPORT_NONCE_BYTES]> {
+    let mut nonce = [0; TRANSPORT_NONCE_BYTES];
+    fs::File::open("/dev/urandom")?.read_exact(&mut nonce)?;
+    Ok(nonce)
+}
+
+fn encode_nonce(nonce: &[u8; TRANSPORT_NONCE_BYTES]) -> String {
+    nonce.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn decode_nonce(encoded: &str) -> Option<[u8; TRANSPORT_NONCE_BYTES]> {
+    if encoded.len() != TRANSPORT_NONCE_BYTES * 2 {
+        return None;
+    }
+    let mut nonce = [0; TRANSPORT_NONCE_BYTES];
+    for (index, pair) in encoded.as_bytes().chunks_exact(2).enumerate() {
+        let high = hex_digit(pair[0])?;
+        let low = hex_digit(pair[1])?;
+        nonce[index] = high << 4 | low;
+    }
+    Some(nonce)
+}
+
+fn hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
     }
 }
 
@@ -300,26 +444,29 @@ pub(crate) fn take_invocation_context(
     Ok((context, script_overlay))
 }
 
-fn duplicate_above_reserved_fd(source_fd: RawFd) -> std::io::Result<OwnedFd> {
+fn duplicate_cloexec_fd(source_fd: RawFd) -> std::io::Result<OwnedFd> {
     // SAFETY: source_fd is borrowed from a live File, and F_DUPFD_CLOEXEC
     // returns a new descriptor at or above the requested minimum.
     let duplicated_fd = unsafe {
         libc::fcntl(
             source_fd,
             libc::F_DUPFD_CLOEXEC,
-            ROUTE_WITNESS_FD + 1,
+            FIRST_INHERITABLE_FD,
         )
     };
     if duplicated_fd == -1 {
         return Err(std::io::Error::last_os_error());
     }
-    debug_assert!(duplicated_fd > ROUTE_WITNESS_FD);
+    debug_assert!(duplicated_fd >= FIRST_INHERITABLE_FD);
     // SAFETY: fcntl returned a new descriptor owned by this function.
     Ok(unsafe { OwnedFd::from_raw_fd(duplicated_fd) })
 }
 
-fn decode_transport(bytes: &[u8]) -> Result<(String, PathBuf, String), String> {
-    let header_len = TRANSPORT_MAGIC.len() + 8 + TRANSPORT_SOURCE_HASH_BYTES;
+fn decode_transport(
+    bytes: &[u8],
+    expected_nonce: &[u8; TRANSPORT_NONCE_BYTES],
+) -> Result<(String, PathBuf, String), String> {
+    let header_len = TRANSPORT_MAGIC.len() + TRANSPORT_NONCE_BYTES + 8 + TRANSPORT_SOURCE_HASH_BYTES;
     if bytes.len() > MAX_TRANSPORT_BYTES {
         return Err("route-witness descriptor exceeds the transport limit".to_string());
     }
@@ -329,7 +476,12 @@ fn decode_transport(bytes: &[u8]) -> Result<(String, PathBuf, String), String> {
     if &bytes[..TRANSPORT_MAGIC.len()] != TRANSPORT_MAGIC {
         return Err("route-witness descriptor has an invalid header".to_string());
     }
-    let test_id_len_at = TRANSPORT_MAGIC.len();
+    let nonce_start = TRANSPORT_MAGIC.len();
+    let nonce_end = nonce_start + TRANSPORT_NONCE_BYTES;
+    if &bytes[nonce_start..nonce_end] != expected_nonce {
+        return Err("route-witness descriptor marker does not match its envelope".to_string());
+    }
+    let test_id_len_at = nonce_end;
     let output_dir_len_at = test_id_len_at + 4;
     let test_id_len = u32::from_be_bytes(
         bytes[test_id_len_at..test_id_len_at + 4]
@@ -594,6 +746,7 @@ impl RouteWitnessSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::fd::IntoRawFd;
 
     fn route_witness_tempdir() -> tempfile::TempDir {
         let scratch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
@@ -689,6 +842,10 @@ mod tests {
         file.into()
     }
 
+    fn descriptor_marker(fd: RawFd, nonce: &[u8; TRANSPORT_NONCE_BYTES]) -> String {
+        format!("{fd}:{}", encode_nonce(nonce))
+    }
+
     #[test]
     fn descriptor_transport_round_trips_and_checks_the_loaded_source() {
         let directory = route_witness_tempdir();
@@ -699,7 +856,14 @@ mod tests {
             source,
         )
         .expect("prepare descriptor");
-        let context = ChildCaptureContext::from_owned_descriptor(transport.fd)
+        let fd = duplicate_cloexec_fd(transport.fd.as_raw_fd())
+            .expect("duplicate test transport");
+        let raw_fd = fd.into_raw_fd();
+        let marker = descriptor_marker(raw_fd, &transport.nonce);
+        let (fd, nonce) = inherited_transport_descriptor(Some(std::ffi::OsStr::new(&marker)))
+            .expect("authenticate descriptor")
+            .expect("descriptor marker matches");
+        let context = ChildCaptureContext::from_owned_descriptor(fd, &nonce)
             .expect("decode descriptor");
         assert!(context.validate_source(b"different source").is_err());
 
@@ -709,7 +873,14 @@ mod tests {
             source,
         )
         .expect("prepare second descriptor");
-        let capture = ChildCaptureContext::from_owned_descriptor(transport.fd)
+        let fd = duplicate_cloexec_fd(transport.fd.as_raw_fd())
+            .expect("duplicate second test transport");
+        let raw_fd = fd.into_raw_fd();
+        let marker = descriptor_marker(raw_fd, &transport.nonce);
+        let (fd, nonce) = inherited_transport_descriptor(Some(std::ffi::OsStr::new(&marker)))
+            .expect("authenticate second descriptor")
+            .expect("descriptor marker matches");
+        let capture = ChildCaptureContext::from_owned_descriptor(fd, &nonce)
             .expect("decode descriptor")
             .validate_source(source)
             .expect("validate source");
@@ -720,16 +891,22 @@ mod tests {
     #[test]
     fn invalid_short_and_oversized_descriptors_fail_closed_and_close_the_fd() {
         let mut oversized = vec![b'x'; MAX_TRANSPORT_BYTES + 1];
-        let mut short = vec![0; TRANSPORT_MAGIC.len() + 8 + TRANSPORT_SOURCE_HASH_BYTES - 1];
-        let mut invalid_header = vec![0; TRANSPORT_MAGIC.len() + 8 + TRANSPORT_SOURCE_HASH_BYTES];
+        let header_len = TRANSPORT_MAGIC.len()
+            + TRANSPORT_NONCE_BYTES
+            + 8
+            + TRANSPORT_SOURCE_HASH_BYTES;
+        let mut short = vec![0; header_len - 1];
+        let mut invalid_header = vec![0; header_len];
         invalid_header[..TRANSPORT_MAGIC.len()].copy_from_slice(b"BADMAGIC");
         let mut invalid_hash = Vec::new();
         invalid_hash.extend_from_slice(TRANSPORT_MAGIC);
+        invalid_hash.extend_from_slice(&[0; TRANSPORT_NONCE_BYTES]);
         invalid_hash.extend_from_slice(&0u32.to_be_bytes());
         invalid_hash.extend_from_slice(&0u32.to_be_bytes());
         invalid_hash.extend_from_slice(&[b'A'; TRANSPORT_SOURCE_HASH_BYTES]);
         let mut trailing = Vec::new();
         trailing.extend_from_slice(TRANSPORT_MAGIC);
+        trailing.extend_from_slice(&[0; TRANSPORT_NONCE_BYTES]);
         trailing.extend_from_slice(&0u32.to_be_bytes());
         trailing.extend_from_slice(&0u32.to_be_bytes());
         trailing.extend_from_slice(&[b'a'; TRANSPORT_SOURCE_HASH_BYTES]);
@@ -740,9 +917,43 @@ mod tests {
         for bytes in [oversized, short, invalid_header, invalid_hash, trailing] {
             let fd = owned_descriptor(&bytes);
             let raw = fd.as_raw_fd();
-            assert!(ChildCaptureContext::from_owned_descriptor(fd).is_err());
+            assert!(ChildCaptureContext::from_owned_descriptor(fd, &[0; TRANSPORT_NONCE_BYTES]).is_err());
             assert_eq!(unsafe { libc::fcntl(raw, libc::F_GETFD) }, -1);
         }
+    }
+
+    #[test]
+    fn unmarked_inherited_fd_198_is_not_inspected_or_consumed() {
+        let unrelated = owned_descriptor(b"ordinary inherited descriptor");
+        let duplicate = unsafe {
+            libc::fcntl(
+                unrelated.as_raw_fd(),
+                libc::F_DUPFD_CLOEXEC,
+                198,
+            )
+        };
+        assert_ne!(duplicate, -1);
+        let _duplicate_owner = unsafe { OwnedFd::from_raw_fd(duplicate) };
+        let before_flags = unsafe { libc::fcntl(198, libc::F_GETFD) };
+        let before_offset = unsafe { libc::lseek(198, 0, libc::SEEK_CUR) };
+        assert!(inherited_transport_descriptor(None)
+            .expect("an absent marker is normal")
+            .is_none());
+        assert_eq!(unsafe { libc::fcntl(198, libc::F_GETFD) }, before_flags);
+        assert_eq!(unsafe { libc::lseek(198, 0, libc::SEEK_CUR) }, before_offset);
+    }
+
+    #[test]
+    fn mismatched_descriptor_marker_leaves_an_unrelated_fd_untouched() {
+        let fd = owned_descriptor(b"ordinary inherited descriptor");
+        let raw = fd.as_raw_fd();
+        let before = unsafe { libc::lseek(raw, 0, libc::SEEK_CUR) };
+        let marker = descriptor_marker(raw, &[0xff; TRANSPORT_NONCE_BYTES]);
+        assert!(inherited_transport_descriptor(Some(std::ffi::OsStr::new(&marker)))
+            .expect("a marker mismatch is unrelated")
+            .is_none());
+        assert!(unsafe { libc::fcntl(raw, libc::F_GETFD) } != -1);
+        assert_eq!(unsafe { libc::lseek(raw, 0, libc::SEEK_CUR) }, before);
     }
 
     #[test]

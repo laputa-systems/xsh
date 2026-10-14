@@ -195,7 +195,10 @@ fn command_invocation(command: &CommandSpec) -> HostResult<ProcessInvocation> {
     } else {
         let mut env = BTreeMap::new();
         for (name, value) in std::env::vars_os() {
-            env.insert(os_bytes(&name)?, os_bytes(&value)?);
+            let name = os_bytes(&name)?;
+            if !crate::runtime::eval::route_witness::is_harness_control_env_name_bytes(&name) {
+                env.insert(name, os_bytes(&value)?);
+            }
         }
         env
     };
@@ -208,6 +211,9 @@ fn command_invocation(command: &CommandSpec) -> HostResult<ProcessInvocation> {
                 "env-name",
                 "environment names cannot be empty or contain `=`",
             ));
+        }
+        if crate::runtime::eval::route_witness::is_harness_control_env_name_bytes(&name_bytes) {
+            continue;
         }
         env.insert(name_bytes.clone(), value_bytes.clone());
         env_overlay.insert(name_bytes, value_bytes);
