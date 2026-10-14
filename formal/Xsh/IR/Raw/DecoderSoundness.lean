@@ -364,6 +364,12 @@ private def sampleSchema : Schema := ⟨#[some 0, none, some 2]⟩
 private def sampleTag : Word32 := ⟨2, by decide⟩
 private def malformedWidthRow : List Word32 := [sampleTag, oneWord]
 
+/-- The finite schema decoder accepts a concrete row whose ordinal and width are declared. -/
+theorem finite_schema_accepts_declared_sample_row :
+    decode? sampleSchema [sampleTag, oneWord, zeroWord] =
+      some ⟨sampleTag, [oneWord, zeroWord]⟩ := by
+  decide
+
 /-- A schema width check rejects a malformed row accepted by the guard-dropping mutation. -/
 theorem finite_schema_rejects_wrong_width_mutation_accepts :
     decode? sampleSchema malformedWidthRow = none ∧
