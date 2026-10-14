@@ -21091,17 +21091,17 @@ pure selected() -> Str {
     fn verifier_rejects_a_pipeline_input_that_names_a_statement() {
         let program = fixture(
             "pipeline-input.xsh",
-            "pure pipeline() -> List[Int] { return [1] |> map { |item| item } |> collect() }\n",
+            "pure pipeline() -> List[Int] { let ignored = [0]; return [1] |> map { |item| item } |> collect() }\n",
         );
         FullVerifier::verify(&program).unwrap();
         let pipeline = function_instruction_indices(&program, "pipeline", FullTag::ExprPipeline)
             .into_iter()
             .next()
             .expect("function has a pipeline expression");
-        let statement = function_instruction_indices(&program, "pipeline", FullTag::StmtReturn)
+        let statement = function_instruction_indices(&program, "pipeline", FullTag::StmtLet)
             .into_iter()
             .next()
-            .expect("function has a return statement");
+            .expect("function has an independent let statement");
         let payload = program.store.data[pipeline]
             .range()
             .bounds(program.store.extra.len())
@@ -21110,7 +21110,12 @@ pure selected() -> Str {
         let mut missing_input = program;
         missing_input.store.extra[payload.start] =
             u32::try_from(statement).expect("instruction index fits in the IR");
-        let error = FullVerifier::verify(&missing_input).unwrap_err();
+        assert!(FullVerifier::verify(&missing_input).is_err());
+        let decoder = unverified_return_analysis_decoder(&missing_input, "pipeline");
+        let error = decoder
+            .expression_view(pipeline)
+            .err()
+            .expect("pipeline input decoder rejects a statement instruction");
         assert!(
             error.message.contains("wrong category"),
             "{}",
