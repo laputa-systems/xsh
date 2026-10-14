@@ -69,10 +69,10 @@ order; the `xsh` executable does not read the rest of the `xsht` configuration.
 | Lexing | `src/syntax/lexer.rs`, `src/syntax/token.rs` |
 | CST and arena program | `src/syntax/cst.rs`, `src/syntax/parser.rs`, `src/syntax/arena.rs` |
 | Module loading | `src/loader.rs`, `src/project.rs` |
-| Semantic checking and published facts | `src/sema/check.rs`, `src/sema/check/` |
+| Semantic checking and published facts | `src/sema/check.rs`, `src/sema/check/`, `src/sema/check/module_driver.rs` |
 | Lowering | `src/runtime/eval/lower.rs` |
-| Indexed representation and verification | `src/runtime/eval/indexed/full.rs` |
-| Execution | `src/runtime/eval/lowered_run/indexed_run.rs` |
+| Indexed schema and verification | `src/runtime/eval/indexed/full/schema.rs`, `src/runtime/eval/indexed/full.rs` |
+| Execution and stage scheduling | `src/runtime/eval/lowered_run/indexed_run/` |
 
 **Grammar and syntax.** `src/syntax/grammar.rs` owns syntax productions and the
 tables shared by the lexer and parser. The parser writes typed rows into
@@ -85,18 +85,26 @@ search the written surface form use the operands.
 bindings. It publishes the facts required by lowering and tooling, including
 selected overloads, argument bindings, expression and binding types, and
 effects. Later stages consume these facts instead of repeating semantic
-decisions.
+decisions. `CheckSession` retains the immutable workspace identities and shares
+prepared module records across entry-root views. Interactive command checks use
+their own module records.
 
 **Lowering and verification.** `FullBuilder` turns the checked arena program
 into indexed columns and pools. A construction gap produces a diagnostic, not
 a runnable placeholder. `FullVerifier::verify` checks the finalized
 representation's schemas, ranges, ownership, IDs, and references before a
-`FullProgram` exists. Runtime decoders rely on that verification contract.
+`FullProgram` exists. The instruction schema owns tag metadata, payload codecs,
+views, and execution strategy. Verification derives the per-instruction marks
+that admit in-place evaluation up to a nesting height of 128 and installs them
+on the program; deeper instructions use the explicit frame scheduler. Runtime
+decoders rely on that verification contract.
 
 **Execution.** The indexed executor runs functions and top-level driver steps
-from `FullProgram` views. Calls and continuations use heap-backed frames. A
-loaded program stays alive while its calls or suspended producers use it; the
-parser, checker, and builder are not the runtime representation.
+from `FullProgram` views. Verifier-marked instructions may use the bounded
+in-place route; other instructions use heap-backed frames and explicit
+continuations. A loaded program stays alive while its calls or suspended
+producers use it; the parser, checker, and builder are not the runtime
+representation.
 
 **Program data.** Indexed IDs refer to program-owned tables, and variable-sized
 data lives in shared payload ranges. Dynamic names are owned by `SymbolOwner`;
@@ -211,9 +219,9 @@ Network jobs cross into `NetRuntimeOwner` as plain Rust requests. The network
 worker does not run XSH code or own evaluator values, source spans, or trace
 buffers. Job ownership and trace events stay with the evaluator.
 
-Streams use active evaluator continuations. Serial stages pull an item through
-the pipeline before requesting the next; stages that need the complete input
-materialize it, and `par-map` is the worker boundary. Yield delegation and
+The indexed stage engine owns serial pipeline order, item-at-a-time pulls, and
+stages that materialize their complete input; `par-map` is the worker boundary.
+Stages resume through evaluator continuations. Yield delegation and
 cancellation remain iterative so producer depth does not become native stack
 depth.
 

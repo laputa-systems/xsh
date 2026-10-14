@@ -72,6 +72,19 @@ target/$TARGET/verification/xsht test --exact tests/xsh/retry.xsh::test_retry_re
 target/$TARGET/verification/xsht test                                 # full native suite
 ```
 
+The root integration harness uses `xsh`, `xsht`, and `xshi` from the same
+Cargo target and profile. The canonical `cargo dev gate` path builds these
+products before running tests. For a manual focused root test, build them once
+for the selected target and test profile, then run the filter:
+
+```sh
+cargo build --locked --profile verification --target "$TARGET" \
+  --bins -p xsh -p xsht -p xshi
+cargo test --locked --profile verification --target "$TARGET" \
+  -p xsh --test integration runtime::modules::native_xsh_core_dns_clients \
+  -- --exact --nocapture
+```
+
 Process tests accept only verification and release binaries. Every Rust test target that spawns `xsh`,
 `xsht`, `xshi`, `xsh-fuzz`, or `xsh-test-helper` resolves it through
 `test_bin!` (`tests/test_binary.rs`), which fails with the verification command
