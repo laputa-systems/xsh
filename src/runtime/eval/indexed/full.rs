@@ -22407,6 +22407,19 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             };
             let pure_call = typed_call(1);
             let proc_call = typed_call(0);
+            let proc_call_instruction = program
+                .store
+                .tags
+                .iter()
+                .enumerate()
+                .filter(|(_, tag)| **tag == FullTag::ExprTypedCall)
+                .find_map(|(instruction, _)| {
+                    let range = program.store.data[instruction]
+                        .range()
+                        .bounds(program.store.extra.len())?;
+                    (range.start == proc_call).then_some(instruction)
+                })
+                .expect("procedure typed call instruction exists");
             let rejected = |corrupt: &FullProgram, reason: &str| {
                 let error = FullVerifier::verify(corrupt).unwrap_err();
                 assert!(
@@ -22444,10 +22457,67 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                     .start
             };
             // The list declares an extra argument, which disagrees with the
-            // checked callable signature.
+            // checked callable signature. Keep the vector well-formed so the
+            // verifier reaches the signature count check. The added value gets
+            // its own atom row so instruction ownership remains valid.
             let mut extra_argument = (*program).clone();
-            let count = arguments(&extra_argument);
-            extra_argument.store.extra[count] += 1;
+            extra_argument.store.in_place.take();
+            let last_function = extra_argument.store.functions.len() - 1;
+            let last_function_range = extra_argument
+                .store
+                .function_instruction_range(last_function)
+                .unwrap();
+            assert_eq!(last_function_range.end, extra_argument.store.tags.len());
+            assert!(last_function_range.contains(&proc_call_instruction));
+            let old_instruction_end = u32::try_from(extra_argument.store.tags.len()).unwrap();
+            assert!(extra_argument
+                .store
+                .driver_steps
+                .iter()
+                .all(|step| step.instruction_start == old_instruction_end));
+
+            let integer_row = extra_argument
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprInt)
+                .unwrap();
+            let integer_payload = extra_argument
+                .store
+                .payload(extra_argument.store.data[integer_row].range())
+                .unwrap()
+                .to_vec();
+            let added_argument = extra_argument.store.tags.len();
+            let integer_start = u32::try_from(extra_argument.store.extra.len()).unwrap();
+            let integer_len = u32::try_from(integer_payload.len()).unwrap();
+            extra_argument.store.extra.extend_from_slice(&integer_payload);
+            extra_argument
+                .store
+                .data
+                .push(IrData::new(integer_start, integer_len));
+            extra_argument.store.tags.push(FullTag::ExprInt);
+            extra_argument.store.resource_transfers.push(false);
+            extra_argument.store.checked_call_target_required.push(false);
+
+            let argument_block =
+                IrBlockId::from_raw(extra_argument.store.extra[proc_call + 3]).unwrap();
+            let old_range = extra_argument.store.blocks[argument_block.index()].instructions;
+            let old_words = extra_argument.store.payload(old_range).unwrap().to_vec();
+            assert_eq!(old_words.len(), 3);
+            assert_eq!(old_words[0], 1);
+            let mut expanded_words = old_words.clone();
+            expanded_words[0] = 2;
+            let mut copied_argument = old_words[1..3].to_vec();
+            copied_argument[1] = u32::try_from(added_argument).unwrap();
+            expanded_words.extend_from_slice(&copied_argument);
+            let expanded_start = u32::try_from(extra_argument.store.extra.len()).unwrap();
+            extra_argument.store.extra.extend_from_slice(&expanded_words);
+            extra_argument.store.blocks[argument_block.index()].instructions =
+                IrRange::new(expanded_start, expanded_words.len() as u32);
+            let new_instruction_end = u32::try_from(extra_argument.store.tags.len()).unwrap();
+            for step in &mut extra_argument.store.driver_steps {
+                step.instruction_start = new_instruction_end;
+            }
             rejected(
                 &extra_argument,
                 "typed call argument count does not match its signature",
@@ -23597,8 +23667,16 @@ pure get_other_holder() -> OtherHolder {
   OtherHolder(callback: 0)
 }
 
+pure get_spread_holder() -> Holder {
+  Holder(...{callback: double, count: 0})
+}
+
 pure apply_result(n: Int) -> Int {
   get_holder().callback(n)
+}
+
+pure apply_spread_result(n: Int) -> Int {
+  get_spread_holder().callback(n)
 }
 "#;
         let program = fixture("typed-callable-record-result.xsh", source);
