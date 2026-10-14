@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(599, len(result["fragment_roots"]))
+        self.assertEqual(623, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -474,6 +474,18 @@ class InventoryCheckerTests(unittest.TestCase):
                 "fragment.Xsh.IR.Raw.readWords_success_length",
                 "fragment.Xsh.IR.Raw.readPayload_success_length_and_bounds",
                 "fragment.Xsh.IR.Raw.out_of_bounds_payload_read_is_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.decode_success_respects_tag_payload_schema",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.successful_words_row_payload_has_length_and_bounds",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.unaligned_tables_are_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.aligned_row_index_and_reference_metadata_errors_are_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.out_of_range_reference_is_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.out_of_bounds_payload_start_is_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.payload_range_past_table_end_is_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.unknown_tag_is_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.singleton_tag_with_wrong_payload_length_is_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.immediate_tag_with_nonzero_payload_length_is_rejected",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.valid_singleton_payload_is_accepted",
+                "fragment.Xsh.IR.Raw.DecoderSoundness.immediate_payload_guard_mutation_is_detected",
             },
             raw_roots,
         )
@@ -487,6 +499,7 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Effects.Capture",
                 "Xsh.Effects.BoundFailureWitnesses",
                 "Xsh.Effects.SolverEdgeOrder",
+                "Xsh.Effects.CheckerBridge",
             }
         }
         self.assertEqual(
@@ -544,6 +557,18 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Semantics.Effects.Solver.solve_edgePermutation",
                 "Xsh.Semantics.Effects.Solver.reordered_edge_witness_preserves_solver_answer",
                 "Xsh.Semantics.Effects.Solver.first_edge_only_mutation_changes_answer",
+                "Xsh.Semantics.Effects.CheckerBridge.resolved_network_summary_projects_at_body_site",
+                "Xsh.Semantics.Effects.CheckerBridge.unresolved_summary_does_not_become_known_empty",
+                "Xsh.Semantics.Effects.CheckerBridge.unresolved_missing_and_opaque_sources_fail_closed",
+                "Xsh.Semantics.Effects.CheckerBridge.successful_summary_call_records_lexical_creation",
+                "Xsh.Semantics.Effects.CheckerBridge.successful_summary_call_pays_each_body_obligation",
+                "Xsh.Semantics.Effects.CheckerBridge.alias_source_returns_the_checked_binding",
+                "Xsh.Semantics.Effects.CheckerBridge.restricted_alias_keeps_the_original_creation_observation",
+                "Xsh.Semantics.Effects.CheckerBridge.consumer_site_recheck_mutation_changes_alias_acceptance",
+                "Xsh.Semantics.Effects.CheckerBridge.delegation_preserves_ordered_parent_child_body_provenance",
+                "Xsh.Semantics.Effects.CheckerBridge.delegation_rejects_child_blocked_at_its_own_creation",
+                "Xsh.Semantics.Effects.CheckerBridge.conditional_source_retains_both_tagged_arms",
+                "Xsh.Semantics.Effects.CheckerBridge.conditional_source_rejects_a_blocked_arm",
             },
             effect_roots,
         )

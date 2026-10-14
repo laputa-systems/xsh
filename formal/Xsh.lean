@@ -54,9 +54,11 @@ import Xsh.Effects.Solver
 import Xsh.Effects.Lexical
 import Xsh.Effects.PrimitiveClassification
 import Xsh.Effects.ExpressionBridge
+import Xsh.Effects.CheckerBridge
 import Xsh.Effects.Capture
 import Xsh.Effects.BoundFailureWitnesses
 import Xsh.Effects.SolverEdgeOrder
 import Xsh.IR.Raw.Witnesses
 import Xsh.Conformance.Transport.Codecs
 import Xsh.Conformance.Transport.Laws
+import Xsh.IR.Raw.DecoderSoundness

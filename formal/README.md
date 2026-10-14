@@ -45,8 +45,15 @@ reject creation inside that region, reject a missing alias, an unknown source
 form, and a blocked conditional arm, and show that a restricted consumer does
 not move the charge site. These are checker facts for the represented finite
 source forms only; they do not establish Rust source classification, full
-stream semantics, or conformance. `Xsh.Effects.Capture` models removal of the
-outward `error` fact while preserving other named effects and unresolved work.
+stream semantics, or conformance. `Xsh.Effects.CheckerBridge` maps already
+classified `FactSet` summaries to body-site obligations before the finite
+lexical checker runs. Its roots cover unresolved and missing summaries that
+fail closed, lexical creation-site charging, checked alias reuse, and ordered
+delegation and conditional provenance. Captures are fixed to the empty fixture.
+The bridge does not prove Rust classifier, checker, or runtime correspondence
+and closes neither `EFF-LATENT` nor `EFF-SEMANTIC`. `Xsh.Effects.Capture`
+models removal of the outward `error` fact while preserving other named effects
+and unresolved work.
 It proves idempotence and commutation with the represented effect closure,
 permutation and duplicate invariance for finite effect clauses, and concrete
 witnesses that dropping named effects or unresolved work changes restricted-call
@@ -58,10 +65,12 @@ classification or propagation, complete solver behavior, full `EFF-CAPTURE`,
 fragments close neither `EFF-LATENT` nor `EFF-SEMANTIC`. The raw IR layer models typed pool IDs,
 optional IDs, ranges, tables, and row decoding. Its decoder fragments prove
 successful sequential read length, successful payload length and table bounds,
-and rejection of one concrete out-of-bounds payload range. These independent
-fragments do not close G7a, establish full decoder soundness, or prove Rust
-verifier conformance. Transport modules define closed bridge codecs and prove
-re-encoding laws for accepted hexadecimal values and bridge IDs. These are
+and rejection of one concrete out-of-bounds payload range. The finite
+`DecoderSoundness` model covers four tag ordinals, successful-row schema
+conditions, bounded payload ranges, and concrete malformed-row witnesses. It
+does not cover all raw IR tags, establish Rust/G7a decoder correspondence, or
+prove verifier conformance. Transport modules define closed bridge codecs and
+prove re-encoding laws for accepted hexadecimal values and bridge IDs. These are
 independent Lean results about their stated definitions, not Rust conformance
 or full-language proofs.
 
@@ -91,7 +100,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 599 fragment
+G0b source freeze remain pending. The provisional inventory has 623 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -388,7 +397,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 599 rooted Lean fragment declarations across 89 core owner
+The inventory names 623 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
