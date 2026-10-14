@@ -1758,7 +1758,6 @@ proc advance_sort_merge_reader(reader: SortMergeReader, zero_terminated: Bool) [
       pending_at = 0
     }
   }
-  fail "sort merge reader ended unexpectedly"
 }
 
 ## Open all source streams only when their descriptor count stays within the process and batch limits.

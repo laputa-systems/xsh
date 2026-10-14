@@ -449,7 +449,6 @@ pure expression_list(parser: Parser, end: Str) -> Result[Parsed[List[Int]]] {
     return Err(unexpected(p)) unless is_at(p, ",")
     p = skip_newlines(advance(p))
   }
-  Err(unexpected(p))
 }
 
 # Builtins may be written with a space before "(" (GNU awk); user functions may not.
@@ -1942,7 +1941,6 @@ proc fill(source: Reader) -> Result[Reader] {
     r.text += decoded.text
     return Ok(r)
   }
-  Ok(r)
 }
 
 type Scan = {kind: Int, content: Str, next: Int, terminator: Str}
@@ -2001,7 +1999,6 @@ proc read_record(source: Reader, separator: Str, ignore_case: Bool) -> Result[Re
     return Ok({reader: r, record: null, terminator: ""}) when scanned.kind == 2
     r = fill(r)?
   }
-  Ok({reader: r, record: null, terminator: ""})
 }
 
 #
@@ -3187,7 +3184,6 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
     }
     state.finished = true
   }
-  Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, argind: argind})
 }
 
 
