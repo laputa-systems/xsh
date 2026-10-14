@@ -9154,22 +9154,71 @@ impl<'a> FullDecoder<'a> {
         ))
     }
 
-    fn checked_instruction_is_repeatable_loop(&self, instruction: usize) -> bool {
-        matches!(
-            self.store.tags[instruction],
+    fn checked_child_is_in_repeatable_loop_body(
+        &self,
+        loop_instruction: usize,
+        child: usize,
+    ) -> Result<bool, IrVerifyError> {
+        let tag = self.store.tags[loop_instruction];
+        let source = match tag {
+            FullTag::StmtFor => {
+                let schema::StmtView::For { iter, .. } = self.statement_view(loop_instruction)?
+                else {
+                    unreachable!("for statement tag and generated view disagree")
+                };
+                iter.raw() as usize
+            }
+            FullTag::StmtForRecord => {
+                let schema::StmtView::ForRecord { iter, .. } =
+                    self.statement_view(loop_instruction)?
+                else {
+                    unreachable!("record for statement tag and generated view disagree")
+                };
+                iter.raw() as usize
+            }
+            FullTag::StmtForStrLines => {
+                let schema::StmtView::ForStrLines { text, .. } =
+                    self.statement_view(loop_instruction)?
+                else {
+                    unreachable!("line for statement tag and generated view disagree")
+                };
+                text.raw() as usize
+            }
+            FullTag::ExprListComp | FullTag::ExprMapComp => {
+                let mut qualifiers = match self.expression_view(loop_instruction)? {
+                    schema::ExprView::ListComp { qualifiers, .. }
+                    | schema::ExprView::MapComp { qualifiers, .. } => qualifiers,
+                    _ => unreachable!("comprehension tag and generated view disagree"),
+                };
+                let first = qualifiers
+                    .next()
+                    .ok_or_else(|| IrVerifyError::new("comprehension has no iteration source"))??;
+                match first {
+                    decode::CompQualifierView::For { iter, .. } => iter.raw() as usize,
+                    decode::CompQualifierView::If { .. } => {
+                        return Err(IrVerifyError::new(
+                            "comprehension does not start with an iteration source",
+                        ));
+                    }
+                }
+            }
+            FullTag::ExprPipeline => {
+                let schema::ExprView::ListPipeline { input, .. } =
+                    self.expression_view(loop_instruction)?
+                else {
+                    unreachable!("pipeline tag and generated view disagree")
+                };
+                input.raw() as usize
+            }
             FullTag::StmtWhile
-                | FullTag::StmtWhileBool
-                | FullTag::StmtPatternWhile
-                | FullTag::StmtFor
-                | FullTag::StmtForRecord
-                | FullTag::StmtForStrLines
-                | FullTag::StmtLoop
-                | FullTag::ExprLoop
-                | FullTag::ExprRetry
-                | FullTag::ExprListComp
-                | FullTag::ExprMapComp
-                | FullTag::ExprPipeline
-        )
+            | FullTag::StmtWhileBool
+            | FullTag::StmtPatternWhile
+            | FullTag::StmtLoop
+            | FullTag::ExprLoop
+            | FullTag::ExprRetry => return Ok(true),
+            _ => return Ok(false),
+        };
+        Ok(!self.checked_instruction_is_in_roots(child, &[source])?)
     }
 
     /// An enclosing guard cannot prove a value survives a loop backedge.
@@ -9187,7 +9236,7 @@ impl<'a> FullDecoder<'a> {
             if parent == ancestor {
                 return Ok(false);
             }
-            if self.checked_instruction_is_repeatable_loop(parent) {
+            if self.checked_child_is_in_repeatable_loop_body(parent, child)? {
                 return Ok(true);
             }
             child = parent;
@@ -22990,6 +23039,29 @@ pure apply_nested_write(container: Outer, n: Int) -> Int {
             .expect("the nested callable read belongs to the guarded body");
         statements.swap(assignment_position, call_position);
         assert!(FullVerifier::verify(&malformed).is_err());
+    }
+
+    #[test]
+    fn typed_optional_field_in_iteration_sources_uses_outer_null_proof() {
+        let program = fixture(
+            "optional-field-iteration-sources.xsh",
+            r#"type Values = {items: List[Int]}
+pure values_if_present(value: Values?) -> List[Int] {
+  return if value == null { [] } else { [item for item in value.items] }
+}
+
+pure values_in_loop(value: Values?) -> List[Int] {
+  var output: List[Int] = []
+  if value != null {
+    for item in value.items {
+      output += [item]
+    }
+  }
+  output
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
     }
 
     #[test]
