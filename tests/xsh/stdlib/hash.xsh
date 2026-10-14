@@ -38,6 +38,35 @@ test test_hash_verify_file_argument_order { |ctx|
   test.error_kind(hash.verify_file(sha256: "00", path: data_path), "checksum-format")
 }
 
+test test_hash_verify_file_evaluates_named_operands_in_written_order { |ctx|
+  let data_path = test.temp_path(ctx, name: "hash-written-order.txt")
+  data_path.write("abc")
+  let digest = hash.sha256(data_path)?.hex()
+  let output = test.expect(
+    ctx,
+    r"""proc mark_path(label: Str, value: Path) [io] -> Path {
+  print $label
+  return value
+}
+proc mark_digest(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+hash.verify_file(
+  sha256: mark_digest("checksum", args[1]),
+  path: mark_path("path", Path(args[0])),
+)?
+print "verified"
+""",
+    status: 0,
+    args: [data_path, digest],
+  )?
+  assert output.stdout == """checksum
+path
+verified
+""", output.stdout
+}
+
 # The message of a rejected file verification, or the empty string when the
 # file verified. `test.error_kind` compares kinds only, so message parity is
 # asserted through this.

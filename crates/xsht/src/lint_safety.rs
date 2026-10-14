@@ -1,11 +1,11 @@
-use xsh::frontend::syntax::arena::ArenaChild;
+use xsh::frontend::syntax::arena::{ArenaChild, ArenaEnvAssignmentValue, SugarView};
 
 use super::{
     ArenaBuilderEntryKind, ArenaCallArg, ArenaCallArgKind, ArenaCommandArg, ArenaCommandArgKind,
-    ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPipeStageKind, ArenaRange,
-    ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaWordPart,
-    AstArena, BinaryOp, BlockId, Diagnostic, DiagnosticCode, ExprId, FixHint, FxHashMap, Label,
-    Linter, Name, Severity, Type, UnaryOp, is_module_call,
+    ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaRange, ArenaRecordFieldKind,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaWordPart, AstArena, BinaryOp, BlockId, BuilderBlockId,
+    Diagnostic, DiagnosticCode, ExprId, FixHint, FxHashMap, Label, Linter, Name, Severity, Type,
+    UnaryOp, is_module_call,
 };
 
 pub(super) fn list_splice_element_type_is_precise(ty: &Type) -> bool {
@@ -225,218 +225,202 @@ pub(super) fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -
 }
 
 pub(super) fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
-    let refs = |id: ExprId| expr_references_name(arena, id, name);
-    match arena.expr(expr).kind {
-        ArenaExprKind::ValuePipelineCall { input, call, .. } => refs(input) || refs(call),
+    let kind = arena.expr(expr).kind;
+    if matches!(
+        kind,
+        ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. }
+    ) {
+        return true;
+    }
 
+    match kind {
         ArenaExprKind::Ident(candidate) => candidate == name,
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
-            arena.list_element_exprs(items).any(refs)
-        }
-        ArenaExprKind::ListComp { expr, qualifiers }
-        | ArenaExprKind::SetComp { expr, qualifiers } => {
-            refs(expr)
-                || arena
-                    .comp_qualifiers(qualifiers)
-                    .iter()
-                    .any(|q| refs(q.expr()))
-        }
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            qualifiers,
-        } => {
-            refs(key)
-                || refs(value)
-                || arena
-                    .comp_qualifiers(qualifiers)
-                    .iter()
-                    .any(|q| refs(q.expr()))
-        }
         ArenaExprKind::Record(fields) => {
             arena
                 .record_fields(fields)
                 .iter()
-                .any(|field| match field.kind {
-                    ArenaRecordFieldKind::Computed { key, value, .. } => refs(key) || refs(value),
-                    ArenaRecordFieldKind::Named { value, .. }
-                    | ArenaRecordFieldKind::Path { value, .. } => refs(value),
-                    ArenaRecordFieldKind::Spread { expr, .. } => refs(expr),
-                    ArenaRecordFieldKind::Shorthand { name: field, .. } => field == name,
-                })
+                .any(|field| matches!(field.kind, ArenaRecordFieldKind::Shorthand { name: field, .. } if field == name))
+                || expr_children_reference_name(arena, expr, name)
         }
-        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
-            arena.fmt_parts(parts).any(|part| match part {
-                ArenaFmtPart::Expr(expr, _) => refs(expr),
-                ArenaFmtPart::Text(_) => false,
-            })
+        ArenaExprKind::Run(run) => {
+            run_form_has_splice_name(arena, run, name)
+                || expr_children_reference_name(arena, expr, name)
         }
-        ArenaExprKind::If {
-            branches,
-            else_value,
-        } => {
-            arena
-                .if_expr_branches(branches)
-                .iter()
-                .any(|branch| refs(branch.condition) || refs(branch.value))
-                || refs(else_value)
-        }
-        ArenaExprKind::Match { value, arms }
-        | ArenaExprKind::PatternTest { value, arms }
-        | ArenaExprKind::PatternCondition { value, arms } => {
-            refs(value)
-                || arena
-                    .match_expr_arms(arms)
-                    .iter()
-                    .any(|arm| arm.guard.is_some_and(refs) || refs(arm.value))
-        }
-        ArenaExprKind::Unary { expr, .. }
-        | ArenaExprKind::Try(expr)
-        | ArenaExprKind::Require { value: expr, .. }
-        | ArenaExprKind::Convert { value: expr, .. } => refs(expr),
-        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(refs),
-        ArenaExprKind::Binary { left, right, .. } => refs(left) || refs(right),
-        ArenaExprKind::Call { callee, args } => {
-            refs(callee)
-                || arena.call_args(args).iter().any(|arg| match arg.kind {
-                    ArenaCallArgKind::Positional(expr)
-                    | ArenaCallArgKind::Named { value: expr, .. }
-                    | ArenaCallArgKind::Splice { value: expr, .. }
-                    | ArenaCallArgKind::NamedSpread { value: expr, .. } => refs(expr),
-                })
-        }
-        ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => refs(base),
-        ArenaExprKind::Index { base, index, .. } => refs(base) || refs(index),
-        ArenaExprKind::Slice {
-            base, start, end, ..
-        } => refs(base) || start.is_some_and(refs) || end.is_some_and(refs),
-        ArenaExprKind::Pipeline { input, stages } => {
-            refs(input)
-                || arena
-                    .pipe_stages(stages)
-                    .to_vec()
-                    .iter()
-                    .any(|stage| match stage.kind {
-                        ArenaPipeStageKind::Expr(expr) => refs(expr),
-                        ArenaPipeStageKind::Stream(ref stage) => {
-                            stream_stage_references_name(arena, stage, name)
-                        }
-                    })
-        }
-        ArenaExprKind::StructuredPipeline { input, stages } => {
-            refs(input)
-                || arena
-                    .stream_stages(stages)
-                    .to_vec()
-                    .iter()
-                    .any(|stage| stream_stage_references_name(arena, stage, name))
-        }
-        ArenaExprKind::Run(run) => arena
-            .run_segments(arena.run_form(run).segments)
-            .to_vec()
-            .iter()
-            .any(|segment| {
-                arena
-                    .command_args(segment.args)
-                    .iter()
-                    .any(|arg| command_arg_references_name(arena, arg, name))
-                    || command_arg_references_name(arena, &segment.target, name)
-            }),
         ArenaExprKind::Spawn(form) => match form.target {
-            ArenaSpawnTarget::Run(run) => arena
-                .run_segments(arena.run_form(run).segments)
-                .to_vec()
-                .iter()
-                .any(|segment| {
-                    command_arg_references_name(arena, &segment.target, name)
-                        || arena
-                            .command_args(segment.args)
-                            .iter()
-                            .any(|arg| command_arg_references_name(arena, arg, name))
-                }),
-            ArenaSpawnTarget::Command(expr) => refs(expr),
+            ArenaSpawnTarget::Run(run) => {
+                run_form_has_splice_name(arena, run, name)
+                    || expr_children_reference_name(arena, expr, name)
+            }
+            ArenaSpawnTarget::Command(_) => expr_children_reference_name(arena, expr, name),
         },
-        ArenaExprKind::Wait(form) => refs(form.target),
-        ArenaExprKind::BuilderCall { call, block } => {
-            refs(call)
-                || arena
-                    .builder_entries(arena.builder_block(block).entries)
-                    .to_vec()
-                    .iter()
-                    .any(|entry| match entry.kind {
-                        ArenaBuilderEntryKind::Field { value, .. } => refs(value),
-                        ArenaBuilderEntryKind::Entry { args, block, .. } => {
-                            arena
-                                .command_args(args)
-                                .iter()
-                                .any(|arg| command_arg_references_name(arena, arg, name))
-                                || block.is_some_and(|block| {
-                                    arena
-                                        .builder_entries(arena.builder_block(block).entries)
-                                        .to_vec()
-                                        .iter()
-                                        .any(|entry| match entry.kind {
-                                            ArenaBuilderEntryKind::Field { value, .. } => {
-                                                refs(value)
-                                            }
-                                            _ => false,
-                                        })
-                                })
-                        }
-                        ArenaBuilderEntryKind::Task { .. } | ArenaBuilderEntryKind::Stmt(_) => {
-                            false
-                        }
-                    })
-        }
-        ArenaExprKind::ValueBlock(_)
-        | ArenaExprKind::Collect { .. }
-        | ArenaExprKind::ErrorContext { .. }
-        | ArenaExprKind::ContextScope { .. }
-        | ArenaExprKind::TempDirScope { .. }
-        | ArenaExprKind::ResourceScope { .. } => true,
-        ArenaExprKind::Capture(_) | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } => {
-            false
-        }
-        ArenaExprKind::Null
-        | ArenaExprKind::Bool(_)
-        | ArenaExprKind::Int(_)
-        | ArenaExprKind::Float(_)
-        | ArenaExprKind::Duration(_)
-        | ArenaExprKind::Str(_)
-        | ArenaExprKind::PathStr(_)
-        | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
-        | ArenaExprKind::Regex(_)
-        | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
-        | ArenaExprKind::EnvString(_)
-        | ArenaExprKind::EnvPathList => false,
+        _ => expr_children_reference_name(arena, expr, name),
     }
 }
 
-pub(super) fn stream_stage_references_name(arena: &AstArena, stage: &ArenaStreamStage, name: Name) -> bool {
-    arena
-        .call_args(stage.args)
-        .iter()
-        .any(|arg| match arg.kind {
-            ArenaCallArgKind::Positional(expr)
-            | ArenaCallArgKind::Named { value: expr, .. }
-            | ArenaCallArgKind::Splice { value: expr, .. }
-            | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
-                expr_references_name(arena, expr, name)
-            }
-        })
-        || stage.block.is_some_and(|block| {
+fn expr_children_reference_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
+    let mut referenced = false;
+    arena.for_each_expr_child(expr, |child| {
+        if !referenced {
+            referenced = arena_child_references_name(arena, child, name);
+        }
+    });
+    referenced
+}
+
+fn arena_child_references_name(arena: &AstArena, child: ArenaChild, name: Name) -> bool {
+    match child {
+        ArenaChild::Expr(expr) => expr_references_name(arena, expr, name),
+        ArenaChild::Stmt(stmt) => stmt_references_name(arena, stmt, name),
+        ArenaChild::Block(block) => block_references_name(arena, block, name),
+        ArenaChild::BuilderBlock(block) => builder_block_references_name(arena, block, name),
+        ArenaChild::AssignTarget(target) => assign_target_references_name(arena, target, name),
+        ArenaChild::Pattern(_) | ArenaChild::BindingTarget(_) | ArenaChild::TypeExpr(_) => false,
+    }
+}
+
+fn block_references_name(arena: &AstArena, block: BlockId, name: Name) -> bool {
+    let mut referenced = false;
+    arena.for_each_block_child(block, |child| {
+        if !referenced {
+            referenced = arena_child_references_name(arena, child, name);
+        }
+    });
+    referenced
+}
+
+fn builder_block_references_name(arena: &AstArena, block: BuilderBlockId, name: Name) -> bool {
+    let mut referenced = false;
+    arena.for_each_builder_child(block, |child| {
+        if !referenced {
+            referenced = arena_child_references_name(arena, child, name);
+        }
+    });
+    referenced
+        || arena
+            .builder_entries(arena.builder_block(block).entries)
+            .iter()
+            .any(|entry| {
+                matches!(entry.kind, ArenaBuilderEntryKind::Entry { args, .. } if arena.command_args(args).iter().any(|arg| command_arg_has_splice_name(arg, name)))
+            })
+}
+
+fn stmt_references_name(arena: &AstArena, stmt: super::StmtId, name: Name) -> bool {
+    stmt_command_has_splice_name(arena, stmt, name)
+        || stmt_direct_run_has_splice_name(arena, stmt, name)
+        || {
+            let mut referenced = false;
+            arena.for_each_stmt_child(stmt, SugarView::Source, |child| {
+                if !referenced {
+                    referenced = arena_child_references_name(arena, child, name);
+                }
+            });
+            referenced
+        }
+}
+
+fn stmt_direct_run_has_splice_name(arena: &AstArena, stmt: super::StmtId, name: Name) -> bool {
+    let value = match arena.stmt(stmt).kind {
+        ArenaStmtKind::Const { initializer, .. }
+        | ArenaStmtKind::Let { initializer, .. }
+        | ArenaStmtKind::Var { initializer, .. }
+        | ArenaStmtKind::Guard { initializer, .. } => Some(initializer),
+        ArenaStmtKind::Assign { value, .. } => Some(value),
+        ArenaStmtKind::Return(value) => value,
+        ArenaStmtKind::Yield(value) | ArenaStmtKind::Defer(value, _) => Some(value),
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::Export(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => None,
+    };
+    matches!(value, Some(ArenaExprOrRun::Run(run)) if run_form_has_splice_name(arena, run, name))
+}
+
+fn assign_target_references_name(
+    arena: &AstArena,
+    target: super::AssignTargetId,
+    name: Name,
+) -> bool {
+    if matches!(arena.assign_target(target).kind, super::ArenaAssignTargetKind::Name(candidate) if candidate == name) {
+        return true;
+    }
+    let mut referenced = false;
+    arena.for_each_assign_target_child(target, |child| {
+        if !referenced {
+            referenced = arena_child_references_name(arena, child, name);
+        }
+    });
+    referenced
+}
+
+fn run_form_has_splice_name(arena: &AstArena, run: super::RunFormId, name: Name) -> bool {
+    arena.run_segments(arena.run_form(run).segments).iter().any(|segment| {
+        command_arg_has_splice_name(&segment.target, name)
+            || arena
+                .command_args(segment.args)
+                .iter()
+                .any(|arg| command_arg_has_splice_name(arg, name))
+            || arena.env_assignments(segment.env).iter().any(|assignment| {
+                matches!(&assignment.value, ArenaEnvAssignmentValue::CommandArg(arg) if command_arg_has_splice_name(arg, name))
+            })
+            || arena.redirections(segment.redirections).iter().any(|redirection| {
+                let target = match &redirection.target {
+                    super::ArenaRedirectionTarget::Path(arg)
+                    | super::ArenaRedirectionTarget::Fd(arg) => arg,
+                };
+                command_arg_has_splice_name(target, name)
+            })
+    })
+}
+
+fn stmt_command_has_splice_name(arena: &AstArena, stmt: super::StmtId, name: Name) -> bool {
+    let ArenaStmtKind::Command(command) = arena.stmt(stmt).kind else {
+        return false;
+    };
+    match &arena.command_stmt(command).command {
+        super::ArenaCommand::Proc { args, .. } => arena
+            .command_args(*args)
+            .iter()
+            .any(|arg| command_arg_has_splice_name(arg, name)),
+        super::ArenaCommand::Core { args, env, .. } => {
             arena
-                .stmt_ids(arena.block(block).statements)
-                .any(|stmt| match arena.stmt(stmt).kind {
-                    ArenaStmtKind::Expr(expr) => expr_references_name(arena, expr, name),
-                    ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr))) => {
-                        expr_references_name(arena, expr, name)
-                    }
-                    _ => false,
+                .command_args(*args)
+                .iter()
+                .any(|arg| command_arg_has_splice_name(arg, name))
+                || arena.env_assignments(*env).iter().any(|assignment| {
+                    matches!(&assignment.value, ArenaEnvAssignmentValue::CommandArg(arg) if command_arg_has_splice_name(arg, name))
                 })
-        })
+        }
+        super::ArenaCommand::Run(run) => run_form_has_splice_name(arena, *run, name),
+    }
+}
+
+fn command_arg_has_splice_name(arg: &ArenaCommandArg, name: Name) -> bool {
+    matches!(arg.kind, ArenaCommandArgKind::SpliceName(candidate) if candidate == name)
 }
 
 pub(super) fn command_arg_references_name(arena: &AstArena, arg: &ArenaCommandArg, name: Name) -> bool {

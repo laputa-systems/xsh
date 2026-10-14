@@ -1897,8 +1897,10 @@ impl FullBuilder {
             headers,
             identities: std::sync::OnceLock::new(),
         };
-        FullVerifier::verify(&program)
-            .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
+        FullVerifier::verify(&program).map_err(|error| {
+            IrBuildError::format("full_ir_verification", None, 0, 0)
+                .with_detail(Some(error.message))
+        })?;
         Ok(program)
     }
 
@@ -9152,22 +9154,71 @@ impl<'a> FullDecoder<'a> {
         ))
     }
 
-    fn checked_instruction_is_repeatable_loop(&self, instruction: usize) -> bool {
-        matches!(
-            self.store.tags[instruction],
+    fn checked_child_is_in_repeatable_loop_body(
+        &self,
+        loop_instruction: usize,
+        child: usize,
+    ) -> Result<bool, IrVerifyError> {
+        let tag = self.store.tags[loop_instruction];
+        let source = match tag {
+            FullTag::StmtFor => {
+                let schema::StmtView::For { iter, .. } = self.statement_view(loop_instruction)?
+                else {
+                    unreachable!("for statement tag and generated view disagree")
+                };
+                iter.raw() as usize
+            }
+            FullTag::StmtForRecord => {
+                let schema::StmtView::ForRecord { iter, .. } =
+                    self.statement_view(loop_instruction)?
+                else {
+                    unreachable!("record for statement tag and generated view disagree")
+                };
+                iter.raw() as usize
+            }
+            FullTag::StmtForStrLines => {
+                let schema::StmtView::ForStrLines { text, .. } =
+                    self.statement_view(loop_instruction)?
+                else {
+                    unreachable!("line for statement tag and generated view disagree")
+                };
+                text.raw() as usize
+            }
+            FullTag::ExprListComp | FullTag::ExprMapComp => {
+                let mut qualifiers = match self.expression_view(loop_instruction)? {
+                    schema::ExprView::ListComp { qualifiers, .. }
+                    | schema::ExprView::MapComp { qualifiers, .. } => qualifiers,
+                    _ => unreachable!("comprehension tag and generated view disagree"),
+                };
+                let first = qualifiers
+                    .next()
+                    .ok_or_else(|| IrVerifyError::new("comprehension has no iteration source"))??;
+                match first {
+                    decode::CompQualifierView::For { iter, .. } => iter.raw() as usize,
+                    decode::CompQualifierView::If { .. } => {
+                        return Err(IrVerifyError::new(
+                            "comprehension does not start with an iteration source",
+                        ));
+                    }
+                }
+            }
+            FullTag::ExprPipeline => {
+                let schema::ExprView::ListPipeline { input, .. } =
+                    self.expression_view(loop_instruction)?
+                else {
+                    unreachable!("pipeline tag and generated view disagree")
+                };
+                input.raw() as usize
+            }
             FullTag::StmtWhile
-                | FullTag::StmtWhileBool
-                | FullTag::StmtPatternWhile
-                | FullTag::StmtFor
-                | FullTag::StmtForRecord
-                | FullTag::StmtForStrLines
-                | FullTag::StmtLoop
-                | FullTag::ExprLoop
-                | FullTag::ExprRetry
-                | FullTag::ExprListComp
-                | FullTag::ExprMapComp
-                | FullTag::ExprPipeline
-        )
+            | FullTag::StmtWhileBool
+            | FullTag::StmtPatternWhile
+            | FullTag::StmtLoop
+            | FullTag::ExprLoop
+            | FullTag::ExprRetry => return Ok(true),
+            _ => return Ok(false),
+        };
+        Ok(!self.checked_instruction_is_in_roots(child, &[source])?)
     }
 
     /// An enclosing guard cannot prove a value survives a loop backedge.
@@ -9185,7 +9236,7 @@ impl<'a> FullDecoder<'a> {
             if parent == ancestor {
                 return Ok(false);
             }
-            if self.checked_instruction_is_repeatable_loop(parent) {
+            if self.checked_child_is_in_repeatable_loop_body(parent, child)? {
                 return Ok(true);
             }
             child = parent;
@@ -11221,8 +11272,6 @@ fn indexed_configured_range_bound_subjects(
     Ok(Some((start_subject, end_subject)))
 }
 
-/// Whether an expression has a path that produces its value normally. Unknown
-/// expression forms remain completing so the verifier never invents a return.
 fn indexed_expr_can_complete(
     decoder: &FullDecoder<'_>,
     instruction: usize,
@@ -11260,7 +11309,6 @@ fn indexed_expr_can_complete(
                     None => true,
                 }
             } else if op == BinaryOp::ResultFallback {
-                // A Result's success arm can skip the fallback expression.
                 true
             } else {
                 child(right.raw())?
@@ -11300,8 +11348,6 @@ fn indexed_expr_can_complete(
             }
             can_complete
         }
-        // Pattern selection is not reconstructed here. A later pattern or
-        // fallback may be the only completing path, so remain conservative.
         schema::ExprView::PatternIf { .. } => true,
         schema::ExprView::MatchExpr {
             value,
@@ -11542,8 +11588,7 @@ fn indexed_expr_can_complete(
                 can_complete
             }
         }
-        // These forms may hold a branch-local return, but their encoded
-        // payloads are not needed to prove a guaranteed return yet.
+        schema::ExprView::Abort { .. } => false,
         _ => true,
     })
 }
@@ -16037,6 +16082,9 @@ pipeline_stage_schema! {
 mod tests {
     use super::*;
     use crate::runtime::eval::Evaluator;
+    use crate::runtime::eval::route_witness::{
+        RouteWitnessMode, RouteWitnessRoute, RouteWitnessSink,
+    };
     use crate::runtime::value::Value;
     use crate::sema::check::{CheckBundleView, CheckOptions, Checker};
     use crate::syntax::parser::Parser;
@@ -17483,18 +17531,50 @@ proc main() [env, error] -> Result[Unit] {
         });
     }
 
-    fn append_string_addition_chain(program: &mut FullProgram, wrappers: usize) -> Vec<usize> {
-        program.store.in_place.take();
+    fn duplicate_fixture_leaf_expression(program: &mut FullProgram, instruction: usize) -> usize {
+        let tag = program.store.tags[instruction];
+        assert!(matches!(tag, FullTag::ExprParam | FullTag::ExprInt));
+        let payload = program
+            .store
+            .payload(program.store.data[instruction].range())
+            .expect("fixture leaf payload is in bounds")
+            .to_vec();
+        let start = u32::try_from(program.store.extra.len()).expect("fixture payload fits");
+        let len = u32::try_from(payload.len()).expect("fixture payload fits");
+        let resource_transfer = program.store.resource_transfers[instruction];
+        let checked_call_target_required = program.store.checked_call_target_required[instruction];
+        program.store.extra.extend(payload);
+        let duplicate = program.store.tags.len();
+        program.store.data.push(IrData::new(start, len));
+        program.store.tags.push(tag);
+        program.store.resource_transfers.push(resource_transfer);
+        program
+            .store
+            .checked_call_target_required
+            .push(checked_call_target_required);
+        duplicate
+    }
+
+    fn append_if_expression_chain(
+        program: &mut FullProgram,
+        function_name: &str,
+        wrappers: usize,
+    ) -> Vec<usize> {
         let function_index = program
             .store
             .functions
             .iter()
-            .position(|row| program.store.string(row.name).is_ok_and(|name| name == "make_text"))
-            .expect("string fixture function exists");
+            .position(|row| {
+                program
+                    .store
+                    .string(row.name)
+                    .is_ok_and(|name| name == function_name)
+            })
+            .expect("fixture function exists");
         let mut range = program
             .store
             .function_instruction_range(function_index)
-            .expect("string fixture function range exists");
+            .expect("fixture function range exists");
         assert_eq!(function_index + 1, program.store.functions.len());
         assert_eq!(range.end, program.store.tags.len());
         let old_instruction_end = u32::try_from(program.store.tags.len()).expect("fixture fits");
@@ -17505,39 +17585,66 @@ proc main() [env, error] -> Result[Unit] {
             .all(|step| step.instruction_start == old_instruction_end));
         let template_index = range
             .clone()
-            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprBinary)
-            .expect("string fixture contains an addition");
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprIf)
+            .expect("if fixture contains an if expression");
+        assert!(
+            program
+                .store
+                .in_place
+                .get()
+                .expect("direct if fixture is verified")[template_index],
+            "height-two if fixture is marked in place"
+        );
+        program.store.in_place.take();
         let template_range = program.store.data[template_index]
             .range()
             .bounds(program.store.extra.len())
-            .expect("binary payload is in bounds");
+            .expect("if expression payload is in bounds");
         let template = program.store.extra[template_range].to_vec();
-        let execution = schema_execution(&program.store);
+        let function = &program.store.functions[function_index];
+        let execution = schema_execution_with_owner(
+            &program.store,
+            IrFunctionId::new(function_index)
+                .expect("fixture function id fits")
+                .raw(),
+            function.slot_count,
+        );
         let mut template_payload = FullCursor::new(&template);
-        let _op = BinaryOp::decode(&execution.decoder(), &mut template_payload)
-            .expect("binary operation decodes");
         let context = DecodeContext::new(&execution);
-        let left_offset = template_payload.index;
-        let _left = BuildExprId::borrow(context, &mut template_payload)
-            .expect("binary left operand belongs to the fixture function");
-        let right_offset = template_payload.index;
-        let right_template = BuildExprId::borrow(context, &mut template_payload)
-            .expect("binary right operand belongs to the fixture function")
-            .raw() as usize;
-        Span::decode(&execution.decoder(), &mut template_payload)
-            .expect("binary source span decodes");
+        let branch_offset = template_payload.index;
+        let mut branches =
+            Vec::<(BuildExprId, BuildExprId)>::borrow(context, &mut template_payload)
+                .expect("if branch list belongs to the fixture function");
+        let branch_handle = branches.block_identity_for_test();
+        let (condition, then_value) = branches
+            .next()
+            .expect("if expression has one branch")
+            .expect("if branch expressions belong to the fixture function");
+        assert!(branches.next().is_none(), "if expression has one branch");
+        let condition = condition.raw() as usize;
+        let then_value = then_value.raw() as usize;
+        assert_eq!(program.store.tags[condition], FullTag::ExprParam);
+        assert_eq!(program.store.tags[then_value], FullTag::ExprInt);
+        let template_branch_block = program.store.blocks[branch_handle.index()];
+        let template_branch_words = program
+            .store
+            .payload(template_branch_block.instructions)
+            .expect("if branch block payload is in bounds")
+            .to_vec();
+        assert_eq!(
+            template_branch_words.as_slice(),
+            &[1, condition as u32, then_value as u32]
+        );
+        let else_offset = template_payload.index;
+        let _else_value = BuildExprId::borrow(context, &mut template_payload)
+            .expect("if else value belongs to the fixture function");
+        Span::decode(&execution.decoder(), &mut template_payload).expect("if source span decodes");
         template_payload
             .finish()
-            .expect("binary payload has no trailing fields");
-        assert_eq!(program.store.tags[right_template], FullTag::ExprStr);
-        let literal_range = program.store.data[right_template]
-            .range()
-            .bounds(program.store.extra.len())
-            .expect("string literal payload is in bounds");
-        let literal = program.store.extra[literal_range].to_vec();
+            .expect("if expression payload has no trailing fields");
         let return_index = range
             .find(|instruction| program.store.tags[*instruction] == FullTag::StmtReturn)
-            .expect("string fixture returns its addition");
+            .expect("if fixture returns its expression");
         let return_payload = program.store.data[return_index]
             .range()
             .bounds(program.store.extra.len())
@@ -17545,28 +17652,30 @@ proc main() [env, error] -> Result[Unit] {
         let mut child = template_index as u32;
         let mut appended = Vec::with_capacity(wrappers);
         for _ in 0..wrappers {
-            let literal_index = program.store.tags.len();
-            let literal_start = u32::try_from(program.store.extra.len()).expect("literal fits");
-            let literal_len = u32::try_from(literal.len()).expect("literal payload fits");
-            program.store.extra.extend_from_slice(&literal);
-            program
-                .store
-                .data
-                .push(IrData::new(literal_start, literal_len));
-            program.store.tags.push(FullTag::ExprStr);
-            program.store.resource_transfers.push(false);
-            program.store.checked_call_target_required.push(false);
-
+            let condition = duplicate_fixture_leaf_expression(program, condition);
+            let then_value = duplicate_fixture_leaf_expression(program, then_value);
+            let mut branch_words = template_branch_words.clone();
+            branch_words[1] = u32::try_from(condition).expect("fixture expression ID fits");
+            branch_words[2] = u32::try_from(then_value).expect("fixture expression ID fits");
+            let branch_block = IrBlockId::new(program.store.blocks.len())
+                .expect("fixture branch block ID fits");
+            let branch_start =
+                u32::try_from(program.store.extra.len()).expect("fixture branch payload fits");
+            let branch_len = u32::try_from(branch_words.len()).expect("fixture branch payload fits");
+            program.store.extra.extend_from_slice(&branch_words);
+            program.store.blocks.push(FullBlock {
+                instructions: IrRange::new(branch_start, branch_len),
+                ..template_branch_block
+            });
             let instruction = program.store.tags.len();
             let mut payload = template.clone();
-            payload[left_offset] = child;
-            payload[right_offset] =
-                u32::try_from(literal_index).expect("literal instruction ID fits");
+            payload[branch_offset] = branch_block.raw();
+            payload[else_offset] = child;
             let start = u32::try_from(program.store.extra.len()).expect("fixture payload fits");
             let len = u32::try_from(payload.len()).expect("fixture payload fits");
             program.store.extra.extend(payload);
             program.store.data.push(IrData::new(start, len));
-            program.store.tags.push(FullTag::ExprBinary);
+            program.store.tags.push(FullTag::ExprIf);
             program.store.resource_transfers.push(false);
             program.store.checked_call_target_required.push(false);
             appended.push(instruction);
@@ -17658,16 +17767,42 @@ proc main() [env, error] -> Result[Unit] {
 
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
         evaluator.indexed_program = Some(Arc::clone(&program));
-        for (flag, expected) in [(true, 1), (false, 2)] {
-            let result = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "selected")),
-                    LoweredFunctionKind::Pure,
-                    &[Value::Bool(flag)],
-                    Span::new(program.store.source_id, 0, 0),
-                )
-                .expect("selection function exists");
-            assert_eq!(result.unwrap(), Value::Int(expected));
+        let sink = RouteWitnessSink::default();
+        evaluator.install_route_witness_sink(sink.clone());
+        for (forced, route, mode) in [
+            (
+                false,
+                RouteWitnessRoute::InPlaceEvaluatorPath,
+                RouteWitnessMode::Normal,
+            ),
+            (
+                true,
+                RouteWitnessRoute::ExplicitFrameControlPath,
+                RouteWitnessMode::Forced,
+            ),
+        ] {
+            evaluator.force_frames = forced;
+            for (flag, expected) in [(true, 1), (false, 2)] {
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "selected")),
+                        LoweredFunctionKind::Pure,
+                        &[Value::Bool(flag)],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("selection function exists");
+                assert_eq!(result.unwrap(), Value::Int(expected));
+
+                let records = sink.take_records();
+                let selection_records = records
+                    .iter()
+                    .filter(|record| record.tag.name == "ExprIf")
+                    .collect::<Vec<_>>();
+                assert_eq!(selection_records.len(), 1);
+                assert_eq!(selection_records[0].tag.ordinal, FullTag::ExprIf as u32);
+                assert_eq!(selection_records[0].route, route);
+                assert_eq!(selection_records[0].mode, mode);
+            }
         }
     }
 
@@ -17729,7 +17864,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             .any(|instruction| marks[instruction]));
         let binary = function_instruction_indices(&program, "sum", FullTag::ExprBinary);
         assert_eq!(binary.len(), 1);
-        assert!(marks[binary[0]]);
+        assert!(!marks[binary[0]]);
         let matched = function_instruction_indices(&program, "matched", FullTag::ExprMatch);
         assert_eq!(matched.len(), 1);
         assert!(marks[matched[0]]);
@@ -17771,11 +17906,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
 
     #[test]
     fn in_place_height_limit_marks_128_and_rejects_129_and_ancestors() {
-        let mut program = fixture(
-            "in-place-height.xsh",
-            "pure make_text(text: Str) -> Str { return text + \"x\" }",
-        );
-        let appended = append_string_addition_chain(&mut program, 128);
+        let mut program = direct_if_fixture();
+        let appended = append_if_expression_chain(&mut program, "selected", 128);
         FullVerifier::verify(&program).unwrap();
         let marks = program.store.in_place.get().expect("verification installs marks");
         assert!(marks[appended[125]]);
@@ -20517,6 +20649,21 @@ pure selected() -> Str {
     }
 
     #[test]
+    fn return_analysis_treats_abort_as_noncompleting() {
+        let program = fixture(
+            "exit-terminates.xsh",
+            "proc terminate(status: Int) [process] -> Unit { exit status }\n",
+        );
+        let abort = function_instruction_indices(&program, "terminate", FullTag::ExprAbort)
+            .into_iter()
+            .next()
+            .expect("exit lowers to an abort expression");
+        let decoder = return_analysis_decoder(&program, "terminate");
+
+        assert!(!indexed_expr_can_complete(&decoder, abort, 0).unwrap());
+    }
+
+    #[test]
     fn return_analysis_preserves_unknown_branch_fallthrough_before_literal_true() {
         let program = fixture(
             "conditional-return-fallthrough.xsh",
@@ -22921,6 +23068,29 @@ pure apply_nested_write(container: Outer, n: Int) -> Int {
             .expect("the nested callable read belongs to the guarded body");
         statements.swap(assignment_position, call_position);
         assert!(FullVerifier::verify(&malformed).is_err());
+    }
+
+    #[test]
+    fn typed_optional_field_in_iteration_sources_uses_outer_null_proof() {
+        let program = fixture(
+            "optional-field-iteration-sources.xsh",
+            r#"type Values = {items: List[Int]}
+pure values_if_present(value: Values?) -> List[Int] {
+  return if value == null { [] } else { [item for item in value.items] }
+}
+
+pure values_in_loop(value: Values?) -> List[Int] {
+  var output: List[Int] = []
+  if value != null {
+    for item in value.items {
+      output += [item]
+    }
+  }
+  output
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
     }
 
     #[test]

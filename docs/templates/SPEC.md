@@ -3197,12 +3197,12 @@ bound.
 
 These calls require both `process` and `net`: `linux.socket`, `connect`,
 `bind`, `listen`, `accept`, `sendto`, `recvfrom`, `dhcp_socket`, `dhcp_send`,
-`dhcp_recv`, `dhcp_send_release`, `link_up`, `link_down`, `inet_addr_add`,
-`inet_addr_del`, `inet_route_add`, `inet_route_del`, and `unix.read_fd`,
-`write_fd`, `notify_ready`. The private configuration helpers create
-`AF_INET` sockets. A runtime family or raw descriptor cannot prove that
-communication stays local, so generic socket and descriptor calls need both
-effects even when a particular caller uses a local descriptor. Dedicated
+`dhcp_recv`, `dhcp_send_release`, `link_up`, `link_down`, `set_ipv4_address`,
+`flush_ipv4_addresses`, `add_default_ipv4_route`, `del_default_ipv4_route`,
+and `unix.read_fd`, `write_fd`, `notify_ready`. The private configuration
+helpers create `AF_INET` sockets. A runtime family or raw descriptor cannot
+prove that communication stays local, so generic socket and descriptor calls
+need both effects even when a particular caller uses a local descriptor. Dedicated
 netlink operations remain `process` only. Closing a descriptor and querying
 its metadata retain their existing effects. These are static checker claims;
 no runtime sandbox is added.

@@ -274,6 +274,40 @@ test test_archive_roundtrips_compression_and_rejects_escape_paths { |ctx|
   test.error_kind(archive.zip_extract(bad_zip, fp"{out}/bad-zip"), "archive-path")
 }
 
+test test_archive_tar_create_evaluates_named_operands_in_written_order { |ctx|
+  let root = test.temp_dir(ctx, name: "archive-tar-create-operand-order")?
+  fp"{root}/member".write("payload")
+  let target = fp"{root}/must-not-be-created.tar"
+  let output = test.expect(
+    ctx,
+    r"""proc mark_bool(label: Str, value: Bool) [io] -> Bool {
+  print $label
+  return value
+}
+proc mark_str(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+let root = Path(args[0])
+let target = Path(args[1])
+archive.tar_create(
+  target,
+  root,
+  [p"member"],
+  overwrite: mark_bool("overwrite", true),
+  compression: mark_str("compression", "invalid"),
+)?
+""",
+    status: 3,
+    stderr: ["archive-compression"],
+    args: [root, target],
+  )?
+  assert output.stdout == """overwrite
+compression
+""", output.stdout
+  assert ! target.exists()?
+}
+
 test test_archive_zip_extracts_many_files_and_overwrites { |ctx|
   let root = test.temp_dir(ctx, name: "archive-zip-many")?
   let out = fp"{root}/out"

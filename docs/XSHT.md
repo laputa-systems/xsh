@@ -15,6 +15,7 @@ the flag reference.
 | `xsht lint [--fix] [--only RULE,...] [--runless] [--deny-notes] [FILE...]`, `xsht lint --list` | non-fatal quality diagnostics and conservative autofixes; the code catalog | `crates/xsht/src/cli/lint.rs`, `crates/xsht/src/lint.rs` |
 | `xsht test [FILTER]` | discover and run native `test NAME { ... }` declarations | `crates/xsht/src/xsht/test.rs` |
 | `xsht api [QUERY...]` | query language and standard-library metadata | `crates/xsht/src/api.rs`, `crates/xsht/src/cli/api.rs` |
+| `xsht ir-tags [--json]` | print full-instruction tags in schema order, with `--json` for a JSON string array | `src/runtime/eval/indexed/full/schema.rs`, `src/runtime/eval.rs`, `src/ir.rs`, `crates/xsht/src/app.rs`, `crates/xsht/src/commands.rs` |
 | `xsht trace SCRIPT [ARGS...]` | run with structured tracing (text, jsonl, flamegraph, syscall totals) | `crates/xsht/src/trace.rs`, `crates/xsht/src/cli/trace.rs` |
 | `xsht grep PATTERN [FILE...]` / `xsht refactor PATTERN REPLACEMENT [FILE...]` | AST-pattern search and span-based rewrite | `crates/xsht/src/grep.rs`, `crates/xsht/src/cli/refactor.rs` |
 | `xsht ast SCRIPT` | parser debug output | `crates/xsht/src/cli/syntax_tree.rs` |
@@ -102,6 +103,9 @@ With no selector, `xsht api` prints a getting-started guide. Use `summary`,
 registry. Batches preserve order. Options are `--format text|jsonl`,
 `--details basic|full`,
 `--strict`, `--query-file PATH`, and `--stdin`.
+
+The library API `xsh::ir::full_instruction_tag_names()` returns the same
+full-instruction tag names in schema order.
 
 ## Desugar
 

@@ -45,7 +45,9 @@ use super::{
 };
 use crate::map_key::MapKey;
 use crate::runtime::eval::BuildExprId;
-use crate::runtime::eval::route_witness::{RouteWitnessMode, RouteWitnessRoute};
+use crate::runtime::eval::route_witness::{
+    RouteWitnessMode, recursive_route,
+};
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::decode::{
     ErrorExprView, FmtPartView, ListPosition, ListView, RecordEntryView,
@@ -1290,22 +1292,7 @@ impl Evaluator {
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         self.sync_indexed_root_slots(slots, call_span)?;
-        let frame_scheduled = execution
-            .instruction_id(instruction)
-            .map(|(tag, _)| {
-                tag.is_scheduled_frame_control_expr()
-                    || matches!(
-                        tag,
-                        FullTag::ExprBinary
-                            | FullTag::ExprPatternIf
-                            | FullTag::ExprStrMatch
-                            | FullTag::ExprTagMatch
-                            | FullTag::ExprGlob
-                            | FullTag::ExprLastStatus
-                    )
-            })
-            .map_err(|error| indexed_error(error, call_span))?;
-        let result = if self.force_frames || frame_scheduled {
+        let result = if self.force_frames || !execution.is_in_place(instruction) {
             self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
         } else {
             self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
@@ -1375,7 +1362,22 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if !execution.is_in_place(instruction) {
+            return Err(RuntimeError::new(
+                "indexed-ir",
+                "unmarked instruction entered the in-place evaluator",
+            )
+            .with_span(call_span));
+        }
         let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+        let in_place = execution.is_in_place(instruction);
+        if !indexed_frame_apply_tag(tag)
+            && (in_place || !matches!(tag, FullTag::ExprIf | FullTag::ExprMatch))
+            && let Some(sink) = &self.route_witness_sink
+            && let Some(route) = recursive_route(tag, in_place)
+        {
+            sink.record(tag, route, RouteWitnessMode::Normal);
+        }
         if is_typed_int_tag(tag) {
             return self
                 .eval_indexed_typed_int(execution, instruction, slots, call_span)
@@ -1386,9 +1388,7 @@ impl Evaluator {
                 .eval_indexed_typed_bool(execution, instruction, slots, call_span)
                 .map(|flow| flow.map_continue(LoweredValue::Bool));
         }
-        if matches!(tag, FullTag::ExprIf | FullTag::ExprMatch)
-            && execution.is_in_place(instruction)
-        {
+        if matches!(tag, FullTag::ExprIf | FullTag::ExprMatch) {
             let view = ExprView::decode(execution, tag, payload)
                 .map_err(|error| indexed_error(error, call_span))?;
             return match view {
@@ -1466,19 +1466,6 @@ impl Evaluator {
                 slots,
                 call_span,
             )?));
-        }
-        // These rows have no recursive evaluator arms; their children must stay on frames.
-        if indexed_frame_apply_tag(tag) {
-            if tag == FullTag::ExprEmptyMap
-                && let Some(sink) = &self.route_witness_sink
-            {
-                sink.record(
-                    tag,
-                    RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
-                    RouteWitnessMode::Normal,
-                );
-            }
-            return self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span);
         }
         let result = match tag {
             FullTag::ExprComparisonChain => {
@@ -1657,28 +1644,6 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(LoweredValue::List(result))
             }
-            // These run on the frames, which own branch selection, comprehension
-            // iteration and stream cancellation, and the boundaries that
-            // captures, error contexts and context scopes put around their bodies.
-            FullTag::ExprIf
-            | FullTag::ExprPatternIf
-            | FullTag::ExprMatch
-            | FullTag::ExprStrMatch
-            | FullTag::ExprTagMatch
-            | FullTag::ExprListComp
-            | FullTag::ExprMapComp
-            | FullTag::ExprCapture
-            | FullTag::ExprErrorContext
-            | FullTag::ExprContextScope => {
-                self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)?
-            }
-            FullTag::ExprPipeline => {
-                return Err(RuntimeError::new(
-                    "frame-scheduler",
-                    "ExprPipeline requires the explicit frame scheduler",
-                )
-                .with_span(call_span));
-            }
             FullTag::ExprField => {
                 let ExprView::Field { base, name, span } =
                     ExprView::decode(execution, tag, payload)
@@ -1735,41 +1700,6 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(lowered_index_from_end_value(base, distance.get(), span)?)
             }
-            FullTag::ExprMethod => {
-                let ExprView::Method {
-                    receiver,
-                    name,
-                    mut args,
-                    span,
-                } = ExprView::decode(execution, tag, payload)
-                    .map_err(|error| indexed_error(error, call_span))?
-                else {
-                    unreachable!("method tag has a typed method view")
-                };
-                args.preflight()
-                    .map_err(|error| indexed_error(error, span))?;
-                let capacity = args.len();
-                let receiver = match self.eval_indexed_expr(
-                    execution,
-                    receiver.raw(),
-                    slots,
-                    span,
-                )? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let mut values = Vec::with_capacity(capacity);
-                for argument in args {
-                    let argument = argument
-                        .map_err(|error| indexed_error(error, span))?
-                        .raw();
-                    match self.eval_indexed_expr(execution, argument, slots, span)? {
-                        ControlFlow::Continue(value) => values.push(value),
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    }
-                }
-                return self.eval_indexed_method_dispatch(receiver, name, values, span);
-            }
             FullTag::ExprCheckedValue => {
                 let ExprView::CheckedValue { value, check, span } =
                     ExprView::decode(execution, tag, payload)
@@ -1804,59 +1734,6 @@ impl Evaluator {
                     self, value, &check, span,
                 ))
             }
-            // A value block enters a block frame directly, without the expression
-            // boundary an expression frame adds; stage bodies run one per item.
-            FullTag::ExprValueBlock => {
-                let ExprView::ValueBlock { body, span } =
-                    ExprView::decode(execution, tag, payload)
-                        .map_err(|error| indexed_error(error, call_span))?
-                else {
-                    unreachable!("value-block tag has a value-block view")
-                };
-                match self.eval_indexed_statement_block(
-                    execution,
-                    body.block_id(),
-                    slots,
-                    span,
-                )? {
-                    StmtFlow::Value(value) => ControlFlow::Continue(value),
-                    StmtFlow::None => ControlFlow::Continue(LoweredValue::Unit),
-                    flow => self.preserve_lexical_expression_flow(flow),
-                }
-            }
-            FullTag::ExprModuleCall => {
-                let ExprView::ModuleCall {
-                    op,
-                    call_plan,
-                    mut args,
-                    span,
-                } = ExprView::decode(execution, tag, payload)
-                    .map_err(|error| indexed_error(error, call_span))?
-                else {
-                    unreachable!("module call tag has a typed call view")
-                };
-                args.preflight()
-                    .map_err(|error| indexed_error(error, span))?;
-                let mut values = Vec::with_capacity(args.len());
-                for arg in args {
-                    let arg = arg.map_err(|error| indexed_error(error, span))?;
-                    let Some(arg) = arg else {
-                        values.push(None);
-                        continue;
-                    };
-                    match self.eval_indexed_expr(execution, arg.raw(), slots, span)? {
-                        ControlFlow::Continue(value) => values.push(Some(value)),
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    }
-                }
-                let values = super::NativeArgumentValues::new(values);
-                return self.eval_indexed_module_call_values(
-                    op,
-                    values,
-                    span,
-                    call_plan.map(|plan| plan.as_ref()),
-                );
-            }
             FullTag::ExprOk => {
                 let ExprView::Ok(value) = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?
@@ -1872,7 +1749,7 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(LoweredValue::ResultOk(Box::new(value)))
+                ControlFlow::Continue(lowered_result_ok(value))
             }
             FullTag::ExprProcCallResult => {
                 let ExprView::ProcCallResult(value) = ExprView::decode(execution, tag, payload)

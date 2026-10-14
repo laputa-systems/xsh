@@ -565,34 +565,235 @@ fn mentions(text: &str, name: &str) -> bool {
     })
 }
 
-/// Whether `text` may assign `name`: the word directly before an assignment
-/// operator, or before an index or a field on a line that holds one.
 fn assigns(text: &str, name: &str) -> bool {
-    let assignment = |text: &str| {
-        text.starts_with("+=")
-            || text.starts_with("-=")
-            || text.starts_with("*=")
-            || (text.starts_with('=') && !text.starts_with("==") && !text.starts_with("=>"))
-    };
+    let opaque_tokens = opaque_token_ranges(text);
     text.match_indices(name).any(|(at, _)| {
         let before = at.checked_sub(1).map(|index| text.as_bytes()[index]);
-        let rest = &text[at + name.len()..];
-        if before.is_some_and(is_word) || rest.bytes().next().is_some_and(is_word) {
+        let after = at + name.len();
+        let rest = &text[after..];
+        if before.is_some_and(is_word)
+            || rest.bytes().next().is_some_and(is_word)
+            || opaque_token_at(&opaque_tokens, at).is_some()
+        {
             return false;
         }
-        let line = rest.lines().next().unwrap_or("").trim_start_matches(' ');
-        assignment(line)
-            || ((line.starts_with('[') || line.starts_with('.'))
-                && line
-                    .char_indices()
-                    .any(|(index, _)| line[..index].ends_with(' ') && assignment(&line[index..])))
+        let access = rest.trim_start_matches(|byte| byte == ' ' || byte == '\t');
+        if assignment(access) {
+            return true;
+        }
+        if !access.starts_with('[')
+            && !access.starts_with('.')
+            && member_continuation_start(text, after, &opaque_tokens).is_none()
+        {
+            return false;
+        }
+        access_chain_assigns_at(text, after, &opaque_tokens)
     })
+}
+
+#[derive(Clone, Copy)]
+struct OpaqueTokenRange {
+    start: usize,
+    end: usize,
+    comment: bool,
+}
+
+fn access_chain_assigns_at(
+    source: &str,
+    start: usize,
+    opaque_tokens: &[OpaqueTokenRange],
+) -> bool {
+    let bytes = source.as_bytes();
+    let mut offset = start;
+    let mut accessed = false;
+    let mut opaque_token = opaque_tokens.partition_point(|token| token.end <= start);
+    if opaque_tokens.get(opaque_token).is_some_and(|token| {
+        token.start <= start && start < token.end
+    }) {
+        return false;
+    }
+
+    loop {
+        while bytes
+            .get(offset)
+            .is_some_and(|byte| matches!(*byte, b' ' | b'\t'))
+        {
+            offset += 1;
+        }
+        if bytes
+            .get(offset)
+            .is_some_and(|byte| matches!(*byte, b'\n' | b'\r'))
+        {
+            let Some(next) = member_continuation_start(source, offset, opaque_tokens) else {
+                break;
+            };
+            offset = next;
+        }
+        match bytes.get(offset) {
+            Some(&b'[') => {
+                let mut depth = 1;
+                offset += 1;
+                while let Some(byte) = bytes.get(offset) {
+                    while opaque_tokens
+                        .get(opaque_token)
+                        .is_some_and(|token| token.end <= offset)
+                    {
+                        opaque_token += 1;
+                    }
+                    if let Some(token) = opaque_tokens.get(opaque_token)
+                        && token.start <= offset
+                        && offset < token.end
+                    {
+                        offset = token.end;
+                        continue;
+                    }
+                    match *byte {
+                        b'[' => depth += 1,
+                        b']' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                offset += 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    offset += 1;
+                }
+                if depth != 0 {
+                    return false;
+                }
+                accessed = true;
+            }
+            Some(&b'.') => {
+                offset += 1;
+                while bytes
+                    .get(offset)
+                    .is_some_and(|byte| matches!(*byte, b' ' | b'\t'))
+                {
+                    offset += 1;
+                }
+                let Some(first) = bytes.get(offset).copied() else {
+                    return false;
+                };
+                if !(first.is_ascii_alphabetic() || first == b'_') {
+                    return false;
+                }
+                offset += 1;
+                while bytes.get(offset).copied().is_some_and(is_word) {
+                    offset += 1;
+                }
+                accessed = true;
+            }
+            _ => break,
+        }
+    }
+
+    accessed
+        && assignment(source[offset..].trim_start_matches(|byte| byte == ' ' || byte == '\t'))
+}
+
+fn member_continuation_start(
+    source: &str,
+    start: usize,
+    opaque_tokens: &[OpaqueTokenRange],
+) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut offset = start;
+    let mut crossed_line = false;
+    let mut opaque_token = opaque_tokens.partition_point(|token| token.end <= start);
+    loop {
+        while bytes
+            .get(offset)
+            .is_some_and(|byte| matches!(*byte, b' ' | b'\t'))
+        {
+            offset += 1;
+        }
+        if let Some(token) = opaque_tokens.get(opaque_token)
+            && token.start == offset
+            && token.comment
+        {
+            offset = token.end;
+            opaque_token += 1;
+            continue;
+        }
+        match bytes.get(offset) {
+            Some(&b'\n') => {
+                crossed_line = true;
+                offset += 1;
+            }
+            Some(&b'\r') if bytes.get(offset + 1) == Some(&b'\n') => {
+                crossed_line = true;
+                offset += 2;
+            }
+            Some(&b'.') if crossed_line => return Some(offset),
+            _ => return None,
+        }
+    }
+}
+
+fn opaque_token_at(tokens: &[OpaqueTokenRange], offset: usize) -> Option<OpaqueTokenRange> {
+    let index = tokens.partition_point(|token| token.end <= offset);
+    tokens
+        .get(index)
+        .copied()
+        .filter(|token| token.start <= offset && offset < token.end)
+}
+
+fn opaque_token_ranges(source: &str) -> Vec<OpaqueTokenRange> {
+    if !source
+        .as_bytes()
+        .iter()
+        .any(|byte| matches!(*byte, b'"' | b'#'))
+    {
+        return Vec::new();
+    }
+
+    let lexed = xsh::frontend::syntax::lexer::Lexer::new(SourceId::new(0), source).lex_compact();
+    let tokens = lexed.token_table;
+    (0..tokens.len())
+        .filter_map(|index| {
+            let tag = tokens.tag_at(index)?;
+            let comment = tag == xsh::frontend::syntax::token::TokenTag::Comment;
+            if !comment
+                && !matches!(
+                    tag,
+                    xsh::frontend::syntax::token::TokenTag::String
+                        | xsh::frontend::syntax::token::TokenTag::PathString
+                        | xsh::frontend::syntax::token::TokenTag::GlobString
+                        | xsh::frontend::syntax::token::TokenTag::EnvString
+                        | xsh::frontend::syntax::token::TokenTag::FmtString
+                        | xsh::frontend::syntax::token::TokenTag::PathFmtString
+                        | xsh::frontend::syntax::token::TokenTag::Bytes
+                        | xsh::frontend::syntax::token::TokenTag::Regex
+                )
+            {
+                return None;
+            }
+            Some(OpaqueTokenRange {
+                start: tokens.start_at(index)?,
+                end: tokens.end_at(index, source)?,
+                comment,
+            })
+        })
+        .collect()
+}
+
+fn assignment(text: &str) -> bool {
+    text.starts_with("+=")
+        || text.starts_with("-=")
+        || text.starts_with("*=")
+        || text.starts_with("/=")
+        || text.starts_with("%=")
+        || (text.starts_with('=') && !text.starts_with("==") && !text.starts_with("=>"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::{LintOptions, Linter};
+    use super::{access_chain_assigns_at, assigns, opaque_token_ranges};
     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+    use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
@@ -621,6 +822,147 @@ mod tests {
         );
         assert!(built_lists(&text).is_empty(), "{text}");
         text
+    }
+
+    #[test]
+    fn indexed_reassignment_without_operator_whitespace_keeps_the_list_mutable() {
+        let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  for item in items {\n    kept += [item]\n  }\n  kept[0]=4\n  kept\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
+        assert!(built_lists(source).is_empty(), "{source}");
+    }
+
+    #[test]
+    fn multiline_index_assignment_keeps_the_list_mutable() {
+        let source = "proc build(items: List[Int], index: Int) -> List[Int] {\n  var kept: List[Int] = []\n  for item in items {\n    kept += [item]\n  }\n  kept[(index +\n    1) * 2] = 4\n  kept\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
+        assert!(built_lists(source).is_empty(), "{source}");
+    }
+
+    #[test]
+    fn assignment_after_a_tab_keeps_the_list_mutable() {
+        let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  for item in items {\n    kept += [item]\n  }\n  kept\t= [4]\n  kept\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
+        assert!(built_lists(source).is_empty(), "{source}");
+    }
+
+    #[test]
+    fn indexed_division_and_remainder_assignments_keep_the_list_mutable() {
+        for operator in ["/=", "%="] {
+            let source = format!(
+                "proc build(items: List[Int]) -> List[Int] {{\n  var kept: List[Int] = []\n  for item in items {{\n    kept += [item]\n  }}\n  kept[0]{operator}2\n  kept\n}}\n"
+            );
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            assert!(Checker::check_arena(&parsed.arena, &source).diagnostics.is_empty());
+            assert!(built_lists(&source).is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn field_division_and_remainder_assignments_are_detected() {
+        for (access, operator) in [
+            (".field", "/="),
+            (".field", "%="),
+            ("[0].field", "/="),
+            ("[0].field", "%="),
+            (". field", "/="),
+            (". field", "%="),
+            ("[0] . field", "/="),
+            ("[0] . field", "%="),
+        ] {
+            let access = format!("{access}{operator}2");
+            let opaque_tokens = opaque_token_ranges(&access);
+            assert!(access_chain_assigns_at(&access, 0, &opaque_tokens), "{access}");
+            assert!(assigns(&format!("kept{access}"), "kept"), "{access}");
+        }
+    }
+
+    #[test]
+    fn access_chains_continue_inside_indexes_and_through_member_lines() {
+        for access in [
+            "[\n  0\n] = 4",
+            "\n  .field = 4",
+            "[0]\n  .field = 4",
+            "[\n  0\n]\n  .field = 4",
+        ] {
+            assert!(assigns(&format!("kept{access}"), "kept"), "{access}");
+        }
+        assert!(!assigns("kept[\n  0", "kept"));
+        assert!(!assigns("kept\n  [0] = 4", "kept"));
+    }
+
+    #[test]
+    fn quoted_index_expressions_do_not_corrupt_the_access_chain() {
+        let source = r#"proc build(items: List[Int]) -> List[Int] {
+  var kept = []
+  for item in items {
+    kept += [item]
+  }
+  kept["]".byte_len() - 1]=4
+  kept["[".byte_len() - 1]=5
+  kept["\"]".byte_len() - 1]=6
+  kept
+}
+"#;
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
+        assert!(built_lists(source).is_empty(), "{source}");
+    }
+
+    #[test]
+    fn repeated_accesses_reuse_quoted_tokens() {
+        let access = r#"kept["]".byte_len() - 1]"#;
+        let line = format!("{}; kept[\"[\".byte_len() - 1]=4", vec![access; 32].join("; "));
+        assert!(assigns(&line, "kept"), "{line}");
+    }
+
+    #[test]
+    fn indexed_comparison_after_the_loop_is_not_a_reassignment() {
+        let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  for item in items {\n    print $item\n    kept += [item]\n  }\n  assert kept[0]!=4\n  kept\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
+        let fixed = rewritten(source);
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
+    }
+
+    #[test]
+    fn indexed_comparison_does_not_hide_a_later_unrelated_assignment() {
+        let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  var changed = false\n  for item in items {\n    kept += [item]\n  }\n  if kept[0] == 0 { changed = true }\n  kept\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
+        let fixed = rewritten(source);
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
+    }
+
+    #[test]
+    fn spaced_field_assignment_keeps_the_list_mutable() {
+        let source = r#"type Row = {value: Int}
+proc build(items: List[Row]) -> List[Row] {
+  var kept: List[Row] = []
+  for item in items {
+    kept += [item]
+  }
+  kept [0] . value = 4
+  kept
+}
+"#;
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
+        assert!(built_lists(source).is_empty(), "{source}");
     }
 
     #[test]

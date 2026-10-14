@@ -971,68 +971,16 @@ fn fixture_binders(functions: &[ArenaFunctionDef]) -> Vec<String> {
     functions.iter().map(|function| name_text(function.name)).collect()
 }
 
-fn format_fixture_source(source: &str) -> String {
-    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
-    std::fs::create_dir_all(&scratch).expect("create ignored bridge scratch directory");
-    let directory = tempfile::Builder::new()
-        .prefix("formal-bridge-")
-        .tempdir_in(scratch)
-        .expect("create bridge formatter fixture directory");
-    let path = directory.path().join("fixture.xsh");
-    std::fs::write(&path, source).expect("write bridge formatter fixture");
-    let file = path.to_string_lossy().into_owned();
-    let first = xsht::format_files(std::slice::from_ref(&file), false);
-    assert_eq!(
-        first.status,
-        0,
-        "formatter failed: {}",
-        String::from_utf8_lossy(&first.stderr)
-    );
-    let formatted = std::fs::read_to_string(&path).expect("read formatted bridge fixture");
-    let second = xsht::format_files(std::slice::from_ref(&file), false);
-    assert_eq!(
-        second.status,
-        0,
-        "formatter failed on its own output: {}",
-        String::from_utf8_lossy(&second.stderr)
-    );
-    assert_eq!(
-        std::fs::read_to_string(&path).expect("read second formatted bridge fixture"),
-        formatted
-    );
-    formatted
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::runtime::eval::{LoweredFunctionKey, LoweredFunctionKind};
     use crate::runtime::value::Value;
 
-    const FIXTURE_SOURCE: &str = r#"pure signed_min(max: Int) -> Int {
-  return -max - 1
-}
-
-pure signed_max() -> Int {
-  return 9223372036854775807
-}
-
-pure duration_max() -> Duration {
-  return 18446744073709551615ms
-}
-
-pure positive_zero() -> Float {
-  return 0.0
-}
-
-pure negative_zero() -> Float {
-  return -0.0
-}
-
-pure path_echo(input: Path) -> Path {
-  return input
-}
-"#;
+    const FIXTURE_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-scalar-literals.xsh"
+    ));
 
     fn set_nested_field(
         value: &mut Json,
@@ -1217,17 +1165,6 @@ pure path_echo(input: Path) -> Path {
                 && binder.owner.0.is_some()
         }));
 
-        let source_id = SourceId::new(0);
-        let formatted_source = format_fixture_source(&source.text);
-        let reparsed = crate::syntax::parser::Parser::parse_source_arena_only(
-            source_id,
-            &formatted_source,
-        );
-        assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
-        assert_eq!(
-            fixture_binders(&reparsed.arena.arena.function_defs),
-            projected_function_binders
-        );
         for bytes in &decoded.native_path_inputs {
             let path = PathValue::new(bytes.clone()).unwrap();
             let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(

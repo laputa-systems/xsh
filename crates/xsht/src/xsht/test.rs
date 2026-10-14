@@ -99,6 +99,15 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
     }
+    if options.exact && options.filter.is_none() {
+        return CliOutput {
+            status: 2,
+            stdout: Vec::new(),
+            stderr: text_bytes("xsht: `--exact` requires FILTER\n"),
+            trace_text: String::new(),
+            syscall_summary: None,
+        };
+    }
 
     let mut cases = Vec::new();
     let mut coverage_source_files: Vec<PathBuf> = Vec::new();
@@ -187,6 +196,20 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
             trace_text: String::new(),
             syscall_summary: None,
         };
+    }
+
+    if options.exact && cases.is_empty() {
+        if let Some(filter) = options.filter.as_deref() {
+            return CliOutput {
+                status: 2,
+                stdout: stdout.into_bytes(),
+                stderr: text_bytes(format!(
+                    "xsht: no native tests matched exact filter: {filter}\n"
+                )),
+                trace_text: String::new(),
+                syscall_summary: None,
+            };
+        }
     }
 
     write_test_output(&format!("running {} tests\n", cases.len()));

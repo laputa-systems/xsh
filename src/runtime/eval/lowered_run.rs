@@ -1484,9 +1484,16 @@ fn prepare_dynamic_module(
                 module_source_id,
             )
             .map_err(|error| {
+                let message = match error.detail {
+                    Some(detail) => format!(
+                        "loaded module could not encode `{}`: {detail}",
+                        error.construct
+                    ),
+                    None => format!("loaded module could not encode `{}`", error.construct),
+                };
                 RuntimeError::new(
                     "module-load",
-                    format!("loaded module could not encode `{}`", error.construct),
+                    message,
                 )
                 .with_span(span)
             })?,
@@ -7013,6 +7020,18 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<(), RuntimeError> {
+        for (slot, value) in self.lowered_capture_values(lowered, call_span)? {
+            slots[slot] = value;
+        }
+        Ok(())
+    }
+
+    fn lowered_capture_values(
+        &self,
+        lowered: &FunctionHeader,
+        call_span: Span,
+    ) -> Result<smallvec::SmallVec<[(usize, LoweredValue); 4]>, RuntimeError> {
+        let mut values = smallvec::SmallVec::new();
         for capture in &lowered.captures {
             let Some(binding) = self.lookup(capture.name) else {
                 return Err(RuntimeError::new(
@@ -7047,9 +7066,9 @@ impl Evaluator {
                 )
                 .with_span(call_span));
             };
-            slots[capture.slot] = value;
+            values.push((capture.slot, value));
         }
-        Ok(())
+        Ok(values)
     }
 
     fn lookup_lowered_capture(&self, name: Name, kind: LoweredType) -> Option<LoweredValue> {

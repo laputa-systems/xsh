@@ -56,6 +56,25 @@ test test_par_map_all_ok {
   assert results[2] == Ok(33)
 }
 
+test test_par_map_worker_calls_observe_outer_capture_updates { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""var checks = 0
+pure read() -> Int { checks }
+proc observed() -> List[Int] {
+  checks += 1
+  [1, 2, 3] |> par-map(jobs: 2) { |item| read() } |> collect()
+}
+let rows = observed()
+print f"rows:{rows[0]},{rows[1]},{rows[2]}"
+print f"checks:{checks}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "rows:1,1,1\nchecks:1\n", output.stdout
+  assert output.stderr == "", output.stderr
+}
+
 test test_par_map_collect_all_retains_nominal_error_data_in_order {
   let results = [10, 0, 20]
     |> par-map { |x|

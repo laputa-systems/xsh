@@ -463,6 +463,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         examples: &[],
     },
     CommandSpec {
+        name: "ir-tags",
+        summary: "List generated full-instruction tags",
+        quick_label: "Inspect lowered IR",
+        args: "",
+        usage: &[&[UsagePart::Opt("--json")]],
+        options: &[OptionSpec {
+            names: &["--json"],
+            arg: OptionArg::Flag,
+            repeatable: false,
+            description: "Print a JSON string array",
+        }],
+        removed: &[],
+        options_end_at_first_argument: false,
+        notes: &["Names are emitted in full-instruction schema order."],
+        examples: &["xsht ir-tags --json"],
+    },
+    CommandSpec {
         name: "test",
         summary: "Run discovered tests",
         quick_label: "Run tests",

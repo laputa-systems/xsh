@@ -1,6 +1,29 @@
 ##! Docker image, mount, platform, and direct internal-XSH invocation policy.
 use context
 use stage as stages
+use targets
+
+## Host-side tool paths mounted read-only into the pinned Linux test container.
+export type HostLinkTools = {mold: Path, kache: Path}
+
+proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTools?, Error] {
+  return null when ctx.host_os != targets.Linux or ctx.host_arch != targets.X86_64
+  return null when ctx.target.triple != "x86_64-unknown-linux-musl"
+
+  let mold = /usr/local/bin/mold
+  let cargo_home = env.get_or("CARGO_HOME", "")?.trim()
+  let kache = if cargo_home == "" {
+    fp"{env.get_or("HOME", "")?}/.cargo/bin/kache"
+  } else {
+    fp"{cargo_home}/bin/kache"
+  }
+  let linker_adapter = fp"{ctx.root}/dev/musl-linker.sh"
+  guard mold.exists() and kache.exists() and linker_adapter.exists() else {
+    return Err(stages.StageError.MissingTool(tool: "mold, kache, or dev/musl-linker.sh"))
+  }
+
+  {mold: mold, kache: kache}
+}
 
 ## Computes the Docker image name from the supported environment override.
 export proc image_name() [env, error] -> Result[Str, Error] {
@@ -79,8 +102,45 @@ export pure internal_argv(
   stress_repeat: Str,
   extra: List[Str],
   git_common_dir: Path? = null,
+  host_link_tools: HostLinkTools? = null,
 ) -> Result[List[Str], Error] {
   let git_mount = if git_common_dir == null { [] } else { ["-v", f"{git_common_dir}:{git_common_dir}:ro"] }
+  guard host_link_tools == null or ctx.target.triple == "x86_64-unknown-linux-musl" else {
+    return Err(targets.TargetError.Unsupported(target: ctx.target.triple))
+  }
+  let linker_mounts = if host_link_tools == null {
+    []
+  } else {
+    [
+      "-v",
+      f"{ctx.root}/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+      "-v",
+      f"{host_link_tools.mold}:/usr/local/bin/mold:ro",
+      "-v",
+      f"{host_link_tools.kache}:/usr/local/bin/kache:ro",
+    ]
+  }
+  guard ctx.target.triple == "x86_64-unknown-linux-musl" or ctx.target.triple == "aarch64-unknown-linux-musl" else {
+    return Err(targets.TargetError.Unsupported(target: ctx.target.triple))
+  }
+  let target_flags = targets.docker_test_env(ctx.target.triple)?
+  let target_flags_variable = if ctx.target.triple == "x86_64-unknown-linux-musl" {
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"
+  } else {
+    "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"
+  }
+  let target_rustflags = target_flags.get(target_flags_variable)?.require(Str)?
+  let linker_environment = if host_link_tools == null {
+    []
+  } else {
+    [
+      "-e",
+      "RUSTC_WRAPPER=/usr/local/bin/kache",
+      "-e",
+      "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+    ]
+  }
+  let target_environment = ["-e", f"{target_flags_variable}={target_rustflags}"]
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
   if operation == "test-linux-split" or operation == "test-linux-ci-split" {
@@ -122,11 +182,16 @@ export pure internal_argv(
     f"HOST_UID={host_uid}",
     "-e",
     f"HOST_GID={host_gid}",
+    @linker_mounts,
+    @linker_environment,
+    @target_environment,
     @git_mount,
     image,
     "cargo",
     "run",
     "--quiet",
+    "--target",
+    ctx.target.triple,
     "-p",
     "xsh",
     "--bin",
@@ -151,6 +216,7 @@ export proc run_internal(
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
+  let host_link_tools = host_link_tools(ctx)?
   var common_git = null
   if operation in ["gate-lane", "gate-batch"] {
     cd (ctx.root) {
@@ -169,6 +235,7 @@ export proc run_internal(
     stress_repeat,
     extra,
     git_common_dir: common_git,
+    host_link_tools:,
   )?
   stages.execute(
     stages.command(

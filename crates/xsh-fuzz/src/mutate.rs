@@ -51,7 +51,9 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            collect(&path, out);
+            if !matches!(entry.file_name().to_str(), Some("target" | ".git" | ".claude" | ".work")) {
+                collect(&path, out);
+            }
         } else if path.extension().is_some_and(|ext| ext == "xsh") && path.is_file() {
             out.push(path);
         }
@@ -428,5 +430,19 @@ mod tests {
         let alias = root.path().join("dev/alias.xsh");
         std::os::unix::fs::symlink("tool.xsh", &alias).expect("create source file symlink");
         assert_eq!(corpus_files(root.path()), vec![core, alias, nested, dev]);
+    }
+
+    #[test]
+    fn corpus_files_skip_generated_and_working_directories() {
+        let root = tempfile::tempdir().expect("corpus directory");
+        let source = root.path().join("tests/source.xsh");
+        std::fs::create_dir_all(source.parent().unwrap()).expect("create source directory");
+        std::fs::write(&source, "let value = 1\n").expect("write source fixture");
+        for directory in ["target", ".git", ".claude", ".work"] {
+            let ignored = root.path().join("tests").join(directory).join("scratch.xsh");
+            std::fs::create_dir_all(ignored.parent().unwrap()).expect("create ignored directory");
+            std::fs::write(ignored, "let value = 2\n").expect("write ignored fixture");
+        }
+        assert_eq!(corpus_files(root.path()), vec![source]);
     }
 }

@@ -46,7 +46,7 @@ proc xsht_path(root: Path) [fs, env, error] -> Result[Path, Error] {
 
   return repo_path(root, configured) when configured != ""
 
-  tests.product_path(context.create()?, tests.execution_profile()?, "xsht")
+  tests.product_path(context.create()?, tests.execution_profile()?, tests.Xsht)
 }
 
 proc relative_display(root: Path, target: Path) [error] -> Result[Str] {

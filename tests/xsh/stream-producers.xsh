@@ -124,6 +124,113 @@ test test_zero_argument_stream_producers_run_from_every_call_position { |ctx|
   assert output.stderr == "", output.stderr
 }
 
+test test_stream_producer_mutations_refresh_consumer_captures { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""var checks = 0
+stream values() -> Stream[Int] {
+  checks += 1
+  yield checks
+}
+var resumed = 0
+stream resumed_values() -> Stream[Int] {
+  resumed += 1
+  yield resumed
+  resumed += 1
+  yield resumed
+}
+var delegated = 0
+stream delegated_values() -> Stream[Int] {
+  delegated += 1
+  yield delegated
+  delegated += 1
+  yield delegated
+}
+stream delegated_parent() -> Stream[Int] { yield @delegated_values() }
+var cancelled = 0
+stream cancelled_values() [io] -> Stream[Int] {
+  defer {
+    print f"closed:{cancelled}"
+    cancelled += 100
+  }
+  cancelled += 1
+  yield cancelled
+}
+proc observe_pipeline() -> Int {
+  let rows = values() |> collect()
+  print f"pipeline:{rows[0]}:{checks}"
+  checks
+}
+proc observe_method() -> Int {
+  let rows = values().collect()
+  print f"method:{rows[0]}:{checks}"
+  checks
+}
+proc observe_for() -> Int {
+  for item in values() {
+    print f"for:{item}:{checks}"
+  }
+  checks
+}
+proc observe_comprehension() -> Int {
+  let rows = [item for item in values()]
+  print f"comprehension:{rows[0]}:{checks}"
+  checks
+}
+proc observe_resumed() -> Int {
+  for item in resumed_values() {
+    print f"resumed:{item}:{resumed}"
+    resumed += 10
+  }
+  resumed
+}
+proc observe_delegated() -> Int {
+  for item in delegated_parent() {
+    print f"delegated:{item}:{delegated}"
+    delegated += 10
+  }
+  delegated
+}
+proc observe_cancelled() [io] -> Int {
+  for item in cancelled_values() {
+    print f"cancelled:{item}:{cancelled}"
+    cancelled += 10
+    break
+  }
+  print f"cancelled-after:{cancelled}"
+  cancelled
+}
+let results = [observe_pipeline(), observe_method(), observe_for(), observe_comprehension()]
+print f"returns:{results[0]},{results[1]},{results[2]},{results[3]}"
+print f"checks:{checks}"
+print f"resumed-return:{observe_resumed()}"
+print f"delegated-return:{observe_delegated()}"
+print f"cancelled-return:{observe_cancelled()}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == [
+    "pipeline:1:1",
+    "method:2:2",
+    "for:3:3",
+    "comprehension:4:4",
+    "returns:1,2,3,4",
+    "checks:4",
+    "resumed:1:1",
+    "resumed:12:12",
+    "resumed-return:22",
+    "delegated:1:1",
+    "delegated:12:12",
+    "delegated-return:22",
+    "cancelled:1:1",
+    "closed:11",
+    "cancelled-after:111",
+    "cancelled-return:111",
+    "",
+  ].join("\n"), output.stdout
+  assert output.stderr == "", output.stderr
+}
+
 # The worker stages are consumers too: `par-map` and the fused
 # `par-map | flat-map | reduce-by` path pull a producer's rows through the same
 # machinery as any other consumer, so the body runs at consumption, the stage

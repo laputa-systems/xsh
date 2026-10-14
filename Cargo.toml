@@ -117,7 +117,6 @@ http = "1"
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }
 walkdir = "2"
-xsht = { path = "crates/xsht" }
 rustls = { version = "0.23.41", default-features = false, features = ["std", "tls12"] }
 rustls-graviola = "0.4.0"
 

@@ -7,6 +7,8 @@ mod cli;
 mod core;
 #[path = "diagnostics.rs"]
 mod diagnostics;
+#[path = "grammar.rs"]
+mod grammar;
 #[path = "libc_hygiene.rs"]
 mod libc_hygiene;
 #[path = "libxsh_api.rs"]
@@ -19,5 +21,3 @@ mod sema;
 mod sema_bundle_view;
 #[path = "stdlib_port.rs"]
 mod stdlib_port;
-#[path = "syntax.rs"]
-mod syntax;

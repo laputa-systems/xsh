@@ -55,7 +55,7 @@ use crate::runtime::eval::{
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
 use crate::runtime::eval::route_witness::{
-    RouteWitnessMode, RouteWitnessRoute,
+    RouteWitnessMode, frame_route,
 };
 use crate::runtime::value::{DurationValue, Value};
 use crate::trace::Traceback;
@@ -476,7 +476,7 @@ fn expr_if_branches<'e>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::eval::route_witness::RouteWitnessSink;
+    use crate::runtime::eval::route_witness::{RouteWitnessRoute, RouteWitnessSink};
     use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep, Value};
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
@@ -530,9 +530,112 @@ mod tests {
     }
 
     #[test]
+    fn forced_discard_keeps_child_captures_and_skips_parent_defers() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"var checks = 0
+proc child() { checks = 1 }
+proc parent() {
+  defer { checks = 99 }
+  child()
+}
+"#;
+            let (program, source_id) = full_program(source);
+            program.symbol_owner().with_current(|| {
+                let checks = Name::intern("checks");
+                let child = Name::intern("child");
+                let parent = Name::intern("parent");
+                let span = Span::new(source_id, 0, 0);
+                let mut evaluator = Evaluator::new(Vec::new());
+                evaluator.define(
+                    checks,
+                    crate::runtime::eval::Binding {
+                        value: Value::Int(0),
+                        mutable: true,
+                    },
+                );
+                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
+                frames
+                    .push_call(
+                        LoweredFunctionKey::Name(parent),
+                        LoweredFunctionKind::Proc,
+                        Vec::new(),
+                        span,
+                        None,
+                    )
+                    .expect("parent frame starts");
+
+                let parent_execution = program
+                    .function_view(
+                        LoweredFunctionKey::Name(parent),
+                        LoweredFunctionKind::Proc,
+                    )
+                    .unwrap()
+                    .expect("parent function exists")
+                    .execution()
+                    .unwrap();
+                let defer_instruction =
+                    function_instruction(&program, &parent_execution, FullTag::StmtDefer);
+                let (tag, payload) = parent_execution
+                    .instruction_id(defer_instruction)
+                    .unwrap();
+                let StmtView::Defer { value, .. } =
+                    StmtView::decode(&parent_execution, tag, payload).unwrap()
+                else {
+                    unreachable!()
+                };
+                frames.calls[0]
+                    .defers
+                    .push(RegisteredDefer::new(value.raw(), false));
+
+                frames
+                    .push_call(
+                        LoweredFunctionKey::Name(child),
+                        LoweredFunctionKind::Proc,
+                        Vec::new(),
+                        span,
+                        None,
+                    )
+                    .expect("child frame starts");
+                let child_header = ExplicitFrames::function_header(
+                    &program,
+                    LoweredFunctionKey::Name(child),
+                    LoweredFunctionKind::Proc,
+                    span,
+                )
+                .unwrap();
+                let child_capture = child_header
+                    .captures
+                    .iter()
+                    .find(|capture| capture.name == checks)
+                    .expect("child captures checks")
+                    .slot;
+                frames.calls[1].slots[child_capture] = LoweredValue::Int(1);
+
+                frames
+                    .evaluator
+                    .deliver_test_cancel(
+                        crate::runtime::eval::TestCancelRequest::Force,
+                        span,
+                    )
+                    .expect("forced cancellation is delivered");
+                assert!(frames.evaluator.shutting_down());
+                frames.begin_error_unwind(RuntimeError::abort(143, true).with_span(span));
+
+                let result = frames.result.take().expect("force abort completes the machine");
+                assert!(matches!(
+                    result,
+                    Err(error) if error.abort.is_some_and(|signal| signal.force)
+                ));
+                assert!(frames.calls.is_empty());
+                assert_eq!(frames.evaluator.lookup(checks).unwrap().value, Value::Int(1));
+            });
+        });
+    }
+
+    #[test]
     fn empty_map_witnesses_capture_the_selected_dispatch_route() {
         crate::runtime::eval::run_eval(|| {
-            let source = "pure empty() -> Map[Int] { return map.empty() }\n";
+            let source = "pure empty() -> Map[Str, Int] { let value: Map[Str, Int] = {}; return value }\n";
             let (program, source_id) = full_program(source);
             let function = program
                 .symbol_owner()
@@ -551,7 +654,7 @@ mod tests {
             for (forced, expected_route, expected_mode) in [
                 (
                     false,
-                    RouteWitnessRoute::RecursiveBridgeToExplicitFrames,
+                    RouteWitnessRoute::ExplicitFrameApplyPath,
                     RouteWitnessMode::Normal,
                 ),
                 (
@@ -635,8 +738,7 @@ mod tests {
             let instruction = function_instruction(&program, &execution, FullTag::ExprPipeline);
             let span = Span::new(source_id, 0, 0);
             let (_, _, stages) = indexed_value_pipeline_input(&execution, instruction, span)
-                .unwrap()
-                .expect("a complete pipeline decode retains its input");
+                .unwrap();
 
             assert_eq!(stages.len(), 4);
         });
@@ -791,8 +893,7 @@ mod tests {
                 pipeline_instruction,
                 span,
             )
-            .unwrap()
-            .expect("folded pipeline is a value pipeline");
+            .unwrap();
             assert_eq!(stages.len(), 1);
 
             let mut evaluator = Evaluator::new(Vec::new());
@@ -2039,9 +2140,10 @@ enum FrameContinuation {
     },
     BreakLoop { transfers_resource: bool },
     RetryDelay(Box<RetryFrameState>, Box<FrameContinuation>),
-    /// A `yield` statement's value: the frame suspends here and hands the value
-    /// to whoever pulled the producer.
-    Yield { transfers_resource: bool },
+    Yield {
+        span: Span,
+        transfers_resource: bool,
+    },
     YieldDelegate {
         span: Span,
         transfers_resource: bool,
@@ -2679,32 +2781,13 @@ impl FrameWork {
     }
 }
 
-/// Whose statements a frame runs. A function frame returns a checked value to
-/// its caller. A block frame runs statements for the recursive evaluator
-/// against slots it lends, and hands the statement flow back when it finishes.
 #[derive(Clone, Copy)]
 pub(super) enum FrameOwner {
     Function(LoweredFunctionKey, LoweredFunctionKind),
-    /// A top-level statement does not own a scope: it runs in the script's.
-    /// Slots the block has not declared belong to `outer_scope`.
-    /// `context_depth` is set when a frame inside a context scope lent the
-    /// slots: see `LentContextSlots`.
     Block {
         owns_scope: bool,
         outer_scope: u64,
-        context_depth: Option<usize>,
     },
-}
-
-/// Slot ownership a frame inside a context scope lends to the recursive
-/// evaluator, which runs nested bodies (stage blocks, retry bodies) and field
-/// assignments on the same slots in frames of their own. Scopes at or above
-/// `depth` on the evaluator's scope stack belong to the context body, so a live
-/// value may be stored only in a slot one of those scopes owns.
-pub(in crate::runtime::eval) struct LentContextSlots {
-    slots: usize,
-    depth: usize,
-    scopes: Vec<u64>,
 }
 
 /// A function frame owns its slots. A block frame borrows the recursive
@@ -2949,21 +3032,6 @@ impl Evaluator {
         )
     }
 
-    /// Rejects a live value stored in a slot whose owner scope is below the
-    /// context body's `depth` on the scope stack. Owners no longer on the
-    /// stack belong to finished bodies and are not outer bindings.
-    fn check_context_slot_owner(
-        &self,
-        owner: u64,
-        depth: usize,
-        span: Span,
-    ) -> Result<(), RuntimeError> {
-        match self.scope_ids.iter().rposition(|scope| *scope == owner) {
-            Some(position) if position < depth => Err(context_assignment_escape(span)),
-            _ => Ok(()),
-        }
-    }
-
     /// Statements have one implementation, on the frames, whoever runs them.
     fn eval_indexed_work_with_frames(
         &mut self,
@@ -2986,12 +3054,7 @@ impl Evaluator {
         } else {
             outer_scope
         };
-        let (slot_scopes, context_depth) = match &self.lent_context_slots {
-            Some(lent) if lent.slots == slots.as_ptr() as usize => {
-                (lent.scopes.clone(), Some(lent.depth))
-            }
-            _ => (self.frame_scratch.take_slot_scopes(0, outer_scope), None),
-        };
+        let slot_scopes = self.frame_scratch.take_slot_scopes(0, outer_scope);
         let mut work = self.frame_scratch.take_work();
         work.push(first);
         let open_context_boundaries = context_boundaries(&work);
@@ -3001,7 +3064,6 @@ impl Evaluator {
             owner: FrameOwner::Block {
                 owns_scope,
                 outer_scope,
-                context_depth,
             },
             producer: false,
             cancelled: false,
@@ -3290,6 +3352,18 @@ impl ProducerFrameState {
             block_defer_offsets: Vec::new(),
             scope_id: 0,
         }
+    }
+
+    pub(super) fn hydrate_captures(
+        &mut self,
+        evaluator: &Evaluator,
+        header: &FunctionHeader,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        for (slot, value) in evaluator.lowered_capture_values(header, span)? {
+            self.slots[slot] = value;
+        }
+        Ok(())
     }
 
     /// The scopes the body has open: its call scope, then its live blocks.
@@ -4431,6 +4505,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Some(&name),
                 TracePayload::None,
             );
+            if let Some(parent) = self.calls.len().checked_sub(1)
+                && let Err(error) = self.refresh_caller_bindings(parent, call.call_span)
+            {
+                self.evaluator.report_cleanup_error(&error, call.call_span);
+            }
             if let Some(FrameContinuation::UtilsCacheResult { span, .. }) =
                 call.return_to.as_ref()
             {
@@ -4613,6 +4692,51 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.push_resolved_target(index, resolved, values, span, next)
     }
 
+    fn publish_caller_bindings(
+        &mut self,
+        index: usize,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match self.calls[index].owner {
+            FrameOwner::Block { .. } => {
+                let call = &mut self.calls[index];
+                self.evaluator
+                    .sync_indexed_root_slots(&mut call.slots, span)
+            }
+            FrameOwner::Function(function, kind) => {
+                let header = {
+                    let call = &self.calls[index];
+                    Self::function_header(call.execution.program(), function, kind, span)?
+                };
+                self.evaluator
+                    .write_back_lowered_captures(&header, &self.calls[index].slots, span)
+            }
+        }
+    }
+
+    fn refresh_caller_bindings(
+        &mut self,
+        index: usize,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match self.calls[index].owner {
+            FrameOwner::Block { .. } => {
+                let call = &mut self.calls[index];
+                self.evaluator
+                    .sync_indexed_root_slots(&mut call.slots, span)
+            }
+            FrameOwner::Function(function, kind) => {
+                let header = {
+                    let call = &self.calls[index];
+                    Self::function_header(call.execution.program(), function, kind, span)?
+                };
+                let call = &mut self.calls[index];
+                self.evaluator
+                    .hydrate_lowered_captures(&header, &mut call.slots, span)
+            }
+        }
+    }
+
     fn push_resolved_target(
         &mut self,
         index: usize,
@@ -4621,6 +4745,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        self.publish_caller_bindings(index, span)?;
         let target = resolved.program.program();
         let stream_call = match target.function_view(resolved.function, resolved.kind)
             .map_err(|error| indexed_error(error, span))? {
@@ -5065,7 +5190,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_value(index, FrameValue::Value(value), next);
                 Ok(())
             }
-            FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
+            FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(index, streams),
             FrameWork::Statements { .. } => unreachable!("statement lists step in place"),
             FrameWork::Expr {
                 instruction,
@@ -6299,7 +6424,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         transfers_resource,
                     }
                 } else {
-                    FrameContinuation::Yield { transfers_resource }
+                    FrameContinuation::Yield {
+                        span: yield_span,
+                        transfers_resource,
+                    }
                 };
                 self.push_expr(index, value, yield_span, continuation);
                 Ok(())
@@ -6412,23 +6540,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             execution.instruction_id(instruction),
             span,
         )?;
-        // Frame-applied operations and binary control keep their children on this machine.
-        if in_place
-            && !super::indexed_frame_apply_tag(tag)
-            && !matches!(
-                tag,
-                FullTag::ExprBinary
-                    | FullTag::ExprPatternIf
-                    | FullTag::ExprStrMatch
-                    | FullTag::ExprTagMatch
-                    | FullTag::ExprProcessCommandBuilder
-                    | FullTag::ExprRunCapture
-                    | FullTag::ExprRunPipeline
-                    | FullTag::ExprSpawnRun
-                    | FullTag::ExprSpawnCommand
-                    | FullTag::ExprWait
-            )
-        {
+        if in_place {
             let flow = {
                 let call = &mut self.calls[index];
                 self.evaluator.eval_indexed_expr(
@@ -6453,6 +6565,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 ControlFlow::Break(value) => self.complete_expression_escape(index, value)?,
             }
             return Ok(());
+        }
+        if let Some(sink) = &self.evaluator.route_witness_sink
+            && let Some(route) = frame_route(tag, self.evaluator.force_frames)
+        {
+            sink.record(
+                tag,
+                route,
+                if self.evaluator.force_frames {
+                    RouteWitnessMode::Forced
+                } else {
+                    RouteWitnessMode::Normal
+                },
+            );
         }
         let strategy = tag.frame_strategy();
         if tag.is_eager_atom() {
@@ -6481,16 +6606,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             );
         }
         if super::indexed_frame_apply_tag(tag) {
-            if self.evaluator.force_frames
-                && tag == FullTag::ExprEmptyMap
-                && let Some(sink) = &self.evaluator.route_witness_sink
-            {
-                sink.record(
-                    tag,
-                    RouteWitnessRoute::GenericOperandApplyPath,
-                    RouteWitnessMode::Forced,
-                );
-            }
             let mut view = super::ExprView::decode(&execution, tag, payload)
                 .map_err(|error| indexed_error(error, span))?;
             let first = super::indexed_frame_apply_child(tag, &mut view, 0, None, None, span)?;
@@ -6575,37 +6690,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             ExprViewKind::ListPipeline => {
-                let pipeline = indexed_value_pipeline_input(
+                let (input, pipeline_span, stages) = indexed_value_pipeline_input(
                     &execution,
                     instruction,
                     span,
                 )?;
-                if let Some((input, pipeline_span, stages)) = pipeline {
-                    self.push_expr(
-                        index,
-                        input,
-                        pipeline_span,
-                        FrameContinuation::StageValueInput {
-                            span: pipeline_span,
-                            stages,
-                            next: Box::new(next),
-                        },
-                    );
-                } else if self.evaluator.force_frames {
-                    return Err(frame_strategy_error(tag, span));
-                } else {
-                    let flow = self.with_lent_context(index, |evaluator, execution, slots| {
-                        evaluator.eval_indexed_expr_inner(execution, instruction, slots, span)
-                    })?;
-                    match flow {
-                        ControlFlow::Continue(value) => {
-                            self.push_value(index, FrameValue::Value(value), next);
-                        }
-                        ControlFlow::Break(value) => {
-                            self.push_value(index, FrameValue::Break(value), next);
-                        }
-                    }
-                }
+                self.push_expr(
+                    index,
+                    input,
+                    pipeline_span,
+                    FrameContinuation::StageValueInput {
+                        span: pipeline_span,
+                        stages,
+                        next: Box::new(next),
+                    },
+                );
             }
             ExprViewKind::ValueBlock => {
                 let super::ExprView::ValueBlock { body, span } =
@@ -9449,7 +9548,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::WrapOk(next) => match value {
                 FrameValue::Value(value) => self.push_value(
                     index,
-                    FrameValue::Value(LoweredValue::ResultOk(Box::new(value))),
+                    FrameValue::Value(lowered_result_ok(value)),
                     *next,
                 ),
                 FrameValue::Break(value) => {
@@ -9901,6 +10000,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 transfers_resource,
             } => match value {
                 FrameValue::Value(value) => {
+                    self.publish_caller_bindings(index, span)?;
                     if transfers_resource {
                         let producer_scope = self.calls[index].scope_id;
                         let consumer_scope = self
@@ -9922,9 +10022,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Yield { transfers_resource } => match value {
+            FrameContinuation::Yield {
+                span,
+                transfers_resource,
+            } => match value {
                 FrameValue::Value(value) => {
                     self.check_context_scope_value_escape(index, &value)?;
+                    self.publish_caller_bindings(index, span)?;
                     if transfers_resource {
                         let producer_scope = self.calls[index].scope_id;
                         let consumer_scope = self
@@ -10005,13 +10109,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let call = &self.calls[index];
         let owner = call.slot_scope(slot);
         let Some(boundary) = call.work.iter().rposition(FrameWork::is_context_scope) else {
-            return match call.owner {
-                FrameOwner::Block {
-                    context_depth: Some(depth),
-                    ..
-                } => self.evaluator.check_context_slot_owner(owner, depth, span),
-                _ => Ok(()),
-            };
+            return Ok(());
         };
         if call.work[boundary + 1..].iter().any(|work| {
             matches!(work,
@@ -10020,60 +10118,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(());
         }
         Err(context_assignment_escape(span))
-    }
-
-    /// The slot ownership a delegated evaluation needs when this frame is
-    /// inside a context scope, whether its own or the one that lent its slots.
-    fn lent_context_slots(&self, index: usize) -> Option<LentContextSlots> {
-        let call = &self.calls[index];
-        let depth = match call.work.iter().rposition(FrameWork::is_context_scope) {
-            Some(boundary) => {
-                let scope_ids = &self.evaluator.scope_ids;
-                call.work[boundary + 1..]
-                    .iter()
-                    .find_map(|work| match work {
-                        FrameWork::Statements {
-                            scope_id: Some(scope),
-                            ..
-                        } => scope_ids.iter().rposition(|id| id == scope),
-                        _ => None,
-                    })
-                    .unwrap_or(scope_ids.len())
-            }
-            None => match call.owner {
-                FrameOwner::Block {
-                    context_depth: Some(depth),
-                    ..
-                } => depth,
-                _ => return None,
-            },
-        };
-        Some(LentContextSlots {
-            slots: call.slots.as_ptr() as usize,
-            depth,
-            scopes: (0..call.slots.len())
-                .map(|slot| call.slot_scope(slot))
-                .collect(),
-        })
-    }
-
-    /// Runs `delegate` on the recursive evaluator with this frame's slots,
-    /// lending it the frame's context-scope slot ownership.
-    fn with_lent_context<T>(
-        &mut self,
-        index: usize,
-        delegate: impl FnOnce(&mut Evaluator, &FullExecution<'p>, &mut [LoweredValue]) -> T,
-    ) -> T {
-        let lent = self.lent_context_slots(index);
-        let previous = lent
-            .is_some()
-            .then(|| std::mem::replace(&mut self.evaluator.lent_context_slots, lent));
-        let call = &mut self.calls[index];
-        let result = delegate(self.evaluator, &call.execution, &mut call.slots);
-        if let Some(previous) = previous {
-            self.evaluator.lent_context_slots = previous;
-        }
-        result
     }
 
     /// Records a slot declared in the current scope.
@@ -10311,22 +10355,105 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn cleanup_comp_streams(&mut self, streams: CompStreams) -> Result<(), RuntimeError> {
+    fn with_caller_bindings(
+        &mut self,
+        index: usize,
+        span: Span,
+        action: impl FnOnce(&mut Evaluator) -> Result<(), RuntimeError>,
+    ) -> Result<(), RuntimeError> {
+        let publication = self.publish_caller_bindings(index, span);
+        let publication_traceback = if publication.is_err() {
+            self.evaluator.pending_traceback.take()
+        } else {
+            None
+        };
+        let cancellation = action(self.evaluator);
+        let action_traceback = if cancellation.is_err() {
+            self.evaluator.pending_traceback.take()
+        } else {
+            None
+        };
+        let refresh = self.refresh_caller_bindings(index, span);
+        let refresh_traceback = if refresh.is_err() {
+            self.evaluator.pending_traceback.take()
+        } else {
+            None
+        };
+        let mut failure: Option<(RuntimeError, Option<Traceback>)> = None;
+        for (result, traceback) in [
+            (publication, publication_traceback),
+            (cancellation, action_traceback),
+            (refresh, refresh_traceback),
+        ] {
+            if let Err(error) = result {
+                let force = error.abort.as_ref().is_some_and(|signal| signal.force);
+                let replace = failure.as_ref().is_none_or(|(previous, _)| {
+                    force && !previous.abort.as_ref().is_some_and(|signal| signal.force)
+                });
+                if replace {
+                    if let Some((previous, _)) = failure.replace((error, traceback)) {
+                        self.evaluator.report_cleanup_error(&previous, span);
+                    }
+                } else {
+                    self.evaluator.report_cleanup_error(&error, span);
+                }
+            }
+        }
+        if let Some((error, traceback)) = failure {
+            self.evaluator.pending_traceback = traceback;
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn cancel_stream_with_bindings(
+        &mut self,
+        index: usize,
+        stream: &mut StreamValue,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        self.with_caller_bindings(index, span, |evaluator| evaluator.stream_cancel(stream, span))
+    }
+
+    fn cleanup_comp_streams(
+        &mut self,
+        index: usize,
+        streams: CompStreams,
+    ) -> Result<(), RuntimeError> {
         let mut first_error = None;
+        let mut first_traceback = None;
         for stream in streams
             .lock()
             .expect("comprehension stream state poisoned")
             .iter_mut()
             .rev()
         {
-            if let Some((mut stream, span)) = stream.take()
-                && let Err(error) = self.evaluator.stream_cancel(&mut stream, span)
-                && first_error.is_none()
-            {
-                first_error = Some(error);
+            if let Some((mut stream, span)) = stream.take() {
+                let Err(error) = self.cancel_stream_with_bindings(index, &mut stream, span) else {
+                    continue;
+                };
+                let traceback = self.evaluator.pending_traceback.take();
+                let force = error.abort.as_ref().is_some_and(|signal| signal.force);
+                let replace = first_error.as_ref().is_none_or(|previous: &RuntimeError| {
+                    force && !previous.abort.as_ref().is_some_and(|signal| signal.force)
+                });
+                if replace {
+                    if let Some(previous) = first_error.replace(error) {
+                        self.evaluator.report_cleanup_error(&previous, span);
+                    }
+                    first_traceback = traceback;
+                } else {
+                    self.evaluator.report_cleanup_error(&error, span);
+                }
             }
         }
-        first_error.map_or(Ok(()), Err)
+        if let Some(error) = first_error {
+            self.evaluator.pending_traceback = first_traceback;
+            Err(error)
+        } else {
+            Ok(())
+        }
     }
 
     fn step_comp_qualifier(
@@ -10401,29 +10528,37 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 CompIterator::Stream { stream, active } => {
                     self.evaluator
                         .service_pending_signal(active.span)?;
-                    let mut streams = state
-                        .streams
-                        .lock()
-                        .expect("comprehension stream state poisoned");
-                    let (producer, span) = streams[*stream]
-                        .as_mut()
-                        .expect("active comprehension stream");
-                    let item = self.evaluator.stream_next(producer, *span)?;
-                    let item = item
-                        .map(|item| {
-                            lowered_value_from_runtime_any(&item).ok_or_else(|| {
-                                RuntimeError::new(
-                                    "type-error",
-                                    "stream produced unsupported comprehension item",
-                                )
-                                .with_span(*span)
+                    let consumer_span = active.span;
+                    self.publish_caller_bindings(index, consumer_span)?;
+                    let item = {
+                        let mut streams = state
+                            .streams
+                            .lock()
+                            .expect("comprehension stream state poisoned");
+                        let (producer, span) = streams[*stream]
+                            .as_mut()
+                            .expect("active comprehension stream");
+                        let item = self.evaluator.stream_next(producer, *span);
+                        let ended = matches!(&item, Ok(None));
+                        let item = item.and_then(|item| {
+                            item.map(|item| {
+                                lowered_value_from_runtime_any(&item).ok_or_else(|| {
+                                    RuntimeError::new(
+                                        "type-error",
+                                        "stream produced unsupported comprehension item",
+                                    )
+                                    .with_span(*span)
+                                })
                             })
-                        })
-                        .transpose()?;
-                    if item.is_none() {
-                        streams[*stream] = None;
-                    }
-                    item
+                            .transpose()
+                        });
+                        if ended {
+                            streams[*stream] = None;
+                        }
+                        item
+                    };
+                    self.refresh_caller_bindings(index, consumer_span)?;
+                    item?
                 }
             };
             if let Some(item) = item {
@@ -10464,7 +10599,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             unreachable!("finished comprehension owns its stream cleanup");
         };
         debug_assert!(Arc::ptr_eq(&streams, &state.streams));
-        self.cleanup_comp_streams(streams)?;
+        self.cleanup_comp_streams(index, streams)?;
         let value = if state.map {
             LoweredValue::Map(Arc::new(state.map_values))
         } else {
@@ -10645,12 +10780,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        let result = match self.evaluator.eval_indexed_method_dispatch(
+        let consumes_stream = name.as_ref() == "collect"
+            && values.is_empty()
+            && matches!(&receiver, LoweredValue::Stream(_));
+        if consumes_stream {
+            self.publish_caller_bindings(index, span)?;
+        }
+        let result = self.evaluator.eval_indexed_method_dispatch(
             receiver,
             name.as_ref(),
             values,
             span,
-        )? {
+        );
+        if consumes_stream {
+            self.refresh_caller_bindings(index, span)?;
+        }
+        let result = match result? {
             ControlFlow::Continue(value) => FrameValue::Value(value),
             ControlFlow::Break(value) => FrameValue::Break(value),
         };
@@ -11295,11 +11440,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             match call.return_to {
                 Some(next) => {
                     let parent = self.calls.len() - 1;
-                    if let FrameOwner::Block { .. } = self.calls[parent].owner {
-                        let call = &mut self.calls[parent];
-                        self.evaluator
-                            .sync_indexed_root_slots(&mut call.slots, call.call_span)?;
-                    }
+                    self.refresh_caller_bindings(parent, call.call_span)?;
                     self.push_value(parent, FrameValue::Value(value), next);
                 }
                 None => self.result = Some(Ok(value)),
@@ -11315,6 +11456,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             error.scope_cleanup = false;
         }
         if let Some(parent) = self.calls.len().checked_sub(1) {
+            self.refresh_caller_bindings(parent, call.call_span)?;
             self.unwind_error_frame(parent)?;
         } else {
             self.result = Some(Err(self
@@ -11427,16 +11569,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         match (call.return_to, value) {
             (Some(next), Ok(value)) => {
                 let parent = self.calls.len() - 1;
-                // A callee may have written a script binding back; a block
-                // frame running top-level statements reads it from its slots.
-                if let FrameOwner::Block { .. } = self.calls[parent].owner {
-                    let call = &mut self.calls[parent];
-                    self.evaluator
-                        .sync_indexed_root_slots(&mut call.slots, call.call_span)?;
-                }
+                self.refresh_caller_bindings(parent, call.call_span)?;
                 self.push_value(parent, FrameValue::Value(value), next);
             }
             (Some(next), Err(error)) => {
+                let parent = self.calls.len() - 1;
+                self.refresh_caller_bindings(parent, call.call_span)?;
                 if let FrameContinuation::UtilsCacheResult { span, .. } = next {
                     self.evaluator.trace_lowered_utils_cache_result(span);
                 }
@@ -11994,10 +12132,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     ) -> Result<(), RuntimeError> {
         self.evaluator.service_pending_signal(span)?;
         if self.evaluator.shutting_down() {
-            self.evaluator.stream_cancel(&mut stream, span)?;
+            self.cancel_stream_with_bindings(index, &mut stream, span)?;
             return Ok(());
         }
-        let Some(value) = self.evaluator.stream_next(&mut stream, span)? else {
+        self.publish_caller_bindings(index, span)?;
+        let next = self.evaluator.stream_next(&mut stream, span);
+        self.refresh_caller_bindings(index, span)?;
+        let Some(value) = next? else {
             return Ok(());
         };
         let Some(item) = lowered_value_from_runtime_any(&value) else {
@@ -12010,7 +12151,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if let Err(error) =
             bind_lowered_comp_target(&target, item, &mut self.calls[index].slots, span)
         {
-            self.evaluator.stream_cancel(&mut stream, span)?;
+            self.cancel_stream_with_bindings(index, &mut stream, span)?;
             return Err(error);
         }
         // Re-arm before running the body, so a `continue` reaches the next item
@@ -12034,16 +12175,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if let Err(error) = self.evaluator.service_pending_signal(span) {
-            let _ = pipeline.finish(self.evaluator, Some(&error));
+            if let Err(cleanup) = self.with_caller_bindings(index, span, |evaluator| {
+                pipeline.finish(evaluator, Some(&error))
+            }) {
+                if cleanup.abort.as_ref().is_some_and(|signal| signal.force) {
+                    return Err(cleanup);
+                }
+                let contexts = self.evaluator.cleanup_error_contexts.clone();
+                self.report_cleanup_error_with_contexts(&cleanup, span, &contexts);
+            }
             return Err(error);
         }
         if self.evaluator.shutting_down() {
-            return pipeline.finish(self.evaluator, None);
+            return self.with_caller_bindings(index, span, |evaluator| {
+                pipeline.finish(evaluator, None)
+            });
         }
+        self.publish_caller_bindings(index, span)?;
         let pulled = {
             let call = &mut self.calls[index];
             pipeline.next_frame(self.evaluator, &call.execution, &mut call.slots)
         };
+        self.refresh_caller_bindings(index, span)?;
         match pulled {
             Ok(IndexedSerialStep::Item(Some(item))) => {
                 self.calls[index].slots[slot] = item;
@@ -12056,7 +12209,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, body, span)
             }
             Ok(IndexedSerialStep::Item(None)) => {
-                pipeline.finish(self.evaluator, None)
+                self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, None)
+                })
             }
             Ok(IndexedSerialStep::Expr(expression)) => {
                 self.calls[index].work.push(FrameWork::ForPipeline {
@@ -12078,14 +12233,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, block, span)
             }
             Ok(IndexedSerialStep::Break(value)) => {
-                pipeline.finish(self.evaluator, None)?;
+                self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, None)
+                })?;
                 self.complete_call(index, StmtFlow::Return(value))
             }
             Err(error) => {
                 let stage_item = pipeline
                     .pending_map_error_item()
                     .map(|item_index| ("map", item_index));
-                let _ = pipeline.finish(self.evaluator, Some(&error));
+                if let Err(cleanup) = self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, Some(&error))
+                }) {
+                    if cleanup.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(cleanup);
+                    }
+                    let contexts = self.evaluator.cleanup_error_contexts.clone();
+                    self.report_cleanup_error_with_contexts(&cleanup, span, &contexts);
+                }
                 Err(match stage_item {
                     Some((stage, item_index)) => self
                         .evaluator
@@ -12104,19 +12269,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         if let Err(error) = self.evaluator.service_pending_signal(span) {
-            let _ = pipeline.finish(self.evaluator, Some(&error));
+            if let Err(cleanup) = self.with_caller_bindings(index, span, |evaluator| {
+                pipeline.finish(evaluator, Some(&error))
+            }) {
+                if cleanup.abort.as_ref().is_some_and(|signal| signal.force) {
+                    return Err(cleanup);
+                }
+                let contexts = self.evaluator.cleanup_error_contexts.clone();
+                self.report_cleanup_error_with_contexts(&cleanup, span, &contexts);
+            }
             return Err(error);
         }
         if self.evaluator.shutting_down() {
-            return pipeline.finish(self.evaluator, None);
+            return self.with_caller_bindings(index, span, |evaluator| {
+                pipeline.finish(evaluator, None)
+            });
         }
+        self.publish_caller_bindings(index, span)?;
         let pulled = {
             let call = &mut self.calls[index];
             pipeline.next_frame(self.evaluator, &call.execution, &mut call.slots)
         };
+        self.refresh_caller_bindings(index, span)?;
         match pulled {
             Ok(IndexedStageStep::Done(value)) => {
-                pipeline.finish(self.evaluator, None)?;
+                self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, None)
+                })?;
                 self.push_value(index, FrameValue::Value(value), next);
                 Ok(())
             }
@@ -12138,13 +12317,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, block, span)
             }
             Ok(IndexedStageStep::Break(value)) => {
-                pipeline.finish(self.evaluator, None)?;
+                self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, None)
+                })?;
                 self.push_value(index, FrameValue::Break(value), next);
                 Ok(())
             }
             Err(error) => {
                 let stage_item = pipeline.pending_item_error();
-                let _ = pipeline.finish(self.evaluator, Some(&error));
+                if let Err(cleanup) = self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, Some(&error))
+                }) {
+                    if cleanup.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(cleanup);
+                    }
+                    let contexts = self.evaluator.cleanup_error_contexts.clone();
+                    self.report_cleanup_error_with_contexts(&cleanup, span, &contexts);
+                }
                 Err(match stage_item {
                     Some((stage, item_index)) => self
                         .evaluator
@@ -13301,7 +13490,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FrameWork::CompCleanup(streams) => {
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
-                if let Err(error) = self.cleanup_comp_streams(streams) {
+                if let Err(error) = self.cleanup_comp_streams(index, streams) {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
                         return Err(error);
                     }
@@ -13360,7 +13549,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 mut stream, span, ..
             } => {
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
-                if let Err(error) = self.evaluator.stream_cancel(&mut stream, span) {
+                if let Err(error) = self.cancel_stream_with_bindings(index, &mut stream, span) {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
                         return Err(error);
                     }
@@ -13372,9 +13561,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.calls[index].work.push(FrameWork::Discard(state));
                 }
             }
-            FrameWork::ForPipeline { mut pipeline, .. } => {
-                let pending = state.primary_error.as_ref().or(self.pending_error.as_ref());
-                let result = pipeline.finish(self.evaluator, pending);
+            FrameWork::ForPipeline {
+                mut pipeline, span, ..
+            } => {
+                let pending = state
+                    .primary_error
+                    .as_ref()
+                    .or(self.pending_error.as_ref())
+                    .cloned();
+                let result = self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, pending.as_ref())
+                });
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
                 if let Err(error) = result {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {
@@ -13389,10 +13586,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FrameWork::StageValue {
-                mut pipeline, ..
+                mut pipeline, span, ..
             } => {
-                let pending = state.primary_error.as_ref().or(self.pending_error.as_ref());
-                let result = pipeline.finish(self.evaluator, pending);
+                let pending = state
+                    .primary_error
+                    .as_ref()
+                    .or(self.pending_error.as_ref())
+                    .cloned();
+                let result = self.with_caller_bindings(index, span, |evaluator| {
+                    pipeline.finish(evaluator, pending.as_ref())
+                });
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
                 if let Err(error) = result {
                     if error.abort.as_ref().is_some_and(|signal| signal.force) {

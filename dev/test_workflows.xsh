@@ -10,12 +10,17 @@ use targets
 ## verification covers this repository and individually migrated source files.
 export const sibling_syntax_exclusions = ["--skip", "syntax::formatter_is_idempotent_on_laputa_corpus"]
 
-## The external lint comparison copies and rewrites the entire sibling corpus,
-## so automatic tooling verification excludes that one expensive test.
-export const sibling_xsht_exclusions = ["--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"]
+export const sibling_xsht_exclusions = [
+  "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus",
+  "--skip", "examples::example_corpus_is_formatted",
+  "--skip", "examples::example_corpus_lints_without_warnings",
+]
 
 ## The only profiles accepted by process and native tests.
 export enum TestProfile { Verification, Release }
+
+## The executable products available to test plans.
+export enum Product { Xsh, Xsht, Xshi }
 
 ## An explicitly requested profile that cannot run the test contract.
 export error TestProfileError = Unsupported(profile: Str)
@@ -26,6 +31,19 @@ export pure profile_name(profile: TestProfile) -> Str {
     Verification => "verification"
     Release => "release"
   }
+}
+
+pure product_name(product: Product) -> Str {
+  match product {
+    Xsh => "xsh"
+    Xsht => "xsht"
+    Xshi => "xshi"
+  }
+}
+
+## Returns every executable that a full process-test plan may run.
+export pure all_products() -> List[Product] {
+  [Xsh, Xsht, Xshi]
 }
 
 ## Packaging and tests have independent defaults; an explicit override must
@@ -40,8 +58,8 @@ export proc execution_profile() [env, error] -> Result[TestProfile, Error] {
 }
 
 ## Resolves a product built with an explicit target and accepted test profile.
-export pure product_path(ctx: context.Context, profile: TestProfile, name: Str) -> Path {
-  fp"{ctx.target_dir}/{ctx.target.triple}/{profile_name(profile)}/{name}"
+export pure product_path(ctx: context.Context, profile: TestProfile, product: Product) -> Path {
+  fp"{ctx.target_dir}/{ctx.target.triple}/{profile_name(profile)}/{product_name(product)}"
 }
 
 ## Every Linux command uses the container's pinned static musl link contract.
@@ -51,14 +69,32 @@ export pure cargo_environment(ctx: context.Context) -> Result[Record, Error] {
   {MACOSX_DEPLOYMENT_TARGET: ctx.darwin_deployment_target}
 }
 
-## Builds every product or helper that a process test may execute.
-export pure product_build(ctx: context.Context, profile: TestProfile) -> Result[contract.CommandSpec, Error] {
-  stages.command(
+pure product_build_arguments(product: Product) -> List[Str] {
+  let name = product_name(product)
+  match product {
+    Xsh => ["-p", name, "--bins"]
+    Xsht => ["-p", name, "--bin", name]
+    Xshi => ["-p", name, "--bin", name]
+  }
+}
+
+## Builds the selected products; an empty selection schedules no Cargo command.
+export pure product_builds(
+  ctx: context.Context,
+  profile: TestProfile,
+  products: List[Product],
+) -> Result[List[contract.CommandSpec], Error] {
+  return [] when products.is_empty()
+
+  var product_arguments = []
+  for product in products {
+    product_arguments += product_build_arguments(product)
+  }
+  [stages.command(
     "test-products", ctx.target.triple, "cargo",
-    ["cargo", "build", "--locked", "--profile", profile_name(profile), "--target", ctx.target.triple,
-      "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xshi", "--bin", "xshi"],
+    ["cargo", "build", "--locked", "--profile", profile_name(profile), "--target", ctx.target.triple, @product_arguments],
     ctx.root, cargo_environment(ctx)?,
-  )
+  )]
 }
 
 ## Specifies process boundaries once so ordinary tests and coverage run the
@@ -72,18 +108,17 @@ export pure rust_plan(
   let environment = cargo_environment(ctx)?
   let profile_args = ["--locked", "--profile", profile_name(profile), "--target", ctx.target.triple]
   let debug_args = ["--locked", "--target", ctx.target.triple]
-  var plan = [
-    product_build(ctx, profile)?,
+  var plan = product_builds(ctx, profile, all_products())?
+  plan += [
     stages.command("test-rust", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh", "--test", "integration", "--test", "ambient_fs_policy",
         "--test", "symbol_plateau", "--test", "core_compat_boundaries", "--test", "core_compat_extra", "--",
-        "--skip", "split::", "--skip", "runtime::coverage::", "--skip", "runtime::examples::example_corpus_is_formatted",
-        "--skip", "runtime::examples::example_corpus_lints_without_warnings", @sibling_syntax_exclusions],
+        "--skip", "split::", "--skip", "runtime::coverage::"],
       ctx.root, environment),
     stages.command("test-debug-assertions", ctx.target.triple, "cargo",
       ["cargo", "test", @debug_args, "-p", "xsh", "--lib"], ctx.root, environment),
     stages.command("test-xsht", ctx.target.triple, "cargo",
-      ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_xsht_exclusions], ctx.root, environment),
+      ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_syntax_exclusions, @sibling_xsht_exclusions], ctx.root, environment),
     stages.command("test-soundness", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh-fuzz", "--test", "soundness"], ctx.root, environment),
   ]
@@ -116,7 +151,7 @@ export proc native(
   profile: TestProfile,
   filters: List[Str],
 ) [process, error, io] -> Result[Unit, Error] {
-  let xsht = product_path(ctx, profile, "xsht")
+  let xsht = product_path(ctx, profile, Xsht)
   stages.execute(stages.command("test-xsh", ctx.target.triple, xsht.display(),
     [xsht.display(), "test", @filters], ctx.root, {}))
 }
@@ -140,7 +175,7 @@ export proc rust(ctx: context.Context) [fs, process, env, error, io] -> Result[U
 ## Builds optimized products, then runs the native corpus once.
 export proc xsh(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   let profile = execution_profile()?
-  run_commands([product_build(ctx, profile)?])
+  run_commands(product_builds(ctx, profile, all_products())?)
   native(ctx, profile, [])
 }
 

@@ -62,6 +62,131 @@ test test_multi_clause_list_accumulator_fix_checks_and_converges { |ctx|
   assert_all_fixes_check(ctx, source)
 }
 
+test test_list_comprehension_keeps_accumulator_reads_in_nested_run_and_stream_inputs { |ctx|
+  for source in [
+    r"""proc build(inputs: List[Str]) [process, error] -> Result[List[Str]] {
+  var outputs: List[Str] = []
+  for item in inputs {
+    outputs = outputs.push(run.text --accept=[outputs.len()] /bin/echo $item ?)
+  }
+  Ok(outputs)
+}
+""",
+    r"""proc build(inputs: List[Str]) [process, error] -> Result[List[Str]] {
+  var outputs: List[Str] = []
+  for item in inputs {
+    outputs = outputs.push(run.text RESULT=${outputs.len()} /bin/echo $item ?)
+  }
+  Ok(outputs)
+}
+""",
+    r"""proc build(inputs: List[Str]) [process, error] -> Result[List[Str]] {
+  var outputs: List[Str] = []
+  for item in inputs {
+    outputs = outputs.push(run.text /bin/echo $item > fp"/tmp/{outputs.len()}" ?)
+  }
+  Ok(outputs)
+}
+""",
+    r"""proc build(inputs: List[Str]) [process, error] -> List[Command] {
+  var plans: List[Command] = []
+  for item in inputs {
+    plans = plans.push(process.command {
+      run /bin/echo ${plans.len()} $item
+    })
+  }
+  plans
+}
+""",
+    r"""proc build(inputs: List[Str]) -> Result[List[List[Str]]] {
+  var outputs: List[List[Str]] = []
+  for item in inputs {
+    outputs = outputs.push(
+      [item] |> map { |entry|
+        if outputs.is_empty() { entry } else { entry }
+      }
+    )
+  }
+  Ok(outputs)
+}
+""",
+    r"""proc build() [process, error] -> Result[List[Str]] {
+  var outputs: List[Str] = []
+  for item in (run.text --accept=[outputs.len()] /bin/echo a ?) {
+    outputs = outputs.push(item)
+  }
+  Ok(outputs)
+}
+""",
+    r"""proc build(inputs: List[Str]) [process, error] -> Result[List[Str]] {
+  var outputs: List[Str] = []
+  for item in inputs {
+    if (run.text --accept=[outputs.len()] /bin/echo "" ?).is_empty() {
+      outputs = outputs.push(item)
+    }
+  }
+  Ok(outputs)
+}
+""",
+  ] {
+    let file = script(ctx, source)?
+    let reported = lint(file, ["--only", "lint.prefer-list-comp"])?
+    assert "lint.prefer-list-comp" not in reported.stderr, f"{source}\n{reported.stderr}"
+  }
+}
+
+test test_list_comprehension_keeps_direct_run_splices_in_nested_blocks { |ctx|
+  let source = r"""proc build(inputs: List[Str]) [process, error] -> Result[List[Str]] {
+  var outputs: List[Str] = []
+  for item in inputs {
+    outputs = outputs.push(
+      try {
+        let retried = retry [] {
+          let loop_result = loop {
+            let command_output = run.text /bin/echo @outputs ?
+            break command_output + item
+          }
+          loop_result
+        }?
+        retried
+      }?
+    )
+  }
+  Ok(outputs)
+}
+"""
+  let file = script(ctx, source)?
+  let reported = lint(file, ["--only", "lint.prefer-list-comp"])?
+  assert "lint.prefer-list-comp" not in reported.stderr, f"{source}\n{reported.stderr}"
+}
+
+test test_list_accumulator_continue_run_operands_preserve_references { |ctx|
+  for source in [
+    r"""proc build(inputs: List[Str]) [process, error] -> Result[List[Str]] {
+  var outputs: List[Str] = []
+  for item in inputs {
+    continue when (run.status /bin/echo @outputs).success == true
+    outputs = outputs.push(item)
+  }
+  Ok(outputs)
+}
+""",
+    r"""proc build(inputs: List[Str]) [process, error] -> Result[List[Str]] {
+  var outputs: List[Str] = []
+  for item in inputs {
+    continue unless (run.status /bin/echo @outputs).success == true
+    outputs = outputs.push(item)
+  }
+  Ok(outputs)
+}
+""",
+  ] {
+    let file = script(ctx, source)?
+    let reported = lint(file, ["--only", "lint.prefer-list-comp"])?
+    assert "lint.prefer-list-comp" not in reported.stderr, f"{source}\n{reported.stderr}"
+  }
+}
+
 test test_list_comprehension_uses_project_width_for_replacement_layout { |ctx|
   let root = test.temp_dir(ctx, name: "list-comprehension-configured-width")?
   fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
@@ -83,6 +208,20 @@ test test_multi_clause_map_accumulator_fix_keeps_annotation_and_filters { |ctx|
   assert "var values: Map[Int] = {\n" in text, text
   assert_checked_and_formatted(file)
   assert_all_fixes_check(ctx, source)
+}
+
+test test_map_comprehension_keeps_run_option_reads_of_the_map_being_built { |ctx|
+  let source = r"""proc build(inputs: List[Str]) [process, error] -> Result[Map[Str, Str]] {
+  var results: Map[Str, Str] = map.empty()
+  for item in inputs {
+    results[item] = (run.text --accept=[results.len()] /bin/echo $item ?)
+  }
+  Ok(results)
+}
+"""
+  let file = script(ctx, source)?
+  let reported = lint(file, ["--only", "lint.prefer-map-comp"])?
+  assert "lint.prefer-map-comp" not in reported.stderr, reported.stderr
 }
 
 test test_map_entry_iteration_fix_keeps_surrounding_text_and_converges { |ctx|

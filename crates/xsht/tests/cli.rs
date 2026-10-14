@@ -75,11 +75,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
     encoded
 }
 
-fn route_witness_tempdir() -> TempDir {
+fn cli_tempdir() -> TempDir {
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let scratch = repository.join(".work/tmp");
     fs::create_dir_all(&scratch).expect("create repository scratch directory");
-    TempDir::new_in(scratch).expect("create route-witness fixture")
+    TempDir::new_in(scratch).expect("create CLI test fixture")
 }
 
 #[test]
@@ -122,6 +122,76 @@ fn test_list_returns_test_and_invalid_file_ids_in_sorted_order() {
         "tests/a.xsh::alpha\ntests/bad.xsh\ntests/m.xsh::mu\ntests/z.xsh::zeta\n"
     );
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn test_exact_filter_with_no_matching_tests_fails() {
+    let root = cli_tempdir();
+    let tests = root.path().join("tests");
+    fs::create_dir(&tests).expect("create native test root");
+    fs::write(tests.join("present.xsh"), "test present { |_| }\n")
+        .expect("write native test");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--exact", "tests/present.xsh::missing"])
+        .current_dir(root.path())
+        .output()
+        .expect("run exact native test filter");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "xsht: no native tests matched exact filter: tests/present.xsh::missing\n"
+    );
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--list", "--exact", "tests/present.xsh::missing"])
+        .current_dir(root.path())
+        .output()
+        .expect("list unmatched exact native test filter");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn test_exact_requires_filter_for_execution_and_listing() {
+    let empty_root = cli_tempdir();
+    fs::create_dir(empty_root.path().join("tests")).expect("create empty native test root");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--exact"])
+        .current_dir(empty_root.path())
+        .output()
+        .expect("run exact native tests without a filter");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "xsht: `--exact` requires FILTER\n"
+    );
+
+    let populated_root = cli_tempdir();
+    let tests = populated_root.path().join("tests");
+    fs::create_dir(&tests).expect("create native test root");
+    fs::write(tests.join("present.xsh"), "test present { |_| }\n")
+        .expect("write native test");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--list", "--exact"])
+        .current_dir(populated_root.path())
+        .output()
+        .expect("list exact native tests without a filter");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "xsht: `--exact` requires FILTER\n"
+    );
 }
 
 #[test]
@@ -765,10 +835,10 @@ fn native_test_route_witness_captures_the_exact_oracle_in_both_modes() {
     let output_dir_env = format!("{harness_prefix}_OUTPUT_DIR");
 
     for (forced, route, mode) in [
-        (false, "recursive_bridge_to_explicit_frames", "normal"),
+        (false, "explicit_frame_apply_path", "normal"),
         (true, "generic_operand_apply_path", "forced"),
     ] {
-        let output_root = route_witness_tempdir();
+        let output_root = cli_tempdir();
         let mut command = Command::new(test_bin!("xsht"));
         command.args(["test"]);
         if forced {
@@ -796,7 +866,7 @@ fn native_test_route_witness_captures_the_exact_oracle_in_both_modes() {
 
 #[test]
 fn native_test_route_witness_descriptor_survives_script_environment_values() {
-    let root = route_witness_tempdir();
+    let root = cli_tempdir();
     let tests = root.path().join("tests");
     fs::create_dir(&tests).expect("create native test root");
     let route_prefix = xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX;
@@ -825,7 +895,7 @@ fn native_test_route_witness_descriptor_survives_script_environment_values() {
         "{child_source}assert !(\"XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER\" in inherited.stdout)\n"
     );
     let fixture = format!(
-        r#"test captured {{ |ctx|
+        r#"test test_expr_empty_map {{ |ctx|
   assert env.get_or("{harness_prefix}_TEST_ID", "absent")? == "absent"
   assert env.get_or("{harness_prefix}_OUTPUT_DIR", "absent")? == "absent"
   assert env.get_or("XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER", "absent")? == "absent"
@@ -861,12 +931,12 @@ test unobserved {{ |ctx|
 "#
     );
     fs::write(tests.join("witness.xsh"), fixture).expect("write native test fixture");
-    let test_id = "tests/witness.xsh::captured";
+    let test_id = "tests/witness.xsh::test_expr_empty_map";
     for (forced, route, mode) in [
-        (false, "recursive_bridge_to_explicit_frames", "normal"),
+        (false, "explicit_frame_apply_path", "normal"),
         (true, "generic_operand_apply_path", "forced"),
     ] {
-        let output_root = route_witness_tempdir();
+        let output_root = cli_tempdir();
         let mut command = Command::new(test_bin!("xsht"));
         command.args(["test", "--jobs", "2"]);
         if forced {
@@ -898,11 +968,11 @@ test unobserved {{ |ctx|
 }
 
 #[test]
-fn native_test_environment_fake_transport_does_not_activate_capture() {
-    let root = route_witness_tempdir();
+fn native_test_route_witness_environment_fake_transport_does_not_activate_capture() {
+    let root = cli_tempdir();
     let tests = root.path().join("tests");
     fs::create_dir(&tests).expect("create native test root");
-    let output_root = route_witness_tempdir();
+    let output_root = cli_tempdir();
     let test_id = "tests/spoof.xsh::fake";
     let child_source = "let empty: Map[Str, Int] = {}\nassert empty.len() == 0\n";
     let fixture = format!(

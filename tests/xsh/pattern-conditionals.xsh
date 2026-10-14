@@ -117,6 +117,56 @@ test test_pattern_loops_reevaluate_after_continue_and_keep_lexical_targets {
   }
 }
 
+test test_pattern_loop_conditions_observe_mutated_script_bindings { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""error LoopError = Done(message: Str)
+var checks = 0
+proc condition() [io] -> Result[Int, LoopError] {
+  print f"condition:{checks}"
+  if checks < 2 { return Ok(checks) }
+  return Err(LoopError.Done(message: "done"))
+}
+while let Ok(value) = condition() {
+  print f"body:{value}"
+  checks += 1
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """condition:0
+body:0
+condition:1
+body:1
+condition:2
+"""
+}
+
+test test_nested_calls_observe_mutated_script_bindings { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""var checks = 0
+proc condition() [io] -> Int {
+  checks += 1
+  print f"condition:{checks}"
+  return checks
+}
+proc mutate_then_call() [io] -> Int {
+  checks += 1
+  let value = condition()
+  print f"parent:{checks}"
+  return value
+}
+print f"result:{mutate_then_call()}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """condition:2
+parent:2
+result:2
+"""
+}
+
 test test_pattern_conditionals_reject_irrefutable_and_leaking_captures { |ctx|
   for source in [
     """if let value = 1 { print $value }

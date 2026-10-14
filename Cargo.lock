@@ -1904,7 +1904,6 @@ dependencies = [
  "xsh-net",
  "xsh-registry",
  "xsh-root",
- "xsht",
  "zstd",
 ]
 

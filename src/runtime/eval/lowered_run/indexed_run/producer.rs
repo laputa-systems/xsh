@@ -15,8 +15,8 @@ use super::explicit_run::{
     CallFrame, ExplicitFrames, ProducerFrameState, ProducerStep, StatementCursor,
 };
 use super::{
-    Arc, Evaluator, LoweredFunctionKey, LoweredFunctionKind, LoweredValue, RuntimeError, Span,
-    StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
+    Arc, Evaluator, FunctionHeader, LoweredFunctionKey, LoweredFunctionKind, LoweredValue,
+    RuntimeError, Span, StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
 };
 use crate::runtime::value::{ScriptStreamState, ScriptStreamStep};
 
@@ -64,6 +64,7 @@ pub(super) struct ScriptProducer {
     program: Arc<super::FullProgram>,
     function: LoweredFunctionKey,
     kind: LoweredFunctionKind,
+    header: Arc<FunctionHeader>,
     call_span: Span,
     definition_span: Span,
     item_check: Option<super::LoweredTypeCheck>,
@@ -289,6 +290,7 @@ impl Evaluator {
             program,
             function,
             kind,
+            header,
             call_span,
             definition_span,
             item_check,
@@ -380,6 +382,13 @@ impl Evaluator {
                 self.reattach_owned_host_scopes(&scopes);
             }
             let program = Arc::clone(&producer.program);
+            if !just_started {
+                producer
+                    .frame
+                    .as_mut()
+                    .expect("a suspended producer owns its frame")
+                    .hydrate_captures(self, &producer.header, span)?;
+            }
             // The body's nested calls resolve against the program the body belongs
             // to, which is not necessarily the one the consumer is running.
             let step = {
@@ -491,6 +500,11 @@ impl Evaluator {
             .expect("a started producer owns its frame")
             .open_scopes();
         self.reattach_owned_host_scopes(&scopes);
+        producer
+            .frame
+            .as_mut()
+            .expect("a started producer owns its frame")
+            .hydrate_captures(self, &producer.header, span)?;
         let program = Arc::clone(&producer.program);
         let outcome = {
             let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));

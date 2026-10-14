@@ -263,10 +263,14 @@ pub(super) fn indexed_value_pipeline_input(
     execution: &FullExecution<'_>,
     instruction: u32,
     call_span: Span,
-) -> Result<Option<(u32, Span, SmallVec<[IndexedLiveSerialStage; 4]>)>, RuntimeError> {
+) -> Result<(u32, Span, SmallVec<[IndexedLiveSerialStage; 4]>), RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
     if tag != FullTag::ExprPipeline {
-        return Ok(None);
+        return Err(RuntimeError::new(
+            "indexed-ir",
+            format!("value pipeline decoder received {tag:?}"),
+        )
+        .with_span(call_span));
     }
     let ExprView::ListPipeline { input, stages, span } =
         ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, call_span))?
@@ -274,12 +278,8 @@ pub(super) fn indexed_value_pipeline_input(
         unreachable!("pipeline tag has a matching borrowed view")
     };
     let input = input.raw();
-    let stage_count = stages.len();
     let decoded = decode_serial_complete(execution, stages, span)?;
-    if decoded.len() != stage_count {
-        return Ok(None);
-    }
-    Ok(Some((input, span, decoded)))
+    Ok((input, span, decoded))
 }
 
 // The expression runner drains this cursor; a `for` frame keeps it between body

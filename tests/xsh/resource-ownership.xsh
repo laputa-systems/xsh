@@ -600,6 +600,8 @@ test resource_use_after_release_is_checked_for_exact_locals { |ctx|
     "let root = fs.tempdir()?\nroot.close()\n{ let _ = root.exists(p\".\") }\n",
     "let lock = fs.lock(p\"resource-affine.lock\")?\nfs.unlock(lock)\nfs.unlock(lock)\n",
     "let child = spawn run true ?\nlet _ = wait child?\nlet _ = wait child\n",
+    "let child = spawn run true ?\nlet _ = process.wait_any([child])?\nlet _ = child.pid\n",
+    "let child = spawn run true ?\nlet _ = process.wait_ready([child])?\nlet _ = child.pid\n",
     "let job = net.start({method: \"GET\", url: \"https://example.test/resource\"})?\njob.cancel()\nlet _ = job.wait()\n",
     "let root = fs.tempdir()?\nassert root.close() == Ok()\nlet _ = root.exists(p\".\")\n",
     "proc make_root() [fs, error] -> Result[FsRoot] { fs.tempdir() }\nlet root = make_root()?\nroot.close()\nlet _ = root.exists(p\".\")\n",

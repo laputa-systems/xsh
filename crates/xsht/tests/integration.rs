@@ -2,6 +2,13 @@
 #[path = "../../../tests/test_binary.rs"]
 mod test_binary;
 
+fn workspace_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("workspace root")
+}
+
 /// The stderr of `xsht check` or `xsht lint` without the stage timing line that
 /// closes every run that processed a file. A run with no diagnostics leaves
 /// nothing else.
@@ -28,9 +35,16 @@ mod api;
 mod cli;
 #[path = "desugar.rs"]
 mod desugar;
+#[cfg(feature = "native-tests")]
+#[path = "examples.rs"]
+mod examples;
+#[path = "formal_bridge.rs"]
+mod formal_bridge;
 #[path = "lint.rs"]
 mod lint;
 #[path = "lint_format_invariance.rs"]
 mod lint_format_invariance;
 #[path = "lint_performance.rs"]
 mod lint_performance;
+#[path = "syntax.rs"]
+mod syntax;

@@ -535,11 +535,70 @@ test test_gate_docker_argv_mounts_worktree_git_before_the_image {
   assert argv[-2] == "gate-lane"
 }
 
-test test_gate_docker_bootstrap_omits_target_only_rustflags {
+test test_gate_docker_bootstrap_selects_the_target_explicitly {
   let ctx = fixtures.linux_context(/repo, "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?
   assert "TARGET=x86_64-unknown-linux-musl" in argv
-  for arg in argv {
-    assert "_RUSTFLAGS=" not in arg, arg
-  }
+  assert "--target" in argv
+  assert "x86_64-unknown-linux-musl" in argv
+  assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol" in argv
+}
+
+test test_gate_docker_mounts_mold_and_kache_with_the_pinned_abi_flags {
+  let ctx = fixtures.linux_context(/repo, "verification")?
+  let argv = docker_workflows.internal_argv(
+    ctx,
+    "docker",
+    "linux/amd64",
+    "gate-lane",
+    false,
+    1000,
+    1000,
+    "",
+    [],
+    host_link_tools: {
+      mold: p"/usr/local/bin/mold",
+      kache: p"/host/cargo/bin/kache",
+    },
+  )?
+  assert "/repo/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro" in argv
+  assert "/usr/local/bin/mold:/usr/local/bin/mold:ro" in argv
+  assert "/host/cargo/bin/kache:/usr/local/bin/kache:ro" in argv
+  assert "RUSTC_WRAPPER=/usr/local/bin/kache" in argv
+  assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker" in argv
+  assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol" in argv
+}
+
+test test_musl_linker_translates_direct_defsym_arguments_and_preserves_others { |ctx|
+  let root = test.temp_dir(ctx, name: "musl-linker-adapter")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  let args_path = fp"{root}/clang-args"
+  fp"{tools}/clang-23".write(
+    """#!/bin/sh
+printf '%s\\n' "$@" > "$XSH_LINKER_ARGS"
+""",
+    mode: 0o755,
+  )
+  let repository = fs.cwd()?
+  let adapter = fp"{repository}/dev/musl-linker.sh"
+  let command = process.command_argv(
+    adapter.display(),
+    [adapter.display(), "--defsym=__isoc23_sscanf=sscanf", "a path with spaces", "-Wl,--defsym=already=passed"],
+    cwd: root,
+    env: {
+      PATH: tools.display(),
+      TARGET: "x86_64-unknown-linux-musl",
+      XSH_LINKER_ARGS: args_path.display(),
+    },
+  )
+  assert process.run(command)?.exited_with(0)
+  assert args_path.read_lines()? == [
+    "--ld-path=/usr/local/bin/mold",
+    "--target=x86_64-unknown-linux-musl",
+    "-B/usr/lib/xsh-crt/x86_64-unknown-linux-musl",
+    "-Wl,--defsym=__isoc23_sscanf=sscanf",
+    "a path with spaces",
+    "-Wl,--defsym=already=passed",
+  ]
 }

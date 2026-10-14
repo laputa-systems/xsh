@@ -242,7 +242,7 @@ use types::{
     is_discard_name, lowered_checked_type, type_for_lowered_type,
 };
 
-#[cfg(debug_assertions)]
+#[cfg(all(test, debug_assertions))]
 use types::checked_fact_is_resolved;
 
 use values::{
@@ -1628,35 +1628,31 @@ fn compact_checked_type_is_concrete(ty: &Type) -> bool {
         && !ty.contains_inference()
 }
 
-/// Disagreements between a representation lowering derives itself and the
-/// checker's published type for the same binding, recorded by debug builds.
-#[cfg(debug_assertions)]
-pub(crate) static LOWERING_DRIFT: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+#[cfg(all(test, debug_assertions))]
+static CHECKED_TYPE_FACT_MISMATCHES: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
 
-/// Lowering agrees with the checker up to representation erasure: lowering may
-/// keep `Any`, a nullable value erases to its present kind, `UInt` shares the
-/// `Int` representation, and an unresolved checker fact makes no claim.
-#[cfg(debug_assertions)]
-fn note_lowering_drift(
+#[cfg(all(test, debug_assertions))]
+fn note_checked_type_fact_mismatch(
     span: Span,
-    kind: Option<LoweredType>,
-    lowered: &Type,
-    checked: Option<&Type>,
+    annotation_kind: Option<LoweredType>,
+    annotation_type: &Type,
+    binding_type: Option<&Type>,
 ) {
-    let Some(checked) = checked.filter(|ty| checked_fact_is_resolved(ty)) else {
+    let Some(binding_type) = binding_type.filter(|ty| checked_fact_is_resolved(ty)) else {
         return;
     };
-    let present = checked.optional_inner().unwrap_or(checked);
-    let kind_agrees = match (kind, lowered_checked_type(present)) {
+    let present = binding_type.optional_inner().unwrap_or(binding_type);
+    let kind_agrees = match (annotation_kind, lowered_checked_type(present)) {
         (None | Some(LoweredType::Any), _) | (_, None) => true,
         (Some(kind), Some(expected)) => kind == expected,
     };
-    if !kind_agrees || lowered != checked {
-        LOWERING_DRIFT
+    if !kind_agrees || annotation_type != binding_type {
+        CHECKED_TYPE_FACT_MISMATCHES
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push(format!(
-                "{span:?}: lowering {kind:?} {lowered}, checker {checked}"
+                "{span:?}: annotation {annotation_kind:?} {annotation_type}, binding {binding_type}"
             ));
     }
 }
@@ -3538,8 +3534,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         mutable: bool,
     ) -> LoweredTopLevelBinding {
         if let Some(ty) = ty {
-            #[cfg(debug_assertions)]
-            self.note_annotation_drift(id, ty);
+            #[cfg(all(test, debug_assertions))]
+            self.note_checked_type_fact_mismatch(id, ty);
             return LoweredTopLevelBinding {
                 kind: lowered_arena_type(ty, self.declarations, self.current_namespace)
                     .unwrap_or(LoweredType::Any),
@@ -3567,16 +3563,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    /// Compare the checker-fact storage kind with the full type lowering
-    /// derives for the same annotation and the checked binding type.
-    #[cfg(debug_assertions)]
-    fn note_annotation_drift(&self, id: StmtId, ty: TypeExprId) {
+    #[cfg(all(test, debug_assertions))]
+    fn note_checked_type_fact_mismatch(&self, id: StmtId, ty: TypeExprId) {
         let span = self.program.arena.stmt(id).span;
         let kind = lowered_arena_type(ty, self.declarations, self.current_namespace);
         if let Some(annotated) =
             checked_type_annotation(self.declarations, self.current_namespace, ty)
         {
-            note_lowering_drift(
+            note_checked_type_fact_mismatch(
                 span,
                 kind,
                 annotated,
@@ -3703,9 +3697,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                #[cfg(debug_assertions)]
+                #[cfg(all(test, debug_assertions))]
                 if let Some(ty) = ty {
-                    self.note_annotation_drift(id, ty);
+                    self.note_checked_type_fact_mismatch(id, ty);
                 }
                 let binding_ty = self
                     .declarations
@@ -6765,12 +6759,9 @@ mod checked_constructor_fact_tests {
 }
 
 #[cfg(all(test, debug_assertions))]
-mod drift_tests {
-    /// Lower every repository program and the embedded standard library, and
-    /// require each representation lowering derives itself to agree with the
-    /// checker's published type.
+mod checked_type_fact_tests {
     #[test]
-    fn corpus_lowering_agrees_with_checked_types() {
+    fn corpus_annotations_agree_with_binding_facts() {
         std::thread::Builder::new()
             .stack_size(64 * 1024 * 1024)
             .spawn(|| {
@@ -6812,9 +6803,11 @@ mod drift_tests {
                         .is_ok(),
                     );
                 }
-                let drift = std::mem::take(&mut *super::LOWERING_DRIFT.lock().unwrap());
+                let mismatches = std::mem::take(
+                    &mut *super::CHECKED_TYPE_FACT_MISMATCHES.lock().unwrap(),
+                );
                 assert!(lowered > 300, "only {lowered} corpus programs lowered");
-                assert!(drift.is_empty(), "{}", drift.join("\n"));
+                assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
             })
             .unwrap()
             .join()

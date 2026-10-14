@@ -6,7 +6,7 @@ use crate::syntax::arena::{
 use crate::syntax::node::AssignOp;
 use super::{BindingId, CheckBundleView, Checker, Diagnostic, DiagnosticCode, Label, Name, Span, Type};
 use rustc_hash::{FxHashMap, FxHashSet};
-use crate::modules::ManagedResource;
+use crate::modules::{ManagedResource, RuntimeOp};
 use xsh_registry::managed_resource::ResourceConsumption;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -683,6 +683,34 @@ impl Analyzer<'_> {
                         None
                     }
                 } else if api.receiver.is_none() {
+                    if matches!(api.sig.op, RuntimeOp::ProcessWaitAny | RuntimeOp::ProcessWaitReady) {
+                        for argument in self.program.arena.call_args(args) {
+                            let expr = match &argument.kind {
+                                ArenaCallArgKind::Positional(expr)
+                                | ArenaCallArgKind::Named { value: expr, .. } => *expr,
+                                _ => continue,
+                            };
+                            let ArenaExprKind::List(elements) = self.program.arena.expr(expr).kind else {
+                                continue;
+                            };
+                            let mut elements = self.program.arena.list_elements(elements);
+                            let (Some(element), None) = (elements.next(), elements.next()) else {
+                                continue;
+                            };
+                            if element.splice_span.is_some()
+                                || !matches!(self.program.arena.expr(element.value).kind, ArenaExprKind::Ident(_))
+                            {
+                                continue;
+                            }
+                            let Some(id) = self.checker.resolved_bindings.expressions.get(&element.value).copied() else {
+                                continue;
+                            };
+                            let Some(kind) = locals.get(&id) else { continue };
+                            if kind.rule().consuming.contains(&ResourceConsumption::SelectedOperation(api.sig.op)) {
+                                return Some((id, self.program.arena.expr(element.value).span));
+                            }
+                        }
+                    }
                     let mut consumed = None;
                     for argument in self.program.arena.call_args(args) {
                         let (ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. }) = &argument.kind else {

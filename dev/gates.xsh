@@ -7,7 +7,7 @@ use stage_contract as contract
 use test_workflows as tests
 
 ## Gate families owned by the repository's testing contract.
-export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness }
+export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness }
 
 ## A path that has no known verification owner.
 export error GateError = UnmappedPath(path: Str)
@@ -24,10 +24,11 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Api, Stdlib] when changed_path.starts_with("tests/fixtures/modules/")
   return Err(GateError.UnmappedPath(path: changed_path)) when changed_path.starts_with("tests/fixtures/")
   return [Syntax, Grammar, Docs] when changed_path == "src/syntax/grammar.rs" or changed_path.starts_with("src/syntax/grammar/")
-  return [Syntax] when changed_path.starts_with("src/syntax/") or changed_path == "tests/syntax.rs" or changed_path == "tests/grammar.rs"
+  return [Syntax] when changed_path.starts_with("src/syntax/") or changed_path == "tests/grammar.rs" or changed_path == "crates/xsht/tests/syntax.rs"
   return [Memory] when changed_path == "src/frontend_stats.rs"
   return [Checker] when changed_path.starts_with("src/sema/") or changed_path == "src/sema.rs" or changed_path == "tests/sema.rs" or changed_path == "src/loader.rs"
   return [Lowering] when changed_path.starts_with("src/runtime/eval/indexed/") or changed_path == "src/runtime/eval/indexed.rs" or changed_path.starts_with("src/runtime/eval/lower.") or changed_path.starts_with("src/runtime/eval/lower/")
+  return [RouteWitness] when changed_path == "src/runtime/eval/route_witness.rs"
   return [Runtime] when changed_path.starts_with("src/runtime/") or changed_path == "src/runtime.rs" or changed_path.starts_with("src/trace") or changed_path == "src/runner.rs" or changed_path.starts_with("tests/runtime/") or changed_path == "tests/runtime.rs"
   return [Sugar] when changed_path.starts_with("crates/xsht/src/sugar_") or changed_path.starts_with("crates/xsht/src/desugar")
   return [Tooling] when changed_path.starts_with("crates/xsht/src/") or changed_path.starts_with("crates/xsht/tests/")
@@ -69,8 +70,45 @@ pure rust_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, args
 }
 
 pure native_gate(ctx: context.Context, profile: tests.TestProfile, filter: Str) -> contract.CommandSpec {
-  let xsht = tests.product_path(ctx, profile, "xsht").display()
+  let xsht = tests.product_path(ctx, profile, tests.Xsht).display()
   stages.command(f"native-{filter}", ctx.target.triple, xsht, [xsht, "test", filter], ctx.root, {})
+}
+
+pure native_exact_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, exact_test: Str) -> contract.CommandSpec {
+  let xsht = tests.product_path(ctx, profile, tests.Xsht).display()
+  stages.command(f"native-{name}", ctx.target.triple, xsht, [xsht, "test", "--exact", exact_test], ctx.root, {})
+}
+
+pure requires_process_products(area: Area) -> Bool {
+  match area {
+    Compile => false
+    Syntax => true
+    Grammar => true
+    Checker => true
+    Lowering => true
+    Runtime => true
+    RouteWitness => true
+    Sugar => true
+    Tooling => true
+    Api => true
+    Stdlib => true
+    Memory => false
+    Docs => false
+    Automation => true
+    Core => true
+    Showcase => true
+    Soundness => false
+  }
+}
+
+pure required_products(selection: Selection) -> List[tests.Product] {
+  return tests.all_products() when ! selection.native_files.is_empty()
+  for area in selection.areas {
+    return tests.all_products() when requires_process_products(area)
+  }
+  return [tests.Xsh, tests.Xsht] when Docs in selection.areas
+  return [tests.Xsht] when Memory in selection.areas
+  []
 }
 
 ## Maps each selected area to its focused compiler or Rust gate and native
@@ -79,22 +117,28 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
   let root_target = ["-p", "xsh", "--test", "integration"]
   let xsht_target = ["-p", "xsht", "--test", "integration"]
   let root_lib = ["-p", "xsh", "--lib"]
-  var plan = [tests.product_build(ctx, profile)?]
+  var plan = tests.product_builds(ctx, profile, required_products(selection))?
   for area in selection.areas {
     match area {
       Compile => plan += [stages.command("check-compile", ctx.target.triple, "cargo",
         ["cargo", "check", "--locked", "--target", ctx.target.triple, "-p", "xsh", "-p", "xsht", "-p", "xsh-fuzz", "--all-targets"],
         ctx.root, tests.cargo_environment(ctx)?)],
-      Syntax => plan += [rust_gate(ctx, profile, "test-syntax", [@root_target, "syntax::", "--", @tests.sibling_syntax_exclusions])?, native_gate(ctx, profile, "tests/xsh/formatter.xsh")],
+      Syntax => plan += [rust_gate(ctx, profile, "test-syntax", [@xsht_target, "syntax::", "--", @tests.sibling_syntax_exclusions])?, rust_gate(ctx, profile, "test-grammar-rust", [@root_target, "grammar::"])?, native_gate(ctx, profile, "tests/xsh/formatter.xsh")],
       Grammar => plan += [rust_gate(ctx, profile, "test-grammar", ["-p", "xsh-fuzz", "--test", "soundness", "generated_programs_are_grammar_sentences"])?, native_gate(ctx, profile, "tests/xsh/tooling-commands.xsh")],
       Checker => plan += [rust_gate(ctx, profile, "test-sema", [@root_target, "sema::"])?, native_gate(ctx, profile, "tests/xsh/checker-")],
-      Lowering => plan += [rust_gate(ctx, profile, "test-lowering", [@root_lib, "runtime::eval"], debug: true)?, rust_gate(ctx, profile, "test-type-agreement", [@root_lib, "corpus_lowering_agrees_with_checked_types"], debug: true)?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
-      Runtime => plan += [rust_gate(ctx, profile, "test-runtime", [@root_target, "runtime::", "--", "--skip", "runtime::coverage::", "--skip", "runtime::examples::"])?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
+      Lowering => plan += [rust_gate(ctx, profile, "test-lowering", [@root_lib, "runtime::eval"], debug: true)?, rust_gate(ctx, profile, "test-type-agreement", [@root_lib, "corpus_annotations_agree_with_binding_facts"], debug: true)?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
+      Runtime => plan += [rust_gate(ctx, profile, "test-runtime", [@root_target, "runtime::", "--", "--skip", "runtime::coverage::"])?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
+      RouteWitness => {
+        plan += [rust_gate(ctx, profile, "test-route-witness-unit", [@root_lib, "runtime::eval::route_witness::tests"], debug: true)?]
+        plan += [rust_gate(ctx, profile, "test-route-witness-inherited-env", [@root_lib, "runtime_env_route_witness_tests"], debug: true)?]
+        plan += [rust_gate(ctx, profile, "test-route-witness-cli", [@xsht_target, "route_witness"])?] when Tooling not in selection.areas
+        plan += [native_exact_gate(ctx, profile, "route-witness-env", "tests/xsh/stdlib/env.xsh::test_route_witness_prefix_names_are_ordinary_environment_entries")] when "tests/xsh/stdlib/env.xsh" not in selection.native_files
+      },
       Sugar => plan += [rust_gate(ctx, profile, "test-sugar", ["-p", "xsht", "--lib", "sugar_expansion_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar-unit", ["-p", "xsht", "--lib", "desugar_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar", [@xsht_target, "desugar::"])?, native_gate(ctx, profile, "tests/xsh/desugar.xsh")],
-      Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_xsht_exclusions])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
-      Api => plan += [rust_gate(ctx, profile, "test-libxsh-api", [@root_target, "libxsh_api"])?, rust_gate(ctx, profile, "test-registry", ["-p", "xsh-registry", "--lib"], debug: true)?, rust_gate(ctx, profile, "test-signatures", [@root_lib, "modules::signature"], debug: true)?, rust_gate(ctx, profile, "test-api", [@xsht_target, "api::"])?, native_gate(ctx, profile, "tests/xsh/api-tool.xsh"), stages.command("check-api-snippets", ctx.target.triple, tests.product_path(ctx, profile, "xsht").display(), [tests.product_path(ctx, profile, "xsht").display(), "check", "docs/snippets/api"], ctx.root, {})],
+      Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_syntax_exclusions, @tests.sibling_xsht_exclusions])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
+      Api => plan += [rust_gate(ctx, profile, "test-libxsh-api", [@root_target, "libxsh_api"])?, rust_gate(ctx, profile, "test-registry", ["-p", "xsh-registry", "--lib"], debug: true)?, rust_gate(ctx, profile, "test-signatures", [@root_lib, "modules::signature"], debug: true)?, rust_gate(ctx, profile, "test-api", [@xsht_target, "api::"])?, native_gate(ctx, profile, "tests/xsh/api-tool.xsh"), stages.command("check-api-snippets", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "check", "docs/snippets/api"], ctx.root, {})],
       Stdlib => plan += [rust_gate(ctx, profile, "test-stdlib-catalog", [@root_lib, "stdlib::tests::every_catalog_module_parses_checks_and_lowers"], debug: true)?, native_gate(ctx, profile, "tests/xsh/stdlib")],
-      Memory => plan += [rust_gate(ctx, profile, "test-frontend-memory", [@root_lib, "frontend_stats::tests"], debug: true)?, stages.command("frontend-memory-report", ctx.target.triple, tests.product_path(ctx, profile, "xsht").display(), [tests.product_path(ctx, profile, "xsht").display(), "frontend-stats", "--json", "tests/fixtures/frontend-indexed"], ctx.root, {})],
+      Memory => plan += [rust_gate(ctx, profile, "test-frontend-memory", [@root_lib, "frontend_stats::tests"], debug: true)?, stages.command("frontend-memory-report", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "frontend-stats", "--json", "tests/fixtures/frontend-indexed"], ctx.root, {})],
       Docs => {},
       Automation => plan += [native_gate(ctx, profile, "dev/tests")],
       Core => plan += [native_gate(ctx, profile, "core/tests")],
@@ -110,14 +154,14 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
 
 proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, env, error, io] {
   documentation.check(ctx.root, documentation.DocTools(
-    xsh: tests.product_path(ctx, profile, "xsh"), xsht: tests.product_path(ctx, profile, "xsht")))
+    xsh: tests.product_path(ctx, profile, tests.Xsh), xsht: tests.product_path(ctx, profile, tests.Xsht)))
 }
 
 ## Automatic repository checks include the retained command contracts and
 ## source-bound consolidation ratchets.
 export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> List[contract.CommandSpec] {
-  let xsht = tests.product_path(ctx, profile, "xsht").display()
-  let xsh = tests.product_path(ctx, profile, "xsh").display()
+  let xsht = tests.product_path(ctx, profile, tests.Xsht).display()
+  let xsh = tests.product_path(ctx, profile, tests.Xsh).display()
   [
     stages.command("batch-check", ctx.target.triple, xsht, [xsht, "check"], ctx.root, {}),
     stages.command("batch-lint", ctx.target.triple, xsht, [xsht, "lint"], ctx.root, {}),

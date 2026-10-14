@@ -69,6 +69,13 @@ test test_context_scope_scaffold_declines_cleanup_comments_and_placeholder_reads
   }
 }
 
+test test_context_scope_input_keeps_run_option_reads_of_the_placeholder { |ctx|
+  let source = "proc inspect() [env, process, error] -> Result[Str] { var revision = \"\"; env ({VALUE: run.text --accept=[revision.byte_len()] /bin/echo data ?}) { revision = \"updated\" }?; revision }\n"
+  let file = script(ctx, source)?
+  assert findings(file, "lint.prefer-context-scope-value")? == 0
+  assert fixed(file, "lint.prefer-context-scope-value")? == source
+}
+
 test test_env_scope_migration_fix_keeps_comments_and_rechecks { |ctx|
   let source = "env {\n  X = \"one\" # selected once\n  Y = 2;\n} { print \${env.get(\"X\")?} }?\n"
   let file = script(ctx, source)?

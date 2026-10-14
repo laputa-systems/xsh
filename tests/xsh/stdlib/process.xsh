@@ -137,6 +137,43 @@ constructed
 """, output.stdout
 }
 
+test test_process_command_argv_evaluates_named_operands_in_written_order { |ctx|
+  let marker = test.temp_path(ctx, name: "command-argv-must-not-run")
+  let output = test.expect(
+    ctx,
+    r"""proc mark_path(label: Str, value: Path) [io] -> Path {
+  print $label
+  return value
+}
+proc mark_duration(label: Str, value: Duration) [io] -> Duration {
+  print $label
+  return value
+}
+proc mark_int(label: Str, value: Int) [io] -> Int {
+  print $label
+  return value
+}
+let marker = Path(args[0])
+let command = process.command_argv(
+  "sh",
+  ["sh", "-c", "touch \"$1\"", "sh", marker.display()],
+  cpu_max: mark_int("cpu-max", 0),
+  timeout: mark_duration("timeout", 1s),
+  cwd: mark_path("cwd", Path(".")),
+)
+let _ = process.run(command)?
+""",
+    status: 3,
+    stderr: ["cpu-max"],
+    args: [marker],
+  )?
+  assert output.stdout == """cpu-max
+timeout
+cwd
+""", output.stdout
+  assert ! marker.exists()?
+}
+
 test test_process_command_construction_supports_forced_frames { |ctx|
   let output = test.expect(
     ctx,
@@ -637,14 +674,14 @@ test test_argv_words_become_a_command_that_runs_with_those_arguments { |ctx|
     ctx,
     r"""let words = process.argv_words("sh -c 'printf \"<%s>\\n\" \"$@\"' ignored 'two words' escaped\\ space")?
 let status = process.run(process.command_argv("sh", words))?
-let env_command = process.command_argv("printenv", ["printenv", "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_PROCESS", "XSHT_INTERNAL_ROUTE_WITNESS_PROCESS"], Path("."), {XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_PROCESS: "ready", XSHT_INTERNAL_ROUTE_WITNESS_PROCESS: "also-ready"})
+let env_command = process.command_argv("printenv", ["printenv", "XSH_PLAN"], Path("."), {XSH_PLAN: "ready"})
 let env_status = process.run(env_command)?
 let false_status = process.run(process.command_argv("false", ["false"]))?
 print ${status.ok} ${env_status.ok} ${false_status.exited_with(1)}
 """,
     status: 0,
   )?
-  assert output.stdout == "<two words>\n<escaped space>\nready\nalso-ready\ntrue true true\n"
+  assert output.stdout == "<two words>\n<escaped space>\nready\ntrue true true\n"
 }
 
 # Polls until `marker` exists, for at most three seconds.

@@ -53,41 +53,39 @@ line always computes. Three things found while porting the rest:
   (`compact.main-missing-spread`) where `xsht lint` accepts it.
 - `use text` is `check.unknown-module` in process and `parse.module-read`
   from the command, which reads the module first.
-- `runtime::examples::example_corpus_lints_without_warnings` asserts an empty
-  stderr, and lint now prints a timing line; the runtime gate skips that
-  module, so nothing has said so.
+- `examples::example_corpus_lints_without_warnings` strips lint's timing line
+  before it checks for diagnostics. The standard XSHT test plan skips that
+  corpus-wide pass; run the `examples::` target explicitly to execute it.
 
 ## Defects
 
-Frozen W9 parity at `59a6dfbc` covered 1,690 inputs and 6,760 profile
-outcomes; this is historical evidence, not final-source acceptance. Temporary
-tracing at that revision counted one preparation and check per full
-module-record key in each shared session: XSH check 1,661 / default lint
-1,518; Laputa check 379 / default lint 316. Default lint also created 288
-fresh candidate-probe caches in XSH (905 records) and 77 in Laputa (347
-records). The hardened W9 publication runner is now integrated through
-`e7fee0e7c`; all 35 synthetic tests pass. Its real pinned build, 1,690-input
-four-profile publication/corpus run, and final source-matched cache
-measurement remain pending. Shared-module diagnostic ordering was made
-deterministic in `60f127126`, with retained fallback coverage. W9 remains open
-until its final-source run and acceptance are complete.
+W9 has a complete 1,690-input, 6,760-outcome publication parity run on an
+earlier source snapshot. It is historical evidence, not final-source
+acceptance. Temporary tracing on earlier snapshots counted one preparation and
+check per full module-record key in each shared session: XSH check 1,661 /
+default lint 1,518; Laputa check 379 / default lint 316. Default lint also
+created 288 fresh candidate-probe caches in XSH (905 records) and 77 in Laputa
+(347 records). The receipt-digest correction and deterministic shared-module
+diagnostic ordering are integrated with focused coverage. W9 still needs its
+pinned current-source build, 1,690-input four-profile publication run, and
+source-matched cache measurement.
 
-### The xsh-wide lint pass is landed but unverified
+### Current consolidation acceptance gates
 
-`lane/lintfix` (about 70 per-rule commits, 733 files) is merged without a test
-run on the merged tree; the final gate battery was stopped. Resume by running
-the native suite, `xsht check` over the repository, and the Rust gates that
-walk the corpus (`syntax::grammar::`, `desugar::`, `lint_format_invariance::`),
-then bisect any failure to the per-rule commit and revert that commit; a
-failure after a lint rewrite is a lint bug. Lint is not at zero. Remaining
-(count from before the second pass): `lint.shadowing` 158 (err),
-`lint.unused-local` 152, `lint.organize-top-level-consts` 126,
-`lint.prefer-slice` 158, notes `lint.empty-sentinel` 65 and
-`lint.prefer-non-empty-argv` 56, and a handful of `dollar-in-expression-string`,
-`unused-callable`, `unused-type`, `dead-code`. `crates/xsht/tests/lint_performance.rs`
-cannot pass until warn/err/info reach zero. `core/dd.xsh`,
-`core/tests/test-uu-tail-1.xsh` and `tests/xsh/stdlib/linux_storage.xsh` kept
-master's text in the merge and were not linted.
+The final-source feature-touch probe, zero-manual-site result, fixed-seed
+soundness gate, `xsht` integration gate, and full correctness run remain open.
+The final report must state cumulative campaign fuzz seeds and upstream
+compatibility results. `cargo dev gate --batch` owns the fixed-seed and tooling
+checks, one full native suite, repository and docs checks; Linux also runs the
+privileged plan. See the current consolidation handoff for the source freeze
+and other close requirements.
+
+### Lint migration
+
+The broad lint migration still needs current-source acceptance. Its old
+per-rule finding counts and merge exclusions predate the second pass and are
+not a current inventory. Historical findings and targeted results are recorded
+in the consolidation handoff.
 
 One known lint defect remains: `lint.prefer-collect` has produced rewrites the
 checker rejects. The historical findings for needless annotations, directory

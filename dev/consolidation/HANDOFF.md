@@ -4,12 +4,12 @@ Status: active 2026-10-14.
 
 ## Current closure checks, 2026-10-14
 
-Master's implementation checkpoint remains `56079e577`. The reviewed candidate is in
-`.work/wt/closure-batch-integration` at
-`e23d5b05def140d00bb16e4f23d9bc586ca64cdc`. It is not integrated or accepted.
+Master now integrates the reviewed closure batch from
+`8c0352f02e5a76e809e669d5bc214209a97fe4b2` in
+`.work/wt/closure-batch-integration`. Final acceptance remains pending.
 The pinned x86_64 Linux musl image and platform exclusions remain unchanged.
 
-The candidate's products and required unit, integration, and soundness
+The batch's products and required unit, integration, and soundness
 harnesses built successfully. Capture regressions pass in both scheduler
 modes, including parallel callbacks, producer yield/resume, and cancellation
 defers. The forced-discard unit preserves child captures while skipping
@@ -32,10 +32,11 @@ matches and a successful combined check after isolated placeholder arms.
 The placeholders are not production code or runtime proof. Final source
 qualification and the original 15 manual-witness review remain required.
 
-Route lane `b85707e0` passes 226 tests in each mode and produces 74 authenticated
-receipts. Review still requires restoring the prepared-constant value
-assertion and retaining the nominal checked-error payload coverage after
-isolating repeated tag records. The validator remains strict.
+Route lane `0db33401` passes 228 tests in each mode and produces 74 authenticated
+receipts. Separate regressions retain the prepared-constant value assertion
+and nominal checked-error payload coverage after isolating repeated tag
+records. The validator remains strict. Direct-IR If selection now checks
+both branch values and the actual normal and forced routes.
 
 W9's corrected helper harness builds and lists exactly one parity test.
 The shared-import lint probe checks the helper once and reuses it once.
