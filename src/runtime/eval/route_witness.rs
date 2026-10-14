@@ -1,18 +1,3 @@
-//! Private, opt-in observations of the runtime route selected for an instruction.
-//!
-//! A capture belongs to one evaluation and may be cloned only into evaluators
-//! created for that evaluation. The collector's transport envelope must keep
-//! `test_id` and `source_hash` as separate optional context fields, and all
-//! records in one envelope must come from the single invocation that installed
-//! the capture. Dispatch records carry neither value: the empty-map
-//! instruction has no source span, and the dispatch boundary has no stable
-//! test identity. `test_id` is the harness identity of that exact invocation.
-//! `source_hash` is lowercase SHA-256 over its exact UTF-8 source input bytes,
-//! without normalization. A collector may add either value only from the
-//! exact enclosing invocation. If it cannot prove that association, it must
-//! serialize the field as absent; tag names, instruction ordinals, source
-//! paths, and cancellation handles are not substitutes.
-
 use super::indexed::full::FullTag;
 use std::cell::RefCell;
 use std::ffi::OsString;
