@@ -683,8 +683,6 @@ impl Analyzer<'_> {
                         None
                     }
                 } else if api.receiver.is_none() {
-                    // A singleton literal selects this handle on normal return;
-                    // larger or spread lists do not identify a specific release.
                     if matches!(api.sig.op, RuntimeOp::ProcessWaitAny | RuntimeOp::ProcessWaitReady) {
                         for argument in self.program.arena.call_args(args) {
                             let expr = match &argument.kind {

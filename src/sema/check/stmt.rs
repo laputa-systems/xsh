@@ -1685,7 +1685,6 @@ fn expression_cardinality_uncached(
                 StreamCardinality::NonEmpty
             }
         }
-        // No literal cardinality fact is available for the remaining forms.
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
         | ArenaExprKind::Int(_)
@@ -2175,8 +2174,6 @@ fn expr_control_flow_inner(
         | ArenaExprKind::LastStatus
         | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList => ControlFlow::NORMAL,
-        // These forms have no expression-level branch rule. The arena keeps
-        // their operand order; child handlers still own block and builder flow.
         ArenaExprKind::FmtString(_)
         | ArenaExprKind::PathFmtString(_)
         | ArenaExprKind::List(_)

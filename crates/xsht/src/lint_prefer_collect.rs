@@ -565,8 +565,6 @@ fn mentions(text: &str, name: &str) -> bool {
     })
 }
 
-/// Whether `text` may assign `name`: directly or through a selector chain.
-/// The lexer keeps string and comment contents out of the source scan.
 fn assigns(text: &str, name: &str) -> bool {
     let opaque_tokens = opaque_token_ranges(text);
     text.match_indices(name).any(|(at, _)| {
@@ -593,7 +591,6 @@ fn assigns(text: &str, name: &str) -> bool {
     })
 }
 
-/// A string or comment token that must be skipped while reading source text.
 #[derive(Clone, Copy)]
 struct OpaqueTokenRange {
     start: usize,
@@ -601,8 +598,6 @@ struct OpaqueTokenRange {
     comment: bool,
 }
 
-/// Follows index contents across their open-bracket lines and fields across
-/// `.name` continuation lines. An unfinished index cannot prove an assignment.
 fn access_chain_assigns_at(
     source: &str,
     start: usize,
@@ -698,7 +693,6 @@ fn access_chain_assigns_at(
         && assignment(source[offset..].trim_start_matches(|byte| byte == ' ' || byte == '\t'))
 }
 
-/// The next member-access continuation, skipping only line breaks and comments.
 fn member_continuation_start(
     source: &str,
     start: usize,

@@ -1012,8 +1012,6 @@ impl<'c> Gen<'c> {
             .clone()
     }
 
-    /// Keep signed-zero witnesses in equality generation so ordinary Float
-    /// literals retain their existing distribution.
     fn signed_zero_equality_operand(ty: &Ty, negative: bool) -> Option<Expr> {
         match ty {
             Ty::Float => Some(Expr::Float(if negative { -0.0 } else { 0.0 })),
@@ -1550,8 +1548,6 @@ impl<'c> Gen<'c> {
                 2 => {
                     let operand = self.equality_operand_ty();
                     let op = *self.rng.pick(&[BinOp::Eq, BinOp::Ne]);
-                    // Keep explicit witnesses occasional so ordinary operand
-                    // expressions stay common.
                     let (left, right) = match Self::signed_zero_equality_operands(&operand) {
                         Some((left, right)) if self.rng.chance(20) => (left, right),
                         _ => (

@@ -1628,12 +1628,10 @@ fn compact_checked_type_is_concrete(ty: &Type) -> bool {
         && !ty.contains_inference()
 }
 
-/// Checker annotation and binding facts that disagree in the test corpus.
 #[cfg(all(test, debug_assertions))]
 static CHECKED_TYPE_FACT_MISMATCHES: std::sync::Mutex<Vec<String>> =
     std::sync::Mutex::new(Vec::new());
 
-/// Record incompatible annotation and binding facts while checking the corpus.
 #[cfg(all(test, debug_assertions))]
 fn note_checked_type_fact_mismatch(
     span: Span,
@@ -3565,7 +3563,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    /// Compare annotation facts with the checker's binding fact for this site.
     #[cfg(all(test, debug_assertions))]
     fn note_checked_type_fact_mismatch(&self, id: StmtId, ty: TypeExprId) {
         let span = self.program.arena.stmt(id).span;
@@ -6763,7 +6760,6 @@ mod checked_constructor_fact_tests {
 
 #[cfg(all(test, debug_assertions))]
 mod checked_type_fact_tests {
-    /// Check that each corpus annotation agrees with its binding type fact.
     #[test]
     fn corpus_annotations_agree_with_binding_facts() {
         std::thread::Builder::new()

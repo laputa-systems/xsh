@@ -235,8 +235,6 @@ pub(super) fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -
             | ArenaExprKind::TempDirScope { .. }
             | ArenaExprKind::ResourceScope { .. }
     ) {
-        // These scopes can run cleanup or mutate outer state in ways the name
-        // check cannot prove harmless, so keep them as conservative barriers.
         return true;
     }
 
@@ -281,8 +279,6 @@ fn arena_child_references_name(arena: &AstArena, child: ArenaChild, name: Name) 
         ArenaChild::Block(block) => block_references_name(arena, block, name),
         ArenaChild::BuilderBlock(block) => builder_block_references_name(arena, block, name),
         ArenaChild::AssignTarget(target) => assign_target_references_name(arena, target, name),
-        // Patterns and binding targets declare or match names; type expressions
-        // name types. None of those are reads of a local value.
         ArenaChild::Pattern(_) | ArenaChild::BindingTarget(_) | ArenaChild::TypeExpr(_) => false,
     }
 }
@@ -327,8 +323,6 @@ fn stmt_references_name(arena: &AstArena, stmt: super::StmtId, name: Name) -> bo
         }
 }
 
-/// Bare `@name` command operands are not arena children, so inspect each
-/// statement-owned run form before following its ordinary child edges.
 fn stmt_direct_run_has_splice_name(arena: &AstArena, stmt: super::StmtId, name: Name) -> bool {
     let value = match arena.stmt(stmt).kind {
         ArenaStmtKind::Const { initializer, .. }
