@@ -13,6 +13,7 @@ import tempfile
 import time
 
 import w9_publication_adapter as adapter
+import w9_publication_sources as source_alignment
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -1596,6 +1597,38 @@ def aggregate_candidate_receipts(
     return runner.ParsedReceipt(reference.header, all_inputs, all_outcomes, reference.terminals)
 
 
+def _align_profile_publications(
+    reference_publications: list[str],
+    candidate_publications: list[str],
+    reference_owner: tuple[
+        dict[int, int],
+        dict[str, set[str]],
+        dict[str, tuple[str, str, str]],
+        dict[str, tuple[str, str]],
+    ],
+    candidate_owner: tuple[
+        dict[int, int],
+        dict[str, set[str]],
+        dict[str, tuple[str, str, str]],
+        dict[str, tuple[str, str]],
+    ],
+    reference_tui_source: bytes,
+    candidate_tui_source: bytes,
+):
+    if len(reference_publications) != len(PROFILES) or len(candidate_publications) != len(PROFILES):
+        raise PublicationError("TUI source alignment requires all four publication profiles")
+    return source_alignment.align_tui_publications(
+        reference_publications=reference_publications,
+        candidate_publications=candidate_publications,
+        reference_source_sizes=reference_owner[0],
+        reference_source_owners=reference_owner[1],
+        candidate_source_sizes=candidate_owner[0],
+        candidate_source_owners=candidate_owner[1],
+        reference_tui_source=reference_tui_source,
+        candidate_tui_source=candidate_tui_source,
+    )
+
+
 def compare_full_publications(
     runner,
     reference_receipt_path: pathlib.Path,
@@ -1695,6 +1728,15 @@ def compare_full_publications(
     reference_root = runner_for_paths.open_absolute_nofollow(reference_raw, directory=True)
     candidate_root = runner_for_paths.open_absolute_nofollow(candidate_raw, directory=True)
     try:
+        reference_tui_path = runner_for_paths.regular_file(
+            expected_reference_root / "stdlib/tui.xsh", "pinned reference TUI source"
+        )
+        candidate_source_root = pathlib.Path(candidate_build["source_root"])
+        candidate_tui_path = runner_for_paths.regular_file(
+            candidate_source_root / "stdlib/tui.xsh", "candidate TUI source"
+        )
+        reference_tui_source = runner_for_paths.read_regular_bytes(reference_tui_path)
+        candidate_tui_source = runner_for_paths.read_regular_bytes(candidate_tui_path)
         _mkdir_new_directory(mismatch_path.parent / "hashjobs", runner_for_paths)
         reference_raw_hashes = _hash_raw_outcomes(
             pathlib.Path(reference_build["binary"]), reference_raw, candidate_source_record,
@@ -1715,11 +1757,11 @@ def compare_full_publications(
                 candidate_owner = adapter.parse_owner_index(
                     _read_regular_at(candidate_root, f"owners-{index}.tsv")
                 )
-                if reference_owner[:2] != candidate_owner[:2]:
-                    raise PublicationError(f"owner source/span AST differs at input {index}")
             except (adapter.AdapterError, PublicationError, UnicodeError) as error:
                 owner_error = True
                 mismatches.append(f"{index}\towner-index\t{type(error).__name__}\t{error}")
+            profile_records = []
+            profile_error = False
             for profile in PROFILES:
                 key = (index, expected_inputs[index].relative_path, profile)
                 try:
@@ -1742,24 +1784,64 @@ def compare_full_publications(
                         )
                     if reference_kind != candidate_kind:
                         mismatches.append(f"{key}\tkind\t{reference_kind}\t{candidate_kind}")
+                        profile_error = True
                         continue
                     if reference_kind == "load-error":
                         if reference_publication or candidate_publication:
                             mismatches.append(f"{key}\tload-error-has-publication")
+                            profile_error = True
                         continue
-                    if owner_error:
-                        continue
+                    profile_records.append(
+                        (profile, key, reference_diagnostics, reference_publication,
+                         candidate_diagnostics, candidate_publication)
+                    )
+                except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+                    mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
+                    profile_error = True
+            if owner_error or profile_error:
+                continue
+            if not profile_records:
+                continue
+            try:
+                profile_by_name = {record[0]: record for record in profile_records}
+                aligned = _align_profile_publications(
+                    [
+                        profile_by_name[profile][3] if profile in profile_by_name else ""
+                        for profile in PROFILES
+                    ],
+                    [
+                        profile_by_name[profile][5] if profile in profile_by_name else ""
+                        for profile in PROFILES
+                    ],
+                    reference_owner,
+                    candidate_owner,
+                    reference_tui_source,
+                    candidate_tui_source,
+                )
+            except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+                mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
+                continue
+            for (
+                profile,
+                key,
+                reference_diagnostics,
+                _reference_publication,
+                candidate_diagnostics,
+                _candidate_publication,
+            ) in profile_records:
+                profile_index = PROFILES.index(profile)
+                try:
                     adapter.compare_publications(
                         reference_diagnostics,
-                        reference_publication,
+                        aligned.reference_publications[profile_index],
                         reference_owner[0],
                         reference_owner[1],
                         reference_owner[2],
                         reference_owner[3],
                         candidate_diagnostics,
-                        candidate_publication,
-                        candidate_owner[0],
-                        candidate_owner[1],
+                        aligned.candidate_publications[profile_index],
+                        aligned.candidate_source_sizes,
+                        aligned.candidate_source_owners,
                     )
                 except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")

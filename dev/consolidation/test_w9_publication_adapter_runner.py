@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import w9_publication_adapter_runner as adapter_runner
+import test_w9_publication_sources as source_fixtures
 
 
 class AdapterRawOutcomeTests(unittest.TestCase):
@@ -1232,6 +1233,108 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(loaded[1], self.candidate_root / "dev/consolidation/w9-publication-run.py")
+
+
+class TuiPublicationRunnerAlignmentTests(unittest.TestCase):
+    def _schema_publication(self, rendered, schema):
+        adapter = adapter_runner.adapter
+        prefix, entries = adapter._struct_parts(rendered, "CheckOutput")
+        if schema == "legacy":
+            entries = [
+                entry
+                for entry in entries
+                if adapter._field(entry)[0] not in {"selected_function_calls", "checked_control_flow"}
+            ]
+        entries.extend(
+            (
+                "resolved_bindings:ResolvedBindings{declarations:{},value_sites:{},tails:{}}",
+                "prepared_constants:PreparedConstants{binding_values:{},values:{},"
+                + ("global_bindings:{},tail_bindings:{}," if schema == "legacy" else "")
+                + "cli_plans:Mutex{..,data:{},poisoned:false}}",
+            )
+        )
+        return f"{prefix}{{{','.join(entries)}}}"
+
+    def test_four_profiles_align_real_tui_source_and_compare_with_unrelated_owner_differences(self):
+        reference_publication = self._schema_publication(
+            source_fixtures.publication(source_fixtures.OLD_SOURCE)[0], "legacy"
+        )
+        candidate_publication = self._schema_publication(
+            source_fixtures.publication(
+                source_fixtures.CURRENT_SOURCE,
+                reverse_maps=True,
+            )[0],
+            "current",
+        )
+        reference_publications = [reference_publication] * len(adapter_runner.PROFILES)
+        candidate_publications = [candidate_publication] * len(adapter_runner.PROFILES)
+        reference_owners = source_fixtures.owner_index(source_fixtures.OLD_SOURCE)
+        candidate_owners = source_fixtures.owner_index(source_fixtures.CURRENT_SOURCE)
+        unrelated_span = source_fixtures.span(0, 3, 2)
+        reference_owners[unrelated_span] = {"expr:Name"}
+        candidate_owners[unrelated_span] = {"stmt:Return"}
+        reference_sizes = source_fixtures.source_sizes(source_fixtures.OLD_SOURCE)
+        candidate_sizes = source_fixtures.source_sizes(source_fixtures.CURRENT_SOURCE)
+
+        aligned = adapter_runner._align_profile_publications(
+            reference_publications,
+            candidate_publications,
+            (reference_sizes, reference_owners, {}, {}),
+            (candidate_sizes, candidate_owners, {}, {}),
+            source_fixtures.OLD_SOURCE,
+            source_fixtures.CURRENT_SOURCE,
+        )
+
+        self.assertEqual(aligned.tui_source_id, 5)
+        self.assertEqual(aligned.candidate_source_sizes, reference_sizes)
+        self.assertEqual(aligned.candidate_source_owners[unrelated_span], {"stmt:Return"})
+        for index in range(len(adapter_runner.PROFILES)):
+            with self.subTest(profile=adapter_runner.PROFILES[index]):
+                adapter_runner.adapter.compare_publications(
+                    "",
+                    aligned.reference_publications[index],
+                    reference_sizes,
+                    reference_owners,
+                    {},
+                    {},
+                    "",
+                    aligned.candidate_publications[index],
+                    aligned.candidate_source_sizes,
+                    aligned.candidate_source_owners,
+                )
+
+    def test_alignment_rejects_a_single_profile_with_different_tui_declarations(self):
+        reference_publication = source_fixtures.publication(source_fixtures.OLD_SOURCE)[0]
+        candidate_publications = [
+            source_fixtures.publication(
+                source_fixtures.CURRENT_SOURCE,
+                name_change="different" if index == 3 else None,
+            )[0]
+            for index in range(len(adapter_runner.PROFILES))
+        ]
+
+        with self.assertRaisesRegex(
+            source_fixtures.SourceAlignmentError,
+            "declarations disagree across candidate profiles",
+        ):
+            adapter_runner._align_profile_publications(
+                [reference_publication] * len(adapter_runner.PROFILES),
+                candidate_publications,
+                (
+                    source_fixtures.source_sizes(source_fixtures.OLD_SOURCE),
+                    source_fixtures.owner_index(source_fixtures.OLD_SOURCE),
+                    {},
+                    {},
+                ),
+                (
+                    source_fixtures.source_sizes(source_fixtures.CURRENT_SOURCE),
+                    source_fixtures.owner_index(source_fixtures.CURRENT_SOURCE),
+                    {},
+                    {},
+                ),
+                source_fixtures.OLD_SOURCE,
+                source_fixtures.CURRENT_SOURCE,
+            )
 
 
 if __name__ == "__main__":
