@@ -242,7 +242,7 @@ use types::{
     is_discard_name, lowered_checked_type, type_for_lowered_type,
 };
 
-#[cfg(debug_assertions)]
+#[cfg(all(test, debug_assertions))]
 use types::checked_fact_is_resolved;
 
 use values::{
