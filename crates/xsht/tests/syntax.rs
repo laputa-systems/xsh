@@ -1529,15 +1529,18 @@ fn bare_command_fixture_is_proc_command() {
     ));
 }
 
+#[cfg(feature = "native-tests")]
 #[test]
 fn formatter_is_idempotent_on_example_catalog() {
     use xsh::frontend::source::SourceId;
     use xsht::examples::load_catalog;
 
-    let catalog = load_catalog(".").expect("load examples/catalog.json");
+    let root = super::workspace_root();
+    let catalog = load_catalog(&root).expect("load examples/catalog.json");
     for case in catalog.examples {
-        let source =
-            std::fs::read_to_string(&case.path).unwrap_or_else(|_| panic!("read {}", case.path));
+        let path = root.join(&case.path);
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|_| panic!("read {}", case.path));
 
         let source_id = SourceId::new(0);
         let first = Formatter::new().format_source(source_id, &source);
@@ -1587,9 +1590,17 @@ fn formatter_is_idempotent_on_laputa_corpus() {
     }
 
     // The Laputa monorepo is the largest XSH corpus outside this repository.
+    let workspace = super::workspace_root();
     let root = std::env::var_os("XSH_LAPUTA_CORPUS").map_or_else(
-        || std::path::PathBuf::from("../laputa"),
-        std::path::PathBuf::from,
+        || workspace.join("../laputa"),
+        |path| {
+            let path = std::path::PathBuf::from(path);
+            if path.is_absolute() {
+                path
+            } else {
+                workspace.join(path)
+            }
+        },
     );
     let root = root.as_path();
     if !root.is_dir() {
@@ -1793,7 +1804,9 @@ proc main(input: Path, candidate: Path, tarball: Path, name: Str, suffix: Str) {
 fn parser_named_argument_puns_keep_identifier_spans_and_formatting() {
     use xsh::frontend::syntax::arena::ArenaCallArgKind;
 
-    let source = include_str!("fixtures/syntax/valid/named-argument-puns.xsh");
+    let source = include_str!(
+        "../../../tests/fixtures/syntax/valid/named-argument-puns.xsh"
+    );
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     assert_parse_and_check(SourceId::new(0), source);
@@ -2175,7 +2188,7 @@ fn parser_nested_record_update_paths_keep_labels_spans_and_comments() {
 
 #[test]
 fn error_handler_headers_have_one_authoritative_parameter_range() {
-    let source = include_str!("fixtures/frontend-indexed/block-parameters.xsh");
+    let source = include_str!("../../../tests/fixtures/frontend-indexed/block-parameters.xsh");
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let mut handlers = 0;
@@ -2317,7 +2330,9 @@ fn block_string_parser_preserves_original_expression_and_diagnostic_spans() {
 #[test]
 fn named_argument_spread_preserves_source_spans_and_formatter_round_trips() {
     use xsh::frontend::syntax::arena::{ArenaCallArgKind, ExprId};
-    let source = include_str!("fixtures/syntax/valid/named-argument-spreads.xsh");
+    let source = include_str!(
+        "../../../tests/fixtures/syntax/valid/named-argument-spreads.xsh"
+    );
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     assert_parse_and_check(SourceId::new(0), source);
@@ -2428,6 +2443,3 @@ fn fmt_interpolation_spans_index_the_original_source() {
         parsed.diagnostics
     );
 }
-
-#[path = "grammar.rs"]
-mod grammar;

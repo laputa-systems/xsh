@@ -10,9 +10,11 @@ use targets
 ## verification covers this repository and individually migrated source files.
 export const sibling_syntax_exclusions = ["--skip", "syntax::formatter_is_idempotent_on_laputa_corpus"]
 
-## The external lint comparison copies and rewrites the entire sibling corpus,
-## so automatic tooling verification excludes that one expensive test.
-export const sibling_xsht_exclusions = ["--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"]
+export const sibling_xsht_exclusions = [
+  "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus",
+  "--skip", "examples::example_corpus_is_formatted",
+  "--skip", "examples::example_corpus_lints_without_warnings",
+]
 
 ## The only profiles accepted by process and native tests.
 export enum TestProfile { Verification, Release }
@@ -111,13 +113,12 @@ export pure rust_plan(
     stages.command("test-rust", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh", "--test", "integration", "--test", "ambient_fs_policy",
         "--test", "symbol_plateau", "--test", "core_compat_boundaries", "--test", "core_compat_extra", "--",
-        "--skip", "split::", "--skip", "runtime::coverage::", "--skip", "runtime::examples::example_corpus_is_formatted",
-        "--skip", "runtime::examples::example_corpus_lints_without_warnings", @sibling_syntax_exclusions],
+        "--skip", "split::", "--skip", "runtime::coverage::"],
       ctx.root, environment),
     stages.command("test-debug-assertions", ctx.target.triple, "cargo",
       ["cargo", "test", @debug_args, "-p", "xsh", "--lib"], ctx.root, environment),
     stages.command("test-xsht", ctx.target.triple, "cargo",
-      ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_xsht_exclusions], ctx.root, environment),
+      ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_syntax_exclusions, @sibling_xsht_exclusions], ctx.root, environment),
     stages.command("test-soundness", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh-fuzz", "--test", "soundness"], ctx.root, environment),
   ]

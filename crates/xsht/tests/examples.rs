@@ -1,10 +1,12 @@
-use super::common::*;
 use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 use xsht::examples::{ExampleCatalog, OutputPolicy, load_catalog, validate_catalog};
 
 fn example_catalog() -> ExampleCatalog {
-    let catalog = load_catalog(".").expect("load examples/catalog.json");
-    validate_catalog(".", &catalog).expect("validate examples/catalog.json");
+    let root = super::workspace_root();
+    let catalog = load_catalog(&root).expect("load examples/catalog.json");
+    validate_catalog(&root, &catalog).expect("validate examples/catalog.json");
     catalog
 }
 
@@ -28,26 +30,70 @@ fn assert_output_policy(policy: &OutputPolicy, actual: &str, script: &str) {
 }
 
 fn lint_diagnostics(stderr: &str) -> &str {
-    regex_lite::Regex::new(
-        r"(?s)^(.*)xsht lint: [0-9]+ files? in [^\n]* \(thread time by stage: [^\n]*\n$",
-    )
-    .expect("valid lint timing-line regex")
-    .captures(stderr)
-    .and_then(|captures| captures.get(1))
-    .map_or(stderr, |diagnostics| diagnostics.as_str())
+    let Some(body) = stderr.strip_suffix('\n') else {
+        return stderr;
+    };
+    let (diagnostics, timing) = body.rfind('\n').map_or(("", body), |index| {
+        body.split_at(index + 1)
+    });
+    let Some(timing) = timing.strip_prefix("xsht lint: ") else {
+        return stderr;
+    };
+    let Some((count, timing)) = timing.split_once(' ') else {
+        return stderr;
+    };
+    if count.parse::<usize>().is_err() {
+        return stderr;
+    }
+    let Some(timing) = timing
+        .strip_prefix("files")
+        .or_else(|| timing.strip_prefix("file"))
+    else {
+        return stderr;
+    };
+    if !timing.starts_with(" in ") || !timing.contains(" (thread time by stage: ") {
+        return stderr;
+    }
+    diagnostics
+}
+
+fn xsh_binary() -> PathBuf {
+    let binary = Path::new(test_bin!("xsht")).with_file_name("xsh");
+    assert!(
+        binary.is_file(),
+        "missing sibling xsh binary at {}; build xsh in the same profile before running examples",
+        binary.display()
+    );
+    binary
+}
+
+fn stdout_text(output: &Output) -> String {
+    String::from_utf8(output.stdout.clone()).expect("stdout UTF-8")
+}
+
+fn stderr_text(output: &Output) -> String {
+    String::from_utf8(output.stderr.clone()).expect("stderr UTF-8")
+}
+
+fn assert_ok(output: &Output) {
+    assert!(
+        output.status.success(),
+        "status={:?}\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
+        stdout_text(output),
+        stderr_text(output)
+    );
 }
 
 #[test]
 fn example_corpus_runs_with_expected_output() {
+    let root = super::workspace_root();
     for case in example_catalog().examples {
-        if case.requires_net && !cfg!(feature = "net") {
-            continue;
-        }
         if case.skip {
             continue;
         }
-        let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
-        command.arg(&case.path);
+        let mut command = Command::new(xsh_binary());
+        command.current_dir(&root).arg(&case.path);
         if !case.args.is_empty() {
             command.arg("--").args(&case.args);
         }
@@ -66,12 +112,13 @@ fn example_corpus_runs_with_expected_output() {
 
 #[test]
 fn examples_have_timed_trace_output() {
+    let root = super::workspace_root();
     for case in example_catalog()
         .examples
         .into_iter()
-        .filter(|case| case.trace && (cfg!(feature = "net") || !case.requires_net))
+        .filter(|case| case.trace)
     {
-        let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
+        let output = Command::new(test_bin!("xsht"))
             .arg("trace")
             .arg(&case.path)
             .args(if case.args.is_empty() {
@@ -80,6 +127,7 @@ fn examples_have_timed_trace_output() {
                 &["--"][..]
             })
             .args(&case.args)
+            .current_dir(&root)
             .output()
             .expect("run xsht");
 
@@ -125,9 +173,11 @@ fn examples_have_timed_trace_output() {
 
 #[test]
 fn example_corpus_is_formatted() {
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
+    let root = super::workspace_root();
+    let output = Command::new(test_bin!("xsht"))
         .args(["fmt", "--check"])
         .args(example_paths())
+        .current_dir(&root)
         .output()
         .expect("run xsht");
 
@@ -138,9 +188,11 @@ fn example_corpus_is_formatted() {
 
 #[test]
 fn example_corpus_lints_without_warnings() {
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
+    let root = super::workspace_root();
+    let output = Command::new(test_bin!("xsht"))
         .arg("lint")
         .args(example_paths())
+        .current_dir(&root)
         .output()
         .expect("run xsht");
 
@@ -151,12 +203,18 @@ fn example_corpus_lints_without_warnings() {
 
 #[test]
 fn example_runtime_cases_cover_every_example_script() {
+    let root = super::workspace_root();
     let expected: BTreeSet<_> = example_paths().into_iter().collect();
-    let discovered: BTreeSet<_> = std::fs::read_dir("examples")
+    let discovered: BTreeSet<_> = std::fs::read_dir(root.join("examples"))
         .expect("read examples")
         .map(|entry| entry.expect("read example entry").path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "xsh"))
-        .map(|path| path.to_string_lossy().into_owned())
+        .map(|path| {
+            path.strip_prefix(&root)
+                .expect("example is under the workspace root")
+                .to_string_lossy()
+                .into_owned()
+        })
         .collect();
 
     assert_eq!(discovered, expected);

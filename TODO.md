@@ -53,9 +53,9 @@ line always computes. Three things found while porting the rest:
   (`compact.main-missing-spread`) where `xsht lint` accepts it.
 - `use text` is `check.unknown-module` in process and `parse.module-read`
   from the command, which reads the module first.
-- `runtime::examples::example_corpus_lints_without_warnings` asserts an empty
-  stderr, and lint now prints a timing line; the runtime gate skips that
-  module, so nothing has said so.
+- `examples::example_corpus_lints_without_warnings` strips lint's timing line
+  before it checks for diagnostics. The standard XSHT test plan skips that
+  corpus-wide pass; run the `examples::` target explicitly to execute it.
 
 ## Defects
 
@@ -77,7 +77,7 @@ until its final-source run and acceptance are complete.
 `lane/lintfix` (about 70 per-rule commits, 733 files) is merged without a test
 run on the merged tree; the final gate battery was stopped. Resume by running
 the native suite, `xsht check` over the repository, and the Rust gates that
-walk the corpus (`syntax::grammar::`, `desugar::`, `lint_format_invariance::`),
+walk the corpus (`grammar::`, `desugar::`, `lint_format_invariance::`),
 then bisect any failure to the per-rule commit and revert that commit; a
 failure after a lint rewrite is a lint bug. Lint is not at zero. Remaining
 (count from before the second pass): `lint.shadowing` 158 (err),

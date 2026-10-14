@@ -10,6 +10,8 @@ test test_changed_paths_select_and_deduplicate_their_verification_owners {
   assert selected.areas == [gates.Checker, gates.Lowering]
   assert selected.native_files == ["tests/xsh/retry.xsh"]
   assert gates.areas_for("src/syntax/grammar.rs")? == [gates.Syntax, gates.Grammar, gates.Docs]
+  assert gates.areas_for("crates/xsht/tests/syntax.rs")? == [gates.Syntax]
+  assert gates.areas_for("tests/grammar.rs")? == [gates.Syntax]
   assert gates.areas_for("docs/snippets/api/fs.xsh")? == [gates.Docs, gates.Api]
   match gates.select(["unowned-family/behavior.rs"]) {
     Ok(_) => test.fail("a changed path without a gate owner was accepted")
@@ -205,7 +207,7 @@ test test_fixtures_select_their_owner_instead_of_running_as_native_modules {
 
 test test_catalog_and_sibling_filters_preserve_the_selected_verification_scope {
   let ctx = fixtures.linux_context(/repo)?
-  let selected = gates.select(["src/stdlib.rs", "crates/xsht/src/lint.rs", "tests/syntax.rs"])?
+  let selected = gates.select(["src/stdlib.rs", "crates/xsht/src/lint.rs", "crates/xsht/tests/syntax.rs"])?
   let plan = gates.lane_plan(ctx, tests.Verification, selected)?
   let catalog = [spec for spec in plan |> where .stage == "test-stdlib-catalog"]
   assert catalog.len() == 1
@@ -215,11 +217,18 @@ test test_catalog_and_sibling_filters_preserve_the_selected_verification_scope {
   for spec in plan {
     if spec.stage == "test-tooling" {
       assert "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus" in spec.argv
+      assert "syntax::formatter_is_idempotent_on_laputa_corpus" in spec.argv
       assert "--skip" in spec.argv
     }
     if spec.stage == "test-syntax" {
+      assert "xsht" in spec.argv
+      assert "integration" in spec.argv
       assert "syntax::formatter_is_idempotent_on_laputa_corpus" in spec.argv
       assert "--skip" in spec.argv
+    }
+    if spec.stage == "test-grammar-rust" {
+      assert "xsh" in spec.argv
+      assert "grammar::" in spec.argv
     }
   }
 }

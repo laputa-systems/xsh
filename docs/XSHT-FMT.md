@@ -105,5 +105,6 @@ one golden, `tests/fixtures/fmt/beauty.expected.xsh`. Add an annotated section
 there when a source shape or the CLI rewrite path is part of the behavior;
 `tests/xsh/formatter.xsh::test_fmt_fixture` formats a copy, compares the golden,
 then runs `xsht check` and `xsht fmt --check`. Narrow Rust contracts go in
-`tests/syntax.rs`; use the focused command in `docs/TESTING.md`. The sibling
-`../laputa` corpus, when present, is a broad stress test, not a golden.
+`crates/xsht/tests/syntax.rs` or `crates/xsht/tests/formal_bridge.rs`; use the
+focused command in `docs/TESTING.md`. The sibling `../laputa` corpus, when
+present, is a broad stress test, not a golden.

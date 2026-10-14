@@ -29,9 +29,9 @@ adjacent comment explaining why a native test cannot express it.
 | Suite | Location |
 |---|---|
 | native XSH | `tests/xsh`, `core/tests`, `dev/tests`, `showcase/tests` (the `test_roots` in `xsht-config.ini`) |
-| root integration | `tests/integration.rs` aggregates `tests/syntax.rs`, `tests/sema.rs`, `tests/runtime/`, `tests/cli.rs`, and the rest |
+| root integration | `tests/integration.rs` aggregates `tests/grammar.rs`, `tests/sema.rs`, `tests/runtime/`, `tests/cli.rs`, and the other root suites |
 | separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/core_compat_boundaries.rs`, `tests/core_compat_extra.rs` (core applet descriptors, PTYs and child lifecycles), `tests/linux_priv.rs` (`linux-priv-tests` feature), `core_compat_extra_privileged` (same core applet source with privileged cases enabled) |
-| tooling | `crates/xsht/tests/` (`integration`, `profile_parity` targets) |
+| tooling and syntax | `crates/xsht/tests/` (`integration`, `profile_parity`, syntax, grammar, examples, and formatter bridge tests) |
 | interactive | `crates/xshi/src/interactive/` units and `crates/xshi/tests/` (`laputa-asterinas` feature) |
 | fixtures | `tests/fixtures/{syntax,sema,runtime,fmt,frontend-indexed}` |
 
@@ -107,16 +107,17 @@ is `dev/cargo_steps.xsh`.
 
 | Change | Narrow | Broader |
 |---|---|---|
-| parser, CST, formatter | `cargo test --profile verification --target "$TARGET" --test integration syntax::NAME` | `cargo test --profile verification --target "$TARGET" --test integration syntax::`; `tests/xsh/formatter.xsh` |
-| grammar (`src/syntax/grammar.rs`) | `cargo test --profile verification --target "$TARGET" --test integration syntax::grammar::` | `cargo test --profile verification --target "$TARGET" -p xsh-fuzz --test soundness generated_programs_are_grammar_sentences`; `make docs-check` |
+| parser, CST, formatter | `cargo test --profile verification --target "$TARGET" -p xsht --test integration syntax::NAME` | `cargo test --profile verification --target "$TARGET" -p xsht --test integration syntax::`; `cargo test --profile verification --target "$TARGET" --test integration grammar::`; `tests/xsh/formatter.xsh` |
+| grammar (`src/syntax/grammar.rs`) | `cargo test --profile verification --target "$TARGET" -p xsh-fuzz --test soundness generated_programs_are_grammar_sentences` | `cargo test --profile verification --target "$TARGET" -p xsh-fuzz --test soundness generated_programs_are_grammar_sentences`; `make docs-check` |
 | checker | `target/$TARGET/verification/xsht test tests/xsh/checker-NAME.xsh` (accepted and rejected programs by topic: `commands`, `modules`, `records`, `results`, `signal-hooks`, `streams`) or the feature's own `tests/xsh/NAME.xsh`; `cargo test --profile verification --target "$TARGET" --test integration sema::NAME` for checker facts with no command-line surface (full-versus-compact fact comparisons, expression types, interactive mode, fix hints) | `target/$TARGET/verification/xsht test tests/xsh`; `cargo test --profile verification --target "$TARGET" --test integration sema::` |
 | sugar forms, `xsht desugar` | `cargo test -p xsht --lib sugar_expansion_tests`; `cargo test -p xsht --lib desugar_tests` | `cargo test --profile verification --target "$TARGET" -p xsht --test integration desugar::` (desugars every native test file that holds sugar, in a copy of the workspace, and requires the same check diagnostics and test results) |
 | lowering, verifier | `cargo test -p xsh --lib runtime::eval::indexed::full::tests::NAME` | `cargo test -p xsh --lib runtime::eval` |
 | checked annotation and binding facts | `cargo test -p xsh --lib corpus_annotations_agree_with_binding_facts` (checks the corpus and embedded stdlib for annotation/binding type mismatches and storage-kind disagreements) | `tests/xsh/lowering-coverage.xsh`; full native suite |
 | route witness (`src/runtime/eval/route_witness.rs`) | `cargo dev gate src/runtime/eval/route_witness.rs` selects the eight route-witness and two inherited-environment `xsh` unit tests, three `xsht` integration tests matching `route_witness`, and the exact native environment test | shared runtime source paths use the runtime gate below |
-| runtime | native module, then `cargo test --profile verification --target "$TARGET" --test integration runtime::NAME` | `cargo test --profile verification --target "$TARGET" --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::` |
+| runtime | native module, then `cargo test --profile verification --target "$TARGET" --test integration runtime::NAME` | `cargo test --profile verification --target "$TARGET" --test integration runtime:: -- --skip runtime::coverage::` |
 | frames, stack depth | `cargo test --profile verification --target "$TARGET" --test integration runtime::stack_depth` | runtime gate |
 | lint, tooling | `target/$TARGET/verification/xsht test tests/xsh/tooling-NAME.xsh` (the `check`, `fmt`, `lint`, and `test` command lines, the lint migration fixes, and help); `cargo test --profile verification --target "$TARGET" -p xsht --test integration lint::NAME` | `cargo test --profile verification --target "$TARGET" -p xsht` |
+| examples | `cargo build --profile verification --target "$TARGET" -p xsh --bin xsh`; `cargo test --profile verification --target "$TARGET" -p xsht --test integration examples::` | `cargo test --profile verification --target "$TARGET" -p xsht --test integration` |
 | API, registry, docs | `target/$TARGET/verification/xsht test tests/xsh/api-tool.xsh`; `cargo test --profile verification --target "$TARGET" -p xsht --test integration api::` | API gate below |
 | standard modules | `target/$TARGET/verification/xsht test tests/xsh/stdlib/NAME.xsh` | `target/$TARGET/verification/xsht test tests/xsh/stdlib` |
 | retained frontend memory | `cargo test -p xsh --lib frontend_stats::tests` | `target/$TARGET/verification/xsht frontend-stats --json tests/fixtures/frontend-indexed` |
@@ -277,7 +278,7 @@ python3 tools/copied-product-smoke.py \
 
 ## Grammar proofs
 
-`syntax::grammar::` (in `tests/grammar.rs`) holds the productions of
+`grammar::` (in `tests/grammar.rs`) holds the productions of
 `src/syntax/grammar.rs` and the parser to the same language, in both
 directions, on every run:
 
@@ -418,10 +419,10 @@ establish end-to-end terminal parity.
   rewrite unrelated files; formatting is the owner's responsibility. Check-only
   forms are fine.
 - Unfiltered `cargo test --profile verification --target "$TARGET"` in agent work: `runtime::coverage` runs
-  the whole native suite (`xsh_native_tests`), and two `runtime::examples`
-  cases launch `xsht fmt`/`xsht lint`. Use the filtered runtime gate. The
-  native tooling tests (`tests/xsh/tooling-*.xsh`) run `xsht fmt` and
-  `xsht lint --fix` only on files in their own temp directories.
+  the whole native suite (`xsh_native_tests`). Use the filtered runtime gate.
+  XSHT example tests launch both product binaries; build `xsh` and `xsht` in
+  the same profile first. Native tooling tests (`tests/xsh/tooling-*.xsh`) run
+  `xsht fmt` and `xsht lint --fix` only on files in their own temp directories.
 - Debug `cargo test` of a target that spawns binaries: each such test fails
   with the `cargo test --profile verification --target "$TARGET"` instruction instead of running.
 - The `dist` profile, bare `cargo build --release`, and more than one full

@@ -24,7 +24,7 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Api, Stdlib] when changed_path.starts_with("tests/fixtures/modules/")
   return Err(GateError.UnmappedPath(path: changed_path)) when changed_path.starts_with("tests/fixtures/")
   return [Syntax, Grammar, Docs] when changed_path == "src/syntax/grammar.rs" or changed_path.starts_with("src/syntax/grammar/")
-  return [Syntax] when changed_path.starts_with("src/syntax/") or changed_path == "tests/syntax.rs" or changed_path == "tests/grammar.rs"
+  return [Syntax] when changed_path.starts_with("src/syntax/") or changed_path == "tests/grammar.rs" or changed_path == "crates/xsht/tests/syntax.rs"
   return [Memory] when changed_path == "src/frontend_stats.rs"
   return [Checker] when changed_path.starts_with("src/sema/") or changed_path == "src/sema.rs" or changed_path == "tests/sema.rs" or changed_path == "src/loader.rs"
   return [Lowering] when changed_path.starts_with("src/runtime/eval/indexed/") or changed_path == "src/runtime/eval/indexed.rs" or changed_path.starts_with("src/runtime/eval/lower.") or changed_path.starts_with("src/runtime/eval/lower/")
@@ -123,11 +123,11 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
       Compile => plan += [stages.command("check-compile", ctx.target.triple, "cargo",
         ["cargo", "check", "--locked", "--target", ctx.target.triple, "-p", "xsh", "-p", "xsht", "-p", "xsh-fuzz", "--all-targets"],
         ctx.root, tests.cargo_environment(ctx)?)],
-      Syntax => plan += [rust_gate(ctx, profile, "test-syntax", [@root_target, "syntax::", "--", @tests.sibling_syntax_exclusions])?, native_gate(ctx, profile, "tests/xsh/formatter.xsh")],
+      Syntax => plan += [rust_gate(ctx, profile, "test-syntax", [@xsht_target, "syntax::", "--", @tests.sibling_syntax_exclusions])?, rust_gate(ctx, profile, "test-grammar-rust", [@root_target, "grammar::"])?, native_gate(ctx, profile, "tests/xsh/formatter.xsh")],
       Grammar => plan += [rust_gate(ctx, profile, "test-grammar", ["-p", "xsh-fuzz", "--test", "soundness", "generated_programs_are_grammar_sentences"])?, native_gate(ctx, profile, "tests/xsh/tooling-commands.xsh")],
       Checker => plan += [rust_gate(ctx, profile, "test-sema", [@root_target, "sema::"])?, native_gate(ctx, profile, "tests/xsh/checker-")],
       Lowering => plan += [rust_gate(ctx, profile, "test-lowering", [@root_lib, "runtime::eval"], debug: true)?, rust_gate(ctx, profile, "test-type-agreement", [@root_lib, "corpus_annotations_agree_with_binding_facts"], debug: true)?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
-      Runtime => plan += [rust_gate(ctx, profile, "test-runtime", [@root_target, "runtime::", "--", "--skip", "runtime::coverage::", "--skip", "runtime::examples::"])?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
+      Runtime => plan += [rust_gate(ctx, profile, "test-runtime", [@root_target, "runtime::", "--", "--skip", "runtime::coverage::"])?, native_gate(ctx, profile, "tests/xsh/lowering-coverage.xsh")],
       RouteWitness => {
         plan += [rust_gate(ctx, profile, "test-route-witness-unit", [@root_lib, "runtime::eval::route_witness::tests"], debug: true)?]
         plan += [rust_gate(ctx, profile, "test-route-witness-inherited-env", [@root_lib, "runtime_env_route_witness_tests"], debug: true)?]
@@ -135,7 +135,7 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
         plan += [native_exact_gate(ctx, profile, "route-witness-env", "tests/xsh/stdlib/env.xsh::test_route_witness_prefix_names_are_ordinary_environment_entries")] when "tests/xsh/stdlib/env.xsh" not in selection.native_files
       },
       Sugar => plan += [rust_gate(ctx, profile, "test-sugar", ["-p", "xsht", "--lib", "sugar_expansion_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar-unit", ["-p", "xsht", "--lib", "desugar_tests"], debug: true)?, rust_gate(ctx, profile, "test-desugar", [@xsht_target, "desugar::"])?, native_gate(ctx, profile, "tests/xsh/desugar.xsh")],
-      Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_xsht_exclusions])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
+      Tooling => plan += [rust_gate(ctx, profile, "test-tooling", [@xsht_target, "--", @tests.sibling_syntax_exclusions, @tests.sibling_xsht_exclusions])?, native_gate(ctx, profile, "tests/xsh/tooling-")],
       Api => plan += [rust_gate(ctx, profile, "test-libxsh-api", [@root_target, "libxsh_api"])?, rust_gate(ctx, profile, "test-registry", ["-p", "xsh-registry", "--lib"], debug: true)?, rust_gate(ctx, profile, "test-signatures", [@root_lib, "modules::signature"], debug: true)?, rust_gate(ctx, profile, "test-api", [@xsht_target, "api::"])?, native_gate(ctx, profile, "tests/xsh/api-tool.xsh"), stages.command("check-api-snippets", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "check", "docs/snippets/api"], ctx.root, {})],
       Stdlib => plan += [rust_gate(ctx, profile, "test-stdlib-catalog", [@root_lib, "stdlib::tests::every_catalog_module_parses_checks_and_lowers"], debug: true)?, native_gate(ctx, profile, "tests/xsh/stdlib")],
       Memory => plan += [rust_gate(ctx, profile, "test-frontend-memory", [@root_lib, "frontend_stats::tests"], debug: true)?, stages.command("frontend-memory-report", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "frontend-stats", "--json", "tests/fixtures/frontend-indexed"], ctx.root, {})],

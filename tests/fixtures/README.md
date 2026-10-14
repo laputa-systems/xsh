@@ -5,10 +5,10 @@ smallest fixture that exercises the behavior under test.
 
 | Directory | Used by | Purpose |
 |---|---|---|
-| `syntax` | `tests/syntax.rs` | parser, formatter, lexer, and syntax oracle inputs |
+| `syntax` | `crates/xsht/tests/syntax.rs` | parser, formatter, lexer, and syntax oracle inputs |
 | `fmt` | `tests/xsh/formatter.xsh::test_fmt_fixture` | annotated disk-backed formatter fixture and golden exercised through `xsht fmt` |
 | `sema` | `tests/sema.rs` | checker and lint inputs |
-| `runtime` | `tests/runtime/*` | executable scripts for runtime behavior |
+| `runtime` | `tests/runtime/*`, `crates/xsht/tests/formal_bridge.rs` | runtime behavior and formatter bridge fixture |
 | `diagnostics` | diagnostics tests | rendered diagnostic fixtures |
 | `modules` | module tests | generated or expected module metadata |
 
