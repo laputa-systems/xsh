@@ -20,6 +20,26 @@ name:three label:four
 """
 }
 
+test test_typed_callable_function_tail_preserves_checked_target { |ctx|
+  let result = test.expect(
+    ctx,
+    """
+type Renderer = pure(value: Int) -> Int
+pure defaulted(value: Int = 1) -> Int { value * 2 }
+pure renderer() -> Renderer { defaulted }
+let selected = renderer()
+print selected(value: 3)
+""",
+    status: 0,
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "callable-alias-tail.xsh",
+  )?
+  assert result.stdout == """6
+"""
+}
+
 test test_callable_alias_preserves_capture_snapshot_and_initializer_timing { |ctx|
   let result = test.expect(
     ctx,

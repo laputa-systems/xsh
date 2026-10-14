@@ -68,13 +68,13 @@ impl Checker {
         expected: Option<&Type>,
     ) -> Option<Type> {
         let target = expected_typed_callable(expected)?;
-        let (named, actual) = if let Some(binding) = self.lookup(name) {
+        let (named, actual, selected_signature) = if let Some(binding) = self.lookup(name) {
             let actual = self.type_constraints.resolve(&binding.ty).ok()?;
             if !matches!(actual, Type::Proc | Type::Pure) {
                 return None;
             }
-            (binding.callable_alias.clone(), actual)
-        } else if let Some(signature) = self.procs.get(&name) {
+            (binding.callable_alias.clone(), actual, None)
+        } else if let Some(signature) = self.procs.get(&name).cloned() {
             (
                 Some(CallableAlias {
                     name,
@@ -82,18 +82,27 @@ impl Checker {
                     pure: false,
                 }),
                 Type::Proc,
+                Some(signature),
             )
         } else {
+            let signature = self.pures.get(&name)?.clone();
             (
                 Some(CallableAlias {
                     name,
-                    signature: self.pures.get(&name)?.clone(),
+                    signature: signature.clone(),
                     pure: true,
                 }),
                 Type::Pure,
+                Some(signature),
             )
         };
-        Some(self.fit_named_callable(named, &actual, target, span))
+        let fitted = self.fit_named_callable(named, &actual, target, span);
+        if matches!(fitted, Type::Callable(_))
+            && let Some(signature) = selected_signature.as_ref()
+        {
+            self.record_selected_function_call(span, signature);
+        }
+        Some(fitted)
     }
 
     fn fit_named_callable(

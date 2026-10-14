@@ -1,6 +1,6 @@
 use super::{
     Arc, ArenaStmtKind, BindingId, BuildExprId, BuildExprRow, CompactFunctionIndex,
-    CompactLowerConstructProbe, LoweredFunctionKey, LoweredType, Name, QualifiedName, Rc,
+    CompactLowerConstructProbe, LoweredFunctionKey, Name, QualifiedName, Rc,
     SlotScope, Span, StmtId, Type, lower_command_word_reference, lower_literal_constant,
 };
 
@@ -18,53 +18,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .as_ref()
                 .expect("function index was just built"),
         )
-    }
-
-    fn compact_function_available(&self, name: Name) -> bool {
-        self.functions.map_or_else(
-            || {
-                self.declarations.pures.contains_key(&name)
-                    || self.declarations.procs.contains_key(&name)
-                    || self.declarations.streams.contains_key(&name)
-            },
-            |functions| functions.contains(LoweredFunctionKey::Name(name)),
-        )
-    }
-
-    pub(super) fn compact_unqualified_function_key(&self, name: Name) -> Option<LoweredFunctionKey> {
-        if let Some(namespace) = self.current_namespace {
-            let qualified = QualifiedName::new(namespace, name);
-            if self.compact_qualified_function_available(qualified) {
-                return Some(LoweredFunctionKey::Qualified(qualified));
-            }
-            return self.compact_imported_unqualified_function_key(name);
-        }
-        if self.compact_function_available(name) {
-            return Some(LoweredFunctionKey::Name(name));
-        }
-        self.compact_imported_unqualified_function_key(name)
-    }
-
-    pub(super) fn compact_unqualified_function_sig(
-        &self,
-        name: Name,
-    ) -> Option<&crate::sema::check::CompactFunctionSig> {
-        if let Some(namespace) = self.current_namespace {
-            let qualified = QualifiedName::new(namespace, name);
-            return self
-                .declarations
-                .qualified_pures
-                .get(&qualified)
-                .or_else(|| self.declarations.qualified_procs.get(&qualified))
-                .or_else(|| self.declarations.qualified_streams.get(&qualified))
-                .or_else(|| self.compact_imported_unqualified_function_sig(name));
-        }
-        self.declarations
-            .pures
-            .get(&name)
-            .or_else(|| self.declarations.procs.get(&name))
-            .or_else(|| self.declarations.streams.get(&name))
-            .or_else(|| self.compact_imported_unqualified_function_sig(name))
     }
 
     pub(super) fn compact_function_sig_for_key(
@@ -101,50 +54,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .arena
             .span(self.program.arena.block(def.body).span);
         span.end().saturating_sub(span.start()) <= 12 * 1024
-    }
-
-    fn compact_imported_unqualified_function_key(&self, name: Name) -> Option<LoweredFunctionKey> {
-        if !matches!(
-            self.top_level_known.get(&name).map(|binding| binding.kind),
-            Some(LoweredType::Pure | LoweredType::Proc | LoweredType::Stream)
-        ) {
-            return None;
-        }
-        self.compact_unique_qualified_function(name)
-            .map(LoweredFunctionKey::Qualified)
-    }
-
-    fn compact_imported_unqualified_function_sig(
-        &self,
-        name: Name,
-    ) -> Option<&crate::sema::check::CompactFunctionSig> {
-        let qualified = self.compact_unique_qualified_function(name)?;
-        self.declarations
-            .qualified_pures
-            .get(&qualified)
-            .or_else(|| self.declarations.qualified_procs.get(&qualified))
-            .or_else(|| self.declarations.qualified_streams.get(&qualified))
-    }
-
-    fn compact_unique_qualified_function(&self, name: Name) -> Option<QualifiedName> {
-        let mut found = None;
-        for qualified in self
-            .declarations
-            .qualified_pures
-            .keys()
-            .chain(self.declarations.qualified_procs.keys())
-            .chain(self.declarations.qualified_streams.keys())
-            .copied()
-            .filter(|qualified| qualified.member == name)
-        {
-            if !self.compact_qualified_function_available(qualified) {
-                continue;
-            }
-            if found.replace(qualified).is_some() {
-                return None;
-            }
-        }
-        found
     }
 
     pub(super) fn compact_qualified_function_available(&self, name: QualifiedName) -> bool {
@@ -239,7 +148,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         name: Name,
         slots: &SlotScope,
     ) -> Option<BuildExprId> {
-        self.lower_named_binding(self.bodies.resolved_bindings.tails.get(&statement).copied(), name, slots)
+        let span = self.program.arena.stmt(statement).span;
+        self.lower_bare_function_value_at(span, name, slots)
     }
 
     // Command splices and word references consume the same checked source
@@ -282,9 +192,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 return Some(push_build_row!(self, expr, BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(value))));
             }
             return Some(push_build_row!(self, expr, BuildExprRow::Param(slots.resolve_binding(binding)?)));
-        }
-        if let Some(key) = self.compact_unqualified_function_key(name) {
-            return self.lower_function_ref(key);
         }
         if self.compact_tag_variant_arity(name) != Some(0) {
             return None;
@@ -344,12 +251,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         let index = self.function_index();
         let key = index.checked_target_key(target)?;
-        let expected_purity = match checked_type {
-            Type::Pure => true,
-            Type::Proc => false,
+        let definition = index.definition(key)?;
+        let matches_checked_type = match checked_type {
+            Type::Pure => definition.pure,
+            Type::Proc => !definition.pure,
+            Type::Callable(expected) => {
+                let signature = self.compact_function_sig_for_key(key)?;
+                let actual = crate::sema::types::CallableType {
+                    params: signature.params.clone(),
+                    return_ty: Box::new(signature.return_ty.clone()),
+                    effects: signature.effects.clone(),
+                };
+                expected.mismatch(definition.pure, &actual, true).is_none()
+            }
             _ => return None,
         };
-        if index.definition(key)?.pure != expected_purity {
+        if !matches_checked_type {
             return None;
         }
         self.lower_function_ref(key)
@@ -398,7 +315,7 @@ mod tests {
     use crate::syntax::parser::ArenaParseOutput;
 
     fn checked_program() -> (String, SourceMap, ArenaParseOutput, CompactDeclOutput) {
-        let source = "pure render() -> Int { 1 }\npure other() -> Int { 2 }\nlet first = render\nlet second = other\nlet fields = {render}\n".to_string();
+        let source = "type Renderer = pure(value: Int) -> Int\npure render() -> Int { 1 }\npure other() -> Int { 2 }\npure render_defaulted(value: Int = 1) -> Int { value }\npure factory() -> Renderer { render_defaulted }\nlet first = render\nlet second = other\nlet fields = {render}\n".to_string();
         let entry = entry_source_from_text("function-reference-authority.xsh", source.clone());
         let source_id = entry.source_id;
         let (sources, parsed) = parse_load_entry_source_arena_only(
@@ -442,6 +359,13 @@ mod tests {
             .map(ExprId::from_index)
             .find(|&id| matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(found) if found == name))
             .expect("the fixture contains the requested identifier")
+    }
+
+    fn tail_statement(parsed: &ArenaParseOutput, name: Name) -> StmtId {
+        (0..parsed.arena.arena.stmt_tags.len())
+            .map(StmtId::from_index)
+            .find(|&id| matches!(parsed.arena.arena.stmt(id).kind, ArenaStmtKind::TailBareIdent(found) if found == name))
+            .expect("the fixture contains the requested tail")
     }
 
     fn shorthand_span(parsed: &ArenaParseOutput, name: Name) -> Span {
@@ -544,6 +468,53 @@ mod tests {
         let probe = probe(&parsed, &declarations, &source, &sources);
         assert!(probe
             .lower_bare_ident(expression, render, &SlotScope::default())
+            .is_none());
+    }
+
+    #[test]
+    fn typed_callable_tail_publishes_and_lowers_the_checked_target() {
+        let (source, sources, parsed, declarations) = checked_program();
+        let name = Name::intern("render_defaulted");
+        let statement = tail_statement(&parsed, name);
+        let span = parsed.arena.arena.stmt(statement).span;
+        let (target, checked_type) = declarations
+            .bodies
+            .selected_function_references
+            .get(&span)
+            .cloned()
+            .expect("the checker publishes the tail function target");
+        assert_eq!(target.name, name);
+        assert!(matches!(checked_type, Some(Type::Callable(_))));
+
+        let probe = probe(&parsed, &declarations, &source, &sources);
+        let lowered = probe
+            .lower_bare_ident_stmt(statement, name, &SlotScope::default())
+            .expect("the checked callable tail lowers");
+        let scratch = probe.scratch.borrow();
+        let BuildExprRow::FunctionRef { function, pure } =
+            &scratch.expressions[lowered.index()]
+        else {
+            panic!("function-valued tails lower as function references");
+        };
+        assert_eq!(function.as_name(), Some(name));
+        assert!(*pure);
+    }
+
+    #[test]
+    fn missing_typed_callable_tail_target_does_not_reselect_by_spelling() {
+        let (source, sources, parsed, mut declarations) = checked_program();
+        let name = Name::intern("render_defaulted");
+        let statement = tail_statement(&parsed, name);
+        let span = parsed.arena.arena.stmt(statement).span;
+        assert!(declarations
+            .bodies
+            .selected_function_references
+            .remove(&span)
+            .is_some());
+
+        let probe = probe(&parsed, &declarations, &source, &sources);
+        assert!(probe
+            .lower_bare_ident_stmt(statement, name, &SlotScope::default())
             .is_none());
     }
 

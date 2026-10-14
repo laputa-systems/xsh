@@ -165,6 +165,7 @@ impl CompactBodyFacts {
             ..Self::default()
         };
         let mut selected_function_expr_spans = FxHashSet::default();
+        let mut selected_function_reference_types = BTreeMap::new();
         facts.expr_types.reserve(checked.expr_types.len());
         for index in 0..arena.expr_tags.len() {
             let id = ExprId::from_index(index);
@@ -191,6 +192,31 @@ impl CompactBodyFacts {
             if let Some(target) = checked.selected_function_calls.get(&span) {
                 facts.selected_function_calls.insert(id, *target);
                 selected_function_expr_spans.insert(span);
+            }
+            if let ArenaExprKind::Record(fields) = expression.kind
+                && let Some(container_type) = checked.expr_types.get(&span)
+            {
+                for field in arena.record_fields(fields) {
+                    let crate::syntax::arena::ArenaRecordFieldKind::Shorthand {
+                        name,
+                        span: field_span,
+                    } = &field.kind
+                    else {
+                        continue;
+                    };
+                    let field_span = arena.span(*field_span);
+                    if !checked.selected_function_calls.contains_key(&field_span) {
+                        continue;
+                    }
+                    let value_type = match container_type {
+                        Type::Record(fields) => fields.get(name).cloned(),
+                        Type::Map(_, value) | Type::Set(value) => Some((**value).clone()),
+                        _ => None,
+                    };
+                    if let Some(value_type) = value_type {
+                        selected_function_reference_types.insert(field_span, value_type);
+                    }
+                }
             }
             if matches!(expression.kind, ArenaExprKind::Call { .. })
                 && let Some(instance) = checked.resolved_type_expressions.instantiations.get(&span) {
@@ -309,7 +335,14 @@ impl CompactBodyFacts {
             if !selected_function_expr_spans.contains(&span) {
                 facts.selected_function_references.insert(
                     span,
-                    (target, checked.expr_types.get(&span).cloned()),
+                    (
+                        target,
+                        checked
+                            .expr_types
+                            .get(&span)
+                            .cloned()
+                            .or_else(|| selected_function_reference_types.get(&span).cloned()),
+                    ),
                 );
             }
         }
