@@ -951,29 +951,6 @@ fn match_arm_control_flow(
     flow
 }
 
-fn definitely_empty_iterable(arena: &ArenaProgram, expr: ExprId) -> bool {
-    match arena.arena.expr(expr).kind {
-        ArenaExprKind::List(elements) | ArenaExprKind::Set(elements) => {
-            arena.arena.list_element_exprs(elements).next().is_none()
-        }
-        ArenaExprKind::Bytes(bytes) => arena.arena.bytes_literal(bytes).is_empty(),
-        _ => false,
-    }
-}
-
-fn definitely_nonempty_iterable(arena: &ArenaProgram, expr: ExprId) -> bool {
-    match arena.arena.expr(expr).kind {
-        ArenaExprKind::List(elements) => arena
-            .arena
-            .list_elements(elements)
-            .any(|element| element.splice_span.is_none()),
-        ArenaExprKind::Set(elements) => arena.arena.list_element_exprs(elements).next().is_some(),
-        ArenaExprKind::Str(value) => !arena.arena.string_literal(value).is_empty(),
-        ArenaExprKind::Bytes(value) => !arena.arena.bytes_literal(value).is_empty(),
-        _ => false,
-    }
-}
-
 fn map_literal_cardinality(
     arena: &ArenaProgram,
     fields: ArenaRange,
@@ -1687,9 +1664,73 @@ fn expression_cardinality_uncached(
         {
             map_literal_cardinality(arena, fields)
         }
-        _ if definitely_empty_iterable(arena, expr) => StreamCardinality::Empty,
-        _ if definitely_nonempty_iterable(arena, expr) => StreamCardinality::NonEmpty,
-        _ => StreamCardinality::Maybe,
+        ArenaExprKind::Set(elements) => {
+            if arena.arena.list_element_exprs(elements).next().is_some() {
+                StreamCardinality::NonEmpty
+            } else {
+                StreamCardinality::Empty
+            }
+        }
+        ArenaExprKind::Str(value) => {
+            if arena.arena.string_literal(value).is_empty() {
+                StreamCardinality::Maybe
+            } else {
+                StreamCardinality::NonEmpty
+            }
+        }
+        ArenaExprKind::Bytes(value) => {
+            if arena.arena.bytes_literal(value).is_empty() {
+                StreamCardinality::Empty
+            } else {
+                StreamCardinality::NonEmpty
+            }
+        }
+        // No literal cardinality fact is available for the remaining forms.
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::PatternTest { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Try(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => StreamCardinality::Maybe,
     }
 }
 
@@ -2051,9 +2092,11 @@ fn expr_control_flow_inner(
             }
             setup.then(block_control_flow(arena, block, facts))
         }
-        ArenaExprKind::Binary { op, left, right }
-            if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::ResultFallback) =>
-        {
+        ArenaExprKind::Binary {
+            op: op @ (BinaryOp::And | BinaryOp::Or | BinaryOp::ResultFallback),
+            left,
+            right,
+        } => {
             let lhs = expr_control_flow(arena, left, facts);
             let rhs = expr_control_flow(arena, right, facts);
             let (may_skip, may_run) = match (op, bool_literal(arena, left)) {
@@ -2117,16 +2160,75 @@ fn expr_control_flow_inner(
         ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } => {
             expr_control_flow_materialized_pipeline(arena, id, facts)
         }
-        _ => {
-            let mut flow = ControlFlow::NORMAL;
-            arena.arena.for_each_expr_child(id, |child| {
-                if flow.completes {
-                    flow = flow.then(child_control_flow(arena, child, facts));
-                }
-            });
-            flow
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList => ControlFlow::NORMAL,
+        // These forms have no expression-level branch rule. The arena keeps
+        // their operand order; child handlers still own block and builder flow.
+        ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::Binary {
+            op:
+                BinaryOp::Eq
+                | BinaryOp::Ne
+                | BinaryOp::Lt
+                | BinaryOp::Le
+                | BinaryOp::Gt
+                | BinaryOp::Ge
+                | BinaryOp::In
+                | BinaryOp::NotIn
+                | BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Rem
+                | BinaryOp::Union
+                | BinaryOp::Intersect,
+            ..
         }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. } => eager_expr_children_control_flow(arena, id, facts),
     }
+}
+
+fn eager_expr_children_control_flow(
+    arena: &ArenaProgram,
+    id: ExprId,
+    facts: &FlowFacts<'_>,
+) -> ControlFlow {
+    let mut flow = ControlFlow::NORMAL;
+    arena.arena.for_each_expr_child(id, |child| {
+        if flow.completes {
+            flow = flow.then(child_control_flow(arena, child, facts));
+        }
+    });
+    flow
 }
 
 /// Whether a tail `if` can supply its block's value: some branch ends in a
