@@ -46,6 +46,19 @@ class _FunctionDeclaration:
 
 
 @dataclass(frozen=True)
+class _PublicationField:
+    name: str
+    rendered: str
+
+
+@dataclass(frozen=True)
+class _ParsedPublication:
+    prefix: str
+    fields: tuple[_PublicationField, ...]
+    values: dict[str, str]
+
+
+@dataclass(frozen=True)
 class AlignedTuiPublications:
     reference_publications: tuple[str, ...]
     candidate_publications: tuple[str, ...]
@@ -146,8 +159,20 @@ def _parse_parameter_spans(value: str) -> tuple[tuple[int, int, int], ...]:
     )
 
 
-def _tui_function_declarations(rendered: str) -> dict[str, _FunctionDeclaration]:
-    output = publication_adapter._fields(rendered, "CheckOutput")
+def _parse_publication(rendered: str) -> _ParsedPublication:
+    prefix, entries = publication_adapter._struct_parts(rendered, "CheckOutput")
+    fields = []
+    values: dict[str, str] = {}
+    for entry in entries:
+        name, value = publication_adapter._field(entry)
+        if name in values:
+            raise publication_adapter.AdapterError("duplicate CheckOutput Debug field")
+        fields.append(_PublicationField(name, entry))
+        values[name] = value
+    return _ParsedPublication(prefix, tuple(fields), values)
+
+
+def _tui_function_declarations(output: Mapping[str, str]) -> dict[str, _FunctionDeclaration]:
     checked = publication_adapter._fields(output["checked_declarations"], "CheckedDeclarations")
     functions = publication_adapter._map_entries(checked["functions"])
     declarations = {}
@@ -239,22 +264,6 @@ def _span_key(value: str) -> tuple[int, int, int]:
     return _parse_span(value)
 
 
-def _replace_top_level_field(rendered: str, field_name: str, replacement: str) -> str:
-    prefix, entries = publication_adapter._struct_parts(rendered, "CheckOutput")
-    updated = []
-    matches = 0
-    for entry in entries:
-        name, value = publication_adapter._field(entry)
-        if name == field_name:
-            matches += 1
-            updated.append(f"{name}:{replacement}")
-        else:
-            updated.append(entry)
-    if matches != 1:
-        raise SourceAlignmentError(f"CheckOutput field {field_name!r} matched {matches} times")
-    return f"{prefix}{{{','.join(updated)}}}"
-
-
 def _sort_span_map(value: str) -> str:
     if not value.startswith("{") or publication_adapter._group_end(value, 0) != len(value) - 1:
         raise SourceAlignmentError("expected a span-keyed publication map")
@@ -269,17 +278,19 @@ def _sort_span_map(value: str) -> str:
     return "{" + ",".join(entry for _, entry in entries) + "}"
 
 
-def _sort_publication_span_maps(rendered: str) -> str:
+def _sort_publication_span_maps(publication: _ParsedPublication) -> str:
+    replacements = {}
     for field_name in ORDERED_SPAN_MAP_FIELDS:
-        fields = publication_adapter._fields(rendered, "CheckOutput")
-        if field_name not in fields:
+        if field_name not in publication.values:
             raise SourceAlignmentError(f"CheckOutput lacks {field_name} span map")
-        rendered = _replace_top_level_field(
-            rendered,
-            field_name,
-            _sort_span_map(fields[field_name]),
-        )
-    return rendered
+        replacements[field_name] = _sort_span_map(publication.values[field_name])
+    entries = (
+        f"{field.name}:{replacements[field.name]}"
+        if field.name in replacements
+        else field.rendered
+        for field in publication.fields
+    )
+    return f"{publication.prefix}{{{','.join(entries)}}}"
 
 
 def _span_struct_start(value: str, index: int) -> int | None:
@@ -385,6 +396,8 @@ def align_tui_publications(
     edit = _known_source_edit(reference_tui_source, candidate_tui_source)
     reference_declarations = []
     candidate_declarations = []
+    parsed_reference = []
+    parsed_candidate = []
     declaration_profiles = []
     for reference, candidate in zip(reference_publications, candidate_publications):
         if not reference or not candidate:
@@ -392,25 +405,31 @@ def align_tui_publications(
                 raise SourceAlignmentError("reference and candidate publication presence differs")
             reference_declarations.append({})
             candidate_declarations.append({})
+            parsed_reference.append(None)
+            parsed_candidate.append(None)
             continue
-        reference_functions = _tui_function_declarations(reference)
-        candidate_functions = _tui_function_declarations(candidate)
+        reference_parsed = _parse_publication(reference)
+        candidate_parsed = _parse_publication(candidate)
+        reference_functions = _tui_function_declarations(reference_parsed.values)
+        candidate_functions = _tui_function_declarations(candidate_parsed.values)
         if bool(reference_functions) != bool(candidate_functions):
             raise SourceAlignmentError("TUI function identities differ between publications")
         if reference_functions:
             declaration_profiles.append((reference_functions, candidate_functions))
         reference_declarations.append(reference_functions)
         candidate_declarations.append(candidate_functions)
+        parsed_reference.append(reference_parsed)
+        parsed_candidate.append(candidate_parsed)
     if not declaration_profiles:
         if dict(reference_source_sizes) != dict(candidate_source_sizes):
             raise SourceAlignmentError("source sizes differ without TUI declaration metadata")
         normalized_reference = tuple(
-            _sort_publication_span_maps(value) if value else value
-            for value in reference_publications
+            _sort_publication_span_maps(parsed) if parsed is not None else value
+            for value, parsed in zip(reference_publications, parsed_reference)
         )
         normalized_candidate = tuple(
-            _sort_publication_span_maps(value) if value else value
-            for value in candidate_publications
+            _sort_publication_span_maps(parsed) if parsed is not None else value
+            for value, parsed in zip(candidate_publications, parsed_candidate)
         )
         return AlignedTuiPublications(
             normalized_reference,
@@ -460,20 +479,21 @@ def align_tui_publications(
             aligned_candidate_owners[span] = set(kinds)
     aligned_candidate_owners.update(candidate_tui_owners)
     aligned_reference_publications = tuple(
-        _sort_publication_span_maps(value) if value else value
-        for value in reference_publications
+        _sort_publication_span_maps(parsed) if parsed is not None else value
+        for value, parsed in zip(reference_publications, parsed_reference)
     )
-    aligned_candidate_publications = tuple(
-        _sort_publication_span_maps(
-            _rewrite_publication_spans(value, source_id, edit)
+    aligned_candidate_publications = []
+    for value in candidate_publications:
+        if not value:
+            aligned_candidate_publications.append(value)
+            continue
+        rewritten = _rewrite_publication_spans(value, source_id, edit)
+        aligned_candidate_publications.append(
+            _sort_publication_span_maps(_parse_publication(rewritten))
         )
-        if value
-        else value
-        for value in candidate_publications
-    )
     return AlignedTuiPublications(
         aligned_reference_publications,
-        aligned_candidate_publications,
+        tuple(aligned_candidate_publications),
         aligned_candidate_sizes,
         aligned_candidate_owners,
         source_id,

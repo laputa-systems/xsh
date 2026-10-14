@@ -267,6 +267,25 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
         self.assertIsNone(result.tui_source_id)
         self.assertEqual(result.candidate_source_owners, candidate_owners)
 
+    def test_no_tui_publications_still_reject_malformed_span_maps(self):
+        reference = publication(OLD_SOURCE, include_tui=False)[0]
+        candidate = reference.replace(
+            "function_return_types:{",
+            "function_return_types:{not-a-span:Bool,",
+            1,
+        )
+
+        with self.assertRaisesRegex(
+            publication_adapter.AdapterError,
+            "expected named Span Debug struct",
+        ):
+            aligned(
+                reference=reference,
+                candidate=candidate,
+                reference_sizes=source_sizes(OLD_SOURCE),
+                candidate_sizes=source_sizes(OLD_SOURCE),
+            )
+
     def test_requires_function_identities_to_match_across_publications(self):
         candidate, _ = publication(CURRENT_SOURCE, name_change="other")
 
