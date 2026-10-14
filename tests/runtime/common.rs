@@ -1,5 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
+pub(crate) use std::collections::BTreeMap;
 pub(crate) use std::io::{BufRead, BufReader, Read, Write};
 pub(crate) use std::os::unix::ffi::{OsStrExt, OsStringExt};
 pub(crate) use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ struct WorkspaceBinaries {
 static WORKSPACE_BINARIES: OnceLock<WorkspaceBinaries> = OnceLock::new();
 
 pub(crate) fn workspace_binary(name: &str) -> &'static str {
-    let binaries = WORKSPACE_BINARIES.get_or_init(build_workspace_binaries);
+    let binaries = WORKSPACE_BINARIES.get_or_init(resolve_workspace_binaries);
     match name {
         "xshi" => binaries.xshi.as_str(),
         "xsht" => binaries.xsht.as_str(),
@@ -27,7 +28,7 @@ pub(crate) fn workspace_binary(name: &str) -> &'static str {
     }
 }
 
-fn build_workspace_binaries() -> WorkspaceBinaries {
+fn resolve_workspace_binaries() -> WorkspaceBinaries {
     let (target_dir, profile_dir) = build_locations();
     let prebuild_command = workspace_product_prebuild_command(&target_dir, &profile_dir);
     let binary = |name: &str| {
@@ -84,7 +85,7 @@ fn workspace_product_prebuild_command(target_dir: &Path, profile_dir: &Path) -> 
         .map(|triple| format!(" --target {triple}"))
         .unwrap_or_default();
     format!(
-        "cargo build --locked --profile {profile}{target} -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi"
+        "cargo build --locked --profile {profile}{target} --bins -p xsh -p xsht -p xshi"
     )
 }
 
