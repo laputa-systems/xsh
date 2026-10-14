@@ -6667,6 +6667,83 @@ mod compact_expr_kind_tests {
 
 #[cfg(test)]
 mod checked_constructor_fact_tests {
+    use crate::sema::check::CompactDeclOutput;
+    use crate::source::{SourceId, SourceMap};
+    use crate::syntax::parser::ArenaParseOutput;
+    use std::path::PathBuf;
+
+    struct CheckedSource {
+        source: String,
+        sources: SourceMap,
+        parsed: ArenaParseOutput,
+        declarations: CompactDeclOutput,
+        source_id: SourceId,
+    }
+
+    impl CheckedSource {
+        fn new(name: &str, source: &str, module_roots: Vec<PathBuf>) -> Self {
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                name,
+                crate::loader::entry_source_from_text(name, source.to_string()),
+                module_roots,
+            );
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let source_id = sources.files()[0].id();
+            let declarations = crate::sema::check::Checker::check_compact_declarations(
+                &parsed.arena,
+                &sources,
+                source_id,
+            );
+            assert!(
+                declarations.diagnostics.is_empty(),
+                "{:?}",
+                declarations.diagnostics
+            );
+            Self {
+                source: source.to_string(),
+                sources,
+                parsed,
+                declarations,
+                source_id,
+            }
+        }
+
+        fn expression_containing(&self, fragment: &str) -> crate::syntax::arena::ExprId {
+            let matches = (0..self.parsed.arena.arena.expr_tags.len())
+                .map(crate::syntax::arena::ExprId::from_index)
+                .filter(|&id| {
+                    self.sources
+                        .span_text(self.parsed.arena.arena.expr(id).span)
+                        .is_some_and(|text| text.contains(fragment))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(matches.len(), 1, "{fragment:?}: {matches:?}");
+            matches[0]
+        }
+
+        fn build(
+            &self,
+            declarations: &CompactDeclOutput,
+        ) -> Result<(), super::super::indexed::IrBuildError> {
+            super::super::FullBuilder::build_compact(
+                &self.parsed.arena,
+                declarations,
+                &self.source,
+                std::sync::Arc::new(self.sources.clone()),
+                self.source_id,
+            )
+            .map(|_| ())
+        }
+
+        fn assert_top_level_blocker(&self, declarations: &CompactDeclOutput) {
+            let result = self.build(declarations);
+            assert!(
+                matches!(&result, Err(error) if error.construct == "top_level_boundary_blocker"),
+                "{result:?}"
+            );
+        }
+    }
+
     #[test]
     fn missing_constructor_call_type_fact_blocks_lowering() {
         use crate::syntax::arena::ArenaExprKind;
@@ -6715,6 +6792,125 @@ mod checked_constructor_fact_tests {
         };
         assert_eq!(error.construct, "top_level_boundary_blocker");
         assert_eq!(error.span, Some(statement_span));
+    }
+
+    #[test]
+    fn missing_constructor_identity_fact_blocks_lowering() {
+        let source = "type Box[T] = {value: T}\nlet made = Box(value: 7)\n";
+        let checked = CheckedSource::new("missing-constructor-identity.xsh", source, Vec::new());
+        let call = checked.expression_containing("Box(value: 7)");
+        assert!(checked.build(&checked.declarations).is_ok());
+        assert!(checked.declarations.bodies.expr_types.contains_key(&call));
+        let mut declarations = checked.declarations.clone();
+        assert!(declarations
+            .bodies
+            .resolved_type_expressions
+            .instantiations
+            .remove(&call)
+            .is_some());
+        checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn missing_qualified_constructor_identity_blocks_named_spread_lowering() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).expect("create repository scratch directory");
+        let module_root = tempfile::tempdir_in(&work).expect("create module fixture");
+        std::fs::write(
+            module_root.path().join("model.xsh"),
+            "export type Box[T] = {value: T}\n",
+        )
+        .expect("write model module");
+        let source = "use model as m\nlet made = m.Box(...{value: 7})\n";
+        let checked = CheckedSource::new(
+            "missing-qualified-constructor-identity.xsh",
+            source,
+            vec![module_root.path().to_path_buf()],
+        );
+        let call = checked.expression_containing("m.Box(...{value: 7})");
+        assert!(checked.build(&checked.declarations).is_ok());
+        assert!(checked.declarations.bodies.expr_types.contains_key(&call));
+        let mut declarations = checked.declarations.clone();
+        assert!(declarations
+            .bodies
+            .resolved_type_expressions
+            .instantiations
+            .remove(&call)
+            .is_some());
+        checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn missing_user_function_identity_blocks_lowering() {
+        let source = "pure increment(value: Int) -> Int { return value + 1 }\nlet made = increment(7)\n";
+        let checked = CheckedSource::new("missing-function-identity.xsh", source, Vec::new());
+        let call = checked.expression_containing("increment(7)");
+        assert!(checked.build(&checked.declarations).is_ok());
+        assert!(checked.declarations.bodies.expr_types.contains_key(&call));
+        let mut declarations = checked.declarations.clone();
+        assert!(declarations
+            .bodies
+            .selected_function_calls
+            .remove(&call)
+            .is_some());
+        checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn missing_qualified_function_identity_blocks_lowering() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).expect("create repository scratch directory");
+        let module_root = tempfile::tempdir_in(&work).expect("create function module fixture");
+        std::fs::write(
+            module_root.path().join("model.xsh"),
+            "export pure increment(value: Int) -> Int { return value + 1 }\n",
+        )
+        .expect("write function module");
+        let source = "use model as m\nlet made = m.increment(7)\n";
+        let checked = CheckedSource::new(
+            "missing-qualified-function-identity.xsh",
+            source,
+            vec![module_root.path().to_path_buf()],
+        );
+        let call = checked.expression_containing("m.increment(7)");
+        assert!(checked.build(&checked.declarations).is_ok());
+        assert!(checked.declarations.bodies.expr_types.contains_key(&call));
+        let mut declarations = checked.declarations.clone();
+        assert!(declarations
+            .bodies
+            .selected_function_calls
+            .remove(&call)
+            .is_some());
+        checked.assert_top_level_blocker(&declarations);
+    }
+
+    #[test]
+    fn missing_stage_callback_identity_blocks_named_stage_lowering() {
+        let source = "pure increment(value: Int) -> Int { return value + 1 }\nlet values = [1] |> map(increment)\n";
+        let checked = CheckedSource::new("missing-stage-callback-identity.xsh", source, Vec::new());
+        let matches = checked
+            .declarations
+            .bodies
+            .selected_function_calls
+            .keys()
+            .copied()
+            .filter(|&id| {
+                checked
+                    .sources
+                    .span_text(checked.parsed.arena.arena.expr(id).span)
+                    .is_some_and(|text| text == "increment")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "{matches:?}");
+        let callback = matches[0];
+        assert!(checked.build(&checked.declarations).is_ok());
+        let mut declarations = checked.declarations.clone();
+        assert!(declarations
+            .bodies
+            .selected_function_calls
+            .remove(&callback)
+            .is_some());
+        checked.assert_top_level_blocker(&declarations);
     }
 
     #[test]

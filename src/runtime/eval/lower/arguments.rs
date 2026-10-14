@@ -362,8 +362,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .ok()?;
         let mut bindings = Vec::new();
         let mut overrides = Vec::new();
-        // Namespaces and static function names have no runtime receiver. A
-        // method's value receiver is evaluated before its argument entries.
         if let ArenaExprKind::Field { base, .. } = self.program.arena.expr(callee).kind {
             let namespace = self
                 .resolved_compact_error_family_key(base)
@@ -373,10 +371,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_none() && matches!(self.checked_expr_type(base), Some(Type::Module(_))))
                 || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if self.source_slot(base, slots).is_none() && (module == "Path" || api_spec().module(&module.as_str()).is_some() || self.declarations.error_families_by_name.contains_key(&module)))
                 || self
-                    .declarations
-                    .record_constructors
-                    .resolve_call(&self.program.arena, callee, self.current_namespace)
-                    .is_some();
+                    .bodies
+                    .resolved_type_expressions
+                    .instantiations
+                    .contains_key(&id);
             if !namespace {
                 let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
                 let slot = slots.reserve("call receiver");
