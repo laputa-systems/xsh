@@ -66,7 +66,7 @@ pub fn w9_write_exact_adapter_owners(
                         let (kind, name, span_id, key, value, shorthand) = match &field.kind {
                             ArenaRecordFieldKind::Computed { key, value, span } => (
                                 "computed",
-                                String::new(),
+                                format!("{:?}", String::new()),
                                 *span,
                                 Some(*key),
                                 Some(*value),
@@ -74,12 +74,14 @@ pub fn w9_write_exact_adapter_owners(
                             ),
                             ArenaRecordFieldKind::Path { path, value, span } => (
                                 "path",
-                                program
-                                    .arena
-                                    .names(*path)
-                                    .map(|name| name.as_str().as_str().to_owned())
-                                    .collect::<Vec<_>>()
-                                    .join("."),
+                                format!(
+                                    "{:?}",
+                                    program
+                                        .arena
+                                        .names(*path)
+                                        .map(|name| name.as_str().as_str().to_owned())
+                                        .collect::<Vec<_>>()
+                                ),
                                 *span,
                                 None,
                                 Some(*value),
@@ -87,7 +89,7 @@ pub fn w9_write_exact_adapter_owners(
                             ),
                             ArenaRecordFieldKind::Named { name, value, span } => (
                                 "named",
-                                name.as_str().as_str().to_owned(),
+                                format!("{:?}", name.as_str().as_str()),
                                 *span,
                                 None,
                                 Some(*value),
@@ -97,7 +99,7 @@ pub fn w9_write_exact_adapter_owners(
                                 let spelling = name.as_str().as_str().to_owned();
                                 (
                                     "shorthand",
-                                    spelling.clone(),
+                                    format!("{spelling:?}"),
                                     *span,
                                     None,
                                     None,
@@ -106,7 +108,7 @@ pub fn w9_write_exact_adapter_owners(
                             }
                             ArenaRecordFieldKind::Spread { expr, span } => (
                                 "spread",
-                                String::new(),
+                                format!("{:?}", String::new()),
                                 *span,
                                 None,
                                 Some(*expr),
@@ -131,7 +133,8 @@ pub fn w9_write_exact_adapter_owners(
     });
 
     for (_, span, tag, ident) in &expression_rows {
-        w9_exact_validate_tsv_text(ident)?;
+        let ident = format!("{ident:?}");
+        w9_exact_validate_tsv_text(&ident)?;
         owner_rows.insert((*span, format!("expr:{tag:?}")));
     }
 
@@ -156,7 +159,28 @@ pub fn w9_write_exact_adapter_owners(
     }
 
     for (id, span, tag, ident) in &expression_rows {
+        let ident = format!("{ident:?}");
+        w9_exact_validate_tsv_text(&ident)?;
         writeln!(output, "expr\t{id:?}\t{span:?}\t{tag:?}\t{ident}")?;
+    }
+
+    for raw in 0..program.arena.expr_tags.len() {
+        let id = ExprId::from_index(raw);
+        let expression = program.arena.expr(id);
+        match &expression.kind {
+            ArenaExprKind::Call { callee, .. } => {
+                writeln!(output, "call\t{id:?}\t{callee:?}")?;
+            }
+            ArenaExprKind::Field { base, name } => {
+                let name = program
+                    .symbol_owner()
+                    .with_current(|| name.as_str().as_str().to_owned());
+                let name = format!("{name:?}");
+                w9_exact_validate_tsv_text(&name)?;
+                writeln!(output, "field-access\t{id:?}\t{base:?}\t{name}")?;
+            }
+            _ => {}
+        }
     }
 
     for (raw, run_form) in program.arena.run_forms.iter().enumerate() {
@@ -203,6 +227,8 @@ pub fn w9_write_exact_adapter_owners(
                 if !shorthand_aliases.insert((*parent, *field_index, *alias)) {
                     return Err(w9_exact_invalid_data("duplicate shorthand alias link"));
                 }
+                let shorthand = format!("{shorthand:?}");
+                w9_exact_validate_tsv_text(&shorthand)?;
                 writeln!(
                     output,
                     "record-shorthand-alias\t{parent:?}\t{field_index}\t{alias:?}\t{field_span:?}\t{shorthand}"
