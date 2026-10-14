@@ -10,7 +10,7 @@ print $value
 
   let first_failure = test.expect(
     ctx,
-    r"""let value: Int = (9223372036854775807 + 1) + (1 / 0)
+    r"""let value: Int = 9223372036854775807 + 1 + 1 / 0
 print $value
 """,
     status: 3,
@@ -65,7 +65,7 @@ test test_operand_order_bool_and_skips_or_reaches_right { |ctx|
   test.expect(
     ctx,
     r"""pure conjunction(left: Bool) -> Bool {
-  let result: Bool = left and (1 / 0 == 0)
+  let result: Bool = left and 1 / 0 == 0
   return result
 }
 assert !conjunction(false)
@@ -76,7 +76,7 @@ assert !conjunction(false)
   test.expect(
     ctx,
     r"""pure conjunction(left: Bool) -> Bool {
-  let result: Bool = left and (1 / 0 == 0)
+  let result: Bool = left and 1 / 0 == 0
   return result
 }
 print ${conjunction(true)}
@@ -88,7 +88,7 @@ print ${conjunction(true)}
   let first_failure = test.expect(
     ctx,
     r"""pure conjunction() -> Bool {
-  let result: Bool = (9223372036854775807 + 1 > 0) and (1 / 0 == 0)
+  let result: Bool = 9223372036854775807 + 1 > 0 and 1 / 0 == 0
   return result
 }
 print ${conjunction()}
@@ -103,7 +103,7 @@ test test_operand_order_bool_or_skips_or_reaches_right { |ctx|
   test.expect(
     ctx,
     r"""pure disjunction(left: Bool) -> Bool {
-  let result: Bool = left or (1 / 0 == 0)
+  let result: Bool = left or 1 / 0 == 0
   return result
 }
 assert disjunction(true)
@@ -114,7 +114,7 @@ assert disjunction(true)
   test.expect(
     ctx,
     r"""pure disjunction(left: Bool) -> Bool {
-  let result: Bool = left or (1 / 0 == 0)
+  let result: Bool = left or 1 / 0 == 0
   return result
 }
 print ${disjunction(false)}
@@ -126,7 +126,7 @@ print ${disjunction(false)}
   let first_failure = test.expect(
     ctx,
     r"""pure disjunction() -> Bool {
-  let result: Bool = (9223372036854775807 + 1 > 0) or (1 / 0 == 0)
+  let result: Bool = 9223372036854775807 + 1 > 0 or 1 / 0 == 0
   return result
 }
 print ${disjunction()}
@@ -140,7 +140,7 @@ print ${disjunction()}
 test test_operand_order_bool_int_compare_is_left_to_right { |ctx|
   let values = test.expect(
     ctx,
-    r"""let greater = (9 + 1) > (4 + 2)
+    r"""let greater = 9 + 1 > 4 + 2
 print $greater
 """,
     status: 0,
@@ -149,7 +149,7 @@ print $greater
 
   let first_failure = test.expect(
     ctx,
-    r"""let greater = (9223372036854775807 + 1) > (1 / 0)
+    r"""let greater = 9223372036854775807 + 1 > 1 / 0
 print $greater
 """,
     status: 3,

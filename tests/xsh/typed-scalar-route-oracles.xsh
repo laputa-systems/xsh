@@ -138,7 +138,7 @@ test test_bool_and { |ctx|
   test.expect(
     ctx,
     r"""pure guarded(left: Bool) -> Bool {
-  let result: Bool = left and (1 / 0 == 0)
+  let result: Bool = left and 1 / 0 == 0
   return result
 }
 assert !guarded(false)
@@ -148,7 +148,7 @@ assert !guarded(false)
   test.expect(
     ctx,
     r"""pure guarded(left: Bool) -> Bool {
-  let result: Bool = left and (1 / 0 == 0)
+  let result: Bool = left and 1 / 0 == 0
   return result
 }
 print ${guarded(true)}
@@ -162,7 +162,7 @@ test test_bool_or { |ctx|
   test.expect(
     ctx,
     r"""pure guarded(left: Bool) -> Bool {
-  let result: Bool = left or (1 / 0 == 0)
+  let result: Bool = left or 1 / 0 == 0
   return result
 }
 assert guarded(true)
@@ -172,7 +172,7 @@ assert guarded(true)
   test.expect(
     ctx,
     r"""pure guarded(left: Bool) -> Bool {
-  let result: Bool = left or (1 / 0 == 0)
+  let result: Bool = left or 1 / 0 == 0
   return result
 }
 print ${guarded(false)}
