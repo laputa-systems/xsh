@@ -12,7 +12,9 @@ raw-IR, and transport codec/law fragments are
 integrated, along with finite map-presence laws over ordinal keys, checked call
 argument ordering, Unicode scalar text slicing, primitive collection-key
 ordering, finite Result fallback traces, JSON-tree paths, checked record
-updates, and finite Map literal evaluation.
+updates, finite Map literal evaluation, UTF-8 byte string search, Result `?`
+propagation boundaries, and finite `.require(Set[T])` validation and array
+conversion.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
 runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
 and `Xsh.Values.FloatEquality` defines an executable comparator over raw
@@ -26,7 +28,7 @@ source or Rust conformance claim and close no full G1, G2, or G3 obligation; all
 fragments prove successful word-read length, payload length and table bounds,
 plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 363 fragment roots across 89 owners;
+Rust conformance. The inventory now names 396 fragment roots across 89 owners;
 its 50 Python tests check inventory consistency, mutation controls, and finite-case evidence
 boundaries. The new RelPath roots cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,
@@ -55,7 +57,11 @@ conformance cases, and all 72 universal obligations planned.
 lowering obligations, and connect those independent statements to the Rust
 implementation with conformance and certified artifacts. The current scalar,
 syntax, environment/store, validation, effects, argv, ordered-set, base-machine,
-raw-IR, and transport modules are partial foundations only.
+raw-IR, transport, UTF-8 byte search, Result propagation, and Set validation
+modules are partial foundations only. The search model uses Lean's encoded byte
+list; Result propagation assumes an explicit compatible-error embedding; Set
+validation assumes a finite ordered key table and target predicate. None of
+these fragments establishes Rust correspondence.
 `formal/Xsh.lean` imports every current module under `formal/Xsh/`, but root reachability does not
 establish adequacy or close any full-language obligation. These fragments do
 not establish Rust conformance.
@@ -467,6 +473,8 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | Native path components and enum wire conversion | The reviewed `05b9b45b` and `89c6ce365` proof commits add 14 roots in `Xsh.Paths.Components` and 17 in `Xsh.Enums.WireConversion`; `formal/Xsh.lean` imports each once. The path model reuses `RelPath.PathBytes` and its byte helpers but defines its own `splitOn`/`collectNames` scan, with roots for component identity, boundaries, preserved bytes, prefix/suffix queries, and a raw-byte prefix mutation. The enum model assumes unique, nonempty prepared mappings; uses `NominalId`; layers conversion over shared recursive `.require`; and proves that every map value is visited before publishing a converted value, with a skipped-map-validation mutation witness. The inventory reports 339 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the axiom allowlist accepts 7,761 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional, `source_identity` is null, and finite conformance cases remain empty. | The path fragment does not establish Rust scanner or filesystem correspondence. Structural `.require` failures remain pathless; only the additional conversion pass carries `BlamePath`. Enum source declarations are assumed prepared and are not checked. Neither module establishes Rust conformance or full G1/G2/G3 closure. |
 | Checked record updates and finite Map literal evaluation | The reviewed `4e049dc2f` and `32328a1f7` proof commits add 12 roots each in `Xsh.Records.Update` and `Xsh.Maps.Literal`; `formal/Xsh.lean` imports each once. The update model covers single base evaluation, source-ordered replacement callbacks, failure short-circuiting without partial publication, snapshot-rooted nested updates, path overlap, and a shallow-update mutation. The Map model covers key-before-value evaluation, written entry/spread order, overlay replacement, short-circuiting, ordered present-key iteration, and a skipped-entry mutation. The inventory reports 363 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the axiom allowlist accepts 8,279 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity`, no finite conformance cases, and all 72 obligations planned. | Record-update overlap mirrors the current checker's path-prefix rule, which `docs/SPEC.md` currently omits. Replacement values are supplied after checking; the fragment does not prove checker or Rust correspondence. Map literals use an already validated finite primitive key domain and abstract evaluator outcomes; they do not model arbitrary effects, parsing, key validation/coercion, or cross-domain conversion. Neither fragment establishes runtime or Rust correspondence or closes full G1/G2/G3 obligations. |
 
+
+| UTF-8 string search, Result propagation, and Set validation | Reviewed commits `075b3b71b`, `e3e25d986`, and `fc4061faa` add 11 roots in `Xsh.Strings.Search`, 12 in `Xsh.Results.Propagation`, and 10 in `Xsh.Validation.SetRequire`; `formal/Xsh.lean` imports each once. Search models first-match offsets over Lean's UTF-8 byte list, including empty needles and a scalar-index mutation witness. Propagation models nearest try/retry/function boundaries, plain-procedure failure unwinding, and returned Result data; compatible error embedding is an explicit premise. Set validation checks existing members and decoded-array members, preserves membership, iterates in primitive key order, and detects a deduplication mutation. The private `decoded_array_acceptance_iff_typed_nodup` helper is compiled proof support, not a coverage root. The inventory reports 396 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the axiom allowlist accepts 8,776 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity`, no finite conformance cases, and all 72 obligations planned. | String search does not prove XSH storage/runtime, normalization, parsing, raw `Bytes` search, or Rust correspondence. Result propagation assumes a compatible error embedding and does not prove checking, cleanup, or effect behavior. Set validation assumes a finite ordered key table and predicate and excludes JSON parsing and diagnostic text. None establishes Rust correspondence or closes full G1/G2/G3 obligations. |
 
 ## For the owner afterwards
 

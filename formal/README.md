@@ -9,7 +9,9 @@ checked integer outcomes and millisecond-duration operations over typed scalar
 values; finite map-presence and primitive key-order laws; checked call argument
 ordering; checked record updates and finite Map literal evaluation; byte-lexical
 path components; Str-backed enum wire conversion; List index and slice bounds;
-Unicode scalar text-slice laws; validated
+Unicode scalar text-slice laws and UTF-8 byte search; Result `?` propagation
+boundaries and returned-Result data; finite `.require(Set[T])` validation and
+array conversion; validated
 boundaries and atomic typed-store writes; and effect lattices, recursive
 summaries, lexical bounds, and delayed-work origins. Failed typed writes
 preserve the old store and produce an uncatchable type error; `.require(UInt)`
@@ -77,7 +79,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 363 fragment
+G0b source freeze remain pending. The provisional inventory has 396 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -117,6 +119,14 @@ opaque callback; the fragment does not model general expression or operator
 evaluation, `?`, cleanup, static effects, concrete runtime errors, Rust
 correspondence, or full G1/G2/G3 closure.
 
+`Xsh.Results.Propagation` has twelve roots for finite nearest-boundary behavior
+of `?`. It models success, the nearest try or retry boundary, compatible error
+conversion at a Result function, failure unwinding from a plain procedure, and
+the distinction between returned Result data and propagation. The compatible
+error embedding is an explicit premise. The fragment does not prove source
+typing, cleanup, effects, concrete runtime behavior, Rust correspondence, or
+full G1/G2/G3 closure.
+
 `Xsh.Json.Path` has eighteen roots for finite JSON-tree traversal, nested reads,
 updates, and removals using string keys and nonnegative indices. Its Float leaves
 exclude NaN and infinities; Records and Maps remain distinct. An append-at-length
@@ -151,6 +161,13 @@ where normalizing by the example's UTF-8 byte size changes the modeled scalar
 slice. The fragment does not model XSH UTF-8 storage, `Bytes` operations, text
 search, parsing, runtime evaluation, Rust correspondence, or full G1/G2/G3
 closure.
+
+`Xsh.Strings.Search` has eleven roots for first-match search over UTF-8 byte
+lists, including negative and past-end starts, empty needles, byte-offset
+bounds, a multibyte prefix, and a scalar-index mutation witness. This is an
+independent model over Lean's `String.toUTF8` bytes; it does not prove the XSH
+storage or runtime implementation, normalization or parsing, raw `Bytes`
+search APIs, Rust correspondence, or full G1/G2/G3 closure.
 
 `Xsh.Values.DurationOps` has eighteen roots for checked millisecond addition,
 subtraction, multiplication, division, interval ratios, and time conversions.
@@ -204,6 +221,16 @@ required optional-valued fields, exact erasure and provenance on success, and
 recoverable rejection that leaves the modeled store unchanged. This independent
 finite model establishes no Rust correspondence or full G2 validation claim.
 
+`Xsh.Validation.SetRequire` has ten public roots for finite `.require(Set[T])`
+validation. Existing sets retain membership only when every member matches the
+target predicate; decoded arrays convert only after all members match and keys
+are unique, and accepted sets iterate in primitive key order. A duplicate
+mutation witness distinguishes rejection from accidental deduplication. The
+private `decoded_array_acceptance_iff_typed_nodup` lemma is compiled proof
+support, not a coverage root. The model assumes a finite order-preserving key
+table and target predicate; it excludes JSON parsing, diagnostic text,
+checker/runtime and Rust correspondence, and full G1/G2/G3 closure.
+
 `Xsh.Validation.BoundedRefinements` proves interval inclusion, exact-payload
 widening and composition, narrowing rejection, and a mutation witness for a
 missing upper-bound check. `Xsh.Validation.NonEmptyFiltering` relates a
@@ -220,7 +247,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 363 rooted Lean fragment declarations across 89 core owner
+The inventory names 396 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full

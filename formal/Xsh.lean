@@ -6,6 +6,7 @@ import Xsh.Values.FloatEquality
 import Xsh.Values.OrderedSet
 import Xsh.Values.MapPresence
 import Xsh.Results.Fallback
+import Xsh.Results.Propagation
 import Xsh.Json.Path
 import Xsh.Records.Update
 import Xsh.Maps.Literal
@@ -16,6 +17,7 @@ import Xsh.Calls.ArgumentOrder
 import Xsh.Semantics.Argv
 import Xsh.Semantics.ListAccess
 import Xsh.Strings.Slice
+import Xsh.Strings.Search
 import Xsh.Semantics.Environments
 import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace
@@ -26,6 +28,7 @@ import Xsh.Validation.Store
 import Xsh.Validation.Nominal
 import Xsh.Validation.RelPath
 import Xsh.Validation.RecursiveRequire
+import Xsh.Validation.SetRequire
 import Xsh.Enums.WireConversion
 import Xsh.Validation.BoundedRefinements
 import Xsh.Validation.NonEmptyFiltering
