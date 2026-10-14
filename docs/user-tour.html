@@ -422,14 +422,15 @@ tr:last-child td { border-bottom: 0; }
 <h2 id="what-xsh-is-not"><a class="anchor" href="#what-xsh-is-not">What XSH Is Not</a></h2>
 <p>XSH does not compete with runtimes designed for fine-grained concurrency, long-lived application services, or interactive terminal interfaces. Keep those jobs in a service runtime, a dedicated TUI framework, or a specialized tool; use XSH to compose the host-facing work around them.</p>
 <p>The rest of this tour shows what that means in practice. Most sections start from a shell script you have probably written, point at the place it breaks, and then show the XSH version. Read it top to bottom once before you write your first script; after that, <a href="SPEC.md"><code>docs/SPEC.md</code></a> and <code>xsht api</code> are the references.</p>
-<p>Every <code>xsh</code> block below is a complete program that passes <code>xsht check</code>. Blocks followed by output were run to produce it. Blocks marked <code># platform: linux</code> read <code>/proc</code> or other Linux-only interfaces.</p>
+<p>The three command-line products have separate roles: <code>xsh</code> runs <code>.xsh</code> scripts, <code>xsht</code> provides the toolchain, and <code>xshi</code> is an interactive shell. The interactive implementation requires the <code>laputa-asterinas</code> Cargo feature in the <code>xshi</code> crate; see the <a href="SPEC-INTERACTIVE.md">interactive SPEC</a>. This tour covers <code>.xsh</code> programs run by <code>xsh</code>.</p>
+<p>Every <code>xsh</code> block below is a complete program that passes <code>xsht check</code>. Blocks marked <code># platform: linux</code> read <code>/proc</code> or other Linux-only interfaces.</p>
 </section>
 <section class="chapter">
 <h2 id="running-a-script"><a class="anchor" href="#running-a-script">Running a Script</a></h2>
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-comment">#!/usr/bin/env -S xsh --</span>
 <span class="hl-keyword">print</span> <span class="hl-string">"hello from xsh"</span></code></pre></figure>
 <figure class="console"><figcaption><span class="lang">output</span></figcaption><pre><code>hello from xsh</code></pre></figure>
-<p>Two binaries do the work. <code>xsh</code> runs scripts; <code>xsht</code> is the toolchain:</p>
+<p><code>xsh</code> runs <code>.xsh</code> scripts; <code>xsht</code> provides the toolchain:</p>
 <figure class="code code-bash"><figcaption><span class="lang">shell</span></figcaption><pre><code><span class="hl-function">xsh</span> hello.xsh                 <span class="hl-comment"># run it</span>
 <span class="hl-function">xsh</span> deploy.xsh -- web-2 <span class="hl-property">-f</span>    <span class="hl-comment"># arguments after `--` go to the script</span>
 <span class="hl-function">chmod</span> +x hello.xsh <span class="hl-operator">&amp;&amp;</span> <span class="hl-function">./hello.xsh</span>
@@ -1534,25 +1535,7 @@ use checks.disk as usage  # the same module, bound as usage.*</code></pre></figu
 <ul><li><code>xsh</code> reads <code>module_path</code>, and only that, from the nearest <code>xsht-config.ini</code> above the entry script, exactly as <code>xsht</code> does: <code>xsh bin/harden.xsh</code> finds <code>lib/sshd.xsh</code> with nothing else set, and so does <code>cd bin &amp;&amp; xsh harden.xsh</code>. A script with no config above it has no project roots in either tool, and the current directory is never searched; install such a script's modules next to it or set <code>XSH_MODULE_PATH</code> in the unit file or wrapper that launches it.</li>
 <li>File-relative lookup wins, so a test file named <code>tests/sshd.xsh</code> that says <code>use sshd</code> imports itself. Name test files <code>test-*.xsh</code>.</li></ul>
 <h3 id="xsht-config-ini"><a class="anchor" href="#xsht-config-ini"><code>xsht-config.ini</code></a></h3>
-<p><code>xsht</code> reads the nearest <code>xsht-config.ini</code> above each file, and that config alone governs the file, from whatever directory the command is started; a file with none above it gets the defaults. <code>include</code> and <code>test_roots</code> list one project's directories, so they are read from the config in the current directory. <code>xsh</code> reads <code>module_path</code> for the entry script and ignores the rest. Relative paths resolve from the config's directory. A config that does not decode is an error for both.</p>
-<figure class="code code-ini"><figcaption><span class="lang">ini</span></figcaption><pre><code><span class="hl-comment"># Extra files or directories for no-argument `xsht check`, `lint`, `fmt`.</span>
-<span class="hl-property">include</span><span class="hl-operator"> = </span>tools
-<span class="hl-comment"># Glob patterns excluded from discovery.</span>
-<span class="hl-property">exclude</span><span class="hl-operator"> = </span>build/**/*.xsh
-  vendor/**/*.xsh
-<span class="hl-comment"># Module search roots for running, checking, linting, and tests (default: .).</span>
-<span class="hl-property">module_path</span><span class="hl-operator"> = </span>lib
-<span class="hl-comment"># Where `xsht test` looks for test declarations.</span>
-<span class="hl-property">test_roots</span><span class="hl-operator"> = </span>tests
-
-<span class="hl-keyword">[dead-code]</span>
-<span class="hl-comment"># Files where unused-function and unreachable-code lints stay quiet.</span>
-<span class="hl-property">exclude</span><span class="hl-operator"> = </span>examples/**/*.xsh
-
-<span class="hl-keyword">[coverage]</span>
-<span class="hl-comment"># Files left out of `xsht test --cov` reports.</span>
-<span class="hl-property">exclude</span><span class="hl-operator"> = </span>tests/**/*.xsh</code></pre></figure>
-<p>Multi-value keys continue on indented lines. A <code>[format]</code> section with <code>line-width = 100</code> changes the formatter's target width (default 120).</p>
+<p>The nearest <code>xsht-config.ini</code> governs each file. Relative paths resolve from that config's directory. <code>include</code> adds roots to no-argument discovery, and <code>test_roots</code> selects the files <code>xsht test</code> discovers; both come from the config in the current directory. <code>xsh</code> reads only <code>module_path</code> for its entry script. The project example above shows the common <code>module_path</code> and <code>test_roots</code> settings. See <a href="XSHT.md">XSHT Tooling</a> for the full configuration rules.</p>
 </section>
 <section class="chapter">
 <h2 id="formatting-and-linting"><a class="anchor" href="#formatting-and-linting">Formatting and Linting</a></h2>
@@ -1561,7 +1544,7 @@ use checks.disk as usage  # the same module, bound as usage.*</code></pre></figu
 <span class="hl-function">xsht</span> lint                      <span class="hl-comment"># report warnings and errors</span>
 <span class="hl-function">xsht</span> lint <span class="hl-property">--fix</span>                <span class="hl-comment"># apply the safe autofixes</span>
 <span class="hl-function">xsht</span> lint <span class="hl-property">--only</span> lint.prefer-named-argument-pun <span class="hl-property">--fix</span> bin/</code></pre></figure>
-<p>The formatter has one style and no options beyond line width. The linter knows the language's idioms: it suggests <code>assert</code> for a stray <code>Bool</code> statement, named-argument puns, list comprehensions over accumulator loops, guard clauses, and removal of annotations the checker can already infer. Every autofix is applied only if the rewritten file still parses and checks with no new diagnostics. <code>--only RULE[,RULE...]</code> restricts both the report and the fixes, which makes large migrations reviewable one rule at a time.</p>
+<p><code>xsht fmt</code> uses one style; the nearest <code>[format] line-width</code> sets its target (default 120). <code>--check</code> reports files that would change without writing them. <code>xsht lint --fix</code> applies safe edits only when the rewritten file still parses and checks without adding check diagnostics. See <a href="XSHT.md">XSHT Tooling</a> and the <a href="XSHT-FMT.md">formatter policy</a> for the details.</p>
 </section>
 <section class="chapter">
 <h2 id="where-to-go-next"><a class="anchor" href="#where-to-go-next">Where to Go Next</a></h2>
@@ -1574,7 +1557,8 @@ use checks.disk as usage  # the same module, bound as usage.*</code></pre></figu
 <span class="hl-function">xsht</span> api language:core.defer        <span class="hl-comment"># a language feature</span>
 <span class="hl-function">xsht</span> api search:timeout             <span class="hl-comment"># full-text search</span></code></pre></figure></li>
 <li>In the spec, §5 covers inference, <code>Any</code>, and narrowing; §12 covers signals, cancellation, and process groups; §13 covers pipelines; and §14 covers JSON.</li>
-<li><code>xsht trace script.xsh</code> runs a script and shows where the time went: every process, its argv as an array, and how long each proc took.</li>
+<li><code>xsht highlight script.xsh</code> emits lexer classifications as JSON Lines; <code>xsht grammar</code> prints the language grammar as EBNF or JSON.</li>
+<li><code>xsht trace script.xsh</code> shows process argv and proc durations. Add <code>--syscalls</code> on Linux x86_64 or aarch64 for native syscall totals; <code>--trace-top-syscalls N</code> sets the number of syscall rows shown (default 8).</li>
 <li><code>showcase/</code> holds larger programs (<code>px.xsh</code>, <code>ecount.xsh</code>, <code>run-retry.xsh</code>, <code>wait-for.xsh</code>, and more), and <code>core/</code> holds coreutils-style tools written in XSH.</li></ul>
 </section>
 <footer class="colophon"><p>That is the tour. The <a href="SPEC.md">language specification</a> is the contract, and <code>xsht api</code> answers signature questions from the terminal.</p></footer>

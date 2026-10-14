@@ -93,9 +93,14 @@ and then show the XSH version. Read it top to bottom once before you write
 your first script; after that, [`docs/SPEC.md`](SPEC.md) and `xsht api` are the
 references.
 
+The three command-line products have separate roles: `xsh` runs `.xsh`
+scripts, `xsht` provides the toolchain, and `xshi` is an interactive shell.
+The interactive implementation requires the `laputa-asterinas` Cargo feature
+in the `xshi` crate; see the [interactive SPEC](SPEC-INTERACTIVE.md). This tour
+covers `.xsh` programs run by `xsh`.
+
 Every `xsh` block below is a complete program that passes `xsht check`. Blocks
-followed by output were run to produce it. Blocks marked `# platform: linux`
-read `/proc` or other Linux-only interfaces.
+marked `# platform: linux` read `/proc` or other Linux-only interfaces.
 
 ## Running a Script
 
@@ -110,7 +115,7 @@ print "hello from xsh"
 hello from xsh
 ```
 
-Two binaries do the work. `xsh` runs scripts; `xsht` is the toolchain:
+`xsh` runs `.xsh` scripts; `xsht` provides the toolchain:
 
 ```bash
 xsh hello.xsh                 # run it
@@ -1835,36 +1840,12 @@ Resolution is file-relative first, then each directory in `XSH_MODULE_PATH`
 
 ### `xsht-config.ini`
 
-`xsht` reads the nearest `xsht-config.ini` above each file, and that config
-alone governs the file, from whatever directory the command is started; a
-file with none above it gets the defaults. `include` and `test_roots` list
-one project's directories, so they are read from the config in the current
-directory. `xsh` reads `module_path` for the entry script and ignores the
-rest. Relative paths resolve from the config's directory. A config that does
-not decode is an error for both.
-
-```ini
-# Extra files or directories for no-argument `xsht check`, `lint`, `fmt`.
-include = tools
-# Glob patterns excluded from discovery.
-exclude = build/**/*.xsh
-  vendor/**/*.xsh
-# Module search roots for running, checking, linting, and tests (default: .).
-module_path = lib
-# Where `xsht test` looks for test declarations.
-test_roots = tests
-
-[dead-code]
-# Files where unused-function and unreachable-code lints stay quiet.
-exclude = examples/**/*.xsh
-
-[coverage]
-# Files left out of `xsht test --cov` reports.
-exclude = tests/**/*.xsh
-```
-
-Multi-value keys continue on indented lines. A `[format]` section with
-`line-width = 100` changes the formatter's target width (default 120).
+The nearest `xsht-config.ini` governs each file. Relative paths resolve from
+that config's directory. `include` adds roots to no-argument discovery, and
+`test_roots` selects the files `xsht test` discovers; both come from the config
+in the current directory. `xsh` reads only `module_path` for its entry script.
+The project example above shows the common `module_path` and `test_roots`
+settings. See [XSHT Tooling](XSHT.md) for the full configuration rules.
 
 ## Formatting and Linting
 
@@ -1876,13 +1857,11 @@ xsht lint --fix                # apply the safe autofixes
 xsht lint --only lint.prefer-named-argument-pun --fix bin/
 ```
 
-The formatter has one style and no options beyond line width. The linter
-knows the language's idioms: it suggests `assert` for a stray `Bool`
-statement, named-argument puns, list comprehensions over accumulator loops,
-guard clauses, and removal of annotations the checker can already infer.
-Every autofix is applied only if the rewritten file still parses and checks
-with no new diagnostics. `--only RULE[,RULE...]` restricts both the report and
-the fixes, which makes large migrations reviewable one rule at a time.
+`xsht fmt` uses one style; the nearest `[format] line-width` sets its target
+(default 120). `--check` reports files that would change without writing them.
+`xsht lint --fix` applies safe edits only when the rewritten file still parses
+and checks without adding check diagnostics. See [XSHT Tooling](XSHT.md) and the
+[formatter policy](XSHT-FMT.md) for the details.
 
 ## Where to Go Next
 
@@ -1902,8 +1881,11 @@ the fixes, which makes large migrations reviewable one rule at a time.
 
 - In the spec, §5 covers inference, `Any`, and narrowing; §12 covers signals,
   cancellation, and process groups; §13 covers pipelines; and §14 covers JSON.
-- `xsht trace script.xsh` runs a script and shows where the time went: every
-  process, its argv as an array, and how long each proc took.
+- `xsht highlight script.xsh` emits lexer classifications as JSON Lines;
+  `xsht grammar` prints the language grammar as EBNF or JSON.
+- `xsht trace script.xsh` shows process argv and proc durations. Add
+  `--syscalls` on Linux x86_64 or aarch64 for native syscall totals;
+  `--trace-top-syscalls N` sets the number of syscall rows shown (default 8).
 - `showcase/` holds larger programs (`px.xsh`, `ecount.xsh`, `run-retry.xsh`,
   `wait-for.xsh`, and more), and `core/` holds coreutils-style tools written
   in XSH.
