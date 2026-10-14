@@ -635,8 +635,7 @@ mod tests {
             let instruction = function_instruction(&program, &execution, FullTag::ExprPipeline);
             let span = Span::new(source_id, 0, 0);
             let (_, _, stages) = indexed_value_pipeline_input(&execution, instruction, span)
-                .unwrap()
-                .expect("a complete pipeline decode retains its input");
+                .unwrap();
 
             assert_eq!(stages.len(), 4);
         });
@@ -791,8 +790,7 @@ mod tests {
                 pipeline_instruction,
                 span,
             )
-            .unwrap()
-            .expect("folded pipeline is a value pipeline");
+            .unwrap();
             assert_eq!(stages.len(), 1);
 
             let mut evaluator = Evaluator::new(Vec::new());
@@ -2679,32 +2677,13 @@ impl FrameWork {
     }
 }
 
-/// Whose statements a frame runs. A function frame returns a checked value to
-/// its caller. A block frame runs statements for the recursive evaluator
-/// against slots it lends, and hands the statement flow back when it finishes.
 #[derive(Clone, Copy)]
 pub(super) enum FrameOwner {
     Function(LoweredFunctionKey, LoweredFunctionKind),
-    /// A top-level statement does not own a scope: it runs in the script's.
-    /// Slots the block has not declared belong to `outer_scope`.
-    /// `context_depth` is set when a frame inside a context scope lent the
-    /// slots: see `LentContextSlots`.
     Block {
         owns_scope: bool,
         outer_scope: u64,
-        context_depth: Option<usize>,
     },
-}
-
-/// Slot ownership a frame inside a context scope lends to the recursive
-/// evaluator, which runs nested bodies (stage blocks, retry bodies) and field
-/// assignments on the same slots in frames of their own. Scopes at or above
-/// `depth` on the evaluator's scope stack belong to the context body, so a live
-/// value may be stored only in a slot one of those scopes owns.
-pub(in crate::runtime::eval) struct LentContextSlots {
-    slots: usize,
-    depth: usize,
-    scopes: Vec<u64>,
 }
 
 /// A function frame owns its slots. A block frame borrows the recursive
@@ -2949,21 +2928,6 @@ impl Evaluator {
         )
     }
 
-    /// Rejects a live value stored in a slot whose owner scope is below the
-    /// context body's `depth` on the scope stack. Owners no longer on the
-    /// stack belong to finished bodies and are not outer bindings.
-    fn check_context_slot_owner(
-        &self,
-        owner: u64,
-        depth: usize,
-        span: Span,
-    ) -> Result<(), RuntimeError> {
-        match self.scope_ids.iter().rposition(|scope| *scope == owner) {
-            Some(position) if position < depth => Err(context_assignment_escape(span)),
-            _ => Ok(()),
-        }
-    }
-
     /// Statements have one implementation, on the frames, whoever runs them.
     fn eval_indexed_work_with_frames(
         &mut self,
@@ -2986,12 +2950,7 @@ impl Evaluator {
         } else {
             outer_scope
         };
-        let (slot_scopes, context_depth) = match &self.lent_context_slots {
-            Some(lent) if lent.slots == slots.as_ptr() as usize => {
-                (lent.scopes.clone(), Some(lent.depth))
-            }
-            _ => (self.frame_scratch.take_slot_scopes(0, outer_scope), None),
-        };
+        let slot_scopes = self.frame_scratch.take_slot_scopes(0, outer_scope);
         let mut work = self.frame_scratch.take_work();
         work.push(first);
         let open_context_boundaries = context_boundaries(&work);
@@ -3001,7 +2960,6 @@ impl Evaluator {
             owner: FrameOwner::Block {
                 owns_scope,
                 outer_scope,
-                context_depth,
             },
             producer: false,
             cancelled: false,
@@ -6562,37 +6520,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             ExprViewKind::ListPipeline => {
-                let pipeline = indexed_value_pipeline_input(
+                let (input, pipeline_span, stages) = indexed_value_pipeline_input(
                     &execution,
                     instruction,
                     span,
                 )?;
-                if let Some((input, pipeline_span, stages)) = pipeline {
-                    self.push_expr(
-                        index,
-                        input,
-                        pipeline_span,
-                        FrameContinuation::StageValueInput {
-                            span: pipeline_span,
-                            stages,
-                            next: Box::new(next),
-                        },
-                    );
-                } else if self.evaluator.force_frames {
-                    return Err(frame_strategy_error(tag, span));
-                } else {
-                    let flow = self.with_lent_context(index, |evaluator, execution, slots| {
-                        evaluator.eval_indexed_expr_inner(execution, instruction, slots, span)
-                    })?;
-                    match flow {
-                        ControlFlow::Continue(value) => {
-                            self.push_value(index, FrameValue::Value(value), next);
-                        }
-                        ControlFlow::Break(value) => {
-                            self.push_value(index, FrameValue::Break(value), next);
-                        }
-                    }
-                }
+                self.push_expr(
+                    index,
+                    input,
+                    pipeline_span,
+                    FrameContinuation::StageValueInput {
+                        span: pipeline_span,
+                        stages,
+                        next: Box::new(next),
+                    },
+                );
             }
             ExprViewKind::ValueBlock => {
                 let super::ExprView::ValueBlock { body, span } =
@@ -9992,13 +9934,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let call = &self.calls[index];
         let owner = call.slot_scope(slot);
         let Some(boundary) = call.work.iter().rposition(FrameWork::is_context_scope) else {
-            return match call.owner {
-                FrameOwner::Block {
-                    context_depth: Some(depth),
-                    ..
-                } => self.evaluator.check_context_slot_owner(owner, depth, span),
-                _ => Ok(()),
-            };
+            return Ok(());
         };
         if call.work[boundary + 1..].iter().any(|work| {
             matches!(work,
@@ -10007,60 +9943,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(());
         }
         Err(context_assignment_escape(span))
-    }
-
-    /// The slot ownership a delegated evaluation needs when this frame is
-    /// inside a context scope, whether its own or the one that lent its slots.
-    fn lent_context_slots(&self, index: usize) -> Option<LentContextSlots> {
-        let call = &self.calls[index];
-        let depth = match call.work.iter().rposition(FrameWork::is_context_scope) {
-            Some(boundary) => {
-                let scope_ids = &self.evaluator.scope_ids;
-                call.work[boundary + 1..]
-                    .iter()
-                    .find_map(|work| match work {
-                        FrameWork::Statements {
-                            scope_id: Some(scope),
-                            ..
-                        } => scope_ids.iter().rposition(|id| id == scope),
-                        _ => None,
-                    })
-                    .unwrap_or(scope_ids.len())
-            }
-            None => match call.owner {
-                FrameOwner::Block {
-                    context_depth: Some(depth),
-                    ..
-                } => depth,
-                _ => return None,
-            },
-        };
-        Some(LentContextSlots {
-            slots: call.slots.as_ptr() as usize,
-            depth,
-            scopes: (0..call.slots.len())
-                .map(|slot| call.slot_scope(slot))
-                .collect(),
-        })
-    }
-
-    /// Runs `delegate` on the recursive evaluator with this frame's slots,
-    /// lending it the frame's context-scope slot ownership.
-    fn with_lent_context<T>(
-        &mut self,
-        index: usize,
-        delegate: impl FnOnce(&mut Evaluator, &FullExecution<'p>, &mut [LoweredValue]) -> T,
-    ) -> T {
-        let lent = self.lent_context_slots(index);
-        let previous = lent
-            .is_some()
-            .then(|| std::mem::replace(&mut self.evaluator.lent_context_slots, lent));
-        let call = &mut self.calls[index];
-        let result = delegate(self.evaluator, &call.execution, &mut call.slots);
-        if let Some(previous) = previous {
-            self.evaluator.lent_context_slots = previous;
-        }
-        result
     }
 
     /// Records a slot declared in the current scope.

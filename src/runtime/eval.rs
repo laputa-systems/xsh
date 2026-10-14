@@ -2720,10 +2720,6 @@ pub struct Evaluator {
     force_frames: bool,
     route_witness_sink: Option<route_witness::RouteWitnessSink>,
     route_witness_invocation: Option<route_witness::InvocationContext>,
-    /// Set while a context-scoped frame lends its slots to the recursive
-    /// evaluator, so nested bodies keep the outer-assignment escape rule.
-    lent_context_slots:
-        Option<crate::runtime::eval::lowered_run::indexed_run::explicit_run::LentContextSlots>,
     // Suspended process cursors keep signal checkpoints active between pulls.
     live_process_streams: usize,
     #[cfg(feature = "native-tests")]
@@ -3083,7 +3079,6 @@ impl Evaluator {
             ),
             route_witness_sink: None,
             route_witness_invocation: None,
-            lent_context_slots: None,
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
@@ -3332,7 +3327,6 @@ impl Evaluator {
             force_frames: shared.force_frames,
             route_witness_sink: shared.route_witness_sink.clone(),
             route_witness_invocation: shared.route_witness_invocation.clone(),
-            lent_context_slots: None,
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
