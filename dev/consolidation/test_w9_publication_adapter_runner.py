@@ -88,14 +88,88 @@ class AdapterRawOutcomeTests(unittest.TestCase):
         runner = adapter_runner._load_publication_runner(
             repository / "dev/consolidation/w9-publication-run.py"
         )
-        ranges, workers = adapter_runner._capture_plan(1690, runner)
+        ranges, pending_ranges = adapter_runner._capture_plan(1690, runner)
 
         self.assertEqual(len(ranges), 68)
+        self.assertEqual(pending_ranges, ranges)
         self.assertEqual(sum(end - start for start, end in ranges), 1690)
-        self.assertEqual({name: len(queue) for name, queue in workers.items()}, {
-            "A": 17, "B": 17, "C": 17, "D": 17
-        })
+        self.assertEqual(len(adapter_runner.CAPTURE_SLOTS), 4)
         self.assertEqual(1690 * len(adapter_runner.PROFILES), 6760)
+
+    def test_reused_publication_sizes_prioritize_large_ranges_with_canonical_ties(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        ranges = [(0, 1), (1, 2), (2, 3)]
+        with tempfile.TemporaryDirectory(prefix="w9-capture-priority-", dir=scratch_root) as scratch:
+            raw_root = pathlib.Path(scratch)
+            for index, per_profile_size in enumerate((1, 5, 5)):
+                for profile in adapter_runner.PROFILES:
+                    record = raw_root / f"record-{index}-{profile}"
+                    record.mkdir()
+                    (record / "kind").write_text("checked", encoding="utf-8")
+                    (record / "diagnostics").write_bytes(b"")
+                    (record / "publication").write_bytes(b"p" * per_profile_size)
+                    (record / "receipt-hashes").write_text("\n", encoding="utf-8")
+
+            with patch.object(runner, "expected_ranges", return_value=ranges):
+                publication_bytes = adapter_runner._publication_bytes_by_range(
+                    raw_root, len(ranges), ranges, runner
+                )
+                planned_ranges, pending_ranges = adapter_runner._capture_plan(
+                    len(ranges), runner, publication_bytes
+                )
+
+        self.assertEqual(planned_ranges, ranges)
+        self.assertEqual(publication_bytes, {(0, 1): 4, (1, 2): 20, (2, 3): 20})
+        self.assertEqual(pending_ranges, [(1, 2), (2, 3), (0, 1)])
+
+    def test_capture_plan_rejects_incomplete_reference_size_hints(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "reference publication byte counts do not cover each capture range",
+        ):
+            adapter_runner._capture_plan(50, runner, {(0, 25): 1})
+
+    def test_reference_size_hint_rejects_symlinked_publication(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        ranges = [(0, 1)]
+        with tempfile.TemporaryDirectory(prefix="w9-capture-priority-link-", dir=scratch_root) as scratch:
+            raw_root = pathlib.Path(scratch) / "raw"
+            raw_root.mkdir()
+            outside_publication = pathlib.Path(scratch) / "outside-publication"
+            outside_publication.write_bytes(b"outside")
+            for profile in adapter_runner.PROFILES:
+                record = raw_root / f"record-0-{profile}"
+                record.mkdir()
+                (record / "kind").write_text("checked", encoding="utf-8")
+                (record / "diagnostics").write_bytes(b"")
+                (record / "receipt-hashes").write_text("\n", encoding="utf-8")
+                publication = record / "publication"
+                if profile == adapter_runner.PROFILES[0]:
+                    publication.symlink_to(outside_publication)
+                else:
+                    publication.write_bytes(b"p")
+
+            with patch.object(runner, "expected_ranges", return_value=ranges):
+                with self.assertRaisesRegex(
+                    adapter_runner.PublicationError,
+                    "cannot open reference publication bytes for record-0-default",
+                ):
+                    adapter_runner._publication_bytes_by_range(raw_root, 1, ranges, runner)
 
     def test_record_rejects_a_symlinked_sidecar_member(self):
         repository = pathlib.Path(__file__).resolve().parents[2]
@@ -451,6 +525,125 @@ class AdapterRawOutcomeTests(unittest.TestCase):
             self.assertEqual(commands[0][0:2], ["timeout", "900s"])
             self.assertIn("--cpuset-cpus=0", (capture_output / "hashjobs/reference/docker-shim/docker").read_text())
             self.assertEqual(cleanup_calls, [1])
+
+
+class AdapterCaptureSchedulingTests(unittest.TestCase):
+    def test_freed_slots_take_global_pending_ranges_while_one_worker_lags(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        ranges = runner.expected_ranges(200)
+        launched = []
+        slot_peaks = []
+
+        class Process:
+            def __init__(self, polls):
+                self.polls = polls
+
+            def poll(self):
+                self.polls -= 1
+                return 0 if self.polls == 0 else None
+
+        class Output:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        with tempfile.TemporaryDirectory(prefix="w9-dynamic-capture-", dir=scratch_root) as scratch:
+            root = pathlib.Path(scratch)
+            candidate_root = root / "candidate"
+            candidate_root.mkdir()
+            output = root / "capture"
+            output.mkdir()
+            source_record = {
+                "candidate_root": str(candidate_root),
+                "input_root": str(root / "inputs"),
+            }
+
+            def prepare_raw(path, _candidate_root, _runner):
+                path = pathlib.Path(path)
+                path.mkdir()
+                return path
+
+            def launch(
+                _runner,
+                _source_record,
+                _output,
+                _role,
+                _build_record,
+                _binary,
+                _raw_root,
+                receipt_directory,
+                start,
+                end,
+                worker,
+                active,
+                _docker_environment,
+            ):
+                slot_peaks.append(len(active) + 1)
+                job = {
+                    "worker": worker,
+                    "start": start,
+                    "end": end,
+                    "receipt": runner.candidate_receipt_path(receipt_directory, start, end),
+                    "timing": root / f"{start}-{end}.timing",
+                    "log": root / f"{start}-{end}.log",
+                    "process": Process(3 if worker == "A" else 1),
+                    "output": Output(),
+                }
+                active.append(job)
+                launched.append((worker, (start, end)))
+                return job
+
+            with (
+                patch.object(adapter_runner, "prepare_raw_output_directory", side_effect=prepare_raw),
+                patch.object(adapter_runner, "_launch_capture_job", side_effect=launch),
+                patch.object(runner, "regular_file", side_effect=lambda path, *_args, **_kwargs: pathlib.Path(path)),
+                patch.object(runner, "write_status"),
+                patch.object(
+                    runner,
+                    "discover_candidate_receipts",
+                    return_value={
+                        interval: runner.candidate_receipt_path(
+                            output / "candidate/receipts", *interval
+                        )
+                        for interval in ranges
+                    },
+                ),
+                patch.object(runner, "inspect_owned_containers", return_value=()),
+                patch.object(adapter_runner.time, "sleep"),
+            ):
+                adapter_runner._run_capture_role(
+                    runner,
+                    source_record,
+                    output,
+                    "candidate",
+                    {},
+                    root / "harness",
+                    200,
+                    {"PATH": os.environ["PATH"]},
+                )
+
+        self.assertEqual(
+            launched,
+            [
+                ("A", (0, 25)),
+                ("B", (25, 50)),
+                ("C", (50, 75)),
+                ("D", (75, 100)),
+                ("B", (100, 125)),
+                ("C", (125, 150)),
+                ("D", (150, 175)),
+                ("B", (175, 200)),
+            ],
+        )
+        self.assertEqual(sorted(interval for _worker, interval in launched), ranges)
+        self.assertEqual(len(set(interval for _worker, interval in launched)), len(ranges))
+        self.assertLessEqual(max(slot_peaks), len(adapter_runner.CAPTURE_SLOTS))
 
 
 class AdapterReferenceReuseTests(unittest.TestCase):
@@ -1084,9 +1277,25 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         source_receipt.write_text("fixture\n", encoding="utf-8")
         source_record = self._candidate_source_record()
         capture_roles = []
+        capture_priorities = []
+        reference_range_priority = {
+            interval: index for index, interval in enumerate(self.runner.expected_ranges(1690))
+        }
 
-        def capture(runner, record, output, role, _build, _binary, _count, _environment):
+        def capture(
+            runner,
+            record,
+            output,
+            role,
+            _build,
+            _binary,
+            _count,
+            _environment,
+            *,
+            publication_bytes_by_range,
+        ):
             capture_roles.append(role)
+            capture_priorities.append(publication_bytes_by_range)
             capture_root = output / role
             raw_root = capture_root / "raw"
             receipt_directory = capture_root / "receipts"
@@ -1109,6 +1318,11 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             patch.object(self.runner, "parse_receipt", side_effect=self._parse_shard),
             patch.object(self.runner, "local_docker_environment", return_value={"PATH": os.environ["PATH"]}),
             patch.object(adapter_runner, "_run_capture_role", side_effect=capture),
+            patch.object(
+                adapter_runner,
+                "_publication_bytes_by_range",
+                return_value=reference_range_priority,
+            ) as publication_sizes,
             patch.object(adapter_runner, "compare_full_publications") as compare,
             patch("builtins.print") as printed,
         ):
@@ -1129,6 +1343,9 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(capture_roles, ["candidate"])
+        self.assertEqual(capture_priorities, [reference_range_priority])
+        publication_sizes.assert_called_once()
+        self.assertEqual(publication_sizes.call_args.args[1], len(self.expected_inputs))
         compare.assert_not_called()
         output = self.candidate_root / ".work/consolidation/new-publication"
         self.assertTrue((output / "candidate/capture.receipt").is_file())

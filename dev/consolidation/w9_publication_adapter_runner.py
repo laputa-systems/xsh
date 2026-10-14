@@ -27,6 +27,7 @@ OWNER_HELPER_SHA256 = "23fafe5b4140396242543bb4c59b0bcc1e0d4b59280f1f0e8dabf0cbd
 REFERENCE_TREE = "a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08"
 RECORD_NAME = re.compile(r"record-(0|[1-9][0-9]*)-(default|reveal|execution|check-cli)\Z")
 PROFILES = ("default", "reveal", "execution", "check-cli")
+CAPTURE_SLOTS = (("A", 0), ("B", 1), ("C", 2), ("D", 3))
 RAW_SCHEMA = "w9-publication-adapter\t1\n"
 RAW_HASH_LIBTEST_PREFIX = "test sema::w9_repository_parity_receipt ... "
 ADAPTER_BUILD_FIELDS = (
@@ -1154,13 +1155,83 @@ def _reuse_reference_capture(
     return raw_root, receipt_directory, receipt, range_receipts
 
 
-def _capture_plan(count: int, runner) -> tuple[list[tuple[int, int]], dict[str, list[tuple[int, int]]]]:
+def _capture_plan(
+    count: int,
+    runner,
+    publication_bytes_by_range: dict[tuple[int, int], int] | None = None,
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     ranges = runner.expected_ranges(count)
-    workers = {worker: ranges[index::4] for index, worker in enumerate(("A", "B", "C", "D"))}
-    flattened = sorted(interval for worker_ranges in workers.values() for interval in worker_ranges)
-    if flattened != ranges or sum(end - start for start, end in flattened) != count:
+    next_start = 0
+    for start, end in ranges:
+        if start != next_start or end <= start:
+            raise PublicationError("adapter capture plan does not cover each input exactly once")
+        next_start = end
+    if next_start != count:
         raise PublicationError("adapter capture plan does not cover each input exactly once")
-    return ranges, workers
+    if publication_bytes_by_range is None:
+        return ranges, list(ranges)
+    if set(publication_bytes_by_range) != set(ranges) or any(
+        type(size) is not int or size < 0 for size in publication_bytes_by_range.values()
+    ):
+        raise PublicationError("reference publication byte counts do not cover each capture range")
+    return ranges, sorted(
+        ranges,
+        key=lambda interval: (-publication_bytes_by_range[interval], interval),
+    )
+
+
+def _publication_bytes_by_range(
+    raw_root: pathlib.Path,
+    count: int,
+    ranges: list[tuple[int, int]],
+    runner,
+) -> dict[tuple[int, int], int]:
+    if ranges != runner.expected_ranges(count):
+        raise PublicationError("reference publication sizes require canonical capture ranges")
+    range_by_index = {
+        index: interval
+        for interval in ranges
+        for index in range(interval[0], interval[1])
+    }
+    if set(range_by_index) != set(range(count)):
+        raise PublicationError("reference publication sizes do not cover every input")
+    sizes = {interval: 0 for interval in ranges}
+    root_descriptor = runner.open_absolute_nofollow(raw_root, directory=True)
+    try:
+        for index, interval in range_by_index.items():
+            for profile in PROFILES:
+                record_name = f"record-{index}-{profile}"
+                record_descriptor = _open_directory_at(root_descriptor, record_name)
+                try:
+                    if set(os.listdir(record_descriptor)) != {
+                        "kind", "diagnostics", "publication", "receipt-hashes"
+                    }:
+                        raise PublicationError(f"{record_name}: outcome fields differ")
+                    try:
+                        publication_descriptor = os.open(
+                            "publication",
+                            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+                            | getattr(os, "O_CLOEXEC", 0),
+                            dir_fd=record_descriptor,
+                        )
+                    except OSError as error:
+                        raise PublicationError(
+                            f"cannot open reference publication bytes for {record_name}: {error}"
+                        ) from error
+                    try:
+                        publication_metadata = os.fstat(publication_descriptor)
+                        if not stat.S_ISREG(publication_metadata.st_mode):
+                            raise PublicationError(
+                                f"{record_name}: publication is not a regular file"
+                            )
+                        sizes[interval] += publication_metadata.st_size
+                    finally:
+                        os.close(publication_descriptor)
+                finally:
+                    os.close(record_descriptor)
+    finally:
+        os.close(root_descriptor)
+    return sizes
 
 
 def _launch_capture_job(
@@ -1178,7 +1249,9 @@ def _launch_capture_job(
     active: list[dict[str, object]],
     docker_environment: dict[str, str],
 ) -> dict[str, object]:
-    cpu = {"A": 0, "B": 1, "C": 2, "D": 3}[worker]
+    cpu = next((cpu for slot, cpu in CAPTURE_SLOTS if slot == worker), None)
+    if cpu is None:
+        raise PublicationError(f"unknown adapter capture worker {worker!r}")
     job_dir = output / role / "jobs" / worker / f"{start}-{end}"
     job_dir.mkdir(parents=True, exist_ok=False)
     receipt = runner.candidate_receipt_path(receipt_directory, start, end)
@@ -1248,6 +1321,8 @@ def _run_capture_role(
     binary: pathlib.Path,
     count: int,
     docker_environment: dict[str, str],
+    *,
+    publication_bytes_by_range: dict[tuple[int, int], int] | None = None,
 ) -> tuple[pathlib.Path, pathlib.Path, dict[tuple[int, int], pathlib.Path]]:
     role_root = output / role
     role_root.mkdir()
@@ -1255,12 +1330,14 @@ def _run_capture_role(
     receipt_directory = role_root / "receipts"
     receipt_directory.mkdir()
     (role_root / "jobs").mkdir()
-    ranges, queues = _capture_plan(count, runner)
+    ranges, pending_ranges = _capture_plan(count, runner, publication_bytes_by_range)
     active: list[dict[str, object]] = []
     completed: list[tuple[int, int]] = []
     try:
-        for worker in queues:
-            start, end = queues[worker].pop(0)
+        for worker, _cpu in CAPTURE_SLOTS:
+            if not pending_ranges:
+                break
+            start, end = pending_ranges.pop(0)
             (role_root / "jobs" / worker).mkdir()
             _launch_capture_job(
                 runner, source_record, output, role, build_record, binary, raw_root, receipt_directory,
@@ -1287,8 +1364,8 @@ def _run_capture_role(
                 completed.append((int(job["start"]), int(job["end"])))
                 active.remove(job)
                 worker = str(job["worker"])
-                if queues[worker]:
-                    start, end = queues[worker].pop(0)
+                if pending_ranges:
+                    start, end = pending_ranges.pop(0)
                     _launch_capture_job(
                         runner, source_record, output, role, build_record, binary, raw_root, receipt_directory,
                         start, end, worker, active, docker_environment,
@@ -1363,14 +1440,16 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
             pathlib.Path(source_record["input_manifest"]),
             runner,
         )
-    ranges, workers = _capture_plan(len(expected_inputs), runner)
+    ranges, _pending_ranges = _capture_plan(len(expected_inputs), runner)
     output = runner.require_output_path(args.output, candidate_root)
     if args.dry_run:
         print(
             f"adapter preflight ok: reference={reference_build['source_commit']}:{reference_build['source_tree']} "
             f"candidate={candidate_build['source_commit']}:{candidate_build['source_tree']} "
             f"inputs={len(expected_inputs)} profiles={len(PROFILES)} outcomes={len(expected_inputs) * len(PROFILES)} "
-            f"ranges={len(ranges)} workers={len(workers)} cpus=0,1,2,3 memory_per_worker=1GiB output={output}"
+            f"ranges={len(ranges)} workers={len(CAPTURE_SLOTS)} "
+            f"cpus={','.join(str(cpu) for _worker, cpu in CAPTURE_SLOTS)} "
+            f"memory_per_worker=1GiB output={output}"
         )
         return 0
     wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
@@ -1382,8 +1461,12 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
     with runner.claim_run_resources(candidate_root, output, completed):
         runner.write_status(output, "incomplete", completed)
         captures: dict[str, tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[tuple[int, int], pathlib.Path]]] = {}
+        publication_bytes_by_range = None
         if reference_capture is not None:
             captures["reference"] = reference_capture
+            publication_bytes_by_range = _publication_bytes_by_range(
+                reference_capture[0], len(expected_inputs), ranges, runner
+            )
             completed.extend(ranges)
             runner.write_status(output, "incomplete", completed, "reused_capture=reference")
         for role, build_path, build in (
@@ -1402,6 +1485,7 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
                 binary,
                 len(expected_inputs),
                 docker_environment,
+                publication_bytes_by_range=publication_bytes_by_range,
             )
             capture_receipt = output / role / "capture.receipt"
             _write_capture_receipt(
