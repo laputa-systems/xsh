@@ -21,14 +21,15 @@ fn compact_check(
 }
 
 #[test]
-fn checked_output_struct_update_literals_accept_default_control_flow_facts() {
+fn checked_outputs_accept_default_control_flow_facts() {
     let _: CheckedControlFlowFacts = CheckedControlFlowFacts::default();
-    let _: CheckOutput = CheckOutput {
-        ..Default::default()
-    };
-    let _: CompactBodyFacts = CompactBodyFacts {
-        ..Default::default()
-    };
+    let mut checked = CheckOutput::default();
+    checked.checked_control_flow = CheckedControlFlowFacts::default();
+    let _: CheckOutput = checked;
+
+    let mut compact = CompactBodyFacts::default();
+    compact.checked_control_flow = CheckedControlFlowFacts::default();
+    let _: CompactBodyFacts = compact;
 }
 
 fn repository_xsh_sources() -> Vec<PathBuf> {
