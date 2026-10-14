@@ -2,6 +2,7 @@ import pathlib
 import sys
 import os
 import hashlib
+import json
 import tempfile
 import unittest
 from unittest import mock
@@ -85,6 +86,34 @@ def named_and_path_owner_index():
         f'record-field\tExprId(1)\t3\tpath\t[""]\t{span(47, 2)}\t\tExprId(2)',
         "exact-counts\t2\t4",
     ]
+    return "\n".join(rows) + "\n"
+
+
+def named_keys_with_nonidentifier_names_owner_index():
+    names = ("=", "MAJ:MIN", "-c", "full-dev-path", "", "internal key", "a\nb")
+    rows = ["source\tSourceId(0)\t512", "exact-counts\t15\t7"]
+    record_span = span(0, 512)
+    rows.extend((f"owner\t{record_span}\texpr:Record", f"expr\tExprId(1)\t{record_span}\tRecord\t\"\""))
+    rows.append(f"record\tExprId(1)\t{record_span}\t{len(names)}")
+    next_expr_id = 1
+    for field_index, name in enumerate(names):
+        key_start = field_index * 32 + 1
+        key_length = max(2, len(name.encode("utf-8")))
+        key_span = span(key_start, key_length)
+        value_span = span(key_start + key_length + 1, 1)
+        field_span = span(key_start, key_length + 2)
+        key_expr_id = next_expr_id
+        value_expr_id = next_expr_id + 1
+        rows.extend(
+            (
+                f"owner\t{key_span}\texpr:Ident",
+                f"expr\tExprId({key_expr_id + 1})\t{key_span}\tIdent\t{json.dumps(name, ensure_ascii=False)}",
+                f"owner\t{value_span}\texpr:Str",
+                f"expr\tExprId({value_expr_id + 1})\t{value_span}\tStr\t\"\"",
+                f"record-field\tExprId(1)\t{field_index}\tnamed\t{json.dumps(name, ensure_ascii=False)}\t{field_span}\t\tExprId({value_expr_id + 1})",
+            )
+        )
+        next_expr_id += 2
     return "\n".join(rows) + "\n"
 
 
@@ -198,6 +227,37 @@ class ExactOwnerIndexTests(unittest.TestCase):
             exact["records"][0]["fields"][3],
             ("path", ("",), "Span{source_id:SourceId(0),start:47,len:2}", None, 1),
         )
+
+    def test_parses_named_keys_with_nonidentifier_generic_expression_names(self):
+        names = ("=", "MAJ:MIN", "-c", "full-dev-path", "", "internal key", "a\nb")
+
+        _legacy, exact = exact_runner.parse_exact_owner_index(
+            named_keys_with_nonidentifier_names_owner_index()
+        )
+
+        self.assertEqual(
+            [expression[2] for expression in exact["exprs"].values() if expression[1] == "Ident"],
+            list(names),
+        )
+        self.assertEqual(
+            [exact["records"][0]["fields"][index][1] for index in range(len(names))],
+            list(names),
+        )
+
+    def test_keeps_identifier_constraints_for_shorthand_aliases_and_legacy_tails(self):
+        invalid_alias = owner_index().replace(
+            f'record-shorthand-alias\tExprId(1)\t1\tExprId(3)\t{span(10, 5)}\t"alias"',
+            f'record-shorthand-alias\tExprId(1)\t1\tExprId(3)\t{span(10, 5)}\t"-"',
+        )
+        invalid_tail = owner_index().replace(
+            f"tail\tStmtId(1)\t{span(90, 5)}\tlast\tstmt:TailBareIdent",
+            f"tail\tStmtId(1)\t{span(90, 5)}\ttwo words\tstmt:TailBareIdent",
+        )
+
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "malformed record shorthand alias name"):
+            exact_runner.parse_exact_owner_index(invalid_alias)
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "malformed tail row"):
+            exact_runner.parse_exact_owner_index(invalid_tail)
 
     def test_rejects_malformed_path_vectors(self):
         path_row = f'record-field\tExprId(1)\t0\tpath\t["a.b", "c,]d"]\t{span(1, 20)}\t\tExprId(2)'

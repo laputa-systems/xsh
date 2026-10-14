@@ -282,10 +282,7 @@ def parse_exact_owner_index(
             if IDENTIFIER.fullmatch(tag) is None:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed expression tag")
             name = _decode_rust_string(raw_name, f"owner index line {line_number} expression name")
-            if tag == "Ident":
-                if IDENTIFIER.fullmatch(name) is None:
-                    raise ExactOwnerError(f"owner index line {line_number}: malformed identifier spelling")
-            elif name:
+            if tag != "Ident" and name:
                 raise ExactOwnerError(f"owner index line {line_number}: non-identifier expression has a spelling")
             expressions[expression_id] = (fields[2], tag, name)
         elif fields[0] == "run":
