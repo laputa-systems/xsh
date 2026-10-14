@@ -14,6 +14,7 @@ import time
 
 import w9_publication_adapter as adapter
 import w9_publication_sources as source_alignment
+import w9_publication_reference_correction as reference_correction
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -969,6 +970,13 @@ def _parse_adapter_build_receipt(
         raise PublicationError(f"{receipt}: reference source tree differs from its pin")
     if role == "reference" and source_root.name != "w9-adapter-ref-e240":
         raise PublicationError(f"{receipt}: reference source root is not the clean adapter clone")
+    if role == "derived-reference":
+        try:
+            reference_correction.validate_source(
+                source_root, reference_correction.PATCH_PATH, runner
+            )
+        except reference_correction.CorrectionError as error:
+            raise PublicationError(f"{receipt}: {error}") from error
     binary = runner.regular_file(record["binary"], f"{role} adapter harness", executable=True)
     if runner.source_identity(source_root) != (record["source_commit"], record["source_tree"]):
         raise PublicationError(f"{receipt}: source identity changed after adapter build")
@@ -1527,6 +1535,13 @@ def build_adapter_harness(
     commit, tree = runner.source_identity(source_root)
     if role == "reference" and commit != runner.REFERENCE_HEAD:
         raise PublicationError(f"reference source commit differs from the approved head: {commit}")
+    if role == "derived-reference":
+        try:
+            reference_correction.validate_source(
+                source_root, reference_correction.PATCH_PATH, runner
+            )
+        except reference_correction.CorrectionError as error:
+            raise PublicationError(str(error)) from error
     helper_bytes = runner.read_regular_bytes(adapter_helper)
     if hashlib.sha256(helper_bytes).hexdigest() != helper_sha256:
         raise PublicationError("derived adapter helper changed before harness build")
@@ -1596,6 +1611,13 @@ def build_adapter_harness(
             raise PublicationError(f"{role} adapter helper changed during build")
         if hashlib.sha256(runner.read_regular_bytes(scratch_root / ".work/consolidation/w9-publication-owner-helper.rs")).hexdigest() != owner_helper_sha256:
             raise PublicationError(f"{role} owner helper changed during build")
+        if role == "derived-reference":
+            try:
+                reference_correction.validate_source(
+                    source_root, reference_correction.PATCH_PATH, runner
+                )
+            except reference_correction.CorrectionError as error:
+                raise PublicationError(str(error)) from error
         runner.run_harness_test_listing(builder, candidate_root, scratch_binary, docker_environment)
         binary = runner.copy_executable(scratch_binary, binary_path)
     binary_sha256 = runner.sha256_file(binary)
@@ -1697,6 +1719,235 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
     )
 
 
+def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
+    candidate_root = runner.real_directory(args.candidate_root, "candidate source")
+    source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise PublicationError("candidate source receipt names a different checkout")
+    expected_inputs, _paths_by_name, _reference = runner.validate_all_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise PublicationError(f"candidate source receipt input count differs: {len(expected_inputs)}")
+    derived_root = runner.real_directory(args.derived_reference_source_root, "derived reference source")
+    try:
+        reference_correction.validate_source(
+            derived_root, reference_correction.PATCH_PATH, runner
+        )
+    except reference_correction.CorrectionError as error:
+        raise PublicationError(str(error)) from error
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise PublicationError("candidate source identity differs from its source receipt")
+    runner.candidate_scratch_parent(candidate_root)
+    derived_directory = _new_derived_helper_directory(candidate_root, runner)
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
+        owner_helper=owner_helper_source,
+        output_directory=derived_directory,
+        output_root=candidate_root,
+    )
+    binary, build_receipt = build_adapter_harness(
+        derived_root,
+        candidate_root,
+        "derived-reference",
+        helper,
+        helper_sha256,
+        owner_helper_sha256,
+        owner_helper_source_sha256,
+        runner,
+    )
+    try:
+        reference_correction.validate_source(
+            derived_root, reference_correction.PATCH_PATH, runner
+        )
+    except reference_correction.CorrectionError as error:
+        raise PublicationError(str(error)) from error
+    print(
+        f"derived_reference_binary={binary}\nderived_reference_build_receipt={build_receipt}\n"
+        f"derived_reference_source={reference_correction.SOURCE_COMMIT}:{reference_correction.SOURCE_TREE}"
+    )
+    return 0
+
+
+def capture_derived_reference(args: argparse.Namespace, runner) -> int:
+    candidate_root = runner.real_directory(args.candidate_root, "candidate source")
+    source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise PublicationError("candidate source receipt names a different checkout")
+    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    if len(expected_inputs) * len(PROFILES) != reference_correction.EXPECTED_OUTCOME_COUNT:
+        raise PublicationError("derived reference corpus size differs from its pinned coverage")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise PublicationError("candidate source identity differs from its source receipt")
+    derived_root = runner.real_directory(args.derived_reference_source_root, "derived reference source")
+    try:
+        source_identity = reference_correction.validate_source(
+            derived_root, reference_correction.PATCH_PATH, runner
+        )
+    except reference_correction.CorrectionError as error:
+        raise PublicationError(str(error)) from error
+    input_root = pathlib.Path(source_record["input_root"])
+    input_manifest = pathlib.Path(source_record["input_manifest"])
+    original_capture_path = runner.regular_file(
+        args.original_capture_receipt, "immutable original reference capture receipt"
+    )
+    original_build_path = runner.regular_file(
+        _capture_field(original_capture_path, "build_receipt", runner),
+        "immutable original reference build receipt",
+    )
+    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    original_build = _parse_adapter_build_receipt(
+        original_build_path, "reference", runner, owner_helper_source
+    )
+    if (original_build["source_commit"], original_build["source_tree"]) != (
+        runner.REFERENCE_HEAD, REFERENCE_TREE
+    ):
+        raise PublicationError("original reference build differs from its immutable source pin")
+    original_capture = _reuse_reference_capture(
+        original_capture_path,
+        original_build_path,
+        original_build,
+        expected_inputs,
+        reference,
+        input_root,
+        input_manifest,
+        runner,
+    )
+    original_exact_build_path = runner.regular_file(
+        args.original_exact_build_receipt, "immutable original exact-owner build receipt"
+    )
+    original_exact_capture_path = runner.regular_file(
+        args.original_exact_capture_receipt, "immutable original exact-owner capture receipt"
+    )
+    exact_owner_runner = _load_exact_owner_runner(runner)
+    exact_build = _parse_adapter_build_receipt(
+        original_exact_build_path, "reference", runner, owner_helper_source
+    )
+    try:
+        _exact_helper_path, _exact_helper_bytes, exact_helper_sha256 = exact_owner_runner._load_exact_helper(runner)
+    except exact_owner_runner.ExactOwnerError as error:
+        raise PublicationError(f"original exact-owner helper validation failed: {error}") from error
+    try:
+        exact_capture, _exact_ranges, _owner_hashes = exact_owner_runner._parse_exact_capture_receipt(
+            original_exact_capture_path,
+            "reference",
+            original_exact_build_path,
+            exact_build,
+            expected_inputs,
+            reference,
+            input_root,
+            input_manifest,
+            exact_helper_sha256,
+            runner,
+        )
+    except exact_owner_runner.ExactOwnerError as error:
+        raise PublicationError(f"original exact-owner capture validation failed: {error}") from error
+    if pathlib.Path(exact_capture["legacy_capture_receipt"]) != original_capture_path:
+        raise PublicationError("original exact-owner proof names a different original capture")
+    if runner.sha256_file(original_capture_path) != exact_capture["legacy_capture_receipt_sha256"]:
+        raise PublicationError("original exact-owner proof capture hash differs")
+    build_receipt_path = runner.regular_file(
+        args.derived_reference_build_receipt, "derived reference build receipt"
+    )
+    build = _parse_adapter_build_receipt(
+        build_receipt_path, "derived-reference", runner, owner_helper_source
+    )
+    if pathlib.Path(build["source_root"]) != derived_root:
+        raise PublicationError("derived reference build receipt names a different source root")
+    if (build["source_commit"], build["source_tree"]) != (
+        source_identity["source_commit"], source_identity["source_tree"]
+    ):
+        raise PublicationError("derived reference build identity differs from the approved correction")
+    if (original_build["helper_sha256"], original_build["owner_helper_sha256"]) != (
+        build["helper_sha256"], build["owner_helper_sha256"]
+    ):
+        raise PublicationError("original reference adapter helpers differ from the correction harness")
+    output = runner.require_output_path(args.output, candidate_root)
+    _mkdir_new_directory(output, runner)
+    runner.write_status(output, "incomplete", [])
+    wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
+    wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
+    runner.validate_wrapper_root(wrapper_root, candidate_root)
+    runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
+    docker_environment = runner.local_docker_environment()
+    completed: list[tuple[int, int]] = []
+    ranges = runner.expected_ranges(len(expected_inputs))
+    publication_bytes_by_range = _publication_bytes_by_range(
+        original_capture[0], len(expected_inputs), ranges, runner
+    )
+    try:
+        with runner.claim_run_resources(candidate_root, output, completed):
+            raw_root, receipt_directory, range_receipts = _run_capture_role(
+                runner,
+                source_record,
+                output,
+                "derived-reference",
+                build,
+                pathlib.Path(build["binary"]),
+                len(expected_inputs),
+                docker_environment,
+                publication_bytes_by_range=publication_bytes_by_range,
+            )
+            completed.extend(ranges)
+            capture_receipt = output / "derived-reference" / "capture.receipt"
+            _write_capture_receipt(
+                capture_receipt,
+                "derived-reference",
+                build_receipt_path,
+                build,
+                capture_receipt.parent,
+                raw_root,
+                receipt_directory,
+                input_root,
+                input_manifest,
+                range_receipts,
+                runner,
+            )
+            try:
+                reference_correction.validate_source(
+                    derived_root, reference_correction.PATCH_PATH, runner
+                )
+            except reference_correction.CorrectionError as error:
+                raise PublicationError(str(error)) from error
+            correction_record = reference_correction.create_receipt_record(
+                source_identity,
+                build_receipt_path,
+                build,
+                capture_receipt,
+                original_capture_path,
+                original_exact_capture_path,
+                runner,
+            )
+            correction_receipt = output / "correction.receipt"
+            _write_new_file(
+                correction_receipt,
+                reference_correction.receipt_bytes(correction_record),
+                runner,
+            )
+            summary = (
+                f"derived-reference capture outcomes={len(expected_inputs) * len(PROFILES)} "
+                f"ranges={len(range_receipts)}"
+            )
+            runner.write_status(output, "capture-complete", completed, summary)
+    except BaseException as error:
+        try:
+            runner.write_status(output, "incomplete", completed, f"{type(error).__name__}: {error}")
+        except BaseException as status_error:
+            print(f"could not record incomplete correction capture status: {status_error}", file=sys.stderr)
+        raise
+    print(
+        f"{summary}\nderived_reference_capture={capture_receipt}\n"
+        f"correction_receipt={correction_receipt}\n"
+        f"original_reference_capture={original_capture_path}\n"
+        f"original_exact_owner_capture={original_exact_capture_path}"
+    )
+    return 0
+
+
 def aggregate_candidate_receipts(
     runner,
     candidate_receipt_directory: pathlib.Path,
@@ -1796,7 +2047,10 @@ def compare_full_publications(
     *,
     reference_exact_owners: dict[int, tuple[object, dict[str, object]]],
     candidate_exact_owners: dict[int, tuple[object, dict[str, object]]],
-) -> tuple[int, int]:
+    corrected_reference: bool = False,
+    original_capture_receipt: pathlib.Path | None = None,
+    original_reference_source_root: pathlib.Path | None = None,
+) -> tuple[int, int, tuple[str, ...] | None]:
     count = len(expected_inputs)
     expected_owner_indexes = set(range(count))
     if (
@@ -1820,17 +2074,26 @@ def compare_full_publications(
         "candidate adapter build receipt",
     )
     owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    reference_role = "derived-reference" if corrected_reference else "reference"
     reference_build = _parse_adapter_build_receipt(
-        reference_build_path, "reference", runner, owner_helper_source
+        reference_build_path, reference_role, runner, owner_helper_source
     )
     candidate_build = _parse_adapter_build_receipt(
         candidate_build_path, "candidate", runner, owner_helper_source
     )
     expected_reference_root = runner.real_directory(
-        reference_source_root, "clean reference source clone"
+        reference_source_root,
+        "derived reference source" if corrected_reference else "clean reference source clone",
     )
     if pathlib.Path(reference_build["source_root"]) != expected_reference_root:
         raise PublicationError("reference adapter build receipt names a different checkout")
+    if corrected_reference:
+        try:
+            reference_correction.validate_source(
+                expected_reference_root, reference_correction.PATCH_PATH, runner
+            )
+        except reference_correction.CorrectionError as error:
+            raise PublicationError(str(error)) from error
     if pathlib.Path(candidate_build["source_root"]) != candidate_root:
         raise PublicationError("candidate adapter build receipt names a different checkout")
     if (candidate_build["source_commit"], candidate_build["source_tree"]) != (
@@ -1843,7 +2106,7 @@ def compare_full_publications(
         raise PublicationError("reference and candidate owner helper contents differ")
     _parse_capture_receipt(
         reference_capture_receipt,
-        "reference",
+        reference_role,
         reference_capture_receipt.parent / "receipts",
         reference_capture_receipt.parent,
         reference_capture_receipt.parent / "raw",
@@ -1868,8 +2131,52 @@ def compare_full_publications(
     captured_reference = aggregate_candidate_receipts(
         runner, reference_capture_receipt.parent / "receipts", expected_inputs, reference
     )
-    if captured_reference.outcomes != reference.outcomes:
+    if not corrected_reference and captured_reference.outcomes != reference.outcomes:
         raise PublicationError("derived reference harness outcomes differ from the pinned reference receipt")
+    original_build: dict[str, str] | None = None
+    original_capture: runner.ParsedReceipt | None = None
+    original_raw: pathlib.Path | None = None
+    if corrected_reference:
+        if original_capture_receipt is None:
+            raise PublicationError("derived reference comparison requires its immutable original capture")
+        original_capture_receipt = runner.regular_file(
+            original_capture_receipt, "immutable original reference capture receipt"
+        )
+        original_build_path = runner.regular_file(
+            _capture_field(original_capture_receipt, "build_receipt", runner),
+            "immutable original reference build receipt",
+        )
+        original_build = _parse_adapter_build_receipt(
+            original_build_path, "reference", runner, owner_helper_source
+        )
+        original_capture_record = _parse_capture_receipt(
+            original_capture_receipt,
+            "reference",
+            original_capture_receipt.parent / "receipts",
+            original_capture_receipt.parent,
+            original_capture_receipt.parent / "raw",
+            original_build,
+            expected_inputs,
+            input_root,
+            input_manifest,
+            runner,
+        )
+        expected_original_source = runner.real_directory(
+            original_reference_source_root
+            if original_reference_source_root is not None
+            else reference_source_root.parent / "w9-adapter-ref-e240",
+            "clean original reference source",
+        )
+        if pathlib.Path(original_capture_record["source_root"]) != expected_original_source:
+            raise PublicationError("immutable original reference capture source differs")
+        original_capture = aggregate_candidate_receipts(
+            runner, pathlib.Path(original_capture_record["receipt_directory"]), expected_inputs, reference
+        )
+        if original_capture.outcomes != reference.outcomes:
+            raise PublicationError("immutable original capture differs from the pinned reference outcomes")
+        original_raw = runner.real_directory(
+            original_capture_record["raw_root"], "immutable original reference raw outcomes"
+        )
     candidate = aggregate_candidate_receipts(
         runner, candidate_receipt_directory, expected_inputs, reference
     )
@@ -1879,11 +2186,17 @@ def compare_full_publications(
     if reference.inputs != candidate.inputs:
         raise PublicationError("reference and candidate receipt input path or digest differs")
     mismatches: list[str] = []
+    expected_reference_outcomes = captured_reference if corrected_reference else reference
     runner_for_paths = _load_publication_runner(
         candidate_root / "dev/consolidation/w9-publication-run.py"
     )
     reference_root = runner_for_paths.open_absolute_nofollow(reference_raw, directory=True)
     candidate_root = runner_for_paths.open_absolute_nofollow(candidate_raw, directory=True)
+    original_root = (
+        runner_for_paths.open_absolute_nofollow(original_raw, directory=True)
+        if original_raw is not None
+        else -1
+    )
     try:
         reference_tui_path = runner_for_paths.regular_file(
             expected_reference_root / "stdlib/tui.xsh", "pinned reference TUI source"
@@ -1897,12 +2210,44 @@ def compare_full_publications(
         _mkdir_new_directory(mismatch_path.parent / "hashjobs", runner_for_paths)
         reference_raw_hashes = _hash_raw_outcomes(
             pathlib.Path(reference_build["binary"]), reference_raw, candidate_source_record,
-            count, mismatch_path.parent, "reference", 0, docker_environment, runner,
+            count, mismatch_path.parent, reference_role, 0, docker_environment, runner,
         )
         candidate_raw_hashes = _hash_raw_outcomes(
             pathlib.Path(candidate_build["binary"]), candidate_raw, candidate_source_record,
             count, mismatch_path.parent, "candidate", 1, docker_environment, runner,
         )
+        first_delta = None
+        if corrected_reference:
+            if original_build is None or original_capture is None or original_root < 0:
+                raise PublicationError("immutable original reference capture validation is incomplete")
+            original_raw_hashes = _hash_raw_outcomes(
+                pathlib.Path(original_build["binary"]), original_raw, candidate_source_record,
+                count, mismatch_path.parent, "original-reference", 2, docker_environment, runner,
+            )
+
+            def original_rows():
+                for index in range(count):
+                    for profile in PROFILES:
+                        key = (index, expected_inputs[index].relative_path, profile)
+                        kind, diagnostics, publication, hashes = _record(original_root, key)
+                        if not _raw_hash_pair_matches(original_raw_hashes, index, profile, hashes):
+                            raise PublicationError(f"{key}: immutable original raw bytes hash differs")
+                        if hashes != original_capture.outcomes[key]:
+                            raise PublicationError(f"{key}: immutable original receipt hash differs")
+                        yield key, (kind, diagnostics, publication)
+
+            def derived_rows():
+                for index in range(count):
+                    for profile in PROFILES:
+                        key = (index, expected_inputs[index].relative_path, profile)
+                        kind, diagnostics, publication, hashes = _record(reference_root, key)
+                        if not _raw_hash_pair_matches(reference_raw_hashes, index, profile, hashes):
+                            raise PublicationError(f"{key}: derived reference raw bytes hash differs")
+                        if hashes != captured_reference.outcomes[key]:
+                            raise PublicationError(f"{key}: derived reference receipt hash differs")
+                        yield key, (kind, diagnostics, publication)
+
+            first_delta = reference_correction.first_difference(original_rows(), derived_rows())
         if len(keys) != count * len(PROFILES):
             raise PublicationError(f"receipt outcome count differs: {len(keys)}")
 
@@ -1932,7 +2277,7 @@ def compare_full_publications(
                 try:
                     reference_kind, reference_diagnostics, reference_publication, reference_hashes = _record(reference_root, key)
                     candidate_kind, candidate_diagnostics, candidate_publication, candidate_hashes = _record(candidate_root, key)
-                    reference_diagnostic_hash, reference_publication_hash = reference.outcomes[key]
+                    reference_diagnostic_hash, reference_publication_hash = expected_reference_outcomes.outcomes[key]
                     candidate_diagnostic_hash, candidate_publication_hash = candidate.outcomes[key]
                     if not _raw_hash_pair_matches(reference_raw_hashes, index, profile, reference_hashes):
                         mismatches.append(f"{key}\treference-raw-bytes-hash")
@@ -2049,8 +2394,12 @@ def compare_full_publications(
     finally:
         os.close(reference_root)
         os.close(candidate_root)
+        if original_root >= 0:
+            os.close(original_root)
     payload = "\n".join(mismatches) + ("\n" if mismatches else "")
     _write_new_file(mismatch_path, payload.encode("utf-8"), runner_for_paths)
+    if corrected_reference:
+        return len(keys), len(mismatches), first_delta
     return len(keys), len(mismatches)
 
 
@@ -2070,9 +2419,80 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
     reference_source_root = _prepare_reference_source(
         candidate_root, pathlib.Path(args.reference_source_root), runner
     )
-    reference_capture_path = runner.regular_file(
-        args.reference_capture_receipt, "reference adapter capture receipt"
-    )
+    corrected_reference = getattr(args, "derived_reference_correction_receipt", None) is not None
+    original_capture_path = None
+    correction_record = None
+    derived_reference_root = None
+    if corrected_reference:
+        derived_reference_root = runner.real_directory(
+            args.derived_reference_source_root, "derived reference source"
+        )
+        try:
+            correction_source = reference_correction.validate_source(
+                derived_reference_root, reference_correction.PATCH_PATH, runner
+            )
+        except reference_correction.CorrectionError as error:
+            raise PublicationError(str(error)) from error
+        correction_receipt_path = runner.regular_file(
+            args.derived_reference_correction_receipt, "derived reference correction receipt"
+        )
+        correction_record = reference_correction.parse_receipt(
+            correction_receipt_path, runner.read_regular_text(correction_receipt_path)
+        )
+        for field, expected in correction_source.items():
+            if correction_record[field] != expected:
+                raise PublicationError(f"derived reference receipt {field} differs from its source")
+        original_capture_path = runner.regular_file(
+            args.original_capture_receipt, "immutable original reference capture receipt"
+        )
+        original_exact_capture_path = runner.regular_file(
+            args.reference_exact_capture_receipt, "immutable original exact-owner capture receipt"
+        )
+        if pathlib.Path(correction_record["original_capture_receipt"]) != original_capture_path:
+            raise PublicationError("derived reference receipt names a different original capture")
+        if pathlib.Path(correction_record["original_exact_capture_receipt"]) != original_exact_capture_path:
+            raise PublicationError("derived reference receipt names a different original exact-owner capture")
+        derived_build_path = runner.regular_file(
+            correction_record["build_receipt"], "derived reference adapter build receipt"
+        )
+        derived_capture_path = runner.regular_file(
+            correction_record["capture_receipt"], "derived reference adapter capture receipt"
+        )
+        derived_build = _parse_adapter_build_receipt(
+            derived_build_path,
+            "derived-reference",
+            runner,
+            candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
+        )
+        if pathlib.Path(derived_build["source_root"]) != derived_reference_root:
+            raise PublicationError("derived reference build receipt names a different source root")
+        derived_capture_record = _parse_capture_receipt(
+            derived_capture_path,
+            "derived-reference",
+            pathlib.Path(_capture_field(derived_capture_path, "receipt_directory", runner)),
+            pathlib.Path(_capture_field(derived_capture_path, "capture_root", runner)),
+            pathlib.Path(_capture_field(derived_capture_path, "raw_root", runner)),
+            derived_build,
+            expected_inputs,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            runner,
+        )
+        reference_correction.validate_receipt_associations(
+            correction_record,
+            derived_build_path,
+            derived_build,
+            derived_capture_path,
+            derived_capture_record,
+            original_capture_path,
+            original_exact_capture_path,
+            runner,
+        )
+        reference_capture_path = derived_capture_path
+    else:
+        reference_capture_path = runner.regular_file(
+            args.reference_capture_receipt, "reference adapter capture receipt"
+        )
     candidate_capture_path = runner.regular_file(
         args.candidate_capture_receipt, "candidate adapter capture receipt"
     )
@@ -2140,7 +2560,10 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
             reference_exact_output,
         )
         _require_exact_capture_binding(
-            reference_exact_proof, "reference", reference_capture_path, runner
+            reference_exact_proof,
+            "reference",
+            original_capture_path if corrected_reference else reference_capture_path,
+            runner,
         )
         reference_exact_owners = _validated_exact_owners(
             reference_exact_proof, "reference", len(expected_inputs)
@@ -2170,7 +2593,7 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
                 candidate_root,
                 "adapter mismatch report",
             )
-            outcomes, mismatches = compare_full_publications(
+            compare_result = compare_full_publications(
                 runner,
                 pathlib.Path(source_record["reference_receipt"]),
                 candidate_receipt_directory,
@@ -2181,14 +2604,53 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
                 reference_capture_path,
                 candidate_capture_path,
                 candidate_root,
-                reference_source_root,
+                derived_reference_root if corrected_reference else reference_source_root,
                 source_record,
                 input_root,
                 input_manifest,
                 docker_environment,
                 reference_exact_owners=reference_exact_owners,
                 candidate_exact_owners=candidate_exact_owners,
+                corrected_reference=corrected_reference,
+                original_capture_receipt=original_capture_path,
+                original_reference_source_root=reference_source_root,
             )
+            if corrected_reference:
+                outcomes, mismatches, first_delta = compare_result
+            else:
+                outcomes, mismatches = compare_result
+                first_delta = None
+            if corrected_reference:
+                delta_path = comparison_output / "original-to-derived-reference.tsv"
+                _write_new_file(
+                    delta_path,
+                    reference_correction.first_difference_bytes(first_delta),
+                    runner,
+                )
+                comparison_receipt = comparison_output / "derived-reference-comparison.receipt"
+                delta_fields = (
+                    first_delta
+                    if first_delta is not None
+                    else ("none", "none", "none", "none", "none", "none")
+                )
+                first_difference_value = "\t".join(delta_fields)
+                comparison_lines = (
+                    "schema\t1\n"
+                    "role\toriginal-to-derived-reference-comparison\n"
+                    f"original_capture_receipt\t{original_capture_path}\n"
+                    f"original_capture_receipt_sha256\t{runner.sha256_file(original_capture_path)}\n"
+                    f"derived_capture_receipt\t{reference_capture_path}\n"
+                    f"derived_capture_receipt_sha256\t{runner.sha256_file(reference_capture_path)}\n"
+                    f"correction_receipt\t{correction_receipt_path}\n"
+                    f"correction_receipt_sha256\t{runner.sha256_file(correction_receipt_path)}\n"
+                    f"original_exact_capture_receipt\t{reference_exact_capture_path}\n"
+                    f"original_exact_capture_receipt_sha256\t{runner.sha256_file(reference_exact_capture_path)}\n"
+                    f"delta_file\t{delta_path}\n"
+                    f"delta_file_sha256\t{runner.sha256_file(delta_path)}\n"
+                    f"outcome_count\t{reference_correction.EXPECTED_OUTCOME_COUNT}\n"
+                    f"first_difference\t{first_difference_value}\n"
+                ).encode("utf-8")
+                _write_new_file(comparison_receipt, comparison_lines, runner)
             summary = f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches}"
             runner.write_status(comparison_output, "complete", completed, summary)
         runner.write_status(output, "complete", [], summary)
@@ -2204,6 +2666,12 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
         f"reference_exact_proof={reference_exact_output}\n"
         f"candidate_exact_proof={candidate_exact_output}\n"
         f"mismatch_file={comparison_output / 'mismatches.tsv'}"
+        + (
+            f"\noriginal_to_derived_delta={comparison_output / 'original-to-derived-reference.tsv'}"
+            f"\nderived_reference_comparison_receipt={comparison_output / 'derived-reference-comparison.receipt'}"
+            if corrected_reference
+            else ""
+        )
     )
     return 0 if mismatches == 0 else 1
 
@@ -2226,6 +2694,19 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     build.add_argument("--reference-source-root", type=pathlib.Path, required=True)
     build.add_argument("--reference-build-receipt", type=pathlib.Path)
+    build_derived = commands.add_parser("build-derived-reference")
+    build_derived.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    build_derived.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    build_derived.add_argument("--derived-reference-source-root", type=pathlib.Path, required=True)
+    capture_derived = commands.add_parser("capture-derived-reference")
+    capture_derived.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    capture_derived.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    capture_derived.add_argument("--derived-reference-source-root", type=pathlib.Path, required=True)
+    capture_derived.add_argument("--derived-reference-build-receipt", type=pathlib.Path, required=True)
+    capture_derived.add_argument("--original-capture-receipt", type=pathlib.Path, required=True)
+    capture_derived.add_argument("--original-exact-build-receipt", type=pathlib.Path, required=True)
+    capture_derived.add_argument("--original-exact-capture-receipt", type=pathlib.Path, required=True)
+    capture_derived.add_argument("--output", required=True)
     run = commands.add_parser(
         "run",
         help="capture legacy outcomes before exact-owner comparison",
@@ -2258,9 +2739,22 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("--reference-exact-capture-receipt", type=pathlib.Path, required=True)
     compare.add_argument("--candidate-exact-capture-receipt", type=pathlib.Path, required=True)
     compare.add_argument("--output", required=True)
+    compare_derived = commands.add_parser("compare-derived-captures")
+    compare_derived.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--reference-source-root", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--derived-reference-source-root", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--derived-reference-correction-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--original-capture-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--reference-exact-build-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--candidate-exact-build-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--candidate-capture-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--reference-exact-capture-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--candidate-exact-capture-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "compare-captures":
+        if args.command in {"compare-captures", "compare-derived-captures"}:
             runner = _load_candidate_publication_runner(
                 args.candidate_root,
                 args.candidate_source_receipt,
@@ -2269,10 +2763,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "build-harnesses":
             build_adapter_harnesses(args, runner)
             return 0
-        if args.command == "compare-captures":
+        if args.command == "build-derived-reference":
+            return build_derived_reference_harness(args, runner)
+        if args.command == "capture-derived-reference":
+            return capture_derived_reference(args, runner)
+        if args.command in {"compare-captures", "compare-derived-captures"}:
             return compare_captured_publications(args, runner)
         return execute_adapter_publication(args, runner)
-    except (PublicationError, runner.PublicationError, runner.CleanupFailure, OSError, subprocess.SubprocessError) as error:
+    except (
+        PublicationError,
+        reference_correction.CorrectionError,
+        runner.PublicationError,
+        runner.CleanupFailure,
+        OSError,
+        subprocess.SubprocessError,
+    ) as error:
         print(f"W9 publication adapter failed: {error}", file=sys.stderr)
         return 1
 
