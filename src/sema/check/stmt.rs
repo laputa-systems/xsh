@@ -11,8 +11,8 @@ use super::{Binding, TypeDefBody, tail_type_matches_expected};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef,
-    ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar, AssignTargetId,
-    BindingTargetId, BlockId, ExprId, StmtId, TypeExprId,
+    ArenaChild, ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar,
+    AssignTargetId, BindingTargetId, BlockId, ExprId, StmtId, SugarView, TypeExprId,
 };
 use crate::syntax::node::AssignOp;
 use rustc_hash::FxHashMap;
@@ -33,8 +33,6 @@ fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     )
 }
 
-/// Arena-native mirror of `block_always_returns`/`stmt_always_returns` — a
-/// pure structural walk, same pattern as `block_has_exit_point_arena`.
 #[allow(dead_code)]
 pub(super) fn block_always_returns_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
     let block = arena.arena.block(block_id);
@@ -48,11 +46,11 @@ pub(super) fn block_always_returns_arena(arena: &ArenaProgram, block_id: BlockId
 pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> bool {
     match arena.arena.stmt(id).kind {
         ArenaStmtKind::Sugar { expansion, .. } => stmt_always_returns_arena(arena, expansion),
-        ArenaStmtKind::Return(_) => true,
-        ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
-            ArenaExprKind::ErrorContext { block, .. } => block_always_returns_arena(arena, block),
-            _ => false,
-        },
+        ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_) => true,
+        ArenaStmtKind::Expr(expr) => expr_never_falls_through_arena(arena, expr),
 
         ArenaStmtKind::If {
             branches,
@@ -62,14 +60,12 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
                 .arena
                 .if_branches(branches)
                 .iter()
-                // A branch whose condition is the literal `false` never runs.
-                .filter(|branch| {
-                    !matches!(
+                .all(|branch| {
+                    matches!(
                         arena.arena.expr(branch.condition).kind,
                         ArenaExprKind::Bool(false)
-                    )
+                    ) || block_always_returns_arena(arena, branch.block)
                 })
-                .all(|branch| block_always_returns_arena(arena, branch.block))
                 && block_always_returns_arena(arena, else_block)
         }
         ArenaStmtKind::Match { arms, .. } => arena
@@ -82,8 +78,226 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
         } => {
             block_always_returns_arena(arena, body) && block_always_returns_arena(arena, else_block)
         }
+        ArenaStmtKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
+        ArenaStmtKind::While { condition, block }
+            if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(true)) =>
+        {
+            !block_has_reachable_break_target_arena(arena, block)
+        }
         _ => false,
     }
+}
+
+fn block_never_falls_through_arena(arena: &ArenaProgram, block: BlockId) -> bool {
+    arena
+        .arena
+        .stmt_ids(arena.arena.block(block).statements)
+        .any(|id| stmt_never_falls_through_arena(arena, id))
+}
+
+fn block_has_reachable_break_target_arena(arena: &ArenaProgram, block: BlockId) -> bool {
+    for id in arena.arena.stmt_ids(arena.arena.block(block).statements) {
+        if stmt_has_reachable_break_target_arena(arena, id) {
+            return true;
+        }
+        if stmt_never_falls_through_arena(arena, id) {
+            return false;
+        }
+    }
+    false
+}
+
+fn stmt_never_falls_through_arena(arena: &ArenaProgram, id: StmtId) -> bool {
+    match arena.arena.stmt(id).kind {
+        ArenaStmtKind::Match { .. } => false,
+        ArenaStmtKind::Sugar { expansion, .. } => stmt_never_falls_through_arena(arena, expansion),
+        ArenaStmtKind::If {
+            branches,
+            else_block,
+        } => {
+            for branch in arena.arena.if_branches(branches) {
+                let condition = arena.arena.expr(branch.condition).kind;
+                if matches!(condition, ArenaExprKind::Bool(false)) {
+                    continue;
+                }
+                if !block_never_falls_through_arena(arena, branch.block) {
+                    return false;
+                }
+                if matches!(condition, ArenaExprKind::Bool(true)) {
+                    return true;
+                }
+            }
+            else_block.is_some_and(|block| block_never_falls_through_arena(arena, block))
+        }
+        ArenaStmtKind::With { body, else_block, .. } => {
+            block_never_falls_through_arena(arena, body)
+                && block_never_falls_through_arena(arena, else_block)
+        }
+        _ => stmt_always_returns_arena(arena, id),
+    }
+}
+
+fn stmt_has_reachable_break_target_arena(arena: &ArenaProgram, id: StmtId) -> bool {
+    match arena.arena.stmt(id).kind {
+        ArenaStmtKind::Break { .. } => true,
+        ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Defer(..)
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_) => false,
+        ArenaStmtKind::While { condition, .. } => {
+            expr_has_reachable_break_target_arena(arena, condition)
+        }
+        ArenaStmtKind::For { iter, .. } => expr_has_reachable_break_target_arena(arena, iter),
+        ArenaStmtKind::If {
+            branches,
+            else_block,
+        } => {
+            for branch in arena.arena.if_branches(branches) {
+                if expr_has_reachable_break_target_arena(arena, branch.condition) {
+                    return true;
+                }
+                let condition = arena.arena.expr(branch.condition).kind;
+                if matches!(condition, ArenaExprKind::Bool(false)) {
+                    continue;
+                }
+                if block_has_reachable_break_target_arena(arena, branch.block) {
+                    return true;
+                }
+                if matches!(condition, ArenaExprKind::Bool(true)) {
+                    return false;
+                }
+            }
+            else_block.is_some_and(|block| block_has_reachable_break_target_arena(arena, block))
+        }
+        _ => {
+            let mut found = false;
+            arena
+                .arena
+                .for_each_stmt_child(id, SugarView::Core, |child| {
+                    found |= child_has_reachable_break_target_arena(arena, child)
+                });
+            found
+        }
+    }
+}
+
+fn expr_never_falls_through_arena(arena: &ArenaProgram, id: ExprId) -> bool {
+    match arena.arena.expr(id).kind {
+        ArenaExprKind::Try(inner) => expr_never_falls_through_arena(arena, inner),
+        ArenaExprKind::If {
+            branches,
+            else_value,
+        } => {
+            for branch in arena.arena.if_expr_branches(branches) {
+                if matches!(
+                    arena.arena.expr(branch.condition).kind,
+                    ArenaExprKind::Bool(false)
+                ) {
+                    continue;
+                }
+                if !expr_never_falls_through_arena(arena, branch.value) {
+                    return false;
+                }
+                if matches!(
+                    arena.arena.expr(branch.condition).kind,
+                    ArenaExprKind::Bool(true)
+                ) {
+                    return true;
+                }
+            }
+            expr_never_falls_through_arena(arena, else_value)
+        }
+        ArenaExprKind::Capture(block)
+        | ArenaExprKind::ValueBlock(block)
+        | ArenaExprKind::Collect { block }
+        | ArenaExprKind::ErrorContext { block, .. }
+        | ArenaExprKind::ContextScope { block, .. }
+        | ArenaExprKind::TempDirScope { block, .. }
+        | ArenaExprKind::ResourceScope { block, .. } => block_never_falls_through_arena(arena, block),
+        ArenaExprKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
+        _ => false,
+    }
+}
+
+fn child_has_reachable_break_target_arena(arena: &ArenaProgram, child: ArenaChild) -> bool {
+    match child {
+        ArenaChild::Stmt(id) => stmt_has_reachable_break_target_arena(arena, id),
+        ArenaChild::Expr(id) => expr_has_reachable_break_target_arena(arena, id),
+        ArenaChild::Block(id) => block_has_reachable_break_target_arena(arena, id),
+        ArenaChild::Pattern(id) => {
+            let mut found = false;
+            arena.arena.for_each_pattern_child(id, |child| {
+                found |= child_has_reachable_break_target_arena(arena, child)
+            });
+            found
+        }
+        ArenaChild::BindingTarget(id) => {
+            let mut found = false;
+            arena.arena.for_each_binding_target_child(id, |child| {
+                found |= child_has_reachable_break_target_arena(arena, child)
+            });
+            found
+        }
+        ArenaChild::AssignTarget(id) => {
+            let mut found = false;
+            arena.arena.for_each_assign_target_child(id, |child| {
+                found |= child_has_reachable_break_target_arena(arena, child)
+            });
+            found
+        }
+        ArenaChild::TypeExpr(_) => false,
+        ArenaChild::BuilderBlock(id) => {
+            let mut found = false;
+            arena.arena.for_each_builder_child(id, |child| {
+                if !matches!(child, ArenaChild::Block(_)) {
+                    found |= child_has_reachable_break_target_arena(arena, child);
+                }
+            });
+            found
+        }
+    }
+}
+
+fn expr_has_reachable_break_target_arena(arena: &ArenaProgram, id: ExprId) -> bool {
+    if matches!(arena.arena.expr(id).kind, ArenaExprKind::Loop { .. }) {
+        return false;
+    }
+    if let ArenaExprKind::If {
+        branches,
+        else_value,
+    } = arena.arena.expr(id).kind
+    {
+        for branch in arena.arena.if_expr_branches(branches) {
+            if expr_has_reachable_break_target_arena(arena, branch.condition) {
+                return true;
+            }
+            let condition = arena.arena.expr(branch.condition).kind;
+            if matches!(condition, ArenaExprKind::Bool(false)) {
+                continue;
+            }
+            if expr_has_reachable_break_target_arena(arena, branch.value) {
+                return true;
+            }
+            if matches!(condition, ArenaExprKind::Bool(true)) {
+                return false;
+            }
+        }
+        return expr_has_reachable_break_target_arena(arena, else_value);
+    }
+    let callbacks = matches!(
+        arena.arena.expr(id).kind,
+        ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
+    );
+    let mut found = false;
+    arena.arena.for_each_expr_child(id, |child| {
+        if !(callbacks && matches!(child, ArenaChild::Block(_) | ArenaChild::BuilderBlock(_))) {
+            found |= child_has_reachable_break_target_arena(arena, child);
+        }
+    });
+    found
 }
 
 /// Whether a tail `if` can supply its block's value: some branch ends in a
@@ -4598,4 +4812,141 @@ fn copy_update_mistake(
         ),
         repair,
     })
+}
+
+#[cfg(test)]
+mod termination_tests {
+    use super::block_always_returns_arena;
+    use crate::diagnostic::DiagnosticCode;
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::arena::{ArenaProgram, ArenaStmtKind};
+    use crate::syntax::parser::Parser;
+
+    fn parse(source: &str) -> ArenaProgram {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+        parsed.arena
+    }
+
+    fn first_proc_body(program: &ArenaProgram) -> crate::syntax::arena::BlockId {
+        program
+            .arena
+            .stmt_ids(program.statements)
+            .find_map(|id| match program.arena.stmt(id).kind {
+                ArenaStmtKind::ProcDef(def) => Some(program.arena.function_def(def).body),
+                _ => None,
+            })
+            .expect("source must declare a procedure")
+    }
+
+    fn proc_never_completes(source: &str) -> bool {
+        let program = parse(source);
+        block_always_returns_arena(&program, first_proc_body(&program))
+    }
+
+    #[test]
+    fn wait_until_with_a_false_condition_has_no_inferred_success_value() {
+        let source = "let late = try {\n  wait until false within 50ms backoff 10ms..20ms\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = parsed.arena;
+        let diagnostics = program
+            .symbol_owner()
+            .with_current(|| Checker::check_arena(&program, source).diagnostics);
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTrySuccessType)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn loop_completion_uses_only_reachable_breaks_for_its_own_loop() {
+        assert!(proc_never_completes(
+            "proc spin() [] { loop { if false { break } } }"
+        ));
+        assert!(!proc_never_completes(
+            "proc exits() [] { while true { break } }"
+        ));
+        assert!(!proc_never_completes(
+            "proc known_true() [] { loop { if true { break } } }"
+        ));
+        assert!(proc_never_completes(
+            "proc nested() [] { loop { loop { break } } }"
+        ));
+        assert!(!proc_never_completes(
+            "proc nested_exit() [] { loop { loop { break }; break } }"
+        ));
+        assert!(proc_never_completes(
+            "proc dead_break() [] { loop { return; break } }"
+        ));
+        assert!(proc_never_completes(
+            "proc dead_continue() [] { loop { continue; break } }"
+        ));
+        assert!(proc_never_completes(
+            "proc dead_exit() [] { loop { exit 0; break } }"
+        ));
+        assert!(!proc_never_completes(
+            "proc unexhaustive_match() [] { loop { match true { true => { return } }; break } }"
+        ));
+    }
+
+    #[test]
+    fn try_retry_and_context_scopes_keep_enclosing_loop_breaks() {
+        assert!(!proc_never_completes(
+            "proc tried() [] { loop { try { break } } }"
+        ));
+        assert!(!proc_never_completes(
+            "proc retried() [] { loop { retry [] { break } } }"
+        ));
+        assert!(!proc_never_completes(
+            "proc scoped() [] { loop { within 1s { break } } }"
+        ));
+    }
+
+    #[test]
+    fn captured_returns_make_the_enclosing_loop_non_fallthrough() {
+        let source = "proc value() [] -> Int { loop { try { return 1 }; break } }";
+        assert!(proc_never_completes(source));
+        let program = parse(source);
+        let diagnostics = program
+            .symbol_owner()
+            .with_current(|| Checker::check_arena(&program, source).diagnostics);
+
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn evaluated_assignment_and_builder_values_keep_enclosing_loop_breaks() {
+        assert!(!proc_never_completes(
+            "proc indexed() [] { loop { items[try { break }] = 0 } }"
+        ));
+        assert!(!proc_never_completes(
+            "proc builder() [] { loop { let _plan = process.command { timeout = try { break }; run true } } }"
+        ));
+    }
+
+    #[test]
+    fn deferred_break_does_not_complete_the_enclosing_loop() {
+        assert!(proc_never_completes(
+            "proc deferred() [] { loop { defer { break } } }"
+        ));
+        assert!(proc_never_completes(
+            "proc callback() [] { loop { [1] |> map { break } } }"
+        ));
+        assert!(proc_never_completes(
+            "proc nested_callable() [] { loop { proc nested() [] { break } } }"
+        ));
+        assert!(proc_never_completes(
+            "proc builder_task() [] { loop { let _plan = process.command { task child { break } } } }"
+        ));
+    }
 }
