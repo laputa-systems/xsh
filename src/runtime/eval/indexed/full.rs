@@ -1897,8 +1897,10 @@ impl FullBuilder {
             headers,
             identities: std::sync::OnceLock::new(),
         };
-        FullVerifier::verify(&program)
-            .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
+        FullVerifier::verify(&program).map_err(|error| {
+            IrBuildError::format("full_ir_verification", None, 0, 0)
+                .with_detail(Some(error.message))
+        })?;
         Ok(program)
     }
 
