@@ -34,6 +34,12 @@ test test_route_witness_leaf_selects_its_direct_unit_cli_and_native_cases {
   ]
   assert "test-runtime" not in stages
 
+  let product_build = [spec for spec in plan |> where .stage == "test-products"][0]
+  assert product_build.argv[1..] == [
+    "build", "--locked", "--profile", "verification", "--target", ctx.target.triple,
+    "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xshi", "--bin", "xshi",
+  ]
+
   let unit = [spec for spec in plan |> where .stage == "test-route-witness-unit"][0]
   assert "--lib" in unit.argv
   assert "runtime::eval::route_witness::tests" in unit.argv
@@ -67,6 +73,37 @@ test test_route_witness_selector_preserves_broad_shared_runtime_gates {
   assert runtime.len() == 1
   assert "runtime::" in runtime[0].argv
   assert "--skip" in runtime[0].argv
+}
+
+test test_compile_and_soundness_leaf_gates_skip_product_builds {
+  let ctx = fixtures.linux_context(/repo)?
+
+  let compile = gates.lane_plan(ctx, tests.Verification, gates.select(["src/frontend/source.rs"])?)?
+  assert [spec.stage for spec in compile] == ["check-compile"]
+
+  let soundness = gates.lane_plan(ctx, tests.Verification, gates.select(["crates/xsh-fuzz/src/driver.rs"])?)?
+  assert [spec.stage for spec in soundness] == ["test-soundness"]
+
+  let no_products = tests.product_builds(ctx, tests.Verification, [])?
+  assert no_products.is_empty()
+}
+
+test test_memory_and_documentation_gates_build_only_their_cli_products {
+  let ctx = fixtures.linux_context(/repo)?
+
+  let memory = gates.lane_plan(ctx, tests.Verification, gates.select(["src/frontend_stats.rs"])?)?
+  assert [spec.stage for spec in memory] == ["test-products", "test-frontend-memory", "frontend-memory-report"]
+  assert memory[0].argv[1..] == [
+    "build", "--locked", "--profile", "verification", "--target", ctx.target.triple,
+    "-p", "xsht", "--bin", "xsht",
+  ]
+
+  let documentation = gates.lane_plan(ctx, tests.Verification, gates.select(["docs/TESTING.md"])?)?
+  assert [spec.stage for spec in documentation] == ["test-products"]
+  assert documentation[0].argv[1..] == [
+    "build", "--locked", "--profile", "verification", "--target", ctx.target.triple,
+    "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht",
+  ]
 }
 
 test test_route_witness_selector_avoids_duplicate_cli_and_native_runs {
@@ -112,7 +149,12 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
           assert "--lib" not in spec.argv
         }
       }
-      let product = tests.product_path(ctx, profile, "xsht")
+      let product_build = [spec for spec in plan |> where .stage == "test-products"][0]
+      assert product_build.argv[1..] == [
+        "build", "--locked", "--profile", tests.profile_name(profile), "--target", ctx.target.triple,
+        "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xshi", "--bin", "xshi",
+      ]
+      let product = tests.product_path(ctx, profile, tests.Xsht)
       assert product == fp"/repo/target/{ctx.target.triple}/{tests.profile_name(profile)}/xsht"
     }
   }
@@ -130,6 +172,13 @@ test test_lane_native_selection_never_requests_a_full_native_suite {
     assert spec.argv[2] != ""
   }
   assert native[1].argv[2] == "tests/xsh/retry.xsh"
+
+  let native_file = gates.lane_plan(ctx, tests.Verification, gates.select(["tests/xsh/retry.xsh"])?)?
+  assert [spec.stage for spec in native_file] == ["test-products", "native-tests/xsh/retry.xsh"]
+  assert native_file[0].argv[1..] == [
+    "build", "--locked", "--profile", "verification", "--target", ctx.target.triple,
+    "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xshi", "--bin", "xshi",
+  ]
 }
 
 test test_explicit_unsupported_test_profiles_fail_instead_of_using_a_default {
