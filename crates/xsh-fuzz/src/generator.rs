@@ -2667,8 +2667,8 @@ mod tests {
         let config = GenConfig::default();
         let mut generated = Vec::new();
         for seed in 0..128 {
-            let mut gen = Gen::new(Rng::new(seed), &config);
-            generated.push(gen.equality_operand_ty());
+            let mut generator = Gen::new(Rng::new(seed), &config);
+            generated.push(generator.equality_operand_ty());
         }
 
         assert!(generated.contains(&Ty::Float));
