@@ -11223,8 +11223,6 @@ fn indexed_configured_range_bound_subjects(
     Ok(Some((start_subject, end_subject)))
 }
 
-/// Whether an expression has a path that produces its value normally. Unknown
-/// expression forms remain completing so the verifier never invents a return.
 fn indexed_expr_can_complete(
     decoder: &FullDecoder<'_>,
     instruction: usize,
@@ -11262,7 +11260,6 @@ fn indexed_expr_can_complete(
                     None => true,
                 }
             } else if op == BinaryOp::ResultFallback {
-                // A Result's success arm can skip the fallback expression.
                 true
             } else {
                 child(right.raw())?
@@ -11302,8 +11299,6 @@ fn indexed_expr_can_complete(
             }
             can_complete
         }
-        // Pattern selection is not reconstructed here. A later pattern or
-        // fallback may be the only completing path, so remain conservative.
         schema::ExprView::PatternIf { .. } => true,
         schema::ExprView::MatchExpr {
             value,
@@ -11544,8 +11539,7 @@ fn indexed_expr_can_complete(
                 can_complete
             }
         }
-        // These forms may hold a branch-local return, but their encoded
-        // payloads are not needed to prove a guaranteed return yet.
+        schema::ExprView::Abort { .. } => false,
         _ => true,
     })
 }
@@ -20500,6 +20494,21 @@ pure selected() -> Str {
             Some(&decoder),
         )
         .unwrap());
+    }
+
+    #[test]
+    fn return_analysis_treats_abort_as_noncompleting() {
+        let program = fixture(
+            "exit-terminates.xsh",
+            "proc terminate(status: Int) [process] -> Unit { exit status }\n",
+        );
+        let abort = function_instruction_indices(&program, "terminate", FullTag::ExprAbort)
+            .into_iter()
+            .next()
+            .expect("exit lowers to an abort expression");
+        let decoder = return_analysis_decoder(&program, "terminate");
+
+        assert!(!indexed_expr_can_complete(&decoder, abort, 0).unwrap());
     }
 
     #[test]

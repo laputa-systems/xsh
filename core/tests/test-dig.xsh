@@ -18,6 +18,13 @@ test test_dig_answer_presentation {
   assert diagnostics.answer_text(answer, false) == "fixture.test.\t60\tIN\tA\t192.0.2.10\n"
 }
 
+test test_dig_usage_error_exits_with_status { |ctx|
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/dig.xsh" -- +unsupported fixture.test
+  assert result.status.exited_with(1)
+  assert result.stdout == ""
+  assert result.stderr == "dig: unsupported modifier '+unsupported'\nTry 'dig --help' for more information.\n", result.stderr
+}
+
 test test_dig_owned_dns_server { |ctx|
   let server = env.get_or("XSH_DNS_TEST_SERVER", "")?
   if server == "" { test.skip("requires the owned loopback DNS fixture"); return }
