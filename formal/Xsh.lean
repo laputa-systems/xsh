@@ -34,6 +34,7 @@ import Xsh.Strings.Slice
 import Xsh.Strings.Search
 import Xsh.Strings.ByteAccess
 import Xsh.Bytes.Access
+import Xsh.ByteCodecs.Integer
 import Xsh.Semantics.Environments
 import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace

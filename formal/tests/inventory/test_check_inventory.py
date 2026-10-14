@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(587, len(result["fragment_roots"]))
+        self.assertEqual(599, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -263,6 +263,20 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Bytes.Access.invalid_slice_offsets_are_rejected",
                 "Xsh.Bytes.Access.negative_slice_length_is_rejected",
                 "Xsh.Bytes.Access.raw_ff_byte_does_not_require_utf8_decoding",
+            },
+            "Xsh.ByteCodecs.Integer": {
+                "Xsh.ByteCodecs.Integer.valid_widths",
+                "Xsh.ByteCodecs.Integer.invalid_width_rejection",
+                "Xsh.ByteCodecs.Integer.negative_pack_rejection",
+                "Xsh.ByteCodecs.Integer.pack_boundary_acceptance_and_overflow_rejection",
+                "Xsh.ByteCodecs.Integer.little_and_big_endian_byte_order",
+                "Xsh.ByteCodecs.Integer.pack_acceptance_matches_width_range",
+                "Xsh.ByteCodecs.Integer.fit_range_pack_unpack_round_trip",
+                "Xsh.ByteCodecs.Integer.lower_width_unpack_zero_extends",
+                "Xsh.ByteCodecs.Integer.width_eight_signed_decode",
+                "Xsh.ByteCodecs.Integer.invalid_offset_rejection",
+                "Xsh.ByteCodecs.Integer.short_input_rejection",
+                "Xsh.ByteCodecs.Integer.endian_swap_mutation_changes_value",
             },
             "Xsh.Lists.Splice": {
                 "Xsh.Lists.Splice.written_order_trace",

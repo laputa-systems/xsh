@@ -91,7 +91,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 587 fragment
+G0b source freeze remain pending. The provisional inventory has 599 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -292,6 +292,16 @@ at the end, and bytes are returned without UTF-8 decoding. The fragment excludes
 `Str` slicing, bracket slicing, source spans, checker diagnostics, XSH runtime
 behavior, and Rust correspondence.
 
+`Xsh.ByteCodecs.Integer` has twelve roots for independent little- and
+big-endian integer pack/unpack definitions. They model widths 1, 2, 4, and 8;
+packing at widths 1, 2, and 4 accepts values from zero through `256^width - 1`,
+while width 8 accepts zero through `2^63 - 1`. Unpacking widths 1, 2, and 4
+zero-extends unsigned values, and width 8 decodes a signed 64-bit value. The
+roots cover range acceptance, byte order, offset-zero round trips, signed
+boundary examples, and short-input rejection. Offsets are modeled as
+nonnegative signed-64-range values. This fragment proves no XSH runtime,
+host-API, or Rust correspondence, including negative-offset validation.
+
 `Xsh.Values.DurationOps` has eighteen roots for checked millisecond addition,
 subtraction, multiplication, division, interval ratios, and time conversions.
 Its `time.millis` saturation law uses mathematical `Int`; actual XSH signed-64-bit
@@ -378,7 +388,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 587 rooted Lean fragment declarations across 89 core owner
+The inventory names 599 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
