@@ -173,6 +173,41 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(lowered)
     }
 
+    fn record_prepared_callable_type(
+        &mut self,
+        value: BuildExprId,
+        ty: Type,
+        slots: &mut SlotScope,
+        slot: Option<usize>,
+        span: Span,
+    ) -> Option<()> {
+        let ty = self.canonicalize_checked_type(ty);
+        if !ty.contains_typed_callable() {
+            return Some(());
+        }
+        if let Some(slot) = slot
+            && !slots.record_checked_slot_type(slot, ty.clone())
+        {
+            self.last_blocker_detail = Some((
+                span,
+                "prepared argument conflicts with its checked callable slot type".to_string(),
+            ));
+            return None;
+        }
+        if !self
+            .scratch
+            .borrow_mut()
+            .record_checked_expr_type(value, ty, false)
+        {
+            self.last_blocker_detail = Some((
+                span,
+                "prepared argument row conflicts with its checked callable type".to_string(),
+            ));
+            return None;
+        }
+        Some(())
+    }
+
     /// Save each source entry once and project a spread's visible fields before
     /// beginning the next entry. Slots preserve this order when a callable's
     /// parameter order differs from its written argument order.
@@ -204,9 +239,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         _ => {
                             let value =
                                 self.lower_expr(record, slots, current_function, item_slot)?;
+                            let record_ty = self
+                                .bodies
+                                .expr_types
+                                .get(&record)
+                                .filter(|ty| compact_checked_type_is_concrete(ty))
+                                .cloned()
+                                .or_else(|| self.checked_expr_type(record))?;
                             let slot = slots.reserve("named spread record");
                             bindings.push((value, slot));
                             let value = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                            self.record_prepared_callable_type(
+                                value,
+                                record_ty,
+                                slots,
+                                Some(slot),
+                                self.program.arena.expr(record).span,
+                            )?;
                             record_entry = Some((arg.entry_index, value));
                             value
                         }
@@ -226,6 +275,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             span: arg.span
                         }
                     );
+                    self.record_prepared_callable_type(
+                        value,
+                        arg.ty.clone(),
+                        slots,
+                        None,
+                        arg.span,
+                    )?;
                     arguments.push(CallArgument {
                         name: arg.name,
                         splice: false,
@@ -243,6 +299,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let slot = slots.reserve("call argument");
             bindings.push((value, slot));
             let value = push_build_row!(self, expr, BuildExprRow::Param(slot));
+            self.record_prepared_callable_type(
+                value,
+                arg.ty.clone(),
+                slots,
+                Some(slot),
+                arg.span,
+            )?;
             arguments.push(CallArgument {
                 name: arg.name,
                 splice: matches!(arg.value, ArgumentValueSource::PositionalSplice(_)),
