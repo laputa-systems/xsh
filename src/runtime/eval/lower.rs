@@ -6668,6 +6668,7 @@ mod compact_expr_kind_tests {
 #[cfg(test)]
 mod checked_constructor_fact_tests {
     use crate::sema::check::CompactDeclOutput;
+    use crate::sema::types::Type;
     use crate::source::{SourceId, SourceMap};
     use crate::syntax::parser::ArenaParseOutput;
     use std::path::PathBuf;
@@ -7006,6 +7007,23 @@ mod checked_constructor_fact_tests {
             .bodies
             .selected_function_calls
             .contains_key(&call));
+        assert!(checked.build(&checked.declarations).is_ok());
+    }
+
+    #[test]
+    fn checked_set_constructor_results_keep_static_builtin_lowering() {
+        let source = "let empty: Set[Int] = set.empty()\nlet values: Set[Int] = set.from([1, 2])\n";
+        let checked = CheckedSource::new("checked-set-constructors.xsh", source, Vec::new());
+        let expected = Type::Set(Box::new(Type::Int));
+        for fragment in ["set.empty()", "set.from([1, 2])"] {
+            let call = checked.expression_containing(fragment);
+            assert_eq!(checked.declarations.bodies.expr_types.get(&call), Some(&expected));
+            assert!(checked
+                .declarations
+                .bodies
+                .statically_resolved_calls
+                .contains(&call));
+        }
         assert!(checked.build(&checked.declarations).is_ok());
     }
 
