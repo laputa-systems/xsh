@@ -375,14 +375,24 @@ assert !pattern.matches("router")
 }
 
 test test_expr_prepared_constant { |ctx|
-  let output = test.expect(
+  test.expect(
     ctx,
-    r"""const ANSWER = 42
-print "prepared"
-""",
+    "const ANSWER = 40 + 2",
     status: 0,
   )?
-  assert output.stdout == "prepared\n"
+}
+
+test test_prepared_constant_value_remains_42 { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""const ANSWER = 40 + 2
+let values: List[Any] = [ANSWER]
+assert values[0].require(Int)? == 42
+""",
+  )?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  assert output.stdout == ""
 }
 
 test test_expr_path { |ctx|

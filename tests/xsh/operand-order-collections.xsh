@@ -375,6 +375,26 @@ assert checked == "checked"
   assert output.stdout == "value\n"
 }
 
+test test_checked_value_evaluates_count_error_payload_once { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""error CountError = Invalid(count: UInt)
+proc count() [io] -> UInt {
+  print "count"
+  return 7
+}
+match Err(CountError.Invalid(count())) {
+  Err(CountError.Invalid {count}) => assert count == 7
+  Err(error) => assert false, error.message
+  Ok(_) => assert false, "expected an error"
+}
+""",
+  )?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  assert output.stdout == "count\n"
+}
+
 test test_expr_checked_value_evaluates_constrained_value_once { |ctx|
   let output = test.expect(
     ctx,
