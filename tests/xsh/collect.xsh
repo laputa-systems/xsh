@@ -398,18 +398,17 @@ print f"{result[0]},{result[1]}"
 }
 
 test test_prefer_collect_keeps_a_list_mutable_after_multiline_index_assignment { |ctx|
-  let source = r"""proc build(items: List[Int]) -> List[Int] {
+  let source = r"""proc build(items: List[Int], index: Int) -> List[Int] {
   var kept = []
   for item in items {
     kept += [item]
   }
-  kept[
-    0
-  ] = 99
+  kept[(index +
+    1) * 2] = 99
   kept
 }
 
-let result = build([1, 2])
+let result = build([1, 2], -1)
 print f"{result[0]},{result[1]}"
 """
   let built = test.temp_file(ctx, name: "multiline-mutable-collect.xsh", contents: bytes.from_text(source))?

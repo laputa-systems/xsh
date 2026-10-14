@@ -59,82 +59,82 @@ line always computes. Three things found while porting the rest:
 
 ## Defects
 
-W9 has a complete 1,690-input, 6,760-outcome publication parity run on an
-earlier source snapshot. It is historical evidence, not final-source
-acceptance. Temporary tracing on earlier snapshots counted one preparation and
-check per full module-record key in each shared session: XSH check 1,661 /
-default lint 1,518; Laputa check 379 / default lint 316. Default lint also
-created 288 fresh candidate-probe caches in XSH (905 records) and 77 in Laputa
-(347 records). The receipt-digest correction and deterministic shared-module
-diagnostic ordering are integrated with focused coverage. W9 still needs its
-pinned current-source build, 1,690-input four-profile publication run, and
-source-matched cache measurement.
+The earlier 1,690-input, 6,760-outcome W9 parity run is historical evidence,
+not final-source acceptance. Tracing on earlier sources counted one
+preparation and check per full module-record key in each shared session: XSH
+check 1,661 and default lint 1,518; Laputa check 379 and default lint 316.
+Default lint also created 288 fresh candidate-probe caches in XSH (905
+records) and 77 in Laputa (347 records). The latest [consolidation handoff](dev/consolidation/HANDOFF.md#current-closure-checks-2026-10-14)
+records the pinned helper build and shared-import count probe. The frozen-source
+1,690-input, four-profile publication run remains open.
 
 ### Current consolidation acceptance gates
 
-The final-source feature-touch probe, zero-manual-site result, fixed-seed
-soundness gate, `xsht` integration gate, and full correctness run remain open.
-The final report must state cumulative campaign fuzz seeds and upstream
+The structural recount passed all four required zero metrics with no rises on
+the `865fa955` source snapshot. Its synthetic feature-touch probe recorded 38
+XSH and 18 XSHT exhaustive-match demands, then compiled after isolated
+placeholder arms. That probe does not establish runtime reachability or replace
+the original witness review. Final-source qualification remains open. The
+current-source fixed-seed and XSHT integration gates, full native suite,
+repository and documentation checks, and Linux privileged plan also remain
+open. The final report must state cumulative campaign fuzz seeds and upstream
 compatibility results. `cargo dev gate --batch` owns the fixed-seed and tooling
-checks, one full native suite, repository and docs checks; Linux also runs the
-privileged plan. See the current consolidation handoff for the source freeze
-and other close requirements.
+checks plus one full native suite. See the [consolidation handoff](dev/consolidation/HANDOFF.md)
+for the source freeze and other close requirements.
 
 ### Lint migration
 
 The broad lint migration still needs current-source acceptance. Its old
 per-rule finding counts and merge exclusions predate the second pass and are
-not a current inventory. Historical findings and targeted results are recorded
-in the consolidation handoff.
+not a current inventory. Historical findings and targeted results are
+recorded in the consolidation handoff.
 
-One known lint defect remains: `lint.prefer-collect` has produced rewrites the
-checker rejects. The historical findings for needless annotations, directory
-excludes, conditional `as` conversions, multiline record-constructor fixes,
+An earlier report said `lint.prefer-collect` could offer a rewrite that the
+checker rejected, but it preserved no source fixture. The retained
+`test_prefer_collect_keeps_a_list_mutable_after_multiline_index_assignment`
+initially failed before lint ran: a bare newline inside `kept[...]` produced
+`parse.expected-expression`. The fixture now uses the parenthesized multiline
+index form covered by
+`crates/xsht/src/lint_prefer_collect.rs::multiline_index_assignment_keeps_the_list_mutable`.
+The focused `xsht test --exact` run passes with the pinned verification pair,
+and the program prints `99,2`. This fixes the malformed test but does not
+reproduce or disprove the earlier rewrite report. Current-source lint
+acceptance remains open.
+
+Adjacent tests keep indexed mutations out of the rewrite. The Rust tests
+`indexed_comparison_after_the_loop_is_not_a_reassignment` and
+`indexed_comparison_does_not_hide_a_later_unrelated_assignment` check both
+source and rewritten text. The runtime capture regression
+`tests/xsh/stream-producers.xsh::test_stream_producer_mutations_refresh_consumer_captures`
+covers captured mutations across collection, resumption, delegation, and
+cancellation.
+
+The historical findings for needless annotations, directory excludes,
+conditional `as` conversions, multiline record-constructor fixes,
 redundant-close indentation, and positional callable constructors have merged
-fixes; their evidence is recorded in the consolidation handoff.
+fixes. Their evidence is recorded in the consolidation handoff.
+
+The narrowed optional callable-field verifier gap is closed. Positive tests in
+`src/runtime/eval/indexed/full.rs` cover calls through narrowed optional
+records and guarded optional paths. Negative tests reject forged guards,
+writes, loop backedges, and reordered evidence.
 
 ### Historical host-load failures and current targeted shards
 
-One full `xsht test` on the merged tree under host load 35 to 75 (other jobs
-on the machine, 1.5 h) ended `13377 passed; 116 failed; 138 skipped`.
-Re-running the 72 `FAILED` IDs one at a time passed 71; the remaining one
-(`test_uu_tail_follow_descriptor_vs_rename1`) is a startup race fixed in the
-test. Re-running the 44 `TIMEOUT 2m` IDs one at a time passed 40; four still
-timed out alone, and two also timed out at 2 minutes on the frozen abdd589c
-build:
-`test-gnu-cut.xsh::test_gnu_cut_cut_log`,
-`test-gnu-factor.xsh::test_gnu_factor_factor_parallel_log`,
-`test-uu-sort-2.xsh::test_uu_sort_merge_write_error_does_not_panic`,
-`dev/tests/test-system-report-check.xsh::test_system_report_traced_live_and_replay_paths_keep_host_effect_...`.
-The system-report test has since been split into live-text, live-JSON,
-replay-path, and invalid-section groups (`30fff44de`); all four groups were run
-and passed under the native test timeout, so the old combined timeout ID is
-stale. The GNU cut shards passed 15/15, with the longest taking 33.7 seconds.
-The pinned targeted factor filters passed 60/60 on a rebuilt verification
-pair at `0107c8158`. The split sort gate passed 321 cases with 4
-locale-dependent skips and no failures on source snapshot `f4c93f7d8`. These
-targeted passes do not replace the still-pending full native acceptance run.
-Which of the other 111 are test pollution and which are timing-gated is not
-settled. Known pollution: a test that closes a descriptor and asserts the
-error from the same number races any concurrent test that opens a file
-(`linux_storage.xsh::test_real_ioctls_on_a_regular_file...`, fixed by probing a
-never-open number); other tests with that shape were not searched for. Known
-timing gates: 3 s and 5 s child deadlines in `core/tests` (awk, dd, tail,
-find, sed, ls) and the btop PTY tests' 10 s waits against a 10 to 25 s
-verification-profile applet startup. To separate them, run the suite at
-`-j 1`, `-j 8` and the default, and diff the failing sets; a failure that
-follows the worker count and moves between runs is pollution, one that
-follows host load alone is timing.
+The recorded full native counts predate the current source. The latest run in
+the [consolidation handoff](dev/consolidation/HANDOFF.md) recorded 13,437
+passes, 56 failures, and 138 skips on snapshot `59a6dfbc` under host load.
+The handoff records later targeted passes and repairs, including the split
+system-report checks, GNU cut, factor, and sort shards. Those runs do not
+replace a full current-source suite. The older result of 13,377 passed, 116
+failed, and 138 skipped is not a current failure total. Run the full suite from
+the final source freeze before reporting current failures.
 
 ### Smaller open items
 
 - Each lint candidate probe is a full parse, load and check of the import
   graph (introduced by `da40b6b4`); options are one shared check of the
   unchanged graph, grouped candidates, or skipping probes on a clean corpus.
-- The full IR verifier derives a field receiver's type from the slot's
-  declared type; a narrowed optional record is peeled one layer, but a callable
-  field read or call through a narrowed optional record may still be rejected.
-  The soundness fuzzer does not reach them.
 - `third_party/regex-lite` is a vendored copy of regex-lite 0.1.9 whose capture
   name map is a `BTreeMap`, so compiling a regex literal does not need
   `getrandom` (`test_uu_shuf_getrandom_fail`); the owner chose this over
