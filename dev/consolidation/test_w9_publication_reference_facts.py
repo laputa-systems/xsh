@@ -18,6 +18,7 @@ PURE_SIGNATURE = (
     "Some(CompactFunctionSig { params: [], parameter_schemas: [], return_ty: Int, "
     "return_type_expr: TypeExprId(1), inferred_effects: true, effects: None })"
 )
+RESULT_UNIT_TYPE = "Result(Unit, ErrorFamily(Name(\"Fs\")))"
 STAGE_CALLBACK_SIGNATURE = (
     "Some(CompactFunctionSig { params: [CallableParamType { name: Name(\"item\"), "
     "ty: Int, defaulted: false, rest: false }], parameter_schemas: [None], "
@@ -126,8 +127,10 @@ def _direct_owners():
 def _stage_callback_owners(
     *, stage_kind="SortBy", argument_expr_id=0, callback_expr_id=0,
     argument_kind="Positional", argument_name=None, inline_block=False,
-    expression_kind="Ident",
+    expression_kind="Ident", accepts_callable=None,
 ):
+    if accepts_callable is None:
+        accepts_callable = stage_kind == "SortBy"
     return {
         "exprs": {
             0: (
@@ -142,7 +145,7 @@ def _stage_callback_owners(
         "record_field_count": 0,
         "tails": {},
         "structured_stages": {
-            0: (STAGE_SPAN, stage_kind, inline_block, stage_kind == "SortBy")
+            0: (STAGE_SPAN, stage_kind, inline_block, accepts_callable)
         },
         "stage_arguments": {
             0: ((0, argument_kind, argument_name, argument_expr_id),)
@@ -236,10 +239,15 @@ def _validate(fields, owners=None, exact_owners=None, sizes=None):
     )
 
 
-def _stage_callback_fields(*, types=None, static_spans=None, positions=None):
+def _stage_callback_fields(
+    *, types=None, static_spans=None, positions=None, return_ty="Int"
+):
+    declaration = STAGE_CALLBACK_DECLARATION.replace(
+        "return_ty: Int", f"return_ty: {return_ty}"
+    )
     fields = _fields(
-        declaration=STAGE_CALLBACK_DECLARATION,
-        types=f"{{{IDENT_SPAN}: Int}}" if types is None else types,
+        declaration=declaration,
+        types=f"{{{IDENT_SPAN}: {return_ty}}}" if types is None else types,
         static_spans=f"{{{IDENT_SPAN}}}" if static_spans is None else static_spans,
     )
     fields["statement_positions"] = (
@@ -370,6 +378,41 @@ class FunctionReferenceFactTests(unittest.TestCase):
     def test_named_stage_callback_requires_value_statement_position(self):
         with self.assertRaises(AdapterError):
             _validate_stage_callback(_stage_callback_fields(positions="{}"))
+
+    def test_each_and_tee_callbacks_require_statement_position_for_unit_results(self):
+        for stage_kind in ("Each", "Tee"):
+            for return_ty in ("Unit", RESULT_UNIT_TYPE):
+                with self.subTest(stage_kind=stage_kind, return_ty=return_ty):
+                    exact_owners = _stage_callback_owners(
+                        stage_kind=stage_kind, accepts_callable=True
+                    )
+                    fields = _stage_callback_fields(
+                        return_ty=return_ty,
+                        positions=f"{{{IDENT_SPAN}: Statement}}",
+                    )
+                    result = _validate_stage_callback(
+                        fields, exact_owners=exact_owners
+                    )
+                    self.assertEqual(
+                        result.implicit_function_spans, frozenset({IDENT_SPAN})
+                    )
+                    fields["statement_positions"] = f"{{{IDENT_SPAN}: Value}}"
+                    with self.assertRaises(AdapterError):
+                        _validate_stage_callback(
+                            fields, exact_owners=exact_owners
+                        )
+
+    def test_each_and_tee_callbacks_reject_non_unit_results(self):
+        for stage_kind in ("Each", "Tee"):
+            with self.subTest(stage_kind=stage_kind):
+                exact_owners = _stage_callback_owners(
+                    stage_kind=stage_kind, accepts_callable=True
+                )
+                fields = _stage_callback_fields(
+                    positions=f"{{{IDENT_SPAN}: Statement}}"
+                )
+                with self.assertRaises(AdapterError):
+                    _validate_stage_callback(fields, exact_owners=exact_owners)
 
     def test_named_stage_callback_requires_static_call_membership(self):
         with self.assertRaises(AdapterError):
