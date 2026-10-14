@@ -53,8 +53,7 @@ fn assert_route_witness(
         miniserde::json::from_str(&text).expect("parse route-witness artifact");
     assert_eq!(artifact.version, 1);
     assert_eq!(artifact.test_id, test_id);
-    use sha2::{Digest, Sha256};
-    assert_eq!(artifact.source_hash, format!("{:x}", Sha256::digest(source)));
+    assert_eq!(artifact.source_hash, sha256_hex(source));
     assert!(!artifact.records.is_empty());
     assert!(artifact.records.iter().any(|record| {
         record.tag_name == "ExprEmptyMap"
@@ -62,6 +61,18 @@ fn assert_route_witness(
             && record.route == route
             && record.mode == mode
     }));
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let digest = Sha256::digest(bytes);
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        encoded.push(char::from(HEX_DIGITS[(byte >> 4) as usize]));
+        encoded.push(char::from(HEX_DIGITS[(byte & 0x0f) as usize]));
+    }
+    encoded
 }
 
 fn route_witness_tempdir() -> TempDir {
@@ -888,8 +899,6 @@ test unobserved {{ |ctx|
 
 #[test]
 fn native_test_environment_fake_transport_does_not_activate_capture() {
-    use sha2::{Digest, Sha256};
-
     let root = route_witness_tempdir();
     let tests = root.path().join("tests");
     fs::create_dir(&tests).expect("create native test root");
@@ -914,7 +923,7 @@ fn native_test_environment_fake_transport_does_not_activate_capture() {
         )
         .env(
             "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_SOURCE_HASH",
-            format!("{:x}", Sha256::digest(child_source.as_bytes())),
+            sha256_hex(child_source.as_bytes()),
         )
         .output()
         .expect("run environment fake transport test");

@@ -1988,6 +1988,7 @@ dependencies = [
  "miniserde",
  "rustc-hash",
  "rustix",
+ "sha2",
  "syscalls",
  "tempfile",
  "xsh",

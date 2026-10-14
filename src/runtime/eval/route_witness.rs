@@ -49,16 +49,12 @@ thread_local! {
     static ACTIVE_TRANSPORTS: RefCell<Vec<Option<NativeTestRouteWitnessTransport>>> = const { RefCell::new(Vec::new()) };
 }
 
-/// The exact outer native-test invocation and its private output directory.
-/// This value travels only through harness-owned evaluator state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InvocationContext {
     pub(crate) test_id: String,
     pub(crate) output_dir: PathBuf,
 }
 
-/// A child-side capture is constructed from one complete host-provided
-/// envelope and verified against the exact source bytes loaded by the runner.
 pub(crate) struct ChildCapture {
     artifact: PathBuf,
     test_id: String,
@@ -127,8 +123,6 @@ impl ChildCaptureContext {
     }
 }
 
-/// Owns the one-use context descriptor for one synchronous host callback.
-/// A per-handoff nonce authenticates the inherited descriptor.
 #[derive(Debug)]
 pub(crate) struct NativeTestRouteWitnessTransport {
     fd: OwnedFd,
@@ -237,8 +231,6 @@ impl Drop for ActiveTransportGuard {
     }
 }
 
-/// Keeps the descriptor available only while the evaluator's synchronous
-/// native-test host callback runs.
 pub(crate) fn with_transport<T>(
     transport: Option<NativeTestRouteWitnessTransport>,
     callback: impl FnOnce() -> T,
@@ -394,8 +386,6 @@ impl ChildCapture {
 
 }
 
-/// Removes harness-only invocation keys from the script overlay and rejects
-/// any partial or malformed context instead of silently disabling capture.
 pub(crate) fn take_invocation_context(
     overlay: Vec<(Vec<u8>, Vec<u8>)>,
 ) -> Result<(Option<InvocationContext>, Vec<(Vec<u8>, Vec<u8>)>), String> {
@@ -531,8 +521,6 @@ fn decode_transport(
     ))
 }
 
-/// Validates the artifact after the child exits successfully, while the
-/// caller still owns the per-child temporary directory.
 pub(crate) fn validate_artifact(
     output_dir: &Path,
     test_id: &str,
@@ -641,10 +629,19 @@ pub(crate) fn validate_artifact(
     Ok(())
 }
 
-/// Hashes the exact UTF-8 source bytes transported to the child.
 pub(crate) fn source_sha256(source: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(source))
+    lowercase_hex(Sha256::digest(source).as_slice())
+}
+
+fn lowercase_hex(bytes: &[u8]) -> String {
+    const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX_DIGITS[(byte >> 4) as usize]));
+        encoded.push(char::from(HEX_DIGITS[(byte & 0x0f) as usize]));
+    }
+    encoded
 }
 
 pub(crate) fn is_lowercase_sha256(value: &str) -> bool {
@@ -684,7 +681,6 @@ impl RouteWitnessRoute {
     }
 }
 
-/// The schema identity of a dispatched FullTag.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct FullTagIdentity {
     pub(crate) name: &'static str,
@@ -700,7 +696,6 @@ impl From<FullTag> for FullTagIdentity {
     }
 }
 
-/// One observation at the boundary where the evaluator chooses its route.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RouteWitnessRecord {
     pub(crate) tag: FullTagIdentity,
@@ -708,16 +703,13 @@ pub(crate) struct RouteWitnessRecord {
     pub(crate) mode: RouteWitnessMode,
 }
 
-/// A per-evaluation sink. It has no ambient state and is cloned only when the
-/// evaluation creates a worker evaluator. A collector creates one per test
-/// invocation, drains it after workers finish, and then drops it.
 #[derive(Clone, Default)]
 pub(crate) struct RouteWitnessSink {
     records: Arc<Mutex<Vec<RouteWitnessRecord>>>,
 }
 
 impl RouteWitnessSink {
-    pub(crate) fn record(
+    pub(in crate::runtime::eval) fn record(
         &self,
         tag: FullTag,
         route: RouteWitnessRoute,
@@ -747,6 +739,7 @@ impl RouteWitnessSink {
 mod tests {
     use super::*;
     use std::os::fd::IntoRawFd;
+    use std::os::unix::fs::MetadataExt;
 
     fn route_witness_tempdir() -> tempfile::TempDir {
         let scratch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
@@ -846,6 +839,17 @@ mod tests {
         format!("{fd}:{}", encode_nonce(nonce))
     }
 
+    fn descriptor_is_same_file(fd: RawFd, expected: &std::fs::Metadata) -> bool {
+        let Ok(duplicate) = duplicate_cloexec_fd(fd) else {
+            return false;
+        };
+        let duplicate = std::fs::File::from(duplicate);
+        let actual = duplicate
+            .metadata()
+            .expect("inspect duplicated descriptor");
+        actual.dev() == expected.dev() && actual.ino() == expected.ino()
+    }
+
     #[test]
     fn descriptor_transport_round_trips_and_checks_the_loaded_source() {
         let directory = route_witness_tempdir();
@@ -917,23 +921,35 @@ mod tests {
         for bytes in [oversized, short, invalid_header, invalid_hash, trailing] {
             let fd = owned_descriptor(&bytes);
             let raw = fd.as_raw_fd();
+            let identity = std::fs::File::from(
+                duplicate_cloexec_fd(raw).expect("keep transport identity available"),
+            );
+            let identity = identity.metadata().expect("inspect transport identity");
             assert!(ChildCaptureContext::from_owned_descriptor(fd, &[0; TRANSPORT_NONCE_BYTES]).is_err());
-            assert_eq!(unsafe { libc::fcntl(raw, libc::F_GETFD) }, -1);
+            assert!(
+                !descriptor_is_same_file(raw, &identity),
+                "malformed transport kept the original descriptor open",
+            );
         }
     }
 
     #[test]
     fn unmarked_inherited_fd_198_is_not_inspected_or_consumed() {
         let unrelated = owned_descriptor(b"ordinary inherited descriptor");
-        let duplicate = unsafe {
-            libc::fcntl(
-                unrelated.as_raw_fd(),
-                libc::F_DUPFD_CLOEXEC,
-                198,
-            )
+        let existing = unsafe { libc::fcntl(198, libc::F_GETFD) };
+        let _owner = if existing == -1 {
+            let duplicate = unsafe {
+                libc::fcntl(
+                    unrelated.as_raw_fd(),
+                    libc::F_DUPFD_CLOEXEC,
+                    198,
+                )
+            };
+            assert_eq!(duplicate, 198);
+            Some(unsafe { OwnedFd::from_raw_fd(duplicate) })
+        } else {
+            None
         };
-        assert_ne!(duplicate, -1);
-        let _duplicate_owner = unsafe { OwnedFd::from_raw_fd(duplicate) };
         let before_flags = unsafe { libc::fcntl(198, libc::F_GETFD) };
         let before_offset = unsafe { libc::lseek(198, 0, libc::SEEK_CUR) };
         assert!(inherited_transport_descriptor(None)

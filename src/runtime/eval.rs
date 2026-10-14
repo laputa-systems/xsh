@@ -2713,9 +2713,7 @@ pub struct Evaluator {
     frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch,
     /// Test-only policy that requires executed instructions to have frame handlers.
     force_frames: bool,
-    /// An evaluation-local opt-in sink for route observations.
     route_witness_sink: Option<route_witness::RouteWitnessSink>,
-    /// Exact harness identity used only to transport child route observations.
     route_witness_invocation: Option<route_witness::InvocationContext>,
     /// Set while a context-scoped frame lends its slots to the recursive
     /// evaluator, so nested bodies keep the outer-assignment escape rule.

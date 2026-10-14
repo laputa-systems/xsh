@@ -1092,8 +1092,6 @@ fn run_native_test_with_timeout(
     options: &TestOptions,
     route_witness: Option<&RouteWitnessConfig>,
 ) -> TestOutcome {
-    // Keep ownership outside the test worker so timeout and abandoned-thread
-    // paths remove partial artifacts; only a completed pass preserves them.
     let route_witness_tempdir = match route_witness.filter(|config| config.test_id == case.id) {
         Some(config) => match TempDir::new_in(&config.output_dir) {
             Ok(tempdir) => Some(tempdir),
