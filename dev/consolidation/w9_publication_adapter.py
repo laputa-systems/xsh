@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Callable, Mapping, NamedTuple
+from typing import Callable, Mapping, NamedTuple, Sequence
 
 
 ADAPTER_SCHEMA = "w9-publication-adapter-v1"
@@ -241,7 +241,7 @@ def _fields(value: str, expected_type: str) -> dict[str, str]:
 
 
 def _parse_struct_fields(
-    entries: list[str], expected_type: str
+    entries: Sequence[str], expected_type: str
 ) -> tuple[list[tuple[str, str]], dict[str, str]]:
     parsed = [_field(entry) for entry in entries]
     fields = dict(parsed)
@@ -1780,6 +1780,31 @@ def project_publication(
     if source_schema not in SOURCE_SCHEMAS:
         raise AdapterError(f"unsupported source schema {source_schema!r}")
     prefix, entries = _struct_parts(rendered, "CheckOutput")
+    return _project_publication_parts(
+        source_schema,
+        prefix,
+        entries,
+        source_sizes,
+        source_owners,
+        tail_statement_owners,
+        statement_owners,
+        candidate_exact_owners=candidate_exact_owners,
+    )
+
+
+def _project_publication_parts(
+    source_schema: str,
+    prefix: str,
+    entries: Sequence[str],
+    source_sizes: Mapping[int, int] | None = None,
+    source_owners: Mapping[str, set[str]] | None = None,
+    tail_statement_owners: Mapping[str, tuple[str, str, str]] | None = None,
+    statement_owners: Mapping[str, tuple[str, str]] | None = None,
+    *,
+    candidate_exact_owners: Mapping[str, object] | None = None,
+) -> str:
+    if source_schema not in SOURCE_SCHEMAS:
+        raise AdapterError(f"unsupported source schema {source_schema!r}")
     common_fields, fields = _parse_struct_fields(entries, "CheckOutput")
     for path in PATHS[source_schema]:
         common_fields, _ = _remove_field_pairs(common_fields, path)
@@ -1808,6 +1833,45 @@ def project_publication(
         ),
     )
     return _format_struct_fields(prefix, common_fields)
+
+
+def _compare_parsed_publications(
+    legacy_diagnostics: str,
+    legacy_prefix: str,
+    legacy_entries: Sequence[str],
+    legacy_source_sizes: Mapping[int, int],
+    legacy_source_owners: Mapping[str, set[str]],
+    legacy_tail_statement_owners: Mapping[str, tuple[str, str, str]],
+    legacy_statement_owners: Mapping[str, tuple[str, str]],
+    current_diagnostics: str,
+    current_prefix: str,
+    current_entries: Sequence[str],
+    current_source_sizes: Mapping[int, int],
+    current_source_owners: Mapping[str, set[str]],
+    *,
+    candidate_exact_owners: Mapping[str, object] | None = None,
+    candidate_statement_owners: Mapping[str, tuple[str, str]] | None = None,
+) -> None:
+    if legacy_diagnostics != current_diagnostics:
+        raise AdapterError("diagnostic mismatch")
+    if _project_publication_parts(
+        "legacy",
+        legacy_prefix,
+        legacy_entries,
+        legacy_source_sizes,
+        legacy_source_owners,
+        legacy_tail_statement_owners,
+        legacy_statement_owners,
+    ) != _project_publication_parts(
+        "current",
+        current_prefix,
+        current_entries,
+        current_source_sizes,
+        current_source_owners,
+        statement_owners=candidate_statement_owners,
+        candidate_exact_owners=candidate_exact_owners,
+    ):
+        raise AdapterError("common checked facts mismatch")
 
 
 def compare_publications(

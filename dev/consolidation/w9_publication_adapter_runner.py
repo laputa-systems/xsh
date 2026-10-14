@@ -2000,9 +2000,37 @@ def _align_profile_publications(
     reference_tui_source: bytes,
     candidate_tui_source: bytes,
 ):
+    return _align_profile_publications_with_parsed(
+        reference_publications,
+        candidate_publications,
+        reference_owner,
+        candidate_owner,
+        reference_tui_source,
+        candidate_tui_source,
+    ).aligned
+
+
+def _align_profile_publications_with_parsed(
+    reference_publications: list[str],
+    candidate_publications: list[str],
+    reference_owner: tuple[
+        dict[int, int],
+        dict[str, set[str]],
+        dict[str, tuple[str, str, str]],
+        dict[str, tuple[str, str]],
+    ],
+    candidate_owner: tuple[
+        dict[int, int],
+        dict[str, set[str]],
+        dict[str, tuple[str, str, str]],
+        dict[str, tuple[str, str]],
+    ],
+    reference_tui_source: bytes,
+    candidate_tui_source: bytes,
+):
     if len(reference_publications) != len(PROFILES) or len(candidate_publications) != len(PROFILES):
         raise PublicationError("TUI source alignment requires all four publication profiles")
-    return source_alignment.align_tui_publications(
+    return source_alignment._align_tui_publications_with_parsed(
         reference_publications=reference_publications,
         candidate_publications=candidate_publications,
         reference_source_sizes=reference_owner[0],
@@ -2318,7 +2346,7 @@ def compare_full_publications(
                 continue
             try:
                 profile_by_name = {record[0]: record for record in profile_records}
-                aligned = _align_profile_publications(
+                publication_alignment = _align_profile_publications_with_parsed(
                     [
                         profile_by_name[profile][3] if profile in profile_by_name else ""
                         for profile in PROFILES
@@ -2332,6 +2360,7 @@ def compare_full_publications(
                     reference_tui_source,
                     candidate_tui_source,
                 )
+                aligned = publication_alignment.aligned
                 (
                     aligned_candidate_exact_owners,
                     aligned_candidate_statement_owners,
@@ -2373,15 +2402,21 @@ def compare_full_publications(
                         )
                     continue
                 try:
-                    adapter.compare_publications(
+                    reference_parsed = publication_alignment.reference[profile_index]
+                    candidate_parsed = publication_alignment.candidate[profile_index]
+                    if reference_parsed is None or candidate_parsed is None:
+                        raise PublicationError("aligned publication is missing parsed fields")
+                    adapter._compare_parsed_publications(
                         reference_diagnostics,
-                        aligned.reference_publications[profile_index],
+                        reference_parsed.prefix,
+                        tuple(field.rendered for field in reference_parsed.fields),
                         reference_owner[0],
                         reference_owner[1],
                         reference_owner[2],
                         reference_owner[3],
                         candidate_diagnostics,
-                        aligned.candidate_publications[profile_index],
+                        candidate_parsed.prefix,
+                        tuple(field.rendered for field in candidate_parsed.fields),
                         aligned.candidate_source_sizes,
                         aligned.candidate_source_owners,
                         candidate_exact_owners=aligned_candidate_exact_owners,

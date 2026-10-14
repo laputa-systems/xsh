@@ -1878,7 +1878,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             original_profiles
             if scenario in {
                 "cache-identical", "cache-variants", "cache-boundary", "cache-failure",
-                "statement-flow",
+                "statement-flow", "parse-error",
             }
             else ("default",)
         )
@@ -2053,6 +2053,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 )
             if scenario == "cache-variants" and profile == "check-cli":
                 diagnostics = '[{"message":"profile variant"}]'
+            if scenario == "parse-error" and profile == "reveal":
+                reference_publication = "not a CheckOutput"
             reference_payloads[profile] = (
                 diagnostics,
                 reference_publication,
@@ -2251,7 +2253,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 return actual_compare(*args, **kwargs)
 
         stderr = io.StringIO()
-        actual_compare = adapter_runner.adapter.compare_publications
+        actual_compare = adapter_runner.adapter._compare_parsed_publications
         with (
             patch.object(adapter_runner.sys, "stderr", stderr),
             patch.object(self.runner, "regular_file", side_effect=regular_file),
@@ -2270,7 +2272,11 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                     for field, digest in zip(("diagnostics", "publication"), pair)
                 }
             )),
-            patch.object(adapter_runner.adapter, "compare_publications", side_effect=compare_adapter),
+            patch.object(
+                adapter_runner.adapter,
+                "_compare_parsed_publications",
+                side_effect=compare_adapter,
+            ),
         ):
             result = adapter_runner.compare_full_publications(
                 self.runner,
@@ -2433,7 +2439,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(len(observed), 3)
         self.assertEqual(
             len({
-                (args[0], args[1], args[6], args[7])
+                (args[0], args[1], tuple(args[2]), args[7], args[8], tuple(args[9]))
                 for args, _kwargs in observed
             }),
             3,
@@ -2473,6 +2479,24 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(
             progress,
             "comparison_progress inputs=1/1 outcomes=4/4 mismatches=4\n",
+        )
+
+    def test_full_compare_rejects_parse_failure_before_parsed_comparison(self):
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "parse-error"
+        )
+
+        mismatch_report = (self.artifact_root / "full-mismatches.tsv").read_bytes()
+        expected_mismatch = (
+            "0"
+            "\ttui-alignment\tAdapterError\texpected named CheckOutput Debug struct\n"
+        ).encode()
+        self.assertEqual(result, (4, 1))
+        self.assertEqual(observed, [])
+        self.assertEqual(mismatch_report, expected_mismatch)
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=4/4 mismatches=1\n",
         )
 
     def test_compare_captures_rejects_candidate_source_drift(self):
@@ -2659,6 +2683,123 @@ class TuiPublicationRunnerAlignmentTests(unittest.TestCase):
                     aligned.candidate_source_sizes,
                     aligned.candidate_source_owners,
                 )
+
+    def test_parsed_alignment_comparison_preserves_profile_reports_without_rescanning(self):
+        source = source_fixtures.OLD_SOURCE
+        reference_base = self._schema_publication(
+            source_fixtures.publication(source, include_tui=False)[0], "legacy"
+        )
+        candidate_base = self._schema_publication(
+            source_fixtures.publication(source, include_tui=False)[0], "current"
+        )
+
+        def labelled(publication, label):
+            return publication.replace(
+                'literal:"Span{source_id:SourceId(5),start:999,len:2}"',
+                f'literal:"{label}"',
+                1,
+            )
+
+        reference_publications = [
+            labelled(reference_base, "alpha"),
+            labelled(reference_base, "alpha"),
+            labelled(reference_base, "beta"),
+            labelled(reference_base, "beta"),
+        ]
+        candidate_publications = [
+            labelled(candidate_base, "alpha"),
+            labelled(candidate_base, "alpha"),
+            labelled(candidate_base, "gamma"),
+            labelled(candidate_base, "beta"),
+        ]
+        reference_diagnostics = ["", "", "", ""]
+        candidate_diagnostics = ["", "", "", "[profile difference]"]
+        source_sizes = source_fixtures.source_sizes(source)
+        source_owners = source_fixtures.owner_index(source)
+        adapter = adapter_runner.adapter
+        original_struct_parts = adapter._struct_parts
+
+        def compare_profiles(use_parsed):
+            with patch.object(adapter, "_struct_parts", wraps=original_struct_parts) as parse_struct:
+                publication_alignment = adapter_runner._align_profile_publications_with_parsed(
+                    reference_publications,
+                    candidate_publications,
+                    (source_sizes, source_owners, {}, {}),
+                    (source_sizes, source_owners, {}, {}),
+                    source,
+                    source,
+                )
+                aligned = publication_alignment.aligned
+                outcomes = {}
+                report = []
+                for index, profile in enumerate(adapter_runner.PROFILES):
+                    pair = (
+                        reference_diagnostics[index],
+                        aligned.reference_publications[index],
+                        candidate_diagnostics[index],
+                        aligned.candidate_publications[index],
+                    )
+                    if pair in outcomes:
+                        error = outcomes[pair]
+                        if error is not None:
+                            report.append(
+                                f"{profile}\tadapter\t{error[0].__name__}\t{error[1]}\n"
+                            )
+                        continue
+                    try:
+                        if use_parsed:
+                            reference = publication_alignment.reference[index]
+                            candidate = publication_alignment.candidate[index]
+                            if reference is None or candidate is None:
+                                raise adapter_runner.PublicationError(
+                                    "aligned publication is missing parsed fields"
+                                )
+                            adapter._compare_parsed_publications(
+                                reference_diagnostics[index],
+                                reference.prefix,
+                                tuple(field.rendered for field in reference.fields),
+                                source_sizes,
+                                source_owners,
+                                {},
+                                {},
+                                candidate_diagnostics[index],
+                                candidate.prefix,
+                                tuple(field.rendered for field in candidate.fields),
+                                aligned.candidate_source_sizes,
+                                aligned.candidate_source_owners,
+                            )
+                        else:
+                            adapter.compare_publications(
+                                reference_diagnostics[index],
+                                aligned.reference_publications[index],
+                                source_sizes,
+                                source_owners,
+                                {},
+                                {},
+                                candidate_diagnostics[index],
+                                aligned.candidate_publications[index],
+                                aligned.candidate_source_sizes,
+                                aligned.candidate_source_owners,
+                            )
+                    except adapter.AdapterError as error:
+                        outcomes[pair] = (type(error), str(error))
+                        report.append(
+                            f"{profile}\tadapter\t{type(error).__name__}\t{error}\n"
+                        )
+                    else:
+                        outcomes[pair] = None
+                checkoutput_parses = sum(
+                    call.args[1] == "CheckOutput" for call in parse_struct.call_args_list
+                )
+                return aligned, "".join(report).encode(), checkoutput_parses
+
+        raw_aligned, raw_report, raw_parse_count = compare_profiles(use_parsed=False)
+        parsed_aligned, parsed_report, parsed_parse_count = compare_profiles(use_parsed=True)
+        self.assertEqual(raw_aligned.reference_publications, parsed_aligned.reference_publications)
+        self.assertEqual(raw_aligned.candidate_publications, parsed_aligned.candidate_publications)
+        self.assertEqual(raw_report, parsed_report)
+        self.assertEqual(raw_parse_count, 9)
+        self.assertEqual(parsed_parse_count, 5)
 
     def test_alignment_rejects_a_single_profile_with_different_tui_declarations(self):
         reference_publication = source_fixtures.publication(source_fixtures.OLD_SOURCE)[0]
