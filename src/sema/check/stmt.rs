@@ -114,16 +114,16 @@ fn stmt_guarantees_escaping_control_arena(arena: &ArenaProgram, statement: StmtI
             stmt_guarantees_escaping_control_arena(arena, expansion)
         }
         ArenaStmtKind::Return(value) => value
-            .is_none_or(|value| matches!(value, ArenaExprOrRun::Expr(expr) if expr_is_literal_arena(arena, expr))),
+            .is_none_or(|value| matches!(value, ArenaExprOrRun::Expr(expr) if control_operand_is_infallible_literal_arena(arena, expr))),
         ArenaStmtKind::Break { value } => value
-            .is_none_or(|expr| expr_is_literal_arena(arena, expr)),
+            .is_none_or(|expr| control_operand_is_infallible_literal_arena(arena, expr)),
         ArenaStmtKind::Continue => true,
-        ArenaStmtKind::Exit(status) => expr_is_literal_arena(arena, status),
+        ArenaStmtKind::Exit(status) => control_operand_is_infallible_literal_arena(arena, status),
         _ => false,
     }
 }
 
-fn expr_is_literal_arena(arena: &ArenaProgram, expression: ExprId) -> bool {
+fn control_operand_is_infallible_literal_arena(arena: &ArenaProgram, expression: ExprId) -> bool {
     matches!(
         arena.arena.expr(expression).kind,
         ArenaExprKind::Null
@@ -132,8 +132,6 @@ fn expr_is_literal_arena(arena: &ArenaProgram, expression: ExprId) -> bool {
             | ArenaExprKind::Float(_)
             | ArenaExprKind::Duration(_)
             | ArenaExprKind::Str(_)
-            | ArenaExprKind::PathStr(_)
-            | ArenaExprKind::GlobStr(_)
             | ArenaExprKind::Bytes(_)
             | ArenaExprKind::Regex(_)
     )
@@ -5089,6 +5087,34 @@ mod termination_tests {
         assert!(!proc_never_completes(
             "proc value() [] { loop { try { assert false; return 1 }; break } }"
         ));
+    }
+
+    #[test]
+    fn glob_failure_before_return_keeps_capture_result_value() {
+        let source = "proc f() [fs] -> List[Path] {\n  let ignored: Result[Unit] = { try { return g\"\\0\" } }\n  []\n}\n";
+        let program = parse(source);
+        let binding = program
+            .arena
+            .stmt_ids(program.arena.block(first_proc_body(&program)).statements)
+            .find(|id| matches!(program.arena.stmt(*id).kind, ArenaStmtKind::Let { .. }))
+            .expect("procedure body should declare ignored");
+        let ArenaStmtKind::Let {
+            initializer: ArenaExprOrRun::Expr(expression),
+            ..
+        } = program.arena.stmt(binding).kind
+        else {
+            panic!("ignored initializer should be an expression");
+        };
+        let span = program.arena.expr(expression).span;
+        let checked = program
+            .symbol_owner()
+            .with_current(|| Checker::check_arena(&program, source));
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(
+            checked.expr_types.get(&span),
+            Some(&Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
+        );
     }
 
     #[test]
