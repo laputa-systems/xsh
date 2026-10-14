@@ -2,7 +2,67 @@
 
 Status: active 2026-10-14.
 
-## Current W4 and W9 closure batch, 2026-10-14
+## Current publication repair batch, 2026-10-14
+
+The full strict W9 c1 comparison completed with 6,760 outcomes and 24
+mismatches across inputs 873, 877, 893, 1162, 1516, and 1681. It failed;
+neither its complete status nor its earlier zero-mismatch progress is acceptance.
+Reports remain in
+`.work/consolidation/w9-derived-reference-bb-compare-c1/comparison/`.
+Original-to-derived-reference comparison records 36 changed outcomes. The
+original reference, corrected reference, corpus, captures, and receipts remain
+unchanged.
+
+The accepted producer repair from `0ccc24d7f` restores named stream callbacks'
+implicit call facts: result type, statement position, and static resolution
+when the call adds no diagnostic. This explains the first four failing inputs.
+The pinned Linux regression failed before the repair and passed afterward.
+Each/Tee retain their existing statement and Result[Unit] propagation behavior.
+This publishes existing semantics rather than changing the language contract.
+
+The exact-owner protocol now records RunKind and complete ordered stage
+arguments and callback edges. A plain command inside try can automatically
+propagate without an explicit run flag; captured, status, and stream forms
+cannot use that proof. Each/Tee implicit callback statements require exact
+stage edges in both roles. Candidate callbacks additionally require matching
+checked types, positions, targets, static-call facts, and identifier or field
+names. The field-name repair from `66f67ed83` rejects a forged alias whose
+exact module field names a different function. These repairs passed independent
+review. Both exact-owner roles must be rebuilt and recaptured; old exact-owner
+proofs do not match the new protocol.
+
+The integrated tooling passed 209 focused Python tests after the final
+field-name repair; its isolated adapter suite passed 39 tests. Integration
+regressions cover reference proof forwarding through both rendered and parsed
+comparison paths, including missing-edge rejection. The scanner and per-input
+parsed handoff reduce repeated parsing while preserving diagnostics-first
+errors and profile outcomes. No measured runtime speedup is claimed.
+
+Next, qualify the final integrated source, build the candidate and exact-owner
+harnesses, replay the six failing inputs, capture the new candidate and both
+exact-owner roles, and complete a fresh strict 6,760-outcome comparison. The
+original publication capture can be reused. Regenerate the correction receipt
+against the fresh reference proof; the current controller requires a fresh
+derived capture.
+Final correctness, generated docs, platform, and performance gates remain
+pending until functional W4/W9 acceptance. The prepared final launch plan
+serializes the required suites and shares one canonical correctness batch.
+
+The current 8ca cache measurement, full structural scan, and semantic reviews
+are retained evidence with their source qualifications. Five previously
+uncovered XSHT library tests now pass individually in pinned Linux. Feature
+compiler-demand evidence transfers to the repair batch by unchanged match
+owners; this establishes no new runtime parity. Final-source qualifications
+and canonical receipts remain required.
+
+Safe disk cleanup removed inactive compiler targets while preserving source
+worktrees, captures, proof files, and receipt-linked binaries. The latest two
+rounds increased observed free space by 5,103,865,856 and 2,024,652,800 bytes.
+The paused coverage baseline remains about 128.5 GiB: its final LLVM/API
+aggregate was never produced, so partial reports do not justify deleting raw
+profiles. ModuleRecord reference evidence, Laputa2, and Goose remain untouched.
+
+## Prior W4 and W9 closure checkpoint, 2026-10-14
 
 Master integrates the accepted W4 source at `0ab236324`, the statement-fact
 repair from `213585aac`, and the reviewed W9 controller and correction pipeline.
