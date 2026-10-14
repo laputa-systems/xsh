@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
@@ -204,6 +205,73 @@ def _tui_function_declarations(output: Mapping[str, str]) -> dict[str, _Function
 
 def _known_source_edit(reference_source: bytes, candidate_source: bytes) -> _SourceEdit:
     return _SourceEdit(reference_source, candidate_source)
+
+
+def _aligned_exact_owner_span(value: str, source_id: int, edit: _SourceEdit) -> str:
+    span_source_id, start, length = _parse_span(value)
+    if span_source_id != source_id:
+        return value
+    aligned_start = edit.current_span_to_reference(start, length)
+    if aligned_start == start:
+        return value
+    matches = list(SPAN_START.finditer(value))
+    if len(matches) != 1:
+        raise SourceAlignmentError("Span has malformed start field")
+    match = matches[0]
+    return value[: match.start(1)] + str(aligned_start) + value[match.end(1) :]
+
+
+def align_tui_exact_owners(
+    *,
+    exact_owners: Mapping[str, object],
+    tui_source_id: int | None,
+    reference_tui_source: bytes,
+    candidate_tui_source: bytes,
+) -> dict[str, object]:
+    aligned = deepcopy(dict(exact_owners))
+    if tui_source_id is None:
+        return aligned
+
+    edit = _known_source_edit(reference_tui_source, candidate_tui_source)
+    exprs = aligned["exprs"]
+    for expression_id, (span_value, tag, name) in exprs.items():
+        exprs[expression_id] = (
+            _aligned_exact_owner_span(span_value, tui_source_id, edit),
+            tag,
+            name,
+        )
+    runs = aligned["runs"]
+    for run_id, (span_value, propagate) in runs.items():
+        runs[run_id] = (
+            _aligned_exact_owner_span(span_value, tui_source_id, edit),
+            propagate,
+        )
+    for record in aligned["records"].values():
+        record["span"] = _aligned_exact_owner_span(record["span"], tui_source_id, edit)
+        fields = record["fields"]
+        for field_id, (kind, name, span_value, key_expr, value_expr) in fields.items():
+            fields[field_id] = (
+                kind,
+                name,
+                _aligned_exact_owner_span(span_value, tui_source_id, edit),
+                key_expr,
+                value_expr,
+            )
+    aliases = aligned["aliases"]
+    for alias_key, (expression_id, span_value, name) in aliases.items():
+        aliases[alias_key] = (
+            expression_id,
+            _aligned_exact_owner_span(span_value, tui_source_id, edit),
+            name,
+        )
+    tails = aligned["tails"]
+    for statement_id, (span_value, name, kind) in tails.items():
+        tails[statement_id] = (
+            _aligned_exact_owner_span(span_value, tui_source_id, edit),
+            name,
+            kind,
+        )
+    return aligned
 
 
 def _function_identity(declaration: _FunctionDeclaration) -> tuple[str, str, str]:

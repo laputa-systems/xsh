@@ -1,4 +1,5 @@
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 import w9_publication_adapter as publication_adapter
@@ -6,6 +7,7 @@ import w9_publication_sources as publication_sources
 from w9_publication_sources import (
     CURRENT_HEADER,
     SourceAlignmentError,
+    align_tui_exact_owners,
     align_tui_publications,
 )
 
@@ -143,6 +145,188 @@ def aligned(*, reference=None, candidate=None, reference_owners=None, candidate_
 
 
 class TuiPublicationSourceAlignmentTests(unittest.TestCase):
+    def test_exact_owner_spans_align_across_all_tables_and_keep_unrelated_spans(self):
+        source_id = 5
+        candidate_start = CURRENT_SOURCE.index(CURRENT_HEADER) + len(CURRENT_HEADER) + 4
+        field_start = candidate_start + 1
+        run_start = candidate_start + 2
+        tail_start = candidate_start + 3
+        unrelated_span = debug_span(0, 2, 1)
+        exact_owners = {
+            "exprs": {
+                0: (span(source_id, candidate_start, 1), "Record", ""),
+                1: (span(source_id, field_start, 1), "Ident", "name"),
+                2: (unrelated_span, "Ident", "spare"),
+                3: (unrelated_span, "Record", ""),
+                4: (unrelated_span, "Ident", "other"),
+            },
+            "runs": {
+                0: (debug_span(source_id, run_start, 1), True),
+                1: (unrelated_span, False),
+            },
+            "records": {
+                0: {
+                    "span": span(source_id, candidate_start, 1),
+                    "count": 1,
+                    "fields": {
+                        0: ("shorthand", "name", span(source_id, field_start, 1), None, None),
+                    },
+                },
+                3: {
+                    "span": unrelated_span,
+                    "count": 1,
+                    "fields": {
+                        1: ("shorthand", "other", unrelated_span, None, None),
+                    },
+                },
+            },
+            "aliases": {
+                (0, 0): (1, span(source_id, field_start, 1), "name"),
+                (3, 1): (4, unrelated_span, "other"),
+            },
+            "tails": {
+                0: (span(source_id, tail_start, 1), "tail", "stmt:TailBareIdent"),
+                1: (unrelated_span, "other", "stmt:TailBareIdent"),
+            },
+            "expr_count": 5,
+            "record_field_count": 2,
+            "extra": {"names": ["preserved"]},
+        }
+        original = deepcopy(exact_owners)
+
+        aligned = align_tui_exact_owners(
+            exact_owners=exact_owners,
+            tui_source_id=source_id,
+            reference_tui_source=OLD_SOURCE,
+            candidate_tui_source=CURRENT_SOURCE,
+        )
+
+        expected_start = candidate_start - DELTA
+        self.assertEqual(aligned["exprs"][0], (span(source_id, expected_start, 1), "Record", ""))
+        self.assertEqual(
+            aligned["exprs"][1],
+            (span(source_id, expected_start + 1, 1), "Ident", "name"),
+        )
+        self.assertEqual(aligned["exprs"][2], (unrelated_span, "Ident", "spare"))
+        self.assertEqual(
+            aligned["runs"],
+            {0: (debug_span(source_id, expected_start + 2, 1), True), 1: (unrelated_span, False)},
+        )
+        self.assertEqual(aligned["records"][0]["span"], span(source_id, expected_start, 1))
+        self.assertEqual(
+            aligned["records"][0]["fields"][0],
+            ("shorthand", "name", span(source_id, expected_start + 1, 1), None, None),
+        )
+        self.assertEqual(
+            aligned["aliases"],
+            {
+                (0, 0): (1, span(source_id, expected_start + 1, 1), "name"),
+                (3, 1): (4, unrelated_span, "other"),
+            },
+        )
+        self.assertEqual(aligned["records"][3]["span"], unrelated_span)
+        self.assertEqual(aligned["records"][3]["count"], exact_owners["records"][3]["count"])
+        self.assertEqual(
+            aligned["records"][3]["fields"][1],
+            ("shorthand", "other", unrelated_span, None, None),
+        )
+        self.assertEqual(
+            aligned["tails"],
+            {
+                0: (span(source_id, expected_start + 3, 1), "tail", "stmt:TailBareIdent"),
+                1: (unrelated_span, "other", "stmt:TailBareIdent"),
+            },
+        )
+        self.assertEqual(aligned["extra"], exact_owners["extra"])
+        self.assertEqual(aligned["expr_count"], exact_owners["expr_count"])
+        self.assertEqual(aligned["record_field_count"], exact_owners["record_field_count"])
+        self.assertIsNot(aligned, exact_owners)
+        self.assertIsNot(aligned["extra"], exact_owners["extra"])
+        self.assertEqual(exact_owners, original)
+
+    def test_exact_owner_facts_without_tui_source_id_are_deep_copied_unchanged(self):
+        exact_owners = {
+            "exprs": {0: (debug_span(5, 9, 2), "Ident", "value")},
+            "runs": {},
+            "records": {},
+            "aliases": {},
+            "tails": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+            "extra": {"names": ["preserved"]},
+        }
+
+        aligned = align_tui_exact_owners(
+            exact_owners=exact_owners,
+            tui_source_id=None,
+            reference_tui_source=b"unrelated reference bytes",
+            candidate_tui_source=b"unrelated candidate bytes",
+        )
+
+        self.assertEqual(aligned, exact_owners)
+        self.assertIsNot(aligned, exact_owners)
+        self.assertIsNot(aligned["exprs"], exact_owners["exprs"])
+        self.assertIsNot(aligned["extra"], exact_owners["extra"])
+
+    def test_exact_owner_span_crossing_changed_header_is_rejected(self):
+        header_start = CURRENT_SOURCE.index(CURRENT_HEADER)
+        exact_owners = {
+            "exprs": {0: (span(5, header_start + 1, 1), "Ident", "value")},
+            "runs": {},
+            "records": {},
+            "aliases": {},
+            "tails": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+        }
+
+        with self.assertRaisesRegex(SourceAlignmentError, "intersects the changed header"):
+            align_tui_exact_owners(
+                exact_owners=exact_owners,
+                tui_source_id=5,
+                reference_tui_source=OLD_SOURCE,
+                candidate_tui_source=CURRENT_SOURCE,
+            )
+
+    def test_exact_owner_alignment_rejects_source_edits_outside_known_header(self):
+        edited = CURRENT_SOURCE.replace(b"\\u{1b}[0m", b"\\u{1b}[31m", 1)
+        exact_owners = {
+            "exprs": {},
+            "runs": {},
+            "records": {},
+            "aliases": {},
+            "tails": {},
+            "expr_count": 0,
+            "record_field_count": 0,
+        }
+
+        with self.assertRaisesRegex(SourceAlignmentError, "differs outside the known TUI header"):
+            align_tui_exact_owners(
+                exact_owners=exact_owners,
+                tui_source_id=5,
+                reference_tui_source=OLD_SOURCE,
+                candidate_tui_source=edited,
+            )
+
+    def test_exact_owner_alignment_rejects_malformed_span(self):
+        exact_owners = {
+            "exprs": {0: ("not-a-span", "Ident", "value")},
+            "runs": {},
+            "records": {},
+            "aliases": {},
+            "tails": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+        }
+
+        with self.assertRaises(publication_adapter.AdapterError):
+            align_tui_exact_owners(
+                exact_owners=exact_owners,
+                tui_source_id=5,
+                reference_tui_source=OLD_SOURCE,
+                candidate_tui_source=CURRENT_SOURCE,
+            )
+
     def test_pinned_reference_tui_header_is_the_only_accepted_source_edit(self):
         self.assertEqual(DELTA, 45)
         self.assertEqual(CURRENT_SOURCE.count(CURRENT_HEADER), 1)
