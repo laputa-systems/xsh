@@ -1867,8 +1867,6 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
     ):
         raise PublicationError("original reference adapter helpers differ from the correction harness")
     output = runner.require_output_path(args.output, candidate_root)
-    _mkdir_new_directory(output, runner)
-    runner.write_status(output, "incomplete", [])
     wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
     wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
     runner.validate_wrapper_root(wrapper_root, candidate_root)
@@ -1879,8 +1877,11 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
     publication_bytes_by_range = _publication_bytes_by_range(
         original_capture[0], len(expected_inputs), ranges, runner
     )
+    output_claimed = False
     try:
         with runner.claim_run_resources(candidate_root, output, completed):
+            output_claimed = True
+            runner.write_status(output, "incomplete", [])
             raw_root, receipt_directory, range_receipts = _run_capture_role(
                 runner,
                 source_record,
@@ -1934,10 +1935,11 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
             )
             runner.write_status(output, "capture-complete", completed, summary)
     except BaseException as error:
-        try:
-            runner.write_status(output, "incomplete", completed, f"{type(error).__name__}: {error}")
-        except BaseException as status_error:
-            print(f"could not record incomplete correction capture status: {status_error}", file=sys.stderr)
+        if output_claimed:
+            try:
+                runner.write_status(output, "incomplete", completed, f"{type(error).__name__}: {error}")
+            except BaseException as status_error:
+                print(f"could not record incomplete correction capture status: {status_error}", file=sys.stderr)
         raise
     print(
         f"{summary}\nderived_reference_capture={capture_receipt}\n"

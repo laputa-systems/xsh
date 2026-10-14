@@ -531,6 +531,174 @@ class AdapterRawOutcomeTests(unittest.TestCase):
             self.assertEqual(cleanup_calls, [1])
 
 
+class DerivedCaptureClaimTests(unittest.TestCase):
+    def _candidate_root(self, scratch_root):
+        candidate_root = scratch_root / "candidate"
+        candidate_root.mkdir()
+        (candidate_root / ".work").mkdir()
+        subprocess.run(["git", "init", "--quiet", str(candidate_root)], check=True)
+        return candidate_root
+
+    def test_derived_capture_claims_output_before_recording_failure_status(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        with tempfile.TemporaryDirectory(prefix="w9-derived-claim-", dir=scratch_root) as scratch:
+            root = pathlib.Path(scratch)
+            candidate_root = self._candidate_root(root)
+            derived_root = root / "derived"
+            derived_root.mkdir()
+            output = candidate_root / ".work/capture"
+            original_capture_path = root / "original-capture.receipt"
+            original_build_path = root / "original-build.receipt"
+            original_exact_build_path = root / "original-exact-build.receipt"
+            original_exact_capture_path = root / "original-exact-capture.receipt"
+            derived_build_path = root / "derived-build.receipt"
+            candidate_commit, candidate_tree = "1" * 40, "2" * 40
+            derived_commit, derived_tree = "3" * 40, "4" * 40
+            source_record = {
+                "candidate_root": str(candidate_root),
+                "candidate_commit": candidate_commit,
+                "candidate_tree": candidate_tree,
+                "input_root": str(root / "inputs"),
+                "input_manifest": str(root / "inputs.manifest"),
+                "wrapper": str(root / "wrapper"),
+                "wrapper_root": str(candidate_root),
+            }
+            build_records = {
+                original_build_path: {
+                    "source_root": str(root / "original"),
+                    "source_commit": runner.REFERENCE_HEAD,
+                    "source_tree": adapter_runner.REFERENCE_TREE,
+                    "helper_sha256": "a" * 64,
+                    "owner_helper_sha256": "b" * 64,
+                    "binary": str(root / "original-binary"),
+                },
+                original_exact_build_path: {
+                    "source_root": str(root / "original"),
+                    "source_commit": runner.REFERENCE_HEAD,
+                    "source_tree": adapter_runner.REFERENCE_TREE,
+                    "helper_sha256": "a" * 64,
+                    "owner_helper_sha256": "b" * 64,
+                    "binary": str(root / "exact-binary"),
+                },
+                derived_build_path: {
+                    "source_root": str(derived_root),
+                    "source_commit": derived_commit,
+                    "source_tree": derived_tree,
+                    "helper_sha256": "a" * 64,
+                    "owner_helper_sha256": "b" * 64,
+                    "binary": str(root / "derived-binary"),
+                },
+            }
+            exact_owner_runner = SimpleNamespace(
+                _load_exact_helper=lambda _runner: (None, b"", "c" * 64),
+                _parse_exact_capture_receipt=lambda *_args: (
+                    {
+                        "legacy_capture_receipt": str(original_capture_path),
+                        "legacy_capture_receipt_sha256": "d" * 64,
+                    },
+                    (),
+                    {},
+                ),
+            )
+            args = argparse.Namespace(
+                candidate_root=candidate_root,
+                candidate_source_receipt=root / "candidate.receipt",
+                derived_reference_source_root=derived_root,
+                original_capture_receipt=original_capture_path,
+                original_exact_build_receipt=original_exact_build_path,
+                original_exact_capture_receipt=original_exact_capture_path,
+                derived_reference_build_receipt=derived_build_path,
+                output=output,
+            )
+            expected_inputs = dict.fromkeys(range(1690))
+            with (
+                patch.object(runner, "regular_file", side_effect=lambda path, *_args, **_kwargs: pathlib.Path(path)),
+                patch.object(runner, "parse_candidate_receipt", return_value=source_record),
+                patch.object(runner, "validate_all_inputs", return_value=(expected_inputs, {}, object())),
+                patch.object(
+                    runner,
+                    "source_identity",
+                    return_value=(candidate_commit, candidate_tree),
+                ),
+                patch.object(adapter_runner.reference_correction, "validate_source", return_value={
+                    "source_commit": derived_commit,
+                    "source_tree": derived_tree,
+                }),
+                patch.object(adapter_runner, "_capture_field", return_value=original_build_path),
+                patch.object(
+                    adapter_runner,
+                    "_parse_adapter_build_receipt",
+                    side_effect=lambda path, *_args: build_records[path],
+                ),
+                patch.object(
+                    adapter_runner,
+                    "_reuse_reference_capture",
+                    return_value=(root / "raw", root / "receipts", {}),
+                ),
+                patch.object(adapter_runner, "_load_exact_owner_runner", return_value=exact_owner_runner),
+                patch.object(runner, "sha256_file", return_value="d" * 64),
+                patch.object(runner, "require_sha256", return_value="e" * 64),
+                patch.object(runner, "validate_wrapper_root"),
+                patch.object(runner, "local_docker_environment", return_value={}),
+                patch.object(runner, "expected_ranges", return_value=[(0, 1690)]),
+                patch.object(adapter_runner, "_publication_bytes_by_range", return_value={(0, 1690): 0}),
+                patch.object(
+                    adapter_runner,
+                    "_run_capture_role",
+                    side_effect=RuntimeError("capture interrupted before Docker launch"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "capture interrupted before Docker launch"):
+                    adapter_runner.capture_derived_reference(args, runner)
+
+                self.assertTrue(output.is_dir())
+                status = (output / "attempt-status.txt").read_text(encoding="utf-8")
+                self.assertIn("status=incomplete\n", status)
+                self.assertIn("detail=RuntimeError: capture interrupted before Docker launch\n", status)
+                self.assertFalse((candidate_root / ".work/capture.lock").exists())
+                self.assertFalse((candidate_root / ".work/.w9-publication-run.lock").exists())
+
+                foreign_output = candidate_root / ".work/foreign"
+                foreign_link = candidate_root / ".work/foreign-link"
+                foreign_target = candidate_root / ".work/foreign-target"
+                foreign_target.mkdir()
+                status_path = foreign_target / "attempt-status.txt"
+                status_path.write_text("status=foreign\n", encoding="utf-8")
+                require_output_path = runner.require_output_path
+                for path, create_output in (
+                    (foreign_output, lambda value: value.mkdir()),
+                    (foreign_link, lambda value: value.symlink_to(foreign_target)),
+                ):
+                    def create_after_preflight(value, candidate):
+                        checked = require_output_path(value, candidate)
+                        create_output(checked)
+                        return checked
+
+                    args.output = path
+                    with self.subTest(output=path.name):
+                        with patch.object(
+                            runner,
+                            "require_output_path",
+                            side_effect=create_after_preflight,
+                        ):
+                            with self.assertRaisesRegex(
+                                runner.PublicationError,
+                                "refusing to reuse existing output path",
+                            ):
+                                adapter_runner.capture_derived_reference(args, runner)
+                        self.assertEqual(
+                            status_path.read_text(encoding="utf-8"), "status=foreign\n"
+                        )
+                        self.assertFalse(
+                            (candidate_root / ".work/.w9-publication-run.lock").exists()
+                        )
+
+
 class AdapterCaptureSchedulingTests(unittest.TestCase):
     def test_freed_slots_take_global_pending_ranges_while_one_worker_lags(self):
         repository = pathlib.Path(__file__).resolve().parents[2]
