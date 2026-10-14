@@ -895,7 +895,7 @@ fn native_test_route_witness_descriptor_survives_script_environment_values() {
         "{child_source}assert !(\"XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER\" in inherited.stdout)\n"
     );
     let fixture = format!(
-        r#"test captured {{ |ctx|
+        r#"test test_expr_empty_map {{ |ctx|
   assert env.get_or("{harness_prefix}_TEST_ID", "absent")? == "absent"
   assert env.get_or("{harness_prefix}_OUTPUT_DIR", "absent")? == "absent"
   assert env.get_or("XSH_INTERNAL_ROUTE_WITNESS_FD_MARKER", "absent")? == "absent"
@@ -931,7 +931,7 @@ test unobserved {{ |ctx|
 "#
     );
     fs::write(tests.join("witness.xsh"), fixture).expect("write native test fixture");
-    let test_id = "tests/witness.xsh::captured";
+    let test_id = "tests/witness.xsh::test_expr_empty_map";
     for (forced, route, mode) in [
         (false, "explicit_frame_apply_path", "normal"),
         (true, "generic_operand_apply_path", "forced"),

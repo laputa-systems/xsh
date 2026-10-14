@@ -976,7 +976,7 @@ mod tests {
         let directory = route_witness_tempdir();
         let source = b"let empty: Map[Str, Int] = {}\n";
         let transport = NativeTestRouteWitnessTransport::new(
-            "tests/a.xsh::case",
+            "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map",
             directory.path(),
             source,
         )
@@ -993,7 +993,7 @@ mod tests {
         assert!(context.validate_source(b"different source").is_err());
 
         let transport = NativeTestRouteWitnessTransport::new(
-            "tests/a.xsh::case",
+            "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map",
             directory.path(),
             source,
         )
@@ -1009,7 +1009,10 @@ mod tests {
             .expect("decode descriptor")
             .validate_source(source)
             .expect("validate source");
-        assert_eq!(capture.test_id, "tests/a.xsh::case");
+        assert_eq!(
+            capture.test_id,
+            "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"
+        );
         assert_eq!(capture.source_hash, source_sha256(source));
     }
 
