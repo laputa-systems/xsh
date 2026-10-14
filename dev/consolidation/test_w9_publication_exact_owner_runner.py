@@ -141,7 +141,6 @@ def structured_stage_owner_index():
     return "\n".join(
         (
             "source\tSourceId(0)\t100",
-            f"owner\t{span(1, 8)}\tstage:Range",
             "exact-counts\t0\t0",
             "run-form-count\t0",
             "structured-stage-count\t2",
@@ -358,7 +357,7 @@ class ExactOwnerIndexTests(unittest.TestCase):
     def test_parses_complete_structured_stream_stage_table_without_changing_legacy_projection(self):
         legacy, exact = exact_runner.parse_exact_owner_index(structured_stage_owner_index())
 
-        self.assertEqual(legacy[1], {"Span{source_id:SourceId(0),start:1,len:8}": {"stage:Range"}})
+        self.assertEqual(legacy[1], {})
         self.assertEqual(
             exact["structured_stages"],
             {
@@ -1054,6 +1053,40 @@ class ExactOwnerProjectionTests(unittest.TestCase):
 
         self.assertEqual(validated[0][1]["expr_count"], 6)
         self.assertEqual(validated[0][1]["aliases"][(3, 3)][2], "again")
+
+    def test_structured_stages_keep_the_original_generic_projection(self):
+        root = pathlib.Path(__file__).resolve().parents[2]
+        work = root / ".work/tmp"
+        work.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=work) as temporary:
+            root_path = pathlib.Path(temporary)
+            exact_root = root_path / "exact"
+            legacy_root = root_path / "legacy"
+            exact_root.mkdir()
+            legacy_root.mkdir()
+            exact_text = structured_stage_owner_index()
+            (exact_root / "owners-0.tsv").write_text(exact_text, encoding="utf-8")
+            (legacy_root / "owners-0.tsv").write_text(
+                legacy_owner_index(exact_text), encoding="utf-8"
+            )
+            runner = SimpleNamespace(
+                open_absolute_nofollow=lambda path, directory=False: os.open(
+                    path, os.O_RDONLY | os.O_DIRECTORY
+                )
+            )
+
+            validated = exact_runner._validate_owner_projections(
+                exact_root, legacy_root, {0: object()}, {0: "b" * 64}, runner
+            )
+
+        self.assertEqual(validated[0][0][1], {})
+        self.assertEqual(
+            validated[0][1]["structured_stages"],
+            {
+                0: ("Span{source_id:SourceId(0),start:10,len:5}", "Range", False, False),
+                1: ("Span{source_id:SourceId(0),start:20,len:5}", "Repeat", False, False),
+            },
+        )
 
     def test_rejects_disagreement_with_original_semantic_owner_rows(self):
         root = pathlib.Path(__file__).resolve().parents[2]

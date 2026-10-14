@@ -411,6 +411,50 @@ pub fn w9_write_exact_adapter_owners(
     directory.sync_all()
 }
 
+fn w9_exact_assert_structured_stage_is_published(outputdir: &std::path::Path) {
+    use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only};
+
+    let source = "let values = [1, 2] |> drop(1) |> values\n";
+    let (sources, parsed) = parse_load_entry_source_arena_only(
+        "structured-stage-owner.xsh",
+        entry_source_from_text("structured-stage-owner.xsh", source.to_owned()),
+        Vec::new(),
+    );
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.arena.arena.stream_stages.len(), 1);
+    assert_eq!(parsed.arena.arena.pipe_stages.len(), 1);
+
+    let stage = &parsed.arena.arena.stream_stages[0];
+    assert_eq!(format!("{:?}", stage.kind), "Drop");
+    let span = parsed.arena.arena.span(stage.span);
+    let pipe_stage_span = parsed.arena.arena.span(parsed.arena.arena.pipe_stages[0].span);
+    assert_ne!(span, pipe_stage_span);
+    let directory = tempfile::tempdir_in(outputdir)
+        .expect("create structured-stage owner directory");
+    w9_write_exact_adapter_owners(directory.path(), 0, &parsed.arena, &sources)
+        .expect("write structured-stage owner index");
+    let owners = std::fs::read_to_string(directory.path().join("owners-0.tsv"))
+        .expect("read structured-stage owner index");
+    assert!(
+        owners.lines().any(|line| {
+            line.starts_with(&format!("structured-stage\t0\t{span:?}\t{:?}\t", stage.kind))
+        }),
+        "structured stream stage is missing from the exact stage table: {owners}"
+    );
+    assert!(
+        owners
+            .lines()
+            .any(|line| line == format!("owner\t{pipe_stage_span:?}\tstage:Expr")),
+        "generic pipe-stage owner is missing from its own span: {owners}"
+    );
+    assert!(
+        !owners.lines().any(|line| {
+            line.starts_with(&format!("owner\t{span:?}\tstage:"))
+        }),
+        "structured stream stage escaped into the generic owner projection: {owners}"
+    );
+}
+
 #[test]
 fn w9_exact_repository_owners_receipt() {
     use std::io::Read as _;
@@ -437,6 +481,7 @@ fn w9_exact_repository_owners_receipt() {
     let outputdir = std::path::PathBuf::from(
         std::env::var_os("W9_EXACT_OWNER_OUTPUT_DIR").expect("W9_EXACT_OWNER_OUTPUT_DIR"),
     );
+    w9_exact_assert_structured_stage_is_published(&outputdir);
     let receipt_path = std::path::PathBuf::from(
         std::env::var_os("W9_EXACT_OWNER_RECEIPT").expect("W9_EXACT_OWNER_RECEIPT"),
     );

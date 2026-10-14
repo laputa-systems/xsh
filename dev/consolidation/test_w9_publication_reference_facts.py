@@ -269,10 +269,7 @@ def _validate_stage_callback(fields, *, exact_owners=None, owners=None):
     expression_kind = exact_owners["exprs"][0][1]
     return _validate(
         fields,
-        owners={
-            IDENT_SPAN: {f"expr:{expression_kind}"},
-            STAGE_SPAN: {f"stage:{exact_owners['structured_stages'][0][1]}"},
-        }
+        owners={IDENT_SPAN: {f"expr:{expression_kind}"}}
         if owners is None
         else owners,
         exact_owners=exact_owners,
@@ -367,17 +364,17 @@ class FunctionReferenceFactTests(unittest.TestCase):
         self.assertEqual(result.implicit_function_spans, frozenset())
         self.assertEqual(result.edges[IDENT_SPAN].expression_id, 0)
 
-    def test_stage_callback_edge_validation_does_not_require_target_facts(self):
+    def test_stage_callback_edge_uses_exact_table_without_generic_stage_owner(self):
         exact_owners = _stage_callback_owners()
-        source_owners = _owners()
-        source_owners[STAGE_SPAN] = {"stage:SortBy"}
         edges = validate_stage_callback_edges(
             source_sizes={0: 128},
-            source_owners=source_owners,
+            source_owners=_owners(),
             exact_owners=exact_owners,
         )
+        self.assertEqual(edges[IDENT_SPAN].stage_id, 0)
         self.assertEqual(edges[IDENT_SPAN].expression_id, 0)
         self.assertEqual(edges[IDENT_SPAN].stage_span, STAGE_SPAN)
+        self.assertEqual(edges[IDENT_SPAN].stage_kind, "SortBy")
 
     def test_qualified_stage_callback_remains_an_ast_edge(self):
         fields = _stage_callback_fields()

@@ -19,7 +19,7 @@ import w9_publication_adapter_runner as adapter_runner
 EXACT_OWNER_TEST = "sema::w9_exact_repository_owners_receipt"
 EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
 EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owners.rs")
-EXACT_OWNER_HELPER_SHA256 = "8160d27f4edadeff5ecd177fc7d1313156bf6b582c67b9399ffe1381732a03ce"
+EXACT_OWNER_HELPER_SHA256 = "33c77273d9f9096d3e6478622d0b29a3f0f1f79dee772cdea12b06f2ac8200d8"
 EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t1\n"
 EXACT_PROOF_FIELDS = (
     "schema",

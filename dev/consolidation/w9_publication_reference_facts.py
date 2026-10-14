@@ -590,13 +590,6 @@ def _stage_callback_references(
         span = _canonicalize_span(raw_span)[0]
         if span in stages_by_span:
             raise AdapterError(f"exact structured stream-stage span is ambiguous: {span}")
-        _validate_source_span(
-            span,
-            "exact structured stream stage",
-            source_sizes,
-            source_owners,
-            {f"stage:{kind}"},
-        )
         stages_by_span[span] = stage_id
         normalized_stages[stage_id] = _StructuredStreamStage(
             span, kind, inline_block, accepts_callable
