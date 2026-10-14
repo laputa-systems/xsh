@@ -6818,7 +6818,7 @@ mod checked_constructor_fact_tests {
         let module_root = tempfile::tempdir_in(&work).expect("create module fixture");
         std::fs::write(
             module_root.path().join("model.xsh"),
-            "export type Box[T] = {value: T}\n",
+            "##! A module for constructor identity tests.\n## An exported record schema.\nexport type Box[T] = {value: T}\n",
         )
         .expect("write model module");
         let source = "use model as m\nlet made = m.Box(...{value: 7})\n";
@@ -6863,7 +6863,7 @@ mod checked_constructor_fact_tests {
         let module_root = tempfile::tempdir_in(&work).expect("create function module fixture");
         std::fs::write(
             module_root.path().join("model.xsh"),
-            "export pure increment(value: Int) -> Int { return value + 1 }\n",
+            "##! A module for function identity tests.\n## An exported pure function.\nexport pure increment(value: Int) -> Int { return value + 1 }\n",
         )
         .expect("write function module");
         let source = "use model as m\nlet made = m.increment(7)\n";
