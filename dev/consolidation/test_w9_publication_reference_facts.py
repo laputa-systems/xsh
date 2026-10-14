@@ -61,6 +61,21 @@ IFDOWN_STREAM_DECLARATION = (
 IFDOWN_STREAM_TYPE = "Stream(Record({Name(\"logical\"):Str,Name(\"physical\"):Str}))"
 
 
+def _resolved_bindings(*, expressions="{}", tails="{}", value_sites="{}",
+                       expression_namespaces="{ExprId(1): None}"):
+    return (
+        "ResolvedBindings { declarations: {}, declaration_sites: {}, expressions: "
+        + expressions
+        + ", tails: "
+        + tails
+        + ", value_sites: "
+        + value_sites
+        + ", expression_namespaces: "
+        + expression_namespaces
+        + " }"
+    )
+
+
 def _fields(*, selected_span=IDENT_SPAN, selected=TARGET, declaration=PURE_DECLARATION, types=None,
             static_spans="{}", declaration_id="1"):
     return {
@@ -78,6 +93,7 @@ def _fields(*, selected_span=IDENT_SPAN, selected=TARGET, declaration=PURE_DECLA
             + "} }"
         ),
         "expr_types": types if types is not None else f"{{{IDENT_SPAN}: Pure}}",
+        "resolved_bindings": _resolved_bindings(),
     }
 
 
@@ -187,6 +203,18 @@ class FunctionReferenceFactTests(unittest.TestCase):
 
     def test_direct_identifier_uses_exact_name_and_checked_pure_type(self):
         _validate(_fields())
+
+    def test_selected_function_reference_still_requires_identifier_spelling(self):
+        exact_owners = {
+            "exprs": {0: (IDENT_SPAN, "Ident", "MAJ:MIN")},
+            "records": {},
+            "aliases": {},
+            "expr_count": 1,
+            "record_field_count": 0,
+            "tails": {},
+        }
+        with self.assertRaises(AdapterError):
+            _validate(_fields(), exact_owners=exact_owners)
 
     def test_untyped_direct_identifier_uses_checked_declared_function_kind(self):
         _validate(_fields(types="{}"))
@@ -316,6 +344,44 @@ class FunctionReferenceFactTests(unittest.TestCase):
             exact_owners=exact_owners,
         )
 
+    def test_rejects_record_shorthand_from_a_different_reference_namespace(self):
+        namespace = 'Some(Name("module"))'
+        target = TARGET.replace("namespace: None", f"namespace: {namespace}")
+        declaration = PURE_DECLARATION.replace("namespace: None", f"namespace: {namespace}")
+        fields = _fields(
+            selected=target,
+            declaration=declaration,
+            types=f"{{{PARENT_SPAN}: Record({{Name(\"render\"): Pure}})}}",
+        )
+        with self.assertRaises(AdapterError):
+            _validate(
+                fields,
+                owners={PARENT_SPAN: {"expr:Record"}, IDENT_SPAN: {"expr:Ident"}},
+                exact_owners=_shorthand_exact_owners(),
+            )
+
+    def test_rejects_record_shorthand_that_resolves_to_a_value_binding(self):
+        fields = _fields(types=f"{{{PARENT_SPAN}: Record({{Name(\"render\"): Pure}})}}")
+        fields["resolved_bindings"] = _resolved_bindings(
+            value_sites=f"{{({IDENT_SPAN},Name(\"render\")): BindingId(Parameter(FunctionDefId(2),0))}}"
+        )
+        with self.assertRaises(AdapterError):
+            _validate(
+                fields,
+                owners={PARENT_SPAN: {"expr:Record"}, IDENT_SPAN: {"expr:Ident"}},
+                exact_owners=_shorthand_exact_owners(),
+            )
+
+    def test_exact_owner_table_keeps_shorthand_names_identifier_only(self):
+        exact_owners = _shorthand_exact_owners()
+        exact_owners["exprs"][1] = (IDENT_SPAN, "Ident", "MAJ:MIN")
+        exact_owners["records"][0]["fields"][0] = (
+            "shorthand", "MAJ:MIN", IDENT_SPAN, None, None
+        )
+        exact_owners["aliases"][(0, 0)] = (1, IDENT_SPAN, "MAJ:MIN")
+        with self.assertRaises(AdapterError):
+            _exact_owner_tables(exact_owners, {0: 128, 1: 100, 2: 10000})
+
     def test_rejects_record_shorthand_name_that_disagrees_with_target(self):
         selected = TARGET.replace('Name("render")', 'Name("other")')
         declaration = PURE_DECLARATION.replace('Name("render")', 'Name("other")')
@@ -356,6 +422,24 @@ class FunctionReferenceFactTests(unittest.TestCase):
             },
             exact_owners=exact_owners,
         )
+
+    def test_generic_identifier_owner_accepts_decoded_record_key_spellings(self):
+        exact_owners = {
+            "exprs": {
+                0: (IDENT_SPAN, "Ident", "MAJ:MIN"),
+                1: ("Span{source_id:SourceId(0),start:20,len:1}", "Ident", ""),
+                2: ("Span{source_id:SourceId(0),start:21,len:6}", "Ident", "%delay"),
+            },
+            "records": {},
+            "aliases": {},
+            "expr_count": 3,
+            "record_field_count": 0,
+            "tails": {},
+        }
+        exprs, _, _, _ = _exact_owner_tables(exact_owners, {0: 128, 1: 100, 2: 10000})
+        self.assertEqual(exprs[0][2], "MAJ:MIN")
+        self.assertEqual(exprs[1][2], "")
+        self.assertEqual(exprs[2][2], "%delay")
 
     def test_rejects_empty_record_path_component_vector(self):
         with self.assertRaises(AdapterError):
@@ -440,6 +524,26 @@ class FunctionReferenceFactTests(unittest.TestCase):
         target = TARGET.replace("namespace: None", 'namespace: Some(Name("module"))')
         with self.assertRaises(AdapterError):
             _validate(_fields(selected=target))
+
+    def test_rejects_target_from_a_different_reference_namespace(self):
+        namespace = 'Some(Name("module"))'
+        target = TARGET.replace("namespace: None", f"namespace: {namespace}")
+        declaration = PURE_DECLARATION.replace("namespace: None", f"namespace: {namespace}")
+        fields = _fields(selected=target, declaration=declaration)
+        fields["resolved_bindings"] = (
+            "ResolvedBindings { declarations: {}, declaration_sites: {}, expressions: {}, "
+            "tails: {}, value_sites: {}, expression_namespaces: {ExprId(1): None} }"
+        )
+        with self.assertRaises(AdapterError):
+            _validate(fields)
+
+    def test_rejects_direct_identifier_that_resolves_to_a_value_binding(self):
+        fields = _fields()
+        fields["resolved_bindings"] = _resolved_bindings(
+            expressions="{ExprId(1): BindingId(Parameter(FunctionDefId(2),0))}"
+        )
+        with self.assertRaises(AdapterError):
+            _validate(fields)
 
     def test_rejects_selected_span_without_exact_ast_identity(self):
         with self.assertRaises(AdapterError):

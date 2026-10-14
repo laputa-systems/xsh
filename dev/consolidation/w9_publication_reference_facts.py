@@ -222,6 +222,57 @@ def _target_declaration(
     return declaration_fields["kind"], declaration_fields, signature
 
 
+def _resolved_bindings(fields: Mapping[str, str]) -> dict[str, str]:
+    resolved = _fields(fields["resolved_bindings"], "ResolvedBindings")
+    expected = {
+        "declarations",
+        "declaration_sites",
+        "expressions",
+        "tails",
+        "value_sites",
+        "expression_namespaces",
+    }
+    if set(resolved) != expected:
+        raise AdapterError("resolved binding fields are incomplete")
+    return resolved
+
+
+def _tuple_items(value: str, label: str) -> list[str]:
+    value = value.strip()
+    if not value.startswith("(") or _group_end(value, 0) != len(value) - 1:
+        raise AdapterError(f"{label} is not a Rust Debug tuple")
+    return _split_top_level(value[1:-1], ",")
+
+
+def _value_site_keys(value: str) -> set[tuple[str, str]]:
+    result = set()
+    for key in _map_entries(value):
+        pair = _tuple_items(key, "resolved value-site key")
+        if len(pair) != 2:
+            raise AdapterError("resolved value-site key has an unexpected tuple length")
+        span = _canonicalize_span(pair[0])[0]
+        name = _name(pair[1], "resolved value-site name")
+        result.add((span, name))
+    return result
+
+
+def _validate_reference_namespace(
+    expression_id: int,
+    declaration: Mapping[str, str],
+    expression_namespaces: Mapping[str, str],
+    label: str,
+) -> None:
+    expression_key = f"ExprId({expression_id + 1})"
+    if expression_key not in expression_namespaces:
+        raise AdapterError(f"{label} has no checked expression namespace")
+    expression_namespace = _option_name(
+        expression_namespaces[expression_key], f"{label} expression namespace"
+    )
+    target_namespace = _option_name(declaration["namespace"], f"{label} target namespace")
+    if expression_namespace != target_namespace:
+        raise AdapterError(f"{label} target is outside its checked namespace")
+
+
 def _exact_owner_tables(
     exact_owners: Mapping[str, object], source_sizes: Mapping[int, int]
 ) -> tuple[
@@ -260,10 +311,7 @@ def _exact_owner_tables(
             raise AdapterError(f"exact owner expression row {index} is malformed")
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", tag):
             raise AdapterError(f"exact owner expression tag is malformed at {index}")
-        if tag == "Ident":
-            if not _IDENTIFIER.fullmatch(name):
-                raise AdapterError(f"exact owner identifier spelling is missing or malformed at {index}")
-        elif name:
+        if tag != "Ident" and name:
             raise AdapterError(f"non-identifier expression has an identifier spelling at {index}")
         _check_span_bounds(span, f"exact owner expression {index}", source_sizes)
         normalized_exprs[index] = (span, tag, name)
@@ -472,6 +520,10 @@ def validate_function_reference_targets(
     checked_declarations = _fields(fields["checked_declarations"], "CheckedDeclarations")
     functions = _map_entries(checked_declarations["functions"])
     expression_types = _canonical_span_map(fields["expr_types"], "checked expression type")
+    resolved_bindings = _resolved_bindings(fields)
+    resolved_expressions = _map_entries(resolved_bindings["expressions"])
+    expression_namespaces = _map_entries(resolved_bindings["expression_namespaces"])
+    value_site_keys = _value_site_keys(resolved_bindings["value_sites"])
     ident_rows: dict[str, list[tuple[int, str]]] = {}
     for expr_id, (span, tag, name) in exprs.items():
         if tag == "Ident":
@@ -504,6 +556,14 @@ def validate_function_reference_targets(
                 f"selected Record shorthand target at {span}",
             ):
                 raise AdapterError(f"selected Record shorthand name disagrees with its target at {span}")
+            if (alias_span, name) in value_site_keys:
+                raise AdapterError(f"selected Record shorthand resolves to a value binding: {span}")
+            _validate_reference_namespace(
+                parent,
+                target_declaration,
+                expression_namespaces,
+                f"selected Record shorthand at {span}",
+            )
             _validate_source_span(
                 span, "selected Record shorthand", source_sizes, source_owners, {"expr:Ident"}
             )
@@ -554,6 +614,16 @@ def validate_function_reference_targets(
         )
         if name != target_name:
             raise AdapterError(f"selected ExprIdent name disagrees with its target at {span}")
+        expression_id = identifiers[0][0]
+        expression_key = f"ExprId({expression_id + 1})"
+        if expression_key in resolved_expressions:
+            raise AdapterError(f"selected ExprIdent resolves to a value binding: {span}")
+        _validate_reference_namespace(
+            expression_id,
+            target_declaration,
+            expression_namespaces,
+            f"selected ExprIdent at {span}",
+        )
         _validate_source_span(span, "selected ExprIdent", source_sizes, source_owners, {"expr:Ident"})
         checked_type = expression_types.get(span, target_kind)
         _validate_reference_type(checked_type, target_kind, f"selected ExprIdent at {span}")
