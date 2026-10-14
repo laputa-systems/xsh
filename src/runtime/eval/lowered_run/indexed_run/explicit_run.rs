@@ -10379,7 +10379,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             None
         };
-        let mut failure = None;
+        let mut failure: Option<(RuntimeError, Option<Traceback>)> = None;
         for (result, traceback) in [
             (publication, publication_traceback),
             (cancellation, action_traceback),
@@ -13564,9 +13564,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameWork::ForPipeline {
                 mut pipeline, span, ..
             } => {
-                let pending = state.primary_error.as_ref().or(self.pending_error.as_ref());
+                let pending = state
+                    .primary_error
+                    .as_ref()
+                    .or(self.pending_error.as_ref())
+                    .cloned();
                 let result = self.with_caller_bindings(index, span, |evaluator| {
-                    pipeline.finish(evaluator, pending)
+                    pipeline.finish(evaluator, pending.as_ref())
                 });
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
                 if let Err(error) = result {
@@ -13584,9 +13588,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameWork::StageValue {
                 mut pipeline, span, ..
             } => {
-                let pending = state.primary_error.as_ref().or(self.pending_error.as_ref());
+                let pending = state
+                    .primary_error
+                    .as_ref()
+                    .or(self.pending_error.as_ref())
+                    .cloned();
                 let result = self.with_caller_bindings(index, span, |evaluator| {
-                    pipeline.finish(evaluator, pending)
+                    pipeline.finish(evaluator, pending.as_ref())
                 });
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
                 if let Err(error) = result {
