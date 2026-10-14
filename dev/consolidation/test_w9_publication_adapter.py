@@ -2,6 +2,7 @@ import unittest
 
 from w9_publication_adapter import (
     AdapterError,
+    _split_first_top_level,
     compare_publications,
     parse_owner_index,
     project_publication,
@@ -735,6 +736,34 @@ def exact_native_error_failure_publication(field="failure", return_type="Error")
 
 
 class PublicationAdapterTests(unittest.TestCase):
+    def test_top_level_separator_skips_nested_and_escaped_delimiters(self):
+        cases = (
+            (
+                "Span{source_id:SourceId(5),start:18,len:3}:Result{value:Some(1)}",
+                "Span{source_id:SourceId(5),start:18,len:3}",
+                "Result{value:Some(1)}",
+            ),
+            (
+                r'Key{value:"escaped quote: \" and colon: still quoted"}:tail',
+                r'Key{value:"escaped quote: \" and colon: still quoted"}',
+                "tail",
+            ),
+            (
+                'Name("nested { : [ delimiters ] }"):tail',
+                'Name("nested { : [ delimiters ] }")',
+                "tail",
+            ),
+        )
+        for value, expected_key, expected_value in cases:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    _split_first_top_level(value, ":"),
+                    (expected_key, expected_value),
+                )
+
+        with self.assertRaisesRegex(AdapterError, "unterminated Rust Debug collection"):
+            _split_first_top_level("Span{source_id:SourceId(5):value", ":")
+
     def test_owner_index_rows_must_be_typed_unique_and_source_bounded(self):
         self.assertEqual(SOURCE_SIZES, {0: 100})
         self.assertEqual(SOURCE_OWNERS[CALL_SPAN], {"expr:Call"})

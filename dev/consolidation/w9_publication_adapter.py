@@ -9,6 +9,7 @@ ADAPTER_SCHEMA = "w9-publication-adapter-v1"
 SOURCE_SCHEMAS = {"legacy", "current"}
 _DEBUG_STRUCTURAL_TOKENS = re.compile(r'''['"{}()\[\]]''')
 _DEBUG_COMMA_TOKENS = re.compile(r'''['"{}()\[\],]''')
+_DEBUG_COLON_TOKENS = re.compile(r'''['"{}()\[\]:]''')
 _DEBUG_DOUBLE_QUOTED_TOKENS = re.compile(r'\\[\s\S]|"')
 _DEBUG_SINGLE_QUOTED_TOKENS = re.compile(r"\\[\s\S]|'|\s")
 PATHS = {
@@ -333,11 +334,19 @@ def _split_top_level(value: str, separator: str) -> list[str]:
 def _split_first_top_level(value: str, separator: str) -> tuple[str, str] | None:
     stack: list[str] = []
     closes = {"{": "}", "[": "]", "(": ")"}
+    if separator == ",":
+        tokens = _DEBUG_COMMA_TOKENS
+    elif separator == ":":
+        tokens = _DEBUG_COLON_TOKENS
+    elif len(separator) != 1:
+        tokens = _DEBUG_STRUCTURAL_TOKENS
+    else:
+        tokens = re.compile(r'''['"{}()\[\]]|''' + re.escape(separator))
     index = 0
-    while index < len(value):
-        character = value[index]
+    while match := _search_debug_token(tokens, value, index):
+        character = match.group()
         if character in {"\"", "'"}:
-            quoted = _quoted_end(value, index)
+            quoted = _quoted_end(value, match.start())
             if quoted is not None:
                 index = quoted
                 continue
@@ -347,8 +356,8 @@ def _split_first_top_level(value: str, separator: str) -> tuple[str, str] | None
             if not stack or stack.pop() != character:
                 raise AdapterError("unbalanced Rust Debug collection")
         elif character == separator and not stack:
-            return value[:index].strip(), value[index + 1 :].strip()
-        index += 1
+            return value[:match.start()].strip(), value[match.end() :].strip()
+        index = match.end()
     if stack:
         raise AdapterError("unterminated Rust Debug collection")
     return None
