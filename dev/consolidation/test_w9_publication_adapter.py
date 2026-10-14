@@ -694,22 +694,28 @@ class PublicationAdapterTests(unittest.TestCase):
                 candidate_exact_owners=no_alias_fact[2],
             )
 
+        ordinary_module_call, ordinary_module_call_owners, ordinary_module_call_exact = (
+            exact_static_alias_publication()
+        )
+        ordinary_module_call = ordinary_module_call.replace(
+            'name:Name("render")', 'name:Name("call")'
+        )
+        ordinary_module_call_exact["field_accesses"][3] = (4, "call")
+        projected = project_publication(
+            "current", ordinary_module_call, SOURCE_SIZES, ordinary_module_call_owners,
+            candidate_exact_owners=ordinary_module_call_exact,
+        )
+        self.assertIn(
+            f'{ALIAS_FIELD_SPAN}:StaticCallableAlias{{definition:None,method_call:false,name:Name("call")',
+            projected,
+        )
+
         wrong_callee = exact_static_alias_publication()
         wrong_callee[2]["calls"][2] = 1
         with self.assertRaisesRegex(AdapterError, "static call-site facts"):
             project_publication(
                 "current", wrong_callee[0], SOURCE_SIZES, wrong_callee[1],
                 candidate_exact_owners=wrong_callee[2],
-            )
-
-        wrong_method_flag = exact_static_alias_publication(method_call=True)
-        wrong_method_flag_current = wrong_method_flag[0].replace(
-            "method_call:true", "method_call:false"
-        )
-        with self.assertRaisesRegex(AdapterError, "false method flag"):
-            project_publication(
-                "current", wrong_method_flag_current, SOURCE_SIZES, wrong_method_flag[1],
-                candidate_exact_owners=wrong_method_flag[2],
             )
 
         wrong_method_field = exact_static_alias_publication(method_call=True)

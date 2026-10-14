@@ -1024,8 +1024,6 @@ def _validate_static_callable_alias_facts(
             )
             if alias["method_call"] == "true" and member_name != "call":
                 raise AdapterError(f"static callable alias method call has the wrong field: {alias_span}")
-            if alias["method_call"] == "false" and member_name == "call":
-                raise AdapterError(f"static callable alias call field has a false method flag: {alias_span}")
         elif alias["method_call"] == "true":
             raise AdapterError(f"static callable alias method call has no exact Field callee: {alias_span}")
 
