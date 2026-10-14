@@ -603,9 +603,8 @@ pub struct CheckOutput {
     /// expression, with the signature the call was checked against. Lowering
     /// reads the signature here instead of working out what the callee is.
     pub typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
-    /// The checker-selected declaration for each statically resolved user
-    /// function call. Lowering consumes this identity instead of resolving
-    /// the call again from its spelling.
+    /// Checker-selected declarations for static calls and function values,
+    /// keyed by expression or statement span.
     pub(crate) selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
     /// List index expressions whose index is a negative integer literal,
     /// with the distance from the end it names: `items[-2]` is 2. Only these
