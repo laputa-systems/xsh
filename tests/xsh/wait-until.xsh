@@ -87,7 +87,7 @@ test test_wait_until_backoff_doubles_to_its_cap {
   } within 30s backoff 40ms..10ms
   assert time.now() - started >= 50
 
-  let late = try {
+  let late: Result[Unit] = try {
     wait until false within 50ms backoff 10ms..20ms
   }
   assert late is Err(is Timeout)
