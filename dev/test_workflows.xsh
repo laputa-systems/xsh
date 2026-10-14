@@ -10,6 +10,7 @@ use targets
 ## verification covers this repository and individually migrated source files.
 export const sibling_syntax_exclusions = ["--skip", "syntax::formatter_is_idempotent_on_laputa_corpus"]
 
+## Skips the external formatting and example-corpus cases in the XSHT integration suite.
 export const sibling_xsht_exclusions = [
   "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus",
   "--skip", "examples::example_corpus_is_formatted",
