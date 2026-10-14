@@ -40,7 +40,7 @@ assert (if route_if_condition() { "selected" } else { "skipped" }) == "selected"
   assert output.stdout == ""
 }
 
-test test_expr_if_in_place_selection { |ctx|
+test test_expr_if_pure_selection { |ctx|
   let output = test.expect(
     ctx,
     """
@@ -69,7 +69,7 @@ assert (match route_match_source() { 2 => 22, _ => 0 }) == 22
   assert output.stdout == ""
 }
 
-test test_expr_match_in_place_selection { |ctx|
+test test_expr_match_pure_selection { |ctx|
   let output = test.expect(
     ctx,
     """
