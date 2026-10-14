@@ -2,7 +2,11 @@ import unittest
 from pathlib import Path
 
 from w9_publication_adapter import AdapterError
-from w9_publication_reference_facts import _exact_owner_tables, validate_function_reference_targets
+from w9_publication_reference_facts import (
+    _exact_owner_tables,
+    validate_function_reference_targets,
+    validate_stage_callback_edges,
+)
 
 
 IDENT_SPAN = "Span{source_id:SourceId(0),start:10,len:6}"
@@ -363,6 +367,18 @@ class FunctionReferenceFactTests(unittest.TestCase):
         self.assertEqual(result.implicit_function_spans, frozenset())
         self.assertEqual(result.edges[IDENT_SPAN].expression_id, 0)
 
+    def test_stage_callback_edge_validation_does_not_require_target_facts(self):
+        exact_owners = _stage_callback_owners()
+        source_owners = _owners()
+        source_owners[STAGE_SPAN] = {"stage:SortBy"}
+        edges = validate_stage_callback_edges(
+            source_sizes={0: 128},
+            source_owners=source_owners,
+            exact_owners=exact_owners,
+        )
+        self.assertEqual(edges[IDENT_SPAN].expression_id, 0)
+        self.assertEqual(edges[IDENT_SPAN].stage_span, STAGE_SPAN)
+
     def test_qualified_stage_callback_remains_an_ast_edge(self):
         fields = _stage_callback_fields()
         fields["selected_function_calls"] = "{}"
@@ -402,17 +418,18 @@ class FunctionReferenceFactTests(unittest.TestCase):
                             fields, exact_owners=exact_owners
                         )
 
-    def test_each_and_tee_callbacks_reject_non_unit_results(self):
-        for stage_kind in ("Each", "Tee"):
-            with self.subTest(stage_kind=stage_kind):
-                exact_owners = _stage_callback_owners(
-                    stage_kind=stage_kind, accepts_callable=True
-                )
-                fields = _stage_callback_fields(
-                    positions=f"{{{IDENT_SPAN}: Statement}}"
-                )
-                with self.assertRaises(AdapterError):
-                    _validate_stage_callback(fields, exact_owners=exact_owners)
+    def test_each_int_return_callback_matches_error_program_facts(self):
+        exact_owners = _stage_callback_owners(
+            stage_kind="Each", accepts_callable=True
+        )
+        fields = _stage_callback_fields(
+            return_ty="Int",
+            positions=f"{{{IDENT_SPAN}: Statement}}",
+        )
+        result = _validate_stage_callback(fields, exact_owners=exact_owners)
+        self.assertEqual(
+            result.implicit_function_spans, frozenset({IDENT_SPAN})
+        )
 
     def test_named_stage_callback_requires_static_call_membership(self):
         with self.assertRaises(AdapterError):

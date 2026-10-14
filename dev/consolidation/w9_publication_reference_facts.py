@@ -553,24 +553,6 @@ def expected_stage_callback_position(stage_kind: str) -> str:
     return "Statement" if stage_kind in {"Each", "Tee"} else "Value"
 
 
-def stage_callback_result_type_allowed(stage_kind: str, result_type: str) -> bool:
-    if stage_kind not in {"Each", "Tee"} or result_type.strip() == "Unit":
-        return True
-    try:
-        result_arguments = _split_top_level(
-            _tuple_payload(result_type, "Result", "stage callback result type"), ","
-        )
-    except AdapterError:
-        return False
-    if len(result_arguments) != 2 or result_arguments[0] != "Unit":
-        return False
-    try:
-        _balanced_debug(result_arguments[1], "stage callback result error type")
-    except AdapterError:
-        return False
-    return True
-
-
 def _stage_callback_references(
     exact_owners: Mapping[str, object],
     source_sizes: Mapping[int, int],
@@ -686,6 +668,13 @@ def _stage_callback_references(
         if callback_kind not in {"Ident", "Field"}:
             raise AdapterError(f"exact stage callback is not a named function expression: {stage.span}")
         canonical_callback_span = _canonicalize_span(callback_span)[0]
+        _validate_source_span(
+            canonical_callback_span,
+            "exact stage callback expression",
+            source_sizes,
+            source_owners,
+            {f"expr:{callback_kind}"},
+        )
         if canonical_callback_span in result:
             raise AdapterError(f"exact stage callback identifier is ambiguous: {canonical_callback_span}")
         result[canonical_callback_span] = StageCallbackEdge(
@@ -698,6 +687,19 @@ def _stage_callback_references(
             arguments=stage_arguments,
         )
     return result
+
+
+def validate_stage_callback_edges(
+    *,
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+    exact_owners: Mapping[str, object],
+) -> Mapping[str, StageCallbackEdge]:
+    expressions, _, _, _ = _exact_owner_tables(exact_owners, source_sizes)
+    edges = _stage_callback_references(
+        exact_owners, source_sizes, source_owners, expressions
+    )
+    return MappingProxyType(edges)
 
 
 def validate_function_reference_targets(
@@ -831,12 +833,6 @@ def validate_function_reference_targets(
             if checked_type != signature["return_ty"]:
                 raise AdapterError(
                     f"selected stage callback result type disagrees with its checked declaration: {span}"
-                )
-            if not stage_callback_result_type_allowed(
-                stage_callback.stage_kind, checked_type
-            ):
-                raise AdapterError(
-                    f"selected {stage_callback.stage_kind} callback does not return Unit or Result[Unit]: {span}"
                 )
             validated_stage_callbacks.add(span)
             continue
