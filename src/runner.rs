@@ -377,21 +377,32 @@ fn try_run_program(options: &RunOptions) -> Result<RunAttempt, std::io::Error> {
 fn try_prepare_program(
     options: &RunOptions,
 ) -> Result<Result<PreparedRun, RunAttempt>, std::io::Error> {
+    let route_witness_context =
+        match crate::runtime::eval::route_witness::ChildCaptureContext::from_inherited_descriptor()
+        {
+            Ok(context) => context,
+            Err(message) => return Ok(Err(route_witness_error_attempt(message))),
+        };
     let bytes = fs::read(&options.script)?;
-    let route_witness = match crate::runtime::eval::route_witness::ChildCapture::from_environment(
-        &bytes,
-    ) {
+    let route_witness = match route_witness_context
+        .map(|context| context.validate_source(&bytes))
+        .transpose()
+    {
         Ok(route_witness) => route_witness,
         Err(message) => {
-            return Ok(Err(RunAttempt::Output(ScriptOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xsh: invalid route-witness sidechannel: {message}\n")),
-            })));
+            return Ok(Err(route_witness_error_attempt(message)));
         }
     };
     let entry_source = entry_source_from_bytes(&options.script, bytes);
     Ok(prepare_entry_source(options, entry_source, route_witness))
+}
+
+fn route_witness_error_attempt(message: String) -> RunAttempt {
+    RunAttempt::Output(ScriptOutput {
+        status: 2,
+        stdout: Vec::new(),
+        stderr: text_bytes(format!("xsh: invalid route-witness descriptor: {message}\n")),
+    })
 }
 
 fn diagnostic_attempt(
@@ -477,7 +488,6 @@ fn prepare_entry_source(
     if let Some(capture) = &route_witness {
         evaluator.install_route_witness_sink(capture.sink());
     }
-    evaluator = evaluator.without_private_route_witness_env();
     let coverage_trace_dir = options
         .coverage_trace_dir
         .clone()

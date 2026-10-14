@@ -637,14 +637,14 @@ test test_argv_words_become_a_command_that_runs_with_those_arguments { |ctx|
     ctx,
     r"""let words = process.argv_words("sh -c 'printf \"<%s>\\n\" \"$@\"' ignored 'two words' escaped\\ space")?
 let status = process.run(process.command_argv("sh", words))?
-let env_command = process.command_argv("printenv", ["printenv", "XSH_PLAN"], Path("."), {XSH_PLAN: "ready"})
+let env_command = process.command_argv("printenv", ["printenv", "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_PROCESS", "XSHT_INTERNAL_ROUTE_WITNESS_PROCESS"], Path("."), {XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_PROCESS: "ready", XSHT_INTERNAL_ROUTE_WITNESS_PROCESS: "also-ready"})
 let env_status = process.run(env_command)?
 let false_status = process.run(process.command_argv("false", ["false"]))?
 print ${status.ok} ${env_status.ok} ${false_status.exited_with(1)}
 """,
     status: 0,
   )?
-  assert output.stdout == "<two words>\n<escaped space>\nready\ntrue true true\n"
+  assert output.stdout == "<two words>\n<escaped space>\nready\nalso-ready\ntrue true true\n"
 }
 
 # Polls until `marker` exists, for at most three seconds.

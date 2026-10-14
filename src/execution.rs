@@ -6,12 +6,7 @@
 //! not mistaken for the ordinary script-running contract.
 
 pub mod evaluator {
-    /// Reserved environment namespace for the private native-test route-witness side channel.
-    #[cfg(feature = "native-tests")]
-    #[doc(hidden)]
-    pub const NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX: &str =
-        crate::runtime::eval::route_witness::ENV_PREFIX;
-    /// Reserved environment namespace for xsht's private per-invocation opt-in.
+    /// Prefix used to form xsht's two exact route-witness opt-in environment names.
     #[cfg(feature = "native-tests")]
     #[doc(hidden)]
     pub const NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX: &str =

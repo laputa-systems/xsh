@@ -1442,16 +1442,10 @@ fn native_test_host(
     if let Some(module_path) = module_path {
         command.env(XSH_MODULE_PATH, module_path);
     }
-    for (name, _) in std::env::vars_os() {
-        let name_bytes = name.as_os_str().as_bytes();
-        if name_bytes.starts_with(
-            xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX.as_bytes(),
-        ) || name_bytes.starts_with(
-            xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX.as_bytes(),
-        ) {
-            command.env_remove(name);
-        }
-    }
+    let route_witness_harness_prefix =
+        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX;
+    command.env_remove(format!("{route_witness_harness_prefix}_TEST_ID"));
+    command.env_remove(format!("{route_witness_harness_prefix}_OUTPUT_DIR"));
     for (name, value) in &request.env {
         let value: &std::ffi::OsStr = std::os::unix::ffi::OsStrExt::from_bytes(value);
         command.env(name, value);
@@ -1467,6 +1461,16 @@ fn native_test_host(
         command.stdin(Stdio::null());
     } else {
         command.stdin(Stdio::piped());
+    }
+
+    if request.attach_route_witness_transport(&mut command) {
+        if request.kind != NativeTestRunKind::Xsh || faked {
+            return Err(RuntimeError::new(
+                native_test_error_kind(request.kind),
+                "route-witness descriptor is only valid for a direct xsh child without test fakes",
+            )
+            .with_span(request.span));
+        }
     }
 
     // Each child leads a runner-owned process group so cancellation can stop

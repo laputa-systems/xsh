@@ -201,7 +201,7 @@ pub enum NativeTestRunKind {
 }
 
 #[cfg(feature = "native-tests")]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct NativeTestRunRequest {
     pub kind: NativeTestRunKind,
     pub script_path: PathValue,
@@ -219,10 +219,25 @@ pub struct NativeTestRunRequest {
     /// under the same fakes.
     pub linux_fake: Option<LinuxFake>,
     pub unix_fake: Option<UnixFake>,
+    #[doc(hidden)]
+    route_witness_transport: Option<route_witness::NativeTestRouteWitnessTransport>,
     /// The requesting test's cancellation, so the host can stop the child
     /// when that test times out.
     pub cancellation: Option<TestCancellation>,
     pub span: Span,
+}
+
+#[cfg(feature = "native-tests")]
+impl NativeTestRunRequest {
+    /// Attaches the one-use route context to the direct child command.
+    #[doc(hidden)]
+    pub fn attach_route_witness_transport(&self, command: &mut std::process::Command) -> bool {
+        let Some(transport) = &self.route_witness_transport else {
+            return false;
+        };
+        transport.attach_to(command);
+        true
+    }
 }
 
 const FORCE_FRAMES_ENV: &str = "XSH_INTERNAL_TEST_FORCE_FRAMES";
@@ -2532,7 +2547,6 @@ pub(crate) struct ScopedProducerContext {
 #[derive(Clone, Debug)]
 enum RuntimeEnv {
     Inherited,
-    InheritedWithoutRouteWitness,
     Snapshot(BTreeMap<Vec<u8>, Vec<u8>>),
 }
 
@@ -2552,15 +2566,10 @@ impl RuntimeEnv {
     fn snapshot_mut(&mut self) -> &mut BTreeMap<Vec<u8>, Vec<u8>> {
         match self {
             Self::Inherited => *self = Self::Snapshot(initial_env()),
-            Self::InheritedWithoutRouteWitness => {
-                *self = Self::Snapshot(initial_env_without_route_witness());
-            }
             Self::Snapshot(_) => {}
         }
         match self {
-            Self::Inherited | Self::InheritedWithoutRouteWitness => {
-                unreachable!("runtime env snapshot was initialized")
-            }
+            Self::Inherited => unreachable!("runtime env snapshot was initialized"),
             Self::Snapshot(env) => env,
         }
     }
@@ -2573,26 +2582,12 @@ impl RuntimeEnv {
         match self {
             Self::Inherited => std::env::var_os(OsStr::from_bytes(key))
                 .map(|value| value.as_os_str().as_bytes().to_vec()),
-            Self::InheritedWithoutRouteWitness
-                if route_witness::is_private_env_name_bytes(key) => None,
-            Self::InheritedWithoutRouteWitness => std::env::var_os(OsStr::from_bytes(key))
-                .map(|value| value.as_os_str().as_bytes().to_vec()),
             Self::Snapshot(env) => env.get(key).cloned(),
         }
     }
 
     fn insert(&mut self, name: Vec<u8>, value: Vec<u8>) {
         self.snapshot_mut().insert(name, value);
-    }
-
-    fn remove_private_route_witness_env(&mut self) {
-        match self {
-            Self::Inherited => *self = Self::InheritedWithoutRouteWitness,
-            Self::InheritedWithoutRouteWitness => {}
-            Self::Snapshot(env) => {
-                env.retain(|name, _| !route_witness::is_private_env_name_bytes(name));
-            }
-        }
     }
 
     fn extend(&mut self, overlay: BTreeMap<Vec<u8>, Vec<u8>>) {
@@ -2602,7 +2597,6 @@ impl RuntimeEnv {
     fn into_snapshot(self) -> BTreeMap<Vec<u8>, Vec<u8>> {
         match self {
             Self::Inherited => initial_env(),
-            Self::InheritedWithoutRouteWitness => initial_env_without_route_witness(),
             Self::Snapshot(env) => env,
         }
     }
@@ -2866,7 +2860,6 @@ impl PreparedTestProgram {
                 for (name, value) in env_overlay {
                     evaluator = evaluator.with_env_var(name, value);
                 }
-                evaluator = evaluator.without_private_route_witness_env();
                 if trace_enabled {
                     evaluator = evaluator.with_tracing();
                     evaluator.eval_installed_indexed_test_inner(
@@ -2937,11 +2930,6 @@ impl Evaluator {
         sink: route_witness::RouteWitnessSink,
     ) {
         self.route_witness_sink = Some(sink);
-    }
-
-    pub(crate) fn without_private_route_witness_env(mut self) -> Self {
-        self.env.remove_private_route_witness_env();
-        self
     }
 
     pub fn new(argv: Vec<String>) -> Self {
@@ -7030,12 +7018,6 @@ fn initial_env() -> BTreeMap<Vec<u8>, Vec<u8>> {
     env
 }
 
-fn initial_env_without_route_witness() -> BTreeMap<Vec<u8>, Vec<u8>> {
-    let mut env = initial_env();
-    env.retain(|name, _| !route_witness::is_private_env_name_bytes(name));
-    env
-}
-
 fn check_env_name(name: &str, span: Span) -> Result<(), RuntimeError> {
     if valid_env_name(name) {
         Ok(())
@@ -7987,15 +7969,14 @@ mod frame_scheduler_marker_tests {
 #[cfg(test)]
 mod runtime_env_route_witness_tests {
     use super::RuntimeEnv;
+    use std::collections::BTreeMap;
 
     #[test]
-    fn private_prefix_filter_keeps_inherited_environment_lazy() {
-        let mut env = RuntimeEnv::inherited();
-        env.remove_private_route_witness_env();
-        assert!(matches!(env, RuntimeEnv::InheritedWithoutRouteWitness));
-        assert!(env
-            .get_owned(b"XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TEST")
-            .is_none());
+    fn route_witness_prefix_environment_names_are_ordinary_entries() {
+        let name = b"XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TEST".to_vec();
+        let value = b"ordinary-value".to_vec();
+        let env = RuntimeEnv::from_snapshot(BTreeMap::from([(name.clone(), value.clone())]));
+        assert_eq!(env.get_owned(&name), Some(value));
     }
 }
 

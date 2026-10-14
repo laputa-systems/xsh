@@ -358,10 +358,6 @@ impl Evaluator {
                 RuntimeError::new(error_kind, "native test host is not installed").with_span(span),
             );
         };
-        super::route_witness::reject_reserved_env(env).map_err(|message| {
-            RuntimeError::new(error_kind, message).with_span(span)
-        })?;
-        let mut request_env = env.clone();
         let route_witness_output = if let Some(invocation) = &self.route_witness_invocation {
             if kind != NativeTestRunKind::Xsh
                 || self.linux_fake.is_some()
@@ -385,28 +381,45 @@ impl Evaluator {
         } else {
             None
         };
-        if let (Some(invocation), Some(output_dir)) =
-            (&self.route_witness_invocation, route_witness_output.as_ref())
-        {
-            super::route_witness::transport_env(
-                &invocation.test_id,
-                output_dir.path(),
-                source.as_bytes(),
-                &mut request_env,
-            )
-            .map_err(|message| RuntimeError::new(error_kind, message).with_span(span))?;
-        }
+        let route_witness_transport = match (
+            &self.route_witness_invocation,
+            route_witness_output.as_ref(),
+        ) {
+            (Some(invocation), Some(output_dir)) => Some(
+                super::route_witness::NativeTestRouteWitnessTransport::new(
+                    &invocation.test_id,
+                    output_dir.path(),
+                    source.as_bytes(),
+                )
+                .map_err(|error| {
+                    RuntimeError::new(
+                        error_kind,
+                        format!("failed to prepare route-witness descriptor: {error}"),
+                    )
+                    .with_span(span)
+                })?,
+            ),
+            (None, None) => None,
+            _ => {
+                return Err(RuntimeError::new(
+                    error_kind,
+                    "route-witness context and child directory are inconsistent",
+                )
+                .with_span(span));
+            }
+        };
         let value = host(NativeTestRunRequest {
             kind,
             script_path,
             source: source.to_string(),
             tool_args: tool_args.to_vec(),
             script_args: script_args.to_vec(),
-            env: request_env,
+            env: env.clone(),
             force_frames: self.force_frames,
             stdin: stdin.to_vec(),
             linux_fake: self.linux_fake.as_deref().cloned(),
             unix_fake: self.unix_fake.as_deref().cloned(),
+            route_witness_transport,
             cancellation: self.test_cancellation.clone(),
             span,
         })?;

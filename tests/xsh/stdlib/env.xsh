@@ -317,6 +317,24 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
   assert root not in env.PATH
 }
 
+test test_route_witness_prefix_names_are_ordinary_environment_entries {
+  let name = "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY"
+  let harness_name = "XSHT_INTERNAL_ROUTE_WITNESS_ORDINARY"
+  env XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY=outer XSHT_INTERNAL_ROUTE_WITNESS_ORDINARY=harness {
+    assert env.get(name)? == "outer"
+    assert env.get(harness_name)? == "harness"
+    env XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY=inner {
+      assert env.get(name)? == "inner"
+    }
+    assert env.get(name)? == "outer"
+    let child = run.text XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY=child /usr/bin/env
+    assert "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY=child" in child
+    assert "XSHT_INTERNAL_ROUTE_WITNESS_ORDINARY=harness" in child
+  }
+  assert env.get_or(name, "absent")? == "absent"
+  assert env.get_or(harness_name, "absent")? == "absent"
+}
+
 test test_path_literals_method_sugar_and_expr_env_blocks { |ctx|
   let root = test.temp_dir(ctx, name: "sugar")?
   let child_name = "child"

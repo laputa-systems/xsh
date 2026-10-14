@@ -16,27 +16,29 @@
 use super::indexed::full::FullTag;
 use std::ffi::OsString;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 
-pub(crate) const ENV_PREFIX: &str = "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS";
-pub(crate) const HARNESS_ENV_PREFIX: &str = "XSHT_INTERNAL_ROUTE_WITNESS";
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+compile_error!("route-witness descriptor transport supports Linux and macOS only");
 
 pub(crate) const INVOCATION_TEST_ID_OVERLAY: &[u8] =
     b"XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_INVOCATION_TEST_ID";
 pub(crate) const INVOCATION_OUTPUT_DIR_OVERLAY: &[u8] =
     b"XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_INVOCATION_OUTPUT_DIR";
 
-const TRANSPORT_TEST_ID: &str = "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_TEST_ID";
-const TRANSPORT_OUTPUT_DIR: &str =
-    "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_OUTPUT_DIR";
-const TRANSPORT_SOURCE_HASH: &str =
-    "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_SOURCE_HASH";
-
 const ARTIFACT_FILE: &str = "route-witness.json";
 const ARTIFACT_VERSION: u64 = 1;
+pub(crate) const HARNESS_ENV_PREFIX: &str = "XSHT_INTERNAL_ROUTE_WITNESS";
+const TRANSPORT_MAGIC: &[u8; 8] = b"XSHRWT01";
+const TRANSPORT_SOURCE_HASH_BYTES: usize = 64;
+const MAX_TRANSPORT_BYTES: usize = 64 * 1024;
+const ROUTE_WITNESS_FD: RawFd = 198;
 
 /// The exact outer native-test invocation and its private output directory.
 /// This value travels only through harness-owned evaluator state.
@@ -55,57 +57,160 @@ pub(crate) struct ChildCapture {
     sink: RouteWitnessSink,
 }
 
-impl ChildCapture {
-    pub(crate) fn from_environment(source: &[u8]) -> Result<Option<Self>, String> {
-        Self::from_values(
-            source,
-            std::env::var_os(TRANSPORT_TEST_ID),
-            std::env::var_os(TRANSPORT_OUTPUT_DIR),
-            std::env::var_os(TRANSPORT_SOURCE_HASH),
-        )
+pub(crate) struct ChildCaptureContext {
+    test_id: String,
+    output_dir: PathBuf,
+    source_hash: String,
+}
+
+impl ChildCaptureContext {
+    pub(crate) fn from_inherited_descriptor() -> Result<Option<Self>, String> {
+        let flags = unsafe { libc::fcntl(ROUTE_WITNESS_FD, libc::F_GETFD) };
+        if flags == -1 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EBADF) {
+                return Ok(None);
+            }
+            return Err(format!("failed to inspect route-witness descriptor: {error}"));
+        }
+        // SAFETY: a successful F_GETFD proves descriptor 198 is open. The
+        // runner consumes this reserved descriptor at startup and becomes its
+        // sole owner before reading any script-controlled input.
+        let fd = unsafe { OwnedFd::from_raw_fd(ROUTE_WITNESS_FD) };
+        Self::from_owned_descriptor(fd).map(Some)
     }
 
-    fn from_values(
-        source: &[u8],
-        test_id: Option<OsString>,
-        output_dir: Option<OsString>,
-        source_hash: Option<OsString>,
-    ) -> Result<Option<Self>, String> {
-        let (test_id, output_dir, source_hash) = match (test_id, output_dir, source_hash) {
-            (None, None, None) => return Ok(None),
-            (Some(test_id), Some(output_dir), Some(source_hash)) => {
-                (test_id, output_dir, source_hash)
-            }
-            _ => return Err("route-witness child context is incomplete".to_string()),
-        };
-        let test_id = test_id
-            .into_string()
-            .map_err(|_| "route-witness test identity is not UTF-8".to_string())?;
-        let source_hash = source_hash
-            .into_string()
-            .map_err(|_| "route-witness source hash is not UTF-8".to_string())?;
-        if test_id.is_empty() {
-            return Err("route-witness test identity is empty".to_string());
+    fn from_owned_descriptor(fd: OwnedFd) -> Result<Self, String> {
+        let file = std::fs::File::from(fd);
+        let metadata = file
+            .metadata()
+            .map_err(|error| format!("failed to inspect route-witness descriptor: {error}"))?;
+        if !metadata.file_type().is_file() {
+            return Err("route-witness descriptor is not a regular file".to_string());
         }
-        if !is_lowercase_sha256(&source_hash) {
-            return Err("route-witness source hash is not lowercase SHA-256".to_string());
+        if metadata.len() > MAX_TRANSPORT_BYTES as u64 {
+            return Err("route-witness descriptor exceeds the transport limit".to_string());
         }
-        let actual_hash = source_sha256(source);
-        if source_hash != actual_hash {
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        file
+            .take((MAX_TRANSPORT_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("failed to read route-witness descriptor: {error}"))?;
+        if bytes.len() > MAX_TRANSPORT_BYTES {
+            return Err("route-witness descriptor exceeds the transport limit".to_string());
+        }
+        let (test_id, output_dir, source_hash) = decode_transport(&bytes)?;
+        Ok(Self {
+            test_id,
+            output_dir,
+            source_hash,
+        })
+    }
+
+    pub(crate) fn validate_source(self, source: &[u8]) -> Result<ChildCapture, String> {
+        if self.source_hash != source_sha256(source) {
             return Err("route-witness source hash does not match the loaded script".to_string());
         }
-        let output_dir = PathBuf::from(output_dir);
-        if !output_dir.is_dir() {
+        if !self.output_dir.is_dir() {
             return Err("route-witness output directory is unavailable".to_string());
         }
-        Ok(Some(Self {
-            artifact: output_dir.join(ARTIFACT_FILE),
-            test_id,
-            source_hash,
+        Ok(ChildCapture {
+            artifact: self.output_dir.join(ARTIFACT_FILE),
+            test_id: self.test_id,
+            source_hash: self.source_hash,
             sink: RouteWitnessSink::default(),
-        }))
+        })
+    }
+}
+
+/// Owns the one-use context descriptor until the direct child has been
+/// spawned and waited. Descriptor 198 is reserved for this handoff in that
+/// child.
+#[derive(Debug)]
+pub(crate) struct NativeTestRouteWitnessTransport {
+    fd: OwnedFd,
+}
+
+impl NativeTestRouteWitnessTransport {
+    pub(crate) fn new(
+        test_id: &str,
+        output_dir: &Path,
+        source: &[u8],
+    ) -> std::io::Result<Self> {
+        let test_id = test_id.as_bytes();
+        let output_dir_bytes = output_dir.as_os_str().as_bytes();
+        if test_id.is_empty()
+            || test_id.contains(&0)
+            || output_dir_bytes.is_empty()
+            || output_dir_bytes.contains(&0)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "route-witness context has an empty or invalid field",
+            ));
+        }
+        let test_id_len = u32::try_from(test_id.len()).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "test identity is too long")
+        })?;
+        let output_dir_len = u32::try_from(output_dir_bytes.len()).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "output path is too long")
+        })?;
+        let payload_len = TRANSPORT_MAGIC
+            .len()
+            .checked_add(8 + TRANSPORT_SOURCE_HASH_BYTES)
+            .and_then(|length| length.checked_add(test_id.len()))
+            .and_then(|length| length.checked_add(output_dir_bytes.len()))
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "route-witness context exceeds the transport limit",
+                )
+            })?;
+        if payload_len > MAX_TRANSPORT_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "route-witness context exceeds the transport limit",
+            ));
+        }
+        let source_hash = source_sha256(source);
+        let mut payload = Vec::with_capacity(payload_len);
+        payload.extend_from_slice(TRANSPORT_MAGIC);
+        payload.extend_from_slice(&test_id_len.to_be_bytes());
+        payload.extend_from_slice(&output_dir_len.to_be_bytes());
+        payload.extend_from_slice(source_hash.as_bytes());
+        payload.extend_from_slice(test_id);
+        payload.extend_from_slice(output_dir_bytes);
+        let mut file = tempfile::tempfile_in(output_dir)?;
+        file.write_all(&payload)?;
+        file.flush()?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(Self {
+            fd: duplicate_above_reserved_fd(file.as_raw_fd())?,
+        })
     }
 
+    /// Adds the descriptor handoff to a command. The caller keeps this owner
+    /// alive until spawn has completed so the pre-exec source descriptor stays
+    /// valid.
+    pub(crate) fn attach_to(&self, command: &mut Command) {
+        let source_fd = self.fd.as_raw_fd();
+        debug_assert!(source_fd > ROUTE_WITNESS_FD);
+        // SAFETY: the closure only calls async-signal-safe `dup2`; `self` owns
+        // source_fd for the whole spawn, and descriptor 198 is reserved for
+        // this internal child handoff and may be replaced in that child.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::dup2(source_fd, ROUTE_WITNESS_FD) == -1 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+    }
+}
+
+impl ChildCapture {
     pub(crate) fn sink(&self) -> RouteWitnessSink {
         self.sink.clone()
     }
@@ -195,35 +300,83 @@ pub(crate) fn take_invocation_context(
     Ok((context, script_overlay))
 }
 
-/// Adds transport-only values after rejecting any script-supplied attempt to
-/// use one of the private route-witness names.
-pub(crate) fn transport_env(
-    test_id: &str,
-    output_dir: &Path,
-    source: &[u8],
-    env: &mut std::collections::BTreeMap<String, Vec<u8>>,
-) -> Result<(), &'static str> {
-    reject_reserved_env(env)?;
-    env.insert(TRANSPORT_TEST_ID.to_string(), test_id.as_bytes().to_vec());
-    env.insert(
-        TRANSPORT_OUTPUT_DIR.to_string(),
-        output_dir.as_os_str().as_bytes().to_vec(),
-    );
-    env.insert(
-        TRANSPORT_SOURCE_HASH.to_string(),
-        source_sha256(source).into_bytes(),
-    );
-    Ok(())
+fn duplicate_above_reserved_fd(source_fd: RawFd) -> std::io::Result<OwnedFd> {
+    // SAFETY: source_fd is borrowed from a live File, and F_DUPFD_CLOEXEC
+    // returns a new descriptor at or above the requested minimum.
+    let duplicated_fd = unsafe {
+        libc::fcntl(
+            source_fd,
+            libc::F_DUPFD_CLOEXEC,
+            ROUTE_WITNESS_FD + 1,
+        )
+    };
+    if duplicated_fd == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    debug_assert!(duplicated_fd > ROUTE_WITNESS_FD);
+    // SAFETY: fcntl returned a new descriptor owned by this function.
+    Ok(unsafe { OwnedFd::from_raw_fd(duplicated_fd) })
 }
 
-pub(crate) fn reject_reserved_env(
-    env: &std::collections::BTreeMap<String, Vec<u8>>,
-) -> Result<(), &'static str> {
-    if env.keys().any(is_private_env_name) {
-        Err("native-test env uses a reserved route-witness name")
-    } else {
-        Ok(())
+fn decode_transport(bytes: &[u8]) -> Result<(String, PathBuf, String), String> {
+    let header_len = TRANSPORT_MAGIC.len() + 8 + TRANSPORT_SOURCE_HASH_BYTES;
+    if bytes.len() > MAX_TRANSPORT_BYTES {
+        return Err("route-witness descriptor exceeds the transport limit".to_string());
     }
+    if bytes.len() < header_len {
+        return Err("route-witness descriptor is short".to_string());
+    }
+    if &bytes[..TRANSPORT_MAGIC.len()] != TRANSPORT_MAGIC {
+        return Err("route-witness descriptor has an invalid header".to_string());
+    }
+    let test_id_len_at = TRANSPORT_MAGIC.len();
+    let output_dir_len_at = test_id_len_at + 4;
+    let test_id_len = u32::from_be_bytes(
+        bytes[test_id_len_at..test_id_len_at + 4]
+            .try_into()
+            .expect("fixed-width test ID length"),
+    ) as usize;
+    let output_dir_len = u32::from_be_bytes(
+        bytes[output_dir_len_at..output_dir_len_at + 4]
+            .try_into()
+            .expect("fixed-width output path length"),
+    ) as usize;
+    let hash_start = output_dir_len_at + 4;
+    let test_id_start = hash_start + TRANSPORT_SOURCE_HASH_BYTES;
+    let expected_len = test_id_start
+        .checked_add(test_id_len)
+        .and_then(|length| length.checked_add(output_dir_len))
+        .ok_or_else(|| "route-witness descriptor has invalid lengths".to_string())?;
+    if expected_len > MAX_TRANSPORT_BYTES {
+        return Err("route-witness descriptor exceeds the transport limit".to_string());
+    }
+    if bytes.len() < expected_len {
+        return Err("route-witness descriptor is short".to_string());
+    }
+    if bytes.len() != expected_len {
+        return Err("route-witness descriptor has trailing data".to_string());
+    }
+
+    let source_hash = std::str::from_utf8(&bytes[hash_start..test_id_start])
+        .map_err(|_| "route-witness source hash is not UTF-8".to_string())?;
+    if !is_lowercase_sha256(source_hash) {
+        return Err("route-witness source hash is not lowercase SHA-256".to_string());
+    }
+    let test_id_end = test_id_start + test_id_len;
+    let test_id = std::str::from_utf8(&bytes[test_id_start..test_id_end])
+        .map_err(|_| "route-witness test identity is not UTF-8".to_string())?;
+    if test_id.is_empty() || test_id.as_bytes().contains(&0) {
+        return Err("route-witness test identity is invalid".to_string());
+    }
+    let output_dir_bytes = &bytes[test_id_end..];
+    if output_dir_bytes.is_empty() || output_dir_bytes.contains(&0) {
+        return Err("route-witness output directory is invalid".to_string());
+    }
+    Ok((
+        test_id.to_string(),
+        PathBuf::from(OsString::from_vec(output_dir_bytes.to_vec())),
+        source_hash.to_string(),
+    ))
 }
 
 /// Validates the artifact after the child exits successfully, while the
@@ -347,14 +500,6 @@ pub(crate) fn is_lowercase_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-pub(crate) fn is_private_env_name(name: &str) -> bool {
-    is_private_env_name_bytes(name.as_bytes())
-}
-
-pub(crate) fn is_private_env_name_bytes(name: &[u8]) -> bool {
-    name.starts_with(ENV_PREFIX.as_bytes()) || name.starts_with(HARNESS_ENV_PREFIX.as_bytes())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -536,42 +681,68 @@ mod tests {
         .is_err());
     }
 
-    #[test]
-    fn missing_or_incomplete_transport_never_forges_child_context() {
-        assert!(ChildCapture::from_values(b"source", None, None, None)
-            .expect("absent transport is valid")
-            .is_none());
-
+    fn owned_descriptor(bytes: &[u8]) -> OwnedFd {
         let directory = route_witness_tempdir();
-        let incomplete = ChildCapture::from_values(
-            b"source",
-            Some("tests/a.xsh::case".into()),
-            Some(directory.path().as_os_str().to_os_string()),
-            None,
-        );
-        assert!(incomplete.is_err());
+        let mut file = tempfile::tempfile_in(directory.path()).expect("create transport file");
+        file.write_all(bytes).expect("write transport file");
+        file.seek(SeekFrom::Start(0)).expect("rewind transport file");
+        file.into()
     }
 
     #[test]
-    fn child_transport_rejects_stale_source_and_malformed_hashes() {
+    fn descriptor_transport_round_trips_and_checks_the_loaded_source() {
         let directory = route_witness_tempdir();
-        let valid_id = Some(OsString::from("tests/a.xsh::case"));
-        let valid_directory = Some(directory.path().as_os_str().to_os_string());
-        let stale = ChildCapture::from_values(
-            b"new source",
-            valid_id.clone(),
-            valid_directory.clone(),
-            Some(source_sha256(b"old source").into()),
-        );
-        assert!(stale.is_err());
+        let source = b"let empty: Map[Str, Int] = {}\n";
+        let transport = NativeTestRouteWitnessTransport::new(
+            "tests/a.xsh::case",
+            directory.path(),
+            source,
+        )
+        .expect("prepare descriptor");
+        let context = ChildCaptureContext::from_owned_descriptor(transport.fd)
+            .expect("decode descriptor");
+        assert!(context.validate_source(b"different source").is_err());
 
-        let malformed = ChildCapture::from_values(
-            b"source",
-            valid_id,
-            valid_directory,
-            Some("AABB".into()),
-        );
-        assert!(malformed.is_err());
+        let transport = NativeTestRouteWitnessTransport::new(
+            "tests/a.xsh::case",
+            directory.path(),
+            source,
+        )
+        .expect("prepare second descriptor");
+        let capture = ChildCaptureContext::from_owned_descriptor(transport.fd)
+            .expect("decode descriptor")
+            .validate_source(source)
+            .expect("validate source");
+        assert_eq!(capture.test_id, "tests/a.xsh::case");
+        assert_eq!(capture.source_hash, source_sha256(source));
+    }
+
+    #[test]
+    fn invalid_short_and_oversized_descriptors_fail_closed_and_close_the_fd() {
+        let mut oversized = vec![b'x'; MAX_TRANSPORT_BYTES + 1];
+        let mut short = vec![0; TRANSPORT_MAGIC.len() + 8 + TRANSPORT_SOURCE_HASH_BYTES - 1];
+        let mut invalid_header = vec![0; TRANSPORT_MAGIC.len() + 8 + TRANSPORT_SOURCE_HASH_BYTES];
+        invalid_header[..TRANSPORT_MAGIC.len()].copy_from_slice(b"BADMAGIC");
+        let mut invalid_hash = Vec::new();
+        invalid_hash.extend_from_slice(TRANSPORT_MAGIC);
+        invalid_hash.extend_from_slice(&0u32.to_be_bytes());
+        invalid_hash.extend_from_slice(&0u32.to_be_bytes());
+        invalid_hash.extend_from_slice(&[b'A'; TRANSPORT_SOURCE_HASH_BYTES]);
+        let mut trailing = Vec::new();
+        trailing.extend_from_slice(TRANSPORT_MAGIC);
+        trailing.extend_from_slice(&0u32.to_be_bytes());
+        trailing.extend_from_slice(&0u32.to_be_bytes());
+        trailing.extend_from_slice(&[b'a'; TRANSPORT_SOURCE_HASH_BYTES]);
+        trailing.push(0);
+        oversized[0] = b'X';
+        short[0] = b'X';
+
+        for bytes in [oversized, short, invalid_header, invalid_hash, trailing] {
+            let fd = owned_descriptor(&bytes);
+            let raw = fd.as_raw_fd();
+            assert!(ChildCaptureContext::from_owned_descriptor(fd).is_err());
+            assert_eq!(unsafe { libc::fcntl(raw, libc::F_GETFD) }, -1);
+        }
     }
 
     #[test]

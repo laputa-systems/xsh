@@ -370,10 +370,13 @@ test test_unix_read_fd_reads_fifo_without_seeking_or_waiting_for_requested_size 
 
 test test_unix_exec_env_replaces_inherited_and_command_environment { |ctx|
   let result = test.expect(ctx, r"""let command = process.command_argv(p"/usr/bin/env", ["env"], env: {COMMAND_ONLY: "discard"})
-let environment: Map[Str, Str] = {"ONLY": "kept"}
+let environment: Map[Str, Str] = {"ONLY": "kept", "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_UNIX": "ordinary", "XSHT_INTERNAL_ROUTE_WITNESS_UNIX": "also-ordinary"}
 unix.exec_env(command, environment)?
 """, status: 0, env: {INHERITED_ONLY: "discard"})?
-  assert result.stdout == "ONLY=kept\n"
+  assert "ONLY=kept\n" in result.stdout
+  assert "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_UNIX=ordinary\n" in result.stdout
+  assert "XSHT_INTERNAL_ROUTE_WITNESS_UNIX=also-ordinary\n" in result.stdout
+  assert !("INHERITED_ONLY=" in result.stdout)
 }
 
 test test_unix_exec_env_applies_explicit_argv0 { |ctx|

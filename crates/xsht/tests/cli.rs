@@ -784,39 +784,47 @@ fn native_test_route_witness_captures_the_exact_oracle_in_both_modes() {
 }
 
 #[test]
-fn native_test_route_witness_is_private_and_scoped_when_prepared_program_is_reused() {
+fn native_test_route_witness_descriptor_survives_script_environment_values() {
     let root = route_witness_tempdir();
     let tests = root.path().join("tests");
     fs::create_dir(&tests).expect("create native test root");
-    let route_prefix = xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX;
+    let route_prefix = "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS";
     let harness_prefix =
         xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_HARNESS_ENV_PREFIX;
     let test_id_env = format!("{harness_prefix}_TEST_ID");
     let output_dir_env = format!("{harness_prefix}_OUTPUT_DIR");
     let child_source = format!(
-        "assert env.get_or(\"{route_prefix}_TRANSPORT_TEST_ID\", \"absent\")? == \"absent\"\n\
-         assert env.get_or(\"{route_prefix}_TRANSPORT_OUTPUT_DIR\", \"absent\")? == \"absent\"\n\
-         assert env.get_or(\"{route_prefix}_TRANSPORT_SOURCE_HASH\", \"absent\")? == \"absent\"\n\
+        "assert env.get_or(\"{route_prefix}_TRANSPORT_TEST_ID\", \"absent\")? == \"forged\"\n\
+         assert env.get_or(\"{route_prefix}_TRANSPORT_OUTPUT_DIR\", \"absent\")? == \"forged\"\n\
+         assert env.get_or(\"{route_prefix}_TRANSPORT_SOURCE_HASH\", \"absent\")? == \"forged\"\n\
          assert env.get_or(\"{harness_prefix}_TEST_ID\", \"absent\")? == \"absent\"\n\
          assert env.get_or(\"{harness_prefix}_OUTPUT_DIR\", \"absent\")? == \"absent\"\n\
          let inherited = run.capture --text \"/usr/bin/env\"\n\
-         assert !(\"{route_prefix}_TRANSPORT_TEST_ID\" in inherited.stdout)\n\
-         assert !(\"{route_prefix}_TRANSPORT_OUTPUT_DIR\" in inherited.stdout)\n\
-         assert !(\"{route_prefix}_TRANSPORT_SOURCE_HASH\" in inherited.stdout)\n\
+         assert \"{route_prefix}_TRANSPORT_TEST_ID=forged\" in inherited.stdout\n\
+         assert \"{route_prefix}_TRANSPORT_OUTPUT_DIR=forged\" in inherited.stdout\n\
+         assert \"{route_prefix}_TRANSPORT_SOURCE_HASH=forged\" in inherited.stdout\n\
          assert !(\"{harness_prefix}_TEST_ID\" in inherited.stdout)\n\
          assert !(\"{harness_prefix}_OUTPUT_DIR\" in inherited.stdout)\n\
          let empty: Map[Str, Int] = {{}}\nassert empty.len() == 0\nprint \"same\"\n"
     );
     let fixture = format!(
         r#"test captured {{ |ctx|
-  let output = test.run_xsh(ctx, r"""{child_source}""")?
+  let output = test.run_xsh(ctx, r"""{child_source}""", env: {{
+    {route_prefix}_TRANSPORT_TEST_ID: "forged",
+    {route_prefix}_TRANSPORT_OUTPUT_DIR: "forged",
+    {route_prefix}_TRANSPORT_SOURCE_HASH: "forged",
+  }})?
   assert output.success, output.stderr
   assert output.stdout_bytes == b"same\n"
   assert output.stderr_bytes == b""
 }}
 
 test unobserved {{ |ctx|
-  let output = test.run_xsh(ctx, r"""{child_source}""")?
+  let output = test.run_xsh(ctx, r"""{child_source}""", env: {{
+    {route_prefix}_TRANSPORT_TEST_ID: "forged",
+    {route_prefix}_TRANSPORT_OUTPUT_DIR: "forged",
+    {route_prefix}_TRANSPORT_SOURCE_HASH: "forged",
+  }})?
   assert output.success, output.stderr
   assert output.stdout_bytes == b"same\n"
   assert output.stderr_bytes == b""
@@ -861,25 +869,38 @@ test unobserved {{ |ctx|
 }
 
 #[test]
-fn native_test_rejects_script_supplied_route_witness_environment_names() {
+fn native_test_environment_fake_transport_does_not_activate_capture() {
+    use sha2::{Digest, Sha256};
+
     let root = route_witness_tempdir();
     let tests = root.path().join("tests");
     fs::create_dir(&tests).expect("create native test root");
-    let reserved_name = format!(
-        "{}_FORGED",
-        xsh::execution::evaluator::NATIVE_TEST_ROUTE_WITNESS_ENV_PREFIX
-    );
+    let output_root = route_witness_tempdir();
+    let test_id = "tests/spoof.xsh::fake";
+    let child_source = "let empty: Map[Str, Int] = {}\nassert empty.len() == 0\n";
     let fixture = format!(
-        "test forged {{ |ctx|\n  let _ = test.run_xsh(ctx, \"print 1\\n\", env: {{{reserved_name}: \"forged\"}})?\n}}\n"
+        "test fake {{ |ctx|\n  let output = test.run_xsh(ctx, r\"\"\"{child_source}\"\"\")?\n  assert output.success, output.stderr\n}}\n"
     );
-    fs::write(tests.join("spoof.xsh"), fixture).expect("write spoofing test fixture");
+    fs::write(tests.join("spoof.xsh"), fixture).expect("write fake transport test fixture");
 
     let output = Command::new(test_bin!("xsht"))
-        .args(["test", "--exact", "tests/spoof.xsh::forged"])
+        .args(["test", "--exact", test_id])
         .current_dir(root.path())
+        .env(
+            "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_TEST_ID",
+            test_id,
+        )
+        .env(
+            "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_OUTPUT_DIR",
+            output_root.path(),
+        )
+        .env(
+            "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_SOURCE_HASH",
+            format!("{:x}", Sha256::digest(child_source.as_bytes())),
+        )
         .output()
-        .expect("run spoofing native test");
+        .expect("run environment fake transport test");
 
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("reserved route-witness name"));
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stdout));
+    assert!(!output_root.path().join("route-witness.json").exists());
 }
