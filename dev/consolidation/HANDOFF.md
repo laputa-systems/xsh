@@ -4,6 +4,32 @@ Status: active 2026-10-14.
 
 ## Current publication repair batch, 2026-10-14
 
+The f105 smoke exposed one further parser error: Rust publishes
+`stream_stage_types` as `(Option<Name>, Span) -> CheckedStreamStage{input,output}`,
+while the new fixtures had assumed `StreamStageId` keys. The reviewed repair
+from `e67f4f3a6` uses namespace/span keys, rejects duplicate normalized spans,
+checks source bounds and value shape, and joins callbacks by their exact span.
+The exact AST stage table retains its separate contiguous integer IDs.
+
+All 24 selected outcomes now match under the corrected Python modules using
+the existing f105 smoke data. A separate hash-only pass verifies all 12 exact
+sidecars against their original BLAKE3 receipt digests. These are selected
+smoke results, not full-corpus acceptance. Evidence is in
+`.work/consolidation/w9-f105-smoke-replay-a2/` and
+`.work/consolidation/w9-f105-sidecar-hash-a1/`. Full candidate capture is active
+against frozen master f105. Keep master unchanged through captures and strict
+comparison; the reviewed parser integration remains isolated until that boundary.
+
+A bounded profile of one large current-schema projection found duplicate
+whole-map scans. The reviewed `815f8e46d` repair validates and splits maps in
+one pass. Old/new parsers agree on values and exact malformed-input errors;
+the actual 873 expression-type map preserves all 70,974 ordered entries and
+their rendered bytes. The integrated tooling passes 217 focused Python tests.
+Profile timings are instrumentation attribution, not performance evidence.
+Use the corrected, reviewed Python modules for strict full comparison while
+retaining f105's compiler and capture identities. No Rust or helper protocol
+changed in these parser repairs, so unchanged capture artifacts remain usable.
+
 The repaired source at `47a691832` completed all 18 selected smoke harness
 invocations, but strict projection stopped at input 873. The parsed `drop(1)`
 span at SourceId(0), offset 11499, length 7 belongs to the exact stream-stage
