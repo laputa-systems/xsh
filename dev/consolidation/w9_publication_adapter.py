@@ -870,6 +870,9 @@ def _current_fact_owners(
         raise AdapterError(f"checked control-flow fields differ: missing={missing} added={added}")
     if control_flow.get("complete") != "true":
         raise AdapterError("checked control-flow facts are incomplete")
+    propagating_statement_spans = _canonical_span_set(
+        fields["propagating_statements"], "propagating statement"
+    )
     api_calls = _canonical_span_map(fields["api_calls"], "checked API call")
     statement_positions = _canonical_span_map(fields["statement_positions"], "checked statement position")
     stage_spans = {
@@ -941,11 +944,34 @@ def _current_fact_owners(
                         raise AdapterError(f"propagating error span has no unique exact statement owner: {span}")
                 if "run:RunForm" in owner_kinds:
                     runs = exact_owners.get("runs") if exact_owners is not None else None
-                    if not isinstance(runs, Mapping) or not any(
-                        isinstance(row, tuple) and len(row) == 2 and row[0] == span and row[1] is True
+                    if not isinstance(runs, Mapping):
+                        raise AdapterError(f"propagating run-form span has no exact propagating run: {span}")
+                    matching_runs = [
+                        row
                         for row in runs.values()
+                        if isinstance(row, tuple) and len(row) == 2 and row[0] == span
+                    ]
+                    if len(matching_runs) == 1 and matching_runs[0][1] is True:
+                        continue
+                    if (
+                        len(matching_runs) != 1
+                        or matching_runs[0][1] is not False
+                        or "stmt:Command" not in owner_kinds
                     ):
                         raise AdapterError(f"propagating run-form span has no exact propagating run: {span}")
+                    if span not in propagating_statement_spans:
+                        raise AdapterError(
+                            f"propagating run-form span has no checked propagating command statement: {span}"
+                        )
+                    if not statement_owner_indexed:
+                        statement_owner_counts = _index_statement_owners(statement_owners)
+                        statement_owner_indexed = True
+                    if not _has_unique_statement_owner(
+                        span, {"stmt:Command"}, statement_owner_counts
+                    ):
+                        raise AdapterError(
+                            f"propagating run-form span has no unique exact command statement owner: {span}"
+                        )
             elif field in {"builtin_range_calls", "latent_stream_error_spans"}:
                 if span not in expression_types:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked expression type: {span}")

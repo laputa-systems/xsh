@@ -1593,6 +1593,60 @@ class PublicationAdapterTests(unittest.TestCase):
                 candidate_exact_owners=exact_owners,
             )
 
+    def test_plain_run_command_propagation_uses_exact_statement_owner(self):
+        current, owners = exact_current_call_publication()
+        current = current.replace(
+            f"propagating_error_spans:{{{COMMAND_SPAN}}}",
+            f"propagating_error_spans:{{{COMMAND_SPAN},{RUN_FORM_SPAN}}}",
+        ).replace(
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value}}",
+            f"statement_positions:{{{SPAN}:Value,{COMMAND_SPAN}:Value,{RUN_FORM_SPAN}:Value}}",
+        ).replace(
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN}}}",
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN},{RUN_FORM_SPAN}}}",
+        )
+        owners[RUN_FORM_SPAN] = {"stmt:Command"}
+        exact_owners = exact_call_owners()
+        exact_owners["runs"] = {0: (RUN_FORM_SPAN, False)}
+        statement_owners = {
+            **STATEMENT_OWNERS,
+            "StmtId(18)": (RUN_FORM_SPAN, "stmt:Command"),
+        }
+
+        project_publication(
+            "current", current, SOURCE_SIZES, owners,
+            statement_owners=statement_owners,
+            candidate_exact_owners=exact_owners,
+        )
+
+        without_statement_fact = current.replace(
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN},{RUN_FORM_SPAN}}}",
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN}}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "no checked propagating command statement"):
+            project_publication(
+                "current", without_statement_fact, SOURCE_SIZES, owners,
+                statement_owners=statement_owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        with self.assertRaisesRegex(AdapterError, "no unique exact command statement owner"):
+            project_publication(
+                "current", current, SOURCE_SIZES, owners,
+                statement_owners={**STATEMENT_OWNERS, "StmtId(18)": (RUN_FORM_SPAN, "stmt:Let")},
+                candidate_exact_owners=exact_owners,
+            )
+
+        with self.assertRaisesRegex(AdapterError, "no unique exact command statement owner"):
+            project_publication(
+                "current", current, SOURCE_SIZES, owners,
+                statement_owners={
+                    **statement_owners,
+                    "StmtId(19)": (RUN_FORM_SPAN, "stmt:Command"),
+                },
+                candidate_exact_owners=exact_owners,
+            )
+
     def test_exact_noncall_selection_uses_checked_function_reference_validation(self):
         current, owners = exact_current_call_publication()
         reference_span = "Span{source_id:SourceId(0),start:70,len:4}"
