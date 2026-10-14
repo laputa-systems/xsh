@@ -42,6 +42,7 @@ def owner_index():
             f"tail\tStmtId(1)\t{tail_span}\tlast\tstmt:TailBareIdent",
             f"owner\t{tail_span}\tstmt:TailBareIdent",
             "exact-counts\t6\t4",
+            "binding-initializer-count\t0",
             "structured-stage-count\t0",
             f"record\tExprId(1)\t{span(0, 50)}\t2",
         f'record-field\tExprId(1)\t0\tnamed\t"first"\t{span(1, 4)}\t\tExprId(2)',
@@ -71,6 +72,7 @@ def call_and_field_owner_index():
         "field-access\tExprId(4)\tExprId(3)\t" + r'"a\tb\n\r\0\\\"\u{1f642}"',
         "exact-counts\t4\t0",
         "structured-stage-count\t0",
+        "binding-initializer-count\t0",
     ]
     return "\n".join(rows) + "\n"
 
@@ -89,13 +91,19 @@ def named_and_path_owner_index():
         f'record-field\tExprId(1)\t3\tpath\t[""]\t{span(47, 2)}\t\tExprId(2)',
         "exact-counts\t2\t4",
         "structured-stage-count\t0",
+        "binding-initializer-count\t0",
     ]
     return "\n".join(rows) + "\n"
 
 
 def named_keys_with_nonidentifier_names_owner_index():
     names = ("=", "MAJ:MIN", "-c", "full-dev-path", "", "internal key", "a\nb")
-    rows = ["source\tSourceId(0)\t512", "exact-counts\t15\t7", "structured-stage-count\t0"]
+    rows = [
+        "source\tSourceId(0)\t512",
+        "exact-counts\t15\t7",
+        "structured-stage-count\t0",
+        "binding-initializer-count\t0",
+    ]
     record_span = span(0, 512)
     rows.extend((f"owner\t{record_span}\texpr:Record", f"expr\tExprId(1)\t{record_span}\tRecord\t\"\""))
     rows.append(f"record\tExprId(1)\t{record_span}\t{len(names)}")
@@ -128,10 +136,34 @@ def structured_stage_owner_index():
             f"owner\t{span(1, 8)}\tstage:Range",
             "exact-counts\t0\t0",
             "structured-stage-count\t2",
+            "binding-initializer-count\t0",
             f"structured-stage\t0\t{span(10, 5)}\tRange",
             f"structured-stage\t1\t{span(20, 5)}\tRepeat",
         )
     ) + "\n"
+
+
+def binding_initializer_owner_index(statement_kind="LetExprNoTy", expression_source=SOURCE):
+    statement_span = span(0, 12)
+    expression_span = f"Span {{ source_id: {expression_source}, start: 8, len: 3 }}"
+    rows = [
+        "source\tSourceId(0)\t100",
+    ]
+    if expression_source == "SourceId(1)":
+        rows.append("source\tSourceId(1)\t100")
+    rows.extend(
+        (
+            f"owner\t{statement_span}\tstmt:{statement_kind}",
+            f"stmt\tStmtId(1)\t{statement_span}\tstmt:{statement_kind}",
+            f"owner\t{expression_span}\texpr:Ident",
+            f'expr\tExprId(1)\t{expression_span}\tIdent\t"value"',
+            "exact-counts\t1\t0",
+            "structured-stage-count\t0",
+            "binding-initializer-count\t1",
+            'binding-initializer\tStmtId(1)\t"format"\tExprId(1)',
+        )
+    )
+    return "\n".join(rows) + "\n"
 
 
 def legacy_owner_index(contents):
@@ -160,6 +192,35 @@ class ExactOwnerIndexTests(unittest.TestCase):
             variants.append(tag)
 
         self.assertEqual(exact_runner.STREAM_STAGE_TAGS, frozenset(variants))
+
+    def test_parses_exact_binding_initializer_ids_without_changing_legacy_projection(self):
+        legacy, exact = exact_runner.parse_exact_owner_index(binding_initializer_owner_index())
+
+        self.assertEqual(
+            legacy[3]["StmtId(1)"],
+            ("Span{source_id:SourceId(0),start:0,len:12}", "stmt:LetExprNoTy"),
+        )
+        self.assertEqual(exact["binding_initializers"], {(0, "format"): 0})
+
+    def test_binding_initializer_rows_fail_closed(self):
+        valid = binding_initializer_owner_index()
+        cases = (
+            (valid.replace("binding-initializer-count\t1\n", ""), "missing its binding-initializer-count"),
+            (valid + "binding-initializer-count\t1\n", "duplicate binding-initializer-count"),
+            (valid.replace("binding-initializer-count\t1", "binding-initializer-count\t0"), "do not cover the declared table"),
+            (valid + 'binding-initializer\tStmtId(1)\t"format"\tExprId(1)\n', "duplicate binding initializer"),
+            (valid.replace('binding-initializer\tStmtId(1)\t"format"\tExprId(1)', 'binding-initializer\tStmtId(1)\t"format"'), "malformed binding-initializer row"),
+            (valid.replace('binding-initializer\tStmtId(1)\t"format"\tExprId(1)', 'binding-initializer\tStmtId(0)\t"format"\tExprId(1)'), "malformed statement id"),
+            (valid.replace('binding-initializer\tStmtId(1)\t"format"\tExprId(1)', 'binding-initializer\tStmtId(2)\t"format"\tExprId(1)'), "missing statement"),
+            (valid.replace('binding-initializer\tStmtId(1)\t"format"\tExprId(1)', 'binding-initializer\tStmtId(1)\t"two words"\tExprId(1)'), "malformed binding initializer name"),
+            (valid.replace('binding-initializer\tStmtId(1)\t"format"\tExprId(1)', 'binding-initializer\tStmtId(1)\t"format"\tExprId(0)'), "malformed binding initializer expression id"),
+            (valid.replace('binding-initializer\tStmtId(1)\t"format"\tExprId(1)', 'binding-initializer\tStmtId(1)\t"format"\tExprId(99)'), "references a missing expression"),
+            (valid.replace("stmt:LetExprNoTy", "stmt:TailBareIdent"), "non-binding statement"),
+            (binding_initializer_owner_index(expression_source="SourceId(1)"), "crosses source ownership"),
+        )
+        for contents, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(exact_runner.ExactOwnerError, message):
+                exact_runner.parse_exact_owner_index(contents)
 
     def test_parses_complete_structured_stream_stage_table_without_changing_legacy_projection(self):
         legacy, exact = exact_runner.parse_exact_owner_index(structured_stage_owner_index())

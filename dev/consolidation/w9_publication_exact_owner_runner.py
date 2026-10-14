@@ -19,7 +19,7 @@ import w9_publication_adapter_runner as adapter_runner
 EXACT_OWNER_TEST = "sema::w9_exact_repository_owners_receipt"
 EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
 EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owners.rs")
-EXACT_OWNER_HELPER_SHA256 = "02491ea3a28e09655740eb5467aa0d0d9a27b34006af134b0915d30c1c5226f8"
+EXACT_OWNER_HELPER_SHA256 = "65376626a1b7d56020211bc16d8e2e5a2d85db625b8be30ef7401921936dcd8e"
 EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t1\n"
 EXACT_PROOF_FIELDS = (
     "schema",
@@ -130,6 +130,8 @@ STREAM_STAGE_TAGS = frozenset(
 )
 LEGACY_OWNER_ROWS = {"source", "stmt", "tail", "owner"}
 EXACT_OWNER_ROWS = {
+    "binding-initializer",
+    "binding-initializer-count",
     "exact-counts",
     "expr",
     "run",
@@ -286,6 +288,9 @@ def parse_exact_owner_index(
     legacy_lines: list[str] = []
     run_owner_spans: list[str] = []
     exact_count: tuple[int, int] | None = None
+    binding_initializer_count: int | None = None
+    binding_initializers: dict[tuple[int, str], int] = {}
+    binding_initializer_statements: set[int] = set()
     structured_stage_count: int | None = None
     expressions: dict[int, tuple[str, str, str]] = {}
     runs: dict[int, tuple[str, bool]] = {}
@@ -321,6 +326,25 @@ def parse_exact_owner_index(
                     f"owner index line {line_number}: malformed or duplicate structured-stage-count row"
                 )
             structured_stage_count = _decimal(fields[1], "structured-stage count")
+        elif fields[0] == "binding-initializer-count":
+            if len(fields) != 2 or binding_initializer_count is not None:
+                raise ExactOwnerError(
+                    f"owner index line {line_number}: malformed or duplicate binding-initializer-count row"
+                )
+            binding_initializer_count = _decimal(fields[1], "binding initializer count")
+        elif fields[0] == "binding-initializer":
+            if len(fields) != 4:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed binding-initializer row")
+            statement_id = _stmt_id(fields[1])
+            name = _decode_rust_string(fields[2], f"owner index line {line_number} binding name")
+            if IDENTIFIER.fullmatch(name) is None:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed binding initializer name")
+            initializer_id = _expr_id(fields[3], "binding initializer expression id")
+            key = (statement_id, name)
+            if key in binding_initializers or statement_id in binding_initializer_statements:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate binding initializer")
+            binding_initializers[key] = initializer_id
+            binding_initializer_statements.add(statement_id)
         elif fields[0] == "structured-stage":
             if len(fields) != 4:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed structured-stage row")
@@ -415,8 +439,13 @@ def parse_exact_owner_index(
     except adapter.AdapterError as error:
         raise ExactOwnerError(f"legacy owner rows are invalid: {error}") from None
     source_sizes = legacy[0]
+    statement_owners = legacy[3]
     if exact_count is None:
         raise ExactOwnerError("exact owner index is missing its exact-counts row")
+    if binding_initializer_count is None:
+        raise ExactOwnerError("exact owner index is missing its binding-initializer-count row")
+    if binding_initializer_count != len(binding_initializers):
+        raise ExactOwnerError("binding initializer rows do not cover the declared table")
     expr_count, record_field_count = exact_count
     if structured_stage_count is None:
         raise ExactOwnerError("exact owner index is missing its structured-stage-count row")
@@ -464,6 +493,27 @@ def parse_exact_owner_index(
         if f"expr:{tag}" not in legacy[1].get(span, set()):
             raise ExactOwnerError(f"expression {expression_id} has no matching generic AST owner")
         expressions[expression_id] = (span, tag, _name)
+    for (statement_id, _name), initializer_id in binding_initializers.items():
+        statement_key = f"StmtId({statement_id + 1})"
+        statement = statement_owners.get(statement_key)
+        if statement is None:
+            raise ExactOwnerError(f"binding initializer references missing statement {statement_id}")
+        statement_span, statement_kind = statement
+        if statement_kind not in {
+            "stmt:Const",
+            "stmt:Let",
+            "stmt:LetExprNoTy",
+            "stmt:Var",
+            "stmt:VarExprNoTy",
+        }:
+            raise ExactOwnerError(f"binding initializer {statement_id} belongs to a non-binding statement")
+        if initializer_id not in expressions:
+            raise ExactOwnerError(f"binding initializer {statement_id} references a missing expression")
+        initializer_span = expressions[initializer_id][0]
+        _, statement_source, _, _ = adapter._canonicalize_span(statement_span)
+        _, initializer_source, _, _ = adapter._canonicalize_span(initializer_span)
+        if statement_source != initializer_source:
+            raise ExactOwnerError(f"binding initializer {statement_id} crosses source ownership")
     for run_id, (raw_span, propagate) in runs.items():
         runs[run_id] = (_span(raw_span, source_sizes, f"run form {run_id}"), propagate)
     normalized_run_owners = {
@@ -555,6 +605,7 @@ def parse_exact_owner_index(
         "calls": calls,
         "field_accesses": field_accesses,
         "structured_stages": structured_stages,
+        "binding_initializers": binding_initializers,
         "tails": {
             _stmt_id(statement_id): (span, name, kind)
             for statement_id, (span, name, kind) in legacy[2].items()

@@ -6,7 +6,8 @@ pub fn w9_write_exact_adapter_owners(
 ) -> std::io::Result<()> {
     use std::io::Write as _;
     use xsh::frontend::syntax::arena::{
-        ArenaExprKind, ArenaPipeStageKind, ArenaRecordFieldKind, ArenaStmtKind, ExprId, StmtId,
+        ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind,
+        ArenaRecordFieldKind, ArenaStmtKind, ExprId, StmtId,
     };
 
     let path = format!("owners-{index}.tsv");
@@ -131,6 +132,29 @@ pub fn w9_write_exact_adapter_owners(
             .collect::<Vec<_>>();
         (expression_rows, record_rows)
     });
+    let binding_initializers = program.symbol_owner().with_current(|| {
+        (0..program.arena.stmt_tags.len())
+            .filter_map(|raw| {
+                let id = StmtId::from_index(raw);
+                let statement = program.arena.stmt(id);
+                let (target, initializer) = match statement.kind {
+                    ArenaStmtKind::Const { target, initializer, .. }
+                    | ArenaStmtKind::Let { target, initializer, .. }
+                    | ArenaStmtKind::Var { target, initializer, .. } => (target, initializer),
+                    _ => return None,
+                };
+                let ArenaExprOrRun::Expr(initializer) = initializer else {
+                    return None;
+                };
+                let ArenaBindingTargetKind::Name(name) =
+                    &program.arena.binding_target(target).kind
+                else {
+                    return None;
+                };
+                Some((id, name.as_str().as_str().to_owned(), initializer))
+            })
+            .collect::<Vec<_>>()
+    });
 
     for (_, span, tag, ident) in &expression_rows {
         let ident = format!("{ident:?}");
@@ -254,6 +278,12 @@ pub fn w9_write_exact_adapter_owners(
             output,
             "structured-stage\t{table_index}\t{span:?}\t{kind}"
         )?;
+    }
+    writeln!(output, "binding-initializer-count\t{}", binding_initializers.len())?;
+    for (statement, name, initializer) in binding_initializers {
+        let name = format!("{name:?}");
+        w9_exact_validate_tsv_text(&name)?;
+        writeln!(output, "binding-initializer\t{statement:?}\t{name}\t{initializer:?}")?;
     }
     output.flush()?;
     let file = output
