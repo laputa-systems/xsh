@@ -20422,7 +20422,13 @@ pure selected() -> Str {
                 .message
                 .contains("slot")
         );
-        assert!(indexed_stmt_can_return(&program.store, row).unwrap());
+        let decoder = return_analysis_decoder(&program, "selected");
+        assert!(indexed_stmt_can_return_with_decoder(
+            &program.store,
+            row,
+            Some(&decoder),
+        )
+        .unwrap());
     }
 
     #[test]
