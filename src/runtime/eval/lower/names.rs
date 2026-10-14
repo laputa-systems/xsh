@@ -544,7 +544,7 @@ mod tests {
             .lower_bare_ident_stmt(statement, name, &SlotScope::default())
             .is_none());
         let source_id = sources.files()[0].id();
-        let error = match super::super::FullBuilder::build_compact(
+        let error = match crate::runtime::eval::FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
             &source,
