@@ -863,6 +863,27 @@ class InventoryCheckerTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.InventoryError, "not a public theorem"):
             CHECKER.validate_coverage(ROOT, coverage)
 
+    def test_comment_only_declaration_cannot_satisfy_a_fragment_root(self) -> None:
+        fixture = ROOT / "formal/tests/inventory/fixtures/commented_theorem.lean.txt"
+        self.assertEqual(
+            {"Xsh.Fixture.real_theorem"},
+            CHECKER.lean_theorem_declarations(fixture.read_text(encoding="utf-8")),
+        )
+        module_sources = {"Xsh.Fixture": fixture}
+        roots = [
+            {
+                "id": "fragment.fixture.comment",
+                "module": "Xsh.Fixture",
+                "declaration": "Xsh.Fixture.not_a_theorem",
+                "evidence_class": "SPEC_PROVED",
+                "status": "fragment",
+                "scope": "No proof scope.",
+                "boundary": "No theorem exists in this module.",
+            }
+        ]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "not a public theorem"):
+            CHECKER.validate_fragment_roots(roots, module_sources, {"Xsh.Fixture"})
+
     def test_unreachable_theorem_root_module_fails(self) -> None:
         module_sources = CHECKER.lean_module_sources(ROOT / "formal")
         reachable = CHECKER.reachable_lean_modules(module_sources)

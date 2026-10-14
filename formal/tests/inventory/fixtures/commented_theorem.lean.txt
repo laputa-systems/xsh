@@ -1,0 +1,11 @@
+namespace Xsh.Fixture
+def quote : Char := '"'
+def newline : Char := '\n'
+def text : String := "/- this is text"
+-- theorem not_a_theorem : True := by trivial
+/-
+  /- nested comment -/
+  theorem not_a_theorem : True := by trivial
+-/
+theorem real_theorem : True := by trivial
+end Xsh.Fixture

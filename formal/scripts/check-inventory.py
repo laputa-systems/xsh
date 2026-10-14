@@ -1532,10 +1532,99 @@ def reachable_lean_modules(module_sources: dict[str, Path]) -> set[str]:
     return reachable
 
 
+def lean_char_literal_end(source: str, start: int) -> int | None:
+    if source[start] != "'":
+        return None
+    if start > 0 and (source[start - 1].isalnum() or source[start - 1] in "_'"):
+        return None
+
+    index = start + 1
+    if index >= len(source) or source[index] in "\r\n":
+        return None
+    if source[index] == "\\":
+        index += 1
+        if index >= len(source) or source[index] in "\r\n":
+            return None
+        if source.startswith("u{", index):
+            index += 2
+            while index < len(source) and source[index] not in "}\r\n":
+                index += 1
+            if index >= len(source) or source[index] != "}":
+                return None
+        index += 1
+    else:
+        index += 1
+
+    return index + 1 if index < len(source) and source[index] == "'" else None
+
+
+def strip_lean_comments(source: str) -> str:
+    characters = list(source)
+    index = 0
+    block_depth = 0
+    in_line_comment = False
+    in_string = False
+
+    def blank(start: int, end: int) -> None:
+        for position in range(start, end):
+            if characters[position] not in "\r\n":
+                characters[position] = " "
+
+    while index < len(source):
+        if block_depth:
+            if source.startswith("/-", index):
+                blank(index, index + 2)
+                block_depth += 1
+                index += 2
+            elif source.startswith("-/", index):
+                blank(index, index + 2)
+                block_depth -= 1
+                index += 2
+            else:
+                blank(index, index + 1)
+                index += 1
+            continue
+
+        if in_line_comment:
+            if source[index] in "\r\n":
+                in_line_comment = False
+            else:
+                blank(index, index + 1)
+            index += 1
+            continue
+
+        if in_string:
+            if source[index] == "\\":
+                index += 2
+            else:
+                if source[index] == '"':
+                    in_string = False
+                index += 1
+            continue
+
+        if source.startswith("--", index):
+            blank(index, index + 2)
+            in_line_comment = True
+            index += 2
+        elif source.startswith("/-", index):
+            blank(index, index + 2)
+            block_depth = 1
+            index += 2
+        elif source[index] == "'":
+            char_end = lean_char_literal_end(source, index)
+            index = char_end if char_end is not None else index + 1
+        else:
+            if source[index] == '"':
+                in_string = True
+            index += 1
+
+    return "".join(characters)
+
+
 def lean_theorem_declarations(source: str) -> set[str]:
     scopes: list[tuple[str, str | None]] = []
     declarations: set[str] = set()
-    for line in source.splitlines():
+    for line in strip_lean_comments(source).splitlines():
         namespace_match = re.match(
             r"^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*(?:--.*)?$", line
         )
