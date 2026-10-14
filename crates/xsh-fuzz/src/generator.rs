@@ -996,6 +996,41 @@ impl<'c> Gen<'c> {
         }
     }
 
+    fn equality_operand_ty(&mut self) -> Ty {
+        self.rng
+            .pick(&[
+                Ty::Int,
+                Ty::Str,
+                Ty::Bool,
+                Ty::Path,
+                Ty::Bytes,
+                Ty::Float,
+                Ty::list(Ty::Int),
+                Ty::list(Ty::Float),
+                Ty::list(Ty::list(Ty::Float)),
+            ])
+            .clone()
+    }
+
+    /// Keep signed-zero witnesses in equality generation so ordinary Float
+    /// literals retain their existing distribution.
+    fn signed_zero_equality_operand(ty: &Ty, negative: bool) -> Option<Expr> {
+        match ty {
+            Ty::Float => Some(Expr::Float(if negative { -0.0 } else { 0.0 })),
+            Ty::List(element) => Some(Expr::List(vec![Elem::Item(
+                Self::signed_zero_equality_operand(element, negative)?,
+            )])),
+            _ => None,
+        }
+    }
+
+    fn signed_zero_equality_operands(ty: &Ty) -> Option<(Expr, Expr)> {
+        Some((
+            Self::signed_zero_equality_operand(ty, false)?,
+            Self::signed_zero_equality_operand(ty, true)?,
+        ))
+    }
+
     /// An expression of exactly `ty`. Without `cx` (an expected type) the
     /// expression must establish `ty` on its own; `None` when no production
     /// can.
@@ -1513,20 +1548,17 @@ impl<'c> Gen<'c> {
                     Expr::Binary(op, Box::new(left), Box::new(right))
                 }
                 2 => {
-                    let operand = self
-                        .rng
-                        .pick(&[
-                            Ty::Int,
-                            Ty::Str,
-                            Ty::Bool,
-                            Ty::Path,
-                            Ty::Bytes,
-                            Ty::list(Ty::Int),
-                        ])
-                        .clone();
+                    let operand = self.equality_operand_ty();
                     let op = *self.rng.pick(&[BinOp::Eq, BinOp::Ne]);
-                    let left = self.expr_or_literal(&operand, false, next);
-                    let right = self.expr_or_literal(&operand, false, next);
+                    // Keep explicit witnesses occasional so ordinary operand
+                    // expressions stay common.
+                    let (left, right) = match Self::signed_zero_equality_operands(&operand) {
+                        Some((left, right)) if self.rng.chance(20) => (left, right),
+                        _ => (
+                            self.expr_or_literal(&operand, false, next),
+                            self.expr_or_literal(&operand, false, next),
+                        ),
+                    };
                     Expr::Binary(op, Box::new(left), Box::new(right))
                 }
                 3 => {
@@ -2625,5 +2657,92 @@ impl<'c> Gen<'c> {
             }
         };
         stmts.push(stmt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Gen, GenConfig, finish};
+    use crate::ast::{BinOp, Block, Elem, Expr, Program, Stmt, Ty};
+    use crate::rng::Rng;
+
+    #[test]
+    fn bool_equality_operand_types_include_float_and_nested_float_lists() {
+        let config = GenConfig::default();
+        let mut generated = Vec::new();
+        for seed in 0..128 {
+            let mut gen = Gen::new(Rng::new(seed), &config);
+            generated.push(gen.equality_operand_ty());
+        }
+
+        assert!(generated.contains(&Ty::Float));
+        assert!(generated.contains(&Ty::list(Ty::Float)));
+        assert!(generated.contains(&Ty::list(Ty::list(Ty::Float))));
+    }
+
+    #[test]
+    fn signed_zero_equality_operands_preserve_float_shape() {
+        fn float_leaf(expr: &Expr) -> f64 {
+            match expr {
+                Expr::Float(value) => *value,
+                Expr::List(elements) => match elements.as_slice() {
+                    [Elem::Item(item)] => float_leaf(item),
+                    _ => panic!("expected one nested Float item"),
+                },
+                _ => panic!("expected a Float or nested Float list"),
+            }
+        }
+
+        for ty in [
+            Ty::Float,
+            Ty::list(Ty::Float),
+            Ty::list(Ty::list(Ty::Float)),
+        ] {
+            let (positive, negative) =
+                Gen::signed_zero_equality_operands(&ty).expect("Float equality type");
+
+            assert_eq!(float_leaf(&positive).to_bits(), 0.0f64.to_bits());
+            assert_eq!(float_leaf(&negative).to_bits(), (-0.0f64).to_bits());
+        }
+    }
+
+    #[test]
+    fn signed_zero_equality_witnesses_are_filled_into_generated_assertions() {
+        let compare = |ty, op| {
+            let (left, right) =
+                Gen::signed_zero_equality_operands(&ty).expect("Float equality type");
+            Stmt::AssertEq {
+                expr: Expr::Binary(op, Box::new(left), Box::new(right)),
+                expected: None,
+            }
+        };
+        let generated = finish(
+            0,
+            Program {
+                consts: Vec::new(),
+                records: Vec::new(),
+                enums: Vec::new(),
+                functions: Vec::new(),
+                body: Block {
+                    stmts: vec![
+                        compare(Ty::Float, BinOp::Eq),
+                        compare(Ty::Float, BinOp::Ne),
+                        compare(Ty::list(Ty::list(Ty::Float)), BinOp::Eq),
+                        compare(Ty::list(Ty::list(Ty::Float)), BinOp::Ne),
+                    ],
+                    tail: None,
+                },
+            },
+        )
+        .expect("finite signed-zero witnesses are evaluable");
+
+        assert!(generated.source.contains("assert (0.0 == -0.0) == true"));
+        assert!(generated.source.contains("assert (0.0 != -0.0) == false"));
+        assert!(generated
+            .source
+            .contains("assert ([[0.0]] == [[-0.0]]) == true"));
+        assert!(generated
+            .source
+            .contains("assert ([[0.0]] != [[-0.0]]) == false"));
     }
 }
