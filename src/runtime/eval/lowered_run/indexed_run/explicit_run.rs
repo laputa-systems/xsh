@@ -2140,9 +2140,10 @@ enum FrameContinuation {
     },
     BreakLoop { transfers_resource: bool },
     RetryDelay(Box<RetryFrameState>, Box<FrameContinuation>),
-    /// A `yield` statement's value: the frame suspends here and hands the value
-    /// to whoever pulled the producer.
-    Yield { transfers_resource: bool },
+    Yield {
+        span: Span,
+        transfers_resource: bool,
+    },
     YieldDelegate {
         span: Span,
         transfers_resource: bool,
@@ -6411,7 +6412,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         transfers_resource,
                     }
                 } else {
-                    FrameContinuation::Yield { transfers_resource }
+                    FrameContinuation::Yield {
+                        span: yield_span,
+                        transfers_resource,
+                    }
                 };
                 self.push_expr(index, value, yield_span, continuation);
                 Ok(())
@@ -9984,6 +9988,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 transfers_resource,
             } => match value {
                 FrameValue::Value(value) => {
+                    self.publish_caller_bindings(index, span)?;
                     if transfers_resource {
                         let producer_scope = self.calls[index].scope_id;
                         let consumer_scope = self
@@ -10005,9 +10010,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Yield { transfers_resource } => match value {
+            FrameContinuation::Yield {
+                span,
+                transfers_resource,
+            } => match value {
                 FrameValue::Value(value) => {
                     self.check_context_scope_value_escape(index, &value)?;
+                    self.publish_caller_bindings(index, span)?;
                     if transfers_resource {
                         let producer_scope = self.calls[index].scope_id;
                         let consumer_scope = self
