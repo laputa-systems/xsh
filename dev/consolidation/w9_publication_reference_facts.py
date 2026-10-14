@@ -5,16 +5,17 @@ from collections.abc import Mapping
 
 from w9_publication_adapter import (
     AdapterError,
+    _canonical_span_map,
+    _canonical_span_set,
+    _canonicalize_span,
     _fields,
     _group_end,
     _map_entries,
-    _set_items,
     _split_top_level,
     _validate_source_span,
 )
 
 
-_SPAN = re.compile(r"Span\{source_id:SourceId\((\d+)\),start:(\d+),len:(\d+)\}\Z")
 _FUNCTION_ID = re.compile(r"FunctionDefId\((\d+)\)\Z")
 _TYPE_EXPR_ID = re.compile(r"TypeExprId\((\d+)\)\Z")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -50,17 +51,10 @@ def _option_name(value: str, label: str) -> str | None:
     return _name(_tuple_payload(value, "Some", label), label)
 
 
-def _span_parts(value: str, label: str) -> tuple[int, int, int]:
-    match = _SPAN.fullmatch(value)
-    if match is None:
-        raise AdapterError(f"{label} has a malformed span")
-    return tuple(map(int, match.groups()))
-
-
 def _check_span_bounds(
     span: str, label: str, source_sizes: Mapping[int, int]
 ) -> tuple[int, int, int]:
-    source_id, start, length = _span_parts(span, label)
+    _, source_id, start, length = _canonicalize_span(span)
     if source_id not in source_sizes or start + length > source_sizes[source_id]:
         raise AdapterError(f"{label} span is outside its source: {span}")
     return source_id, start, length
@@ -181,6 +175,7 @@ def _function_signature(value: str, label: str) -> dict[str, str]:
 def _target_declaration(
     target: str,
     functions: Mapping[str, str],
+    source_sizes: Mapping[int, int],
     label: str,
 ) -> tuple[str, dict[str, str], dict[str, str]]:
     target_fields = _fields(target, "CheckedFunctionTarget")
@@ -219,12 +214,12 @@ def _target_declaration(
         raise AdapterError(f"{label} target is not a checked pure function or proc")
     signature = _function_signature(declaration_fields["signature"], label)
     body = declaration_fields["body"]
-    _span_parts(body, f"{label} declaration body")
+    _check_span_bounds(body, f"{label} declaration body", source_sizes)
     parameter_spans = _vector_items(declaration_fields["parameter_spans"], f"{label} parameter spans")
     if len(parameter_spans) != len(_vector_items(signature["params"], f"{label} signature parameters")):
         raise AdapterError(f"{label} declaration parameter span and signature counts differ")
     for span in parameter_spans:
-        _span_parts(span, f"{label} declaration parameter span")
+        _check_span_bounds(span, f"{label} declaration parameter span", source_sizes)
     return declaration_fields["kind"], declaration_fields, signature
 
 
@@ -387,7 +382,9 @@ def _exact_owner_tables(
 
 
 def _static_call_spans(fields: Mapping[str, str]) -> set[str]:
-    static = _set_items(fields["statically_resolved_call_spans"])
+    static = _canonical_span_set(
+        fields["statically_resolved_call_spans"], "statically resolved function call"
+    )
     other_static = set()
     for name in (
         "standard_call_spans",
@@ -397,7 +394,7 @@ def _static_call_spans(fields: Mapping[str, str]) -> set[str]:
         "message_payload_constructors",
         "error_constructors",
     ):
-        other_static.update(_map_entries(fields[name]))
+        other_static.update(_canonical_span_map(fields[name], name.replace("_", " ")))
     return static - other_static
 
 
@@ -446,14 +443,14 @@ def validate_function_reference_targets(
     source_owners: Mapping[str, set[str]],
     exact_owners: Mapping[str, object],
 ) -> None:
-    selected = _map_entries(fields["selected_function_calls"])
+    selected = _canonical_span_map(fields["selected_function_calls"], "selected function reference")
     reference_spans = set(selected) - _static_call_spans(fields)
     if not reference_spans:
         return
     exprs, records, aliases, tails = _exact_owner_tables(exact_owners, source_sizes)
     checked_declarations = _fields(fields["checked_declarations"], "CheckedDeclarations")
     functions = _map_entries(checked_declarations["functions"])
-    expression_types = _map_entries(fields["expr_types"])
+    expression_types = _canonical_span_map(fields["expr_types"], "checked expression type")
     ident_rows: dict[str, list[tuple[int, str]]] = {}
     for expr_id, (span, tag, name) in exprs.items():
         if tag == "Ident":
@@ -466,7 +463,7 @@ def validate_function_reference_targets(
         tails_by_span.setdefault(span, []).append((statement, name, _kind))
     for span in sorted(reference_spans):
         target_kind, target_declaration, _signature = _target_declaration(
-            selected[span], functions, f"selected function reference at {span}"
+            selected[span], functions, source_sizes, f"selected function reference at {span}"
         )
         shorthand_matches = aliases_by_span.get(span, [])
         tail_matches = tails_by_span.get(span, [])

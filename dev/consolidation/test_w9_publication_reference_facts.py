@@ -7,6 +7,9 @@ from w9_publication_reference_facts import validate_function_reference_targets
 IDENT_SPAN = "Span{source_id:SourceId(0),start:10,len:6}"
 PARENT_SPAN = "Span{source_id:SourceId(0),start:8,len:12}"
 TAIL_SPAN = "Span{source_id:SourceId(0),start:30,len:6}"
+RETAINED_DECLARATION_BODY = "Span{len:290,source_id:SourceId(2),start:6423}"
+REORDERED_IDENT_SPAN = "Span{len:6,source_id:SourceId(0),start:10}"
+REORDERED_CALL_SPAN = "Span{len:8,source_id:SourceId(1),start:50}"
 
 PURE_SIGNATURE = (
     "Some(CompactFunctionSig { params: [], parameter_schemas: [], return_ty: Int, "
@@ -15,7 +18,7 @@ PURE_SIGNATURE = (
 PURE_DECLARATION = (
     "CheckedFunctionDeclaration { namespace: None, name: Name(\"render\"), internal: false, "
     f"kind: Pure, signature: {PURE_SIGNATURE}, "
-    "body: Span{source_id:SourceId(0),start:0,len:50}, parameter_spans: [] }"
+    f"body: {RETAINED_DECLARATION_BODY}, parameter_spans: [] }}"
 )
 TARGET = (
     "CheckedFunctionTarget { definition: FunctionDefId(1), namespace: None, "
@@ -61,15 +64,35 @@ def _direct_owners():
 def _validate(fields, owners=None, exact_owners=None, sizes=None):
     validate_function_reference_targets(
         fields=fields,
-        source_sizes={0: 128} if sizes is None else sizes,
+        source_sizes={0: 128, 1: 100, 2: 10000} if sizes is None else sizes,
         source_owners=_owners() if owners is None else owners,
         exact_owners=_direct_owners() if exact_owners is None else exact_owners,
     )
 
 
 class FunctionReferenceFactTests(unittest.TestCase):
+    def test_retained_declaration_accepts_reordered_source_span_fields(self):
+        _validate(_fields())
+
     def test_direct_identifier_uses_exact_name_and_checked_pure_type(self):
         _validate(_fields())
+
+    def test_selected_reference_and_static_call_partition_normalizes_span_keys(self):
+        selected = (
+            f"{{{REORDERED_IDENT_SPAN}: {TARGET}, "
+            f"{REORDERED_CALL_SPAN}: {TARGET}}}"
+        )
+        fields = _fields()
+        fields["selected_function_calls"] = selected
+        fields["statically_resolved_call_spans"] = f"{{{REORDERED_CALL_SPAN}}}"
+        fields["expr_types"] = (
+            f"{{{REORDERED_IDENT_SPAN}: Pure, {REORDERED_CALL_SPAN}: Bool}}"
+        )
+        _validate(
+            fields,
+            owners={IDENT_SPAN: {"expr:Ident"}, REORDERED_CALL_SPAN: {"expr:Call"}},
+            sizes={0: 128, 1: 100, 2: 10000},
+        )
 
     def test_static_function_call_does_not_require_reference_owner_rows(self):
         _validate(
