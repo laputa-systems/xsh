@@ -344,21 +344,3 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     }
     output
 }
-
-pub(crate) fn stdout_text(output: &std::process::Output) -> String {
-    String::from_utf8(output.stdout.clone()).expect("stdout UTF-8")
-}
-
-pub(crate) fn stderr_text(output: &std::process::Output) -> String {
-    String::from_utf8(output.stderr.clone()).expect("stderr UTF-8")
-}
-
-pub(crate) fn assert_ok(output: &std::process::Output) {
-    assert!(
-        output.status.success(),
-        "status={:?}\nstdout:\n{}\nstderr:\n{}",
-        output.status.code(),
-        stdout_text(output),
-        stderr_text(output)
-    );
-}
