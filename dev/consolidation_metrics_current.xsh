@@ -6,6 +6,8 @@ export error MetricError = Invalid(path: Str, line: Int, detail: Str) | Rise(nam
 type Token = {text: Str, start: Int, end: Int, line: Int, last_line: Int, literal: Bool}
 type Lexed = {tokens: Map[Int, Token], mates: Map[Int, Int], size: Int, lines: Int}
 type Span = {start: Int, end: Int, line: Int, last_line: Int}
+type SpanLookupEntry = {start: Int, prefix_end: Int}
+type SpanLookup = {entries: List[SpanLookupEntry]}
 type Attribute = {start: Int, end: Int, inner: Bool, scope: Int, condition_active: Bool}
 type RustModule = {name: Str, directory: Str, explicit_path: Str?, excluded: Bool, dead_code: Bool, line: Int}
 type CfgValue = {value: Bool, next: Int}
@@ -401,9 +403,26 @@ proc item_end(source_path: Str, lexed: Lexed, start: Int) [error] -> Result[Int]
   start
 }
 
-pure inside(item: Token, spans: List[Span]) -> Bool {
-  for span in spans { return true when item.start >= span.start and item.end <= span.end }
-  false
+pure span_lookup(spans: List[Span]) -> SpanLookup {
+  var prefix_end = -1
+  let entries: List[SpanLookupEntry] = collect {
+    for span in spans |> sort-by .start {
+      prefix_end = if span.end > prefix_end { span.end } else { prefix_end }
+      yield {start: span.start, prefix_end: prefix_end}
+    }
+  }
+  {entries: entries}
+}
+
+pure inside(item: Token, lookup: SpanLookup) -> Bool {
+  var low = 0
+  var high = lookup.entries.len()
+  while low < high {
+    let middle = (low + high) / 2
+    if lookup.entries[middle].start <= item.start { low = middle + 1 } else { high = middle }
+  }
+  return false when low == 0
+  lookup.entries[low - 1].prefix_end >= item.end
 }
 
 proc scope_start(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[Int] {
@@ -484,12 +503,12 @@ pure attribute_allows_dead_code(lexed: Lexed, attr: Attribute) -> Bool {
   false
 }
 
-proc dead_code_allowance_analysis(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[Attribute], count: SourceCount) [error] -> Result[DeadCodeAnalysis] {
+proc dead_code_allowance_analysis(source_path: Str, lexed: Lexed, lookup: SpanLookup, attrs: List[Attribute], count: SourceCount) [error] -> Result[DeadCodeAnalysis] {
   var blanket: List[Evidence] = []
   var scopes: List[Span] = []
   var items: List[ItemAllowance] = []
   for attr in attrs {
-    if inside(lexed.tokens[attr.start], spans) or ! attr.condition_active or ! attribute_allows_dead_code(lexed, attr) { continue }
+    if inside(lexed.tokens[attr.start], lookup) or ! attr.condition_active or ! attribute_allows_dead_code(lexed, attr) { continue }
     var target = AttributeTarget(kind: "", name: "", first: 0, last: 0)
     var is_scope = attr.inner
     var detail = "allow(dead_code) inner scope"
@@ -562,7 +581,7 @@ proc excluded_spans(source_path: Str, lexed: Lexed, attrs: List[Attribute]) [err
   spans
 }
 
-pure count_lines(source_path: Str, lexed: Lexed, spans: List[Span]) -> SourceCount {
+pure count_lines(source_path: Str, lexed: Lexed, spans: List[Span], lookup: SpanLookup) -> SourceCount {
   var retained: Map[Int, Bool] = {}
   var excluded: Map[Int, Bool] = {}
   for span in spans {
@@ -570,7 +589,7 @@ pure count_lines(source_path: Str, lexed: Lexed, spans: List[Span]) -> SourceCou
     while line <= span.last_line { excluded[line] = true; line += 1 }
   }
   for item in lexed.tokens.values() {
-    if ! inside(item, spans) {
+    if ! inside(item, lookup) {
       var line = item.line
       while line <= item.last_line { retained[line] = true; line += 1 }
     }
@@ -585,7 +604,7 @@ pure count_lines(source_path: Str, lexed: Lexed, spans: List[Span]) -> SourceCou
   {path: source_path, physical: lexed.lines, production: lines.len(), retained_lines: lines, excluded: spans}
 }
 
-proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List[Span]) [error] -> Result[List[RustModule]] {
+proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], lookup: SpanLookup) [error] -> Result[List[RustModule]] {
   let file = fp"{source_path}"
   let stem = file.name().byte_slice(0, length: file.name().byte_len() - 3)
   let directory = if stem in ["lib", "main", "mod"] { file.parent().display() } else { f"{file.parent()}/{stem}" }
@@ -628,7 +647,7 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
           inline += [{end: lexed.mates[cursor + 2], directory: if explicit != null { f"{base}/{explicit}" } else { f"{parent}/{name}" }}]
         }
         if (lexed.tokens.get(cursor + 2) ?? end_token).text == ";" {
-          yield {name: name, directory: if explicit != null { base } else { parent }, explicit_path: explicit, excluded: inside(lexed.tokens[cursor], spans), dead_code: false, line: lexed.tokens[cursor].line}
+          yield {name: name, directory: if explicit != null { base } else { parent }, explicit_path: explicit, excluded: inside(lexed.tokens[cursor], lookup), dead_code: false, line: lexed.tokens[cursor].line}
         }
       }
       cursor += 1
@@ -847,7 +866,7 @@ proc legacy_stage_codec_variants(source_path: Str, lexed: Lexed, opening: Int) [
   variants
 }
 
-proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[LegacyPipelineStageLayout] {
+proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, lookup: SpanLookup) [error] -> Result[LegacyPipelineStageLayout] {
   var tag_definitions = 0
   var tag_variants = []
   var codec_definitions = 0
@@ -857,7 +876,7 @@ proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Sp
   var cursor = 0
   while cursor < lexed.tokens.len() {
     let item = lexed.tokens[cursor]
-    if ! item.literal and ! inside(item, spans) {
+    if ! item.literal and ! inside(item, lookup) {
       let next = (lexed.tokens.get(cursor + 1) ?? end_token).text
       if item.text == "enum" and next in ["FullStageTag", "LoweredPipelineStage"] {
         let opening = cursor + 2
@@ -1065,14 +1084,14 @@ pure qualified_variant_count(lexed: Lexed, region: FunctionRegion, type_name: St
   variants.len()
 }
 
-proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
+proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, lookup: SpanLookup) [error] -> Result[List[Evidence]] {
   return [] when ! source_path.starts_with("src/runtime/eval/")
   if ! contains_token(lexed, 0, lexed.tokens.len(), "Type") or ! contains_token(lexed, 0, lexed.tokens.len(), "LoweredType") or ! contains_token(lexed, 0, lexed.tokens.len(), "match") { return [] }
   var cursor = 0
   let found: List[Evidence] = collect {
     while cursor < lexed.tokens.len() {
       let item = lexed.tokens[cursor]
-      if ! item.literal and item.text == "fn" and ! inside(item, spans) {
+      if ! item.literal and item.text == "fn" and ! inside(item, lookup) {
         let region = function_region_for_parameters(source_path, lexed, cursor, ["Type", "LoweredType"], "")?
         if region.body_start >= 0 {
           let takes_type = contains_token(lexed, region.params_start, region.params_end, "Type")
@@ -1188,14 +1207,13 @@ pure inside_macro_definition(lexed: Lexed, index: Int) -> Bool {
   false
 }
 
-# Count semantic walks over type-expression tags, not wrappers or name rendering.
-proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
+proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, lookup: SpanLookup) [error] -> Result[List[Evidence]] {
   if source_path != "src/runtime/eval/lower.rs" and ! source_path.starts_with("src/runtime/eval/lower/") { return [] }
   var cursor = 0
   let found: List[Evidence] = collect {
     while cursor < lexed.tokens.len() {
       let item = lexed.tokens[cursor]
-      if ! item.literal and item.text == "fn" and ! inside(item, spans) {
+      if ! item.literal and item.text == "fn" and ! inside(item, lookup) {
         let region = function_region_for_parameters(source_path, lexed, cursor, ["TypeExprId"], "")?
         if region.body_start >= 0 {
           let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
@@ -1220,9 +1238,9 @@ proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List
   found
 }
 
-proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[Attribute], count: SourceCount) [error] -> Result[StructuralScan] {
+proc structural(source_path: Str, lexed: Lexed, lookup: SpanLookup, attrs: List[Attribute], count: SourceCount) [error] -> Result[StructuralScan] {
   let families = ["ArenaExprKind", "ArenaStmtKind", "ArenaPatternKind"]
-  let legacy_stages = legacy_pipeline_stage_layout(source_path, lexed, spans)?
+  let legacy_stages = legacy_pipeline_stage_layout(source_path, lexed, lookup)?
   var aliases: Map[Str] = {}
   var calls: List[Evidence] = []
   var optional: List[Evidence] = []
@@ -1231,8 +1249,8 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   var stages: List[Evidence] = []
   var wildcards: List[Evidence] = []
   var predicates: List[Evidence] = []
-  let mappings = type_storage_mapping_evidence(source_path, lexed, spans)?
-  let resolvers = lowering_type_resolver_evidence(source_path, lexed, spans)?
+  let mappings = type_storage_mapping_evidence(source_path, lexed, lookup)?
+  let resolvers = lowering_type_resolver_evidence(source_path, lexed, lookup)?
   var factories: List[Evidence] = []
   var instruction_schema_calls = 0
   var instruction_schema_definition = false
@@ -1249,7 +1267,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   while cursor < lexed.tokens.len() {
     let item = lexed.tokens[cursor]
     let name = item.text
-    if ! item.literal and ! inside(item, spans) {
+    if ! item.literal and ! inside(item, lookup) {
       if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "pipeline_stage_schema" {
         pipeline_stage_schema_definitions += 1
         pipeline_stage_schema_definition = true
@@ -1312,7 +1330,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
           while member < closing {
             let value = (lexed.tokens.get(member) ?? end_token).text
             if value == "#" { member = lexed.mates[member + 1] + 1; continue }
-            if at_start and ident_start(first(value)) and ! inside(lexed.tokens[member], spans) {
+            if at_start and ident_start(first(value)) and ! inside(lexed.tokens[member], lookup) {
               let found = evidence(source_path, lexed.tokens[member], f"{definition}::{value}")
               if definition == "BuildPatternRow" { patterns += [found] } else if definition == "LoweredPipelineStage" { stages += [found] } else { instructions += [found] }
               at_start = false
@@ -1402,11 +1420,10 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
     } else if legacy_stages.tag_definitions == 1 and legacy_stages.codec_definitions == 1 and legacy_stages.codec_tables == 1 and legacy_stages.semantic_definitions == 0 and legacy_stages.tag_variants.len() == 46 and legacy_stages.codec_variants == legacy_stages.tag_variants {
     } else if has_legacy_stage_layout { invalid(source_path, 1, "unrecognized handwritten pipeline stage layout") } else { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout") }
   }
-  let allowances = dead_code_allowance_analysis(source_path, lexed, spans, attrs, count)?
-  # Overlapping blanket scopes own a physical line only once.
-  var seen: Map[Bool] = {}
+  let allowances = dead_code_allowance_analysis(source_path, lexed, lookup, attrs, count)?
+  var reported_blanket_lines: Map[Bool] = {}
   let unique = collect {
-    for found in allowances.blanket { if ! (seen.get(f"{found.line}") ?? false) { yield found; seen[f"{found.line}"] = true } }
+    for found in allowances.blanket { if ! (reported_blanket_lines.get(f"{found.line}") ?? false) { yield found; reported_blanket_lines[f"{found.line}"] = true } }
   }
   {metrics: [metric("instruction_variants", instructions), metric("pattern_variants", patterns), metric("stage_variants", stages), metric("manual_payload_calls", calls), metric("optional_raw_calls", optional), metric("wide_arena_wildcards", wildcards), metric("static_type_predicate_definitions", predicates), metric("type_storage_mapping_definitions", mappings), metric("lowering_type_resolver_definitions", resolvers), metric("nested_machine_factory_calls", factories), metric("blanket_dead_code_lines", unique)], item_allowances: allowances.items}
 }
@@ -1416,12 +1433,13 @@ export proc scan_file(source_path: Str, source: Str) [error] -> Result[SourceSca
   let lexed = lex(source_path, source)?
   let attrs = attributes(source_path, lexed)?
   let spans = excluded_spans(source_path, lexed, attrs)?
-  let count = count_lines(source_path, lexed, spans)
-  let analysis = structural(source_path, lexed, spans, attrs, count)?
+  let lookup = span_lookup(spans)
+  let count = count_lines(source_path, lexed, spans, lookup)
+  let analysis = structural(source_path, lexed, lookup, attrs, count)?
   let blanket = analysis.metrics |> where .name == "blanket_dead_code_lines" |> collect
   let allowed = blanket[0].evidence |> map .line |> collect
   let edges = collect {
-    for edge in modules(source_path, lexed, attrs, spans)? {
+    for edge in modules(source_path, lexed, attrs, lookup)? {
       yield {name: edge.name, directory: edge.directory, explicit_path: edge.explicit_path, excluded: edge.excluded, dead_code: edge.line in allowed, line: edge.line}
     }
   }
